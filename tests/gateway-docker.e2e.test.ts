@@ -111,6 +111,22 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(result).toBe('ok');
   });
 
+  test('amd64 image includes signal-cli for admin Signal QR linking', () => {
+    const arch = execSync(`docker exec ${CONTAINER_NAME} uname -m`, {
+      encoding: 'utf-8',
+      timeout: 10_000,
+    }).trim();
+    if (arch !== 'x86_64') {
+      return;
+    }
+
+    const result = execSync(
+      `docker exec ${CONTAINER_NAME} signal-cli --version`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    expect(result).toContain('signal-cli');
+  });
+
   // ── HTTP endpoint checks ─────────────────────────────────────────────
 
   test('/health returns ok with semver version', async () => {

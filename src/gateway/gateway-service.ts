@@ -64,6 +64,10 @@ import {
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
 import {
+  getSignalCliAvailability,
+  getSignalLinkState,
+} from '../channels/signal/pairing.js';
+import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
   resolveVoiceWebhookPaths,
@@ -3691,6 +3695,8 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       ? whatsappAuthResult.value
       : { linked: false, jid: null };
   const whatsappPairing = getWhatsAppPairingState();
+  const signalPairing = getSignalLinkState();
+  const signalCli = getSignalCliAvailability();
   const sandbox = getSandboxDiagnostics();
   const localBackends = Object.fromEntries(
     [...localBackendsMap.entries()].map(([backend, status]) => [
@@ -3795,6 +3801,15 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       enabled: runtimeConfig.signal.enabled,
       daemonUrlConfigured: Boolean(runtimeConfig.signal.daemonUrl.trim()),
       accountConfigured: Boolean(runtimeConfig.signal.account.trim()),
+      pairingStatus: signalPairing.status,
+      pairingQrText: signalPairing.pairingQrText,
+      pairingUri: signalPairing.pairingUri,
+      pairingUpdatedAt: signalPairing.updatedAt,
+      pairingError: signalPairing.error,
+      cliAvailable: signalCli.available,
+      cliPath: signalCli.path,
+      cliVersion: signalCli.version,
+      cliError: signalCli.error,
     },
     slack,
     telegram,

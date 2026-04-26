@@ -31,10 +31,27 @@ RUN npm prune --omit=dev \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS runtime
 
+ARG TARGETARCH
+ARG SIGNAL_CLI_VERSION=0.14.2
+
 # The agent runtime needs root to install packages, manage files, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
+      curl \
+      ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+      curl -fsSL \
+        "https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}-Linux-native.tar.gz" \
+        -o /tmp/signal-cli.tar.gz \
+      && tar -xzf /tmp/signal-cli.tar.gz -C /opt \
+      && ln -sf /opt/signal-cli /usr/local/bin/signal-cli \
+      && rm -f /tmp/signal-cli.tar.gz \
+      && signal-cli --version; \
+    else \
+      echo "signal-cli native release is not available for TARGETARCH=${TARGETARCH}; use an external signal-cli daemon or sidecar."; \
+    fi
 
 WORKDIR /app
 

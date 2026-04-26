@@ -18,6 +18,20 @@ export interface SignalDataMessage {
   mentions?: Array<{ name?: string; number?: string; uuid?: string }>;
 }
 
+export interface SignalSentSyncMessage {
+  timestamp: number;
+  message?: string | null;
+  destination?: string | null;
+  destinationNumber?: string | null;
+  destinationUuid?: string | null;
+  destinations?: string[];
+  groupInfo?: SignalGroupInfo | null;
+}
+
+export interface SignalSyncMessage {
+  sentMessage?: SignalSentSyncMessage | null;
+}
+
 export interface SignalEnvelope {
   source: string;
   sourceNumber?: string;
@@ -26,6 +40,7 @@ export interface SignalEnvelope {
   sourceDevice?: number;
   timestamp: number;
   dataMessage?: SignalDataMessage | null;
+  syncMessage?: SignalSyncMessage | null;
 }
 
 export interface SignalReceiveEvent {

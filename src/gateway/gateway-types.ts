@@ -411,11 +411,6 @@ export interface GatewayStatus {
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
   };
-  signal?: {
-    enabled: boolean;
-    daemonUrlConfigured: boolean;
-    accountConfigured: boolean;
-  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -442,6 +437,20 @@ export interface GatewayStatus {
     jid: string | null;
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
+  };
+  signal?: {
+    enabled: boolean;
+    daemonUrlConfigured: boolean;
+    accountConfigured: boolean;
+    pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+    pairingQrText: string | null;
+    pairingUri: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+    cliAvailable: boolean;
+    cliPath: string;
+    cliVersion: string | null;
+    cliError: string | null;
   };
   providerHealth?: Partial<
     Record<

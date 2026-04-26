@@ -5,6 +5,7 @@ async function importFreshMessageToolActions() {
 
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const sendToSignalChat = vi.fn(async () => {});
   const sendTelegramMediaToChat = vi.fn(async () => {});
   const sendToTelegramChat = vi.fn(async () => {});
   const hasActiveMSTeamsSession = vi.fn(
@@ -151,6 +152,9 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
   }));
+  vi.doMock('../src/channels/signal/runtime.js', () => ({
+    sendToSignalChat,
+  }));
   vi.doMock('../src/channels/telegram/runtime.js', () => ({
     sendTelegramMediaToChat,
     sendToTelegramChat,
@@ -189,6 +193,7 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    sendToSignalChat,
     sendTelegramMediaToChat,
     sendToTelegramChat,
     getRecentMessages,
@@ -360,6 +365,59 @@ test('send action routes WhatsApp uploads through WhatsApp media delivery', asyn
   });
 });
 
+test('send action routes Signal targets through Signal transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'signal:+491703330161',
+    content: 'hello signal',
+  });
+
+  expect(state.sendToSignalChat).toHaveBeenCalledWith(
+    'signal:+491703330161',
+    'hello signal',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'signal:+491703330161',
+    transport: 'signal',
+  });
+});
+
+test('send action rejects invalid Signal targets before Discord lookup', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'signal:not-a-recipient',
+      content: 'hello signal',
+    }),
+  ).rejects.toThrow(
+    'Signal send targets must use `signal:<phone>`, `signal:<uuid>`, or `signal:group:<groupId>`.',
+  );
+  expect(state.sendToSignalChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action rejects Signal attachments explicitly', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'signal:+491703330161',
+      content: 'see attached',
+      filePath: '/discord-media-cache/example.png',
+    }),
+  ).rejects.toThrow('filePath is not supported for Signal sends.');
+  expect(state.sendToSignalChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
 test('send action queues local targets like tui', async () => {
   const state = await importFreshMessageToolActions();
 
@@ -382,6 +440,54 @@ test('send action queues local targets like tui', async () => {
     channelId: 'tui',
     transport: 'local',
     note: 'Queued local delivery.',
+  });
+});
+
+test('send action rejects unknown targets instead of defaulting to Discord', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'signal +491703330161',
+      content: 'hello unclear target',
+    }),
+  ).rejects.toThrow('No message channel matched the request');
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action requires Discord channel names to include guild context', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: '#dev',
+      content: 'hello discord',
+    }),
+  ).rejects.toThrow('No message channel matched the request');
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action delegates explicit Discord channel names with guild context', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: '#dev',
+    guildId: '1412305846125203539',
+    content: 'hello discord',
+  });
+
+  expect(state.runDiscordToolAction).toHaveBeenCalledWith({
+    action: 'send',
+    channelId: '#dev',
+    guildId: '1412305846125203539',
+    content: 'hello discord',
+  });
+  expect(result).toMatchObject({
+    ok: true,
+    transport: 'discord',
   });
 });
 

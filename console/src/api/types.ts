@@ -69,6 +69,20 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  signal?: {
+    enabled: boolean;
+    daemonUrlConfigured: boolean;
+    accountConfigured: boolean;
+    pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+    pairingQrText: string | null;
+    pairingUri: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+    cliAvailable: boolean;
+    cliPath: string;
+    cliVersion: string | null;
+    cliError: string | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -352,6 +366,7 @@ export interface AdminConfig {
     discord: string;
     msteams: string;
     slack: string;
+    signal: string;
     telegram: string;
     voice: string;
     whatsapp: string;
@@ -472,6 +487,17 @@ export interface AdminConfig {
     textChunkLimit: number;
     mediaMaxMb: number;
   };
+  signal: {
+    enabled: boolean;
+    daemonUrl: string;
+    account: string;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    textChunkLimit: number;
+    reconnectIntervalMs: number;
+  };
   voice: {
     enabled: boolean;
     provider: 'twilio';
@@ -565,6 +591,14 @@ export interface AdminConfig {
 export interface AdminConfigResponse {
   path: string;
   config: AdminConfig;
+}
+
+export interface SignalLinkResponse {
+  status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+  pairingQrText: string | null;
+  pairingUri: string | null;
+  updatedAt: string | null;
+  error: string | null;
 }
 
 export interface AdminCommandResult {

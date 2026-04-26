@@ -1,7 +1,7 @@
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import type { RuntimeSignalConfig } from '../../config/runtime-config.js';
 import { buildSessionKey } from '../../session/session-key.js';
-import type { SignalEnvelope } from './api.js';
+import type { SignalEnvelope, SignalSentSyncMessage } from './api.js';
 import { buildSignalChannelId } from './target.js';
 
 export interface ProcessedSignalInbound {
@@ -12,6 +12,7 @@ export interface ProcessedSignalInbound {
   username: string;
   content: string;
   isGroup: boolean;
+  isNoteToSelf: boolean;
 }
 
 function normalizeIdentity(value: string | null | undefined): string | null {
@@ -79,33 +80,107 @@ function buildSignalDisplayName(envelope: SignalEnvelope): string {
   return String(envelope.source || '').trim() || 'unknown';
 }
 
+function normalizeOptionalSignalIdentity(
+  value: string | null | undefined,
+): string {
+  return String(value || '').trim();
+}
+
+function collectSentSyncDestinations(
+  sentMessage: SignalSentSyncMessage,
+): string[] {
+  const destinations = [
+    sentMessage.destination,
+    sentMessage.destinationNumber,
+    sentMessage.destinationUuid,
+    ...(Array.isArray(sentMessage.destinations)
+      ? sentMessage.destinations
+      : []),
+  ];
+  return destinations
+    .map((value) => normalizeOptionalSignalIdentity(value))
+    .filter((value) => value.length > 0);
+}
+
+function sentSyncTargetsOwnAccount(params: {
+  sentMessage: SignalSentSyncMessage;
+  ownAccount: string;
+}): boolean {
+  const own = normalizeIdentity(params.ownAccount);
+  if (!own) return false;
+  return collectSentSyncDestinations(params.sentMessage).some(
+    (destination) => normalizeIdentity(destination) === own,
+  );
+}
+
+function resolveSignalMessagePayload(params: {
+  envelope: SignalEnvelope;
+  ownAccount: string;
+}): {
+  message: string | null | undefined;
+  groupId: string;
+  isNoteToSelfSync: boolean;
+} | null {
+  const dataMessage = params.envelope.dataMessage;
+  if (dataMessage) {
+    return {
+      message: dataMessage.message,
+      groupId: dataMessage.groupInfo?.groupId
+        ? String(dataMessage.groupInfo.groupId).trim()
+        : '',
+      isNoteToSelfSync: false,
+    };
+  }
+
+  const sentMessage = params.envelope.syncMessage?.sentMessage;
+  if (!sentMessage) return null;
+  if (
+    !params.ownAccount ||
+    !sentSyncTargetsOwnAccount({
+      sentMessage,
+      ownAccount: params.ownAccount,
+    })
+  ) {
+    return null;
+  }
+  if (Number(params.envelope.sourceDevice || 0) !== 1) return null;
+
+  return {
+    message: sentMessage.message,
+    groupId: '',
+    isNoteToSelfSync: true,
+  };
+}
+
 export function processInboundSignalMessage(params: {
   config: RuntimeSignalConfig;
   envelope: SignalEnvelope;
   ownAccount?: string | null;
   agentId?: string;
 }): ProcessedSignalInbound | null {
-  const dataMessage = params.envelope.dataMessage;
-  if (!dataMessage) return null;
-
   const ownAccount = String(params.ownAccount || '').trim();
   const senderNumber = String(params.envelope.sourceNumber || '').trim();
   const senderUuid = String(params.envelope.sourceUuid || '').trim();
+  const payload = resolveSignalMessagePayload({
+    envelope: params.envelope,
+    ownAccount,
+  });
+  if (!payload) return null;
+
   if (
+    !payload.isNoteToSelfSync &&
     ownAccount &&
     (senderNumber === ownAccount || senderUuid === ownAccount)
   ) {
     return null;
   }
 
-  const text = String(dataMessage.message || '')
+  const text = String(payload.message || '')
     .replace(/\r\n?/g, '\n')
     .trim();
   if (!text) return null;
 
-  const groupId = dataMessage.groupInfo?.groupId
-    ? String(dataMessage.groupInfo.groupId).trim()
-    : '';
+  const groupId = payload.groupId;
   const isGroup = Boolean(groupId);
 
   const access = evaluateSignalAccessPolicy({
@@ -140,5 +215,6 @@ export function processInboundSignalMessage(params: {
     username: buildSignalDisplayName(params.envelope),
     content: text,
     isGroup,
+    isNoteToSelf: payload.isNoteToSelfSync,
   };
 }

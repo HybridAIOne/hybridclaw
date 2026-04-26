@@ -6,6 +6,8 @@ import {
 } from '../channels/email/allowlist.js';
 import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
 import { assertLocalIMessageBackendReady } from '../channels/imessage/local-prereqs.js';
+import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
+import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { normalizeTelegramChatId } from '../channels/telegram/target.js';
 import {
   ensureRuntimeConfigFile,
@@ -99,6 +101,15 @@ function normalizeTelegramAllowEntry(value: string): string | null {
   if (!trimmed) return null;
   if (trimmed === '*') return '*';
   return normalizeTelegramChatId(trimmed) ?? null;
+}
+
+function normalizeSignalAllowEntry(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  if (trimmed === '*') return '*';
+  const normalized = normalizeSignalRecipient(trimmed);
+  if (!normalized || normalized.startsWith('group:')) return null;
+  return normalized;
 }
 
 function parseTelegramSetupArgs(args: string[]): {
@@ -313,6 +324,206 @@ function parseTelegramSetupArgs(args: string[]): {
     textChunkLimit,
     mediaMaxMb,
     requireMention,
+  };
+}
+
+function parseSignalSetupArgs(args: string[]): {
+  daemonUrl: string | null;
+  account: string | null;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  dmPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  groupPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  textChunkLimit: number | null;
+  reconnectIntervalMs: number | null;
+} {
+  let daemonUrl: string | null = null;
+  let account: string | null = null;
+  let dmPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let groupPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let textChunkLimit: number | null = null;
+  let reconnectIntervalMs: number | null = null;
+  const allowFrom: string[] = [];
+  const groupAllowFrom: string[] = [];
+
+  const parsePolicy = (
+    flagName: string,
+    raw: string,
+  ): 'open' | 'allowlist' | 'disabled' => {
+    const normalized = raw.trim().toLowerCase();
+    if (
+      normalized === 'open' ||
+      normalized === 'allowlist' ||
+      normalized === 'disabled'
+    ) {
+      return normalized;
+    }
+    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
+  };
+
+  const parseAllow = (label: string, raw: string): string => {
+    const normalized = normalizeSignalAllowEntry(raw);
+    if (!normalized) {
+      throw new Error(
+        `Invalid ${label}: ${raw}. Use an E.164 Signal phone number, Signal UUID, or *.`,
+      );
+    }
+    return normalized;
+  };
+
+  const parseAccount = (raw: string): string => {
+    const normalized = normalizeSignalAllowEntry(raw);
+    if (!normalized || normalized === '*') {
+      throw new Error(
+        `Invalid Signal account: ${raw}. Use an E.164 phone number or Signal UUID.`,
+      );
+    }
+    return normalized;
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--daemon-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--daemon-url`.');
+      daemonUrl = normalizeSignalDaemonUrl(next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--daemon-url=')) {
+      daemonUrl = normalizeSignalDaemonUrl(arg.slice('--daemon-url='.length));
+      continue;
+    }
+    if (arg === '--account') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--account`.');
+      account = parseAccount(next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--account=')) {
+      account = parseAccount(arg.slice('--account='.length));
+      continue;
+    }
+    if (arg === '--allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-from`.');
+      allowFrom.push(parseAllow('Signal allowlist entry', next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-from=')) {
+      allowFrom.push(
+        parseAllow('Signal allowlist entry', arg.slice('--allow-from='.length)),
+      );
+      continue;
+    }
+    if (arg === '--group-allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--group-allow-from`.');
+      groupAllowFrom.push(parseAllow('Signal group allowlist entry', next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--group-allow-from=')) {
+      groupAllowFrom.push(
+        parseAllow(
+          'Signal group allowlist entry',
+          arg.slice('--group-allow-from='.length),
+        ),
+      );
+      continue;
+    }
+    if (arg === '--dm-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--dm-policy`.');
+      dmPolicy = parsePolicy('--dm-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--dm-policy=')) {
+      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      continue;
+    }
+    if (arg === '--group-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--group-policy`.');
+      groupPolicy = parsePolicy('--group-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--group-policy=')) {
+      groupPolicy = parsePolicy(
+        '--group-policy',
+        arg.slice('--group-policy='.length),
+      );
+      continue;
+    }
+    if (arg === '--text-chunk-limit') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--text-chunk-limit`.');
+      textChunkLimit = parseIntegerFlagValue('--text-chunk-limit', next, {
+        min: 200,
+        max: 8_000,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--text-chunk-limit=')) {
+      textChunkLimit = parseIntegerFlagValue(
+        '--text-chunk-limit',
+        arg.slice('--text-chunk-limit='.length),
+        {
+          min: 200,
+          max: 8_000,
+        },
+      );
+      continue;
+    }
+    if (arg === '--reconnect-interval-ms') {
+      const next = args[index + 1];
+      if (!next) {
+        throw new Error('Missing value for `--reconnect-interval-ms`.');
+      }
+      reconnectIntervalMs = parseIntegerFlagValue(
+        '--reconnect-interval-ms',
+        next,
+        {
+          min: 500,
+          max: 60_000,
+        },
+      );
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--reconnect-interval-ms=')) {
+      reconnectIntervalMs = parseIntegerFlagValue(
+        '--reconnect-interval-ms',
+        arg.slice('--reconnect-interval-ms='.length),
+        {
+          min: 500,
+          max: 60_000,
+        },
+      );
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]...\`.`,
+    );
+  }
+
+  return {
+    daemonUrl,
+    account,
+    allowFrom: [...new Set(allowFrom)],
+    groupAllowFrom: [...new Set(groupAllowFrom)],
+    dmPolicy,
+    groupPolicy,
+    textChunkLimit,
+    reconnectIntervalMs,
   };
 }
 
@@ -1468,6 +1679,82 @@ async function configureTelegramChannel(args: string[]): Promise<void> {
   }
 }
 
+async function configureSignalChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseSignalSetupArgs(args);
+  const currentConfig = getRuntimeConfig().signal;
+  const daemonUrl =
+    parsed.daemonUrl ||
+    String(currentConfig.daemonUrl || '').trim() ||
+    'http://127.0.0.1:8080';
+  const account = parsed.account || String(currentConfig.account || '').trim();
+  if (!account) {
+    throw new Error(
+      'Missing Signal account. Pass `--account <+E164|uuid>` for the account registered with your signal-cli daemon.',
+    );
+  }
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.signal.enabled = true;
+    draft.signal.daemonUrl = daemonUrl;
+    draft.signal.account = account;
+    draft.signal.allowFrom =
+      parsed.allowFrom.length > 0 ? parsed.allowFrom : draft.signal.allowFrom;
+    draft.signal.groupAllowFrom =
+      parsed.groupAllowFrom.length > 0
+        ? parsed.groupAllowFrom
+        : draft.signal.groupAllowFrom;
+    draft.signal.dmPolicy =
+      parsed.dmPolicy ??
+      (parsed.allowFrom.length > 0 ? 'allowlist' : draft.signal.dmPolicy);
+    draft.signal.groupPolicy = parsed.groupPolicy ?? draft.signal.groupPolicy;
+    if (parsed.textChunkLimit != null) {
+      draft.signal.textChunkLimit = parsed.textChunkLimit;
+    }
+    if (parsed.reconnectIntervalMs != null) {
+      draft.signal.reconnectIntervalMs = parsed.reconnectIntervalMs;
+    }
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  console.log('Signal mode: enabled');
+  console.log(`Daemon URL: ${nextConfig.signal.daemonUrl}`);
+  console.log(`Account: ${nextConfig.signal.account}`);
+  console.log(`DM policy: ${nextConfig.signal.dmPolicy}`);
+  console.log(`Group policy: ${nextConfig.signal.groupPolicy}`);
+  if (nextConfig.signal.allowFrom.length > 0) {
+    console.log(
+      `Allowed DM senders: ${nextConfig.signal.allowFrom.join(', ')}`,
+    );
+  } else if (nextConfig.signal.dmPolicy === 'open') {
+    console.log('Allowed DM senders: all (DM policy open)');
+  } else {
+    console.log('Allowed DM senders: none (inbound DMs stay disabled)');
+  }
+  if (nextConfig.signal.groupAllowFrom.length > 0) {
+    console.log(
+      `Allowed group senders: ${nextConfig.signal.groupAllowFrom.join(', ')}`,
+    );
+  }
+  console.log(`Text chunk limit: ${nextConfig.signal.textChunkLimit}`);
+  console.log(`Reconnect interval: ${nextConfig.signal.reconnectIntervalMs}ms`);
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up Signal settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  if (nextConfig.signal.allowFrom.length > 0) {
+    console.log(
+      `  Send a Signal DM from ${nextConfig.signal.allowFrom[0]} to verify inbound routing`,
+    );
+  } else if (nextConfig.signal.dmPolicy === 'open') {
+    console.log('  Send a Signal DM to verify inbound routing');
+  } else {
+    console.log(
+      '  Rerun with --allow-from <+E164|uuid> or --dm-policy open to allow inbound DMs',
+    );
+  }
+}
+
 async function configureIMessageChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseIMessageSetupArgs(args);
@@ -1811,6 +2098,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   const channel = normalized[0].toLowerCase();
   if (
     channel !== 'telegram' &&
+    channel !== 'signal' &&
     channel !== 'whatsapp' &&
     channel !== 'discord' &&
     channel !== 'email' &&
@@ -1818,7 +2106,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -1838,6 +2126,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     }
     if (channel === 'telegram') {
       await configureTelegramChannel(normalized.slice(2));
+      return;
+    }
+    if (channel === 'signal') {
+      await configureSignalChannel(normalized.slice(2));
       return;
     }
     if (channel === 'imessage') {
@@ -1860,6 +2152,6 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

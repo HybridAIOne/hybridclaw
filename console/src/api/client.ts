@@ -40,6 +40,7 @@ import type {
   AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
+  SignalLinkResponse,
 } from './types';
 
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
@@ -479,6 +480,21 @@ export function saveConfig(
     method: 'PUT',
     body: { config },
   });
+}
+
+export function startSignalLink(
+  token: string,
+  options: { cliPath?: string; deviceName?: string },
+): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', {
+    token,
+    method: 'POST',
+    body: options,
+  });
+}
+
+export function fetchSignalLink(token: string): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', { token });
 }
 
 function runAdminCommand(

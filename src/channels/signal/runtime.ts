@@ -2,6 +2,8 @@ import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
 import { getConfigSnapshot } from '../../config/config.js';
 import type { RuntimeSignalConfig } from '../../config/runtime-config.js';
 import { logger } from '../../logger.js';
+import { memoryService } from '../../memory/memory-service.js';
+import { parseSessionKey } from '../../session/session-key.js';
 import { SIGNAL_CAPABILITIES } from '../channel.js';
 import { registerChannel } from '../channel-registry.js';
 import {
@@ -32,8 +34,10 @@ export type SignalMessageHandler = (
   context: SignalMessageContext,
 ) => Promise<void>;
 
-const SIGNAL_RECONNECT_BASE_MS = 1_500;
+const DEFAULT_SIGNAL_RECONNECT_INTERVAL_MS = 5_000;
 const SIGNAL_RECONNECT_MAX_MS = 30_000;
+const MIN_SIGNAL_RECONNECT_INTERVAL_MS = 500;
+const NOTE_TO_SELF_REPLY_PREFIX_RE = /^\[[^\]]+\](?:\s|$)/;
 
 let runtimeInitialized = false;
 let shutdownController: AbortController | null = null;
@@ -76,6 +80,45 @@ function resolveActiveSignalConfig(): RuntimeSignalConfig {
     : resolveSignalConfig();
 }
 
+function resolveReconnectBaseMs(config: RuntimeSignalConfig): number {
+  return Number.isFinite(config.reconnectIntervalMs)
+    ? Math.max(MIN_SIGNAL_RECONNECT_INTERVAL_MS, config.reconnectIntervalMs)
+    : DEFAULT_SIGNAL_RECONNECT_INTERVAL_MS;
+}
+
+function resolveReconnectMaxMs(baseMs: number): number {
+  return Math.max(baseMs, SIGNAL_RECONNECT_MAX_MS);
+}
+
+function resolveNoteToSelfReplyPrefix(sessionId: string): string {
+  const sessionAgentId =
+    memoryService.getSessionById(sessionId)?.agent_id?.trim() || '';
+  const agentId =
+    sessionAgentId || parseSessionKey(sessionId)?.agentId || DEFAULT_AGENT_ID;
+  if (agentId === DEFAULT_AGENT_ID) {
+    return '[HybridClaw]';
+  }
+
+  const config = getConfigSnapshot();
+  const agent = (config.agents.list || []).find(
+    (entry) => entry.id === agentId,
+  );
+  const label =
+    String(agent?.displayName || '').trim() ||
+    String(agent?.name || '').trim() ||
+    agentId;
+  return `[${label}]`;
+}
+
+function formatNoteToSelfReply(content: string, sessionId: string): string {
+  if (NOTE_TO_SELF_REPLY_PREFIX_RE.test(content)) {
+    return content;
+  }
+  const prefix = resolveNoteToSelfReplyPrefix(sessionId);
+  const trimmed = content.trim();
+  return trimmed ? `${prefix} ${trimmed}` : prefix;
+}
+
 async function dispatchEvent(
   event: SignalReceiveEvent,
   messageHandler: SignalMessageHandler,
@@ -108,7 +151,9 @@ async function dispatchEvent(
       daemonUrl,
       account,
       target: inbound.channelId,
-      text: content,
+      text: inbound.isNoteToSelf
+        ? formatNoteToSelfReply(content, inbound.sessionId)
+        : content,
     });
   };
 
@@ -147,10 +192,12 @@ async function dispatchEvent(
 async function runEventLoop(
   messageHandler: SignalMessageHandler,
 ): Promise<void> {
-  let backoffMs = SIGNAL_RECONNECT_BASE_MS;
+  let backoffMs: number | null = null;
 
   while (!shutdownController?.signal.aborted) {
     const config = resolveActiveSignalConfig();
+    const reconnectBaseMs = resolveReconnectBaseMs(config);
+    backoffMs ??= reconnectBaseMs;
     const daemonUrl = activeDaemonUrl || config.daemonUrl;
     const account = activeAccount || config.account;
     if (!daemonUrl || !account) {
@@ -162,7 +209,7 @@ async function runEventLoop(
       daemonUrl,
       account,
       onEvent: (event) => {
-        backoffMs = SIGNAL_RECONNECT_BASE_MS;
+        backoffMs = reconnectBaseMs;
         void dispatchEvent(event, messageHandler).catch((error) => {
           logger.warn({ error }, 'Signal message handler failed');
         });
@@ -183,8 +230,9 @@ async function runEventLoop(
 
     if (shutdownController?.signal.aborted) return;
 
+    const reconnectDelayMs = backoffMs ?? reconnectBaseMs;
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, backoffMs);
+      const timer = setTimeout(resolve, reconnectDelayMs);
       shutdownController?.signal.addEventListener(
         'abort',
         () => {
@@ -194,7 +242,10 @@ async function runEventLoop(
         { once: true },
       );
     });
-    backoffMs = Math.min(backoffMs * 2, SIGNAL_RECONNECT_MAX_MS);
+    backoffMs = Math.min(
+      reconnectDelayMs * 2,
+      resolveReconnectMaxMs(reconnectBaseMs),
+    );
   }
 }
 

@@ -124,8 +124,10 @@ export async function sendSignalTyping(params: {
   if (!target) return false;
   const rpcParams: Record<string, unknown> = {
     account: params.account,
-    stop: Boolean(params.stop),
   };
+  if (params.stop) {
+    rpcParams.stop = true;
+  }
   if (target.kind === 'group') {
     rpcParams.groupId = [target.recipient.replace(/^group:/i, '')];
   } else {
