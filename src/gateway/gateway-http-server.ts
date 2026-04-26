@@ -1763,7 +1763,7 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
-    sessionId,
+    sessionId: historyPage.sessionId,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -1874,7 +1874,10 @@ function handleApiChatContext(res: ServerResponse, url: URL): void {
     sendJson(res, 200, { sessionId, snapshot: null });
     return;
   }
-  sendJson(res, 200, { sessionId, snapshot: result.snapshot });
+  sendJson(res, 200, {
+    sessionId: result.sessionId,
+    snapshot: result.snapshot,
+  });
 }
 
 function handleApiChatCommands(res: ServerResponse, url: URL): void {

@@ -60,6 +60,7 @@ export interface ConversationBranchFamily {
 }
 
 export interface ConversationHistoryPage {
+  sessionId: string;
   sessionKey: string | null;
   mainSessionKey: string | null;
   history: StoredMessage[];
