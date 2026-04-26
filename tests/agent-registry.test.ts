@@ -212,6 +212,165 @@ test('agent skill allowlists persist through runtime config normalization and th
   expect(getAgentById('silent')?.skills).toEqual([]);
 });
 
+test('agent owner, role, and CV persist through runtime config and registry', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig, getRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getAgentById, initAgentRegistry, resolveAgentConfig } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'charly',
+        name: 'Charly',
+        owner: '  benedikt  ',
+        role: ' Researcher ',
+        cv: {
+          summary: '  Senior coworker  ',
+          capabilities: [' research ', 'writing', 'research'],
+          asset: 'agents/charly/CV.md',
+        },
+      },
+    ];
+  });
+
+  // Runtime config normalization should trim strings and dedupe capability list.
+  const persistedConfig = getRuntimeConfig().agents.list?.find(
+    (entry) => entry.id === 'charly',
+  );
+  expect(persistedConfig?.owner).toBe('benedikt');
+  expect(persistedConfig?.role).toBe('Researcher');
+  expect(persistedConfig?.cv).toEqual({
+    summary: 'Senior coworker',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+
+  initAgentRegistry({
+    list: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'charly',
+        name: 'Charly',
+        owner: 'benedikt',
+        role: 'Researcher',
+        cv: {
+          summary: 'Senior coworker',
+          capabilities: ['research', 'writing'],
+          asset: 'agents/charly/CV.md',
+        },
+      },
+    ],
+  });
+
+  const resolved = resolveAgentConfig('charly');
+  expect(resolved.owner).toBe('benedikt');
+  expect(resolved.role).toBe('Researcher');
+  expect(resolved.cv).toEqual({
+    summary: 'Senior coworker',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+
+  // Round-trip through SQLite confirms persistence.
+  const stored = getAgentById('charly');
+  expect(stored?.owner).toBe('benedikt');
+  expect(stored?.role).toBe('Researcher');
+  expect(stored?.cv).toEqual({
+    summary: 'Senior coworker',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+});
+
+test('legacy agents without owner/role/cv load cleanly after migration v21', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const dbPath = path.join(homeDir, 'data', 'hybridclaw.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+  const legacyDb = new Database(dbPath);
+  legacyDb.exec(`
+    CREATE TABLE agents (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      display_name TEXT,
+      image_asset TEXT,
+      model TEXT,
+      skills TEXT,
+      chatbot_id TEXT,
+      enable_rag INTEGER DEFAULT 1,
+      workspace TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  legacyDb
+    .prepare(
+      `INSERT INTO agents (id, name, display_name)
+       VALUES (?, ?, ?)`,
+    )
+    .run('charly', 'Charly', 'Charly the Coworker');
+  legacyDb.pragma('user_version = 20');
+  legacyDb.close();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true, dbPath });
+
+  const migratedDb = new Database(dbPath, { readonly: true });
+  const columns = migratedDb.pragma('table_info(agents)') as Array<{
+    name: string;
+  }>;
+  expect(columns.some((column) => column.name === 'owner')).toBe(true);
+  expect(columns.some((column) => column.name === 'role')).toBe(true);
+  expect(columns.some((column) => column.name === 'cv')).toBe(true);
+
+  const userVersion = migratedDb.pragma('user_version', { simple: true });
+  expect(userVersion).toBeGreaterThanOrEqual(21);
+
+  const charly = migratedDb
+    .prepare('SELECT id, name, owner, role, cv FROM agents WHERE id = ?')
+    .get('charly') as {
+    id: string;
+    name: string;
+    owner: string | null;
+    role: string | null;
+    cv: string | null;
+  };
+  expect(charly).toMatchObject({
+    id: 'charly',
+    name: 'Charly',
+    owner: null,
+    role: null,
+    cv: null,
+  });
+  migratedDb.close();
+
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  expect(getAgentById('charly')).toMatchObject({
+    id: 'charly',
+    name: 'Charly',
+    displayName: 'Charly the Coworker',
+  });
+});
+
 test('warns and ignores malformed persisted agent skill allowlists', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

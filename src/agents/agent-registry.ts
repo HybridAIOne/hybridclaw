@@ -27,7 +27,9 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentCv,
   DEFAULT_AGENT_ID,
+  normalizeAgentCv,
 } from './agent-types.js';
 
 const LEGACY_WORKSPACE_DIRS = [
@@ -155,6 +157,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const skills = normalizeOptionalTrimmedUniqueStringArray(
     (value as { skills?: unknown }).skills,
   );
+  const owner = normalizeString((value as { owner?: unknown }).owner);
+  const role = normalizeString((value as { role?: unknown }).role);
+  const cv = normalizeAgentCv((value as { cv?: unknown }).cv);
   return {
     id,
     ...(name ? { name } : {}),
@@ -164,6 +169,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(cv ? { cv } : {}),
   };
 }
 
@@ -206,6 +214,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     agent.chatbotId ?? configuredDefaults.chatbotId,
   );
   const enableRag = agent.enableRag ?? configuredDefaults.enableRag;
+  const cv = cloneAgentCv(agent.cv);
   return {
     id: agent.id,
     ...(agent.name ? { name: agent.name } : {}),
@@ -215,6 +224,9 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(agent.owner ? { owner: agent.owner } : {}),
+    ...(agent.role ? { role: agent.role } : {}),
+    ...(cv ? { cv } : {}),
   };
 }
 
@@ -261,6 +273,9 @@ function syncConfiguredAgentsToDatabase(): void {
     workspace: mainAgent.workspace,
     chatbotId: mainAgent.chatbotId,
     enableRag: mainAgent.enableRag,
+    owner: mainAgent.owner,
+    role: mainAgent.role,
+    cv: cloneAgentCv(mainAgent.cv),
   });
 
   for (const agent of configuredAgents) {
@@ -274,6 +289,9 @@ function syncConfiguredAgentsToDatabase(): void {
       workspace: agent.workspace,
       chatbotId: agent.chatbotId,
       enableRag: agent.enableRag,
+      owner: agent.owner,
+      role: agent.role,
+      cv: cloneAgentCv(agent.cv),
     });
   }
 }
