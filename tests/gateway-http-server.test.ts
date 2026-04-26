@@ -3081,9 +3081,7 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
 
     expect(res.statusCode).toBe(301);
-    expect(res.headers.Location).toBe(
-      '/chat?token=launch-xyz&next=%2Fadmin',
-    );
+    expect(res.headers.Location).toBe('/chat?token=launch-xyz&next=%2Fadmin');
   });
 
   test('serves /chat, /agents, and /admin without a session cookie outside Docker', async () => {
