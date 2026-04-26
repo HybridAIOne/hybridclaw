@@ -106,7 +106,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 19;
+export const DATABASE_SCHEMA_VERSION = 20;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -1713,6 +1713,51 @@ function migrateV19(database: Database.Database): void {
   );
 }
 
+function migrateV20(database: Database.Database): void {
+  // Some legacy databases — and a couple of migration tests — start partway
+  // through the schema with only the tables (and columns) they care about.
+  // Guard each CREATE INDEX behind table+column existence so this migration
+  // is safe to run regardless of which earlier tables/columns are present;
+  // earlier migrations are responsible for creating the targeted columns
+  // when they're missing on legacy DBs.
+  const messagesHasCreatedAt =
+    tableExists(database, 'messages') &&
+    columnExists(database, 'messages', 'created_at');
+  if (messagesHasCreatedAt) {
+    database.exec(
+      `CREATE INDEX IF NOT EXISTS idx_messages_created_at
+         ON messages(created_at);
+       CREATE INDEX IF NOT EXISTS idx_messages_session_created_at
+         ON messages(session_id, created_at);`,
+    );
+  }
+  if (tableExists(database, 'sessions')) {
+    if (columnExists(database, 'sessions', 'created_at')) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_created_at
+           ON sessions(created_at);`,
+      );
+    }
+    if (columnExists(database, 'sessions', 'last_active')) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_last_active
+           ON sessions(last_active);`,
+      );
+      if (columnExists(database, 'sessions', 'channel_id')) {
+        database.exec(
+          `CREATE INDEX IF NOT EXISTS idx_sessions_channel_last_active
+             ON sessions(channel_id, last_active);`,
+        );
+      }
+    }
+  }
+  recordMigration(
+    database,
+    20,
+    'Index timestamp columns for admin statistics aggregations',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1753,6 +1798,7 @@ function runMigrations(
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
+  if (currentVersion < 20) migrateV20(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -3069,6 +3115,7 @@ export function listMessageTrendByDay(params?: {
 }): MessageTrendDay[] {
   ensureDatabaseReady();
   const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
   const rows = queryAll<{
     day: string;
     user_messages: number;
@@ -3082,7 +3129,7 @@ export function listMessageTrendByDay(params?: {
        SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_messages,
        COUNT(*) AS total_messages
      FROM messages
-     WHERE created_at >= datetime('now', '-${days} days')
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')
      GROUP BY day
      ORDER BY day ASC`,
   );
@@ -3105,18 +3152,19 @@ export function listSessionTrendByDay(params?: {
 }): SessionTrendDay[] {
   ensureDatabaseReady();
   const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
   const createdRows = queryAll<{ day: string; new_sessions: number }>(
     db,
     `SELECT date(created_at) AS day, COUNT(*) AS new_sessions
      FROM sessions
-     WHERE created_at >= datetime('now', '-${days} days')
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')
      GROUP BY day`,
   );
   const activeRows = queryAll<{ day: string; active_sessions: number }>(
     db,
     `SELECT date(created_at) AS day, COUNT(DISTINCT session_id) AS active_sessions
      FROM messages
-     WHERE created_at >= datetime('now', '-${days} days')
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')
      GROUP BY day`,
   );
   const byDay = new Map<string, SessionTrendDay>();
@@ -3161,11 +3209,12 @@ export function listStatsByChannel(params?: {
 }): ChannelStatsRow[] {
   ensureDatabaseReady();
   const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
   const sessionRows = queryAll<{ channel_id: string; session_count: number }>(
     db,
     `SELECT COALESCE(channel_id, '') AS channel_id, COUNT(*) AS session_count
      FROM sessions
-     WHERE last_active >= datetime('now', '-${days} days')
+     WHERE last_active >= datetime('now', 'start of day', '-${dayOffset} days')
      GROUP BY channel_id`,
   );
   const messageRows = queryAll<{
@@ -3182,7 +3231,7 @@ export function listStatsByChannel(params?: {
        COUNT(m.id) AS total_messages
      FROM messages m
      JOIN sessions s ON s.id = m.session_id
-     WHERE m.created_at >= datetime('now', '-${days} days')
+     WHERE m.created_at >= datetime('now', 'start of day', '-${dayOffset} days')
      GROUP BY s.channel_id`,
   );
   const byChannel = new Map<string, ChannelStatsRow>();
@@ -3229,17 +3278,18 @@ export function getStatisticsTotals(params?: {
 }): StatisticsTotals {
   ensureDatabaseReady();
   const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
   const sessionRow = queryOne<{ new_sessions: number }>(
     db,
     `SELECT COUNT(*) AS new_sessions
      FROM sessions
-     WHERE created_at >= datetime('now', '-${days} days')`,
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')`,
   );
   const activeRow = queryOne<{ active_sessions: number }>(
     db,
     `SELECT COUNT(DISTINCT session_id) AS active_sessions
      FROM messages
-     WHERE created_at >= datetime('now', '-${days} days')`,
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')`,
   );
   const messageRow = queryOne<{
     total_messages: number;
@@ -3252,7 +3302,7 @@ export function getStatisticsTotals(params?: {
        SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_messages,
        SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_messages
      FROM messages
-     WHERE created_at >= datetime('now', '-${days} days')`,
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')`,
   );
   return {
     new_sessions: normalizeUsageNumber(sessionRow?.new_sessions ?? 0),

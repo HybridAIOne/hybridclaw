@@ -387,7 +387,12 @@ function ChannelBreakdown(props: { channels: AdminStatisticsChannelRow[] }) {
                   >
                     <div
                       style={{
-                        width: `${Math.max(2, share * 100)}%`,
+                        // Render an empty bar at 0% rather than a misleading
+                        // sliver. For non-zero shares, enforce a 2px floor so
+                        // very small slices remain visible without drowning
+                        // out the percentage signal.
+                        width: share > 0 ? `${share * 100}%` : 0,
+                        minWidth: share > 0 ? 2 : 0,
                         height: '100%',
                         background: 'var(--primary)',
                       }}

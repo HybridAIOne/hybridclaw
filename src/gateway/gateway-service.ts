@@ -3708,6 +3708,8 @@ export function getGatewayAdminStatistics(params?: {
   days?: number | string;
 }): GatewayAdminStatisticsResponse {
   const days = normalizeStatisticsDays(params?.days);
+  const startDate = toIsoDate(-(days - 1));
+  const endDate = toIsoDate(0);
 
   const messageTrend = listMessageTrendByDay({ days });
   const sessionTrend = listSessionTrendByDay({ days });
@@ -3716,11 +3718,13 @@ export function getGatewayAdminStatistics(params?: {
   const totals = getStatisticsTotals({ days });
 
   const trendByDay = new Map<string, GatewayAdminStatisticsTrendDay>();
-  const ensureDay = (day: string): GatewayAdminStatisticsTrendDay => {
-    const existing = trendByDay.get(day);
-    if (existing) return existing;
-    const created: GatewayAdminStatisticsTrendDay = {
-      date: day,
+  // Seed every UTC calendar day in [startDate, endDate] with zeros so the
+  // response always covers `rangeDays` contiguous days, even when no
+  // activity was recorded.
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = toIsoDate(-(days - 1 - offset));
+    trendByDay.set(date, {
+      date,
       newSessions: 0,
       activeSessions: 0,
       userMessages: 0,
@@ -3732,30 +3736,43 @@ export function getGatewayAdminStatistics(params?: {
       callCount: 0,
       toolCalls: 0,
       costUsd: 0,
-    };
-    trendByDay.set(day, created);
-    return created;
+    });
+  }
+
+  // SQLite may emit timestamps from the rolling-window helpers that fall
+  // just before startDate (when a query window is wider than the response
+  // window). Drop those; they're outside the documented range.
+  const upsertDay = (
+    day: string,
+    apply: (target: GatewayAdminStatisticsTrendDay) => void,
+  ): void => {
+    if (!day || day < startDate || day > endDate) return;
+    const target = trendByDay.get(day);
+    if (target) apply(target);
   };
 
   for (const row of messageTrend) {
-    const day = ensureDay(row.day);
-    day.userMessages = row.user_messages;
-    day.assistantMessages = row.assistant_messages;
-    day.totalMessages = row.total_messages;
+    upsertDay(row.day, (day) => {
+      day.userMessages = row.user_messages;
+      day.assistantMessages = row.assistant_messages;
+      day.totalMessages = row.total_messages;
+    });
   }
   for (const row of sessionTrend) {
-    const day = ensureDay(row.day);
-    day.newSessions = row.new_sessions;
-    day.activeSessions = row.active_sessions;
+    upsertDay(row.day, (day) => {
+      day.newSessions = row.new_sessions;
+      day.activeSessions = row.active_sessions;
+    });
   }
   for (const row of usageTrend) {
-    const day = ensureDay(row.day);
-    day.inputTokens = row.total_input_tokens;
-    day.outputTokens = row.total_output_tokens;
-    day.totalTokens = row.total_tokens;
-    day.callCount = row.call_count;
-    day.toolCalls = row.total_tool_calls;
-    day.costUsd = row.total_cost_usd;
+    upsertDay(row.day, (day) => {
+      day.inputTokens = row.total_input_tokens;
+      day.outputTokens = row.total_output_tokens;
+      day.totalTokens = row.total_tokens;
+      day.callCount = row.call_count;
+      day.toolCalls = row.total_tool_calls;
+      day.costUsd = row.total_cost_usd;
+    });
   }
 
   const trend = Array.from(trendByDay.values()).sort((a, b) =>
@@ -3794,8 +3811,8 @@ export function getGatewayAdminStatistics(params?: {
 
   return {
     rangeDays: days,
-    startDate: toIsoDate(-(days - 1)),
-    endDate: toIsoDate(0),
+    startDate,
+    endDate,
     totals: {
       newSessions: totals.new_sessions,
       activeSessions: totals.active_sessions,
