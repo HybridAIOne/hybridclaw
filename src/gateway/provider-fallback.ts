@@ -164,7 +164,8 @@ export class ProviderFallbackController {
       const current = String(currentProvider || '')
         .trim()
         .toLowerCase();
-      const leavingPrimary = !this.activated || current === this.primaryProvider;
+      const leavingPrimary =
+        !this.activated || current === this.primaryProvider;
       if (leavingPrimary) {
         markProviderCooldown(this.primaryProvider, this.cooldownMs);
       }
@@ -200,7 +201,9 @@ export async function callWithProviderFallback<T>(
   const controller = new ProviderFallbackController({
     chain: params.chain,
     primaryProvider: params.primaryRuntime.provider,
-    ...(params.cooldownMs !== undefined ? { cooldownMs: params.cooldownMs } : {}),
+    ...(params.cooldownMs !== undefined
+      ? { cooldownMs: params.cooldownMs }
+      : {}),
   });
 
   let runtime = params.primaryRuntime;

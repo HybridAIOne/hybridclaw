@@ -40,10 +40,6 @@ import {
   mapOpenAICompatibleUsageToTokenStats,
 } from './openai-compatible-model.js';
 import {
-  callWithProviderFallback,
-  loadFallbackChainFromEnv,
-} from './provider-fallback.js';
-import {
   OpenAICompatibleRequestError,
   readOpenAICompatibleChatRequest,
 } from './openai-compatible-request.js';
@@ -58,6 +54,10 @@ import {
   sendOpenAICompatibleStreamError,
   writeOpenAICompatibleStreamChunk,
 } from './openai-compatible-response.js';
+import {
+  callWithProviderFallback,
+  loadFallbackChainFromEnv,
+} from './provider-fallback.js';
 
 function isResponseWritable(res: ServerResponse): boolean {
   return !res.writableEnded && !res.destroyed;

@@ -88,9 +88,9 @@ describe('classifyProviderError', () => {
     expect(mod.classifyProviderError(new Error('HTTP 429 too many'))).toBe(
       'rate_limit',
     );
-    expect(
-      mod.classifyProviderError(new Error('daily quota exhausted')),
-    ).toBe('rate_limit');
+    expect(mod.classifyProviderError(new Error('daily quota exhausted'))).toBe(
+      'rate_limit',
+    );
     expect(mod.classifyProviderError(new Error('500 internal'))).toBe('other');
   });
 });
