@@ -2486,6 +2486,42 @@ async function startIMessageIntegration(): Promise<boolean> {
   return true;
 }
 
+const SHUTDOWN_STEP_TIMEOUT_MS = 5_000;
+
+async function runShutdownStep(
+  step: string,
+  run: () => Promise<void> | void,
+  timeoutMs = SHUTDOWN_STEP_TIMEOUT_MS,
+): Promise<void> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const operation = Promise.resolve()
+    .then(run)
+    .then(
+      () => ({ status: 'done' as const }),
+      (error) => ({ status: 'error' as const, error }),
+    );
+  const timeout = new Promise<{ status: 'timeout' }>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([operation, timeout]);
+    if (result.status === 'error') {
+      logger.debug(
+        { error: result.error, step },
+        'Gateway shutdown step failed',
+      );
+    } else if (result.status === 'timeout') {
+      logger.warn(
+        { step, timeoutMs },
+        'Gateway shutdown step timed out; continuing',
+      );
+    }
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 function setupShutdown(broadcastShutdown: () => void): void {
   let shuttingDown = false;
   const shutdown = async (opts?: { drain?: boolean }) => {
@@ -2496,39 +2532,18 @@ function setupShutdown(broadcastShutdown: () => void): void {
       detachConfigListener();
       detachConfigListener = null;
     }
-    await setDiscordMaintenancePresence().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to set Discord maintenance presence during shutdown',
-      );
-    });
-    await shutdownEmail().catch((error) => {
-      logger.debug({ error }, 'Failed to stop email runtime during shutdown');
-    });
-    await shutdownSlack().catch((error) => {
-      logger.debug({ error }, 'Failed to stop Slack runtime during shutdown');
-    });
-    await shutdownTelegram().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop Telegram runtime during shutdown',
-      );
-    });
-    await shutdownWhatsApp().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop WhatsApp runtime during shutdown',
-      );
-    });
-    await shutdownVoice({ drain: opts?.drain }).catch((error) => {
-      logger.debug({ error }, 'Failed to stop Voice runtime during shutdown');
-    });
-    await shutdownIMessage().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop iMessage runtime during shutdown',
-      );
-    });
+    await runShutdownStep(
+      'set Discord maintenance presence',
+      setDiscordMaintenancePresence,
+    );
+    await runShutdownStep('stop email runtime', shutdownEmail);
+    await runShutdownStep('stop Slack runtime', shutdownSlack);
+    await runShutdownStep('stop Telegram runtime', shutdownTelegram);
+    await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
+    await runShutdownStep('stop Voice runtime', () =>
+      shutdownVoice({ drain: opts?.drain }),
+    );
+    await runShutdownStep('stop iMessage runtime', shutdownIMessage);
     if (opts?.drain) {
       broadcastShutdown();
       stopAllExecutions();
@@ -2541,21 +2556,19 @@ function setupShutdown(broadcastShutdown: () => void): void {
         );
       }
     }
-    await runManagedMediaCleanup('shutdown');
+    await runShutdownStep('run managed media cleanup', () =>
+      runManagedMediaCleanup('shutdown'),
+    );
     stopHeartbeat();
     stopObservabilityIngest();
     stopDiscoveryLoop();
     if (!opts?.drain) {
       stopAllExecutions();
     }
-    await stopGatewayPlugins().catch((error) => {
-      logger.debug({ error }, 'Failed to stop plugins during shutdown');
-    });
+    await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
     stopMemoryConsolidationScheduler();
-    await shutdownOtel().catch((error) => {
-      logger.debug({ error }, 'Failed to shut down OTel during shutdown');
-    });
+    await runShutdownStep('shut down OTel', shutdownOtel);
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;

@@ -58,7 +58,7 @@ export function buildChatHistoryUiData(
       artifacts: [],
       replayRequest:
         replayContent !== null ? { content: replayContent, media: [] } : null,
-      assistantPresentation: raw.assistantPresentation ?? null,
+      assistantPresentation: msg.assistantPresentation ?? null,
       branchKey:
         msg.id !== undefined && msg.id !== null
           ? (branchKeysByMessageId.get(msg.id) ?? null)

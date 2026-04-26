@@ -23,7 +23,7 @@ import type {
   ChatRecentResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
-import type { GatewayStatus } from '../../api/types';
+import type { AgentListItem, GatewayStatus } from '../../api/types';
 import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
@@ -50,6 +50,7 @@ const createChatBranchMock =
   >();
 const uploadMediaMock =
   vi.fn<(token: string, file: File) => Promise<MediaUploadResponse>>();
+const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -73,6 +74,10 @@ vi.mock('../../api/chat', () => ({
     beforeMessageId: number | string,
   ) => createChatBranchMock(token, sessionId, beforeMessageId),
   uploadMedia: (token: string, file: File) => uploadMediaMock(token, file),
+}));
+
+vi.mock('../../api/client', () => ({
+  fetchAgentList: (token: string) => fetchAgentListMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -135,6 +140,7 @@ describe('ChatPage', () => {
     fetchChatHistoryMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
+    fetchAgentListMock.mockReset();
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();
@@ -183,6 +189,10 @@ describe('ChatPage', () => {
             ],
       }),
     );
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'main', name: 'Assistant' },
+      { id: 'charly', name: 'Charly' },
+    ]);
     isActiveMock.mockReturnValue(false);
     useChatStreamMock.mockReturnValue({
       sendMessage: sendMessageMock,
@@ -238,6 +248,29 @@ describe('ChatPage', () => {
         'test-token',
         'session-b',
       ),
+    );
+  });
+
+  it('switches agents from the composer dropdown using the slash command path', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    sendMessageMock.mockResolvedValue(true);
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Switch agent'), {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('/agent switch charly', [], {
+        hideUser: true,
+      }),
     );
   });
 

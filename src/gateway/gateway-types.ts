@@ -53,6 +53,7 @@ export interface GatewayChatResult {
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
   memoryCitations?: MemoryCitation[];
@@ -231,8 +232,10 @@ export interface GatewayHistoryMessage {
   user_id: string;
   username: string | null;
   role: string;
+  agent_id?: string | null;
   content: string;
   created_at: string;
+  assistantPresentation?: GatewayAssistantPresentation;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
@@ -278,7 +281,6 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
-  assistantPresentation?: GatewayAssistantPresentation;
   bootstrapAutostart?: {
     status: 'idle' | 'starting' | 'completed';
     fileName: 'BOOTSTRAP.md' | 'OPENING.md';
@@ -676,6 +678,15 @@ export interface GatewayAgentsResponse {
   };
   agents: GatewayLogicalAgentCard[];
   sessions: GatewaySessionCard[];
+}
+
+export interface GatewayAgentListItem {
+  id: string;
+  name: string | null;
+}
+
+export interface GatewayAgentListResponse {
+  agents: GatewayAgentListItem[];
 }
 
 export interface GatewayAdminJobAgent {

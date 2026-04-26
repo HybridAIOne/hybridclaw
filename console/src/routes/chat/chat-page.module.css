@@ -1,4 +1,6 @@
 .chatPage {
+  --chat-hover-bg: color-mix(in srgb, var(--muted) 94%, var(--foreground) 6%);
+
   display: flex;
   width: 100%;
   height: 100dvh;
@@ -49,7 +51,7 @@
 }
 
 .newChatButton:hover {
-  background: var(--panel-bg);
+  background: var(--chat-hover-bg);
 }
 
 .newChatButton > span:first-child {
@@ -98,7 +100,7 @@
 }
 
 .sessionItem:hover {
-  background: var(--panel-bg);
+  background: var(--chat-hover-bg);
 }
 
 .sessionItemActive .sessionTitle,
@@ -264,30 +266,30 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .agentLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
+  gap: 8px;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--muted-foreground);
   padding: 0 4px;
 }
 
 .agentAvatar {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   object-fit: cover;
 }
 
 .agentInitial {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: var(--primary);
   color: var(--primary-foreground);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: 0.86rem;
   font-weight: 700;
 }
 
@@ -448,12 +450,12 @@ aside[data-state="collapsed"] .chatSidebarContent {
   border-color: transparent;
   background: transparent;
   color: var(--muted-foreground);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font-size: 0.82rem;
 }
 
-.messageActions .actionButton:hover {
-  background: var(--muted);
+.messageActions .actionButton:hover:not(:disabled):not([data-disabled]) {
+  background: var(--chat-hover-bg);
   color: var(--foreground);
 }
 
@@ -478,8 +480,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.8rem;
 }
 
-.branchButton:hover {
-  background: var(--muted);
+.branchButton:hover:not(:disabled):not([data-disabled]) {
+  background: var(--chat-hover-bg);
   color: var(--text);
 }
 
@@ -676,6 +678,13 @@ aside[data-state="collapsed"] .chatSidebarContent {
   gap: 8px;
 }
 
+.composerLeftActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .composerInput {
   flex: 1 1 auto;
   min-height: 36px;
@@ -728,8 +737,68 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .attachButton:hover {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--text);
+}
+
+.agentSelectWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  max-width: 180px;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.agentSelectWrap::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.7px solid currentColor;
+  border-bottom: 1.7px solid currentColor;
+  pointer-events: none;
+  transform: translateY(-3px) rotate(45deg);
+}
+
+.agentSelect {
+  max-width: 180px;
+  height: 36px;
+  border: none;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 36px;
+  padding: 0 42px 0 20px;
+  outline: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentSelect:hover:not(:disabled),
+.agentSelect:focus {
+  color: var(--text);
+}
+
+.agentSelectWrap:has(.agentSelect:hover:not(:disabled)),
+.agentSelectWrap:has(.agentSelect:focus) {
+  background: var(--chat-hover-bg);
+  color: var(--text);
+}
+
+.agentSelect:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .sendButton {
@@ -740,7 +809,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .sendButton:hover:not(:disabled) {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
   color: var(--text);
 }
 
@@ -780,7 +849,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .suggestionItem:hover,
 .suggestionItemActive {
-  background: var(--muted);
+  background: var(--chat-hover-bg);
 }
 
 .suggestionLabel {

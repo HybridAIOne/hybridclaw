@@ -407,6 +407,7 @@ import {
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
+  type GatewayAgentListResponse,
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
   type GatewayChatRequest,
@@ -2638,13 +2639,14 @@ export function getGatewayAssistantPresentationForAgent(
   };
 }
 
-export function getGatewayAssistantPresentationForSession(
-  sessionId: string,
-): GatewayAssistantPresentation {
-  const session = memoryService.getSessionById(sessionId);
-  return getGatewayAssistantPresentationForAgent(
-    session ? resolveSessionAgentId(session) : DEFAULT_AGENT_ID,
-  );
+export function getGatewayAssistantPresentationForMessageAgent(
+  agentId?: string | null,
+): GatewayAssistantPresentation | undefined {
+  const normalizedAgentId = String(agentId || '').trim();
+  if (!normalizedAgentId || normalizedAgentId === DEFAULT_AGENT_ID) {
+    return undefined;
+  }
+  return getGatewayAssistantPresentationForAgent(normalizedAgentId);
 }
 
 export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
@@ -3168,6 +3170,7 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             role: 'assistant',
             content: opts.resultText,
+            agentId: opts.agentId,
           }),
         }
       : memoryService.storeTurn({
@@ -3180,6 +3183,7 @@ export function recordSuccessfulTurn(opts: {
           assistant: {
             userId: 'assistant',
             username: null,
+            agentId: opts.agentId,
             content: opts.resultText,
           },
         });
@@ -5892,6 +5896,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       username: null,
       role: 'assistant',
       content: resultText,
+      agentId: resolved.agentId,
     });
     appendSessionTranscript(resolved.agentId, {
       sessionId: session.id,
@@ -5994,12 +5999,16 @@ export function getGatewayHistory(
     .map((message) => {
       if (message.role !== 'assistant') return message;
       const content = stripSilentToken(message.content);
-      return content === message.content
-        ? message
-        : {
-            ...message,
-            content,
-          };
+      const assistantPresentation =
+        getGatewayAssistantPresentationForMessageAgent(message.agent_id);
+      if (content === message.content && !assistantPresentation) {
+        return message;
+      }
+      return {
+        ...message,
+        ...(content !== message.content ? { content } : {}),
+        ...(assistantPresentation ? { assistantPresentation } : {}),
+      };
     })
     .filter((message) => message.content.trim().length > 0)
     .reverse();
@@ -6008,6 +6017,15 @@ export function getGatewayHistory(
     mainSessionKey: page.mainSessionKey,
     history,
     branchFamilies: page.branchFamilies,
+  };
+}
+
+export function getGatewayAgentList(): GatewayAgentListResponse {
+  return {
+    agents: listAgents().map((agent) => ({
+      id: agent.id,
+      name: agent.name || null,
+    })),
   };
 }
 
@@ -6959,6 +6977,7 @@ async function publishDelegationCompletion(params: {
     username: null,
     role: 'assistant',
     content: forLLM,
+    agentId,
   });
   appendSessionTranscript(agentId, {
     sessionId: parentSessionId,

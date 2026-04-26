@@ -147,8 +147,8 @@ import {
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminTools,
+  getGatewayAgentList,
   getGatewayAgents,
-  getGatewayAssistantPresentationForSession,
   getGatewayBootstrapAutostartState,
   getGatewayHistory,
   getGatewayHistorySummary,
@@ -1766,7 +1766,6 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
-    assistantPresentation: getGatewayAssistantPresentationForSession(sessionId),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
@@ -1875,6 +1874,10 @@ function handleApiChatCommands(res: ServerResponse, url: URL): void {
 
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
+}
+
+function handleApiAgentList(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAgentList());
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -3645,6 +3648,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
+            return;
+          }
+          if (pathname === '/api/agents/list' && method === 'GET') {
+            handleApiAgentList(res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {

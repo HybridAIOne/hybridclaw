@@ -100,6 +100,7 @@ import {
   extractUsageCostUsd,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
+  getGatewayAssistantPresentationForMessageAgent,
   isGatewayRequestLoggingEnabled,
   isVersionOnlyQuestion,
   maybeRecordGatewayRequestLog,
@@ -526,6 +527,8 @@ async function handleGatewayMessageInner(
             })
           : undefined,
       toolsUsed: [],
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     });
@@ -686,6 +689,8 @@ async function handleGatewayMessageInner(
       agentId,
       model,
       provider,
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
@@ -1343,6 +1348,8 @@ async function handleGatewayMessageInner(
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
