@@ -40,6 +40,10 @@ import {
   mapOpenAICompatibleUsageToTokenStats,
 } from './openai-compatible-model.js';
 import {
+  callWithProviderFallback,
+  loadFallbackChainFromEnv,
+} from './provider-fallback.js';
+import {
   OpenAICompatibleRequestError,
   readOpenAICompatibleChatRequest,
 } from './openai-compatible-request.js';
@@ -495,12 +499,18 @@ async function handleOpenAICompatibleToolChat(
 ): Promise<void> {
   const runtime = await resolveToolAwareRuntime({ prepared });
   const messages = await buildToolAwareMessages({ input, prepared });
-  const result = await callOpenAICompatibleModel({
-    runtime,
-    model: prepared.model,
-    messages,
-    tools: input.tools,
-    toolChoice: input.toolChoice,
+  const result = await callWithProviderFallback({
+    primaryRuntime: runtime,
+    primaryModel: prepared.model,
+    chain: loadFallbackChainFromEnv(),
+    invoke: (activeRuntime, activeModel) =>
+      callOpenAICompatibleModel({
+        runtime: activeRuntime,
+        model: activeModel,
+        messages,
+        tools: input.tools,
+        toolChoice: input.toolChoice,
+      }),
   });
   const choice = result.choices[0];
   const payload = buildOpenAICompatibleCompletionResponse({
@@ -694,23 +704,38 @@ async function handleOpenAICompatibleStreamingToolChat(
   try {
     const runtime = await resolveToolAwareRuntime({ prepared });
     const messages = await buildToolAwareMessages({ input, prepared });
-    const result = await callOpenAICompatibleModelStream({
-      runtime,
-      model: prepared.model,
-      messages,
-      tools: input.tools,
-      toolChoice: input.toolChoice,
-      onTextDelta: (delta) => {
-        if (!isResponseWritable(res) || !delta) return;
-        writeOpenAICompatibleStreamChunk(
-          res,
-          buildOpenAICompatibleStreamTextChunk({
-            completionId,
-            created,
-            model: prepared.responseModel,
-            content: delta,
-          }),
-        );
+    let streamStarted = false;
+    const result = await callWithProviderFallback({
+      primaryRuntime: runtime,
+      primaryModel: prepared.model,
+      chain: loadFallbackChainFromEnv(),
+      invoke: async (activeRuntime, activeModel) => {
+        if (streamStarted) {
+          throw new Error(
+            'Stream already started; cannot retry provider fallback mid-stream.',
+          );
+        }
+        return callOpenAICompatibleModelStream({
+          runtime: activeRuntime,
+          model: activeModel,
+          messages,
+          tools: input.tools,
+          toolChoice: input.toolChoice,
+          onTextDelta: (delta) => {
+            if (!delta) return;
+            streamStarted = true;
+            if (!isResponseWritable(res)) return;
+            writeOpenAICompatibleStreamChunk(
+              res,
+              buildOpenAICompatibleStreamTextChunk({
+                completionId,
+                created,
+                model: prepared.responseModel,
+                content: delta,
+              }),
+            );
+          },
+        });
       },
     });
     if (!isResponseWritable(res)) return;
