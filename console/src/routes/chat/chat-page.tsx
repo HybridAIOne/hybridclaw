@@ -11,7 +11,7 @@ import type {
   ChatMessage,
   MediaItem,
 } from '../../api/chat-types';
-import { fetchAgentsOverview } from '../../api/client';
+import { fetchAgentList } from '../../api/client';
 import { useAuth } from '../../auth';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
@@ -129,8 +129,8 @@ export function ChatPage() {
   });
 
   const agentsQuery = useQuery({
-    queryKey: ['agents-overview', auth.token],
-    queryFn: () => fetchAgentsOverview(auth.token),
+    queryKey: ['agents-list', auth.token],
+    queryFn: () => fetchAgentList(auth.token),
     staleTime: 30_000,
   });
 
@@ -173,22 +173,12 @@ export function ChatPage() {
   const recentSessions = recentQuery.data?.sessions ?? [];
   const agentOptions = useMemo(
     () =>
-      (agentsQuery.data?.agents ?? []).map((agent) => ({
+      (agentsQuery.data ?? []).map((agent) => ({
         id: agent.id,
         name: agent.name,
       })),
-    [agentsQuery.data?.agents],
+    [agentsQuery.data],
   );
-
-  useEffect(() => {
-    if (!sessionId) return;
-    const currentSession = agentsQuery.data?.sessions.find(
-      (entry) => entry.sessionId === sessionId,
-    );
-    if (currentSession?.agentId) {
-      setSelectedAgentId(currentSession.agentId);
-    }
-  }, [agentsQuery.data?.sessions, sessionId]);
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
@@ -346,12 +336,9 @@ export function ChatPage() {
       );
       if (accepted) {
         setSelectedAgentId(agentId);
-        void queryClient.invalidateQueries({
-          queryKey: ['agents-overview', auth.token],
-        });
       }
     },
-    [ensureSessionForSend, stream.sendMessage, queryClient, auth.token],
+    [ensureSessionForSend, stream.sendMessage],
   );
 
   const handleOpenSession = useCallback(

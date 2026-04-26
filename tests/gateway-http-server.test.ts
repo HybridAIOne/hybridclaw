@@ -881,6 +881,9 @@ async function importFreshHealth(options?: {
       },
     ],
   }));
+  const getGatewayAgentList = vi.fn(() => ({
+    agents: [{ id: 'main', name: 'Main Agent' }],
+  }));
   const getGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
     providerStatus: {},
@@ -1464,6 +1467,7 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
     GatewayRequestError,
+    getGatewayAgentList,
     getGatewayAgents,
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
@@ -1580,6 +1584,7 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
+    getGatewayAgentList,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -4702,6 +4707,22 @@ describe('gateway HTTP server', () => {
           fullAutoEnabled: true,
         },
       ],
+    });
+  });
+
+  test('returns lightweight agent list for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/agents/list' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAgentList).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAgents).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [{ id: 'main', name: 'Main Agent' }],
     });
   });
 

@@ -680,6 +680,15 @@ export interface GatewayAgentsResponse {
   sessions: GatewaySessionCard[];
 }
 
+export interface GatewayAgentListItem {
+  id: string;
+  name: string | null;
+}
+
+export interface GatewayAgentListResponse {
+  agents: GatewayAgentListItem[];
+}
+
 export interface GatewayAdminJobAgent {
   id: string;
   name: string | null;

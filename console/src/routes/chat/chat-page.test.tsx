@@ -23,7 +23,7 @@ import type {
   ChatRecentResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
-import type { AgentsOverview, GatewayStatus } from '../../api/types';
+import type { AgentListItem, GatewayStatus } from '../../api/types';
 import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
@@ -50,8 +50,7 @@ const createChatBranchMock =
   >();
 const uploadMediaMock =
   vi.fn<(token: string, file: File) => Promise<MediaUploadResponse>>();
-const fetchAgentsOverviewMock =
-  vi.fn<(token: string) => Promise<AgentsOverview>>();
+const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -78,7 +77,7 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../api/client', () => ({
-  fetchAgentsOverview: (token: string) => fetchAgentsOverviewMock(token),
+  fetchAgentList: (token: string) => fetchAgentListMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -141,7 +140,7 @@ describe('ChatPage', () => {
     fetchChatHistoryMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
-    fetchAgentsOverviewMock.mockReset();
+    fetchAgentListMock.mockReset();
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();
@@ -190,43 +189,10 @@ describe('ChatPage', () => {
             ],
       }),
     );
-    fetchAgentsOverviewMock.mockResolvedValue({
-      agents: [
-        {
-          id: 'main',
-          name: 'Assistant',
-          model: 'gpt-5',
-          chatbotId: null,
-          enableRag: null,
-          workspace: null,
-          workspacePath: '/tmp/main',
-          sessionCount: 1,
-          activeSessions: 0,
-          idleSessions: 1,
-          stoppedSessions: 0,
-          effectiveModels: ['gpt-5'],
-          lastActive: null,
-          status: 'idle',
-        },
-        {
-          id: 'charly',
-          name: 'Charly',
-          model: 'gpt-5',
-          chatbotId: null,
-          enableRag: null,
-          workspace: null,
-          workspacePath: '/tmp/charly',
-          sessionCount: 0,
-          activeSessions: 0,
-          idleSessions: 0,
-          stoppedSessions: 0,
-          effectiveModels: ['gpt-5'],
-          lastActive: null,
-          status: 'unused',
-        },
-      ],
-      sessions: [],
-    });
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'main', name: 'Assistant' },
+      { id: 'charly', name: 'Charly' },
+    ]);
     isActiveMock.mockReturnValue(false);
     useChatStreamMock.mockReturnValue({
       sendMessage: sendMessageMock,
@@ -295,7 +261,7 @@ describe('ChatPage', () => {
     renderChatPage();
 
     expect(await screen.findByText('Opened session A')).not.toBeNull();
-    await waitFor(() => expect(fetchAgentsOverviewMock).toHaveBeenCalled());
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
 
     fireEvent.change(screen.getByLabelText('Switch agent'), {
       target: { value: 'charly' },

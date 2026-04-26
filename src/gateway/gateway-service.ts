@@ -407,6 +407,7 @@ import {
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
+  type GatewayAgentListResponse,
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
   type GatewayChatRequest,
@@ -6016,6 +6017,15 @@ export function getGatewayHistory(
     mainSessionKey: page.mainSessionKey,
     history,
     branchFamilies: page.branchFamilies,
+  };
+}
+
+export function getGatewayAgentList(): GatewayAgentListResponse {
+  return {
+    agents: listAgents().map((agent) => ({
+      id: agent.id,
+      name: agent.name || null,
+    })),
   };
 }
 
