@@ -588,6 +588,50 @@ export interface GatewayAdminOverview {
   };
 }
 
+export interface GatewayAdminStatisticsTrendDay {
+  date: string;
+  newSessions: number;
+  activeSessions: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  callCount: number;
+  toolCalls: number;
+  costUsd: number;
+}
+
+export interface GatewayAdminStatisticsChannelRow {
+  channelId: string;
+  sessionCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+}
+
+export interface GatewayAdminStatisticsResponse {
+  rangeDays: number;
+  startDate: string;
+  endDate: string;
+  totals: {
+    newSessions: number;
+    activeSessions: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    callCount: number;
+    totalToolCalls: number;
+  };
+  trend: GatewayAdminStatisticsTrendDay[];
+  channels: GatewayAdminStatisticsChannelRow[];
+}
+
 export interface GatewaySessionCard {
   id: string;
   name: string;

@@ -145,14 +145,19 @@ import {
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
+  getStatisticsTotals,
   getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
+  listMessageTrendByDay,
   listSemanticMemoriesForSession,
+  listSessionTrendByDay,
+  listStatsByChannel,
   listStructuredAuditEntries,
   listUsageByAgent,
   listUsageByModel,
   listUsageBySession,
+  listUsageDailyBreakdown,
   pauseTask,
   recordRequestLog,
   recordUsageEvent,
@@ -382,6 +387,9 @@ import {
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
+  type GatewayAdminStatisticsChannelRow,
+  type GatewayAdminStatisticsResponse,
+  type GatewayAdminStatisticsTrendDay,
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
@@ -811,6 +819,7 @@ export type {
   GatewayAdminDeleteSessionResult,
   GatewayAdminOverview,
   GatewayAdminSession,
+  GatewayAdminStatisticsResponse,
   GatewayChatResult,
   GatewayCommandRequest,
   GatewayCommandResult,
@@ -3665,6 +3674,138 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
         .slice(0, 6)
         .map(mapModelUsageRow),
     },
+  };
+}
+
+const STATISTICS_MIN_DAYS = 1;
+const STATISTICS_MAX_DAYS = 90;
+const STATISTICS_DEFAULT_DAYS = 30;
+
+function normalizeStatisticsDays(raw: number | string | undefined): number {
+  const parsed =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim()
+        ? Number.parseInt(raw, 10)
+        : STATISTICS_DEFAULT_DAYS;
+  if (!Number.isFinite(parsed)) {
+    return STATISTICS_DEFAULT_DAYS;
+  }
+  return Math.max(
+    STATISTICS_MIN_DAYS,
+    Math.min(STATISTICS_MAX_DAYS, Math.floor(parsed)),
+  );
+}
+
+function toIsoDate(daysOffsetFromToday: number): string {
+  const now = new Date();
+  now.setUTCHours(0, 0, 0, 0);
+  now.setUTCDate(now.getUTCDate() + daysOffsetFromToday);
+  return now.toISOString().slice(0, 10);
+}
+
+export function getGatewayAdminStatistics(params?: {
+  days?: number | string;
+}): GatewayAdminStatisticsResponse {
+  const days = normalizeStatisticsDays(params?.days);
+
+  const messageTrend = listMessageTrendByDay({ days });
+  const sessionTrend = listSessionTrendByDay({ days });
+  const usageTrend = listUsageDailyBreakdown({ days });
+  const channelRows = listStatsByChannel({ days });
+  const totals = getStatisticsTotals({ days });
+
+  const trendByDay = new Map<string, GatewayAdminStatisticsTrendDay>();
+  const ensureDay = (day: string): GatewayAdminStatisticsTrendDay => {
+    const existing = trendByDay.get(day);
+    if (existing) return existing;
+    const created: GatewayAdminStatisticsTrendDay = {
+      date: day,
+      newSessions: 0,
+      activeSessions: 0,
+      userMessages: 0,
+      assistantMessages: 0,
+      totalMessages: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      callCount: 0,
+      toolCalls: 0,
+      costUsd: 0,
+    };
+    trendByDay.set(day, created);
+    return created;
+  };
+
+  for (const row of messageTrend) {
+    const day = ensureDay(row.day);
+    day.userMessages = row.user_messages;
+    day.assistantMessages = row.assistant_messages;
+    day.totalMessages = row.total_messages;
+  }
+  for (const row of sessionTrend) {
+    const day = ensureDay(row.day);
+    day.newSessions = row.new_sessions;
+    day.activeSessions = row.active_sessions;
+  }
+  for (const row of usageTrend) {
+    const day = ensureDay(row.day);
+    day.inputTokens = row.total_input_tokens;
+    day.outputTokens = row.total_output_tokens;
+    day.totalTokens = row.total_tokens;
+    day.callCount = row.call_count;
+    day.toolCalls = row.total_tool_calls;
+    day.costUsd = row.total_cost_usd;
+  }
+
+  const trend = Array.from(trendByDay.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+
+  const usageTotals = trend.reduce(
+    (acc, day) => {
+      acc.totalInputTokens += day.inputTokens;
+      acc.totalOutputTokens += day.outputTokens;
+      acc.totalTokens += day.totalTokens;
+      acc.totalCostUsd += day.costUsd;
+      acc.callCount += day.callCount;
+      acc.totalToolCalls += day.toolCalls;
+      return acc;
+    },
+    {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
+      totalCostUsd: 0,
+      callCount: 0,
+      totalToolCalls: 0,
+    },
+  );
+
+  const channels: GatewayAdminStatisticsChannelRow[] = channelRows.map(
+    (row) => ({
+      channelId: row.channel_id || '(unknown)',
+      sessionCount: row.session_count,
+      userMessages: row.user_messages,
+      assistantMessages: row.assistant_messages,
+      totalMessages: row.total_messages,
+    }),
+  );
+
+  return {
+    rangeDays: days,
+    startDate: toIsoDate(-(days - 1)),
+    endDate: toIsoDate(0),
+    totals: {
+      newSessions: totals.new_sessions,
+      activeSessions: totals.active_sessions,
+      totalMessages: totals.total_messages,
+      userMessages: totals.user_messages,
+      assistantMessages: totals.assistant_messages,
+      ...usageTotals,
+    },
+    trend,
+    channels,
   };
 }
 
