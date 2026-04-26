@@ -40,7 +40,6 @@ import {
   createFreshSessionInstance,
   getTasksForSession,
   logAudit,
-  recordUsageEvent,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
@@ -69,6 +68,7 @@ import {
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
+import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { buildConciergeChoiceComponents } from './concierge-choice.js';
@@ -1171,7 +1171,7 @@ async function handleGatewayMessageInner(
         ...usagePayload,
       },
     });
-    recordUsageEvent({
+    enqueueTokenUsage({
       sessionId: req.sessionId,
       agentId,
       model,
@@ -1180,6 +1180,7 @@ async function handleGatewayMessageInner(
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: toolExecutions.length,
       costUsd: extractUsageCostUsd(output.tokenUsage),
+      auditRunId: runId,
     });
     if (observedSkillName) {
       try {

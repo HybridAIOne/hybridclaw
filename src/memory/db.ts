@@ -3186,6 +3186,96 @@ export function recordUsageEvent(params: {
   );
 }
 
+export interface RecordUsageEventBatchEntry {
+  sessionId: string;
+  agentId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens?: number;
+  toolCalls?: number;
+  costUsd?: number;
+  timestamp?: string;
+}
+
+/**
+ * Bulk-insert usage events inside a single SQLite transaction.
+ *
+ * Used by the asynchronous token-usage buffer to amortize the write cost
+ * of high-frequency model invocations. Each row is normalized identically
+ * to {@link recordUsageEvent}; rows with missing session/agent ids are
+ * silently dropped to preserve drop-on-the-floor semantics.
+ */
+export function recordUsageEventBatch(
+  entries: RecordUsageEventBatchEntry[],
+): void {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+
+  type NormalizedRow = {
+    id: string;
+    sessionId: string;
+    agentId: string;
+    timestamp: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUsd: number;
+    toolCalls: number;
+  };
+
+  const normalized: NormalizedRow[] = [];
+  for (const entry of entries) {
+    const sessionId = resolveSessionIdCompat(entry.sessionId.trim());
+    const agentId = entry.agentId.trim();
+    if (!sessionId || !agentId) continue;
+    const inputTokens = normalizeUsageNumber(entry.inputTokens);
+    const outputTokens = normalizeUsageNumber(entry.outputTokens);
+    const totalTokens = normalizeUsageNumber(
+      entry.totalTokens ?? inputTokens + outputTokens,
+    );
+    normalized.push({
+      id: randomUUID(),
+      sessionId,
+      agentId,
+      timestamp:
+        typeof entry.timestamp === 'string' && entry.timestamp.trim()
+          ? entry.timestamp.trim()
+          : new Date().toISOString(),
+      model: entry.model.trim() || 'unknown',
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      costUsd: normalizeUsageCost(entry.costUsd),
+      toolCalls: normalizeUsageNumber(entry.toolCalls),
+    });
+  }
+  if (normalized.length === 0) return;
+
+  const insert = db.prepare(
+    `INSERT INTO usage_events
+      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const transaction = db.transaction((rows: NormalizedRow[]) => {
+    for (const row of rows) {
+      insert.run(
+        row.id,
+        row.sessionId,
+        row.agentId,
+        row.timestamp,
+        row.model,
+        row.inputTokens,
+        row.outputTokens,
+        row.totalTokens,
+        row.costUsd,
+        row.toolCalls,
+      );
+    }
+  });
+  transaction(normalized);
+}
+
 function serializeRequestLogJson(value: unknown): string | null {
   if (value == null) return null;
   try {

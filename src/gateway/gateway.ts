@@ -132,6 +132,10 @@ import {
   type EscalationTarget,
   normalizeEscalationTarget,
 } from '../types/execution.js';
+import {
+  startTokenUsageBuffer,
+  stopTokenUsageBuffer,
+} from '../usage/token-usage-buffer.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
@@ -2855,6 +2859,9 @@ function setupShutdown(broadcastShutdown: () => void): void {
     );
     stopHeartbeat();
     stopObservabilityIngest();
+    await stopTokenUsageBuffer().catch((error) => {
+      logger.debug({ error }, 'Failed to drain token usage buffer at shutdown');
+    });
     stopDiscoveryLoop();
     if (!opts?.drain) {
       stopAllExecutions();
@@ -3071,6 +3078,7 @@ async function main(): Promise<void> {
 
   startOrRestartHeartbeat();
   startObservabilityIngest();
+  startTokenUsageBuffer();
   startDiscoveryLoop();
   void localBackendsProbe.get().catch((err) => {
     logger.warn({ err }, 'Startup warm-up of local backends probe failed');

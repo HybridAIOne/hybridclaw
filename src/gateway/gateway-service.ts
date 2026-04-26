@@ -186,7 +186,6 @@ import {
   listUsageDailyBreakdown,
   pauseTask,
   recordRequestLog,
-  recordUsageEvent,
   resumeTask,
   setMemoryValue,
   updateSessionAgent,
@@ -321,6 +320,7 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import {
   dedupeStrings,
@@ -837,7 +837,7 @@ function persistDelegationAttempt(params: {
         ...usagePayload,
       },
     });
-    recordUsageEvent({
+    enqueueTokenUsage({
       sessionId: params.sessionId,
       agentId: 'delegate',
       model: params.model,
@@ -846,6 +846,7 @@ function persistDelegationAttempt(params: {
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: toolCallCount,
       costUsd: extractUsageCostUsd(params.output.tokenUsage),
+      auditRunId: runId,
     });
   }
   maybeRecordGatewayRequestLog({
@@ -6163,7 +6164,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         ...usagePayload,
       },
     });
-    recordUsageEvent({
+    enqueueTokenUsage({
       sessionId: session.id,
       agentId: resolved.agentId,
       model: resolved.model,
@@ -6172,6 +6173,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: (output.toolExecutions || []).length,
       costUsd: extractUsageCostUsd(output.tokenUsage),
+      auditRunId: runId,
     });
 
     if (output.status !== 'success' || !resultText) {
