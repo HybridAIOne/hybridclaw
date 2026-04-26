@@ -90,6 +90,55 @@ process.stdout.write(JSON.stringify({
   return scriptPath;
 }
 
+function createAgentBrowserHeadedEnvStub(
+  root: string,
+  logPath: string,
+): string {
+  const scriptPath = path.join(root, 'agent-browser-headed-env-stub.mjs');
+  fs.writeFileSync(
+    scriptPath,
+    `#!/usr/bin/env node
+import fs from 'node:fs';
+
+const args = process.argv.slice(2);
+const jsonIndex = args.indexOf('--json');
+const command = jsonIndex >= 0 ? args[jsonIndex + 1] : '';
+const commandArgs = jsonIndex >= 0 ? args.slice(jsonIndex + 2) : [];
+const record = {
+  command,
+  commandArgs,
+  headed: process.env.AGENT_BROWSER_HEADED || null
+};
+fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(record) + '\\n');
+
+if (command === 'eval') {
+  process.stdout.write(JSON.stringify({
+    data: {
+      text_length: 0,
+      preview: '',
+      preview_truncated: false,
+      has_noscript: false,
+      root_shell: false,
+      ready_state: 'complete'
+    }
+  }));
+} else if (command === 'open') {
+  process.stdout.write(JSON.stringify({
+    data: {
+      url: commandArgs[0] || 'https://example.com/',
+      title: 'Example'
+    }
+  }));
+} else {
+  process.stdout.write(JSON.stringify({ data: {} }));
+}
+`,
+    'utf-8',
+  );
+  fs.chmodSync(scriptPath, 0o755);
+  return scriptPath;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -217,4 +266,90 @@ test('browser_snapshot prefers the host Playwright cache before the workspace ca
 
   expect(parsed.success).toBe(true);
   expect(envRecord.playwright).toBe(hostCacheDir);
+});
+
+test('browser_navigate can request a headed browser session', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-headed-'),
+  );
+  const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv(
+    'AGENT_BROWSER_BIN',
+    createAgentBrowserHeadedEnvStub(tempRoot, logPath),
+  );
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_navigate',
+    { url: 'https://example.com/', headed: true },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as { success: boolean; headed: boolean };
+  const records = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { command: string; headed: string });
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.headed).toBe(true);
+  expect(records.map((record) => record.command)).toEqual([
+    'open',
+    'eval',
+    'network',
+  ]);
+  expect(records.every((record) => record.headed === '1')).toBe(true);
+});
+
+test('browser_navigate relaunches when headed mode changes', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-headed-switch-'),
+  );
+  const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv(
+    'AGENT_BROWSER_BIN',
+    createAgentBrowserHeadedEnvStub(tempRoot, logPath),
+  );
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  await executeBrowserTool(
+    'browser_navigate',
+    { url: 'https://example.com/', headed: true },
+    'session-1',
+  );
+  const output = await executeBrowserTool(
+    'browser_navigate',
+    { url: 'https://example.com/', headed: false },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as { success: boolean; headed: boolean };
+  const records = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { command: string; headed: string });
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.headed).toBe(false);
+  expect(records.map((record) => record.command)).toEqual([
+    'open',
+    'eval',
+    'network',
+    'close',
+    'open',
+    'eval',
+    'network',
+  ]);
+  expect(records.slice(0, 4).every((record) => record.headed === '1')).toBe(
+    true,
+  );
+  expect(records.slice(4).every((record) => record.headed === '0')).toBe(true);
 });

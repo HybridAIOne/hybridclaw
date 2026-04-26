@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -198,6 +199,7 @@ type BrowserSession = {
   socketDir: string;
   profileDir?: string;
   stateName?: string;
+  headed: boolean;
   createdAt: number;
   lastUsedAt: number;
 };
@@ -319,6 +321,14 @@ function shouldPersistSessionState(): boolean {
   return envFlagEnabled('BROWSER_PERSIST_SESSION_STATE', true);
 }
 
+function shouldLaunchHeaded(): boolean {
+  return (
+    envFlagEnabled('BROWSER_HEADFUL', false) ||
+    envFlagEnabled('BROWSER_HEADED', false) ||
+    envFlagEnabled('AGENT_BROWSER_HEADED', false)
+  );
+}
+
 function resolveProfileRoot(): string {
   const configured = String(process.env.BROWSER_PROFILE_ROOT || '').trim();
   if (!configured) return ensureWritableDir(BROWSER_PROFILE_ROOT);
@@ -398,7 +408,10 @@ function resolveRunner(): BrowserRunner | null {
   return cachedRunner;
 }
 
-function getSession(sessionId: string): BrowserSession {
+function getSession(
+  sessionId: string,
+  options: { headed?: boolean } = {},
+): BrowserSession {
   const sessionKey = normalizeSessionKey(sessionId);
   const existing = activeSessions.get(sessionKey);
   if (existing) {
@@ -437,11 +450,23 @@ function getSession(sessionId: string): BrowserSession {
     socketDir,
     profileDir,
     stateName,
+    headed: options.headed ?? shouldLaunchHeaded(),
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
   };
   activeSessions.set(sessionKey, session);
   return session;
+}
+
+async function prepareSessionMode(
+  sessionId: string,
+  options: { headed?: boolean } = {},
+): Promise<void> {
+  if (options.headed == null) return;
+  const sessionKey = normalizeSessionKey(sessionId);
+  const existing = activeSessions.get(sessionKey);
+  if (!existing || existing.headed === options.headed) return;
+  await closeSession(sessionKey);
 }
 
 function ensureWritableDir(dirPath: string): string {
@@ -1298,7 +1323,7 @@ async function runAgentBrowser(
   sessionId: string,
   command: string,
   commandArgs: string[] = [],
-  options: { timeoutMs?: number; cdpUrl?: string } = {},
+  options: { timeoutMs?: number; cdpUrl?: string; headed?: boolean } = {},
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const runner = resolveRunner();
   if (!runner) {
@@ -1314,7 +1339,8 @@ async function runAgentBrowser(
     1_000,
     Math.min(options.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS, 180_000),
   );
-  const session = getSession(sessionId);
+  await prepareSessionMode(sessionId, { headed: options.headed });
+  const session = getSession(sessionId, { headed: options.headed });
   const homeDir = resolveWritableHome();
   const npmCacheDir = ensureWritableDir(BROWSER_NPM_CACHE);
   const xdgCacheDir = ensureWritableDir(BROWSER_XDG_CACHE);
@@ -1337,6 +1363,7 @@ async function runAgentBrowser(
     NPM_CONFIG_CACHE: npmCacheDir,
     npm_config_cache: npmCacheDir,
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
+    AGENT_BROWSER_HEADED: session.headed ? '1' : '0',
   };
   if (session.stateName) {
     browserEnv.AGENT_BROWSER_SESSION_NAME = session.stateName;
@@ -1422,11 +1449,12 @@ export async function executeBrowserTool(
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertNavigationUrl(args.url);
+        const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,
           'open',
           [parsed.toString()],
-          { timeoutMs: 60_000 },
+          { timeoutMs: 60_000, headed },
         );
         if (!result.success)
           return failure(result.error || 'navigation failed');
@@ -1473,6 +1501,7 @@ export async function executeBrowserTool(
           ...(hasNoscript ? { has_noscript: true } : {}),
           ...(rootShell ? { root_shell: true } : {}),
           read_extraction_hint: extractionHint,
+          headed: getSession(effectiveSessionId).headed,
           ...(botWarning ? { bot_detection_warning: botWarning } : {}),
         });
       }
@@ -1917,13 +1946,18 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_navigate',
       description:
-        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
+        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. If the user asks for a visible/headed/headful browser window, pass headed=true; the setting persists for the browser session and may require a local display. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
       parameters: {
         type: 'object',
         properties: {
           url: {
             type: 'string',
             description: 'URL to open (http:// or https://)',
+          },
+          headed: {
+            type: 'boolean',
+            description:
+              'Use a visible browser window when the user explicitly requests headful/headed browser control.',
           },
         },
         required: ['url'],
