@@ -495,11 +495,6 @@ async function importFreshHealth(options?: {
       deletedCount: 1,
     },
   }));
-  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
-    agentId: 'charly',
-    displayName: 'Charly',
-    imageUrl: '/api/agent-avatar?agentId=charly',
-  }));
   const getGatewayBootstrapAutostartState = vi.fn(() => null);
   const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
   const getAgentById = vi.fn((agentId: string) =>
@@ -1490,7 +1485,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminSkills,
     getGatewayAdminTools,
-    getGatewayAssistantPresentationForSession,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -1586,7 +1580,6 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
-    getGatewayAssistantPresentationForSession,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
@@ -3415,11 +3408,6 @@ describe('gateway HTTP server', () => {
       sessionId: 's1',
       sessionKey: undefined,
       mainSessionKey: undefined,
-      assistantPresentation: {
-        agentId: 'charly',
-        displayName: 'Charly',
-        imageUrl: '/api/agent-avatar?agentId=charly',
-      },
       bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },

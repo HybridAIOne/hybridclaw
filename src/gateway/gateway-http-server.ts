@@ -148,7 +148,6 @@ import {
   getGatewayAdminSkills,
   getGatewayAdminTools,
   getGatewayAgents,
-  getGatewayAssistantPresentationForSession,
   getGatewayBootstrapAutostartState,
   getGatewayHistory,
   getGatewayHistorySummary,
@@ -1766,7 +1765,6 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
-    assistantPresentation: getGatewayAssistantPresentationForSession(sessionId),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }

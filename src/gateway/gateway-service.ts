@@ -2638,15 +2638,6 @@ export function getGatewayAssistantPresentationForAgent(
   };
 }
 
-export function getGatewayAssistantPresentationForSession(
-  sessionId: string,
-): GatewayAssistantPresentation {
-  const session = memoryService.getSessionById(sessionId);
-  return getGatewayAssistantPresentationForAgent(
-    session ? resolveSessionAgentId(session) : DEFAULT_AGENT_ID,
-  );
-}
-
 export function getGatewayAssistantPresentationForMessageAgent(
   agentId?: string | null,
 ): GatewayAssistantPresentation | undefined {

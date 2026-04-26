@@ -281,7 +281,6 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
-  assistantPresentation?: GatewayAssistantPresentation;
   bootstrapAutostart?: {
     status: 'idle' | 'starting' | 'completed';
     fileName: 'BOOTSTRAP.md' | 'OPENING.md';

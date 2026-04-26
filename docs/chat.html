@@ -1637,7 +1637,6 @@
     let activeChatRequest = null;
     let activeConcurrentBtwRequest = null;
     let activeEditState = null;
-    let activeAssistantPresentation = null;
     let slashSuggestionsVersion = 0;
     let slashFetchBackoffUntil = 0;
     let slashDebounceTimer = 0;
@@ -3205,10 +3204,7 @@
       let artifactsBlock = null;
       if (role === 'assistant') {
         item.classList.add('markdown');
-        appendAssistantPresentation(
-          item,
-          options.assistantPresentation || activeAssistantPresentation,
-        );
+        appendAssistantPresentation(item, options.assistantPresentation);
         contentEl = document.createElement('div');
         contentEl.className = 'msg-content';
         contentEl.innerHTML = renderMarkdown(content || '');
@@ -3710,7 +3706,6 @@
       const preservePendingBootstrap = options.preservePendingBootstrap === true;
       const bootstrapAttempt = Number(options.bootstrapAttempt) || 0;
       activeEditState = null;
-      activeAssistantPresentation = null;
       savePrefs();
       setError('');
       pruneBranchStateForSession(activeSessionId);
@@ -3731,8 +3726,7 @@
           activeSessionId = nextSessionId;
           savePrefs();
         }
-        activeAssistantPresentation = normalizeAssistantPresentation(payload.assistantPresentation);
-        const restoredAgentId = normalizeAgentId(activeAssistantPresentation?.agentId);
+        const restoredAgentId = resolveWebSessionAgentId(activeSessionId);
         if (
           initialStoredRestorePending &&
           requestedSessionId &&
@@ -3788,7 +3782,7 @@
               sessionId: activeSessionId,
               messageId,
               replayRequest: lastUserPrompt,
-              assistantPresentation: activeAssistantPresentation,
+              assistantPresentation: normalizeAssistantPresentation(msg.assistantPresentation),
             });
             continue;
           }
