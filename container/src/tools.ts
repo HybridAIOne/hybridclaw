@@ -1270,14 +1270,14 @@ function formatPeerDelegateResponse(parsed: Record<string, unknown>): string {
       : '';
 
   if (status === 'error' || status === 'rejected') {
-    const detail = errorText || pendingApprovalSummary || 'no detail';
+    // The gateway-side handler maps pendingApproval onto status:'rejected', so
+    // approval-gated peer work always reaches us via this branch. Prefer the
+    // approval summary as the failure detail when present so the dispatching
+    // agent knows it has to escalate to its own operator.
+    const detail = pendingApprovalSummary || errorText || 'no detail';
     return failTool(
       `Peer delegation ${status}${peerInstanceId ? ` on ${peerInstanceId}` : ''}: ${detail}`,
     );
-  }
-
-  if (pendingApprovalSummary) {
-    return `Peer ${peerInstanceId || 'delegation'} paused for approval (${pendingApprovalSummary}). Surface this to the operator; the peer cannot prompt our user.`;
   }
 
   if (!result) {

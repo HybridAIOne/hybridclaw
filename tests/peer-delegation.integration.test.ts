@@ -281,6 +281,66 @@ describe('peer delegation', () => {
     expect(passed.sessionMode).toBe('new');
   });
 
+  it('rejects requests with non-string optional fields without crashing', async () => {
+    await withReceivingConfig(() => {});
+    const response = await fetch(
+      `http://127.0.0.1:${receivingPort}/api/peer/delegate`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${PEER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          taskId: 'task-bad',
+          parentInstanceId: 'caller',
+          content: 'hello',
+          agentId: 123,
+        }),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(handleGatewayMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('maps a peer-side pending approval to status:"rejected" with a summary', async () => {
+    await withReceivingConfig(() => {});
+    handleGatewayMessageMock.mockResolvedValueOnce({
+      status: 'success',
+      result: null,
+      toolsUsed: [],
+      pendingApproval: { toolName: 'bash', prompt: 'rm -rf /tmp/foo' },
+      sessionId: 'peer:hc-dispatching-token:approval-1',
+    });
+
+    const response = await fetch(
+      `http://127.0.0.1:${receivingPort}/api/peer/delegate`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${PEER_TOKEN}`,
+        },
+        body: JSON.stringify({
+          taskId: 'approval-1',
+          parentInstanceId: 'caller',
+          content: 'something destructive',
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      status: string;
+      result: string | null;
+      pendingApprovalSummary: string;
+    };
+    expect(body.status).toBe('rejected');
+    expect(body.result).toBeNull();
+    expect(body.pendingApprovalSummary).toContain('bash');
+    expect(body.pendingApprovalSummary).toContain('rm -rf /tmp/foo');
+  });
+
   it('end-to-end proxy: dispatching HC → receiving HC, returns peer result', async () => {
     // First switch to dispatching config so the proxy can resolve the peer URL.
     await withDispatchingConfig(() => {});
@@ -307,9 +367,9 @@ describe('peer delegation', () => {
 
     // The proxy will hit the receiving server using the shared PEERS_CONFIG.
     // Because PEERS_CONFIG was last set to dispatching (no inboundTokens),
-    // the receiving handler will reject. We verify that 502 surfaces correctly,
-    // and then re-run with receiving config to verify the success path.
-    expect([200, 502]).toContain(proxyResponse.status);
+    // the receiving handler must reject; the proxy must surface that as 502.
+    // Locking this to 502 keeps an auth-bypass regression from sneaking past.
+    expect(proxyResponse.status).toBe(502);
 
     // Re-run, this time temporarily flipping config so the receiving handler
     // accepts the request when it runs synchronously inside the same test.

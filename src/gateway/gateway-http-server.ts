@@ -57,7 +57,6 @@ import {
 import { claimQueuedProactiveMessages } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
-  buildPeerAgentCard,
   handlePeerAgentCard,
   handlePeerInboundDelegate,
   handlePeerOutboundProxy,
@@ -3719,10 +3718,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/peer/proxy' && method === 'POST') {
             await handlePeerOutboundProxy(req, res);
-            return;
-          }
-          if (pathname === '/api/peers' && method === 'GET') {
-            sendJson(res, 200, buildPeerAgentCard());
             return;
           }
           sendJson(res, 404, { error: 'Not Found' });

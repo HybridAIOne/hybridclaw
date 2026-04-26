@@ -122,10 +122,21 @@ export async function delegateToPeer(
     getDefaultOutboundTimeoutMs();
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+  // Forward an externally-supplied AbortSignal to our controller, but make sure
+  // to drop the listener once the request settles so a long-lived signal that
+  // outlives many delegations doesn't accumulate listeners.
+  const onExternalAbort = (): void => controller.abort();
   if (options.signal) {
     if (options.signal.aborted) controller.abort();
-    else options.signal.addEventListener('abort', () => controller.abort());
+    else
+      options.signal.addEventListener('abort', onExternalAbort, { once: true });
   }
+  const cleanup = (): void => {
+    clearTimeout(timeoutHandle);
+    if (options.signal) {
+      options.signal.removeEventListener('abort', onExternalAbort);
+    }
+  };
 
   let response: Response;
   try {
@@ -140,7 +151,7 @@ export async function delegateToPeer(
       signal: controller.signal,
     });
   } catch (err) {
-    clearTimeout(timeoutHandle);
+    cleanup();
     if ((err as Error).name === 'AbortError') {
       throw new Error(
         `Peer "${peer.id}" delegation timed out after ${timeoutMs}ms`,
@@ -152,7 +163,7 @@ export async function delegateToPeer(
       }`,
     );
   }
-  clearTimeout(timeoutHandle);
+  cleanup();
 
   const text = await response.text();
   let parsed: unknown = null;

@@ -55,7 +55,11 @@ function safeAuditAppend(input: Parameters<typeof appendAuditEvent>[0]): void {
 function buildPeerSessionId(peerInstanceLabel: string, taskId: string): string {
   const safeLabel = peerInstanceLabel.replace(/[^a-zA-Z0-9_-]/g, '_') || 'peer';
   const safeTaskId = taskId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
-  return `peer:${safeLabel}:${safeTaskId}`;
+  // Two callers can supply taskIds that collapse to the same sanitized string
+  // (e.g. all unicode), which would mix audit history. Fall back to a fresh
+  // UUID so each delegation gets its own session id.
+  const taskSuffix = safeTaskId || randomUUID();
+  return `peer:${safeLabel}:${taskSuffix}`;
 }
 
 export function buildPeerAgentCard(): PeerAgentCard {
@@ -82,18 +86,29 @@ export function handlePeerAgentCard(res: ServerResponse): void {
   sendJson(res, 200, buildPeerAgentCard());
 }
 
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'string';
+}
+
+function isOptionalFiniteNumber(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function isPeerDelegateRequestBody(
   value: unknown,
 ): value is PeerDelegateRequest {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.taskId === 'string' &&
-    v.taskId.length > 0 &&
-    typeof v.parentInstanceId === 'string' &&
-    typeof v.content === 'string' &&
-    v.content.length > 0
-  );
+  if (typeof v.taskId !== 'string' || v.taskId.length === 0) return false;
+  if (typeof v.parentInstanceId !== 'string') return false;
+  if (typeof v.content !== 'string' || v.content.length === 0) return false;
+  if (!isOptionalString(v.parentRunId)) return false;
+  if (!isOptionalString(v.parentSessionId)) return false;
+  if (!isOptionalString(v.agentId)) return false;
+  if (!isOptionalString(v.model)) return false;
+  if (!isOptionalFiniteNumber(v.timeoutMs)) return false;
+  return true;
 }
 
 export async function handlePeerInboundDelegate(
@@ -195,13 +210,22 @@ export async function handlePeerInboundDelegate(
       ? buildPendingApprovalSummary(result.pendingApproval)
       : null;
 
+    // Approval-gated peer work cannot complete without operator action on the
+    // peer side, and the dispatcher cannot answer the prompt remotely. Surface
+    // it as a rejection so callers treat it as blocked work — keeping the
+    // wire status, container tool, and docs consistent.
+    const wireStatus: PeerDelegateResponse['status'] = pendingApprovalSummary
+      ? 'rejected'
+      : result.status;
+    const wireResult = pendingApprovalSummary ? null : (result.result ?? null);
+
     response = {
       taskId: body.taskId,
       peerInstanceId: getInstanceId(),
       peerRunId,
       peerSessionId: result.sessionId || sessionId,
-      status: result.status,
-      result: result.result ?? null,
+      status: wireStatus,
+      result: wireResult,
       toolsUsed: result.toolsUsed,
       agentId: result.agentId,
       model: result.model,
@@ -218,10 +242,10 @@ export async function handlePeerInboundDelegate(
       event: {
         type: 'peer.delegate.completed',
         taskId: body.taskId,
-        status: result.status,
+        status: wireStatus,
         toolsUsed: result.toolsUsed,
         pendingApproval: Boolean(pendingApprovalSummary),
-        resultLength: result.result?.length || 0,
+        resultLength: wireResult?.length || 0,
       },
     });
   } catch (err) {

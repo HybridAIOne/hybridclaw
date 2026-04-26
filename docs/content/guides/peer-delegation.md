@@ -137,8 +137,12 @@ you replay an incident.
 - **Synchronous only**: the dispatcher waits for the peer to finish (capped by
   `timeoutMs`). For very long tasks consider running them on the peer side
   via the scheduler and pulling results separately.
-- **No approval forwarding**: peer-side approval prompts surface as failures
-  on the dispatcher.
+- **No approval forwarding**: when peer-side work would need an approval, the
+  receiver returns `status: "rejected"` with the prompt in
+  `pendingApprovalSummary` (instead of forwarding the prompt over the wire).
+  The `delegate_to_peer` tool surfaces this as a failure on the dispatcher so
+  the dispatching agent escalates to its own operator; the approval still has
+  to be completed on the peer side before the call can succeed on retry.
 - **No nested peer hops by default**: peer-delegated sub-agents run with the
   base sub-agent toolset (no `delegate_to_peer`) to prevent unbounded
   cross-instance fan-out.
