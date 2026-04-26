@@ -46,7 +46,7 @@ interface ContextRingProps {
 export function ContextRing(props: ContextRingProps) {
   const auth = useAuth();
   const sessionId = props.sessionId;
-  const enabled = Boolean(auth.token) && Boolean(sessionId);
+  const enabled = Boolean(sessionId);
   const query = useQuery({
     queryKey: ['chat-context', auth.token, sessionId],
     queryFn: () => fetchChatContext(auth.token, sessionId),
