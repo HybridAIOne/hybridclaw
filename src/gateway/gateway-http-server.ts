@@ -3358,7 +3358,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (pathname === '/chat.html') {
-      sendRedirect(res, 301, '/chat');
+      // Preserve the query string so legacy `/chat.html?token=…` launch
+      // links keep handing the token off to the React console, which reads
+      // it from `window.location.search` (see `readStoredToken`).
+      sendRedirect(res, 301, `/chat${url.search}`);
       return;
     }
 

@@ -57,7 +57,9 @@ COPY --link --from=builder /app/console/dist ./console/dist
 COPY --link --from=builder /app/container/dist ./container/dist
 COPY --link --from=builder /app/container/shared ./container/shared
 
-# SPA pages served by the gateway (/agents, /) and the markdown docs site (/docs)
+# Gateway-served static content from docs/: /about (index.html), /agents
+# (agents.html), the /docs markdown site, and shared favicons/images.
+# (The /chat and /admin SPA is the console/dist/ bundle copied separately.)
 COPY --link docs/ ./docs/
 
 # Runtime templates and skills
