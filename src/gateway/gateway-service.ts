@@ -6000,9 +6000,12 @@ export function getGatewayHistory(
       const content = stripSilentToken(message.content);
       const assistantPresentation =
         getGatewayAssistantPresentationForMessageAgent(message.agent_id);
+      if (content === message.content && !assistantPresentation) {
+        return message;
+      }
       return {
         ...message,
-        ...(content === message.content ? {} : { content }),
+        ...(content !== message.content ? { content } : {}),
         ...(assistantPresentation ? { assistantPresentation } : {}),
       };
     })
