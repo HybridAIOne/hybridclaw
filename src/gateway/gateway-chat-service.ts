@@ -1238,6 +1238,7 @@ async function handleGatewayMessageInner(
     const normalizedResult = normalizeSilentMessageSendReply({
       status: 'success',
       result: unnormalizedResultText,
+      toolsUsed: output.toolsUsed || [],
       toolExecutions,
     });
     const resultText = String(
