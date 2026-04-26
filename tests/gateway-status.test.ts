@@ -208,7 +208,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: 8,
+    modelCount: 9,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -308,7 +308,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
   const result = await getGatewayAdminModels();
 
   expect(result.providerStatus?.codex).toMatchObject({
-    modelCount: 8,
+    modelCount: 9,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
