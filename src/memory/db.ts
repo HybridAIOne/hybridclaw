@@ -7,7 +7,7 @@ import type {
   AgentCv,
   AgentModelConfig,
 } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { DEFAULT_AGENT_ID, normalizeAgentCv } from '../agents/agent-types.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
@@ -1931,20 +1931,8 @@ function serializeAgentSkillsConfig(skills?: string[]): string | null {
 }
 
 function serializeAgentCv(cv: AgentCv | undefined): string | null {
-  if (!cv) return null;
-  const summary = cv.summary?.trim() || '';
-  const background = cv.background?.trim() || '';
-  const asset = cv.asset?.trim() || '';
-  const capabilities = Array.isArray(cv.capabilities)
-    ? normalizeTrimmedUniqueStringArray(cv.capabilities)
-    : [];
-  const payload: AgentCv = {
-    ...(summary ? { summary } : {}),
-    ...(background ? { background } : {}),
-    ...(capabilities.length > 0 ? { capabilities } : {}),
-    ...(asset ? { asset } : {}),
-  };
-  return Object.keys(payload).length > 0 ? JSON.stringify(payload) : null;
+  const normalized = normalizeAgentCv(cv);
+  return normalized ? JSON.stringify(normalized) : null;
 }
 
 function parseAgentCv(rawCv: string | null): AgentCv | undefined {
@@ -1952,41 +1940,10 @@ function parseAgentCv(rawCv: string | null): AgentCv | undefined {
   if (!normalized) return undefined;
 
   try {
-    const parsed = JSON.parse(normalized) as unknown;
-    if (typeof parsed === 'string') {
-      const asset = parsed.trim();
-      return asset ? { asset } : undefined;
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return undefined;
-    }
-    const raw = parsed as {
-      summary?: unknown;
-      background?: unknown;
-      capabilities?: unknown;
-      asset?: unknown;
-    };
-    const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
-    const background =
-      typeof raw.background === 'string' ? raw.background.trim() : '';
-    const asset = typeof raw.asset === 'string' ? raw.asset.trim() : '';
-    const capabilities = Array.isArray(raw.capabilities)
-      ? normalizeTrimmedUniqueStringArray(
-          raw.capabilities.filter(
-            (entry): entry is string => typeof entry === 'string',
-          ),
-        )
-      : [];
-    const cv: AgentCv = {
-      ...(summary ? { summary } : {}),
-      ...(background ? { background } : {}),
-      ...(capabilities.length > 0 ? { capabilities } : {}),
-      ...(asset ? { asset } : {}),
-    };
-    return Object.keys(cv).length > 0 ? cv : undefined;
+    return normalizeAgentCv(JSON.parse(normalized));
   } catch {
     logger.warn(
-      { rawCv: normalized },
+      { rawCvLength: normalized.length },
       'Failed to parse persisted agent CV configuration',
     );
     return undefined;

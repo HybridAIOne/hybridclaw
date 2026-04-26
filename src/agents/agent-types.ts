@@ -1,3 +1,8 @@
+import {
+  normalizeTrimmedString,
+  normalizeTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
+
 export const DEFAULT_AGENT_ID = 'main';
 
 export type AgentModelConfig =
@@ -53,7 +58,7 @@ export function buildOptionalAgentPresentation(
 
 export function normalizeAgentCv(value: unknown): AgentCv | undefined {
   if (typeof value === 'string') {
-    const asset = value.trim();
+    const asset = normalizeTrimmedString(value);
     return asset ? { asset } : undefined;
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -65,19 +70,11 @@ export function normalizeAgentCv(value: unknown): AgentCv | undefined {
     capabilities?: unknown;
     asset?: unknown;
   };
-  const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
-  const background =
-    typeof raw.background === 'string' ? raw.background.trim() : '';
-  const asset = typeof raw.asset === 'string' ? raw.asset.trim() : '';
+  const summary = normalizeTrimmedString(raw.summary);
+  const background = normalizeTrimmedString(raw.background);
+  const asset = normalizeTrimmedString(raw.asset);
   const capabilities = Array.isArray(raw.capabilities)
-    ? Array.from(
-        new Set(
-          raw.capabilities
-            .filter((entry): entry is string => typeof entry === 'string')
-            .map((entry) => entry.trim())
-            .filter(Boolean),
-        ),
-      )
+    ? normalizeTrimmedUniqueStringArray(raw.capabilities)
     : [];
   const cv: AgentCv = {
     ...(summary ? { summary } : {}),
