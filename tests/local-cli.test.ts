@@ -706,6 +706,68 @@ test('channels whatsapp setup configures self-chat-only mode by default', async 
   expect(logSpy).not.toHaveBeenCalledWith('Next:');
 });
 
+test('channels signal setup configures allowlisted DMs', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'channels',
+    'signal',
+    'setup',
+    '--daemon-url',
+    '127.0.0.1:8080',
+    '--account',
+    '+14155550123',
+    '--allow-from',
+    '+14155551212',
+    '--group-policy',
+    'disabled',
+    '--text-chunk-limit',
+    '3500',
+    '--reconnect-interval-ms',
+    '2500',
+    '--outbound-delay-ms',
+    '125',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.signal.enabled).toBe(true);
+  expect(config.signal.daemonUrl).toBe('http://127.0.0.1:8080');
+  expect(config.signal.account).toBe('+14155550123');
+  expect(config.signal.dmPolicy).toBe('allowlist');
+  expect(config.signal.groupPolicy).toBe('disabled');
+  expect(config.signal.allowFrom).toEqual(['+14155551212']);
+  expect(config.signal.groupAllowFrom).toEqual([]);
+  expect(config.signal.textChunkLimit).toBe(3500);
+  expect(config.signal.reconnectIntervalMs).toBe(2500);
+  expect(config.signal.outboundDelayMs).toBe(125);
+  expect(logSpy).toHaveBeenCalledWith('Signal mode: enabled');
+});
+
+test('channels signal setup supports open DM policy with default daemon URL', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'channels',
+    'signal',
+    'setup',
+    '--account',
+    '+14155550123',
+    '--dm-policy',
+    'open',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.signal.enabled).toBe(true);
+  expect(config.signal.daemonUrl).toBe('http://127.0.0.1:8080');
+  expect(config.signal.account).toBe('+14155550123');
+  expect(config.signal.dmPolicy).toBe('open');
+  expect(config.signal.groupPolicy).toBe('disabled');
+  expect(config.signal.allowFrom).toEqual([]);
+});
+
 test('channels whatsapp setup normalizes allowlisted DM numbers', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

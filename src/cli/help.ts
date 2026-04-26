@@ -15,7 +15,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Slack, Telegram, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, Signal, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -287,6 +287,7 @@ Commands:
   hybridclaw channels slack manifest [--format <yaml|json>]
   hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
+  hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
@@ -297,6 +298,7 @@ Notes:
   - Telegram setup stores \`TELEGRAM_BOT_TOKEN\` only when \`--token\` is provided or pasted interactively.
   - Telegram defaults to inbound deny-by-default: without \`--allow-from\` or \`--dm-policy open\`, DMs stay disabled.
   - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
+  - Signal setup uses a signal-cli linked device; link with \`signal-cli link -n HybridClaw\`, start the daemon, then configure HybridClaw to connect to it.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.

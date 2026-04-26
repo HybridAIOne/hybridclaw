@@ -5,6 +5,7 @@ export type ChannelKind =
   | 'imessage'
   | 'msteams'
   | 'scheduler'
+  | 'signal'
   | 'slack'
   | 'telegram'
   | 'tui'
@@ -15,6 +16,7 @@ export const SKILL_CONFIG_CHANNEL_KINDS = [
   'discord',
   'email',
   'msteams',
+  'signal',
   'slack',
   'telegram',
   'voice',
@@ -105,6 +107,16 @@ export const TELEGRAM_CAPABILITIES: ChannelCapabilities = Object.freeze({
   attachments: true,
   messageEditing: false,
   maxMessageLength: 4_096,
+});
+
+export const SIGNAL_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: true,
+  reactions: false,
+  threads: false,
+  embeds: false,
+  attachments: false,
+  messageEditing: false,
+  maxMessageLength: 8_000,
 });
 
 export const SLACK_CAPABILITIES: ChannelCapabilities = Object.freeze({

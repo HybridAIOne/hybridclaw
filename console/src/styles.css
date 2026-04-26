@@ -658,6 +658,11 @@ code {
   height: 32px;
 }
 
+.channel-logo-compact svg {
+  width: 28px;
+  height: 28px;
+}
+
 .channel-status-badge {
   display: inline-flex;
   align-items: center;

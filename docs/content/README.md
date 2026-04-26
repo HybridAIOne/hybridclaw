@@ -11,7 +11,7 @@ advanced-user manual for running, extending, and understanding HybridClaw. The
 chapters are organized around what you are trying to do rather than how the
 repository is laid out. **Getting Started** walks through installation,
 onboarding, and your first run. **Channels** is the transport reference across
-Discord, Slack, Telegram, email, WhatsApp, iMessage, and Microsoft Teams.
+Discord, Slack, Telegram, Signal, email, WhatsApp, iMessage, and Microsoft Teams.
 **Guides** collects task-focused walkthroughs for everyday operational work,
 **Tutorials** provides practical owner, GTM, marketing, sales, and community
 workflows, **Extensibility** covers tools, skills, plugins, and the extension

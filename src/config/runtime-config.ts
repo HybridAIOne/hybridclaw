@@ -98,6 +98,7 @@ const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
 const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   discord: '',
   msteams: '',
+  signal: '',
   slack: '',
   telegram: '',
   voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
@@ -203,6 +204,8 @@ export type SlackGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackReplyStyle = 'thread' | 'top-level';
 export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SignalDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type SignalGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -427,6 +430,19 @@ export interface RuntimeTelegramConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSignalConfig {
+  enabled: boolean;
+  daemonUrl: string;
+  account: string;
+  dmPolicy: SignalDmPolicy;
+  groupPolicy: SignalGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  textChunkLimit: number;
+  reconnectIntervalMs: number;
+  outboundDelayMs: number;
+}
+
 export interface RuntimeIMessageConfig {
   enabled: boolean;
   backend: IMessageBackend;
@@ -466,6 +482,7 @@ export interface RuntimeEmailConfig {
 export interface RuntimeChannelInstructionsConfig {
   discord: string;
   msteams: string;
+  signal: string;
   slack: string;
   telegram: string;
   voice: string;
@@ -568,6 +585,7 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   msteams: RuntimeMSTeamsConfig;
+  signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
@@ -885,7 +903,7 @@ const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
-const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
   security: {
     trustModelAccepted: false,
@@ -1045,6 +1063,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     requireMention: true,
     textChunkLimit: 4_000,
     mediaMaxMb: 20,
+  },
+  signal: {
+    enabled: false,
+    daemonUrl: '',
+    account: '',
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    textChunkLimit: 4_000,
+    reconnectIntervalMs: 5_000,
+    outboundDelayMs: 350,
   },
   whatsapp: {
     dmPolicy: 'pairing',
@@ -2129,6 +2159,77 @@ function normalizeTelegramPolicy(
   return fallback;
 }
 
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalDmPolicy,
+): SignalDmPolicy;
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalGroupPolicy,
+): SignalGroupPolicy;
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalDmPolicy | SignalGroupPolicy,
+): SignalDmPolicy | SignalGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSignalConfig(
+  value: unknown,
+  fallback: RuntimeSignalConfig,
+): RuntimeSignalConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    daemonUrl: normalizeString(raw.daemonUrl, fallback.daemonUrl, {
+      allowEmpty: true,
+    }),
+    account: normalizeString(raw.account, fallback.account, {
+      allowEmpty: true,
+    }),
+    dmPolicy: normalizeSignalPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeSignalPolicy(raw.groupPolicy, fallback.groupPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 8_000,
+      },
+    ),
+    reconnectIntervalMs: normalizeInteger(
+      raw.reconnectIntervalMs,
+      fallback.reconnectIntervalMs,
+      {
+        min: 500,
+        max: 60_000,
+      },
+    ),
+    outboundDelayMs: normalizeInteger(
+      raw.outboundDelayMs,
+      fallback.outboundDelayMs,
+      {
+        min: 0,
+        max: 10_000,
+      },
+    ),
+  };
+}
+
 function normalizeSlackGroupPolicy(
   value: unknown,
   fallback: SlackGroupPolicy,
@@ -2471,6 +2572,7 @@ function normalizeChannelInstructionsConfig(
     msteams: normalizeString(raw.msteams, fallback.msteams, {
       allowEmpty: true,
     }),
+    signal: normalizeString(raw.signal, fallback.signal, { allowEmpty: true }),
     slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
     telegram: normalizeString(raw.telegram, fallback.telegram, {
       allowEmpty: true,
@@ -3933,6 +4035,7 @@ function normalizeRuntimeConfig(
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
+  const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -4453,6 +4556,7 @@ function normalizeRuntimeConfig(
       ),
     },
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
+    signal: normalizeSignalConfig(rawSignal, DEFAULT_RUNTIME_CONFIG.signal),
     slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
     telegram: normalizeTelegramConfig(
       rawTelegram,

@@ -150,6 +150,14 @@ saved revision history directly.
   as `TELEGRAM_BOT_TOKEN` or `telegram.botToken` via SecretRef instead of
   plaintext config; a running gateway usually hot-reloads Telegram config
   changes by restarting the integration in place
+- `signal.*` for the Signal transport through a separately managed
+  `signal-cli` compatible daemon; use `hybridclaw channels signal setup` to
+  configure `signal.daemonUrl`, `signal.account`, and private-by-default DM or
+  group policies before enabling inbound traffic. `signal.reconnectIntervalMs`
+  controls event stream reconnect backoff, and `signal.outboundDelayMs`
+  controls pacing between split outbound text chunks. HybridClaw Cloud gateway
+  images include `signal-cli` on amd64 hosts for admin QR linking; arm64 and
+  custom hosts can use an external daemon or sidecar
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`

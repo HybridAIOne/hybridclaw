@@ -66,6 +66,7 @@ import {
 import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { buildConciergeChoiceComponents } from './concierge-choice.js';
 import {
   buildConciergeExecutionNotice,
@@ -1231,9 +1232,18 @@ async function handleGatewayMessageInner(
 
     const rawResultText =
       delegationAcknowledgement || output.result || 'No response from agent.';
-    const resultText = conciergeExecutionNotice
+    const unnormalizedResultText = conciergeExecutionNotice
       ? `${conciergeExecutionNotice}${rawResultText}`
       : rawResultText;
+    const normalizedResult = normalizeSilentMessageSendReply({
+      status: 'success',
+      result: unnormalizedResultText,
+      toolsUsed: output.toolsUsed || [],
+      toolExecutions,
+    });
+    const resultText = String(
+      normalizedResult.result || unnormalizedResultText,
+    );
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,

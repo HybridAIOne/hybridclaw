@@ -19,9 +19,9 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, Slack, WhatsApp, Telegram, Microsoft Teams, email,
-Twilio voice, or the web. Run it locally, deploy it for business workflows,
-and keep your agents, secrets, and data under your control.
+Connect it to Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams,
+email, Twilio voice, or the web. Run it locally, deploy it for business
+workflows, and keep your agents, secrets, and data under your control.
 
 [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
 [Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
@@ -101,7 +101,7 @@ Once the gateway is running, open HybridClaw locally:
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Slack, WhatsApp, Telegram, Discord, Microsoft Teams, Email
+- or connect Slack, Signal, WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
 ## Operator workflows
 
@@ -233,7 +233,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Signal, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt, live delegate status/progress,
@@ -268,6 +268,7 @@ Browse the full manual at
   [Discord](https://www.hybridclaw.io/docs/channels/discord),
   [Slack](https://www.hybridclaw.io/docs/channels/slack),
   [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
+  [Signal](https://www.hybridclaw.io/docs/channels/signal),
   [Email](https://www.hybridclaw.io/docs/channels/email),
   [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
   [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and

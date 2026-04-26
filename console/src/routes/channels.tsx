@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import {
   fetchConfig,
   fetchEmailConfig,
+  fetchSignalLink,
   saveConfig,
   setRuntimeSecret,
+  startSignalLink,
   validateToken,
 } from '../api/client';
 import type { AdminConfig } from '../api/types';
@@ -56,6 +58,10 @@ function isTelegramInboundEnabled(config: AdminConfig): boolean {
     config.telegram.dmPolicy !== 'disabled' ||
     config.telegram.groupPolicy !== 'disabled'
   );
+}
+
+function isSignalEnabled(config: AdminConfig): boolean {
+  return config.signal.enabled;
 }
 
 function isVoiceEnabled(config: AdminConfig): boolean {
@@ -993,6 +999,308 @@ function TelegramChannelEditor(props: {
       ) : null}
       <ChannelInstructionsField
         kind="telegram"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
+    </>
+  );
+}
+
+function SignalChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  token: string;
+  cliAvailable: boolean;
+  cliVersion: string | null;
+  cliError: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [signalCliPath, setSignalCliPath] = useState('signal-cli');
+  const [deviceName, setDeviceName] = useState('HybridClaw');
+  const signalLinkQuery = useQuery({
+    queryKey: ['signal-link', props.token],
+    queryFn: () => fetchSignalLink(props.token),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'starting' || status === 'qr' ? 2_000 : false;
+    },
+  });
+  const signalLink = signalLinkQuery.data;
+  const signalLinkMutation = useMutation({
+    mutationFn: () =>
+      startSignalLink(props.token, {
+        cliPath: signalCliPath,
+        deviceName,
+      }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(['signal-link', props.token], result);
+      toast.success('Signal linked-device QR started.');
+      void queryClient.invalidateQueries({
+        queryKey: ['status', props.token],
+      });
+    },
+    onError: (error) => {
+      toast.error('Signal link failed', getErrorMessage(error));
+    },
+  });
+
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={isSignalEnabled(props.draft)}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            signal: {
+              ...current.signal,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>signal-cli path</span>
+          <input
+            value={signalCliPath}
+            onChange={(event) => setSignalCliPath(event.target.value)}
+            placeholder="signal-cli"
+          />
+        </label>
+        <label className="field">
+          <span>Device name</span>
+          <input
+            value={deviceName}
+            onChange={(event) => setDeviceName(event.target.value)}
+            placeholder="HybridClaw"
+          />
+        </label>
+      </div>
+
+      <div className="field whatsapp-pairing-field">
+        <span>Linked-device QR</span>
+        <div className="button-row">
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={
+              !props.cliAvailable ||
+              signalLinkMutation.isPending ||
+              signalLink?.status === 'starting' ||
+              signalLink?.status === 'qr'
+            }
+            onClick={() => signalLinkMutation.mutate()}
+          >
+            {signalLinkMutation.isPending ? 'Starting...' : 'Start QR link'}
+          </button>
+        </div>
+        {!props.cliAvailable ? (
+          <p className="muted-copy">
+            signal-cli is not available on this gateway host. Install
+            signal-cli, use a bundled cloud amd64 gateway image, or configure an
+            external daemon/sidecar.
+            {props.cliError ? ` ${props.cliError}` : ''}
+          </p>
+        ) : signalLink?.pairingQrText ? (
+          <pre
+            className="whatsapp-pairing-qr"
+            role="img"
+            aria-label="Signal linked-device QR"
+          >
+            {signalLink.pairingQrText}
+          </pre>
+        ) : signalLink?.status === 'starting' ? (
+          <p className="muted-copy">Waiting for signal-cli to print a QR.</p>
+        ) : signalLink?.status === 'complete' ? (
+          <p className="muted-copy">
+            Linked-device flow completed. Start the daemon and save the account
+            below.
+          </p>
+        ) : signalLink?.status === 'error' ? (
+          <p className="muted-copy">
+            {signalLink.error || 'Signal linked-device setup failed.'}
+          </p>
+        ) : (
+          <p className="muted-copy">
+            Starts `signal-cli link -n HybridClaw` on the gateway host
+            {props.cliVersion ? ` (${props.cliVersion})` : ''}.
+          </p>
+        )}
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Daemon URL</span>
+          <input
+            value={props.draft.signal.daemonUrl}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  daemonUrl: event.target.value,
+                },
+              }))
+            }
+            placeholder="http://127.0.0.1:8080"
+          />
+        </label>
+        <label className="field">
+          <span>Account</span>
+          <input
+            value={props.draft.signal.account}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  account: event.target.value,
+                },
+              }))
+            }
+            placeholder="+14155550123"
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.signal.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  dmPolicy: event.target
+                    .value as AdminConfig['signal']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Group policy</span>
+          <select
+            value={props.draft.signal.groupPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  groupPolicy: event.target
+                    .value as AdminConfig['signal']['groupPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed DM senders"
+        value={props.draft.signal.allowFrom}
+        rows={3}
+        placeholder="+14155551212, Signal UUID, or *"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            signal: {
+              ...current.signal,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <ListField
+        label="Allowed group senders"
+        value={props.draft.signal.groupAllowFrom}
+        rows={3}
+        placeholder="+14155551212, Signal UUID, or *"
+        onChange={(groupAllowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            signal: {
+              ...current.signal,
+              groupAllowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.signal.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Reconnect interval ms</span>
+          <input
+            type="number"
+            value={String(props.draft.signal.reconnectIntervalMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  reconnectIntervalMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Outbound delay ms</span>
+          <input
+            type="number"
+            value={String(props.draft.signal.outboundDelayMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                signal: {
+                  ...current.signal,
+                  outboundDelayMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <p className="muted-copy">
+        After scanning the QR in Signal mobile, start the daemon and save the
+        daemon URL here. Groups stay disabled by default; start with one
+        allowlisted DM sender.
+      </p>
+      <ChannelInstructionsField
+        kind="signal"
         draft={props.draft}
         updateDraft={props.updateDraft}
       />
@@ -2389,6 +2697,11 @@ function renderSelectedEditor(
     linked: boolean;
     pairingQrText: string | null;
   },
+  signalStatus: {
+    cliAvailable: boolean;
+    cliVersion: string | null;
+    cliError: string | null;
+  },
   onSecretSaved: () => void,
 ) {
   switch (kind) {
@@ -2434,6 +2747,17 @@ function renderSelectedEditor(
           tokenSource={secretStatus.telegram.source}
           token={token}
           onSecretSaved={onSecretSaved}
+        />
+      );
+    case 'signal':
+      return (
+        <SignalChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          token={token}
+          cliAvailable={signalStatus.cliAvailable}
+          cliVersion={signalStatus.cliVersion}
+          cliError={signalStatus.cliError}
         />
       );
     case 'voice':
@@ -2518,6 +2842,10 @@ export function ChannelsPage() {
         slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
+        signalDaemonUrlConfigured:
+          statusQuery.data?.signal?.daemonUrlConfigured,
+        signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
+        signalCliAvailable: statusQuery.data?.signal?.cliAvailable,
         voiceAuthTokenConfigured: statusQuery.data?.voice?.authTokenConfigured,
         whatsappLinked: statusQuery.data?.whatsapp?.linked,
         emailPasswordConfigured: statusQuery.data?.email?.passwordConfigured,
@@ -2587,6 +2915,11 @@ export function ChannelsPage() {
     linked: statusQuery.data?.whatsapp?.linked ?? false,
     pairingQrText: statusQuery.data?.whatsapp?.pairingQrText ?? null,
   };
+  const signalStatus = {
+    cliAvailable: statusQuery.data?.signal?.cliAvailable ?? false,
+    cliVersion: statusQuery.data?.signal?.cliVersion ?? null,
+    cliError: statusQuery.data?.signal?.cliError ?? null,
+  };
   const hybridaiApiKeyConfigured =
     statusQuery.data?.hybridai?.apiKeyConfigured ?? false;
 
@@ -2641,6 +2974,7 @@ export function ChannelsPage() {
                   secretStatus,
                   hybridaiApiKeyConfigured,
                   whatsappStatus,
+                  signalStatus,
                   () => {
                     void queryClient.invalidateQueries({
                       queryKey: ['status', auth.token],

@@ -109,6 +109,8 @@ The gateway auto-connects configured channels:
   `MSTEAMS_APP_PASSWORD` is saved
 - Discord when `DISCORD_TOKEN` is set
 - Telegram when `telegram.enabled` is true and `TELEGRAM_BOT_TOKEN` is set
+- Signal when `signal.enabled` is true and a reachable `signal-cli` compatible
+  daemon plus account are configured
 - Email when `email.enabled` is true and an email password is configured,
   typically through the stored `EMAIL_PASSWORD` secret
 - WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`
