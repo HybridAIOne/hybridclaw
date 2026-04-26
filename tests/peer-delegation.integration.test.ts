@@ -94,17 +94,19 @@ beforeEach(async () => {
     model: 'gpt-4.1-mini',
   });
 
-  receivingServer = createServer((req, res) => routeReceiving(req, res));
+  const receiving = createServer((req, res) => routeReceiving(req, res));
+  receivingServer = receiving;
   await new Promise<void>((resolve) => {
-    receivingServer!.listen(0, '127.0.0.1', () => resolve());
+    receiving.listen(0, '127.0.0.1', () => resolve());
   });
-  receivingPort = (receivingServer.address() as AddressInfo).port;
+  receivingPort = (receiving.address() as AddressInfo).port;
 
-  dispatchingServer = createServer((req, res) => routeDispatching(req, res));
+  const dispatching = createServer((req, res) => routeDispatching(req, res));
+  dispatchingServer = dispatching;
   await new Promise<void>((resolve) => {
-    dispatchingServer!.listen(0, '127.0.0.1', () => resolve());
+    dispatching.listen(0, '127.0.0.1', () => resolve());
   });
-  dispatchingPort = (dispatchingServer.address() as AddressInfo).port;
+  dispatchingPort = (dispatching.address() as AddressInfo).port;
 });
 
 afterEach(async () => {
