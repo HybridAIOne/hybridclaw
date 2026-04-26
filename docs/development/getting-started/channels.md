@@ -1,6 +1,6 @@
 ---
 title: Channel Setup
-description: Step-by-step setup commands for Discord, Slack, Telegram, email, WhatsApp, Twilio voice, iMessage, and Microsoft Teams.
+description: Step-by-step setup commands for Discord, Slack, Telegram, Signal, email, WhatsApp, Twilio voice, iMessage, and Microsoft Teams.
 sidebar_position: 5
 ---
 
@@ -85,7 +85,7 @@ flow.
 The Channels page can:
 
 - show each transport as `active`, `configured`, or `available`
-- edit Discord, Slack, Telegram, WhatsApp, email, Microsoft Teams, iMessage,
+- edit Discord, Slack, Telegram, Signal, WhatsApp, email, Microsoft Teams, iMessage,
   and Twilio voice
   settings from one place
 - save `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
