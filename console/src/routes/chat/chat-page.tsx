@@ -421,7 +421,7 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
-            <ContextRing />
+            <ContextRing sessionId={sessionId} />
             <ViewSwitchNav />
           </div>
           {isEmpty ? (

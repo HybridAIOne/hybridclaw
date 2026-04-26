@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchChatContext } from '../../api/chat';
 import { useAuth } from '../../auth';
-import { useActiveSessionId } from '../../lib/chat-session-store';
 import { cx } from '../../lib/cx';
 import css from './context-ring.module.css';
 
@@ -38,11 +37,15 @@ function severityFor(percent: number | null): 'nominal' | 'warn' | 'danger' {
   return 'nominal';
 }
 
+interface ContextRingProps {
+  sessionId: string;
+}
+
 // ContextRing is only rendered on the chat route (via ChatPage). Callers
 // must not mount it elsewhere — there's no route-based opt-out here.
-export function ContextRing() {
+export function ContextRing(props: ContextRingProps) {
   const auth = useAuth();
-  const sessionId = useActiveSessionId();
+  const sessionId = props.sessionId;
   const enabled = Boolean(auth.token) && Boolean(sessionId);
   const query = useQuery({
     queryKey: ['chat-context', auth.token, sessionId],
@@ -52,19 +55,12 @@ export function ContextRing() {
     refetchOnWindowFocus: false,
   });
 
-  if (!sessionId) return null;
-
   const snapshot = query.data?.snapshot ?? null;
-  // Match static /chat: hide the ring entirely until the gateway has a
-  // snapshot for this session. Empty sessions (no messages sent yet) have
-  // nothing useful to show, and the "– / unknown model / no usage recorded"
-  // placeholder reads like a bug.
-  if (!snapshot) return null;
-  const percent = snapshot.contextUsagePercent;
+  const percent = snapshot?.contextUsagePercent ?? null;
   const clamped = clampPercent(percent);
   const severity = severityFor(percent);
   const hasBudget =
-    snapshot.contextBudgetTokens != null && snapshot.contextUsedTokens != null;
+    snapshot?.contextBudgetTokens != null && snapshot.contextUsedTokens != null;
   const offset = hasBudget
     ? RING_CIRCUMFERENCE * (1 - clamped / 100)
     : RING_CIRCUMFERENCE;
@@ -75,7 +71,7 @@ export function ContextRing() {
       : null;
   const label = rawPercent != null ? `${rawPercent}%` : '–';
   const ariaLabel =
-    hasBudget && rawPercent != null
+    snapshot && hasBudget && rawPercent != null
       ? `Context usage ${rawPercent} percent (${formatCompact(snapshot.contextUsedTokens)} of ${formatCompact(snapshot.contextBudgetTokens)} tokens)`
       : 'Context usage unavailable';
 
@@ -117,10 +113,10 @@ export function ContextRing() {
         <div className={css.popoverTitle}>
           <span>Context</span>
           <span className={css.popoverTitleValue}>
-            {snapshot.model || 'unknown model'}
+            {snapshot?.model || 'unknown model'}
           </span>
         </div>
-        {hasBudget ? (
+        {snapshot && hasBudget ? (
           <>
             <div className={css.popoverProgress}>
               <div
@@ -150,7 +146,7 @@ export function ContextRing() {
           <div className={css.popoverRow}>
             <span>Used</span>
             <span className={css.popoverRowValue}>
-              {snapshot.contextUsedTokens != null
+              {snapshot?.contextUsedTokens != null
                 ? `${formatCompact(snapshot.contextUsedTokens)} tokens`
                 : 'no usage recorded yet'}
             </span>
@@ -159,9 +155,9 @@ export function ContextRing() {
         <div className={css.popoverRow}>
           <span>Compactions</span>
           <span className={css.popoverRowValue}>
-            {snapshot.compactionCount} ·{' '}
-            {formatCompact(snapshot.compactionMessageThreshold)} msgs /{' '}
-            {formatCompact(snapshot.compactionTokenBudget)} tokens
+            {snapshot
+              ? `${snapshot.compactionCount} · ${formatCompact(snapshot.compactionMessageThreshold)} msgs / ${formatCompact(snapshot.compactionTokenBudget)} tokens`
+              : 'n/a'}
           </span>
         </div>
         <div className={css.popoverFoot}>
