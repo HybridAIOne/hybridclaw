@@ -3391,6 +3391,14 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/chat.html') {
+      // Preserve the query string so legacy `/chat.html?token=…` launch
+      // links keep handing the token off to the React console, which reads
+      // it from `window.location.search` (see `readStoredToken`).
+      sendRedirect(res, 301, `/chat${url.search}`);
+      return;
+    }
+
     if (pathname === '/auth/callback') {
       if (method !== 'GET') {
         sendJson(res, 405, { error: 'Method Not Allowed' });
