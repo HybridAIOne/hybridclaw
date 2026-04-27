@@ -66,6 +66,9 @@ export function AgentFilesPage() {
   }, [selectedAgent, selectedAgentId]);
 
   useEffect(() => {
+    if (!agentsQuery.data) {
+      return;
+    }
     if (!selectedAgent) {
       if (selectedFileName !== null) {
         setSelectedFileName(null);
@@ -80,7 +83,7 @@ export function AgentFilesPage() {
       setSelectedFileName(availableFile);
       setSelectedRevisionId(null);
     }
-  }, [selectedAgent, selectedFileName]);
+  }, [agentsQuery.data, selectedAgent, selectedFileName]);
 
   const selectedFileSummary =
     selectedAgent?.markdownFiles.find(
