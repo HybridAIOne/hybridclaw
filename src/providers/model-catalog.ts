@@ -46,8 +46,8 @@ import {
 } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import {
-  type ModelCatalogMetadata,
   resolveStaticModelCatalogMetadata,
+  type StaticModelCatalogMetadata,
 } from './model-metadata.js';
 import {
   formatHybridAIModelForCatalog,
@@ -73,6 +73,13 @@ import { PROVIDER_ALIASES } from './provider-aliases.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
+
+export interface ModelCatalogMetadata extends StaticModelCatalogMetadata {
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+}
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
@@ -360,7 +367,7 @@ export async function refreshModelCatalogMetadata(
 
 function resolveKnownModelContextWindow(
   model: string,
-  staticMetadata: ModelCatalogMetadata,
+  staticMetadata: StaticModelCatalogMetadata,
 ): number | null {
   return (
     resolveLocalModelContextWindow(model) ??
@@ -376,7 +383,7 @@ function resolveKnownModelContextWindow(
 
 function resolveKnownModelMaxTokens(
   model: string,
-  staticMetadata: ModelCatalogMetadata,
+  staticMetadata: StaticModelCatalogMetadata,
 ): number | null {
   const info = getLocalModelInfo(model);
   return (
@@ -390,15 +397,16 @@ function resolveKnownModelMaxTokens(
 
 function resolveKnownModelPricingUsdPerToken(
   model: string,
-  staticMetadata: ModelCatalogMetadata,
 ): ModelCatalogMetadata['pricingUsdPerToken'] {
   if (isLocalPrefixedModel(model)) {
     return { input: 0, output: 0 };
   }
   if (hasModelPrefix(model, OPENAI_CODEX_MODEL_PREFIX)) {
     return (
-      getDiscoveredCodexModelPricingUsdPerToken(model) ??
-      staticMetadata.pricingUsdPerToken
+      getDiscoveredCodexModelPricingUsdPerToken(model) ?? {
+        input: null,
+        output: null,
+      }
     );
   }
   return (
@@ -407,8 +415,10 @@ function resolveKnownModelPricingUsdPerToken(
     getDiscoveredMistralModelPricingUsdPerToken(model) ??
     getDiscoveredHuggingFaceModelPricingUsdPerToken(model) ??
     getDiscoveredAnthropicModelPricingUsdPerToken(model) ??
-    getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(model) ??
-    staticMetadata.pricingUsdPerToken
+    getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(model) ?? {
+      input: null,
+      output: null,
+    }
   );
 }
 
@@ -416,10 +426,7 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
   const staticMetadata = resolveStaticModelCatalogMetadata(model);
   const contextWindow = resolveKnownModelContextWindow(model, staticMetadata);
   const maxTokens = resolveKnownModelMaxTokens(model, staticMetadata);
-  const pricingUsdPerToken = resolveKnownModelPricingUsdPerToken(
-    model,
-    staticMetadata,
-  );
+  const pricingUsdPerToken = resolveKnownModelPricingUsdPerToken(model);
   const vision = isModelVisionCapable(model);
 
   return {

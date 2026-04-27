@@ -194,12 +194,8 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
   },
 };
 
-export interface ModelCatalogMetadata {
+export interface StaticModelCatalogMetadata {
   known: boolean;
-  pricingUsdPerToken: {
-    input: number | null;
-    output: number | null;
-  };
   contextWindow: number | null;
   maxTokens: number | null;
   capabilities: ModelCapabilityFlags;
@@ -240,12 +236,11 @@ function findStaticModelMetadataEntry(
 
 export function resolveStaticModelCatalogMetadata(
   modelName: string,
-): ModelCatalogMetadata {
+): StaticModelCatalogMetadata {
   const entry = findStaticModelMetadataEntry(modelName);
   if (!entry) {
     return {
       known: false,
-      pricingUsdPerToken: { input: null, output: null },
       contextWindow: null,
       maxTokens: null,
       capabilities: { ...EMPTY_CAPABILITIES },
@@ -255,7 +250,6 @@ export function resolveStaticModelCatalogMetadata(
 
   return {
     known: true,
-    pricingUsdPerToken: { input: null, output: null },
     contextWindow: entry.contextWindow,
     maxTokens: entry.maxTokens ?? null,
     capabilities: entry.capabilities,
