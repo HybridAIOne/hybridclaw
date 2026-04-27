@@ -151,8 +151,8 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   expect(observations).toHaveLength(2);
   expect(observations[0]?.coworker_id).toBe('lena');
 
-  const [score] = context.dbModule.getCoworkerSkillScores({
-    coworkerId: 'lena',
+  const [score] = context.dbModule.getAgentSkillScores({
+    agentId: 'lena',
     skillName: context.skillName,
   });
   expect(score).toMatchObject({
@@ -283,8 +283,8 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     });
   }
 
-  const [partialScore] = context.dbModule.getCoworkerSkillScores({
-    coworkerId: 'charly',
+  const [partialScore] = context.dbModule.getAgentSkillScores({
+    agentId: 'charly',
     skillName: context.skillName,
   });
   expect(partialScore).toMatchObject({

@@ -43,7 +43,7 @@ import {
 } from '../session/session-reset.js';
 import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
-  CoworkerSkillScore,
+  AgentSkillScore,
   SkillAmendment,
   SkillAmendmentStatus,
   SkillErrorCategory,
@@ -6814,7 +6814,7 @@ function scoreCoworkerSkill(row: {
 
 function mapCoworkerSkillScoreRow(
   row: CoworkerSkillScoreAggregate,
-): CoworkerSkillScore {
+): AgentSkillScore {
   const successCount = Math.max(0, Math.floor(row.success_count || 0));
   const failureCount = Math.max(0, Math.floor(row.failure_count || 0));
   const partialCount = Math.max(0, Math.floor(row.partial_count || 0));
@@ -6863,14 +6863,14 @@ function mapCoworkerSkillScoreRow(
   };
 }
 
-export function recomputeCoworkerSkillScore(input: {
-  coworkerId: string;
+export function recomputeAgentSkillScore(input: {
+  agentId: string;
   skillId: string;
-}): CoworkerSkillScore | null {
+}): AgentSkillScore | null {
   ensureDatabaseReady();
-  const coworkerId = input.coworkerId.trim();
+  const agentId = input.agentId.trim();
   const skillId = input.skillId.trim();
-  if (!coworkerId || !skillId) return null;
+  if (!agentId || !skillId) return null;
 
   const aggregate = queryOne<CoworkerSkillScoreAggregate, [string, string]>(
     db,
@@ -6889,7 +6889,7 @@ export function recomputeCoworkerSkillScore(input: {
      FROM skill_observations
      WHERE coworker_id = ? AND skill_name = ?
      GROUP BY coworker_id, skill_name`,
-    coworkerId,
+    agentId,
     skillId,
   );
 
@@ -6897,7 +6897,7 @@ export function recomputeCoworkerSkillScore(input: {
     db.prepare(
       `DELETE FROM coworker_skill_scores
        WHERE coworker_id = ? AND skill_id = ?`,
-    ).run(coworkerId, skillId);
+    ).run(agentId, skillId);
     return null;
   }
 
@@ -6935,24 +6935,24 @@ export function recomputeCoworkerSkillScore(input: {
   return score;
 }
 
-export function getCoworkerSkillScores(params?: {
-  coworkerId?: string;
+export function getAgentSkillScores(params?: {
+  agentId?: string;
   skillName?: string;
   createdAfter?: string | null;
   limit?: number;
-}): CoworkerSkillScore[] {
+}): AgentSkillScore[] {
   ensureDatabaseReady();
   const clauses = [
     'score.coworker_id IS NOT NULL',
     "TRIM(score.coworker_id) != ''",
   ];
   const args: Array<string | number> = [];
-  const coworkerId = params?.coworkerId?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const skillName = params?.skillName?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
-  if (coworkerId) {
+  if (agentId) {
     clauses.push('score.coworker_id = ?');
-    args.push(coworkerId);
+    args.push(agentId);
   }
   if (skillName) {
     clauses.push('score.skill_id = ?');

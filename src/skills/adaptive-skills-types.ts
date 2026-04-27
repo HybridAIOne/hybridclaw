@@ -86,9 +86,6 @@ export interface AgentScoreboardEntry {
   cv_path: string;
 }
 
-export type CoworkerSkillScore = AgentSkillScore;
-export type CoworkerScoreboardEntry = AgentScoreboardEntry;
-
 export interface SkillHealthMetrics {
   skill_name: string;
   total_executions: number;

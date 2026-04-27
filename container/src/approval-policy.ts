@@ -2315,5 +2315,3 @@ export class TrustedAgentApprovalRuntime {
     return false;
   }
 }
-
-export { TrustedAgentApprovalRuntime as TrustedCoworkerApprovalRuntime };

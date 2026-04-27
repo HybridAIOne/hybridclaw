@@ -5,7 +5,7 @@ import { getAgentById, listAgents } from '../agents/agent-registry.js';
 import type { AgentConfig } from '../agents/agent-types.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import { getCoworkerSkillScores, getSkillObservations } from '../memory/db.js';
+import { getAgentSkillScores, getSkillObservations } from '../memory/db.js';
 import type {
   AgentScoreboardEntry,
   AgentSkillScore,
@@ -71,7 +71,7 @@ function summarizeScores(scores: AgentSkillScore[]): {
 }
 
 export function getAgentScoreboard(): AgentScoreboardEntry[] {
-  const scores = getCoworkerSkillScores();
+  const scores = getAgentSkillScores();
   const scoresByAgent = new Map<string, AgentSkillScore[]>();
   for (const score of scores) {
     const existing = scoresByAgent.get(score.coworker_id) || [];
@@ -112,7 +112,7 @@ export function getBestAgentsForSkill(
   skillName: string,
   limit = 5,
 ): AgentSkillScore[] {
-  return getCoworkerSkillScores({
+  return getAgentSkillScores({
     skillName,
     limit: Math.max(1, Math.min(limit, 25)),
   });
@@ -201,7 +201,7 @@ export function cv(
   if (!normalizedAgentId) {
     throw new Error('Agent id is required.');
   }
-  const scores = getCoworkerSkillScores({ coworkerId: normalizedAgentId });
+  const scores = getAgentSkillScores({ agentId: normalizedAgentId });
   const displayName = displayNameForAgent(normalizedAgentId);
   return renderCvMarkdown({
     agentId: normalizedAgentId,
@@ -312,7 +312,7 @@ export function recommendAgentsFor(
     if (relevance > 0) relevanceBySkill.set(skill.name, relevance);
   }
 
-  const scores = getCoworkerSkillScores();
+  const scores = getAgentSkillScores();
   return scores
     .map((score) => {
       const relevance = relevanceBySkill.get(score.skill_id) || 0;

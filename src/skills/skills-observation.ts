@@ -6,7 +6,7 @@ import {
   getSkillObservations,
   incrementAmendmentRunCount,
   recordSkillObservation as insertSkillObservation,
-  recomputeCoworkerSkillScore as recomputeAgentSkillScore,
+  recomputeAgentSkillScore,
 } from '../memory/db.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -153,7 +153,7 @@ function recordSkillExecutionObservation(
 
   if (event.coworker_id) {
     recomputeAgentSkillScore({
-      coworkerId: event.coworker_id,
+      agentId: event.coworker_id,
       skillId: event.skill_id,
     });
   }
@@ -224,7 +224,6 @@ export function recordSkillExecution(input: {
   tokenUsage?: TokenUsageStats;
   costUsd?: number | null;
   agentId?: string | null;
-  coworkerId?: string | null;
   input?: unknown;
   output?: unknown;
   errorCategory?: SkillErrorCategory | null;
@@ -241,7 +240,7 @@ export function recordSkillExecution(input: {
   const event: SkillRunEvent = {
     type: 'skill_run',
     skill_id: skillName,
-    coworker_id: (input.agentId ?? input.coworkerId)?.trim() || null,
+    coworker_id: input.agentId?.trim() || null,
     session_id: input.sessionId,
     run_id: input.runId,
     input: buildSkillRunBoundedPayload(input.input),
@@ -286,7 +285,7 @@ export function recordSkillFeedback(input: {
   if (observation?.coworker_id) {
     try {
       recomputeAgentSkillScore({
-        coworkerId: observation.coworker_id,
+        agentId: observation.coworker_id,
         skillId: observation.skill_name,
       });
       refreshAgentCv(observation.coworker_id);
