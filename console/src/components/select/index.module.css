@@ -75,9 +75,7 @@
   border: 1px solid color-mix(in srgb, var(--text) 28%, var(--panel-bg));
   border-radius: 14px;
   background-color: var(--popover, var(--card, var(--panel-bg)));
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.32),
-    0 18px 50px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-popover);
   color: var(--text);
   font-size: 0.82rem;
   outline: none;

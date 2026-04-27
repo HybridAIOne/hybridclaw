@@ -129,27 +129,10 @@ export function ScrollArea({ className, children, ...rest }: ScrollAreaProps) {
     registerScrollbarTrack,
   };
 
-  // Auto-compose the standard layout if children only contain a viewport
-  // (i.e., no explicit <ScrollAreaScrollbar/>). Falls through if children
-  // already include the scrollbar.
-  const childArr = Array.isArray(children) ? children : [children];
-  const hasScrollbar = childArr.some(
-    (c) =>
-      typeof c === 'object' &&
-      c !== null &&
-      'type' in c &&
-      (c as { type: unknown }).type === ScrollAreaScrollbar,
-  );
-
   return (
     <ScrollAreaContext.Provider value={ctx}>
       <div className={cx(css.root, className)} {...rest}>
         {children}
-        {hasScrollbar ? null : (
-          <ScrollAreaScrollbar>
-            <ScrollAreaThumb />
-          </ScrollAreaScrollbar>
-        )}
       </div>
     </ScrollAreaContext.Provider>
   );
