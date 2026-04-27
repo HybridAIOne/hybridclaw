@@ -109,6 +109,178 @@ test('records skill executions and attaches negative feedback', async () => {
   ]);
 });
 
+test('emits a skill_run event to subscribers for every skill execution', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const { subscribeSkillRunEvents } = await import(
+    '../src/skills/skill-run-events.ts'
+  );
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+
+  const events: unknown[] = [];
+  const unsubscribe = subscribeSkillRunEvents((event) => {
+    events.push(event);
+  });
+  try {
+    recordSkillExecution({
+      skillName: context.skillName,
+      sessionId: 'session-event-1',
+      runId: 'run-event-1',
+      toolExecutions: [
+        {
+          name: 'bash',
+          arguments: JSON.stringify({
+            cmd: 'echo hello',
+            apiKey: 'test-key',
+            nested: { token: 'secret-token' },
+          }),
+          result: `${'x'.repeat(320)} secret-token`,
+          durationMs: 11,
+        },
+      ],
+      outcome: 'success',
+      durationMs: 30,
+      model: 'test-model',
+      coworkerId: 'coworker-1',
+      input: {
+        prompt: 'draft the note',
+        apiKey: 'test-key',
+        body: 'i'.repeat(4_500),
+      },
+      output: { text: 'done', token: 'secret-token' },
+      tokenUsage: {
+        modelCalls: 1,
+        apiUsageAvailable: false,
+        apiPromptTokens: 0,
+        apiCompletionTokens: 0,
+        apiTotalTokens: 0,
+        apiCacheUsageAvailable: false,
+        apiCacheReadTokens: 0,
+        apiCacheWriteTokens: 0,
+        estimatedPromptTokens: 9,
+        estimatedCompletionTokens: 3,
+        estimatedTotalTokens: 12,
+      },
+      costUsd: 0.001,
+    });
+
+    recordSkillExecution({
+      skillName: context.skillName,
+      sessionId: 'session-event-2',
+      runId: 'run-event-2',
+      toolExecutions: [],
+      outcome: 'success',
+      durationMs: 40,
+      tokenUsage: {
+        modelCalls: 0,
+        apiUsageAvailable: false,
+        apiPromptTokens: 0,
+        apiCompletionTokens: 0,
+        apiTotalTokens: 0,
+        apiCacheUsageAvailable: false,
+        apiCacheReadTokens: 0,
+        apiCacheWriteTokens: 0,
+        estimatedPromptTokens: 0,
+        estimatedCompletionTokens: 0,
+        estimatedTotalTokens: 0,
+      },
+      costUsd: -1,
+    });
+  } finally {
+    unsubscribe();
+  }
+
+  expect(events).toHaveLength(2);
+  expect(events[0]).toMatchObject({
+    type: 'skill_run',
+    skill_id: context.skillName,
+    coworker_id: 'coworker-1',
+    session_id: 'session-event-1',
+    run_id: 'run-event-1',
+    input: {
+      content: expect.stringContaining('draft the note'),
+      truncated: true,
+    },
+    output: {
+      content: '{"text":"done","token":"***"}',
+      truncated: false,
+    },
+    model: 'test-model',
+    tokens: {
+      prompt: 9,
+      completion: 3,
+      total: 12,
+      modelCalls: 1,
+      apiUsageAvailable: false,
+      estimatedPrompt: 9,
+      estimatedCompletion: 3,
+      estimatedTotal: 12,
+      apiPrompt: 0,
+      apiCompletion: 0,
+      apiTotal: 0,
+    },
+    latency_ms: 30,
+    cost_usd: 0.001,
+    errors: [],
+    tool_executions: [
+      {
+        name: 'bash',
+        duration_ms: 11,
+        is_error: false,
+        blocked: false,
+      },
+    ],
+  });
+  expect(JSON.stringify(events[0])).not.toContain('echo hello');
+  expect(JSON.stringify(events[0])).not.toContain('secret-token');
+  expect(JSON.stringify(events[0])).not.toContain('test-key');
+  expect(
+    (events[0] as { input: { content: string } }).input.content.length,
+  ).toBeLessThanOrEqual(4099);
+  expect(events[1]).toMatchObject({
+    type: 'skill_run',
+    session_id: 'session-event-2',
+    input: null,
+    output: null,
+    tokens: expect.objectContaining({ modelCalls: 0 }),
+    cost_usd: 0,
+  });
+});
+
+test('skill_run subscriber failures do not block observation persistence', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const { subscribeSkillRunEvents } = await import(
+    '../src/skills/skill-run-events.ts'
+  );
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+
+  const unsubscribe = subscribeSkillRunEvents(() => {
+    throw new Error('subscriber failed');
+  });
+  try {
+    const observation = recordSkillExecution({
+      skillName: context.skillName,
+      sessionId: 'session-subscriber-failure',
+      runId: 'run-subscriber-failure',
+      toolExecutions: [],
+      outcome: 'success',
+      durationMs: 20,
+    });
+
+    expect(observation).toMatchObject({
+      skill_name: context.skillName,
+      session_id: 'session-subscriber-failure',
+      run_id: 'run-subscriber-failure',
+      outcome: 'success',
+    });
+  } finally {
+    unsubscribe();
+  }
+});
+
 test('classifies timeout and environment-change failures', async () => {
   context = await createAdaptiveSkillsTestContext();
   const { classifyErrorCategory } = await import(

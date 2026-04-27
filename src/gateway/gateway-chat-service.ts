@@ -1068,6 +1068,15 @@ async function handleGatewayMessageInner(
             toolExecutions,
           }),
           durationMs: Date.now() - startedAt,
+          model,
+          tokenUsage: output.tokenUsage,
+          costUsd: extractUsageCostUsd(output.tokenUsage),
+          coworkerId: agentId,
+          input: storedUserContent,
+          output: {
+            status: output.status,
+            result: output.result,
+          },
           errorDetail: output.error,
         });
       } catch (error) {
