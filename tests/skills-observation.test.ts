@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
@@ -308,6 +308,59 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     failure_count: 0,
   });
   expect(partialScore?.quality_score).toBeGreaterThan(70);
+});
+
+test('records audit event when agent skill score recompute fails', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const recomputeSpy = vi
+    .spyOn(context.dbModule, 'recomputeAgentSkillScore')
+    .mockImplementation(() => {
+      throw new Error('scoreboard unavailable');
+    });
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+
+  const observation = recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-recompute-failure',
+    runId: 'run-recompute-failure',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 42,
+  });
+
+  expect(observation).toMatchObject({
+    session_id: 'session-recompute-failure',
+    run_id: 'run-recompute-failure',
+    agent_id: 'lena',
+    outcome: 'success',
+  });
+  expect(recomputeSpy).toHaveBeenCalledWith({
+    agentId: 'lena',
+    skillId: context.skillName,
+  });
+  expect(recomputeSpy.mock.results[0]?.type).toBe('throw');
+
+  const auditEvents = context.dbModule.getRecentStructuredAuditForSession(
+    'session-recompute-failure',
+    10,
+  );
+  expect(auditEvents).toEqual([
+    expect.objectContaining({
+      event_type: 'skill.execution',
+      run_id: 'run-recompute-failure',
+    }),
+  ]);
+  expect(JSON.parse(auditEvents[0]?.payload || '{}')).toEqual(
+    expect.objectContaining({
+      type: 'skill.execution',
+      skillName: context.skillName,
+      outcome: 'success',
+      durationMs: 42,
+    }),
+  );
 });
 
 test('emits a skill_run event to subscribers for every skill execution', async () => {
