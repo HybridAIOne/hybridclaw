@@ -122,6 +122,7 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     getBestAgentsForSkill,
     getAgentScoreboard,
     recommendAgentsFor,
+    clearAgentRecommendationCache,
     waitForQueuedAgentCvRefreshes,
   } = await import('../src/skills/agent-scoreboard.ts');
 
@@ -278,6 +279,32 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
       skill_id: context.skillName,
     }),
   ]);
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-cache',
+    runId: 'run-cv-cache',
+    agentId: 'nova',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+  expect(recommendAgentsFor('demo skill task')).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        agent_id: 'nova',
+        skill_id: context.skillName,
+      }),
+    ]),
+  );
+  clearAgentRecommendationCache();
+  expect(recommendAgentsFor('demo skill task')).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        agent_id: 'nova',
+        skill_id: context.skillName,
+      }),
+    ]),
+  );
 
   for (const runId of ['run-charly-1', 'run-charly-2']) {
     recordSkillExecution({
