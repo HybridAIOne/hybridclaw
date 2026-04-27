@@ -331,7 +331,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
       }),
       expect.objectContaining({
         id: 'openai-codex/gpt-5.4',
-        contextWindow: 1_050_000,
+        contextWindow: 400_000,
         maxTokens: 128_000,
       }),
       expect.objectContaining({
