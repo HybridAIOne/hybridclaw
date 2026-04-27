@@ -68,11 +68,17 @@ import {
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
 import {
+  clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
+  deleteRuntimeAssetRevision as deleteTrackedRuntimeAssetRevision,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
+  getRuntimeAssetRevision as getTrackedRuntimeAssetRevision,
+  getRuntimeAssetRevisionState as getTrackedRuntimeAssetRevisionState,
+  getRuntimeAssetRevisionStateMetadata as getTrackedRuntimeAssetRevisionStateMetadata,
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
   getRuntimeConfigRevisionState as getTrackedRuntimeConfigRevisionState,
   getRuntimeConfigRevisionStateMetadata as getTrackedRuntimeConfigRevisionStateMetadata,
+  listRuntimeAssetRevisions as listTrackedRuntimeAssetRevisions,
   listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
   type RuntimeConfigChangeMeta,
   type RuntimeConfigObservedFile,
@@ -80,8 +86,11 @@ import {
   type RuntimeConfigRevisionState,
   type RuntimeConfigRevisionStateMetadata,
   type RuntimeConfigRevisionSummary,
+  type RuntimeRevisionAssetType,
+  restoreRuntimeAssetRevision as restoreTrackedRuntimeAssetRevision,
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
+  syncRuntimeAssetRevisionState as syncTrackedRuntimeAssetRevisionState,
 } from './runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
@@ -5838,6 +5847,7 @@ export type {
   RuntimeConfigRevisionState,
   RuntimeConfigRevisionStateMetadata,
   RuntimeConfigRevisionSummary,
+  RuntimeRevisionAssetType,
 };
 
 export function saveRuntimeConfig(
@@ -5962,26 +5972,84 @@ export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {
   return listTrackedRuntimeConfigRevisions(CONFIG_PATH);
 }
 
+export function listRuntimeAssetRevisions(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionSummary[] {
+  return listTrackedRuntimeAssetRevisions(assetType, assetPath);
+}
+
 export function getRuntimeConfigRevision(
   revisionId: number,
 ): RuntimeConfigRevision | null {
   return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
 
+export function getRuntimeAssetRevision(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+): RuntimeConfigRevision | null {
+  return getTrackedRuntimeAssetRevision(assetType, assetPath, revisionId);
+}
+
 export function getLastKnownGoodRuntimeConfigState(): RuntimeConfigRevisionState | null {
   return getTrackedRuntimeConfigRevisionState(CONFIG_PATH);
+}
+
+export function getLastKnownGoodRuntimeAssetState(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionState | null {
+  return getTrackedRuntimeAssetRevisionState(assetType, assetPath);
 }
 
 export function getLastKnownGoodRuntimeConfigMetadata(): RuntimeConfigRevisionStateMetadata | null {
   return getTrackedRuntimeConfigRevisionStateMetadata(CONFIG_PATH);
 }
 
+export function getLastKnownGoodRuntimeAssetMetadata(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionStateMetadata | null {
+  return getTrackedRuntimeAssetRevisionStateMetadata(assetType, assetPath);
+}
+
 export function deleteRuntimeConfigRevision(revisionId: number): boolean {
   return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
 
+export function deleteRuntimeAssetRevision(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+): boolean {
+  return deleteTrackedRuntimeAssetRevision(assetType, assetPath, revisionId);
+}
+
 export function clearRuntimeConfigRevisions(): number {
   return clearTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function clearRuntimeAssetRevisions(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): number {
+  return clearTrackedRuntimeAssetRevisions(assetType, assetPath);
+}
+
+export function syncRuntimeAssetRevisionState(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  meta?: RuntimeConfigChangeMeta,
+  observedFile?: RuntimeConfigObservedFile,
+): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
+  return syncTrackedRuntimeAssetRevisionState(
+    assetType,
+    assetPath,
+    meta,
+    observedFile,
+  );
 }
 
 export function restoreRuntimeConfigRevision(
@@ -6031,6 +6099,52 @@ export function restoreLastKnownGoodRuntimeConfig(
   }
 
   return saveRuntimeConfigSource(parsed as Record<string, unknown>, meta);
+}
+
+export function restoreRuntimeAssetRevision(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreTrackedRuntimeAssetRevision(
+    assetType,
+    assetPath,
+    revisionId,
+    meta,
+  );
+}
+
+export function restoreRuntimeSkillRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('skill', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeKnowledgeRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('knowledge', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeCvRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('cv', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeClassifierRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('classifier', assetPath, revisionId, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {

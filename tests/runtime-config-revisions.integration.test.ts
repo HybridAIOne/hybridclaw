@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import Database from 'better-sqlite3';
 import {
   afterAll,
   afterEach,
@@ -181,5 +182,181 @@ describe('runtime config revisions integration', () => {
     expect(cleared).toBeGreaterThan(0);
     expect(configMod.listRuntimeConfigRevisions()).toHaveLength(0);
     expect(fs.existsSync(configMod.runtimeConfigRevisionPath())).toBe(true);
+  });
+
+  it('migrates the revision store for typed runtime assets', () => {
+    const database = new Database(configMod.runtimeConfigRevisionPath(), {
+      readonly: true,
+    });
+    try {
+      const revisionColumns = database
+        .prepare(`PRAGMA table_info(config_revisions)`)
+        .all() as Array<{ name: string }>;
+      const stateColumns = database
+        .prepare(`PRAGMA table_info(config_revision_state)`)
+        .all() as Array<{ name: string; pk: number }>;
+
+      expect(
+        revisionColumns.some((column) => column.name === 'asset_type'),
+      ).toBe(true);
+      expect(stateColumns.some((column) => column.name === 'asset_type')).toBe(
+        true,
+      );
+      expect(
+        stateColumns.find((column) => column.name === 'asset_type')?.pk,
+      ).toBe(1);
+      expect(
+        stateColumns.find((column) => column.name === 'config_path')?.pk,
+      ).toBe(2);
+      expect(database.pragma('user_version', { simple: true })).toBe(2);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('migrates legacy config revision rows into typed asset storage', async () => {
+    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-cfg-v1-'));
+    const legacyDbPath = path.join(legacyDir, 'data', 'config-revisions.db');
+    const legacyConfigPath = path.join(legacyDir, 'config.json');
+    fs.mkdirSync(path.dirname(legacyDbPath), { recursive: true });
+    const database = new Database(legacyDbPath);
+    try {
+      database.exec(`
+        CREATE TABLE config_revisions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          config_path TEXT NOT NULL,
+          actor TEXT NOT NULL,
+          route TEXT NOT NULL,
+          source TEXT NOT NULL,
+          md5 TEXT NOT NULL,
+          byte_length INTEGER NOT NULL,
+          content TEXT NOT NULL,
+          replaced_by_md5 TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE config_revision_state (
+          config_path TEXT PRIMARY KEY,
+          current_md5 TEXT NOT NULL,
+          current_content TEXT NOT NULL,
+          actor TEXT NOT NULL,
+          route TEXT NOT NULL,
+          source TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        PRAGMA user_version = 1;
+      `);
+      database
+        .prepare(
+          `INSERT INTO config_revisions (
+            config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          legacyConfigPath,
+          'legacy-user',
+          'legacy.update',
+          'internal',
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          13,
+          '{"version":1}',
+          null,
+          '2026-04-27T00:00:00.000Z',
+        );
+      database
+        .prepare(
+          `INSERT INTO config_revision_state (
+            config_path, current_md5, current_content, actor, route, source, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          legacyConfigPath,
+          'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          '{"version":2}',
+          'legacy-user',
+          'legacy.state',
+          'internal',
+          '2026-04-27T00:01:00.000Z',
+        );
+    } finally {
+      database.close();
+    }
+
+    process.env.HYBRIDCLAW_DATA_DIR = legacyDir;
+    process.env.HOME = legacyDir;
+    vi.resetModules();
+    const revisionsMod = await import(
+      '../src/config/runtime-config-revisions.js'
+    );
+
+    const revisions = revisionsMod.listRuntimeConfigRevisions(legacyConfigPath);
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]).toMatchObject({
+      assetType: 'config',
+      actor: 'legacy-user',
+      route: 'legacy.update',
+    });
+    expect(
+      revisionsMod.getRuntimeConfigRevisionState(legacyConfigPath)?.content,
+    ).toBe('{"version":2}');
+
+    const skillPath = path.join(legacyDir, 'skills', 'demo', 'SKILL.md');
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, 'first\n', 'utf-8');
+    revisionsMod.syncRuntimeAssetRevisionState('skill', skillPath);
+    fs.writeFileSync(skillPath, 'second\n', 'utf-8');
+    revisionsMod.syncRuntimeAssetRevisionState('skill', skillPath);
+    expect(
+      revisionsMod.listRuntimeAssetRevisions('skill', skillPath),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    ['skill', 'skills/research/SKILL.md'],
+    ['knowledge', 'knowledge/sales/index.md'],
+    ['cv', 'agents/charly/CV.md'],
+    ['classifier', 'classifiers/nda/weights.json'],
+  ] as const)('restores %s runtime asset revisions', (assetType, relativePath) => {
+    const restoreRevision = {
+      skill: configMod.restoreRuntimeSkillRevision,
+      knowledge: configMod.restoreRuntimeKnowledgeRevision,
+      cv: configMod.restoreRuntimeCvRevision,
+      classifier: configMod.restoreRuntimeClassifierRevision,
+    }[assetType];
+    const assetPath = path.join(tmpDir, relativePath);
+    fs.mkdirSync(path.dirname(assetPath), { recursive: true });
+    fs.writeFileSync(assetPath, `${assetType}: first\n`, 'utf-8');
+
+    configMod.syncRuntimeAssetRevisionState(assetType, assetPath, {
+      actor: 'asset-test',
+      route: `test.${assetType}.seed`,
+      source: 'internal',
+    });
+
+    fs.writeFileSync(assetPath, `${assetType}: second\n`, 'utf-8');
+    configMod.syncRuntimeAssetRevisionState(assetType, assetPath, {
+      actor: 'asset-test',
+      route: `test.${assetType}.update`,
+      source: 'internal',
+    });
+
+    const revisions = configMod.listRuntimeAssetRevisions(assetType, assetPath);
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]).toMatchObject({
+      assetType,
+      route: `test.${assetType}.update`,
+    });
+
+    const restoredContent = restoreRevision(assetPath, revisions[0].id, {
+      actor: 'asset-test',
+      route: `test.${assetType}.rollback`,
+      source: 'internal',
+    });
+
+    expect(restoredContent).toBe(`${assetType}: first\n`);
+    expect(fs.readFileSync(assetPath, 'utf-8')).toBe(`${assetType}: first\n`);
+    expect(
+      configMod.getLastKnownGoodRuntimeAssetState(assetType, assetPath)
+        ?.content,
+    ).toBe(`${assetType}: first\n`);
   });
 });
