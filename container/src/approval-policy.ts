@@ -12,10 +12,8 @@ import {
   asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
-  doesNetworkHostPatternExpandToSubdomains,
-  normalizeNetworkAgent,
+  evaluateNetworkPolicyAccess,
   normalizeNetworkHostScope,
-  normalizeNetworkPathPattern,
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
@@ -500,65 +498,6 @@ function defaultPortForProtocol(protocol: string): number {
   if (normalized === 'http:') return 80;
   if (normalized === 'https:') return 443;
   return 443;
-}
-
-function globHostPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function matchesHostPattern(pattern: string, candidateHost: string): boolean {
-  const normalizedPattern = pattern.trim().toLowerCase().replace(/\.$/, '');
-  const normalizedCandidate = candidateHost
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, '');
-  if (!normalizedPattern || !normalizedCandidate) return false;
-  if (normalizedPattern === normalizedCandidate) return true;
-  if (normalizedPattern.includes('*')) {
-    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
-  }
-  if (
-    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedPattern) ||
-    normalizedPattern.includes(':')
-  ) {
-    return false;
-  }
-  if (doesNetworkHostPatternExpandToSubdomains(normalizedPattern)) {
-    return normalizeHostScope(normalizedCandidate) === normalizedPattern;
-  }
-  return false;
-}
-
-function matchesMethodPattern(
-  allowedMethods: string[],
-  candidateMethod: string,
-): boolean {
-  if (allowedMethods.includes('*')) return true;
-  const normalizedCandidate = candidateMethod.trim().toUpperCase() || 'GET';
-  return allowedMethods.includes(normalizedCandidate);
-}
-
-function matchesNetworkPathPattern(
-  allowedPaths: string[],
-  candidatePath: string,
-): boolean {
-  const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
-  return allowedPaths.some((pattern) =>
-    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
-      normalizedCandidate,
-    ),
-  );
-}
-
-function matchesAgentPattern(
-  ruleAgent: string,
-  candidateAgent: string,
-): boolean {
-  if (ruleAgent === '*') return true;
-  return ruleAgent === normalizeNetworkAgent(candidateAgent);
 }
 
 function parseUrlNetworkTarget(rawUrl: string): {
@@ -1057,32 +996,15 @@ export class TrustedCoworkerApprovalRuntime {
     path: string;
     agentId?: string;
   }): { decision: NetworkPolicyAction | 'prompt'; matchedRule?: NetworkRule } {
-    const normalizedHost = String(params.host || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\.$/, '');
-    const normalizedMethod =
-      String(params.method || '')
-        .trim()
-        .toUpperCase() || 'GET';
-    const normalizedPath = params.path || '/';
-    const normalizedAgent = normalizeNetworkAgent(
-      params.agentId || this.getCurrentAgentId(),
-    );
-
-    for (const rule of this.loadedPolicy.networkRules) {
-      if (!matchesHostPattern(rule.host, normalizedHost)) continue;
-      if (rule.port !== '*' && rule.port !== params.port) continue;
-      if (!matchesMethodPattern(rule.methods, normalizedMethod)) continue;
-      if (!matchesNetworkPathPattern(rule.paths, normalizedPath)) continue;
-      if (!matchesAgentPattern(rule.agent, normalizedAgent)) continue;
-      return { decision: rule.action, matchedRule: rule };
-    }
-
-    return {
-      decision:
-        this.loadedPolicy.networkDefault === 'allow' ? 'allow' : 'prompt',
-    };
+    return evaluateNetworkPolicyAccess({
+      rules: this.loadedPolicy.networkRules,
+      defaultAction: this.loadedPolicy.networkDefault,
+      host: params.host,
+      port: params.port,
+      method: params.method,
+      path: params.path,
+      agentId: params.agentId || this.getCurrentAgentId(),
+    });
   }
 
   reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {

@@ -16,6 +16,19 @@ export interface NetworkPolicyState {
   presets: string[];
 }
 
+export interface NetworkPolicyAccessInput {
+  host: string;
+  port: number;
+  method: string;
+  path: string;
+  agentId?: string;
+}
+
+export interface NetworkPolicyAccessEvaluation {
+  decision: NetworkPolicyAction | 'prompt';
+  matchedRule?: NetworkRule;
+}
+
 export const DEFAULT_NETWORK_DEFAULT: NetworkPolicyAction;
 export const DEFAULT_NETWORK_RULES: NetworkRule[];
 
@@ -28,7 +41,32 @@ export function doesNetworkHostPatternExpandToSubdomains(
 export function normalizeNetworkPathPattern(rawPath: unknown): string;
 export function normalizeNetworkAgent(raw: unknown): string;
 export function normalizeNetworkPort(raw: unknown): number | '*' | null;
+export function matchesNetworkHostPattern(
+  pattern: unknown,
+  candidateHost: unknown,
+): boolean;
+export function matchesNetworkMethodPattern(
+  allowedMethods: string[],
+  candidateMethod: unknown,
+): boolean;
+export function matchesNetworkPathPatterns(
+  allowedPaths: string[],
+  candidatePath: unknown,
+): boolean;
+export function matchesNetworkAgentPattern(
+  ruleAgent: string,
+  candidateAgent: unknown,
+): boolean;
 export function normalizeNetworkRule(raw: unknown): NetworkRule | null;
 export function readNetworkPolicyState(
   document: Record<string, unknown>,
 ): NetworkPolicyState;
+export function evaluateNetworkPolicyAccess(params: {
+  rules: NetworkRule[];
+  defaultAction: NetworkPolicyAction;
+  host: string;
+  port: number;
+  method: string;
+  path: string;
+  agentId?: string;
+}): NetworkPolicyAccessEvaluation;

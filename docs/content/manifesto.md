@@ -32,13 +32,13 @@ The default is action, not a menu. Your coworker reads the brief, picks the best
 
 ### IV. A coworker is a colleague, not a chatbot
 
-A HybridClaw coworker ships with a name, a face, a voice, and a CV. Skill scores, a track record, references. You don't *configure* it. You onboard it, evaluate it, promote it, retire it. It fills a seat on your org chart, not a panel on your screen.
+A HybridClaw coworker ships with a name, a face, a voice, and a CV. Skill scores, a track record, references. You don't configure it. You onboard it, evaluate it, promote it, retire it. It fills a seat on your org chart, not a panel on your screen.
 
 **If a user can't picture saying *"Lena, handle this,"* the job isn't done.**
 
 ### V. A coworker lives where work happens
 
-Email. Slack. Teams. WhatsApp. The phone. Your CRM. The coworker meets your team in the tools they already use. Never the other way around.
+Email. Slack. Teams. WhatsApp. Voice. Video avatar. Your CRM. The coworker meets your team in the tools they already use. Never the other way around.
 
 The app is for the *operator*, not the end user. One-click deployment. One place to manage the fleet.
 
