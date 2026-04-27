@@ -236,6 +236,7 @@ import {
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
+  refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
@@ -8004,10 +8005,7 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' ||
-          sub === 'info' ||
-          sub === 'default' ||
-          sub === 'set';
+          sub === 'list' || sub === 'default' || sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -8027,6 +8025,9 @@ export async function handleGatewayCommand(
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
+        if (sub === 'info') {
+          await refreshModelCatalogMetadata(runtime.model);
+        }
         if (sub === 'list') {
           if (providerFilterArg && !providerFilter) {
             return badCommand(

@@ -3148,11 +3148,18 @@ test('model info does not return the available model catalog', async () => {
     channelId: 'channel-model-info-state',
     args: ['model', 'info'],
   });
+  const repeated = await handleGatewayCommand({
+    sessionId: 'session-model-info-state',
+    guildId: null,
+    channelId: 'channel-model-info-state',
+    args: ['model', 'info'],
+  });
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
+  expect(repeated.kind).toBe('info');
   expect(result.text).toContain('Effective model: hybridai/gpt-5');
   expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain('hybridai/gpt-5');
@@ -3161,6 +3168,12 @@ test('model info does not return the available model catalog', async () => {
   expect(result.text).not.toContain('openai-codex/');
   expect(result.text).not.toContain('lmstudio/qwen/qwen3.5-9b');
   expect(result.modelCatalog).toBeUndefined();
+  expect(
+    fetchMock.mock.calls.filter(([input]) => input.endsWith('/models')),
+  ).toHaveLength(1);
+  expect(
+    fetchMock.mock.calls.some(([input]) => input.endsWith('/v1/models')),
+  ).toBe(false);
 });
 
 test('model list refreshes local backend health before filtering models', async () => {

@@ -47,7 +47,10 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
         replaceState(nextState);
         return state;
       } catch (err) {
-        return opts?.onError ? await opts.onError(err, staleState) : staleState;
+        if (!opts?.onError) return staleState;
+        const nextState = await opts.onError(err, staleState);
+        replaceState(nextState);
+        return state;
       } finally {
         discoveryInFlight = null;
       }

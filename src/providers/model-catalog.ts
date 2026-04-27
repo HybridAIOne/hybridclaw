@@ -319,6 +319,45 @@ export async function refreshAvailableModelCatalogs(opts?: {
   ]);
 }
 
+export async function refreshModelCatalogMetadata(
+  model: string,
+): Promise<void> {
+  const normalized = String(model || '').trim();
+  if (!normalized) return;
+
+  if (isLocalPrefixedModel(normalized)) {
+    await discoverAllLocalModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, OPENAI_CODEX_MODEL_PREFIX)) {
+    await discoverCodexModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, ANTHROPIC_MODEL_PREFIX)) {
+    await discoverAnthropicModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX)) {
+    await discoverOpenRouterModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, MISTRAL_MODEL_PREFIX)) {
+    await discoverMistralModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, HUGGINGFACE_MODEL_PREFIX)) {
+    await discoverHuggingFaceModels();
+    return;
+  }
+  for (const { prefix } of OPENAI_COMPAT_REMOTE_PROVIDERS) {
+    if (hasModelPrefix(normalized, prefix)) {
+      await discoverOpenAICompatRemoteModels();
+      return;
+    }
+  }
+  await discoverHybridAIModels();
+}
+
 function resolveKnownModelContextWindow(
   model: string,
   staticMetadata: ModelCatalogMetadata,
