@@ -9,6 +9,7 @@ import { getAgentSkillScores, getSkillObservations } from '../memory/db.js';
 import type {
   AgentScoreboardEntry,
   AgentSkillScore,
+  SkillObservation,
 } from './adaptive-skills-types.js';
 import type { SkillRunEvent } from './skill-run-events.js';
 import { loadSkillCatalog } from './skills.js';
@@ -127,6 +128,7 @@ function renderCvMarkdown(input: {
   displayName: string;
   agent: AgentConfig | null;
   scores: AgentSkillScore[];
+  recentRuns: SkillObservation[];
   generatedAt: string;
 }): string {
   const summary = summarizeScores(input.scores);
@@ -139,10 +141,6 @@ function renderCvMarkdown(input: {
     )
     .slice(0, 10);
   const topSkill = topSkills[0];
-  const recentRuns = getSkillObservations({
-    agentId: input.agentId,
-    limit: 5,
-  });
   const role = input.agent?.role?.trim() || 'Agent';
   const photo = input.agent?.imageAsset?.trim() || '';
   const lines = [
@@ -182,10 +180,10 @@ function renderCvMarkdown(input: {
   }
 
   lines.push('', '## Recent Track Record', '');
-  if (recentRuns.length === 0) {
+  if (input.recentRuns.length === 0) {
     lines.push('No recent skill runs yet.');
   } else {
-    for (const run of recentRuns) {
+    for (const run of input.recentRuns) {
       lines.push(
         `- ${run.created_at}: ${run.skill_name} ${run.outcome} in ${formatDuration(
           run.duration_ms,
@@ -206,12 +204,17 @@ export function cv(
     throw new Error('Agent id is required.');
   }
   const scores = getAgentSkillScores({ agentId: normalizedAgentId });
+  const recentRuns = getSkillObservations({
+    agentId: normalizedAgentId,
+    limit: 5,
+  });
   const displayName = displayNameForAgent(normalizedAgentId);
   return renderCvMarkdown({
     agentId: normalizedAgentId,
     displayName,
     agent: getScoreboardAgent(normalizedAgentId),
     scores,
+    recentRuns,
     generatedAt: options?.generatedAt || new Date().toISOString(),
   });
 }
