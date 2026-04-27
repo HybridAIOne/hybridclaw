@@ -906,6 +906,48 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser returns SQLite message timestamps as UTC ISO strings', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('sqlite-timestamp-session', null, 'web');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare(
+        'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'sqlite-timestamp-session',
+        'web-user-a',
+        'web',
+        'user',
+        'PDF request with SQLite timestamp',
+        '2026-03-24 10:00:00',
+      );
+    inspect
+      .prepare(
+        'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+      )
+      .run(1, '2026-03-24 10:00:00', 'sqlite-timestamp-session');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'sqlite-timestamp-session',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"PDF request with SQLite timestamp"',
+      },
+    ]);
+  });
+
   test('getRecentSessionsForChannel returns recent web sessions across browser users', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });

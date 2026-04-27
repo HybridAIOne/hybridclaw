@@ -4547,6 +4547,11 @@ function getRecentSessionContentMatches(
   );
 }
 
+function normalizeRecentSessionTimestamp(raw: string): string {
+  const timestamp = parseTimestamp(raw);
+  return timestamp > 0 ? new Date(timestamp).toISOString() : raw;
+}
+
 function buildRecentSessionSummaries(params: {
   rows: RecentUserSessionRow[];
   boundaryUserId: string | null;
@@ -4611,7 +4616,9 @@ function buildRecentSessionSummaries(params: {
 
     return {
       sessionId: row.id,
-      lastActive: row.last_message_at || row.last_active,
+      lastActive: normalizeRecentSessionTimestamp(
+        row.last_message_at || row.last_active,
+      ),
       messageCount: normalizeUsageNumber(row.message_count),
       title,
       ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
