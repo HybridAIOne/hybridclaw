@@ -11,6 +11,7 @@ import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
+import { CoworkersPage } from './routes/coworkers';
 import { DashboardPage } from './routes/dashboard';
 import { EmailPage } from './routes/email';
 import { GatewayPage } from './routes/gateway';
@@ -79,6 +80,12 @@ const agentFilesRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/agents',
   component: AgentFilesPage,
+});
+
+const coworkersRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/coworkers',
+  component: CoworkersPage,
 });
 
 const terminalRoute = createRoute({
@@ -182,6 +189,7 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute,
     approvalsRoute,
     agentFilesRoute,
+    coworkersRoute,
     terminalRoute,
     gatewayRoute,
     sessionsRoute,

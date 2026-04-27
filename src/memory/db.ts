@@ -43,6 +43,7 @@ import {
 } from '../session/session-reset.js';
 import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
+  CoworkerSkillScore,
   SkillAmendment,
   SkillAmendmentStatus,
   SkillErrorCategory,
@@ -110,7 +111,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 21;
+export const DATABASE_SCHEMA_VERSION = 22;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -405,6 +406,15 @@ function skillObservationsNeedConstraintMigration(
     !definition.includes(
       "feedback_sentiment in ('positive', 'negative', 'neutral')",
     )
+  );
+}
+
+function skillObservationsNeedCoworkerMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'skill_observations') &&
+    !columnExists(database, 'skill_observations', 'coworker_id')
   );
 }
 
@@ -1769,6 +1779,29 @@ function migrateV21(
   );
 }
 
+function migrateV22(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'skill_observations',
+    column: 'coworker_id',
+    ddl: 'coworker_id TEXT',
+    quiet,
+  });
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_coworker_skill_created
+      ON skill_observations(coworker_id, skill_name, created_at);
+  `);
+  recordMigration(
+    database,
+    22,
+    'Persist coworker identity on skill observations',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1811,6 +1844,9 @@ function runMigrations(
   if (currentVersion < 19) migrateV19(database);
   if (currentVersion < 20) migrateV20(database, opts);
   if (currentVersion < 21) migrateV21(database, opts);
+  if (currentVersion < 22 || skillObservationsNeedCoworkerMigration(database)) {
+    migrateV22(database, opts);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -6238,6 +6274,7 @@ function mapSkillObservationRow(row: SkillObservationRow): SkillObservation {
   return {
     id: Math.floor(row.id),
     skill_name: row.skill_name,
+    coworker_id: row.coworker_id,
     session_id: row.session_id,
     run_id: row.run_id,
     outcome: normalizeSkillOutcome(row.outcome),
@@ -6347,6 +6384,7 @@ export function recordSkillObservation(input: {
   skillName: string;
   sessionId: string;
   runId: string;
+  coworkerId?: string | null;
   outcome: SkillExecutionOutcome;
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
@@ -6358,6 +6396,7 @@ export function recordSkillObservation(input: {
     .prepare(
       `INSERT INTO skill_observations (
          skill_name,
+         coworker_id,
          session_id,
          run_id,
          outcome,
@@ -6366,10 +6405,11 @@ export function recordSkillObservation(input: {
          tool_calls_attempted,
          tool_calls_failed,
          duration_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.skillName.trim(),
+      input.coworkerId?.trim() || null,
       input.sessionId.trim(),
       input.runId.trim(),
       input.outcome,
@@ -6393,6 +6433,7 @@ export function recordSkillObservation(input: {
 
 export function getSkillObservations(params?: {
   skillName?: string;
+  coworkerId?: string;
   sessionId?: string;
   runId?: string;
   createdAfter?: string | null;
@@ -6402,6 +6443,7 @@ export function getSkillObservations(params?: {
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
   const sessionId = params?.sessionId?.trim() || '';
+  const coworkerId = params?.coworkerId?.trim() || '';
   const runId = params?.runId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
@@ -6411,6 +6453,10 @@ export function getSkillObservations(params?: {
   if (sessionId) {
     clauses.push('session_id = ?');
     args.push(sessionId);
+  }
+  if (coworkerId) {
+    clauses.push('coworker_id = ?');
+    args.push(coworkerId);
   }
   if (runId) {
     clauses.push('run_id = ?');
@@ -6473,12 +6519,14 @@ export function pruneSkillObservations(params: {
 
 export function getSkillObservationSummary(params?: {
   skillName?: string;
+  coworkerId?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
   ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
+  const coworkerId = params?.coworkerId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
     clauses.push('skill_name = ?');
@@ -6487,6 +6535,10 @@ export function getSkillObservationSummary(params?: {
   if (createdAfter) {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
+  }
+  if (coworkerId) {
+    clauses.push('coworker_id = ?');
+    args.push(coworkerId);
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -6540,6 +6592,118 @@ export function getSkillObservationSummary(params?: {
     summaryRows,
     clusterRows,
   });
+}
+
+function scoreCoworkerSkill(row: Omit<CoworkerSkillScore, 'score'>): number {
+  const successPoints = row.success_rate * 70;
+  const feedbackBalance =
+    row.positive_feedback_count - row.negative_feedback_count;
+  const feedbackPoints = Math.max(-15, Math.min(15, feedbackBalance * 5));
+  const reliabilityPoints = Math.max(0, 15 - row.tool_breakage_rate * 15);
+  const experiencePoints = Math.min(
+    10,
+    Math.log10(row.total_executions + 1) * 10,
+  );
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        successPoints + feedbackPoints + reliabilityPoints + experiencePoints,
+      ),
+    ),
+  );
+}
+
+export function getCoworkerSkillScores(params?: {
+  coworkerId?: string;
+  skillName?: string;
+  createdAfter?: string | null;
+  limit?: number;
+}): CoworkerSkillScore[] {
+  ensureDatabaseReady();
+  const clauses = ['coworker_id IS NOT NULL', "TRIM(coworker_id) != ''"];
+  const args: Array<string | number> = [];
+  const coworkerId = params?.coworkerId?.trim() || '';
+  const skillName = params?.skillName?.trim() || '';
+  const createdAfter = params?.createdAfter?.trim() || '';
+  if (coworkerId) {
+    clauses.push('coworker_id = ?');
+    args.push(coworkerId);
+  }
+  if (skillName) {
+    clauses.push('skill_name = ?');
+    args.push(skillName);
+  }
+  if (createdAfter) {
+    clauses.push('created_at >= ?');
+    args.push(createdAfter);
+  }
+  const limit = Math.max(1, Math.min(params?.limit || 500, 2_000));
+  const rows = queryAll<
+    Omit<CoworkerSkillScore, 'score'>,
+    Array<string | number>
+  >(
+    db,
+    `SELECT
+       coworker_id,
+       skill_name,
+       COUNT(*) AS total_executions,
+       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       CAST(SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS success_rate,
+       AVG(duration_ms) AS avg_duration_ms,
+       CAST(SUM(CASE WHEN tool_calls_failed > 0 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS tool_breakage_rate,
+       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+       MAX(created_at) AS last_observed_at
+     FROM skill_observations
+     WHERE ${clauses.join(' AND ')}
+     GROUP BY coworker_id, skill_name
+     ORDER BY total_executions DESC, coworker_id ASC, skill_name ASC
+     LIMIT ?`,
+    ...args,
+    limit,
+  );
+
+  return rows
+    .map((row) => {
+      const normalized = {
+        coworker_id: row.coworker_id,
+        skill_name: row.skill_name,
+        total_executions: Math.max(0, Math.floor(row.total_executions || 0)),
+        success_count: Math.max(0, Math.floor(row.success_count || 0)),
+        failure_count: Math.max(0, Math.floor(row.failure_count || 0)),
+        partial_count: Math.max(0, Math.floor(row.partial_count || 0)),
+        success_rate: Math.max(0, Math.min(1, Number(row.success_rate || 0))),
+        avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
+        tool_breakage_rate: Math.max(
+          0,
+          Math.min(1, Number(row.tool_breakage_rate || 0)),
+        ),
+        positive_feedback_count: Math.max(
+          0,
+          Math.floor(row.positive_feedback_count || 0),
+        ),
+        negative_feedback_count: Math.max(
+          0,
+          Math.floor(row.negative_feedback_count || 0),
+        ),
+        last_observed_at: row.last_observed_at,
+      };
+      return {
+        ...normalized,
+        score: scoreCoworkerSkill(normalized),
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.total_executions - left.total_executions ||
+        left.coworker_id.localeCompare(right.coworker_id) ||
+        left.skill_name.localeCompare(right.skill_name),
+    );
 }
 
 export function attachFeedbackToObservation(input: {

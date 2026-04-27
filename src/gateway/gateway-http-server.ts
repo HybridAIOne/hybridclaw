@@ -141,6 +141,7 @@ import {
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
+  getGatewayAdminCoworkerScoreboard,
   getGatewayAdminEmailFolder,
   getGatewayAdminEmailMailbox,
   getGatewayAdminEmailMessage,
@@ -3264,6 +3265,10 @@ async function handleApiAdminSkills(
   );
 }
 
+function handleApiAdminCoworkerScoreboard(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminCoworkerScoreboard());
+}
+
 const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 async function handleApiAdminSkillUpload(
@@ -3742,6 +3747,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             pathname.startsWith('/api/admin/agents/')
           ) {
             await handleApiAdminAgents(req, res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/coworker-scoreboard' &&
+            method === 'GET'
+          ) {
+            handleApiAdminCoworkerScoreboard(res);
             return;
           }
           if (

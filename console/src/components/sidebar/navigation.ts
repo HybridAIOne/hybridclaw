@@ -58,6 +58,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Configuration',
     items: [
       { to: '/admin/agents', label: 'Agent Files', icon: Agents },
+      { to: '/admin/coworkers', label: 'Coworkers', icon: Agents },
       { to: '/admin/skills', label: 'Skills', icon: Skills },
       { to: '/admin/plugins', label: 'Plugins', icon: Plugins },
       { to: '/admin/tools', label: 'Tools', icon: Tools },

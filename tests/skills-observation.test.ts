@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, test } from 'vitest';
 import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
@@ -107,6 +109,75 @@ test('records skill executions and attaches negative feedback', async () => {
   expect(summary?.error_clusters).toEqual([
     expect.objectContaining({ category: 'tool_error', count: 1 }),
   ]);
+});
+
+test('records coworker skill scores and refreshes generated CV.md', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { recordSkillExecution, recordSkillFeedback } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const { getCoworkerScoreboard, getBestCoworkersForSkill } = await import(
+    '../src/skills/coworker-scoreboard.ts'
+  );
+
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-1',
+    runId: 'run-cv-1',
+    coworkerId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+  recordSkillFeedback({
+    sessionId: 'session-cv-1',
+    feedback: 'Great work',
+    sentiment: 'positive',
+  });
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-2',
+    runId: 'run-cv-2',
+    coworkerId: 'lena',
+    toolExecutions: [],
+    outcome: 'partial',
+    durationMs: 200,
+  });
+
+  const observations = context.dbModule.getSkillObservations({
+    skillName: context.skillName,
+    coworkerId: 'lena',
+  });
+  expect(observations).toHaveLength(2);
+  expect(observations[0]?.coworker_id).toBe('lena');
+
+  const [score] = context.dbModule.getCoworkerSkillScores({
+    coworkerId: 'lena',
+    skillName: context.skillName,
+  });
+  expect(score).toMatchObject({
+    coworker_id: 'lena',
+    skill_name: context.skillName,
+    total_executions: 2,
+    success_count: 1,
+    partial_count: 1,
+    positive_feedback_count: 1,
+  });
+  expect(score?.score).toBeGreaterThan(50);
+
+  expect(getBestCoworkersForSkill(context.skillName)[0]?.coworker_id).toBe(
+    'lena',
+  );
+  expect(getCoworkerScoreboard()[0]).toMatchObject({
+    coworker_id: 'lena',
+    total_executions: 2,
+  });
+
+  const cvPath = path.join(agentWorkspaceDir('lena'), 'CV.md');
+  expect(fs.readFileSync(cvPath, 'utf-8')).toContain(
+    `Best at: ${context.skillName}`,
+  );
 });
 
 test('emits a skill_run event to subscribers for every skill execution', async () => {

@@ -13,6 +13,7 @@ import type {
   AdminCommandResult,
   AdminConfig,
   AdminConfigResponse,
+  AdminCoworkerScoreboardResponse,
   AdminCreateSkillPayload,
   AdminEmailDeleteResponse,
   AdminEmailFolderResponse,
@@ -773,6 +774,15 @@ export function fetchAdaptiveSkillHealth(
   return requestJson<AdminAdaptiveSkillHealthResponse>('/api/skills/health', {
     token,
   });
+}
+
+export function fetchCoworkerScoreboard(
+  token: string,
+): Promise<AdminCoworkerScoreboardResponse> {
+  return requestJson<AdminCoworkerScoreboardResponse>(
+    '/api/admin/coworker-scoreboard',
+    { token },
+  );
 }
 
 export function fetchAdaptiveSkillAmendments(

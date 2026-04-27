@@ -8,6 +8,7 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type { CoworkerScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -1003,6 +1004,10 @@ export interface GatewayAdminSkillsResponse {
   disabled: string[];
   channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>>;
   skills: GatewayAdminSkill[];
+}
+
+export interface GatewayAdminCoworkerScoreboardResponse {
+  coworkers: CoworkerScoreboardEntry[];
 }
 
 export interface GatewayAdminPlugin {

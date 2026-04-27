@@ -17,6 +17,10 @@ import type {
   SkillObservation,
 } from './adaptive-skills-types.js';
 import {
+  refreshCoworkerCv,
+  refreshCoworkerCvForSkillRun,
+} from './coworker-scoreboard.js';
+import {
   buildSkillRunBoundedPayload,
   buildSkillRunTokens,
   emitSkillRunEvent,
@@ -133,6 +137,7 @@ function recordSkillExecutionObservation(
 
   const observation = insertSkillObservation({
     skillName: event.skill_id,
+    coworkerId: event.coworker_id,
     sessionId: event.session_id,
     runId: event.run_id,
     outcome: event.outcome,
@@ -173,6 +178,7 @@ export async function waitForQueuedSkillEvaluations(): Promise<void> {
 }
 
 subscribeSkillRunEvents(recordSkillExecutionObservation);
+subscribeSkillRunEvents(refreshCoworkerCvForSkillRun);
 
 function collectSkillRunErrors(input: {
   errorDetail?: string | null;
@@ -263,9 +269,25 @@ export function recordSkillFeedback(input: {
 }): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
   if (!config.observationEnabled) return null;
-  return attachFeedbackToObservation({
+  const observation = attachFeedbackToObservation({
     sessionId: input.sessionId,
     feedback: input.feedback,
     sentiment: input.sentiment,
   });
+  if (observation?.coworker_id) {
+    try {
+      refreshCoworkerCv(observation.coworker_id);
+    } catch (error) {
+      logger.warn(
+        {
+          coworkerId: observation.coworker_id,
+          sessionId: observation.session_id,
+          runId: observation.run_id,
+          error,
+        },
+        'Failed to refresh coworker CV after skill feedback',
+      );
+    }
+  }
+  return observation;
 }

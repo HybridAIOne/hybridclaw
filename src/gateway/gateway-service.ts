@@ -298,6 +298,7 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
+import { getCoworkerScoreboard } from '../skills/coworker-scoreboard.js';
 import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
@@ -393,6 +394,7 @@ import {
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
+  type GatewayAdminCoworkerScoreboardResponse,
   type GatewayAdminDeleteSessionResult,
   type GatewayAdminEmailDeleteResponse,
   type GatewayAdminEmailFolderResponse,
@@ -5165,6 +5167,12 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
       tags: skill.metadata.hybridclaw.tags,
       relatedSkills: skill.metadata.hybridclaw.relatedSkills,
     })),
+  };
+}
+
+export function getGatewayAdminCoworkerScoreboard(): GatewayAdminCoworkerScoreboardResponse {
+  return {
+    coworkers: getCoworkerScoreboard(),
   };
 }
 
