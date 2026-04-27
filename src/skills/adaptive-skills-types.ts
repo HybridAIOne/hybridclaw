@@ -58,6 +58,7 @@ export interface SkillObservationSummary {
 
 export interface CoworkerSkillScore {
   coworker_id: string;
+  skill_id: string;
   skill_name: string;
   total_executions: number;
   success_count: number;
@@ -68,6 +69,8 @@ export interface CoworkerSkillScore {
   tool_breakage_rate: number;
   positive_feedback_count: number;
   negative_feedback_count: number;
+  last_run_at: string | null;
+  quality_score: number;
   score: number;
   last_observed_at: string | null;
 }

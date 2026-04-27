@@ -22,7 +22,13 @@ function formatBestAt(coworker: AdminCoworkerScoreboardEntry): string {
   return `${bestSkill.skill_name} (${bestSkill.score}/100)`;
 }
 
-type CoworkerSortKey = 'coworker' | 'score' | 'runs' | 'success' | 'bestAt';
+type CoworkerSortKey =
+  | 'coworker'
+  | 'score'
+  | 'runs'
+  | 'success'
+  | 'skill'
+  | 'recent';
 
 const COWORKER_SORTERS: Record<
   CoworkerSortKey,
@@ -43,8 +49,11 @@ const COWORKER_SORTERS: Record<
   success: (left, right) =>
     compareNumber(left.success_rate, right.success_rate) ||
     compareText(left.display_name, right.display_name),
-  bestAt: (left, right) =>
+  skill: (left, right) =>
     compareText(formatBestAt(left), formatBestAt(right)) ||
+    compareText(left.display_name, right.display_name),
+  recent: (left, right) =>
+    compareText(left.last_observed_at || '', right.last_observed_at || '') ||
     compareText(left.display_name, right.display_name),
 };
 
@@ -52,6 +61,7 @@ const COWORKER_DEFAULT_DIRECTIONS = {
   score: 'desc',
   runs: 'desc',
   success: 'desc',
+  recent: 'desc',
 } as const;
 
 export function CoworkersPage() {
@@ -154,7 +164,13 @@ export function CoworkersPage() {
                   />
                   <SortableHeader
                     label="Best at"
-                    sortKey="bestAt"
+                    sortKey="skill"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Recent"
+                    sortKey="recent"
                     sortState={sortState}
                     onToggle={toggleSort}
                   />
@@ -175,14 +191,21 @@ export function CoworkersPage() {
                     <td>{formatPercent(coworker.success_rate)}</td>
                     <td>
                       <strong>{formatBestAt(coworker)}</strong>
-                      <div className="supporting-text">
-                        {coworker.last_observed_at
-                          ? `Updated ${formatRelativeTime(coworker.last_observed_at)}`
-                          : 'No recent runs'}
-                      </div>
                     </td>
                     <td>
-                      <code>{coworker.cv_path}</code>
+                      {coworker.last_observed_at
+                        ? formatRelativeTime(coworker.last_observed_at)
+                        : 'No recent runs'}
+                    </td>
+                    <td>
+                      <a
+                        href={`/admin/agents?agent=${encodeURIComponent(coworker.coworker_id)}&file=CV.md`}
+                      >
+                        CV.md
+                      </a>
+                      <div className="supporting-text">
+                        <code>{coworker.cv_path}</code>
+                      </div>
                     </td>
                   </tr>
                 ))}

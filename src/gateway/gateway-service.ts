@@ -298,7 +298,10 @@ import {
   estimateTokenCountFromMessages,
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
-import { getCoworkerScoreboard } from '../skills/coworker-scoreboard.js';
+import {
+  formatCoworkerAssignmentHints,
+  getCoworkerScoreboard,
+} from '../skills/coworker-scoreboard.js';
 import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
@@ -455,10 +458,14 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...WORKSPACE_BOOTSTRAP_FILES,
+  'CV.md',
+] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
-  WORKSPACE_BOOTSTRAP_FILES,
+  ADMIN_AGENT_MARKDOWN_FILES,
 );
-type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -980,7 +987,7 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   const normalized = value.trim();
   if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${WORKSPACE_BOOTSTRAP_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
@@ -1069,7 +1076,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1112,7 +1119,7 @@ function mapGatewayAdminAgent(
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -6206,6 +6213,7 @@ function buildSubagentUserPrompt(params: {
   taskPrompt: string;
 }): string {
   const { depth, mode, canDelegate, taskPrompt } = params;
+  const assignmentHints = formatCoworkerAssignmentHints(taskPrompt);
   return [
     '# Delegated Task',
     `Delegation mode: ${mode}.`,
@@ -6214,6 +6222,7 @@ function buildSubagentUserPrompt(params: {
       ? 'Delegation capability: You may delegate further only if absolutely necessary and still within depth/turn limits.'
       : 'Delegation capability: You are a leaf subagent. Do not delegate further work.',
     '',
+    ...(assignmentHints ? [assignmentHints, ''] : []),
     'Task handoff from parent:',
     taskPrompt,
   ].join('\n');

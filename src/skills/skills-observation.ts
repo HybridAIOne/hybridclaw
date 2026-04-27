@@ -6,6 +6,7 @@ import {
   getSkillObservations,
   incrementAmendmentRunCount,
   recordSkillObservation as insertSkillObservation,
+  recomputeCoworkerSkillScore,
 } from '../memory/db.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -150,6 +151,13 @@ function recordSkillExecutionObservation(
     durationMs: event.latency_ms,
   });
 
+  if (event.coworker_id) {
+    recomputeCoworkerSkillScore({
+      coworkerId: event.coworker_id,
+      skillId: event.skill_id,
+    });
+  }
+
   recordAuditEvent({
     sessionId: event.session_id,
     runId: event.run_id,
@@ -276,6 +284,10 @@ export function recordSkillFeedback(input: {
   });
   if (observation?.coworker_id) {
     try {
+      recomputeCoworkerSkillScore({
+        coworkerId: observation.coworker_id,
+        skillId: observation.skill_name,
+      });
       refreshCoworkerCv(observation.coworker_id);
     } catch (error) {
       logger.warn(

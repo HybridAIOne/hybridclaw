@@ -418,6 +418,12 @@ function skillObservationsNeedCoworkerMigration(
   );
 }
 
+function coworkerSkillScoresNeedMigration(
+  database: Database.Database,
+): boolean {
+  return !tableExists(database, 'coworker_skill_scores');
+}
+
 function addColumnIfMissing(params: {
   database: Database.Database;
   table: string;
@@ -1794,11 +1800,59 @@ function migrateV22(
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_skill_observations_coworker_skill_created
       ON skill_observations(coworker_id, skill_name, created_at);
+
+    CREATE TABLE IF NOT EXISTS coworker_skill_scores (
+      coworker_id TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      partial_count INTEGER NOT NULL DEFAULT 0,
+      avg_duration_ms REAL NOT NULL DEFAULT 0,
+      last_run_at TEXT,
+      quality_score REAL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (coworker_id, skill_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_coworker_skill_scores_skill_quality
+      ON coworker_skill_scores(skill_id, quality_score DESC, last_run_at DESC);
+  `);
+  database.exec(`
+    INSERT INTO coworker_skill_scores (
+      coworker_id,
+      skill_id,
+      success_count,
+      failure_count,
+      partial_count,
+      avg_duration_ms,
+      last_run_at,
+      quality_score,
+      updated_at
+    )
+    SELECT
+      coworker_id,
+      skill_name,
+      SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END),
+      COALESCE(AVG(duration_ms), 0),
+      MAX(created_at),
+      NULL,
+      strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM skill_observations
+    WHERE coworker_id IS NOT NULL AND TRIM(coworker_id) != ''
+    GROUP BY coworker_id, skill_name
+    ON CONFLICT(coworker_id, skill_id) DO UPDATE SET
+      success_count = excluded.success_count,
+      failure_count = excluded.failure_count,
+      partial_count = excluded.partial_count,
+      avg_duration_ms = excluded.avg_duration_ms,
+      last_run_at = excluded.last_run_at,
+      updated_at = excluded.updated_at;
   `);
   recordMigration(
     database,
     22,
-    'Persist coworker identity on skill observations',
+    'Persist coworker identity and per-skill score aggregates',
   );
 }
 
@@ -1844,7 +1898,11 @@ function runMigrations(
   if (currentVersion < 19) migrateV19(database);
   if (currentVersion < 20) migrateV20(database, opts);
   if (currentVersion < 21) migrateV21(database, opts);
-  if (currentVersion < 22 || skillObservationsNeedCoworkerMigration(database)) {
+  if (
+    currentVersion < 22 ||
+    skillObservationsNeedCoworkerMigration(database) ||
+    coworkerSkillScoresNeedMigration(database)
+  ) {
     migrateV22(database, opts);
   }
 
@@ -6594,7 +6652,26 @@ export function getSkillObservationSummary(params?: {
   });
 }
 
-function scoreCoworkerSkill(row: Omit<CoworkerSkillScore, 'score'>): number {
+interface CoworkerSkillScoreAggregate {
+  coworker_id: string;
+  skill_id: string;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  avg_duration_ms: number;
+  last_run_at: string | null;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  tool_breakage_count: number;
+}
+
+function scoreCoworkerSkill(row: {
+  total_executions: number;
+  success_rate: number;
+  tool_breakage_rate: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+}): number {
   const successPoints = row.success_rate * 70;
   const feedbackBalance =
     row.positive_feedback_count - row.negative_feedback_count;
@@ -6615,6 +6692,119 @@ function scoreCoworkerSkill(row: Omit<CoworkerSkillScore, 'score'>): number {
   );
 }
 
+function mapCoworkerSkillScoreRow(
+  row: CoworkerSkillScoreAggregate,
+): CoworkerSkillScore {
+  const successCount = Math.max(0, Math.floor(row.success_count || 0));
+  const failureCount = Math.max(0, Math.floor(row.failure_count || 0));
+  const partialCount = Math.max(0, Math.floor(row.partial_count || 0));
+  const totalExecutions = successCount + failureCount + partialCount;
+  const toolBreakageCount = Math.max(
+    0,
+    Math.floor(row.tool_breakage_count || 0),
+  );
+  const normalized = {
+    coworker_id: row.coworker_id,
+    skill_id: row.skill_id,
+    skill_name: row.skill_id,
+    total_executions: totalExecutions,
+    success_count: successCount,
+    failure_count: failureCount,
+    partial_count: partialCount,
+    success_rate: totalExecutions > 0 ? successCount / totalExecutions : 0,
+    avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
+    tool_breakage_rate:
+      totalExecutions > 0 ? toolBreakageCount / totalExecutions : 0,
+    positive_feedback_count: Math.max(
+      0,
+      Math.floor(row.positive_feedback_count || 0),
+    ),
+    negative_feedback_count: Math.max(
+      0,
+      Math.floor(row.negative_feedback_count || 0),
+    ),
+    last_run_at: row.last_run_at,
+    last_observed_at: row.last_run_at,
+  };
+  const score = scoreCoworkerSkill(normalized);
+  return {
+    ...normalized,
+    quality_score: score,
+    score,
+  };
+}
+
+export function recomputeCoworkerSkillScore(input: {
+  coworkerId: string;
+  skillId: string;
+}): CoworkerSkillScore | null {
+  ensureDatabaseReady();
+  const coworkerId = input.coworkerId.trim();
+  const skillId = input.skillId.trim();
+  if (!coworkerId || !skillId) return null;
+
+  const aggregate = queryOne<CoworkerSkillScoreAggregate, [string, string]>(
+    db,
+    `SELECT
+       coworker_id,
+       skill_name AS skill_id,
+       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+       MAX(created_at) AS last_run_at,
+       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+       SUM(CASE WHEN tool_calls_failed > 0 THEN 1 ELSE 0 END) AS tool_breakage_count
+     FROM skill_observations
+     WHERE coworker_id = ? AND skill_name = ?
+     GROUP BY coworker_id, skill_name`,
+    coworkerId,
+    skillId,
+  );
+
+  if (!aggregate) {
+    db.prepare(
+      `DELETE FROM coworker_skill_scores
+       WHERE coworker_id = ? AND skill_id = ?`,
+    ).run(coworkerId, skillId);
+    return null;
+  }
+
+  const score = mapCoworkerSkillScoreRow(aggregate);
+  db.prepare(
+    `INSERT INTO coworker_skill_scores (
+       coworker_id,
+       skill_id,
+       success_count,
+       failure_count,
+       partial_count,
+       avg_duration_ms,
+       last_run_at,
+       quality_score,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+     ON CONFLICT(coworker_id, skill_id) DO UPDATE SET
+       success_count = excluded.success_count,
+       failure_count = excluded.failure_count,
+       partial_count = excluded.partial_count,
+       avg_duration_ms = excluded.avg_duration_ms,
+       last_run_at = excluded.last_run_at,
+       quality_score = excluded.quality_score,
+       updated_at = excluded.updated_at`,
+  ).run(
+    score.coworker_id,
+    score.skill_id,
+    score.success_count,
+    score.failure_count,
+    score.partial_count,
+    score.avg_duration_ms,
+    score.last_run_at,
+    score.quality_score,
+  );
+  return score;
+}
+
 export function getCoworkerSkillScores(params?: {
   coworkerId?: string;
   skillName?: string;
@@ -6622,87 +6812,68 @@ export function getCoworkerSkillScores(params?: {
   limit?: number;
 }): CoworkerSkillScore[] {
   ensureDatabaseReady();
-  const clauses = ['coworker_id IS NOT NULL', "TRIM(coworker_id) != ''"];
+  const clauses = [
+    'score.coworker_id IS NOT NULL',
+    "TRIM(score.coworker_id) != ''",
+  ];
   const args: Array<string | number> = [];
   const coworkerId = params?.coworkerId?.trim() || '';
   const skillName = params?.skillName?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (coworkerId) {
-    clauses.push('coworker_id = ?');
+    clauses.push('score.coworker_id = ?');
     args.push(coworkerId);
   }
   if (skillName) {
-    clauses.push('skill_name = ?');
+    clauses.push('score.skill_id = ?');
     args.push(skillName);
   }
   if (createdAfter) {
-    clauses.push('created_at >= ?');
+    clauses.push('score.last_run_at >= ?');
     args.push(createdAfter);
   }
   const limit = Math.max(1, Math.min(params?.limit || 500, 2_000));
-  const rows = queryAll<
-    Omit<CoworkerSkillScore, 'score'>,
-    Array<string | number>
-  >(
+  const rows = queryAll<CoworkerSkillScoreAggregate, Array<string | number>>(
     db,
     `SELECT
-       coworker_id,
-       skill_name,
-       COUNT(*) AS total_executions,
-       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
-       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
-       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
-       CAST(SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS success_rate,
-       AVG(duration_ms) AS avg_duration_ms,
-       CAST(SUM(CASE WHEN tool_calls_failed > 0 THEN 1 ELSE 0 END) AS REAL) / COUNT(*) AS tool_breakage_rate,
-       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
-       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
-       MAX(created_at) AS last_observed_at
-     FROM skill_observations
+       score.coworker_id,
+       score.skill_id,
+       score.success_count,
+       score.failure_count,
+       score.partial_count,
+       score.avg_duration_ms,
+       score.last_run_at,
+       COALESCE(feedback.positive_feedback_count, 0) AS positive_feedback_count,
+       COALESCE(feedback.negative_feedback_count, 0) AS negative_feedback_count,
+       COALESCE(feedback.tool_breakage_count, 0) AS tool_breakage_count
+     FROM coworker_skill_scores score
+     LEFT JOIN (
+       SELECT
+         coworker_id,
+         skill_name,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         SUM(CASE WHEN tool_calls_failed > 0 THEN 1 ELSE 0 END) AS tool_breakage_count
+       FROM skill_observations
+       GROUP BY coworker_id, skill_name
+     ) feedback
+       ON feedback.coworker_id = score.coworker_id
+      AND feedback.skill_name = score.skill_id
      WHERE ${clauses.join(' AND ')}
-     GROUP BY coworker_id, skill_name
-     ORDER BY total_executions DESC, coworker_id ASC, skill_name ASC
+     ORDER BY COALESCE(score.quality_score, 0) DESC, score.last_run_at DESC, score.coworker_id ASC, score.skill_id ASC
      LIMIT ?`,
     ...args,
     limit,
   );
 
   return rows
-    .map((row) => {
-      const normalized = {
-        coworker_id: row.coworker_id,
-        skill_name: row.skill_name,
-        total_executions: Math.max(0, Math.floor(row.total_executions || 0)),
-        success_count: Math.max(0, Math.floor(row.success_count || 0)),
-        failure_count: Math.max(0, Math.floor(row.failure_count || 0)),
-        partial_count: Math.max(0, Math.floor(row.partial_count || 0)),
-        success_rate: Math.max(0, Math.min(1, Number(row.success_rate || 0))),
-        avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
-        tool_breakage_rate: Math.max(
-          0,
-          Math.min(1, Number(row.tool_breakage_rate || 0)),
-        ),
-        positive_feedback_count: Math.max(
-          0,
-          Math.floor(row.positive_feedback_count || 0),
-        ),
-        negative_feedback_count: Math.max(
-          0,
-          Math.floor(row.negative_feedback_count || 0),
-        ),
-        last_observed_at: row.last_observed_at,
-      };
-      return {
-        ...normalized,
-        score: scoreCoworkerSkill(normalized),
-      };
-    })
+    .map(mapCoworkerSkillScoreRow)
     .sort(
       (left, right) =>
-        right.score - left.score ||
+        right.quality_score - left.quality_score ||
         right.total_executions - left.total_executions ||
         left.coworker_id.localeCompare(right.coworker_id) ||
-        left.skill_name.localeCompare(right.skill_name),
+        left.skill_id.localeCompare(right.skill_id),
     );
 }
 
