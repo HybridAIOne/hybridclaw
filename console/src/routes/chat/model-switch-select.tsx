@@ -99,16 +99,19 @@ function prettifyToken(token: string): string {
 
 /**
  * Turn a kebab-cased model slug into a human label.
- *   "claude-haiku-4-5"   -> "Claude Haiku 4.5"
- *   "claude-3-7-sonnet"  -> "Claude 3.7 Sonnet"
- *   "gpt-4.1-mini"       -> "GPT-4.1 Mini"
- *   "gemini-3-flash"     -> "Gemini 3 Flash"
- *   "deepseek-r1"        -> "DeepSeek r1"
- *   "o3"                 -> "o3"
+ *   "claude-haiku-4-5"             -> "Claude Haiku 4.5"
+ *   "claude-3-7-sonnet"            -> "Claude 3.7 Sonnet"
+ *   "claude-opus-4-1-20250805"     -> "Claude Opus 4.1"  (drops date stamp)
+ *   "gpt-4.1-mini"                 -> "GPT-4.1 Mini"
+ *   "gemini-3-flash"               -> "Gemini 3 Flash"
+ *   "deepseek-r1"                  -> "DeepSeek r1"
+ *   "o3"                           -> "o3"
  */
 function prettifyModelName(slug: string): string {
   if (!slug) return slug;
-  const segments = slug.split('-');
+  // Strip pure-numeric segments with 5+ digits — they're internal date or
+  // build stamps (YYYYMMDD, etc.), never user-facing version components.
+  const segments = slug.split('-').filter((seg) => !/^\d{5,}$/.test(seg));
   const out: string[] = [];
   let prevSegLower: string | null = null;
   let i = 0;
