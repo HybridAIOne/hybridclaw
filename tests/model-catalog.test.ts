@@ -97,6 +97,62 @@ afterEach(async () => {
   vi.doUnmock('../src/auth/anthropic-auth.js');
 });
 
+test('model catalog metadata resolves pricing, context, and capabilities from versioned data', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  const metadata = catalog.getModelCatalogMetadata('hybridai/gpt-5-nano');
+
+  expect(metadata.known).toBe(true);
+  expect(metadata.dataVersion).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect(metadata.contextWindow).toBe(400_000);
+  expect(metadata.pricingEurPerToken.input).toBeCloseTo(
+    0.05 / 1.1712 / 1_000_000,
+    16,
+  );
+  expect(metadata.pricingEurPerToken.output).toBeCloseTo(
+    0.4 / 1.1712 / 1_000_000,
+    16,
+  );
+  expect(metadata.capabilities).toEqual({
+    vision: true,
+    tools: true,
+    jsonMode: true,
+    reasoning: true,
+  });
+  expect(metadata.sources).toEqual(
+    expect.arrayContaining([
+      'https://platform.openai.com/docs/pricing',
+      'https://www.ecb.europa.eu/stats/eurofxref',
+    ]),
+  );
+});
+
+test('model catalog metadata falls back safely for missing models', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  const metadata = catalog.getModelCatalogMetadata(
+    'unknown-provider/not-real-model',
+  );
+
+  expect(metadata).toMatchObject({
+    known: false,
+    pricingEurPerToken: { input: null, output: null },
+    contextWindow: null,
+    maxTokens: null,
+    capabilities: {
+      vision: false,
+      tools: false,
+      jsonMode: false,
+      reasoning: false,
+    },
+    sources: [],
+  });
+});
+
 test('available model catalog falls back to HybridAI /v1/models when /models is unavailable', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

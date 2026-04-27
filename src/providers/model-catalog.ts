@@ -2,33 +2,51 @@ import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   discoverAnthropicModels,
+  getDiscoveredAnthropicModelContextWindow,
   getDiscoveredAnthropicModelNames,
   isDiscoveredAnthropicModelVisionCapable,
 } from './anthropic-discovery.js';
 import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
 import {
   discoverCodexModels,
+  getDiscoveredCodexModelContextWindow,
+  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
 } from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
-import { discoverHuggingFaceModels } from './huggingface-discovery.js';
+import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelContextWindow,
+} from './huggingface-discovery.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
   discoverHybridAIModels,
+  getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
 } from './hybridai-discovery.js';
-import { isStaticModelVisionCapable } from './hybridai-models.js';
+import {
+  isStaticModelVisionCapable,
+  resolveModelContextWindowFallback,
+} from './hybridai-models.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
+  getLocalModelInfo,
+  resolveLocalModelContextWindow,
 } from './local-discovery.js';
 import {
   discoverMistralModels,
+  getDiscoveredMistralModelContextWindow,
   isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
 } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
+import {
+  type ModelCatalogMetadata,
+  resolveStaticModelCatalogMetadata,
+} from './model-metadata.js';
 import {
   formatHybridAIModelForCatalog,
   formatModelForDisplay,
@@ -41,6 +59,8 @@ import {
 import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
+  getDiscoveredOpenRouterModelContextWindow,
+  getDiscoveredOpenRouterModelMaxTokens,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
@@ -293,6 +313,55 @@ export async function refreshAvailableModelCatalogs(opts?: {
     discoverOpenAICompatRemoteModels(),
     ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
   ]);
+}
+
+function resolveKnownModelContextWindow(model: string): number | null {
+  const staticMetadata = resolveStaticModelCatalogMetadata(model);
+  return (
+    resolveLocalModelContextWindow(model) ??
+    getDiscoveredCodexModelContextWindow(model) ??
+    getDiscoveredHuggingFaceModelContextWindow(model) ??
+    getDiscoveredHybridAIModelContextWindow(model) ??
+    getDiscoveredMistralModelContextWindow(model) ??
+    getDiscoveredAnthropicModelContextWindow(model) ??
+    getDiscoveredOpenRouterModelContextWindow(model) ??
+    staticMetadata.contextWindow ??
+    resolveModelContextWindowFallback(model)
+  );
+}
+
+function resolveKnownModelMaxTokens(model: string): number | null {
+  const info = getLocalModelInfo(model);
+  const staticMetadata = resolveStaticModelCatalogMetadata(model);
+  return (
+    info?.maxTokens ??
+    getDiscoveredCodexModelMaxTokens(model) ??
+    getDiscoveredHybridAIModelMaxTokens(model) ??
+    getDiscoveredOpenRouterModelMaxTokens(model) ??
+    staticMetadata.maxTokens
+  );
+}
+
+export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
+  const staticMetadata = resolveStaticModelCatalogMetadata(model);
+  const contextWindow = resolveKnownModelContextWindow(model);
+  const maxTokens = resolveKnownModelMaxTokens(model);
+  const vision = isModelVisionCapable(model);
+
+  return {
+    ...staticMetadata,
+    known:
+      staticMetadata.known ||
+      contextWindow != null ||
+      maxTokens != null ||
+      vision,
+    contextWindow,
+    maxTokens,
+    capabilities: {
+      ...staticMetadata.capabilities,
+      vision: staticMetadata.capabilities.vision || vision,
+    },
+  };
 }
 
 /**

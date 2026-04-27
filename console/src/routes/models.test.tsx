@@ -9,6 +9,18 @@ const fetchModelsMock = vi.fn<() => Promise<AdminModelsResponse>>();
 const saveModelsMock = vi.fn();
 const useAuthMock = vi.fn();
 
+const modelMetadataDefaults = {
+  pricingEurPerToken: { input: null, output: null },
+  capabilities: {
+    vision: true,
+    tools: true,
+    jsonMode: true,
+    reasoning: false,
+  },
+  metadataSources: [],
+  metadataVersion: 'test',
+};
+
 vi.mock('../api/client', () => ({
   fetchModels: () => fetchModelsMock(),
   saveModels: (token: string, payload: unknown) =>
@@ -40,6 +52,7 @@ function makeModelsResponse(
         backend: null,
         contextWindow: 128000,
         maxTokens: 8192,
+        ...modelMetadataDefaults,
         isReasoning: false,
         thinkingFormat: null,
         family: null,
@@ -53,6 +66,11 @@ function makeModelsResponse(
         backend: null,
         contextWindow: 200000,
         maxTokens: 8192,
+        ...modelMetadataDefaults,
+        capabilities: {
+          ...modelMetadataDefaults.capabilities,
+          reasoning: true,
+        },
         isReasoning: true,
         thinkingFormat: null,
         family: 'claude',
@@ -114,6 +132,11 @@ describe('ModelsPage', () => {
             backend: null,
             contextWindow: 200000,
             maxTokens: 8192,
+            ...modelMetadataDefaults,
+            capabilities: {
+              ...modelMetadataDefaults.capabilities,
+              reasoning: true,
+            },
             isReasoning: true,
             thinkingFormat: null,
             family: 'claude',
@@ -134,6 +157,7 @@ describe('ModelsPage', () => {
             backend: null,
             contextWindow: 128000,
             maxTokens: 8192,
+            ...modelMetadataDefaults,
             isReasoning: false,
             thinkingFormat: null,
             family: null,
@@ -154,6 +178,11 @@ describe('ModelsPage', () => {
             backend: null,
             contextWindow: 400000,
             maxTokens: 32768,
+            ...modelMetadataDefaults,
+            capabilities: {
+              ...modelMetadataDefaults.capabilities,
+              reasoning: true,
+            },
             isReasoning: true,
             thinkingFormat: null,
             family: null,

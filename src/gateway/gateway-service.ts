@@ -203,8 +203,6 @@ import {
 } from '../policy/policy-store.js';
 import {
   discoverCodexModels,
-  getDiscoveredCodexModelContextWindow,
-  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
 } from '../providers/codex-discovery.js';
 import {
@@ -213,7 +211,6 @@ import {
 } from '../providers/factory.js';
 import {
   discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
 import {
@@ -221,29 +218,21 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import {
-  getDiscoveredHybridAIModelContextWindow,
-  getDiscoveredHybridAIModelMaxTokens,
-  getDiscoveredHybridAIModelNames,
-} from '../providers/hybridai-discovery.js';
+import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import {
   type HybridAIHealthResult,
   hybridAIProbe,
 } from '../providers/hybridai-health.js';
-import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  getLocalModelInfo,
-  resolveLocalModelContextWindow,
-} from '../providers/local-discovery.js';
+import { getLocalModelInfo } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelContextWindow,
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
   getAvailableModelList,
+  getModelCatalogMetadata,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
@@ -258,8 +247,6 @@ import {
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelContextWindow,
-  getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -1715,15 +1702,7 @@ function mapModelUsageRow(
 }
 
 function resolveKnownModelContextWindow(model: string): number | null {
-  return (
-    resolveLocalModelContextWindow(model) ??
-    getDiscoveredCodexModelContextWindow(model) ??
-    getDiscoveredHuggingFaceModelContextWindow(model) ??
-    getDiscoveredHybridAIModelContextWindow(model) ??
-    getDiscoveredMistralModelContextWindow(model) ??
-    getDiscoveredOpenRouterModelContextWindow(model) ??
-    resolveModelContextWindowFallback(model)
-  );
+  return getModelCatalogMetadata(model).contextWindow;
 }
 
 function resolveDisplayedModelName(model: string): string {
@@ -4835,25 +4814,21 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
-        const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
         const info = getLocalModelInfo(modelId);
-        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
-        const openRouterMaxTokens =
-          getDiscoveredOpenRouterModelMaxTokens(modelId);
+        const metadata = getModelCatalogMetadata(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: resolveKnownModelContextWindow(modelId),
-          maxTokens:
-            info?.maxTokens ??
-            codexMaxTokens ??
-            hybridaiMaxTokens ??
-            openRouterMaxTokens ??
-            null,
-          isReasoning: info?.isReasoning ?? false,
+          contextWindow: metadata.contextWindow,
+          maxTokens: metadata.maxTokens,
+          pricingEurPerToken: metadata.pricingEurPerToken,
+          capabilities: metadata.capabilities,
+          metadataSources: metadata.sources,
+          metadataVersion: metadata.dataVersion,
+          isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
