@@ -3750,8 +3750,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
-            (pathname === '/api/admin/agent-scoreboard' ||
-              pathname === '/api/admin/coworker-scoreboard') &&
+            pathname === '/api/admin/agent-scoreboard' &&
             method === 'GET'
           ) {
             handleApiAdminAgentScoreboard(res);

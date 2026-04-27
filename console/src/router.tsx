@@ -88,12 +88,6 @@ const agentScoreboardRoute = createRoute({
   component: AgentsPage,
 });
 
-const legacyAgentsRoute = createRoute({
-  getParentRoute: () => adminLayoutRoute,
-  path: '/admin/coworkers',
-  component: AgentsPage,
-});
-
 const terminalRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/terminal',
@@ -196,7 +190,6 @@ const routeTree = rootRoute.addChildren([
     approvalsRoute,
     agentFilesRoute,
     agentScoreboardRoute,
-    legacyAgentsRoute,
     terminalRoute,
     gatewayRoute,
     sessionsRoute,
