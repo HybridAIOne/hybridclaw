@@ -5183,13 +5183,13 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
 export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
   return {
     agents: getAgentScoreboard().map((entry) => ({
-      agent_id: entry.coworker_id,
+      agent_id: entry.agent_id,
       display_name: entry.display_name,
       total_executions: entry.total_executions,
       success_rate: entry.success_rate,
       avg_score: entry.avg_score,
       best_skills: entry.best_skills.map((score) => ({
-        agent_id: score.coworker_id,
+        agent_id: score.agent_id,
         skill_id: score.skill_id,
         skill_name: score.skill_name,
         total_executions: score.total_executions,

@@ -411,19 +411,17 @@ function skillObservationsNeedConstraintMigration(
   );
 }
 
-function skillObservationsNeedCoworkerMigration(
+function skillObservationsNeedAgentMigration(
   database: Database.Database,
 ): boolean {
   return (
     tableExists(database, 'skill_observations') &&
-    !columnExists(database, 'skill_observations', 'coworker_id')
+    !columnExists(database, 'skill_observations', 'agent_id')
   );
 }
 
-function coworkerSkillScoresNeedMigration(
-  database: Database.Database,
-): boolean {
-  return !tableExists(database, 'coworker_skill_scores');
+function agentSkillScoresNeedMigration(database: Database.Database): boolean {
+  return !tableExists(database, 'agent_skill_scores');
 }
 
 function addColumnIfMissing(params: {
@@ -1784,7 +1782,7 @@ function migrateV21(
   recordMigration(
     database,
     21,
-    'Persist agent owner, role, and CV profile for stable coworker identity',
+    'Persist agent owner, role, and CV profile for stable agent identity',
   );
 }
 
@@ -1796,13 +1794,13 @@ function migrateV22(
   addColumnIfMissing({
     database,
     table: 'skill_observations',
-    column: 'coworker_id',
-    ddl: 'coworker_id TEXT',
+    column: 'agent_id',
+    ddl: 'agent_id TEXT',
     quiet,
   });
   database.exec(`
-    CREATE TABLE IF NOT EXISTS coworker_skill_scores (
-      coworker_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS agent_skill_scores (
+      agent_id TEXT NOT NULL,
       skill_id TEXT NOT NULL,
       success_count INTEGER NOT NULL DEFAULT 0,
       failure_count INTEGER NOT NULL DEFAULT 0,
@@ -1811,28 +1809,28 @@ function migrateV22(
       last_run_at TEXT,
       quality_score REAL,
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      PRIMARY KEY (coworker_id, skill_id)
+      PRIMARY KEY (agent_id, skill_id)
     );
-    CREATE INDEX IF NOT EXISTS idx_coworker_skill_scores_skill_quality
-      ON coworker_skill_scores(skill_id, quality_score DESC, last_run_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_skill_scores_skill_quality
+      ON agent_skill_scores(skill_id, quality_score DESC, last_run_at DESC);
   `);
 
   if (!tableExists(database, 'skill_observations')) {
     recordMigration(
       database,
       22,
-      'Persist coworker identity and per-skill score aggregates',
+      'Persist agent identity and per-skill score aggregates',
     );
     return;
   }
 
   database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_skill_observations_coworker_skill_created
-      ON skill_observations(coworker_id, skill_name, created_at);
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_agent_skill_created
+      ON skill_observations(agent_id, skill_name, created_at);
   `);
   database.exec(`
-    INSERT INTO coworker_skill_scores (
-      coworker_id,
+    INSERT INTO agent_skill_scores (
+      agent_id,
       skill_id,
       success_count,
       failure_count,
@@ -1843,7 +1841,7 @@ function migrateV22(
       updated_at
     )
     SELECT
-      coworker_id,
+      agent_id,
       skill_name,
       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END),
       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END),
@@ -1853,9 +1851,9 @@ function migrateV22(
       NULL,
       strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     FROM skill_observations
-    WHERE coworker_id IS NOT NULL AND TRIM(coworker_id) != ''
-    GROUP BY coworker_id, skill_name
-    ON CONFLICT(coworker_id, skill_id) DO UPDATE SET
+    WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+    GROUP BY agent_id, skill_name
+    ON CONFLICT(agent_id, skill_id) DO UPDATE SET
       success_count = excluded.success_count,
       failure_count = excluded.failure_count,
       partial_count = excluded.partial_count,
@@ -1866,7 +1864,7 @@ function migrateV22(
   recordMigration(
     database,
     22,
-    'Persist coworker identity and per-skill score aggregates',
+    'Persist agent identity and per-skill score aggregates',
   );
 }
 
@@ -1928,8 +1926,8 @@ function runMigrations(
   if (currentVersion < 21) migrateV21(database, opts);
   if (
     currentVersion < 22 ||
-    skillObservationsNeedCoworkerMigration(database) ||
-    coworkerSkillScoresNeedMigration(database)
+    skillObservationsNeedAgentMigration(database) ||
+    agentSkillScoresNeedMigration(database)
   ) {
     migrateV22(database, opts);
   }
@@ -6443,7 +6441,7 @@ function mapSkillObservationRow(row: SkillObservationRow): SkillObservation {
   return {
     id: Math.floor(row.id),
     skill_name: row.skill_name,
-    coworker_id: row.coworker_id,
+    agent_id: row.agent_id,
     session_id: row.session_id,
     run_id: row.run_id,
     outcome: normalizeSkillOutcome(row.outcome),
@@ -6553,7 +6551,7 @@ export function recordSkillObservation(input: {
   skillName: string;
   sessionId: string;
   runId: string;
-  coworkerId?: string | null;
+  agentId?: string | null;
   outcome: SkillExecutionOutcome;
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
@@ -6565,7 +6563,7 @@ export function recordSkillObservation(input: {
     .prepare(
       `INSERT INTO skill_observations (
          skill_name,
-         coworker_id,
+         agent_id,
          session_id,
          run_id,
          outcome,
@@ -6578,7 +6576,7 @@ export function recordSkillObservation(input: {
     )
     .run(
       input.skillName.trim(),
-      input.coworkerId?.trim() || null,
+      input.agentId?.trim() || null,
       input.sessionId.trim(),
       input.runId.trim(),
       input.outcome,
@@ -6602,7 +6600,7 @@ export function recordSkillObservation(input: {
 
 export function getSkillObservations(params?: {
   skillName?: string;
-  coworkerId?: string;
+  agentId?: string;
   sessionId?: string;
   runId?: string;
   createdAfter?: string | null;
@@ -6612,7 +6610,7 @@ export function getSkillObservations(params?: {
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
   const sessionId = params?.sessionId?.trim() || '';
-  const coworkerId = params?.coworkerId?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const runId = params?.runId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
@@ -6623,9 +6621,9 @@ export function getSkillObservations(params?: {
     clauses.push('session_id = ?');
     args.push(sessionId);
   }
-  if (coworkerId) {
-    clauses.push('coworker_id = ?');
-    args.push(coworkerId);
+  if (agentId) {
+    clauses.push('agent_id = ?');
+    args.push(agentId);
   }
   if (runId) {
     clauses.push('run_id = ?');
@@ -6688,14 +6686,14 @@ export function pruneSkillObservations(params: {
 
 export function getSkillObservationSummary(params?: {
   skillName?: string;
-  coworkerId?: string;
+  agentId?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
   ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
-  const coworkerId = params?.coworkerId?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
     clauses.push('skill_name = ?');
@@ -6705,9 +6703,9 @@ export function getSkillObservationSummary(params?: {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
   }
-  if (coworkerId) {
-    clauses.push('coworker_id = ?');
-    args.push(coworkerId);
+  if (agentId) {
+    clauses.push('agent_id = ?');
+    args.push(agentId);
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -6763,8 +6761,8 @@ export function getSkillObservationSummary(params?: {
   });
 }
 
-interface CoworkerSkillScoreAggregate {
-  coworker_id: string;
+interface AgentSkillScoreAggregate {
+  agent_id: string;
   skill_id: string;
   success_count: number;
   failure_count: number;
@@ -6777,7 +6775,7 @@ interface CoworkerSkillScoreAggregate {
   tool_calls_failed: number;
 }
 
-function scoreCoworkerSkill(row: {
+function scoreAgentSkill(row: {
   total_executions: number;
   success_count: number;
   failure_count: number;
@@ -6812,9 +6810,7 @@ function scoreCoworkerSkill(row: {
   );
 }
 
-function mapCoworkerSkillScoreRow(
-  row: CoworkerSkillScoreAggregate,
-): AgentSkillScore {
+function mapAgentSkillScoreRow(row: AgentSkillScoreAggregate): AgentSkillScore {
   const successCount = Math.max(0, Math.floor(row.success_count || 0));
   const failureCount = Math.max(0, Math.floor(row.failure_count || 0));
   const partialCount = Math.max(0, Math.floor(row.partial_count || 0));
@@ -6825,7 +6821,7 @@ function mapCoworkerSkillScoreRow(
   );
   const toolCallsFailed = Math.max(0, Math.floor(row.tool_calls_failed || 0));
   const normalized = {
-    coworker_id: row.coworker_id,
+    agent_id: row.agent_id,
     skill_id: row.skill_id,
     skill_name: row.skill_id,
     total_executions: totalExecutions,
@@ -6847,7 +6843,7 @@ function mapCoworkerSkillScoreRow(
     last_run_at: row.last_run_at,
     last_observed_at: row.last_run_at,
   };
-  const score = scoreCoworkerSkill({
+  const score = scoreAgentSkill({
     total_executions: normalized.total_executions,
     success_count: normalized.success_count,
     failure_count: normalized.failure_count,
@@ -6872,10 +6868,10 @@ export function recomputeAgentSkillScore(input: {
   const skillId = input.skillId.trim();
   if (!agentId || !skillId) return null;
 
-  const aggregate = queryOne<CoworkerSkillScoreAggregate, [string, string]>(
+  const aggregate = queryOne<AgentSkillScoreAggregate, [string, string]>(
     db,
     `SELECT
-       coworker_id,
+       agent_id,
        skill_name AS skill_id,
        SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
        SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
@@ -6887,24 +6883,24 @@ export function recomputeAgentSkillScore(input: {
        SUM(tool_calls_attempted) AS tool_calls_attempted,
        SUM(tool_calls_failed) AS tool_calls_failed
      FROM skill_observations
-     WHERE coworker_id = ? AND skill_name = ?
-     GROUP BY coworker_id, skill_name`,
+     WHERE agent_id = ? AND skill_name = ?
+     GROUP BY agent_id, skill_name`,
     agentId,
     skillId,
   );
 
   if (!aggregate) {
     db.prepare(
-      `DELETE FROM coworker_skill_scores
-       WHERE coworker_id = ? AND skill_id = ?`,
+      `DELETE FROM agent_skill_scores
+       WHERE agent_id = ? AND skill_id = ?`,
     ).run(agentId, skillId);
     return null;
   }
 
-  const score = mapCoworkerSkillScoreRow(aggregate);
+  const score = mapAgentSkillScoreRow(aggregate);
   db.prepare(
-    `INSERT INTO coworker_skill_scores (
-       coworker_id,
+    `INSERT INTO agent_skill_scores (
+       agent_id,
        skill_id,
        success_count,
        failure_count,
@@ -6914,7 +6910,7 @@ export function recomputeAgentSkillScore(input: {
        quality_score,
        updated_at
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-     ON CONFLICT(coworker_id, skill_id) DO UPDATE SET
+     ON CONFLICT(agent_id, skill_id) DO UPDATE SET
        success_count = excluded.success_count,
        failure_count = excluded.failure_count,
        partial_count = excluded.partial_count,
@@ -6923,7 +6919,7 @@ export function recomputeAgentSkillScore(input: {
        quality_score = excluded.quality_score,
        updated_at = excluded.updated_at`,
   ).run(
-    score.coworker_id,
+    score.agent_id,
     score.skill_id,
     score.success_count,
     score.failure_count,
@@ -6942,16 +6938,13 @@ export function getAgentSkillScores(params?: {
   limit?: number;
 }): AgentSkillScore[] {
   ensureDatabaseReady();
-  const clauses = [
-    'score.coworker_id IS NOT NULL',
-    "TRIM(score.coworker_id) != ''",
-  ];
+  const clauses = ['score.agent_id IS NOT NULL', "TRIM(score.agent_id) != ''"];
   const args: Array<string | number> = [];
   const agentId = params?.agentId?.trim() || '';
   const skillName = params?.skillName?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (agentId) {
-    clauses.push('score.coworker_id = ?');
+    clauses.push('score.agent_id = ?');
     args.push(agentId);
   }
   if (skillName) {
@@ -6963,10 +6956,10 @@ export function getAgentSkillScores(params?: {
     args.push(createdAfter);
   }
   const limit = Math.max(1, Math.min(params?.limit || 500, 2_000));
-  const rows = queryAll<CoworkerSkillScoreAggregate, Array<string | number>>(
+  const rows = queryAll<AgentSkillScoreAggregate, Array<string | number>>(
     db,
     `SELECT
-       score.coworker_id,
+       score.agent_id,
        score.skill_id,
        score.success_count,
        score.failure_count,
@@ -6977,34 +6970,34 @@ export function getAgentSkillScores(params?: {
        COALESCE(feedback.negative_feedback_count, 0) AS negative_feedback_count,
        COALESCE(feedback.tool_calls_attempted, 0) AS tool_calls_attempted,
        COALESCE(feedback.tool_calls_failed, 0) AS tool_calls_failed
-     FROM coworker_skill_scores score
+     FROM agent_skill_scores score
      LEFT JOIN (
        SELECT
-         coworker_id,
+         agent_id,
          skill_name,
          SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
          SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
          SUM(tool_calls_attempted) AS tool_calls_attempted,
          SUM(tool_calls_failed) AS tool_calls_failed
        FROM skill_observations
-       GROUP BY coworker_id, skill_name
+       GROUP BY agent_id, skill_name
      ) feedback
-       ON feedback.coworker_id = score.coworker_id
+       ON feedback.agent_id = score.agent_id
       AND feedback.skill_name = score.skill_id
      WHERE ${clauses.join(' AND ')}
-     ORDER BY COALESCE(score.quality_score, 0) DESC, score.last_run_at DESC, score.coworker_id ASC, score.skill_id ASC
+     ORDER BY COALESCE(score.quality_score, 0) DESC, score.last_run_at DESC, score.agent_id ASC, score.skill_id ASC
      LIMIT ?`,
     ...args,
     limit,
   );
 
   return rows
-    .map(mapCoworkerSkillScoreRow)
+    .map(mapAgentSkillScoreRow)
     .sort(
       (left, right) =>
         right.quality_score - left.quality_score ||
         right.total_executions - left.total_executions ||
-        left.coworker_id.localeCompare(right.coworker_id) ||
+        left.agent_id.localeCompare(right.agent_id) ||
         left.skill_id.localeCompare(right.skill_id),
     );
 }

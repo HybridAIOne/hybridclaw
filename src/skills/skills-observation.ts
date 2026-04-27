@@ -138,7 +138,7 @@ function recordSkillExecutionObservation(
 
   const observation = insertSkillObservation({
     skillName: event.skill_id,
-    coworkerId: event.coworker_id,
+    agentId: event.agent_id,
     sessionId: event.session_id,
     runId: event.run_id,
     outcome: event.outcome,
@@ -151,9 +151,9 @@ function recordSkillExecutionObservation(
     durationMs: event.latency_ms,
   });
 
-  if (event.coworker_id) {
+  if (event.agent_id) {
     recomputeAgentSkillScore({
-      agentId: event.coworker_id,
+      agentId: event.agent_id,
       skillId: event.skill_id,
     });
   }
@@ -240,7 +240,7 @@ export function recordSkillExecution(input: {
   const event: SkillRunEvent = {
     type: 'skill_run',
     skill_id: skillName,
-    coworker_id: input.agentId?.trim() || null,
+    agent_id: input.agentId?.trim() || null,
     session_id: input.sessionId,
     run_id: input.runId,
     input: buildSkillRunBoundedPayload(input.input),
@@ -282,17 +282,17 @@ export function recordSkillFeedback(input: {
     feedback: input.feedback,
     sentiment: input.sentiment,
   });
-  if (observation?.coworker_id) {
+  if (observation?.agent_id) {
     try {
       recomputeAgentSkillScore({
-        agentId: observation.coworker_id,
+        agentId: observation.agent_id,
         skillId: observation.skill_name,
       });
-      refreshAgentCv(observation.coworker_id);
+      refreshAgentCv(observation.agent_id);
     } catch (error) {
       logger.warn(
         {
-          agentId: observation.coworker_id,
+          agentId: observation.agent_id,
           sessionId: observation.session_id,
           runId: observation.run_id,
           error,

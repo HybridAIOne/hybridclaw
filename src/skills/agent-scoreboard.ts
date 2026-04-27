@@ -74,16 +74,16 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
   const scores = getAgentSkillScores();
   const scoresByAgent = new Map<string, AgentSkillScore[]>();
   for (const score of scores) {
-    const existing = scoresByAgent.get(score.coworker_id) || [];
+    const existing = scoresByAgent.get(score.agent_id) || [];
     existing.push(score);
-    scoresByAgent.set(score.coworker_id, existing);
+    scoresByAgent.set(score.agent_id, existing);
   }
 
   return [...scoresByAgent.entries()]
     .map(([agentId, agentScores]) => {
       const summary = summarizeScores(agentScores);
       return {
-        coworker_id: agentId,
+        agent_id: agentId,
         display_name: displayNameForAgent(agentId),
         total_executions: summary.totalExecutions,
         success_rate: summary.successRate,
@@ -136,7 +136,7 @@ function renderCvMarkdown(input: {
     .slice(0, 10);
   const topSkill = topSkills[0];
   const recentRuns = getSkillObservations({
-    coworkerId: input.agentId,
+    agentId: input.agentId,
     limit: 5,
   });
   const role = input.agent?.role?.trim() || 'Agent';
@@ -222,13 +222,13 @@ export function refreshAgentCv(agentId: string): string | null {
 }
 
 export function refreshAgentCvForSkillRun(event: SkillRunEvent): void {
-  if (!event.coworker_id) return;
+  if (!event.agent_id) return;
   try {
-    refreshAgentCv(event.coworker_id);
+    refreshAgentCv(event.agent_id);
   } catch (error) {
     logger.warn(
       {
-        agentId: event.coworker_id,
+        agentId: event.agent_id,
         skillId: event.skill_id,
         runId: event.run_id,
         error,
@@ -240,7 +240,7 @@ export function refreshAgentCvForSkillRun(event: SkillRunEvent): void {
 
 export function refreshAllAgentCvs(): string[] {
   const registeredIds = listAgents().map((agent) => agent.id);
-  const observedIds = getAgentScoreboard().map((entry) => entry.coworker_id);
+  const observedIds = getAgentScoreboard().map((entry) => entry.agent_id);
   const ids = Array.from(new Set([...registeredIds, ...observedIds]));
   return ids
     .map((id) => refreshAgentCv(id))
@@ -317,8 +317,8 @@ export function recommendAgentsFor(
     .map((score) => {
       const relevance = relevanceBySkill.get(score.skill_id) || 0;
       return {
-        agent_id: score.coworker_id,
-        display_name: displayNameForAgent(score.coworker_id),
+        agent_id: score.agent_id,
+        display_name: displayNameForAgent(score.agent_id),
         skill_id: score.skill_id,
         quality_score: score.quality_score,
         success_rate: score.success_rate,

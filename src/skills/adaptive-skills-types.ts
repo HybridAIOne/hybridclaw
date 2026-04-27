@@ -27,7 +27,7 @@ export interface SkillErrorCluster {
 export interface SkillObservation {
   id: number;
   skill_name: string;
-  coworker_id: string | null;
+  agent_id: string | null;
   session_id: string;
   run_id: string;
   outcome: SkillExecutionOutcome;
@@ -57,7 +57,7 @@ export interface SkillObservationSummary {
 }
 
 export interface AgentSkillScore {
-  coworker_id: string;
+  agent_id: string;
   skill_id: string;
   skill_name: string;
   total_executions: number;
@@ -76,7 +76,7 @@ export interface AgentSkillScore {
 }
 
 export interface AgentScoreboardEntry {
-  coworker_id: string;
+  agent_id: string;
   display_name: string;
   total_executions: number;
   success_rate: number;

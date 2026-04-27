@@ -1019,12 +1019,12 @@ export interface GatewayAdminSkillsResponse {
 }
 
 export interface GatewayAdminAgentSkillScore
-  extends Omit<AgentScoreboardEntry['best_skills'][number], 'coworker_id'> {
+  extends Omit<AgentScoreboardEntry['best_skills'][number], 'agent_id'> {
   agent_id: string;
 }
 
 export interface GatewayAdminAgentScoreboardEntry
-  extends Omit<AgentScoreboardEntry, 'coworker_id' | 'best_skills'> {
+  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills'> {
   agent_id: string;
   best_skills: GatewayAdminAgentSkillScore[];
 }

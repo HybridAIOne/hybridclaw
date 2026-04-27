@@ -149,14 +149,14 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     agentId: 'lena',
   });
   expect(observations).toHaveLength(2);
-  expect(observations[0]?.coworker_id).toBe('lena');
+  expect(observations[0]?.agent_id).toBe('lena');
 
   const [score] = context.dbModule.getAgentSkillScores({
     agentId: 'lena',
     skillName: context.skillName,
   });
   expect(score).toMatchObject({
-    coworker_id: 'lena',
+    agent_id: 'lena',
     skill_id: context.skillName,
     skill_name: context.skillName,
     total_executions: 2,
@@ -170,15 +170,15 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   const database = new Database(context.dbPath);
   const scoreRows = database
     .prepare(
-      `SELECT coworker_id, skill_id, success_count, partial_count, quality_score
-       FROM coworker_skill_scores
-       WHERE coworker_id = ? AND skill_id = ?`,
+      `SELECT agent_id, skill_id, success_count, partial_count, quality_score
+       FROM agent_skill_scores
+       WHERE agent_id = ? AND skill_id = ?`,
     )
     .all('lena', context.skillName);
   database.close();
   expect(scoreRows).toEqual([
     expect.objectContaining({
-      coworker_id: 'lena',
+      agent_id: 'lena',
       skill_id: context.skillName,
       success_count: 1,
       partial_count: 1,
@@ -186,9 +186,9 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     }),
   ]);
 
-  expect(getBestAgentsForSkill(context.skillName)[0]?.coworker_id).toBe('lena');
+  expect(getBestAgentsForSkill(context.skillName)[0]?.agent_id).toBe('lena');
   expect(getAgentScoreboard()[0]).toMatchObject({
-    coworker_id: 'lena',
+    agent_id: 'lena',
     total_executions: 2,
   });
 
@@ -288,7 +288,7 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     skillName: context.skillName,
   });
   expect(partialScore).toMatchObject({
-    coworker_id: 'charly',
+    agent_id: 'charly',
     success_count: 0,
     partial_count: 2,
     failure_count: 0,
@@ -382,7 +382,7 @@ test('emits a skill_run event to subscribers for every skill execution', async (
   expect(events[0]).toMatchObject({
     type: 'skill_run',
     skill_id: context.skillName,
-    coworker_id: 'agent-1',
+    agent_id: 'agent-1',
     session_id: 'session-event-1',
     run_id: 'run-event-1',
     input: {

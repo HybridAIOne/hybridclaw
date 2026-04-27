@@ -40,7 +40,7 @@ export interface SkillRunToolExecutionSummary {
 export interface SkillRunEvent {
   type: 'skill_run';
   skill_id: string;
-  coworker_id: string | null;
+  agent_id: string | null;
   session_id: string;
   run_id: string;
   input: SkillRunBoundedPayload | null;

@@ -104,7 +104,7 @@ test('handleGatewayMessage records observations for implicitly activated single-
     expect.objectContaining({
       type: 'skill_run',
       skill_id: 'apple-music',
-      coworker_id: 'agent-alice',
+      agent_id: 'agent-alice',
       session_id: 'session-implicit-apple-music',
       model: 'test-model',
       latency_ms: expect.any(Number),
