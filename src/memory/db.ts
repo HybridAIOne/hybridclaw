@@ -6680,30 +6680,33 @@ interface CoworkerSkillScoreAggregate {
 function scoreCoworkerSkill(row: {
   total_executions: number;
   success_count: number;
+  failure_count: number;
   partial_count: number;
   tool_call_failure_rate: number;
   positive_feedback_count: number;
   negative_feedback_count: number;
 }): number {
-  const completionRate =
+  const resultPoints =
     row.total_executions > 0
-      ? (row.success_count + row.partial_count * 0.6) / row.total_executions
+      ? (row.success_count * 90 +
+          row.partial_count * 75 +
+          row.failure_count * 10) /
+        row.total_executions
       : 0;
-  const successPoints = completionRate * 70;
   const feedbackBalance =
     row.positive_feedback_count - row.negative_feedback_count;
   const feedbackPoints = Math.max(-15, Math.min(15, feedbackBalance * 5));
-  const reliabilityPoints = Math.max(0, 15 - row.tool_call_failure_rate * 15);
+  const toolPenalty = Math.min(5, row.tool_call_failure_rate * 5);
   const experiencePoints = Math.min(
-    10,
-    Math.log10(row.total_executions + 1) * 10,
+    5,
+    Math.log10(row.total_executions + 1) * 5,
   );
   return Math.max(
     0,
     Math.min(
       100,
       Math.round(
-        successPoints + feedbackPoints + reliabilityPoints + experiencePoints,
+        resultPoints + feedbackPoints + experiencePoints - toolPenalty,
       ),
     ),
   );
@@ -6747,6 +6750,7 @@ function mapCoworkerSkillScoreRow(
   const score = scoreCoworkerSkill({
     total_executions: normalized.total_executions,
     success_count: normalized.success_count,
+    failure_count: normalized.failure_count,
     partial_count: normalized.partial_count,
     tool_call_failure_rate: normalized.tool_breakage_rate,
     positive_feedback_count: normalized.positive_feedback_count,

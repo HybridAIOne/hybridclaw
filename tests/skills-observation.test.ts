@@ -299,7 +299,7 @@ test('records coworker skill scores and refreshes generated CV.md', async () => 
     partial_count: 2,
     failure_count: 0,
   });
-  expect(partialScore?.quality_score).toBeGreaterThan(50);
+  expect(partialScore?.quality_score).toBeGreaterThan(70);
 });
 
 test('emits a skill_run event to subscribers for every skill execution', async () => {
