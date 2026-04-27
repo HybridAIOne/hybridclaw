@@ -269,6 +269,15 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     .run(context.skillName);
   staleScoreDatabase.close();
   expect(getBestAgentsForSkill(context.skillName, 1)[0]?.agent_id).toBe('lena');
+  recordSkillExecution({
+    skillName: 'unrelated-skill',
+    sessionId: 'session-unrelated',
+    runId: 'run-unrelated',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
   expect(recommendAgentsFor('demo skill task')).toEqual([
     expect.objectContaining({
       agent_id: 'lena',
@@ -279,6 +288,13 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
       skill_id: context.skillName,
     }),
   ]);
+  expect(recommendAgentsFor('demo skill task')).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        skill_id: 'unrelated-skill',
+      }),
+    ]),
+  );
   recordSkillExecution({
     skillName: context.skillName,
     sessionId: 'session-cv-cache',

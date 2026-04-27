@@ -25,6 +25,7 @@ let queuedAgentCvRefreshWork: Promise<void> = Promise.resolve();
 let cachedRecommendationSkillCatalog: SkillCatalogEntry[] | null = null;
 let cachedRecommendationScores: {
   expiresAt: number;
+  cacheKey: string;
   scores: AgentSkillScore[];
 } | null = null;
 
@@ -354,17 +355,26 @@ function getRecommendationSkillCatalog(): SkillCatalogEntry[] {
 }
 
 function getRecommendationAgentSkillScores(
+  skillNames: string[],
   now = Date.now(),
 ): AgentSkillScore[] {
+  const normalizedSkillNames = [
+    ...new Set(skillNames.map((name) => name.trim())),
+  ]
+    .filter(Boolean)
+    .sort();
+  const cacheKey = normalizedSkillNames.join('\n');
   if (
     cachedRecommendationScores &&
+    cachedRecommendationScores.cacheKey === cacheKey &&
     cachedRecommendationScores.expiresAt > now
   ) {
     return cachedRecommendationScores.scores;
   }
-  const scores = getAgentSkillScores();
+  const scores = getAgentSkillScores({ skillNames: normalizedSkillNames });
   cachedRecommendationScores = {
     expiresAt: now + AGENT_RECOMMENDATION_SCORE_CACHE_TTL_MS,
+    cacheKey,
     scores,
   };
   return scores;
@@ -403,7 +413,10 @@ export function recommendAgentsFor(
     if (relevance > 0) relevanceBySkill.set(skill.name, relevance);
   }
 
-  const scores = getRecommendationAgentSkillScores();
+  const relevantSkillNames = [...relevanceBySkill.keys()];
+  if (relevantSkillNames.length === 0) return [];
+
+  const scores = getRecommendationAgentSkillScores(relevantSkillNames);
   const displayNames = displayNamesByAgentId();
   return scores
     .map((score) => {

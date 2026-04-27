@@ -6996,6 +6996,7 @@ export function recomputeAgentSkillScore(input: {
 export function getAgentSkillScores(params?: {
   agentId?: string;
   skillName?: string;
+  skillNames?: string[];
   createdAfter?: string | null;
   limit?: number;
 }): AgentSkillScore[] {
@@ -7004,6 +7005,11 @@ export function getAgentSkillScores(params?: {
   const args: Array<string | number> = [];
   const agentId = params?.agentId?.trim() || '';
   const skillName = params?.skillName?.trim() || '';
+  const skillNames = [
+    ...new Set(
+      (params?.skillNames || []).map((value) => value.trim()).filter(Boolean),
+    ),
+  ].sort();
   const createdAfter = params?.createdAfter?.trim() || '';
   if (agentId) {
     clauses.push('score.agent_id = ?');
@@ -7012,6 +7018,9 @@ export function getAgentSkillScores(params?: {
   if (skillName) {
     clauses.push('score.skill_id = ?');
     args.push(skillName);
+  } else if (skillNames.length > 0) {
+    clauses.push(`score.skill_id IN (${skillNames.map(() => '?').join(', ')})`);
+    args.push(...skillNames);
   }
   if (createdAfter) {
     clauses.push('score.last_run_at >= ?');
