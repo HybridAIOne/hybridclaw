@@ -6,6 +6,7 @@ import type { AgentConfig } from '../agents/agent-types.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getAgentSkillScores, getSkillObservations } from '../memory/db.js';
+import { formatDurationMs } from '../utils/text-format.js';
 import type {
   AgentScoreboardEntry,
   AgentSkillScore,
@@ -28,11 +29,6 @@ function cvPathForAgent(agentId: string): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
-}
-
-function formatDuration(value: number): string {
-  if (value < 1_000) return `${Math.round(value)}ms`;
-  return `${(value / 1_000).toFixed(1)}s`;
 }
 
 function summarizeScores(scores: AgentSkillScore[]): {
@@ -168,7 +164,7 @@ function renderCvMarkdown(input: {
       lines.push(
         `- ${score.skill_name}: ${score.score}/100, ${formatPercent(
           score.success_rate,
-        )} success across ${score.total_executions} runs, avg ${formatDuration(
+        )} success across ${score.total_executions} runs, avg ${formatDurationMs(
           score.avg_duration_ms,
         )}`,
       );
@@ -181,7 +177,7 @@ function renderCvMarkdown(input: {
   } else {
     for (const run of input.recentRuns) {
       lines.push(
-        `- ${run.created_at}: ${run.skill_name} ${run.outcome} in ${formatDuration(
+        `- ${run.created_at}: ${run.skill_name} ${run.outcome} in ${formatDurationMs(
           run.duration_ms,
         )}`,
       );

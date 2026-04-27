@@ -330,6 +330,7 @@ import type {
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
+import { formatDurationMs } from '../utils/text-format.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -6234,11 +6235,6 @@ function buildSubagentUserPrompt(params: {
     'Task handoff from parent:',
     taskPrompt,
   ].join('\n');
-}
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(1)}s`;
 }
 
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
