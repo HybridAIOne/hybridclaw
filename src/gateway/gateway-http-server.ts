@@ -151,6 +151,7 @@ import {
   getGatewayAdminOverview,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
+  getGatewayAdminStatistics,
   getGatewayAdminTools,
   getGatewayAgentList,
   getGatewayAgents,
@@ -2132,6 +2133,11 @@ async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
 
+function handleApiAdminStatistics(res: ServerResponse, url: URL): void {
+  const daysRaw = url.searchParams.get('days') ?? undefined;
+  sendJson(res, 200, getGatewayAdminStatistics({ days: daysRaw }));
+}
+
 async function handleApiAdminEmail(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminEmailMailbox());
 }
@@ -3742,6 +3748,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminOverview(res);
             return;
           }
+          if (pathname === '/api/admin/statistics' && method === 'GET') {
+            handleApiAdminStatistics(res, url);
+            return;
+          }
           if (
             pathname === '/api/admin/agents' ||
             pathname.startsWith('/api/admin/agents/')
@@ -3749,10 +3759,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminAgents(req, res, url);
             return;
           }
-          if (
-            pathname === '/api/admin/agent-scoreboard' &&
-            method === 'GET'
-          ) {
+          if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
             handleApiAdminAgentScoreboard(res);
             return;
           }

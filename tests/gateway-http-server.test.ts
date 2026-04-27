@@ -635,6 +635,48 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const getGatewayAdminStatistics = vi.fn(
+    (params?: { days?: number | string }) => {
+      const raw =
+        typeof params?.days === 'number'
+          ? params.days
+          : typeof params?.days === 'string'
+            ? Number.parseInt(params.days, 10)
+            : 30;
+      const rangeDays = Math.max(
+        1,
+        Math.min(90, Number.isFinite(raw) ? Math.floor(raw) : 30),
+      );
+      return {
+        rangeDays,
+        startDate: '2026-04-01',
+        endDate: '2026-04-30',
+        totals: {
+          newSessions: 1,
+          activeSessions: 2,
+          totalMessages: 5,
+          userMessages: 3,
+          assistantMessages: 2,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalTokens: 0,
+          totalCostUsd: 0,
+          callCount: 0,
+          totalToolCalls: 0,
+        },
+        trend: [],
+        channels: [
+          {
+            channelId: 'web',
+            sessionCount: 2,
+            userMessages: 3,
+            assistantMessages: 2,
+            totalMessages: 5,
+          },
+        ],
+      };
+    },
+  );
   const getGatewayAdminEmailMailbox = vi.fn(() => ({
     enabled: true,
     address: 'agent@example.com',
@@ -1505,6 +1547,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSessions,
     getGatewayAdminAgentScoreboard,
     getGatewayAdminSkills,
+    getGatewayAdminStatistics,
     getGatewayAdminTools,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
@@ -1608,6 +1651,7 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    getGatewayAdminStatistics,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -4084,6 +4128,58 @@ describe('gateway HTTP server', () => {
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
     });
+  });
+
+  test('returns admin statistics with default range when days is omitted', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      rangeDays: 30,
+      startDate: '2026-04-01',
+      endDate: '2026-04-30',
+      totals: { totalMessages: 5 },
+      channels: [{ channelId: 'web', sessionCount: 2 }],
+    });
+  });
+
+  test('forwards days query param to admin statistics service', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics?days=7' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: '7',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rangeDays).toBe(7);
+  });
+
+  test('clamps oversized days query param via the statistics service', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics?days=9999' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: '9999',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rangeDays).toBe(90);
   });
 
   test('returns live admin email mailbox metadata for authorized API requests', async () => {

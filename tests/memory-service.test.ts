@@ -589,6 +589,78 @@ describe.sequential('schema migrations', () => {
     );
   });
 
+  test('fills admin statistics indexes for branch schema v23 databases', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        last_active TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT,
+        role TEXT NOT NULL,
+        agent_id TEXT,
+        content TEXT NOT NULL,
+        artifacts_json TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE agent_skill_scores (
+        agent_id TEXT NOT NULL,
+        skill_id TEXT NOT NULL,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        partial_count INTEGER NOT NULL DEFAULT 0,
+        avg_duration_ms REAL NOT NULL DEFAULT 0,
+        last_run_at TEXT,
+        quality_score REAL,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        PRIMARY KEY (agent_id, skill_id)
+      );
+
+      PRAGMA user_version = 23;
+    `);
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const indexes = inspect
+      .prepare(
+        `SELECT name
+         FROM sqlite_master
+         WHERE type = 'index'
+           AND name IN (
+             'idx_messages_created_at',
+             'idx_messages_session_created_at',
+             'idx_sessions_created_at',
+             'idx_sessions_last_active',
+             'idx_sessions_channel_last_active'
+           )`,
+      )
+      .all() as Array<{ name: string }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(new Set(indexes.map((index) => index.name))).toEqual(
+      new Set([
+        'idx_messages_created_at',
+        'idx_messages_session_created_at',
+        'idx_sessions_created_at',
+        'idx_sessions_last_active',
+        'idx_sessions_channel_last_active',
+      ]),
+    );
+  });
+
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
     const dbPath = createTempDbPath();
     const legacy = new Database(dbPath);

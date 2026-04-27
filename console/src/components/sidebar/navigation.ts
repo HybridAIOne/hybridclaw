@@ -10,12 +10,13 @@ import {
   Files,
   Gateway,
   Jobs,
-  Lightbulb,
   Models,
   Plugins,
   Policy,
   Scheduler,
   Sessions,
+  Skills,
+  Statistics,
   Terminal,
   Tools,
 } from '../icons';
@@ -37,6 +38,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Overview',
     items: [
       { to: '/admin', label: 'Dashboard', icon: Dashboard },
+      { to: '/admin/statistics', label: 'Statistics', icon: Statistics },
       { to: '/admin/approvals', label: 'Approvals', icon: Policy },
       { to: '/admin/audit', label: 'Audit', icon: Audit },
       { to: '/admin/jobs', label: 'Jobs', icon: Jobs },
@@ -60,7 +62,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     items: [
       { to: '/admin/agents', label: 'Agent Files', icon: Files },
       { to: '/admin/agent-scoreboard', label: 'Agents', icon: AgentGroup },
-      { to: '/admin/skills', label: 'Skills', icon: Lightbulb },
+      { to: '/admin/skills', label: 'Skills', icon: Skills },
       { to: '/admin/plugins', label: 'Plugins', icon: Plugins },
       { to: '/admin/tools', label: 'Tools', icon: Tools },
       { to: '/admin/config', label: 'Config', icon: Config },
