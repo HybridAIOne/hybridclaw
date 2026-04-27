@@ -1070,7 +1070,6 @@ export interface AdminAgentScoreboardEntry {
   avg_score: number;
   best_skills: AdminAgentSkillScore[];
   last_observed_at: string | null;
-  cv_path: string;
 }
 
 export interface AdminAgentScoreboardResponse {

@@ -5185,7 +5185,7 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
 export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
   return {
     observed_skill_count: getObservedAgentSkillCount(),
-    agents: getAgentScoreboard().map((entry) => ({
+    agents: getAgentScoreboard().map(({ cv_path, ...entry }) => ({
       ...entry,
       best_skills: entry.best_skills.map((score) => ({ ...score })),
     })),

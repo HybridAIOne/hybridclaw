@@ -179,9 +179,6 @@ export function AgentsPage() {
                       >
                         CV.md
                       </a>
-                      <div className="supporting-text">
-                        <code>{agent.cv_path}</code>
-                      </div>
                     </td>
                   </tr>
                 ))}

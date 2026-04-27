@@ -1206,7 +1206,6 @@ async function importFreshHealth(options?: {
         avg_score: 90,
         best_skills: [],
         last_observed_at: '2026-04-27T10:00:00.000Z',
-        cv_path: '/tmp/charly/workspace/CV.md',
       },
     ],
   }));
@@ -4893,11 +4892,15 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toEqual({
       observed_skill_count: 2,
       agents: [
-        expect.objectContaining({
+        {
           agent_id: 'charly',
           display_name: 'Charly',
+          total_executions: 3,
+          success_rate: 1,
           avg_score: 90,
-        }),
+          best_skills: [],
+          last_observed_at: '2026-04-27T10:00:00.000Z',
+        },
       ],
     });
   });

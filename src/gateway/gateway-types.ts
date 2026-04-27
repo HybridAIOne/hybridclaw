@@ -1024,7 +1024,7 @@ export interface GatewayAdminAgentSkillScore
 }
 
 export interface GatewayAdminAgentScoreboardEntry
-  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills'> {
+  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills' | 'cv_path'> {
   agent_id: string;
   best_skills: GatewayAdminAgentSkillScore[];
 }
