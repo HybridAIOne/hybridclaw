@@ -205,6 +205,7 @@ export function cv(
 export function refreshAgentCv(agentId: string): string | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return null;
+  if (!getAgentById(normalizedAgentId)) return null;
   const cvPath = cvPathForAgent(normalizedAgentId);
   const cvDir = path.dirname(cvPath);
   const tempPath = path.join(

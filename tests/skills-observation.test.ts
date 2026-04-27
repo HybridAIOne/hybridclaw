@@ -120,6 +120,13 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   const { cv, getBestAgentsForSkill, getAgentScoreboard, recommendAgentsFor } =
     await import('../src/skills/agent-scoreboard.ts');
 
+  for (const id of ['lena', 'mika', 'charly']) {
+    context.dbModule.upsertAgent({
+      id,
+      name: id,
+    });
+  }
+
   recordSkillExecution({
     skillName: context.skillName,
     sessionId: 'session-cv-1',
@@ -308,6 +315,30 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     failure_count: 0,
   });
   expect(partialScore?.quality_score).toBeGreaterThan(70);
+});
+
+test('skips CV writes for unknown agent ids from skill events', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const { refreshAgentCv } = await import('../src/skills/agent-scoreboard.ts');
+  const unknownAgentId = '../../etc';
+  const unknownWorkspace = agentWorkspaceDir(unknownAgentId);
+
+  expect(refreshAgentCv(unknownAgentId)).toBeNull();
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-unknown-agent',
+    runId: 'run-unknown-agent',
+    agentId: unknownAgentId,
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 42,
+  });
+
+  expect(fs.existsSync(path.join(unknownWorkspace, 'CV.md'))).toBe(false);
 });
 
 test('records audit event when agent skill score recompute fails', async () => {
