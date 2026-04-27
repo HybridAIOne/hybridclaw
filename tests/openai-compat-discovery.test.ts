@@ -308,6 +308,45 @@ describe('openai-compat discovery — per-provider store', () => {
     expect(store.getModelNames()).toEqual(['xai/grok-3']);
   });
 
+  test('uses xAI language models for aliases and pricing', async () => {
+    process.env.XAI_API_KEY = 'xai-test';
+    mockModules({ XAI_ENABLED: true });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://api.x.ai/v1/language-models');
+      return jsonResponse({
+        models: [
+          {
+            id: 'grok-4.20-0309',
+            aliases: ['grok-4.20-0309-non-reasoning'],
+            prompt_text_token_price: 300,
+            completion_text_token_price: 1500,
+          },
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discovery = await importDiscovery();
+    const { OPENAI_COMPAT_REMOTE_PROVIDERS } = await importRegistry();
+    const xaiDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === 'xai');
+    if (!xaiDef) throw new Error('xai provider def missing');
+    const store = discovery.createOpenAICompatDiscoveryStore(
+      xaiDef,
+      () => true,
+    );
+
+    await expect(store.discoverModels()).resolves.toEqual([
+      'xai/grok-4.20-0309',
+      'xai/grok-4.20-0309-non-reasoning',
+    ]);
+    expect(
+      store.getModelPricingUsdPerToken('xai/grok-4.20-0309-non-reasoning'),
+    ).toEqual({
+      input: 0.00000003,
+      output: 0.00000015,
+    });
+  });
+
   test('deduplicates concurrent discoverModels calls to a single fetch', async () => {
     process.env.KIMI_API_KEY = 'kimi-test';
     mockModules({ KIMI_ENABLED: true });

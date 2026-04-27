@@ -20,11 +20,17 @@ function readPricePerMillion(value: unknown): number | null {
   return parsed == null ? null : parsed / 1_000_000;
 }
 
+function readUsdCentsPer100Million(value: unknown): number | null {
+  const parsed = readPriceValue(value);
+  return parsed == null ? null : parsed / 100 / 100_000_000;
+}
+
 export function readDiscoveredModelPricingUsdPerToken(
   entry: Record<string, unknown>,
 ): DiscoveredModelPricingUsdPerToken | null {
   const pricing = isRecord(entry.pricing) ? entry.pricing : {};
   const input =
+    readUsdCentsPer100Million(entry.prompt_text_token_price) ??
     readPriceValue(pricing.prompt) ??
     readPriceValue(pricing.input) ??
     readPriceValue(pricing.input_usd_per_token) ??
@@ -40,6 +46,7 @@ export function readDiscoveredModelPricingUsdPerToken(
     readPricePerMillion(entry.input_usd_per_million) ??
     readPricePerMillion(entry.inputUsdPerMillion);
   const output =
+    readUsdCentsPer100Million(entry.completion_text_token_price) ??
     readPriceValue(pricing.completion) ??
     readPriceValue(pricing.output) ??
     readPriceValue(pricing.output_usd_per_token) ??

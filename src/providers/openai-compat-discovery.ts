@@ -26,6 +26,7 @@ import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
 const OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS = 5_000;
 const OPENAI_COMPAT_DISCOVERY_PATH = '/models';
+const XAI_LANGUAGE_MODELS_DISCOVERY_PATH = '/language-models';
 
 const DISCOVERY_URL_OVERRIDES: Partial<Record<RuntimeProviderId, string>> = {};
 
@@ -65,6 +66,14 @@ function readEntryId(entry: unknown): string {
   const id = entry.id;
   if (typeof id !== 'string') return '';
   return id.trim();
+}
+
+function readEntryAliases(entry: unknown): string[] {
+  if (!isRecord(entry) || !Array.isArray(entry.aliases)) return [];
+  return entry.aliases.filter(
+    (alias): alias is string =>
+      typeof alias === 'string' && alias.trim() !== '',
+  );
 }
 
 function prefixModelId(prefix: string, id: string): string {
@@ -116,6 +125,9 @@ export function createOpenAICompatDiscoveryStore(
       if (/^https?:\/\//i.test(override)) return override;
       return `${normalizeBaseUrl(def.readBaseUrl())}${override}`;
     }
+    if (def.id === 'xai') {
+      return `${normalizeBaseUrl(def.readBaseUrl())}${XAI_LANGUAGE_MODELS_DISCOVERY_PATH}`;
+    }
     return `${normalizeBaseUrl(def.readBaseUrl())}${OPENAI_COMPAT_DISCOVERY_PATH}`;
   }
 
@@ -145,13 +157,20 @@ export function createOpenAICompatDiscoveryStore(
     for (const entry of entries) {
       const rawId = readEntryId(entry);
       if (!rawId) continue;
-      const prefixed = prefixModelId(def.prefix, rawId);
-      if (seen.has(prefixed)) continue;
-      seen.add(prefixed);
-      discovered.push(prefixed);
+      const aliases = def.id === 'xai' ? readEntryAliases(entry) : [];
+      const modelIds = [rawId, ...aliases];
       if (isRecord(entry)) {
         const pricing = readDiscoveredModelPricingUsdPerToken(entry);
-        if (pricing) pricingByModel.set(prefixed, pricing);
+        for (const modelId of modelIds) {
+          const prefixed = prefixModelId(def.prefix, modelId);
+          if (pricing) pricingByModel.set(prefixed, pricing);
+        }
+      }
+      for (const modelId of modelIds) {
+        const prefixed = prefixModelId(def.prefix, modelId);
+        if (seen.has(prefixed)) continue;
+        seen.add(prefixed);
+        discovered.push(prefixed);
       }
     }
     lastError = null;
