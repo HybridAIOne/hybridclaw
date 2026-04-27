@@ -219,6 +219,36 @@ describe('config reload integration', () => {
     );
   });
 
+  it('keeps autonomy rules distinct when ids contain null bytes', () => {
+    writeConfig({
+      skills: {
+        autonomy: {
+          rules: [
+            {
+              coworkerId: 'team\u0000alpha',
+              skillName: 'docs',
+              level: 'full-autonomous',
+            },
+            {
+              coworkerId: 'team',
+              skillName: 'alpha\u0000docs',
+              level: 'low-stakes-autonomous',
+            },
+          ],
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(
+      configMod.resolveSkillAutonomyLevel(cfg, 'team\u0000alpha', 'docs'),
+    ).toBe('full-autonomous');
+    expect(
+      configMod.resolveSkillAutonomyLevel(cfg, 'team', 'alpha\u0000docs'),
+    ).toBe('low-stakes-autonomous');
+  });
+
   it('nested config updates do not clobber sibling keys', () => {
     configMod.ensureRuntimeConfigFile();
 

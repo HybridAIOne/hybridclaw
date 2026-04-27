@@ -1685,7 +1685,7 @@ function normalizeSkillAutonomyConfig(
     });
     if (!coworkerId || !skillName) continue;
     const level = normalizeSkillAutonomyLevel(item.level, defaultLevel);
-    rulesByKey.set(`${coworkerId}\0${skillName}`, {
+    rulesByKey.set(JSON.stringify([coworkerId, skillName]), {
       coworkerId,
       skillName,
       level,

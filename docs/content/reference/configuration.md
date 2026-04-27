@@ -135,10 +135,7 @@ saved revision history directly.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short"
-- `skills.disabled` and `skills.channelDisabled.*` for skill availability;
-  `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the
-  permitted autonomy level for each coworker/skill pair (`full-autonomous`,
-  `low-stakes-autonomous`, or `confirm-each`)
+- `skills.disabled` and `skills.channelDisabled.*` for skill availability; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each coworker/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`)
 - `plugins.list[]` for plugin overrides and config; use
   `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
   edits
