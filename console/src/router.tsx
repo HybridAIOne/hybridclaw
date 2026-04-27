@@ -6,12 +6,12 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
 import { ChannelsPage } from './routes/channels';
 import { ConfigPage } from './routes/config';
-import { CoworkersPage } from './routes/coworkers';
 import { DashboardPage } from './routes/dashboard';
 import { EmailPage } from './routes/email';
 import { GatewayPage } from './routes/gateway';
@@ -82,10 +82,16 @@ const agentFilesRoute = createRoute({
   component: AgentFilesPage,
 });
 
-const coworkersRoute = createRoute({
+const agentScoreboardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/agent-scoreboard',
+  component: AgentsPage,
+});
+
+const legacyAgentsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/coworkers',
-  component: CoworkersPage,
+  component: AgentsPage,
 });
 
 const terminalRoute = createRoute({
@@ -189,7 +195,8 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute,
     approvalsRoute,
     agentFilesRoute,
-    coworkersRoute,
+    agentScoreboardRoute,
+    legacyAgentsRoute,
     terminalRoute,
     gatewayRoute,
     sessionsRoute,

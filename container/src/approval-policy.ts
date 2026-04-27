@@ -996,7 +996,7 @@ function parsePersistedTrustStore(
   }
 }
 
-export class TrustedCoworkerApprovalRuntime {
+export class TrustedAgentApprovalRuntime {
   private readonly policyPath: string;
   private readonly agentTrustStorePath: string;
   private readonly legacyAgentTrustStorePath: string;
@@ -2315,3 +2315,5 @@ export class TrustedCoworkerApprovalRuntime {
     return false;
   }
 }
+
+export { TrustedAgentApprovalRuntime as TrustedCoworkerApprovalRuntime };

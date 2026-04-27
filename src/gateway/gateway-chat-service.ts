@@ -1071,7 +1071,7 @@ async function handleGatewayMessageInner(
           model,
           tokenUsage: output.tokenUsage,
           costUsd: extractUsageCostUsd(output.tokenUsage),
-          coworkerId: agentId,
+          agentId,
           input: storedUserContent,
           output: {
             status: output.status,

@@ -299,9 +299,9 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import {
-  formatCoworkerAssignmentHints,
-  getCoworkerScoreboard,
-} from '../skills/coworker-scoreboard.js';
+  formatAgentAssignmentHints,
+  getAgentScoreboard,
+} from '../skills/agent-scoreboard.js';
 import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
@@ -390,6 +390,7 @@ import {
   type GatewayAdminAgentMarkdownFileResponse,
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
+  type GatewayAdminAgentScoreboardResponse,
   type GatewayAdminAgentsResponse,
   type GatewayAdminApprovalAgent,
   type GatewayAdminApprovalsResponse,
@@ -397,7 +398,6 @@ import {
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
-  type GatewayAdminCoworkerScoreboardResponse,
   type GatewayAdminDeleteSessionResult,
   type GatewayAdminEmailDeleteResponse,
   type GatewayAdminEmailFolderResponse,
@@ -5180,9 +5180,35 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   };
 }
 
-export function getGatewayAdminCoworkerScoreboard(): GatewayAdminCoworkerScoreboardResponse {
+export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
   return {
-    coworkers: getCoworkerScoreboard(),
+    agents: getAgentScoreboard().map((entry) => ({
+      agent_id: entry.coworker_id,
+      display_name: entry.display_name,
+      total_executions: entry.total_executions,
+      success_rate: entry.success_rate,
+      avg_score: entry.avg_score,
+      best_skills: entry.best_skills.map((score) => ({
+        agent_id: score.coworker_id,
+        skill_id: score.skill_id,
+        skill_name: score.skill_name,
+        total_executions: score.total_executions,
+        success_count: score.success_count,
+        failure_count: score.failure_count,
+        partial_count: score.partial_count,
+        success_rate: score.success_rate,
+        avg_duration_ms: score.avg_duration_ms,
+        tool_breakage_rate: score.tool_breakage_rate,
+        positive_feedback_count: score.positive_feedback_count,
+        negative_feedback_count: score.negative_feedback_count,
+        last_run_at: score.last_run_at,
+        quality_score: score.quality_score,
+        score: score.score,
+        last_observed_at: score.last_observed_at,
+      })),
+      last_observed_at: entry.last_observed_at,
+      cv_path: entry.cv_path,
+    })),
   };
 }
 
@@ -6216,7 +6242,7 @@ function buildSubagentUserPrompt(params: {
   taskPrompt: string;
 }): string {
   const { depth, mode, canDelegate, taskPrompt } = params;
-  const assignmentHints = formatCoworkerAssignmentHints(taskPrompt);
+  const assignmentHints = formatAgentAssignmentHints(taskPrompt);
   return [
     '# Delegated Task',
     `Delegation mode: ${mode}.`,

@@ -1,4 +1,5 @@
 export { Admin } from './Admin';
+export { AgentGroup } from './AgentGroup';
 export { Agents } from './Agents';
 export { Audit } from './Audit';
 export { Icon, type IconProps } from './base';
@@ -6,7 +7,6 @@ export { Channels } from './Channels';
 export { Chat } from './Chat';
 export { Cog } from './Cog';
 export { Config } from './Config';
-export { Coworkers } from './Coworkers';
 export { Dashboard } from './Dashboard';
 export { Docs } from './Docs';
 export { Email } from './Email';

@@ -8,7 +8,7 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
-import type { CoworkerScoreboardEntry } from '../skills/adaptive-skills-types.js';
+import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -1018,8 +1018,19 @@ export interface GatewayAdminSkillsResponse {
   skills: GatewayAdminSkill[];
 }
 
-export interface GatewayAdminCoworkerScoreboardResponse {
-  coworkers: CoworkerScoreboardEntry[];
+export interface GatewayAdminAgentSkillScore
+  extends Omit<AgentScoreboardEntry['best_skills'][number], 'coworker_id'> {
+  agent_id: string;
+}
+
+export interface GatewayAdminAgentScoreboardEntry
+  extends Omit<AgentScoreboardEntry, 'coworker_id' | 'best_skills'> {
+  agent_id: string;
+  best_skills: GatewayAdminAgentSkillScore[];
+}
+
+export interface GatewayAdminAgentScoreboardResponse {
+  agents: GatewayAdminAgentScoreboardEntry[];
 }
 
 export interface GatewayAdminPlugin {

@@ -1,10 +1,10 @@
 import type { ComponentType } from 'react';
 import {
+  AgentGroup,
   Audit,
   Channels,
   Cog,
   Config,
-  Coworkers,
   Dashboard,
   Email,
   Files,
@@ -59,7 +59,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Configuration',
     items: [
       { to: '/admin/agents', label: 'Agent Files', icon: Files },
-      { to: '/admin/coworkers', label: 'Coworkers', icon: Coworkers },
+      { to: '/admin/agent-scoreboard', label: 'Agents', icon: AgentGroup },
       { to: '/admin/skills', label: 'Skills', icon: Lightbulb },
       { to: '/admin/plugins', label: 'Plugins', icon: Plugins },
       { to: '/admin/tools', label: 'Tools', icon: Tools },

@@ -1,6 +1,6 @@
 import { Icon, type IconProps } from './base';
 
-export function Coworkers(props: IconProps) {
+export function AgentGroup(props: IconProps) {
   return (
     <Icon {...props}>
       <circle cx="9" cy="8" r="4" />

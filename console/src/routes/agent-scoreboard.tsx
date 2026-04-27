@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCoworkerScoreboard } from '../api/client';
-import type { AdminCoworkerScoreboardEntry } from '../api/types';
+import { fetchAgentScoreboard } from '../api/client';
+import type { AdminAgentScoreboardEntry } from '../api/types';
 import { useAuth } from '../auth';
 import {
   MetricCard,
@@ -16,30 +16,21 @@ function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function formatBestAt(coworker: AdminCoworkerScoreboardEntry): string {
-  const bestSkill = coworker.best_skills[0];
+function formatBestAt(agent: AdminAgentScoreboardEntry): string {
+  const bestSkill = agent.best_skills[0];
   if (!bestSkill) return 'No observed skill runs';
   return `${bestSkill.skill_name} (${bestSkill.score}/100)`;
 }
 
-type CoworkerSortKey =
-  | 'coworker'
-  | 'score'
-  | 'runs'
-  | 'success'
-  | 'skill'
-  | 'recent';
+type AgentSortKey = 'agent' | 'score' | 'runs' | 'success' | 'skill' | 'recent';
 
-const COWORKER_SORTERS: Record<
-  CoworkerSortKey,
-  (
-    left: AdminCoworkerScoreboardEntry,
-    right: AdminCoworkerScoreboardEntry,
-  ) => number
+const AGENT_SORTERS: Record<
+  AgentSortKey,
+  (left: AdminAgentScoreboardEntry, right: AdminAgentScoreboardEntry) => number
 > = {
-  coworker: (left, right) =>
+  agent: (left, right) =>
     compareText(left.display_name, right.display_name) ||
-    compareText(left.coworker_id, right.coworker_id),
+    compareText(left.agent_id, right.agent_id),
   score: (left, right) =>
     compareNumber(left.avg_score, right.avg_score) ||
     compareText(left.display_name, right.display_name),
@@ -57,90 +48,85 @@ const COWORKER_SORTERS: Record<
     compareText(left.display_name, right.display_name),
 };
 
-const COWORKER_DEFAULT_DIRECTIONS = {
+const AGENT_DEFAULT_DIRECTIONS = {
   score: 'desc',
   runs: 'desc',
   success: 'desc',
   recent: 'desc',
 } as const;
 
-export function CoworkersPage() {
+export function AgentsPage() {
   const auth = useAuth();
   const scoreboardQuery = useQuery({
-    queryKey: ['coworker-scoreboard', auth.token],
-    queryFn: () => fetchCoworkerScoreboard(auth.token),
+    queryKey: ['agent-scoreboard', auth.token],
+    queryFn: () => fetchAgentScoreboard(auth.token),
   });
-  const coworkers = scoreboardQuery.data?.coworkers || [];
+  const agents = scoreboardQuery.data?.agents || [];
   const observedSkills = new Set(
-    coworkers.flatMap((coworker) =>
-      coworker.best_skills.map((score) => score.skill_name),
+    agents.flatMap((agent) =>
+      agent.best_skills.map((score) => score.skill_name),
     ),
   );
-  const topCoworker = [...coworkers].sort(
+  const topAgent = [...agents].sort(
     (left, right) => right.avg_score - left.avg_score,
   )[0];
   const { sortedRows, sortState, toggleSort } = useSortableRows<
-    AdminCoworkerScoreboardEntry,
-    CoworkerSortKey
-  >(coworkers, {
+    AdminAgentScoreboardEntry,
+    AgentSortKey
+  >(agents, {
     initialSort: { key: 'score', direction: 'desc' },
-    sorters: COWORKER_SORTERS,
-    defaultDirections: COWORKER_DEFAULT_DIRECTIONS,
+    sorters: AGENT_SORTERS,
+    defaultDirections: AGENT_DEFAULT_DIRECTIONS,
   });
 
   return (
     <div className="page-stack">
       <PageHeader
-        title="Coworkers"
-        description="Review coworker skill track records, top strengths, and generated CV paths."
+        title="Agents"
+        description="Review agent skill track records, top strengths, and generated CV paths."
       />
 
       <div className="metric-grid">
         <MetricCard
-          label="Observed coworkers"
-          value={String(coworkers.length)}
+          label="Observed agents"
+          value={String(agents.length)}
           detail="with recorded skill runs"
         />
         <MetricCard
           label="Observed skills"
           value={String(observedSkills.size)}
-          detail="across coworker runs"
+          detail="across agent runs"
         />
         <MetricCard
           label="Best average score"
-          value={topCoworker ? `${topCoworker.avg_score}/100` : '0/100'}
-          detail={topCoworker?.display_name || 'No runs yet'}
+          value={topAgent ? `${topAgent.avg_score}/100` : '0/100'}
+          detail={topAgent?.display_name || 'No runs yet'}
         />
         <MetricCard
           label="Total runs"
           value={String(
-            coworkers.reduce(
-              (total, coworker) => total + coworker.total_executions,
-              0,
-            ),
+            agents.reduce((total, agent) => total + agent.total_executions, 0),
           )}
           detail="skill executions"
         />
       </div>
 
       <Panel
-        title="Coworker scoreboard"
-        subtitle={`${sortedRows.length} coworker${sortedRows.length === 1 ? '' : 's'} visible`}
+        title="Agent scoreboard"
+        subtitle={`${sortedRows.length} agent${sortedRows.length === 1 ? '' : 's'} visible`}
       >
         {scoreboardQuery.isLoading ? (
-          <div className="empty-state">Loading coworker scoreboard...</div>
+          <div className="empty-state">Loading agent scoreboard...</div>
         ) : sortedRows.length === 0 ? (
-          <div className="empty-state">
-            No coworker skill runs recorded yet.
-          </div>
+          <div className="empty-state">No agent skill runs recorded yet.</div>
         ) : (
           <div className="table-shell">
             <table>
               <thead>
                 <tr>
                   <SortableHeader
-                    label="Coworker"
-                    sortKey="coworker"
+                    label="Agent"
+                    sortKey="agent"
                     sortState={sortState}
                     onToggle={toggleSort}
                   />
@@ -178,33 +164,31 @@ export function CoworkersPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedRows.map((coworker) => (
-                  <tr key={coworker.coworker_id}>
+                {sortedRows.map((agent) => (
+                  <tr key={agent.agent_id}>
                     <td>
-                      <strong>{coworker.display_name}</strong>
-                      <div className="supporting-text">
-                        {coworker.coworker_id}
-                      </div>
+                      <strong>{agent.display_name}</strong>
+                      <div className="supporting-text">{agent.agent_id}</div>
                     </td>
-                    <td>{coworker.avg_score}/100</td>
-                    <td>{coworker.total_executions}</td>
-                    <td>{formatPercent(coworker.success_rate)}</td>
+                    <td>{agent.avg_score}/100</td>
+                    <td>{agent.total_executions}</td>
+                    <td>{formatPercent(agent.success_rate)}</td>
                     <td>
-                      <strong>{formatBestAt(coworker)}</strong>
+                      <strong>{formatBestAt(agent)}</strong>
                     </td>
                     <td>
-                      {coworker.last_observed_at
-                        ? formatRelativeTime(coworker.last_observed_at)
+                      {agent.last_observed_at
+                        ? formatRelativeTime(agent.last_observed_at)
                         : 'No recent runs'}
                     </td>
                     <td>
                       <a
-                        href={`/admin/agents?agent=${encodeURIComponent(coworker.coworker_id)}&file=CV.md`}
+                        href={`/admin/agents?agent=${encodeURIComponent(agent.agent_id)}&file=CV.md`}
                       >
                         CV.md
                       </a>
                       <div className="supporting-text">
-                        <code>{coworker.cv_path}</code>
+                        <code>{agent.cv_path}</code>
                       </div>
                     </td>
                   </tr>

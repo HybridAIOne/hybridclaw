@@ -6,7 +6,7 @@ import {
   getSkillObservations,
   incrementAmendmentRunCount,
   recordSkillObservation as insertSkillObservation,
-  recomputeCoworkerSkillScore,
+  recomputeCoworkerSkillScore as recomputeAgentSkillScore,
 } from '../memory/db.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -18,9 +18,9 @@ import type {
   SkillObservation,
 } from './adaptive-skills-types.js';
 import {
-  refreshCoworkerCv,
-  refreshCoworkerCvForSkillRun,
-} from './coworker-scoreboard.js';
+  refreshAgentCv,
+  refreshAgentCvForSkillRun,
+} from './agent-scoreboard.js';
 import {
   buildSkillRunBoundedPayload,
   buildSkillRunTokens,
@@ -152,7 +152,7 @@ function recordSkillExecutionObservation(
   });
 
   if (event.coworker_id) {
-    recomputeCoworkerSkillScore({
+    recomputeAgentSkillScore({
       coworkerId: event.coworker_id,
       skillId: event.skill_id,
     });
@@ -186,7 +186,7 @@ export async function waitForQueuedSkillEvaluations(): Promise<void> {
 }
 
 subscribeSkillRunEvents(recordSkillExecutionObservation);
-subscribeSkillRunEvents(refreshCoworkerCvForSkillRun);
+subscribeSkillRunEvents(refreshAgentCvForSkillRun);
 
 function collectSkillRunErrors(input: {
   errorDetail?: string | null;
@@ -223,6 +223,7 @@ export function recordSkillExecution(input: {
   model?: string | null;
   tokenUsage?: TokenUsageStats;
   costUsd?: number | null;
+  agentId?: string | null;
   coworkerId?: string | null;
   input?: unknown;
   output?: unknown;
@@ -240,7 +241,7 @@ export function recordSkillExecution(input: {
   const event: SkillRunEvent = {
     type: 'skill_run',
     skill_id: skillName,
-    coworker_id: input.coworkerId?.trim() || null,
+    coworker_id: (input.agentId ?? input.coworkerId)?.trim() || null,
     session_id: input.sessionId,
     run_id: input.runId,
     input: buildSkillRunBoundedPayload(input.input),
@@ -284,20 +285,20 @@ export function recordSkillFeedback(input: {
   });
   if (observation?.coworker_id) {
     try {
-      recomputeCoworkerSkillScore({
+      recomputeAgentSkillScore({
         coworkerId: observation.coworker_id,
         skillId: observation.skill_name,
       });
-      refreshCoworkerCv(observation.coworker_id);
+      refreshAgentCv(observation.coworker_id);
     } catch (error) {
       logger.warn(
         {
-          coworkerId: observation.coworker_id,
+          agentId: observation.coworker_id,
           sessionId: observation.session_id,
           runId: observation.run_id,
           error,
         },
-        'Failed to refresh coworker CV after skill feedback',
+        'Failed to refresh agent CV after skill feedback',
       );
     }
   }

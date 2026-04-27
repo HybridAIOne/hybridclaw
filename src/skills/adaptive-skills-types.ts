@@ -56,7 +56,7 @@ export interface SkillObservationSummary {
   last_observed_at: string | null;
 }
 
-export interface CoworkerSkillScore {
+export interface AgentSkillScore {
   coworker_id: string;
   skill_id: string;
   skill_name: string;
@@ -75,16 +75,19 @@ export interface CoworkerSkillScore {
   last_observed_at: string | null;
 }
 
-export interface CoworkerScoreboardEntry {
+export interface AgentScoreboardEntry {
   coworker_id: string;
   display_name: string;
   total_executions: number;
   success_rate: number;
   avg_score: number;
-  best_skills: CoworkerSkillScore[];
+  best_skills: AgentSkillScore[];
   last_observed_at: string | null;
   cv_path: string;
 }
+
+export type CoworkerSkillScore = AgentSkillScore;
+export type CoworkerScoreboardEntry = AgentScoreboardEntry;
 
 export interface SkillHealthMetrics {
   skill_name: string;

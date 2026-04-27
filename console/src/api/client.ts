@@ -4,6 +4,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
@@ -13,7 +14,6 @@ import type {
   AdminCommandResult,
   AdminConfig,
   AdminConfigResponse,
-  AdminCoworkerScoreboardResponse,
   AdminCreateSkillPayload,
   AdminEmailDeleteResponse,
   AdminEmailFolderResponse,
@@ -776,11 +776,11 @@ export function fetchAdaptiveSkillHealth(
   });
 }
 
-export function fetchCoworkerScoreboard(
+export function fetchAgentScoreboard(
   token: string,
-): Promise<AdminCoworkerScoreboardResponse> {
-  return requestJson<AdminCoworkerScoreboardResponse>(
-    '/api/admin/coworker-scoreboard',
+): Promise<AdminAgentScoreboardResponse> {
+  return requestJson<AdminAgentScoreboardResponse>(
+    '/api/admin/agent-scoreboard',
     { token },
   );
 }

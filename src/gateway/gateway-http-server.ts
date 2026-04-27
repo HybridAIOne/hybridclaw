@@ -136,12 +136,12 @@ import {
   ensureGatewayBootstrapAutostart,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
+  getGatewayAdminAgentScoreboard,
   getGatewayAdminAgents,
   getGatewayAdminApprovals,
   getGatewayAdminAudit,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
-  getGatewayAdminCoworkerScoreboard,
   getGatewayAdminEmailFolder,
   getGatewayAdminEmailMailbox,
   getGatewayAdminEmailMessage,
@@ -3265,8 +3265,8 @@ async function handleApiAdminSkills(
   );
 }
 
-function handleApiAdminCoworkerScoreboard(res: ServerResponse): void {
-  sendJson(res, 200, getGatewayAdminCoworkerScoreboard());
+function handleApiAdminAgentScoreboard(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminAgentScoreboard());
 }
 
 const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -3750,10 +3750,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
-            pathname === '/api/admin/coworker-scoreboard' &&
+            (pathname === '/api/admin/agent-scoreboard' ||
+              pathname === '/api/admin/coworker-scoreboard') &&
             method === 'GET'
           ) {
-            handleApiAdminCoworkerScoreboard(res);
+            handleApiAdminAgentScoreboard(res);
             return;
           }
           if (

@@ -1043,8 +1043,8 @@ export interface AdminAdaptiveSkillHealthResponse {
   metrics: AdminAdaptiveSkillHealthMetric[];
 }
 
-export interface AdminCoworkerSkillScore {
-  coworker_id: string;
+export interface AdminAgentSkillScore {
+  agent_id: string;
   skill_id: string;
   skill_name: string;
   total_executions: number;
@@ -1062,19 +1062,19 @@ export interface AdminCoworkerSkillScore {
   last_observed_at: string | null;
 }
 
-export interface AdminCoworkerScoreboardEntry {
-  coworker_id: string;
+export interface AdminAgentScoreboardEntry {
+  agent_id: string;
   display_name: string;
   total_executions: number;
   success_rate: number;
   avg_score: number;
-  best_skills: AdminCoworkerSkillScore[];
+  best_skills: AdminAgentSkillScore[];
   last_observed_at: string | null;
   cv_path: string;
 }
 
-export interface AdminCoworkerScoreboardResponse {
-  coworkers: AdminCoworkerScoreboardEntry[];
+export interface AdminAgentScoreboardResponse {
+  agents: AdminAgentScoreboardEntry[];
 }
 
 export interface AdminAdaptiveSkillAmendment {

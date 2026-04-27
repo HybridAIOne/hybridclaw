@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import {
   type ToolApprovalEvaluation,
-  TrustedCoworkerApprovalRuntime,
+  TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cleanupAllBrowserSessions } from './browser-tools.js';
@@ -145,7 +145,7 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   }
 }
 
-const approvalRuntime = new TrustedCoworkerApprovalRuntime();
+const approvalRuntime = new TrustedAgentApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
