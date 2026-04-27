@@ -424,6 +424,44 @@ function agentSkillScoresNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'agent_skill_scores');
 }
 
+function backfillAgentSkillScoreQuality(database: Database.Database): void {
+  if (!tableExists(database, 'skill_observations')) return;
+  if (!tableExists(database, 'agent_skill_scores')) return;
+
+  const aggregates = queryAll<AgentSkillScoreAggregate>(
+    database,
+    `SELECT
+       agent_id,
+       skill_name AS skill_id,
+       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+       MAX(created_at) AS last_run_at,
+       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+       COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
+       COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed
+     FROM skill_observations
+     WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+     GROUP BY agent_id, skill_name`,
+  );
+  const updateScore = database.prepare(
+    `UPDATE agent_skill_scores
+     SET quality_score = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE agent_id = ? AND skill_id = ?`,
+  );
+  const updateScores = database.transaction(
+    (rows: AgentSkillScoreAggregate[]) => {
+      for (const row of rows) {
+        const score = mapAgentSkillScoreRow(row);
+        updateScore.run(score.quality_score, score.agent_id, score.skill_id);
+      }
+    },
+  );
+  updateScores(aggregates);
+}
+
 function addColumnIfMissing(params: {
   database: Database.Database;
   table: string;
@@ -1848,7 +1886,7 @@ function migrateV22(
       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END),
       COALESCE(AVG(duration_ms), 0),
       MAX(created_at),
-      NULL,
+      0,
       strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     FROM skill_observations
     WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
@@ -1859,8 +1897,10 @@ function migrateV22(
       partial_count = excluded.partial_count,
       avg_duration_ms = excluded.avg_duration_ms,
       last_run_at = excluded.last_run_at,
+      quality_score = excluded.quality_score,
       updated_at = excluded.updated_at;
   `);
+  backfillAgentSkillScoreQuality(database);
   recordMigration(
     database,
     22,
