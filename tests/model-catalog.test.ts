@@ -115,10 +115,15 @@ test('model catalog metadata resolves pricing, context, and capabilities from ve
     reasoning: true,
   });
   expect(metadata.sources).toEqual(
-    expect.arrayContaining([
-      'https://platform.openai.com/docs/pricing',
-    ]),
+    expect.arrayContaining(['https://platform.openai.com/docs/pricing']),
   );
+
+  const flagship = catalog.getModelCatalogMetadata('hybridai/gpt-5.5');
+  expect(flagship.known).toBe(true);
+  expect(flagship.contextWindow).toBe(1_000_000);
+  expect(flagship.maxTokens).toBe(128_000);
+  expect(flagship.pricingUsdPerToken.input).toBeCloseTo(5 / 1_000_000, 16);
+  expect(flagship.pricingUsdPerToken.output).toBeCloseTo(30 / 1_000_000, 16);
 });
 
 test('static context and vision lookups share versioned metadata', async () => {
@@ -126,9 +131,9 @@ test('static context and vision lookups share versioned metadata', async () => {
   writeRuntimeConfig(homeDir);
   const { catalog } = await importFreshCatalog(homeDir);
 
-  expect(catalog.getModelCatalogMetadata('hybridai/gpt-5.4').contextWindow).toBe(
-    1_050_000,
-  );
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/gpt-5.4').contextWindow,
+  ).toBe(1_050_000);
   expect(catalog.isModelVisionCapable('hybridai/gpt-5-nano')).toBe(true);
   expect(
     catalog.getModelCatalogMetadata('hybridai/gpt-5-nano').capabilities.vision,

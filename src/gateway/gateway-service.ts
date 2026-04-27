@@ -8163,6 +8163,25 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
+          const metadata = getModelCatalogMetadata(runtime.model);
+          const pricing = metadata.pricingUsdPerToken;
+          const inputPrice =
+            pricing.input == null
+              ? 'unknown'
+              : formatUsd(pricing.input * 1_000_000);
+          const outputPrice =
+            pricing.output == null
+              ? 'unknown'
+              : formatUsd(pricing.output * 1_000_000);
+          const capabilities =
+            [
+              metadata.capabilities.vision ? 'vision' : null,
+              metadata.capabilities.tools ? 'tools' : null,
+              metadata.capabilities.jsonMode ? 'JSON mode' : null,
+              metadata.capabilities.reasoning ? 'reasoning' : null,
+            ]
+              .filter((capability) => capability != null)
+              .join(', ') || 'unknown';
           return infoCommand(
             'Model Info',
             [
@@ -8170,6 +8189,12 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
+              `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
+              `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
+              `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
+              `Capabilities: ${capabilities}`,
+              `Pricing: ${inputPrice} input / ${outputPrice} output per 1M tokens`,
+              `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
           );
         }

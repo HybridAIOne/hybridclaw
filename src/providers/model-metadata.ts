@@ -189,6 +189,16 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
       MODEL_METADATA_SOURCES.openaiPricing,
     ],
   },
+  'gpt-5.5': {
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    pricing: { inputPerMillion: 5, outputPerMillion: 30, currency: 'USD' },
+    capabilities: coreModelCapabilities,
+    sources: [
+      MODEL_METADATA_SOURCES.openaiModels,
+      MODEL_METADATA_SOURCES.openaiPricing,
+    ],
+  },
   'claude-haiku-4-5': {
     contextWindow: 200_000,
     maxTokens: 64_000,
