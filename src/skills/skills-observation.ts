@@ -18,8 +18,8 @@ import type {
   SkillObservation,
 } from './adaptive-skills-types.js';
 import {
-  refreshAgentCv,
   refreshAgentCvForSkillRun,
+  scheduleAgentCvRefresh,
 } from './agent-scoreboard.js';
 import {
   buildSkillRunBoundedPayload,
@@ -300,7 +300,7 @@ export function recordSkillFeedback(input: {
         agentId: observation.agent_id,
         skillId: observation.skill_name,
       });
-      refreshAgentCv(observation.agent_id);
+      scheduleAgentCvRefresh(observation.agent_id);
     } catch (error) {
       logger.warn(
         {

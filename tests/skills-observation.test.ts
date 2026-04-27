@@ -117,8 +117,13 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   const { recordSkillExecution, recordSkillFeedback } = await import(
     '../src/skills/skills-observation.ts'
   );
-  const { cv, getBestAgentsForSkill, getAgentScoreboard, recommendAgentsFor } =
-    await import('../src/skills/agent-scoreboard.ts');
+  const {
+    cv,
+    getBestAgentsForSkill,
+    getAgentScoreboard,
+    recommendAgentsFor,
+    waitForQueuedAgentCvRefreshes,
+  } = await import('../src/skills/agent-scoreboard.ts');
 
   for (const id of ['lena', 'mika', 'charly']) {
     context.dbModule.upsertAgent({
@@ -200,6 +205,8 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   });
 
   const cvPath = path.join(agentWorkspaceDir('lena'), 'CV.md');
+  expect(fs.existsSync(cvPath)).toBe(false);
+  await waitForQueuedAgentCvRefreshes();
   expect(fs.readFileSync(cvPath, 'utf-8')).toContain(
     `Best at: ${context.skillName}`,
   );
