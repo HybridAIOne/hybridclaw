@@ -863,7 +863,7 @@ export interface GatewayAdminModelCatalogEntry {
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
-  pricingEurPerToken: {
+  pricingUsdPerToken: {
     input: number | null;
     output: number | null;
   };
@@ -874,7 +874,6 @@ export interface GatewayAdminModelCatalogEntry {
     reasoning: boolean;
   };
   metadataSources: string[];
-  metadataVersion: string;
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;

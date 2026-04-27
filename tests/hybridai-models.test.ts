@@ -33,7 +33,6 @@ test('resolveModelContextWindowFallback resolves known defaults', () => {
   expect(resolveModelContextWindowFallback('openai/gpt-5-nano')).toBe(400_000);
   expect(resolveModelContextWindowFallback('gpt-5:latest')).toBe(400_000);
   expect(resolveModelContextWindowFallback('gpt-5.1')).toBe(400_000);
-  expect(resolveModelContextWindowFallback('gpt-5.3')).toBe(400_000);
   expect(resolveModelContextWindowFallback('openai-codex/gpt-5.4-mini')).toBe(
     400_000,
   );
@@ -43,7 +42,19 @@ test('resolveModelContextWindowFallback resolves known defaults', () => {
   expect(resolveModelContextWindowFallback('anthropic/claude-opus-4-1')).toBe(
     200_000,
   );
+  expect(resolveModelContextWindowFallback('anthropic/claude-opus-4.1')).toBe(
+    200_000,
+  );
+  expect(resolveModelContextWindowFallback('anthropic/claude-opus-4-6')).toBe(
+    200_000,
+  );
+  expect(resolveModelContextWindowFallback('anthropic/claude-opus-4.6')).toBe(
+    200_000,
+  );
+  expect(resolveModelContextWindowFallback('claude-haiku-4.5')).toBe(200_000);
   expect(resolveModelContextWindowFallback('claude-sonnet-4.5')).toBe(200_000);
+  expect(resolveModelContextWindowFallback('claude-sonnet-4-6')).toBe(200_000);
+  expect(resolveModelContextWindowFallback('claude-sonnet-4.6')).toBe(200_000);
   expect(resolveModelContextWindowFallback('openai:gpt-5')).toBe(400_000);
   expect(resolveModelContextWindowFallback('openai/gpt-5:latest')).toBe(
     400_000,
@@ -52,6 +63,10 @@ test('resolveModelContextWindowFallback resolves known defaults', () => {
 
 test('resolveModelContextWindowFallback returns null for unknown models', () => {
   expect(resolveModelContextWindowFallback('unknown-model')).toBeNull();
+  expect(
+    resolveModelContextWindowFallback('gpt-5.4-vision-turbo-2027-01-01'),
+  ).toBeNull();
+  expect(resolveModelContextWindowFallback('gpt-5.3')).toBeNull();
 });
 
 test('isStaticModelVisionCapable returns true for known vision models', () => {
@@ -61,6 +76,12 @@ test('isStaticModelVisionCapable returns true for known vision models', () => {
   expect(isStaticModelVisionCapable('gpt-5.4-mini')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5.3-codex')).toBe(true);
   expect(isStaticModelVisionCapable('claude-opus-4-1')).toBe(true);
+  expect(isStaticModelVisionCapable('claude-opus-4.1')).toBe(true);
+  expect(isStaticModelVisionCapable('claude-opus-4-6')).toBe(true);
+  expect(isStaticModelVisionCapable('claude-opus-4.6')).toBe(true);
+  expect(isStaticModelVisionCapable('claude-haiku-4.5')).toBe(true);
+  expect(isStaticModelVisionCapable('claude-sonnet-4-6')).toBe(true);
+  expect(isStaticModelVisionCapable('claude-sonnet-4.6')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5-nano')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5.3-codex-spark')).toBe(true);
 });

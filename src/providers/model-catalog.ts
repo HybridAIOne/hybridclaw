@@ -25,10 +25,7 @@ import {
   getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
 } from './hybridai-discovery.js';
-import {
-  isStaticModelVisionCapable,
-  resolveModelContextWindowFallback,
-} from './hybridai-models.js';
+import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
@@ -315,8 +312,10 @@ export async function refreshAvailableModelCatalogs(opts?: {
   ]);
 }
 
-function resolveKnownModelContextWindow(model: string): number | null {
-  const staticMetadata = resolveStaticModelCatalogMetadata(model);
+function resolveKnownModelContextWindow(
+  model: string,
+  staticMetadata: ModelCatalogMetadata,
+): number | null {
   return (
     resolveLocalModelContextWindow(model) ??
     getDiscoveredCodexModelContextWindow(model) ??
@@ -325,14 +324,15 @@ function resolveKnownModelContextWindow(model: string): number | null {
     getDiscoveredMistralModelContextWindow(model) ??
     getDiscoveredAnthropicModelContextWindow(model) ??
     getDiscoveredOpenRouterModelContextWindow(model) ??
-    staticMetadata.contextWindow ??
-    resolveModelContextWindowFallback(model)
+    staticMetadata.contextWindow
   );
 }
 
-function resolveKnownModelMaxTokens(model: string): number | null {
+function resolveKnownModelMaxTokens(
+  model: string,
+  staticMetadata: ModelCatalogMetadata,
+): number | null {
   const info = getLocalModelInfo(model);
-  const staticMetadata = resolveStaticModelCatalogMetadata(model);
   return (
     info?.maxTokens ??
     getDiscoveredCodexModelMaxTokens(model) ??
@@ -344,8 +344,8 @@ function resolveKnownModelMaxTokens(model: string): number | null {
 
 export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
   const staticMetadata = resolveStaticModelCatalogMetadata(model);
-  const contextWindow = resolveKnownModelContextWindow(model);
-  const maxTokens = resolveKnownModelMaxTokens(model);
+  const contextWindow = resolveKnownModelContextWindow(model, staticMetadata);
+  const maxTokens = resolveKnownModelMaxTokens(model, staticMetadata);
   const vision = isModelVisionCapable(model);
 
   return {

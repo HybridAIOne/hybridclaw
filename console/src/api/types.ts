@@ -617,7 +617,7 @@ export interface AdminModelCatalogEntry {
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
-  pricingEurPerToken: {
+  pricingUsdPerToken: {
     input: number | null;
     output: number | null;
   };
@@ -628,7 +628,6 @@ export interface AdminModelCatalogEntry {
     reasoning: boolean;
   };
   metadataSources: string[];
-  metadataVersion: string;
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;

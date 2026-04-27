@@ -10,7 +10,7 @@ const saveModelsMock = vi.fn();
 const useAuthMock = vi.fn();
 
 const modelMetadataDefaults = {
-  pricingEurPerToken: { input: null, output: null },
+  pricingUsdPerToken: { input: null, output: null },
   capabilities: {
     vision: true,
     tools: true,
@@ -18,7 +18,6 @@ const modelMetadataDefaults = {
     reasoning: false,
   },
   metadataSources: [],
-  metadataVersion: 'test',
 };
 
 vi.mock('../api/client', () => ({
