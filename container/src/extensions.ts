@@ -220,7 +220,7 @@ export async function runAfterToolHooks(
     await emitRuntimeEvent({
       event: 'after_tool_call',
       toolName,
-      hookError: INVALID_ARGS_MESSAGE,
+      reason: INVALID_ARGS_MESSAGE,
     });
     return;
   }
