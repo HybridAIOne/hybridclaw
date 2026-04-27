@@ -240,6 +240,20 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
     outcome: 'failure',
     durationMs: 300,
   });
+  const staleScoreDatabase = new Database(context.dbPath);
+  staleScoreDatabase
+    .prepare(
+      `UPDATE agent_skill_scores
+       SET quality_score = CASE agent_id
+         WHEN 'lena' THEN NULL
+         WHEN 'mika' THEN 100
+         ELSE quality_score
+       END
+       WHERE agent_id IN ('lena', 'mika') AND skill_id = ?`,
+    )
+    .run(context.skillName);
+  staleScoreDatabase.close();
+  expect(getBestAgentsForSkill(context.skillName, 1)[0]?.agent_id).toBe('lena');
   expect(recommendAgentsFor('demo skill task')).toEqual([
     expect.objectContaining({
       agent_id: 'lena',

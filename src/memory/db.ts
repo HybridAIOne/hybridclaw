@@ -6955,7 +6955,8 @@ export function getAgentSkillScores(params?: {
     clauses.push('score.last_run_at >= ?');
     args.push(createdAfter);
   }
-  const limit = Math.max(1, Math.min(params?.limit || 500, 2_000));
+  const limit =
+    params?.limit == null ? null : Math.max(1, Math.min(params.limit, 2_000));
   const rows = queryAll<AgentSkillScoreAggregate, Array<string | number>>(
     db,
     `SELECT
@@ -6985,13 +6986,11 @@ export function getAgentSkillScores(params?: {
        ON feedback.agent_id = score.agent_id
       AND feedback.skill_name = score.skill_id
      WHERE ${clauses.join(' AND ')}
-     ORDER BY COALESCE(score.quality_score, 0) DESC, score.last_run_at DESC, score.agent_id ASC, score.skill_id ASC
-     LIMIT ?`,
+     ORDER BY score.last_run_at DESC, score.agent_id ASC, score.skill_id ASC`,
     ...args,
-    limit,
   );
 
-  return rows
+  const sorted = rows
     .map(mapAgentSkillScoreRow)
     .sort(
       (left, right) =>
@@ -7000,6 +6999,7 @@ export function getAgentSkillScores(params?: {
         left.agent_id.localeCompare(right.agent_id) ||
         left.skill_id.localeCompare(right.skill_id),
     );
+  return limit == null ? sorted : sorted.slice(0, limit);
 }
 
 export function attachFeedbackToObservation(input: {

@@ -301,6 +301,7 @@ import {
 import {
   formatAgentAssignmentHints,
   getAgentScoreboard,
+  getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
 import {
   loadSkillCatalog,
@@ -5182,6 +5183,7 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
 
 export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
   return {
+    observed_skill_count: getObservedAgentSkillCount(),
     agents: getAgentScoreboard().map((entry) => ({
       agent_id: entry.agent_id,
       display_name: entry.display_name,

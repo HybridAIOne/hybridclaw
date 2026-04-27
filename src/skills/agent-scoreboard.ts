@@ -108,6 +108,10 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
     );
 }
 
+export function getObservedAgentSkillCount(): number {
+  return new Set(getAgentSkillScores().map((score) => score.skill_name)).size;
+}
+
 export function getBestAgentsForSkill(
   skillName: string,
   limit = 5,
@@ -216,8 +220,21 @@ export function refreshAgentCv(agentId: string): string | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return null;
   const cvPath = cvPathForAgent(normalizedAgentId);
-  fs.mkdirSync(path.dirname(cvPath), { recursive: true });
-  fs.writeFileSync(cvPath, cv(normalizedAgentId), 'utf-8');
+  const cvDir = path.dirname(cvPath);
+  const tempPath = path.join(
+    cvDir,
+    `${path.basename(cvPath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+  fs.mkdirSync(cvDir, { recursive: true });
+  try {
+    fs.writeFileSync(tempPath, cv(normalizedAgentId), 'utf-8');
+    fs.renameSync(tempPath, cvPath);
+  } catch (error) {
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+    throw error;
+  }
   return cvPath;
 }
 

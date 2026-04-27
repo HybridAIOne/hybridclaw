@@ -62,11 +62,7 @@ export function AgentsPage() {
     queryFn: () => fetchAgentScoreboard(auth.token),
   });
   const agents = scoreboardQuery.data?.agents || [];
-  const observedSkills = new Set(
-    agents.flatMap((agent) =>
-      agent.best_skills.map((score) => score.skill_name),
-    ),
-  );
+  const observedSkillCount = scoreboardQuery.data?.observed_skill_count ?? 0;
   const topAgent = [...agents].sort(
     (left, right) => right.avg_score - left.avg_score,
   )[0];
@@ -94,7 +90,7 @@ export function AgentsPage() {
         />
         <MetricCard
           label="Observed skills"
-          value={String(observedSkills.size)}
+          value={String(observedSkillCount)}
           detail="across agent runs"
         />
         <MetricCard

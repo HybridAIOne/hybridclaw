@@ -1074,6 +1074,7 @@ export interface AdminAgentScoreboardEntry {
 }
 
 export interface AdminAgentScoreboardResponse {
+  observed_skill_count: number;
   agents: AdminAgentScoreboardEntry[];
 }
 

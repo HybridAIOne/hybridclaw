@@ -1030,6 +1030,7 @@ export interface GatewayAdminAgentScoreboardEntry
 }
 
 export interface GatewayAdminAgentScoreboardResponse {
+  observed_skill_count: number;
   agents: GatewayAdminAgentScoreboardEntry[];
 }
 

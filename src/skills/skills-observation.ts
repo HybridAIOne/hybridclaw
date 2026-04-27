@@ -152,10 +152,22 @@ function recordSkillExecutionObservation(
   });
 
   if (event.agent_id) {
-    recomputeAgentSkillScore({
-      agentId: event.agent_id,
-      skillId: event.skill_id,
-    });
+    try {
+      recomputeAgentSkillScore({
+        agentId: event.agent_id,
+        skillId: event.skill_id,
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          agentId: event.agent_id,
+          skillId: event.skill_id,
+          runId: event.run_id,
+          error,
+        },
+        'Failed to recompute agent skill score after skill observation',
+      );
+    }
   }
 
   recordAuditEvent({
