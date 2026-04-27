@@ -100,6 +100,8 @@ const securityHookExtension: RuntimeExtension = {
 
 const runtimeExtensions: RuntimeExtension[] = [securityHookExtension];
 
+export const INVALID_ARGS_MESSAGE = 'Invalid tool hook arguments.';
+
 function describeError(error: unknown): string {
   if (error instanceof Error) return error.name;
   return typeof error;
@@ -125,7 +127,7 @@ function parseArgs(argsJson: string): Record<string, unknown> {
     console.error(
       `[hybridclaw-agent] failed to parse tool hook arguments (${describeError(error)})`,
     );
-    throw new Error('Invalid tool hook arguments.');
+    throw new Error(INVALID_ARGS_MESSAGE);
   }
 }
 
@@ -156,9 +158,9 @@ export async function runBeforeToolHooks(
       toolName,
       blocked: true,
       extension: 'runtime',
-      reason: 'Invalid tool hook arguments.',
+      reason: INVALID_ARGS_MESSAGE,
     });
-    return 'Invalid tool hook arguments.';
+    return INVALID_ARGS_MESSAGE;
   }
 
   for (const ext of runtimeExtensions) {
@@ -208,7 +210,7 @@ export async function runAfterToolHooks(
     await emitRuntimeEvent({
       event: 'after_tool_call',
       toolName,
-      hookError: 'Invalid tool hook arguments.',
+      hookError: INVALID_ARGS_MESSAGE,
     });
     return;
   }

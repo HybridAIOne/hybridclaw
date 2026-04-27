@@ -93,12 +93,12 @@ describe('container runtime extensions', () => {
     const consoleErrorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
-    const { runBeforeToolHooks } = await import(
+    const { INVALID_ARGS_MESSAGE, runBeforeToolHooks } = await import(
       '../container/src/extensions.js'
     );
 
     await expect(runBeforeToolHooks('bash', '{bad json')).resolves.toBe(
-      'Invalid tool hook arguments.',
+      INVALID_ARGS_MESSAGE,
     );
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       '[hybridclaw-agent] failed to parse tool hook arguments (SyntaxError)',
