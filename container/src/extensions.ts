@@ -107,6 +107,11 @@ function describeError(error: unknown): string {
   return typeof error;
 }
 
+function describeErrorCause(error: unknown): string {
+  if (error instanceof Error && error.cause) return describeError(error.cause);
+  return describeError(error);
+}
+
 function logExtensionFailure(
   extension: string,
   hook: string,
@@ -117,6 +122,12 @@ function logExtensionFailure(
   );
 }
 
+function logHookArgumentParseFailure(hook: string, error: unknown): void {
+  console.error(
+    `[hybridclaw-agent] ${hook} failed to parse tool hook arguments (${describeErrorCause(error)})`,
+  );
+}
+
 function parseArgs(argsJson: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(argsJson) as unknown;
@@ -124,10 +135,7 @@ function parseArgs(argsJson: string): Record<string, unknown> {
       return {};
     return parsed as Record<string, unknown>;
   } catch (error) {
-    console.error(
-      `[hybridclaw-agent] failed to parse tool hook arguments (${describeError(error)})`,
-    );
-    throw new Error(INVALID_ARGS_MESSAGE);
+    throw new Error(INVALID_ARGS_MESSAGE, { cause: error });
   }
 }
 
@@ -152,7 +160,8 @@ export async function runBeforeToolHooks(
   let args: Record<string, unknown>;
   try {
     args = parseArgs(argsJson);
-  } catch {
+  } catch (error) {
+    logHookArgumentParseFailure('before-tool hook', error);
     await emitRuntimeEvent({
       event: 'before_tool_call',
       toolName,
@@ -206,7 +215,8 @@ export async function runAfterToolHooks(
   let args: Record<string, unknown>;
   try {
     args = parseArgs(argsJson);
-  } catch {
+  } catch (error) {
+    logHookArgumentParseFailure('after-tool hook', error);
     await emitRuntimeEvent({
       event: 'after_tool_call',
       toolName,

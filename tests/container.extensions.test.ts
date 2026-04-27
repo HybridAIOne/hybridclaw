@@ -101,7 +101,7 @@ describe('container runtime extensions', () => {
       INVALID_ARGS_MESSAGE,
     );
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '[hybridclaw-agent] failed to parse tool hook arguments (SyntaxError)',
+      '[hybridclaw-agent] before-tool hook failed to parse tool hook arguments (SyntaxError)',
     );
   });
 });
