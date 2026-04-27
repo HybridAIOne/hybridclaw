@@ -1798,9 +1798,6 @@ function migrateV22(
     quiet,
   });
   database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_skill_observations_coworker_skill_created
-      ON skill_observations(coworker_id, skill_name, created_at);
-
     CREATE TABLE IF NOT EXISTS coworker_skill_scores (
       coworker_id TEXT NOT NULL,
       skill_id TEXT NOT NULL,
@@ -1815,6 +1812,20 @@ function migrateV22(
     );
     CREATE INDEX IF NOT EXISTS idx_coworker_skill_scores_skill_quality
       ON coworker_skill_scores(skill_id, quality_score DESC, last_run_at DESC);
+  `);
+
+  if (!tableExists(database, 'skill_observations')) {
+    recordMigration(
+      database,
+      22,
+      'Persist coworker identity and per-skill score aggregates',
+    );
+    return;
+  }
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_coworker_skill_created
+      ON skill_observations(coworker_id, skill_name, created_at);
   `);
   database.exec(`
     INSERT INTO coworker_skill_scores (
