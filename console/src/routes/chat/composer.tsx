@@ -16,6 +16,10 @@ import {
   AgentSwitchSelect,
 } from './agent-switch-select';
 import css from './chat-page.module.css';
+import {
+  type ModelSwitchEntry,
+  ModelSwitchSelect,
+} from './model-switch-select';
 
 function SlashSuggestions(props: {
   items: ChatCommandSuggestion[];
@@ -59,6 +63,9 @@ export function Composer(props: {
   agents?: AgentSwitchOption[];
   selectedAgentId?: string;
   onAgentSwitch?: (agentId: string) => void;
+  models?: ModelSwitchEntry[];
+  selectedModelId?: string;
+  onModelSwitch?: (modelId: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +214,8 @@ export function Composer(props: {
 
   const agentOptions = props.agents ?? [];
   const selectedAgentId = props.selectedAgentId ?? '';
+  const modelOptions = props.models ?? [];
+  const selectedModelId = props.selectedModelId ?? '';
 
   return (
     <div className={css.composerWrapper}>
@@ -263,6 +272,12 @@ export function Composer(props: {
               selectedAgentId={selectedAgentId}
               disabled={props.isStreaming}
               onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+            />
+            <ModelSwitchSelect
+              models={modelOptions}
+              selectedModelId={selectedModelId}
+              disabled={props.isStreaming}
+              onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
             />
           </div>
           <button

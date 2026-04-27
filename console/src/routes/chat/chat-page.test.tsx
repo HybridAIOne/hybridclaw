@@ -23,7 +23,11 @@ import type {
   ChatRecentResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
-import type { AgentListItem, GatewayStatus } from '../../api/types';
+import type {
+  AdminModelsResponse,
+  AgentListItem,
+  GatewayStatus,
+} from '../../api/types';
 import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
@@ -51,6 +55,8 @@ const createChatBranchMock =
 const uploadMediaMock =
   vi.fn<(token: string, file: File) => Promise<MediaUploadResponse>>();
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
+const fetchModelsMock =
+  vi.fn<(token: string) => Promise<AdminModelsResponse>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -78,6 +84,7 @@ vi.mock('../../api/chat', () => ({
 
 vi.mock('../../api/client', () => ({
   fetchAgentList: (token: string) => fetchAgentListMock(token),
+  fetchModels: (token: string) => fetchModelsMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -141,6 +148,12 @@ describe('ChatPage', () => {
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
     fetchAgentListMock.mockReset();
+    fetchModelsMock.mockReset();
+    fetchModelsMock.mockResolvedValue({
+      defaultModel: 'gpt-5',
+      providerStatus: {},
+      models: [],
+    });
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();

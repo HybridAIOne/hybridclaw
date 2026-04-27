@@ -611,16 +611,20 @@ export interface AdminCommandResult {
   mainSessionKey?: string;
 }
 
-export interface AdminModelCatalogEntry {
+/** Minimum fields the chat surface needs to render and switch between models. */
+export interface ChatModel {
   id: string;
-  discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'vllm' | null;
   contextWindow: number | null;
-  maxTokens: number | null;
   isReasoning: boolean;
-  thinkingFormat: string | null;
   family: string | null;
   parameterSize: string | null;
+}
+
+export interface AdminModelCatalogEntry extends ChatModel {
+  discovered: boolean;
+  maxTokens: number | null;
+  thinkingFormat: string | null;
   usageDaily: AdminUsageSummary | null;
   usageMonthly: AdminUsageSummary | null;
 }
