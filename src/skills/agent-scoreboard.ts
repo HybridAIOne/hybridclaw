@@ -22,10 +22,6 @@ function displayNameForAgent(agentId: string): string {
   return agent?.displayName || agent?.name || agentId;
 }
 
-function getScoreboardAgent(agentId: string): AgentConfig | null {
-  return getAgentById(agentId.trim());
-}
-
 function cvPathForAgent(agentId: string): string {
   return path.join(agentWorkspaceDir(agentId), 'CV.md');
 }
@@ -212,7 +208,7 @@ export function cv(
   return renderCvMarkdown({
     agentId: normalizedAgentId,
     displayName,
-    agent: getScoreboardAgent(normalizedAgentId),
+    agent: getAgentById(normalizedAgentId),
     scores,
     recentRuns,
     generatedAt: options?.generatedAt || new Date().toISOString(),
