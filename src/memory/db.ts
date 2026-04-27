@@ -2,8 +2,12 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import type {
+  AgentConfig,
+  AgentCv,
+  AgentModelConfig,
+} from '../agents/agent-types.js';
+import { DEFAULT_AGENT_ID, normalizeAgentCv } from '../agents/agent-types.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
@@ -106,7 +110,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 20;
+export const DATABASE_SCHEMA_VERSION = 21;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -148,6 +152,9 @@ type AgentRow = {
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
+  owner: string | null;
+  role: string | null;
+  cv: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -1729,6 +1736,39 @@ function migrateV20(
   recordMigration(database, 20, 'Persist assistant message agent identity');
 }
 
+function migrateV21(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'owner',
+    ddl: 'owner TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'role',
+    ddl: 'role TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'cv',
+    ddl: 'cv TEXT',
+    quiet,
+  });
+  recordMigration(
+    database,
+    21,
+    'Persist agent owner, role, and CV profile for stable coworker identity',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1770,6 +1810,7 @@ function runMigrations(
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
   if (currentVersion < 20) migrateV20(database, opts);
+  if (currentVersion < 21) migrateV21(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1889,6 +1930,25 @@ function serializeAgentSkillsConfig(skills?: string[]): string | null {
   return JSON.stringify(normalizeTrimmedUniqueStringArray(skills));
 }
 
+function serializeAgentCv(cv: AgentCv | undefined): string | null {
+  return cv ? JSON.stringify(cv) : null;
+}
+
+function parseAgentCv(rawCv: string | null): AgentCv | undefined {
+  const normalized = rawCv?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentCv(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { cvLength: normalized.length },
+      'Failed to parse persisted agent CV configuration',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -1897,6 +1957,9 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const skills = parseAgentSkillsConfig(row.skills);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
+  const owner = row.owner?.trim() || '';
+  const role = row.role?.trim() || '';
+  const cv = parseAgentCv(row.cv);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -1909,15 +1972,21 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(typeof row.enable_rag === 'number'
       ? { enableRag: row.enable_rag !== 0 }
       : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(cv ? { cv } : {}),
   };
 }
+
+const AGENT_SELECT_COLUMNS =
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return null;
   const row = queryOne<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT ${AGENT_SELECT_COLUMNS}
      FROM agents
      WHERE id = ?`,
     normalizedAgentId,
@@ -1928,7 +1997,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
 export function listAgents(): AgentConfig[] {
   const rows = queryAll<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT ${AGENT_SELECT_COLUMNS}
      FROM agents
      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
     DEFAULT_AGENT_ID,
@@ -1948,6 +2017,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
   const normalizedWorkspace = agent.workspace?.trim() || null;
+  const normalizedOwner = agent.owner?.trim() || null;
+  const normalizedRole = agent.role?.trim() || null;
+  const normalizedCv = serializeAgentCv(agent.cv);
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -1961,9 +2033,12 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        chatbot_id,
        enable_rag,
        workspace,
+       owner,
+       role,
+       cv,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -1973,6 +2048,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
        workspace = excluded.workspace,
+       owner = excluded.owner,
+       role = excluded.role,
+       cv = excluded.cv,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -1984,6 +2062,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedChatbotId,
     enableRag,
     normalizedWorkspace,
+    normalizedOwner,
+    normalizedRole,
+    normalizedCv,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {

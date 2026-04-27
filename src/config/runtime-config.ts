@@ -11,7 +11,9 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentCv,
   DEFAULT_AGENT_ID,
+  normalizeAgentCv,
 } from '../agents/agent-types.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
@@ -1811,6 +1813,15 @@ function normalizeAgentConfig(
     : fallback?.skills
       ? [...fallback.skills]
       : undefined;
+  const owner = normalizeString(value.owner, fallback?.owner ?? '', {
+    allowEmpty: true,
+  });
+  const role = normalizeString(value.role, fallback?.role ?? '', {
+    allowEmpty: true,
+  });
+  const cv = Object.hasOwn(value, 'cv')
+    ? normalizeAgentCv(value.cv)
+    : cloneAgentCv(fallback?.cv);
   return {
     id,
     ...(name ? { name } : {}),
@@ -1820,6 +1831,9 @@ function normalizeAgentConfig(
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(cv ? { cv } : {}),
   };
 }
 
