@@ -274,6 +274,50 @@ export interface AdminOverview {
   };
 }
 
+export interface AdminStatisticsTrendDay {
+  date: string;
+  newSessions: number;
+  activeSessions: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  callCount: number;
+  toolCalls: number;
+  costUsd: number;
+}
+
+export interface AdminStatisticsChannelRow {
+  channelId: string;
+  sessionCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+}
+
+export interface AdminStatisticsResponse {
+  rangeDays: number;
+  startDate: string;
+  endDate: string;
+  totals: {
+    newSessions: number;
+    activeSessions: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    callCount: number;
+    totalToolCalls: number;
+  };
+  trend: AdminStatisticsTrendDay[];
+  channels: AdminStatisticsChannelRow[];
+}
+
 export interface AdminDiscordChannelConfig {
   mode: 'off' | 'mention' | 'free';
   typingMode?: 'instant' | 'thinking' | 'streaming' | 'never';

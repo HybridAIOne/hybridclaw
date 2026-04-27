@@ -15,6 +15,7 @@ import {
   Scheduler,
   Sessions,
   Skills,
+  Statistics,
   Terminal,
   Tools,
 } from '../icons';
@@ -36,6 +37,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
     label: 'Overview',
     items: [
       { to: '/admin', label: 'Dashboard', icon: Dashboard },
+      { to: '/admin/statistics', label: 'Statistics', icon: Statistics },
       { to: '/admin/approvals', label: 'Approvals', icon: Policy },
       { to: '/admin/audit', label: 'Audit', icon: Audit },
       { to: '/admin/jobs', label: 'Jobs', icon: Jobs },

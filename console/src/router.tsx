@@ -21,6 +21,7 @@ import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
+import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
 
 const LazyTerminalPage = lazy(async () => {
@@ -67,6 +68,12 @@ const dashboardRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin',
   component: DashboardPage,
+});
+
+const statisticsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/statistics',
+  component: StatisticsPage,
 });
 
 const approvalsRoute = createRoute({
@@ -180,6 +187,7 @@ const chatSessionRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
+    statisticsRoute,
     approvalsRoute,
     agentFilesRoute,
     terminalRoute,
