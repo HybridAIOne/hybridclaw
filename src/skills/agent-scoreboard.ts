@@ -31,6 +31,11 @@ function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+const compareBestSkills = (left: AgentSkillScore, right: AgentSkillScore) =>
+  right.score - left.score ||
+  right.total_executions - left.total_executions ||
+  left.skill_name.localeCompare(right.skill_name);
+
 function summarizeScores(scores: AgentSkillScore[]): {
   totalExecutions: number;
   successRate: number;
@@ -81,14 +86,7 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
         total_executions: summary.totalExecutions,
         success_rate: summary.successRate,
         avg_score: summary.avgScore,
-        best_skills: [...agentScores]
-          .sort(
-            (left, right) =>
-              right.score - left.score ||
-              right.total_executions - left.total_executions ||
-              left.skill_name.localeCompare(right.skill_name),
-          )
-          .slice(0, 5),
+        best_skills: [...agentScores].sort(compareBestSkills).slice(0, 5),
         last_observed_at: summary.lastObservedAt,
         cv_path: cvPathForAgent(agentId),
       };
@@ -124,14 +122,7 @@ function renderCvMarkdown(input: {
   generatedAt: string;
 }): string {
   const summary = summarizeScores(input.scores);
-  const topSkills = [...input.scores]
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        right.total_executions - left.total_executions ||
-        left.skill_name.localeCompare(right.skill_name),
-    )
-    .slice(0, 10);
+  const topSkills = [...input.scores].sort(compareBestSkills).slice(0, 10);
   const topSkill = topSkills[0];
   const role = input.agent?.role?.trim() || 'Agent';
   const photo = input.agent?.imageAsset?.trim() || '';
