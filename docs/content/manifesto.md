@@ -4,56 +4,76 @@ description: The product principles HybridClaw is built around — what we will 
 sidebar_position: 2
 ---
 
-# The Trusted Coworker Manifesto
+# HybridClaw: The AI Coworker Who's Already On It
 
-*HybridClaw is not an AI assistant. It is the coworker your team trusts with keys, clients, and calendar.*
+*HybridClaw is not an AI assistant framework. It's an open-source agent harness for shipping coworkers that do the work. Reliably. Fast. At a level your team will trust with clients.*
 
-That belief steers every line of code we write — and every line we refuse to write.
+Every line of code in this project serves that belief.
 
 ---
 
-### I. A coworker is a person, not a prompt
-Our coworkers ship with a name, a face, a voice, and a `CV.md`. They have skill scores, a track record, references. You don't *configure* them — you onboard them, evaluate them, promote them, retire them.
-**We will never ship a generic chatbot panel.** If a user can't picture saying *"Lena, take care of this,"* we haven't done our job.
+### I. A coworker actually does the work
 
-### II. A coworker lives where work happens
-Email. Web chat. Slack. Teams. WhatsApp. The phone. Your CRM. We meet your team in the tools they already pay for — never the other way around.
+Opinionated, ready-on-day-one skills for the tools your work runs on. A CRM, a Shopify store, an ad platform, a video pipeline, a data warehouse. Your coworker closes the ticket before your team reads it.
 
-Apps are for the *operator*, not the user: one-click deployment, one place to manage the fleet. It's how you hire your coworker — not where you talk to them.
-**We will never make end users open our app to talk to their coworker.**
+**A runtime is not a coworker.** The skills are the product.
 
-### III. A coworker is hired, not installed
-Sixty seconds, from a browser, from anywhere. The central admin is remote-first: fleet dashboard, kanban board, channel wiring, evals — reachable from a phone on the train.
-**We will not ship features that require a terminal to operate.**
+### II. A coworker acts first, asks later
 
-### IV. Coworkers work in teams
-Real work is collaborative. Coworkers delegate, hand off, escalate, ask for help. Agent-to-agent communication is a first-class primitive, not a hack on top.
-**We will not optimize for the lone-agent scenario at the cost of the team scenario.**
+The default is action, not a menu. Your coworker reads the brief, picks the best path, executes, and reports back. It escalates when stakes are high. Not when the answer is obvious.
 
-### V. A trusted coworker never holds your keys
-Credentials are encrypted at rest. The model only ever sees a placeholder; the host injects real tokens at request time, then forgets them. PII and business secrets are masked on the way in and validated on the way out — your coworker is under NDA from minute one.
-**We will never ship a feature that requires the model to see a real secret.** Convenience is not a justification.
+**A coworker that turns simple tasks into conversations is not a coworker.** It's a form.
 
-### VI. A trusted coworker shows their work
-Every action is appended to a hash-chain audit log. *"What did Lena do this week?"* gets an answer your auditor, your client, and your accountant will accept.
-**We will not add features that bypass the audit log to look faster.**
+### III. A coworker doesn't clock out
 
-### VII. A trusted coworker is undoable
-Configs, agent files, skills, knowledge — all versioned. Rollback is one click. The cost of a bad change is a click, not a week.
-**We will not ship state-mutating features without a rollback path.**
+3 AM on a Sunday. August. The holiday your team booked six months ago. Your coworker is still there. Same level. Same attention to detail. No sick days, no ramp-up, no two-week notice.
 
-### VIII. A trusted coworker doesn't break overnight
-When a new model ships, we re-run your tuned skills and knowledge against your real workflows. Regressions land in our dashboard, not your client's inbox.
-**We will not let provider churn become customer churn.**
+**A coworker should never need to be "woken up" or warmed up.**
+
+### IV. A coworker is a colleague, not a chatbot
+
+A HybridClaw coworker ships with a name, a face, a voice, and a CV. Skill scores, a track record, references. You don't *configure* it. You onboard it, evaluate it, promote it, retire it. It fills a seat on your org chart, not a panel on your screen.
+
+**If a user can't picture saying *"Lena, handle this,"* the job isn't done.**
+
+### V. A coworker lives where work happens
+
+Email. Slack. Teams. WhatsApp. The phone. Your CRM. The coworker meets your team in the tools they already use. Never the other way around.
+
+The app is for the *operator*, not the end user. One-click deployment. One place to manage the fleet.
+
+**End users should never have to open an app to talk to their coworker.**
+
+### VI. Coworkers work in teams
+
+Real work is collaborative. A coworker delegates to specialists, escalates to leads, reports to managers. Think org charts, not pipelines. Structured teams with roles, hierarchies, and handoffs. Agent-to-agent communication is a first-class primitive, not a hack on top.
+
+**The lone-agent scenario is not the design target.** The team scenario is.
+
+### VII. A coworker you can trust with real responsibility
+
+Credentials are encrypted at rest. The model never sees a real secret. Every action lands in a hash-chain audit log your auditor will accept. Configs, skills, and knowledge are versioned. Rollback is one click. Your coworker is under NDA from minute one.
+
+**Auditability and reversibility are never traded for speed.** Trust is what turns a demo into a deployment.
+
+### VIII. A coworker doesn't break overnight
+
+When a new model ships, your coworker re-runs its tuned skills and knowledge against your real workflows. Regressions surface in the dashboard, not your client's inbox.
+
+**Provider churn does not become customer churn.**
 
 ### IX. A coworker thinks before they spend
-Concierge routing picks the model by urgency and complexity — not by default. Sensitive work stays local. Premium reasoning happens only when the work is worth it.
-**We will not bill our customers for thinking harder than the task required.**
 
-### X. A coworker actually does the work
-Opinionated, ready-on-day-one skills for the systems your business runs on: Salesforce, HubSpot, SAP, GA4, plus natural-language SQL on your warehouse. Not a "build your own" toolkit.
-**We will not ship a runtime and call it a coworker.** The skills are the product.
+Concierge routing picks the model by urgency and complexity. Not by default. Premium reasoning happens only when the work is worth it. The result: output that rivals your best people, at a fraction of the cost.
+
+**No one gets billed for thinking harder than the task required.**
+
+### X. A coworker is hired in sixty seconds
+
+From a browser, from anywhere. Fleet dashboard, kanban board, channel wiring, evals. All reachable from a phone on the train.
+
+**No feature should require a terminal to operate.**
 
 ---
 
-*All of the Claw. None of the chaos.*
+*All of the Claw. None of the overhead.*
