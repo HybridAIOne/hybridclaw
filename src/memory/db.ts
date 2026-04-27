@@ -6926,67 +6926,71 @@ export function recomputeAgentSkillScore(input: {
   const skillId = input.skillId.trim();
   if (!agentId || !skillId) return null;
 
-  const aggregate = queryOne<AgentSkillScoreAggregate, [string, string]>(
-    db,
-    `SELECT
-       agent_id,
-       skill_name AS skill_id,
-       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
-       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
-       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
-       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
-       MAX(created_at) AS last_run_at,
-       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
-       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
-       SUM(tool_calls_attempted) AS tool_calls_attempted,
-       SUM(tool_calls_failed) AS tool_calls_failed
-     FROM skill_observations
-     WHERE agent_id = ? AND skill_name = ?
-     GROUP BY agent_id, skill_name`,
-    agentId,
-    skillId,
-  );
+  const recompute = db.transaction((): AgentSkillScore | null => {
+    const aggregate = queryOne<AgentSkillScoreAggregate, [string, string]>(
+      db,
+      `SELECT
+         agent_id,
+         skill_name AS skill_id,
+         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+         SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+         COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+         MAX(created_at) AS last_run_at,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         SUM(tool_calls_attempted) AS tool_calls_attempted,
+         SUM(tool_calls_failed) AS tool_calls_failed
+       FROM skill_observations
+       WHERE agent_id = ? AND skill_name = ?
+       GROUP BY agent_id, skill_name`,
+      agentId,
+      skillId,
+    );
 
-  if (!aggregate) {
+    if (!aggregate) {
+      db.prepare(
+        `DELETE FROM agent_skill_scores
+         WHERE agent_id = ? AND skill_id = ?`,
+      ).run(agentId, skillId);
+      return null;
+    }
+
+    const score = mapAgentSkillScoreRow(aggregate);
     db.prepare(
-      `DELETE FROM agent_skill_scores
-       WHERE agent_id = ? AND skill_id = ?`,
-    ).run(agentId, skillId);
-    return null;
-  }
+      `INSERT INTO agent_skill_scores (
+         agent_id,
+         skill_id,
+         success_count,
+         failure_count,
+         partial_count,
+         avg_duration_ms,
+         last_run_at,
+         quality_score,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+       ON CONFLICT(agent_id, skill_id) DO UPDATE SET
+         success_count = excluded.success_count,
+         failure_count = excluded.failure_count,
+         partial_count = excluded.partial_count,
+         avg_duration_ms = excluded.avg_duration_ms,
+         last_run_at = excluded.last_run_at,
+         quality_score = excluded.quality_score,
+         updated_at = excluded.updated_at`,
+    ).run(
+      score.agent_id,
+      score.skill_id,
+      score.success_count,
+      score.failure_count,
+      score.partial_count,
+      score.avg_duration_ms,
+      score.last_run_at,
+      score.quality_score,
+    );
+    return score;
+  });
 
-  const score = mapAgentSkillScoreRow(aggregate);
-  db.prepare(
-    `INSERT INTO agent_skill_scores (
-       agent_id,
-       skill_id,
-       success_count,
-       failure_count,
-       partial_count,
-       avg_duration_ms,
-       last_run_at,
-       quality_score,
-       updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-     ON CONFLICT(agent_id, skill_id) DO UPDATE SET
-       success_count = excluded.success_count,
-       failure_count = excluded.failure_count,
-       partial_count = excluded.partial_count,
-       avg_duration_ms = excluded.avg_duration_ms,
-       last_run_at = excluded.last_run_at,
-       quality_score = excluded.quality_score,
-       updated_at = excluded.updated_at`,
-  ).run(
-    score.agent_id,
-    score.skill_id,
-    score.success_count,
-    score.failure_count,
-    score.partial_count,
-    score.avg_duration_ms,
-    score.last_run_at,
-    score.quality_score,
-  );
-  return score;
+  return recompute();
 }
 
 export function getAgentSkillScores(params?: {
