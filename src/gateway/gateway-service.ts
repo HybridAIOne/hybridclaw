@@ -8164,15 +8164,6 @@ export async function handleGatewayCommand(
 
         if (sub === 'info') {
           const metadata = getModelCatalogMetadata(runtime.model);
-          const pricing = metadata.pricingUsdPerToken;
-          const inputPrice =
-            pricing.input == null
-              ? 'unknown'
-              : formatUsd(pricing.input * 1_000_000);
-          const outputPrice =
-            pricing.output == null
-              ? 'unknown'
-              : formatUsd(pricing.output * 1_000_000);
           const capabilities =
             [
               metadata.capabilities.vision ? 'vision' : null,
@@ -8193,7 +8184,7 @@ export async function handleGatewayCommand(
               `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
               `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
               `Capabilities: ${capabilities}`,
-              `Pricing: ${inputPrice} input / ${outputPrice} output per 1M tokens`,
+              'Pricing: dynamic pricing unavailable',
               `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
           );

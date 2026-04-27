@@ -97,7 +97,7 @@ afterEach(async () => {
   vi.doUnmock('../src/auth/anthropic-auth.js');
 });
 
-test('model catalog metadata resolves pricing, context, and capabilities from versioned data', async () => {
+test('model catalog metadata resolves context and capabilities from static data', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir);
   const { catalog } = await importFreshCatalog(homeDir);
@@ -106,8 +106,7 @@ test('model catalog metadata resolves pricing, context, and capabilities from ve
 
   expect(metadata.known).toBe(true);
   expect(metadata.contextWindow).toBe(400_000);
-  expect(metadata.pricingUsdPerToken.input).toBeCloseTo(0.05 / 1_000_000, 16);
-  expect(metadata.pricingUsdPerToken.output).toBeCloseTo(0.4 / 1_000_000, 16);
+  expect(metadata.pricingUsdPerToken).toEqual({ input: null, output: null });
   expect(metadata.capabilities).toEqual({
     vision: true,
     tools: true,
@@ -115,15 +114,14 @@ test('model catalog metadata resolves pricing, context, and capabilities from ve
     reasoning: true,
   });
   expect(metadata.sources).toEqual(
-    expect.arrayContaining(['https://platform.openai.com/docs/pricing']),
+    expect.arrayContaining(['https://developers.openai.com/api/docs/models']),
   );
 
   const flagship = catalog.getModelCatalogMetadata('hybridai/gpt-5.5');
   expect(flagship.known).toBe(true);
   expect(flagship.contextWindow).toBe(1_000_000);
   expect(flagship.maxTokens).toBe(128_000);
-  expect(flagship.pricingUsdPerToken.input).toBeCloseTo(5 / 1_000_000, 16);
-  expect(flagship.pricingUsdPerToken.output).toBeCloseTo(30 / 1_000_000, 16);
+  expect(flagship.pricingUsdPerToken).toEqual({ input: null, output: null });
 });
 
 test('static context and vision lookups share versioned metadata', async () => {

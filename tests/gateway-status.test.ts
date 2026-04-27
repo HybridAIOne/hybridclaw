@@ -3082,9 +3082,7 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
   expect(result.text).toContain('Known metadata: yes');
-  expect(result.text).toContain(
-    'Pricing: $0.0500 input / $0.4000 output per 1M tokens',
-  );
+  expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain(
     'Capabilities: vision, tools, JSON mode, reasoning',
   );
@@ -3156,9 +3154,7 @@ test('model info does not return the available model catalog', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.text).toContain('Effective model: hybridai/gpt-5');
-  expect(result.text).toContain(
-    'Pricing: $1.25 input / $10.00 output per 1M tokens',
-  );
+  expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain('hybridai/gpt-5');
   expect(result.text).not.toContain('Available now:');
   expect(result.text).not.toContain('hybridai/gpt-5-ultra');
