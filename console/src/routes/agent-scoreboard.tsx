@@ -9,12 +9,8 @@ import {
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
-import { formatRelativeTime } from '../lib/format';
+import { formatPercent, formatRelativeTime } from '../lib/format';
 import { compareNumber, compareText } from '../lib/sort';
-
-function formatPercent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
 
 function formatBestAt(agent: AdminAgentScoreboardEntry): string {
   const bestSkill = agent.best_skills[0];
