@@ -1,20 +1,21 @@
 import type { ComponentType } from 'react';
 import {
-  Agents,
   Audit,
   Channels,
   Cog,
   Config,
+  Coworkers,
   Dashboard,
   Email,
+  Files,
   Gateway,
   Jobs,
+  Lightbulb,
   Models,
   Plugins,
   Policy,
   Scheduler,
   Sessions,
-  Skills,
   Terminal,
   Tools,
 } from '../icons';
@@ -57,9 +58,9 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
   {
     label: 'Configuration',
     items: [
-      { to: '/admin/agents', label: 'Agent Files', icon: Agents },
-      { to: '/admin/coworkers', label: 'Coworkers', icon: Agents },
-      { to: '/admin/skills', label: 'Skills', icon: Skills },
+      { to: '/admin/agents', label: 'Agent Files', icon: Files },
+      { to: '/admin/coworkers', label: 'Coworkers', icon: Coworkers },
+      { to: '/admin/skills', label: 'Skills', icon: Lightbulb },
       { to: '/admin/plugins', label: 'Plugins', icon: Plugins },
       { to: '/admin/tools', label: 'Tools', icon: Tools },
       { to: '/admin/config', label: 'Config', icon: Config },
