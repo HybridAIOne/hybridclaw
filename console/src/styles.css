@@ -462,6 +462,7 @@ code {
 
 .metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
 }
 
 .two-column-grid {
