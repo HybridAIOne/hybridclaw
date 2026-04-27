@@ -6775,6 +6775,15 @@ interface AgentSkillScoreAggregate {
   tool_calls_failed: number;
 }
 
+const AGENT_SKILL_SUCCESS_POINTS = 90;
+const AGENT_SKILL_PARTIAL_POINTS = 75;
+const AGENT_SKILL_FAILURE_POINTS = 10;
+const AGENT_SKILL_FEEDBACK_POINT_STEP = 5;
+const AGENT_SKILL_MAX_FEEDBACK_POINTS = 15;
+const AGENT_SKILL_MAX_TOOL_PENALTY_POINTS = 5;
+const AGENT_SKILL_MAX_EXPERIENCE_POINTS = 5;
+const AGENT_SKILL_MAX_SCORE = 100;
+
 function scoreAgentSkill(row: {
   total_executions: number;
   success_count: number;
@@ -6786,23 +6795,32 @@ function scoreAgentSkill(row: {
 }): number {
   const resultPoints =
     row.total_executions > 0
-      ? (row.success_count * 90 +
-          row.partial_count * 75 +
-          row.failure_count * 10) /
+      ? (row.success_count * AGENT_SKILL_SUCCESS_POINTS +
+          row.partial_count * AGENT_SKILL_PARTIAL_POINTS +
+          row.failure_count * AGENT_SKILL_FAILURE_POINTS) /
         row.total_executions
       : 0;
   const feedbackBalance =
     row.positive_feedback_count - row.negative_feedback_count;
-  const feedbackPoints = Math.max(-15, Math.min(15, feedbackBalance * 5));
-  const toolPenalty = Math.min(5, row.tool_call_failure_rate * 5);
+  const feedbackPoints = Math.max(
+    -AGENT_SKILL_MAX_FEEDBACK_POINTS,
+    Math.min(
+      AGENT_SKILL_MAX_FEEDBACK_POINTS,
+      feedbackBalance * AGENT_SKILL_FEEDBACK_POINT_STEP,
+    ),
+  );
+  const toolPenalty = Math.min(
+    AGENT_SKILL_MAX_TOOL_PENALTY_POINTS,
+    row.tool_call_failure_rate * AGENT_SKILL_MAX_TOOL_PENALTY_POINTS,
+  );
   const experiencePoints = Math.min(
-    5,
-    Math.log10(row.total_executions + 1) * 5,
+    AGENT_SKILL_MAX_EXPERIENCE_POINTS,
+    Math.log10(row.total_executions + 1) * AGENT_SKILL_MAX_EXPERIENCE_POINTS,
   );
   return Math.max(
     0,
     Math.min(
-      100,
+      AGENT_SKILL_MAX_SCORE,
       Math.round(
         resultPoints + feedbackPoints + experiencePoints - toolPenalty,
       ),
