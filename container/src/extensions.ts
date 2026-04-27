@@ -100,14 +100,32 @@ const securityHookExtension: RuntimeExtension = {
 
 const runtimeExtensions: RuntimeExtension[] = [securityHookExtension];
 
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.name;
+  return typeof error;
+}
+
+function logExtensionFailure(
+  extension: string,
+  hook: string,
+  error: unknown,
+): void {
+  console.error(
+    `[hybridclaw-agent] runtime extension "${extension}" ${hook} failed (${describeError(error)})`,
+  );
+}
+
 function parseArgs(argsJson: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(argsJson) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
       return {};
     return parsed as Record<string, unknown>;
-  } catch {
-    return {};
+  } catch (error) {
+    console.error(
+      `[hybridclaw-agent] failed to parse tool hook arguments (${describeError(error)})`,
+    );
+    throw new Error('Invalid tool hook arguments.');
   }
 }
 
@@ -118,7 +136,8 @@ export async function emitRuntimeEvent(
     if (!ext.onEvent) continue;
     try {
       await ext.onEvent(payload);
-    } catch {
+    } catch (error) {
+      logExtensionFailure(ext.name, 'onEvent hook', error);
       // Best effort: extension errors should not break request handling.
     }
   }
@@ -128,7 +147,20 @@ export async function runBeforeToolHooks(
   toolName: string,
   argsJson: string,
 ): Promise<string | null> {
-  const args = parseArgs(argsJson);
+  let args: Record<string, unknown>;
+  try {
+    args = parseArgs(argsJson);
+  } catch {
+    await emitRuntimeEvent({
+      event: 'before_tool_call',
+      toolName,
+      blocked: true,
+      extension: 'runtime',
+      reason: 'Invalid tool hook arguments.',
+    });
+    return 'Invalid tool hook arguments.';
+  }
+
   for (const ext of runtimeExtensions) {
     if (!ext.onBeforeToolCall) continue;
     try {
@@ -143,8 +175,17 @@ export async function runBeforeToolHooks(
         });
         return blocked;
       }
-    } catch {
-      // ignore broken extensions
+    } catch (error) {
+      logExtensionFailure(ext.name, 'onBeforeToolCall hook', error);
+      const reason = `Runtime extension "${ext.name}" failed while checking tool permissions.`;
+      await emitRuntimeEvent({
+        event: 'before_tool_call',
+        toolName,
+        blocked: true,
+        extension: ext.name,
+        reason,
+      });
+      return reason;
     }
   }
   await emitRuntimeEvent({
@@ -160,13 +201,25 @@ export async function runAfterToolHooks(
   argsJson: string,
   result: string,
 ): Promise<void> {
-  const args = parseArgs(argsJson);
+  let args: Record<string, unknown>;
+  try {
+    args = parseArgs(argsJson);
+  } catch {
+    await emitRuntimeEvent({
+      event: 'after_tool_call',
+      toolName,
+      hookError: 'Invalid tool hook arguments.',
+    });
+    return;
+  }
+
   for (const ext of runtimeExtensions) {
     if (!ext.onAfterToolCall) continue;
     try {
       await ext.onAfterToolCall(toolName, args, result);
-    } catch {
-      // ignore broken extensions
+    } catch (error) {
+      logExtensionFailure(ext.name, 'onAfterToolCall hook', error);
+      // Best effort: after-tool extension errors should not mask tool results.
     }
   }
   await emitRuntimeEvent({ event: 'after_tool_call', toolName });

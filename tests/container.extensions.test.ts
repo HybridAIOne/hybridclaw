@@ -88,4 +88,20 @@ describe('container runtime extensions', () => {
       ),
     ).resolves.toBeNull();
   });
+
+  test('fails closed when before-tool hook arguments are malformed', async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const { runBeforeToolHooks } = await import(
+      '../container/src/extensions.js'
+    );
+
+    await expect(runBeforeToolHooks('bash', '{bad json')).resolves.toBe(
+      'Invalid tool hook arguments.',
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[hybridclaw-agent] failed to parse tool hook arguments (SyntaxError)',
+    );
+  });
 });
