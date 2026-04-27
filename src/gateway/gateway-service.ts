@@ -8004,7 +8004,10 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' || sub === 'default' || sub === 'set';
+          sub === 'list' ||
+          sub === 'info' ||
+          sub === 'default' ||
+          sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -8164,6 +8167,23 @@ export async function handleGatewayCommand(
 
         if (sub === 'info') {
           const metadata = getModelCatalogMetadata(runtime.model);
+          const normalizedRuntimeModel = runtime.model.trim().toLowerCase();
+          const pricing = metadata.pricingUsdPerToken;
+          const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
+            ? 'Pricing: subscription included (0 EUR)'
+            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+              ? 'Pricing: local model (0 EUR)'
+              : pricing.input != null || pricing.output != null
+                ? `Pricing: ${
+                    pricing.input == null
+                      ? 'unknown'
+                      : formatUsd(pricing.input * 1_000_000)
+                  } input / ${
+                    pricing.output == null
+                      ? 'unknown'
+                      : formatUsd(pricing.output * 1_000_000)
+                  } output per 1M tokens`
+                : 'Pricing: dynamic pricing unavailable';
           const capabilities =
             [
               metadata.capabilities.vision ? 'vision' : null,
@@ -8184,7 +8204,7 @@ export async function handleGatewayCommand(
               `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
               `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
               `Capabilities: ${capabilities}`,
-              'Pricing: dynamic pricing unavailable',
+              pricingLine,
               `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
           );

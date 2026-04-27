@@ -269,6 +269,10 @@ test('available model catalog merges the current default model with discovered l
   expect(catalog.getAvailableModelList('local')).toEqual([
     'lmstudio/qwen/qwen3.5-9b',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0, output: 0 });
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/gpt-4.1-mini',
   );
@@ -295,6 +299,10 @@ test('available model catalog prefixes HybridAI provider-family models', async (
               id: 'mistral-small',
               provider: 'mistral',
               context_length: 131_072,
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+              },
             },
           ],
         }),
@@ -319,6 +327,10 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/mistral/mistral-small',
   );
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0.000001, output: 0.000002 });
 });
 
 test('available model catalog reloads OpenRouter discovery after 60 minutes', async () => {
@@ -396,6 +408,10 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
     'openrouter/beta/model-c:free',
     'openrouter/zeta/model-b',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('openrouter/zeta/model-b')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 1, output: 1 });
   expect(catalog.getAvailableModelList('codex')).toEqual([]);
 });
 
@@ -500,6 +516,10 @@ test('available model catalog discovers Codex models from the models endpoint', 
     'Chatgpt-Account-Id': 'acct_catalog',
     'OpenAI-Beta': 'responses=experimental',
   });
+  expect(
+    catalog.getModelCatalogMetadata('openai-codex/gpt-5-codex')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0, output: 0 });
 });
 
 test('available model catalog discovers Anthropic models from /v1/models', async () => {
@@ -524,6 +544,7 @@ test('available model catalog discovers Anthropic models from /v1/models', async
               id: 'claude-opus-4-20250514',
               max_input_tokens: 200_000,
               max_tokens: 32_000,
+              pricing: { input_per_million: 15, output_per_million: 75 },
               capabilities: { vision: true },
             },
             {
@@ -552,6 +573,10 @@ test('available model catalog discovers Anthropic models from /v1/models', async
   expect(catalog.isModelVisionCapable('anthropic/claude-opus-4-20250514')).toBe(
     true,
   );
+  expect(
+    catalog.getModelCatalogMetadata('anthropic/claude-opus-4-20250514')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 15 / 1_000_000, output: 75 / 1_000_000 });
   const anthropicRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
       url: new URL(String(input)),
@@ -936,6 +961,7 @@ test('available model catalog merges discovered Mistral models from /models', as
               name: 'mistral-medium-2508',
               aliases: ['mistral-medium-2508', 'mistral-medium'],
               max_context_length: 131_072,
+              pricing: { prompt: '0.000002', completion: '0.000006' },
             },
             {
               id: 'mistral-medium-2508',
@@ -969,6 +995,10 @@ test('available model catalog merges discovered Mistral models from /models', as
   expect(catalog.getAvailableModelList('mistral')).not.toContain(
     'mistral/mistral-medium-latest',
   );
+  expect(
+    catalog.getModelCatalogMetadata('mistral/mistral-medium-2508')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0.000002, output: 0.000006 });
 });
 
 test('available model catalog reads Hugging Face provider-level context windows', async () => {
@@ -999,6 +1029,10 @@ test('available model catalog reads Hugging Face provider-level context windows'
                     provider: 'novita',
                     status: 'live',
                     context_length: 262144,
+                    pricing: {
+                      input_per_million: 0.07,
+                      output_per_million: 0.21,
+                    },
                   },
                 ],
               },
@@ -1021,6 +1055,11 @@ test('available model catalog reads Hugging Face provider-level context windows'
       'huggingface/XiaomiMiMo/MiMo-V2-Flash',
     ),
   ).toBe(262_144);
+  expect(
+    discovery.getDiscoveredHuggingFaceModelPricingUsdPerToken(
+      'huggingface/XiaomiMiMo/MiMo-V2-Flash',
+    ),
+  ).toEqual({ input: 0.07 / 1_000_000, output: 0.21 / 1_000_000 });
 });
 
 test('available model catalog does not cap the default Hugging Face list', async () => {

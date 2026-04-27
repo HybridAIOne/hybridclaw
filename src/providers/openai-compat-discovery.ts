@@ -17,6 +17,10 @@ import {
   type OpenAICompatRemoteProviderDef,
 } from './openai-compat-remote.js';
 import { getDiscoveredOpenRouterModelNames } from './openrouter-discovery.js';
+import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
 import type { RuntimeProviderId } from './provider-ids.js';
 import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
@@ -80,15 +84,22 @@ export interface DiscoveryError {
 export interface OpenAICompatDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => DiscoveredModelPricingUsdPerToken | null;
   getLastError: () => DiscoveryError | null;
 }
 
 interface OpenAICompatDiscoveryState {
   discoveredModelNames: string[];
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
 }
 
 const buildEmptyOpenAICompatDiscoveryState =
-  (): OpenAICompatDiscoveryState => ({ discoveredModelNames: [] });
+  (): OpenAICompatDiscoveryState => ({
+    discoveredModelNames: [],
+    pricingByModel: new Map(),
+  });
 
 export function createOpenAICompatDiscoveryStore(
   def: OpenAICompatRemoteProviderDef,
@@ -130,6 +141,7 @@ export function createOpenAICompatDiscoveryStore(
     const entries = readModelEntries(payload);
     const seen = new Set<string>();
     const discovered: string[] = [];
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     for (const entry of entries) {
       const rawId = readEntryId(entry);
       if (!rawId) continue;
@@ -137,9 +149,13 @@ export function createOpenAICompatDiscoveryStore(
       if (seen.has(prefixed)) continue;
       seen.add(prefixed);
       discovered.push(prefixed);
+      if (isRecord(entry)) {
+        const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+        if (pricing) pricingByModel.set(prefixed, pricing);
+      }
     }
     lastError = null;
-    return { discoveredModelNames: discovered };
+    return { discoveredModelNames: discovered, pricingByModel };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
@@ -184,6 +200,10 @@ export function createOpenAICompatDiscoveryStore(
   return {
     discoverModels,
     getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
+    getModelPricingUsdPerToken: (model: string) => {
+      const normalized = prefixModelId(def.prefix, model);
+      return discoveryStore.getState().pricingByModel.get(normalized) ?? null;
+    },
     getLastError: () => (lastError ? { ...lastError } : null),
   };
 }
@@ -222,6 +242,16 @@ export function getDiscoveredOpenAICompatRemoteModelNames(): string[] {
   all.push(...getDiscoveredMistralModelNames());
   all.push(...getDiscoveredHuggingFaceModelNames());
   return all;
+}
+
+export function getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(
+  model: string,
+): DiscoveredModelPricingUsdPerToken | null {
+  for (const store of defaultStoreRegistry.values()) {
+    const pricing = store.getModelPricingUsdPerToken(model);
+    if (pricing) return pricing;
+  }
+  return null;
 }
 
 export function getOpenAICompatProviderLastError(

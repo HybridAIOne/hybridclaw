@@ -4,6 +4,7 @@ import {
   discoverAnthropicModels,
   getDiscoveredAnthropicModelContextWindow,
   getDiscoveredAnthropicModelNames,
+  getDiscoveredAnthropicModelPricingUsdPerToken,
   isDiscoveredAnthropicModelVisionCapable,
 } from './anthropic-discovery.js';
 import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
@@ -12,11 +13,13 @@ import {
   getDiscoveredCodexModelContextWindow,
   getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
+  getDiscoveredCodexModelPricingUsdPerToken,
 } from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
 import {
   discoverHuggingFaceModels,
   getDiscoveredHuggingFaceModelContextWindow,
+  getDiscoveredHuggingFaceModelPricingUsdPerToken,
 } from './huggingface-discovery.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
@@ -24,6 +27,7 @@ import {
   getDiscoveredHybridAIModelContextWindow,
   getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
+  getDiscoveredHybridAIModelPricingUsdPerToken,
 } from './hybridai-discovery.js';
 import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
@@ -35,6 +39,7 @@ import {
 import {
   discoverMistralModels,
   getDiscoveredMistralModelContextWindow,
+  getDiscoveredMistralModelPricingUsdPerToken,
   isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
@@ -52,12 +57,14 @@ import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenAICompatRemoteModels,
   getDiscoveredOpenAICompatRemoteModelNames,
+  getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken,
 } from './openai-compat-discovery.js';
 import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
   getDiscoveredOpenRouterModelContextWindow,
   getDiscoveredOpenRouterModelMaxTokens,
+  getDiscoveredOpenRouterModelPricingUsdPerToken,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
@@ -342,10 +349,38 @@ function resolveKnownModelMaxTokens(
   );
 }
 
+function resolveKnownModelPricingUsdPerToken(
+  model: string,
+  staticMetadata: ModelCatalogMetadata,
+): ModelCatalogMetadata['pricingUsdPerToken'] {
+  if (isLocalPrefixedModel(model)) {
+    return { input: 0, output: 0 };
+  }
+  if (hasModelPrefix(model, OPENAI_CODEX_MODEL_PREFIX)) {
+    return (
+      getDiscoveredCodexModelPricingUsdPerToken(model) ??
+      staticMetadata.pricingUsdPerToken
+    );
+  }
+  return (
+    getDiscoveredHybridAIModelPricingUsdPerToken(model) ??
+    getDiscoveredOpenRouterModelPricingUsdPerToken(model) ??
+    getDiscoveredMistralModelPricingUsdPerToken(model) ??
+    getDiscoveredHuggingFaceModelPricingUsdPerToken(model) ??
+    getDiscoveredAnthropicModelPricingUsdPerToken(model) ??
+    getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(model) ??
+    staticMetadata.pricingUsdPerToken
+  );
+}
+
 export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
   const staticMetadata = resolveStaticModelCatalogMetadata(model);
   const contextWindow = resolveKnownModelContextWindow(model, staticMetadata);
   const maxTokens = resolveKnownModelMaxTokens(model, staticMetadata);
+  const pricingUsdPerToken = resolveKnownModelPricingUsdPerToken(
+    model,
+    staticMetadata,
+  );
   const vision = isModelVisionCapable(model);
 
   return {
@@ -357,6 +392,7 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
       vision,
     contextWindow,
     maxTokens,
+    pricingUsdPerToken,
     capabilities: {
       ...staticMetadata.capabilities,
       vision,

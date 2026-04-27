@@ -122,7 +122,10 @@ describe('openai-compat discovery — per-provider store', () => {
         jsonResponse({
           object: 'list',
           data: [
-            { id: 'gemini-2.5-pro' },
+            {
+              id: 'gemini-2.5-pro',
+              pricing: { input_per_million: 1.25, output_per_million: 10 },
+            },
             { id: 'gemini-2.5-flash' },
             { id: 'gemini-2.0-flash' },
           ],
@@ -151,6 +154,10 @@ describe('openai-compat discovery — per-provider store', () => {
       'gemini/gemini-2.5-flash',
       'gemini/gemini-2.0-flash',
     ]);
+    expect(store.getModelPricingUsdPerToken('gemini/gemini-2.5-pro')).toEqual({
+      input: 1.25 / 1_000_000,
+      output: 10 / 1_000_000,
+    });
   });
 
   test('does not double-prefix ids the API already namespaced (kilo proxy case)', async () => {
