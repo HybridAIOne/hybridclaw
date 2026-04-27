@@ -60,6 +60,9 @@ function summarizeScores(scores: AgentSkillScore[]): {
   totalExecutions: number;
   successRate: number;
   avgScore: number;
+  avgQualityScore: number;
+  avgReliabilityScore: number;
+  avgTimingScore: number;
   lastObservedAt: string | null;
 } {
   const totalExecutions = scores.reduce(
@@ -74,11 +77,35 @@ function summarizeScores(scores: AgentSkillScore[]): {
     (total, score) => total + score.score * score.total_executions,
     0,
   );
+  const weightedQualityScore = scores.reduce(
+    (total, score) => total + score.quality_score * score.total_executions,
+    0,
+  );
+  const weightedReliabilityScore = scores.reduce(
+    (total, score) => total + score.reliability_score * score.total_executions,
+    0,
+  );
+  const weightedTimingScore = scores.reduce(
+    (total, score) => total + score.timing_score * score.total_executions,
+    0,
+  );
   return {
     totalExecutions,
     successRate: totalExecutions > 0 ? totalSuccesses / totalExecutions : 0,
     avgScore:
       totalExecutions > 0 ? Math.round(weightedScore / totalExecutions) : 0,
+    avgQualityScore:
+      totalExecutions > 0
+        ? Math.round(weightedQualityScore / totalExecutions)
+        : 0,
+    avgReliabilityScore:
+      totalExecutions > 0
+        ? Math.round(weightedReliabilityScore / totalExecutions)
+        : 0,
+    avgTimingScore:
+      totalExecutions > 0
+        ? Math.round(weightedTimingScore / totalExecutions)
+        : 0,
     lastObservedAt:
       scores
         .map((score) => score.last_observed_at)
@@ -106,6 +133,9 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
         total_executions: summary.totalExecutions,
         success_rate: summary.successRate,
         avg_score: summary.avgScore,
+        avg_quality_score: summary.avgQualityScore,
+        avg_reliability_score: summary.avgReliabilityScore,
+        avg_timing_score: summary.avgTimingScore,
         best_skills: [...agentScores].sort(compareBestSkills).slice(0, 5),
         last_observed_at: summary.lastObservedAt,
         cv_path: cvPathForAgent(agentId),
@@ -161,10 +191,15 @@ function renderCvMarkdown(input: {
     `- Skill executions: ${summary.totalExecutions}`,
     `- Overall success rate: ${formatPercent(summary.successRate)}`,
     `- Average score: ${summary.avgScore}/100`,
+    `- Average quality: ${summary.avgQualityScore}/100`,
+    `- Average reliability: ${summary.avgReliabilityScore}/100`,
+    `- Average timing: ${summary.avgTimingScore}/100`,
   ];
 
   if (topSkill) {
-    lines.push(`- Best at: ${topSkill.skill_name} (${topSkill.score}/100)`);
+    lines.push(
+      `- Best at: ${topSkill.skill_name} (${topSkill.score}/100 overall)`,
+    );
   }
 
   lines.push('', '## Skill Scores', '');
@@ -173,9 +208,7 @@ function renderCvMarkdown(input: {
   } else {
     for (const score of topSkills) {
       lines.push(
-        `- ${score.skill_name}: ${score.score}/100, ${formatPercent(
-          score.success_rate,
-        )} success across ${score.total_executions} runs, avg ${formatDurationMs(
+        `- ${score.skill_name}: ${score.score}/100 overall, quality ${score.quality_score}/100, reliability ${score.reliability_score}/100, timing ${score.timing_score}/100 across ${score.total_executions} runs, avg ${formatDurationMs(
           score.avg_duration_ms,
         )}`,
       );
@@ -389,8 +422,11 @@ export interface AgentRecommendation {
   agent_id: string;
   display_name: string;
   skill_id: string;
+  score: number;
   quality_score: number;
   success_rate: number;
+  reliability_score: number;
+  timing_score: number;
   total_executions: number;
   relevance_score: number;
   rank_score: number;
@@ -425,17 +461,21 @@ export function recommendAgentsFor(
         agent_id: score.agent_id,
         display_name: displayNames.get(score.agent_id) || score.agent_id,
         skill_id: score.skill_id,
+        score: score.score,
         quality_score: score.quality_score,
         success_rate: score.success_rate,
+        reliability_score: score.reliability_score,
+        timing_score: score.timing_score,
         total_executions: score.total_executions,
         relevance_score: relevance,
-        rank_score: relevance * 100 + score.quality_score,
+        rank_score: relevance * 100 + score.score,
       };
     })
     .filter((entry) => entry.relevance_score > 0)
     .sort(
       (left, right) =>
         right.rank_score - left.rank_score ||
+        right.score - left.score ||
         right.quality_score - left.quality_score ||
         right.total_executions - left.total_executions ||
         left.display_name.localeCompare(right.display_name),
@@ -450,7 +490,7 @@ export function formatAgentAssignmentHints(task: string): string {
     '## Agent Assignment Hints',
     ...recommendations.map(
       (entry, index) =>
-        `${index + 1}. ${entry.display_name} (${entry.agent_id}) for ${entry.skill_id}: ${entry.quality_score}/100 quality, ${formatPercent(entry.success_rate)} success across ${entry.total_executions} runs.`,
+        `${index + 1}. ${entry.display_name} (${entry.agent_id}) for ${entry.skill_id}: ${entry.score}/100 overall, ${entry.quality_score}/100 quality, ${entry.reliability_score}/100 reliability, ${entry.timing_score}/100 timing across ${entry.total_executions} runs.`,
     ),
   ].join('\n');
 }

@@ -9,7 +9,7 @@ import {
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
-import { formatPercent, formatRelativeTime } from '../lib/format';
+import { formatRelativeTime } from '../lib/format';
 import { compareNumber, compareText } from '../lib/sort';
 
 function formatBestAt(agent: AdminAgentScoreboardEntry): string {
@@ -18,7 +18,15 @@ function formatBestAt(agent: AdminAgentScoreboardEntry): string {
   return `${bestSkill.skill_name} (${bestSkill.score}/100)`;
 }
 
-type AgentSortKey = 'agent' | 'score' | 'runs' | 'success' | 'skill' | 'recent';
+type AgentSortKey =
+  | 'agent'
+  | 'score'
+  | 'runs'
+  | 'quality'
+  | 'reliability'
+  | 'timing'
+  | 'skill'
+  | 'recent';
 
 const AGENT_SORTERS: Record<
   AgentSortKey,
@@ -33,8 +41,14 @@ const AGENT_SORTERS: Record<
   runs: (left, right) =>
     compareNumber(left.total_executions, right.total_executions) ||
     compareText(left.display_name, right.display_name),
-  success: (left, right) =>
-    compareNumber(left.success_rate, right.success_rate) ||
+  quality: (left, right) =>
+    compareNumber(left.avg_quality_score, right.avg_quality_score) ||
+    compareText(left.display_name, right.display_name),
+  reliability: (left, right) =>
+    compareNumber(left.avg_reliability_score, right.avg_reliability_score) ||
+    compareText(left.display_name, right.display_name),
+  timing: (left, right) =>
+    compareNumber(left.avg_timing_score, right.avg_timing_score) ||
     compareText(left.display_name, right.display_name),
   skill: (left, right) =>
     compareText(formatBestAt(left), formatBestAt(right)) ||
@@ -47,7 +61,9 @@ const AGENT_SORTERS: Record<
 const AGENT_DEFAULT_DIRECTIONS = {
   score: 'desc',
   runs: 'desc',
-  success: 'desc',
+  quality: 'desc',
+  reliability: 'desc',
+  timing: 'desc',
   recent: 'desc',
 } as const;
 
@@ -135,8 +151,20 @@ export function AgentsPage() {
                     onToggle={toggleSort}
                   />
                   <SortableHeader
-                    label="Success"
-                    sortKey="success"
+                    label="Quality"
+                    sortKey="quality"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Reliability"
+                    sortKey="reliability"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Timing"
+                    sortKey="timing"
                     sortState={sortState}
                     onToggle={toggleSort}
                   />
@@ -164,9 +192,18 @@ export function AgentsPage() {
                     </td>
                     <td>{agent.avg_score}/100</td>
                     <td>{agent.total_executions}</td>
-                    <td>{formatPercent(agent.success_rate)}</td>
+                    <td>{agent.avg_quality_score}/100</td>
+                    <td>{agent.avg_reliability_score}/100</td>
+                    <td>{agent.avg_timing_score}/100</td>
                     <td>
                       <strong>{formatBestAt(agent)}</strong>
+                      {agent.best_skills[0] ? (
+                        <div className="supporting-text">
+                          Q {agent.best_skills[0].quality_score} · R{' '}
+                          {agent.best_skills[0].reliability_score} · T{' '}
+                          {agent.best_skills[0].timing_score}
+                        </div>
+                      ) : null}
                     </td>
                     <td>
                       {agent.last_observed_at

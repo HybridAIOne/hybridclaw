@@ -233,6 +233,9 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
       - Skill executions: 0
       - Overall success rate: 0%
       - Average score: 0/100
+      - Average quality: 0/100
+      - Average reliability: 0/100
+      - Average timing: 0/100
 
       ## Skill Scores
 

@@ -1058,6 +1058,8 @@ export interface AdminAgentSkillScore {
   negative_feedback_count: number;
   last_run_at: string | null;
   quality_score: number;
+  reliability_score: number;
+  timing_score: number;
   score: number;
   last_observed_at: string | null;
 }
@@ -1068,6 +1070,9 @@ export interface AdminAgentScoreboardEntry {
   total_executions: number;
   success_rate: number;
   avg_score: number;
+  avg_quality_score: number;
+  avg_reliability_score: number;
+  avg_timing_score: number;
   best_skills: AdminAgentSkillScore[];
   last_observed_at: string | null;
 }

@@ -6815,21 +6815,30 @@ interface AgentSkillScoreAggregate {
   tool_calls_failed: number;
 }
 
-const AGENT_SKILL_SUCCESS_POINTS = 90;
+const AGENT_SKILL_SUCCESS_POINTS = 100;
 const AGENT_SKILL_PARTIAL_POINTS = 75;
 const AGENT_SKILL_FAILURE_POINTS = 10;
 const AGENT_SKILL_FEEDBACK_POINT_STEP = 5;
 const AGENT_SKILL_MAX_FEEDBACK_POINTS = 15;
-const AGENT_SKILL_MAX_TOOL_PENALTY_POINTS = 5;
-const AGENT_SKILL_MAX_EXPERIENCE_POINTS = 5;
 const AGENT_SKILL_MAX_SCORE = 100;
+const AGENT_SKILL_RELIABILITY_ERROR_WEIGHT = 70;
+const AGENT_SKILL_RELIABILITY_RETRY_WEIGHT = 10;
+const AGENT_SKILL_MAX_RETRY_PENALTY = 30;
+const AGENT_SKILL_TIMING_BASELINE_MS = 30_000;
+const AGENT_SKILL_TIMING_PENALTY_STEP = 20;
+const AGENT_SKILL_QUALITY_WEIGHT = 0.6;
+const AGENT_SKILL_RELIABILITY_WEIGHT = 0.25;
+const AGENT_SKILL_TIMING_WEIGHT = 0.15;
 
-function scoreAgentSkill(row: {
+function clampAgentSkillScore(value: number): number {
+  return Math.max(0, Math.min(AGENT_SKILL_MAX_SCORE, Math.round(value)));
+}
+
+function scoreAgentSkillQuality(row: {
   total_executions: number;
   success_count: number;
   failure_count: number;
   partial_count: number;
-  tool_call_failure_rate: number;
   positive_feedback_count: number;
   negative_feedback_count: number;
 }): number {
@@ -6849,22 +6858,50 @@ function scoreAgentSkill(row: {
       feedbackBalance * AGENT_SKILL_FEEDBACK_POINT_STEP,
     ),
   );
-  const toolPenalty = Math.min(
-    AGENT_SKILL_MAX_TOOL_PENALTY_POINTS,
-    row.tool_call_failure_rate * AGENT_SKILL_MAX_TOOL_PENALTY_POINTS,
+  return clampAgentSkillScore(resultPoints + feedbackPoints);
+}
+
+function scoreAgentSkillReliability(row: {
+  total_executions: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+}): number {
+  const failureRate =
+    row.tool_calls_attempted > 0
+      ? row.tool_calls_failed / row.tool_calls_attempted
+      : 0;
+  const avgToolCalls =
+    row.total_executions > 0
+      ? row.tool_calls_attempted / row.total_executions
+      : 0;
+  const retryPenalty = Math.min(
+    AGENT_SKILL_MAX_RETRY_PENALTY,
+    Math.max(0, avgToolCalls - 1) * AGENT_SKILL_RELIABILITY_RETRY_WEIGHT,
   );
-  const experiencePoints = Math.min(
-    AGENT_SKILL_MAX_EXPERIENCE_POINTS,
-    Math.log10(row.total_executions + 1) * AGENT_SKILL_MAX_EXPERIENCE_POINTS,
+  return clampAgentSkillScore(
+    AGENT_SKILL_MAX_SCORE -
+      failureRate * AGENT_SKILL_RELIABILITY_ERROR_WEIGHT -
+      retryPenalty,
   );
-  return Math.max(
-    0,
-    Math.min(
-      AGENT_SKILL_MAX_SCORE,
-      Math.round(
-        resultPoints + feedbackPoints + experiencePoints - toolPenalty,
-      ),
-    ),
+}
+
+function scoreAgentSkillTiming(avgDurationMs: number): number {
+  if (avgDurationMs <= 0) return AGENT_SKILL_MAX_SCORE;
+  const penalty =
+    Math.log2(avgDurationMs / AGENT_SKILL_TIMING_BASELINE_MS + 1) *
+    AGENT_SKILL_TIMING_PENALTY_STEP;
+  return clampAgentSkillScore(AGENT_SKILL_MAX_SCORE - penalty);
+}
+
+function scoreAgentSkillOverall(row: {
+  quality_score: number;
+  reliability_score: number;
+  timing_score: number;
+}): number {
+  return clampAgentSkillScore(
+    row.quality_score * AGENT_SKILL_QUALITY_WEIGHT +
+      row.reliability_score * AGENT_SKILL_RELIABILITY_WEIGHT +
+      row.timing_score * AGENT_SKILL_TIMING_WEIGHT,
   );
 }
 
@@ -6901,18 +6938,30 @@ function mapAgentSkillScoreRow(row: AgentSkillScoreAggregate): AgentSkillScore {
     last_run_at: row.last_run_at,
     last_observed_at: row.last_run_at,
   };
-  const score = scoreAgentSkill({
+  const qualityScore = scoreAgentSkillQuality({
     total_executions: normalized.total_executions,
     success_count: normalized.success_count,
     failure_count: normalized.failure_count,
     partial_count: normalized.partial_count,
-    tool_call_failure_rate: normalized.tool_breakage_rate,
     positive_feedback_count: normalized.positive_feedback_count,
     negative_feedback_count: normalized.negative_feedback_count,
   });
+  const reliabilityScore = scoreAgentSkillReliability({
+    total_executions: normalized.total_executions,
+    tool_calls_attempted: toolCallsAttempted,
+    tool_calls_failed: toolCallsFailed,
+  });
+  const timingScore = scoreAgentSkillTiming(normalized.avg_duration_ms);
+  const score = scoreAgentSkillOverall({
+    quality_score: qualityScore,
+    reliability_score: reliabilityScore,
+    timing_score: timingScore,
+  });
   return {
     ...normalized,
-    quality_score: score,
+    quality_score: qualityScore,
+    reliability_score: reliabilityScore,
+    timing_score: timingScore,
     score,
   };
 }
@@ -7065,7 +7114,7 @@ export function getAgentSkillScores(params?: {
     .map(mapAgentSkillScoreRow)
     .sort(
       (left, right) =>
-        right.quality_score - left.quality_score ||
+        right.score - left.score ||
         right.total_executions - left.total_executions ||
         left.agent_id.localeCompare(right.agent_id) ||
         left.skill_id.localeCompare(right.skill_id),
