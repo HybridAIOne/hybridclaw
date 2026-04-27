@@ -153,7 +153,7 @@ describe('ChatPage', () => {
       defaultModel: 'gpt-5',
       providerStatus: {},
       models: [],
-    });
+    } as AdminModelsResponse);
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();

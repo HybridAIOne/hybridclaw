@@ -619,6 +619,14 @@ export interface ChatModel {
   isReasoning: boolean;
   family: string | null;
   parameterSize: string | null;
+  /** Capability flags, when known (sourced from the models.dev catalog). */
+  supportsVision: boolean;
+  supportsTools: boolean;
+  supportsImageGen: boolean;
+  /** Cost bucket derived from input $/M tokens. */
+  costTier: 'low' | 'medium' | 'high' | 'highest' | null;
+  /** YYYY-MM training-data cutoff, when known. */
+  knowledgeCutoff: string | null;
 }
 
 export interface AdminModelCatalogEntry extends ChatModel {

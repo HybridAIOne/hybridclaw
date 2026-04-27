@@ -254,6 +254,7 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
+import { lookupModelMetadata } from '../providers/models-dev-catalog.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
@@ -4841,21 +4842,28 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           getDiscoveredOpenRouterModelMaxTokens(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
+        const metadata = lookupModelMetadata(modelId);
+        const localContextWindow = resolveKnownModelContextWindow(modelId);
         return {
           id: modelId,
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: resolveKnownModelContextWindow(modelId),
+          contextWindow: localContextWindow ?? metadata?.contextWindow ?? null,
           maxTokens:
             info?.maxTokens ??
             codexMaxTokens ??
             hybridaiMaxTokens ??
             openRouterMaxTokens ??
             null,
-          isReasoning: info?.isReasoning ?? false,
+          isReasoning: info?.isReasoning ?? metadata?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
+          supportsVision: metadata?.supportsVision ?? false,
+          supportsTools: metadata?.supportsTools ?? false,
+          supportsImageGen: metadata?.supportsImageGen ?? false,
+          costTier: metadata?.costTier ?? null,
+          knowledgeCutoff: metadata?.knowledgeCutoff ?? null,
           usageDaily: dailySummary ? mapUsageSummary(dailySummary) : null,
           usageMonthly: monthlySummary ? mapUsageSummary(monthlySummary) : null,
         };

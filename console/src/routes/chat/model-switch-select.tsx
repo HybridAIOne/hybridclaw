@@ -1,16 +1,19 @@
 import { type ReactElement, useMemo, useState } from 'react';
 import type { ChatModel } from '../../api/types';
-import { Menu } from '../../components/icons';
+import { Brain, Eye, Image, Info, Menu, Tools } from '../../components/icons';
 import {
   Select,
-  SelectBadge,
   SelectContent,
+  SelectDetailPanel,
   SelectEmpty,
   SelectGroup,
   SelectGroupLabel,
   SelectIcon,
   SelectItem,
   SelectItemBody,
+  SelectItemCapability,
+  SelectItemCostTier,
+  SelectItemDetailButton,
   SelectItemMeta,
   SelectItemSubtitle,
   SelectItemText,
@@ -21,6 +24,7 @@ import {
   SelectValue,
 } from '../../components/select';
 import { formatCompactNumber } from '../../lib/format';
+import css from './model-switch-select.module.css';
 
 export type ModelSwitchEntry = ChatModel;
 
@@ -295,6 +299,106 @@ function formatContext(tokens: number | null): string | null {
   return formatCompactNumber(tokens);
 }
 
+function renderDetailPanelContent(model: ParsedModel): ReactElement {
+  const meta = model.meta;
+  const features: Array<{
+    key: string;
+    variant: string;
+    label: string;
+    icon: ReactElement;
+  }> = [];
+  if (meta.supportsVision) {
+    features.push({
+      key: 'vision',
+      variant: 'vision',
+      label: 'Vision',
+      icon: <Eye width="14" height="14" />,
+    });
+  }
+  if (meta.isReasoning) {
+    features.push({
+      key: 'reasoning',
+      variant: 'reasoning',
+      label: 'Reasoning',
+      icon: <Brain width="14" height="14" />,
+    });
+  }
+  if (meta.supportsTools) {
+    features.push({
+      key: 'tools',
+      variant: 'tools',
+      label: 'Tool calling',
+      icon: <Tools width="14" height="14" />,
+    });
+  }
+  if (meta.supportsImageGen) {
+    features.push({
+      key: 'image-gen',
+      variant: 'image-gen',
+      label: 'Image generation',
+      icon: <Image width="14" height="14" />,
+    });
+  }
+
+  const ctx = formatContext(meta.contextWindow);
+  const fields: Array<{ label: string; value: string }> = [];
+  fields.push({ label: 'Provider', value: model.provider });
+  if (model.vendor) fields.push({ label: 'Developer', value: model.vendor });
+  if (meta.knowledgeCutoff) {
+    fields.push({ label: 'Knowledge cutoff', value: meta.knowledgeCutoff });
+  }
+  if (ctx) fields.push({ label: 'Context window', value: ctx });
+  if (meta.parameterSize?.trim()) {
+    fields.push({ label: 'Parameter size', value: meta.parameterSize.trim() });
+  }
+  if (meta.costTier) {
+    const tierLabels: Record<NonNullable<typeof meta.costTier>, string> = {
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      highest: 'Highest',
+    };
+    fields.push({ label: 'Cost tier', value: tierLabels[meta.costTier] });
+  }
+
+  return (
+    <>
+      {features.length > 0 ? (
+        <section>
+          <h4 className={css.detailSectionLabel}>Features</h4>
+          <ul className={css.detailFeatureList}>
+            {features.map((feature) => (
+              <li key={feature.key} className={css.detailFeaturePill}>
+                <span
+                  data-capability={feature.variant}
+                  className={css.detailFeatureIcon}
+                >
+                  {feature.icon}
+                </span>
+                <span>{feature.label}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <section>
+        <dl className={css.detailFieldGrid}>
+          {fields.map((field) => (
+            <div key={field.label} className={css.detailField}>
+              <dt>{field.label}</dt>
+              <dd>{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <section className={css.detailModelId}>
+        <span>Model id</span>
+        <code>{model.id}</code>
+      </section>
+    </>
+  );
+}
+
 function formatSubtitle(model: ParsedModel): string | null {
   // Prefer parameter size for local models (it's the most disambiguating bit
   // when an Ollama install has llama-3.1:8b alongside llama-3.1:70b); for
@@ -338,6 +442,7 @@ export function ModelSwitchSelect(props: {
 }) {
   const [query, setQuery] = useState('');
   const [railFilter, setRailFilter] = useState<string | null>(null);
+  const [previewedModelId, setPreviewedModelId] = useState<string | null>(null);
 
   const parsed = useMemo(() => props.models.map(parseModel), [props.models]);
 
@@ -379,6 +484,9 @@ export function ModelSwitchSelect(props: {
   if (props.models.length === 0) return null;
 
   const selected = parsed.find((m) => m.id === props.selectedModelId);
+  const previewed = previewedModelId
+    ? (parsed.find((m) => m.id === previewedModelId) ?? null)
+    : null;
 
   return (
     <Select
@@ -426,6 +534,17 @@ export function ModelSwitchSelect(props: {
             ))}
           </SelectRail>
         }
+        detail={
+          previewed ? (
+            <SelectDetailPanel
+              open
+              heading={previewed.displayName}
+              onClose={() => setPreviewedModelId(null)}
+            >
+              {renderDetailPanelContent(previewed)}
+            </SelectDetailPanel>
+          ) : null
+        }
       >
         {groups.length === 0 ? (
           <SelectEmpty>No models match “{query}”.</SelectEmpty>
@@ -449,10 +568,48 @@ export function ModelSwitchSelect(props: {
                       ) : null}
                     </SelectItemBody>
                     <SelectItemMeta>
+                      {model.meta.supportsVision ? (
+                        <SelectItemCapability variant="vision" label="Vision">
+                          <Eye width="12" height="12" />
+                        </SelectItemCapability>
+                      ) : null}
                       {model.meta.isReasoning ? (
-                        <SelectBadge>Reasoning</SelectBadge>
+                        <SelectItemCapability
+                          variant="reasoning"
+                          label="Reasoning"
+                        >
+                          <Brain width="12" height="12" />
+                        </SelectItemCapability>
+                      ) : null}
+                      {model.meta.supportsTools ? (
+                        <SelectItemCapability
+                          variant="tools"
+                          label="Tool calling"
+                        >
+                          <Tools width="12" height="12" />
+                        </SelectItemCapability>
+                      ) : null}
+                      {model.meta.supportsImageGen ? (
+                        <SelectItemCapability
+                          variant="image-gen"
+                          label="Image generation"
+                        >
+                          <Image width="12" height="12" />
+                        </SelectItemCapability>
+                      ) : null}
+                      {model.meta.costTier ? (
+                        <SelectItemCostTier tier={model.meta.costTier} />
                       ) : null}
                       {ctx ? <span>{ctx}</span> : null}
+                      <SelectItemDetailButton
+                        onClick={() =>
+                          setPreviewedModelId((prev) =>
+                            prev === model.id ? null : model.id,
+                          )
+                        }
+                      >
+                        <Info width="14" height="14" />
+                      </SelectItemDetailButton>
                     </SelectItemMeta>
                   </SelectItem>
                 );

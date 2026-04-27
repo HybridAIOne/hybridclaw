@@ -860,6 +860,14 @@ export interface GatewayAdminModelCatalogEntry {
   thinkingFormat: string | null;
   family: string | null;
   parameterSize: string | null;
+  /** Capability flags sourced from models.dev when available. */
+  supportsVision: boolean;
+  supportsTools: boolean;
+  supportsImageGen: boolean;
+  /** Cost bucket derived from input $/M tokens (low/medium/high/highest). */
+  costTier: 'low' | 'medium' | 'high' | 'highest' | null;
+  /** YYYY-MM-style training-data cutoff, when known. */
+  knowledgeCutoff: string | null;
   usageDaily: GatewayAdminUsageSummary | null;
   usageMonthly: GatewayAdminUsageSummary | null;
 }

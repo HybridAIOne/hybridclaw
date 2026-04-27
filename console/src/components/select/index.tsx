@@ -250,6 +250,8 @@ interface SelectContentProps extends HTMLAttributes<HTMLDivElement> {
   header?: ReactNode;
   /** Optional vertical rail rendered to the side of the listbox (e.g. <SelectRail>). */
   rail?: ReactNode;
+  /** Optional detail panel rendered to the right of the listbox (e.g. <SelectDetailPanel>). */
+  detail?: ReactNode;
   children: ReactNode;
 }
 
@@ -258,6 +260,7 @@ export function SelectContent({
   sideOffset = 6,
   header,
   rail,
+  detail,
   children,
   className,
   ...rest
@@ -354,6 +357,7 @@ export function SelectContent({
       className={className}
       header={header}
       rail={rail}
+      detail={detail}
       {...rest}
     >
       {children}
@@ -366,6 +370,7 @@ interface SelectPopupProps extends HTMLAttributes<HTMLDivElement> {
   position: { x: number; y: number; minWidth: number } | null;
   header: ReactNode;
   rail: ReactNode;
+  detail: ReactNode;
   ref: React.Ref<HTMLDivElement>;
 }
 
@@ -375,11 +380,13 @@ function SelectPopup({
   className,
   header,
   rail,
+  detail,
   children,
   ...rest
 }: SelectPopupProps) {
   const hasSearch = header != null && header !== false;
   const hasRail = rail != null && rail !== false;
+  const hasDetail = detail != null && detail !== false;
   const ctx = useSelectContext('SelectPopup');
   const typeaheadRef = useRef({ buffer: '', timer: 0 });
 
@@ -517,6 +524,7 @@ function SelectPopup({
       ref={ref}
       className={cx(css.popup, className)}
       data-state="open"
+      data-has-detail={hasDetail ? '' : undefined}
       style={{
         left: position?.x ?? 0,
         top: position?.y ?? 0,
@@ -544,6 +552,7 @@ function SelectPopup({
             <ScrollAreaThumb />
           </ScrollAreaScrollbar>
         </ScrollArea>
+        {hasDetail ? detail : null}
       </div>
     </div>
   );
@@ -829,6 +838,139 @@ export function SelectBadge({
     <span className={cx(css.badge, className)} {...rest}>
       {children}
     </span>
+  );
+}
+
+interface SelectItemCapabilityProps extends HTMLAttributes<HTMLSpanElement> {
+  /** Color cue: 'vision' | 'tools' | 'reasoning' | 'image-gen' (extensible). */
+  variant?: string;
+  /** Accessible label rendered as title and aria-label. */
+  label: string;
+  children: ReactNode;
+}
+
+export function SelectItemCapability({
+  variant,
+  label,
+  className,
+  children,
+  ...rest
+}: SelectItemCapabilityProps) {
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      data-capability={variant}
+      className={cx(css.itemCapability, className)}
+      {...rest}
+    >
+      {children}
+    </span>
+  );
+}
+
+interface SelectItemCostTierProps extends HTMLAttributes<HTMLSpanElement> {
+  tier: 'low' | 'medium' | 'high' | 'highest';
+}
+
+const COST_TIER_GLYPH: Record<SelectItemCostTierProps['tier'], string> = {
+  low: '$',
+  medium: '$$',
+  high: '$$$',
+  highest: '$$$+',
+};
+
+const COST_TIER_LABEL: Record<SelectItemCostTierProps['tier'], string> = {
+  low: 'Low cost',
+  medium: 'Medium cost',
+  high: 'High cost',
+  highest: 'Highest cost',
+};
+
+export function SelectItemCostTier({
+  tier,
+  className,
+  ...rest
+}: SelectItemCostTierProps) {
+  return (
+    <span
+      role="img"
+      aria-label={COST_TIER_LABEL[tier]}
+      title={COST_TIER_LABEL[tier]}
+      data-tier={tier}
+      className={cx(css.itemCostTier, className)}
+      {...rest}
+    >
+      {COST_TIER_GLYPH[tier]}
+    </span>
+  );
+}
+
+interface SelectItemDetailButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement> {
+  label?: string;
+}
+
+export function SelectItemDetailButton({
+  label = 'View model details',
+  className,
+  onClick,
+  children,
+  ...rest
+}: SelectItemDetailButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className={cx(css.itemDetailButton, className)}
+      onClick={(event) => {
+        // Don't let the click bubble into the SelectItem (which would commit
+        // the row). The detail panel is a sibling action, not a selection.
+        event.stopPropagation();
+        onClick?.(event);
+      }}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
+}
+
+interface SelectDetailPanelProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
+  open: boolean;
+  onClose: () => void;
+  heading: ReactNode;
+  children: ReactNode;
+}
+
+export function SelectDetailPanel({
+  open,
+  onClose,
+  heading,
+  className,
+  children,
+  ...rest
+}: SelectDetailPanelProps) {
+  if (!open) return null;
+  return (
+    <div className={cx(css.detailPanel, className)} {...rest}>
+      <div className={css.detailPanelHeader}>
+        <div className={css.detailPanelTitle}>{heading}</div>
+        <button
+          type="button"
+          aria-label="Close details"
+          title="Close details"
+          className={css.detailPanelClose}
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
+      <div className={css.detailPanelBody}>{children}</div>
+    </div>
   );
 }
 

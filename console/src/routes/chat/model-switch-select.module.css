@@ -1,0 +1,105 @@
+.detailSectionLabel {
+  margin: 0 0 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.detailFeatureList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detailFeaturePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.detailFeatureIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.detailFeatureIcon[data-capability="vision"] {
+  color: color-mix(in srgb, #4f8cff 65%, var(--text) 35%);
+}
+
+.detailFeatureIcon[data-capability="reasoning"] {
+  color: color-mix(in srgb, #a86dff 65%, var(--text) 35%);
+}
+
+.detailFeatureIcon[data-capability="tools"] {
+  color: color-mix(in srgb, #f0a23a 70%, var(--text) 30%);
+}
+
+.detailFeatureIcon[data-capability="image-gen"] {
+  color: color-mix(in srgb, #f06aa5 70%, var(--text) 30%);
+}
+
+.detailFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 12px;
+  margin: 0;
+}
+
+.detailField {
+  min-width: 0;
+}
+
+.detailField dt {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-bottom: 2px;
+}
+
+.detailField dd {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.detailModelId {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.detailModelId span {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.detailModelId code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  color: var(--text);
+  word-break: break-all;
+  user-select: all;
+}
