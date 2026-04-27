@@ -256,6 +256,50 @@ test('records coworker skill scores and refreshes generated CV.md', async () => 
       skill_id: context.skillName,
     }),
   ]);
+
+  for (const runId of ['run-charly-1', 'run-charly-2']) {
+    recordSkillExecution({
+      skillName: context.skillName,
+      sessionId: `session-${runId}`,
+      runId,
+      coworkerId: 'charly',
+      toolExecutions: [
+        {
+          name: 'read',
+          arguments: '{}',
+          result: 'ok',
+          durationMs: 5,
+        },
+        {
+          name: 'write',
+          arguments: '{}',
+          result: 'ok',
+          durationMs: 5,
+        },
+        {
+          name: 'notify',
+          arguments: '{}',
+          result: 'this action may change channel state',
+          durationMs: 5,
+          isError: true,
+        },
+      ],
+      outcome: 'partial',
+      durationMs: 30_000,
+    });
+  }
+
+  const [partialScore] = context.dbModule.getCoworkerSkillScores({
+    coworkerId: 'charly',
+    skillName: context.skillName,
+  });
+  expect(partialScore).toMatchObject({
+    coworker_id: 'charly',
+    success_count: 0,
+    partial_count: 2,
+    failure_count: 0,
+  });
+  expect(partialScore?.quality_score).toBeGreaterThan(50);
 });
 
 test('emits a skill_run event to subscribers for every skill execution', async () => {

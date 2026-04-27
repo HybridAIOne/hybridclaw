@@ -6673,21 +6673,27 @@ interface CoworkerSkillScoreAggregate {
   last_run_at: string | null;
   positive_feedback_count: number;
   negative_feedback_count: number;
-  tool_breakage_count: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
 }
 
 function scoreCoworkerSkill(row: {
   total_executions: number;
-  success_rate: number;
-  tool_breakage_rate: number;
+  success_count: number;
+  partial_count: number;
+  tool_call_failure_rate: number;
   positive_feedback_count: number;
   negative_feedback_count: number;
 }): number {
-  const successPoints = row.success_rate * 70;
+  const completionRate =
+    row.total_executions > 0
+      ? (row.success_count + row.partial_count * 0.6) / row.total_executions
+      : 0;
+  const successPoints = completionRate * 70;
   const feedbackBalance =
     row.positive_feedback_count - row.negative_feedback_count;
   const feedbackPoints = Math.max(-15, Math.min(15, feedbackBalance * 5));
-  const reliabilityPoints = Math.max(0, 15 - row.tool_breakage_rate * 15);
+  const reliabilityPoints = Math.max(0, 15 - row.tool_call_failure_rate * 15);
   const experiencePoints = Math.min(
     10,
     Math.log10(row.total_executions + 1) * 10,
@@ -6710,10 +6716,11 @@ function mapCoworkerSkillScoreRow(
   const failureCount = Math.max(0, Math.floor(row.failure_count || 0));
   const partialCount = Math.max(0, Math.floor(row.partial_count || 0));
   const totalExecutions = successCount + failureCount + partialCount;
-  const toolBreakageCount = Math.max(
+  const toolCallsAttempted = Math.max(
     0,
-    Math.floor(row.tool_breakage_count || 0),
+    Math.floor(row.tool_calls_attempted || 0),
   );
+  const toolCallsFailed = Math.max(0, Math.floor(row.tool_calls_failed || 0));
   const normalized = {
     coworker_id: row.coworker_id,
     skill_id: row.skill_id,
@@ -6725,7 +6732,7 @@ function mapCoworkerSkillScoreRow(
     success_rate: totalExecutions > 0 ? successCount / totalExecutions : 0,
     avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
     tool_breakage_rate:
-      totalExecutions > 0 ? toolBreakageCount / totalExecutions : 0,
+      toolCallsAttempted > 0 ? toolCallsFailed / toolCallsAttempted : 0,
     positive_feedback_count: Math.max(
       0,
       Math.floor(row.positive_feedback_count || 0),
@@ -6737,7 +6744,14 @@ function mapCoworkerSkillScoreRow(
     last_run_at: row.last_run_at,
     last_observed_at: row.last_run_at,
   };
-  const score = scoreCoworkerSkill(normalized);
+  const score = scoreCoworkerSkill({
+    total_executions: normalized.total_executions,
+    success_count: normalized.success_count,
+    partial_count: normalized.partial_count,
+    tool_call_failure_rate: normalized.tool_breakage_rate,
+    positive_feedback_count: normalized.positive_feedback_count,
+    negative_feedback_count: normalized.negative_feedback_count,
+  });
   return {
     ...normalized,
     quality_score: score,
@@ -6766,7 +6780,8 @@ export function recomputeCoworkerSkillScore(input: {
        MAX(created_at) AS last_run_at,
        SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
        SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
-       SUM(CASE WHEN tool_calls_failed > 0 THEN 1 ELSE 0 END) AS tool_breakage_count
+       SUM(tool_calls_attempted) AS tool_calls_attempted,
+       SUM(tool_calls_failed) AS tool_calls_failed
      FROM skill_observations
      WHERE coworker_id = ? AND skill_name = ?
      GROUP BY coworker_id, skill_name`,
@@ -6856,7 +6871,8 @@ export function getCoworkerSkillScores(params?: {
        score.last_run_at,
        COALESCE(feedback.positive_feedback_count, 0) AS positive_feedback_count,
        COALESCE(feedback.negative_feedback_count, 0) AS negative_feedback_count,
-       COALESCE(feedback.tool_breakage_count, 0) AS tool_breakage_count
+       COALESCE(feedback.tool_calls_attempted, 0) AS tool_calls_attempted,
+       COALESCE(feedback.tool_calls_failed, 0) AS tool_calls_failed
      FROM coworker_skill_scores score
      LEFT JOIN (
        SELECT
@@ -6864,7 +6880,8 @@ export function getCoworkerSkillScores(params?: {
          skill_name,
          SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
          SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
-         SUM(CASE WHEN tool_calls_failed > 0 THEN 1 ELSE 0 END) AS tool_breakage_count
+         SUM(tool_calls_attempted) AS tool_calls_attempted,
+         SUM(tool_calls_failed) AS tool_calls_failed
        FROM skill_observations
        GROUP BY coworker_id, skill_name
      ) feedback
