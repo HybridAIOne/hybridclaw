@@ -359,7 +359,7 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
     maxTokens,
     capabilities: {
       ...staticMetadata.capabilities,
-      vision: staticMetadata.capabilities.vision || vision,
+      vision,
     },
   };
 }
@@ -371,6 +371,9 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
 export function isModelVisionCapable(model: string): boolean {
   const normalized = String(model || '').trim();
   if (!normalized) return false;
+  if (hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX)) {
+    return isDiscoveredOpenRouterModelVisionCapable(normalized);
+  }
   return (
     isDiscoveredMistralModelVisionCapable(normalized) ||
     isDiscoveredAnthropicModelVisionCapable(normalized) ||

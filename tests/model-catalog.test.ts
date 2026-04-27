@@ -129,6 +129,20 @@ test('model catalog metadata resolves pricing, context, and capabilities from ve
   );
 });
 
+test('static context and vision lookups share versioned metadata', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  expect(catalog.getModelCatalogMetadata('hybridai/gpt-5.4').contextWindow).toBe(
+    1_050_000,
+  );
+  expect(catalog.isModelVisionCapable('hybridai/gpt-5-nano')).toBe(true);
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/gpt-5-nano').capabilities.vision,
+  ).toBe(true);
+});
+
 test('model catalog metadata falls back safely for missing models', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir);
