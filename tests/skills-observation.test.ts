@@ -341,6 +341,32 @@ test('skips CV writes for unknown agent ids from skill events', async () => {
   expect(fs.existsSync(path.join(unknownWorkspace, 'CV.md'))).toBe(false);
 });
 
+test('refreshes generated CV.md with a temp file rename', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { refreshAgentCv } = await import('../src/skills/agent-scoreboard.ts');
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  const cvPath = path.join(agentWorkspaceDir('lena'), 'CV.md');
+  const writeFileSpy = vi.spyOn(fs, 'writeFileSync');
+  const renameSpy = vi.spyOn(fs, 'renameSync');
+
+  expect(refreshAgentCv('lena')).toBe(cvPath);
+
+  const directCvWrites = writeFileSpy.mock.calls.filter(
+    ([filePath]) => String(filePath) === cvPath,
+  );
+  expect(directCvWrites).toHaveLength(0);
+  const tempWrite = writeFileSpy.mock.calls.find(([filePath]) => {
+    const value = String(filePath);
+    return value.startsWith(`${cvPath}.`) && value.endsWith('.tmp');
+  });
+  expect(tempWrite).toBeTruthy();
+  expect(renameSpy).toHaveBeenCalledWith(tempWrite?.[0], cvPath);
+});
+
 test('records audit event when agent skill score recompute fails', async () => {
   context = await createAdaptiveSkillsTestContext();
   const recomputeSpy = vi
