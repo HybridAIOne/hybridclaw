@@ -38,11 +38,13 @@ description: Internal product roadmap derived from the Trusted Coworker Manifest
 
 Cross-cutting work that several roadmap items depend on. Decomposed under the `foundation` label rather than belonging to any single feature.
 
-- **F1** — Extend `AgentConfig` with `owner` / `role` / `cv` fields and persistence. Required by #1, #3, #5, #11.
+- **F1** — Extend `AgentConfig` with `owner` / `role` / `cv` fields and persistence. `owner` is a typed reference to a canonical user (see F7). Required by #1, #3, #5, #11.
 - **F2** — Unified skill-run event bus (streaming, not post-hoc). Required by #3, #5, #6, #10, #16.
 - **F3** — Generalize the network-only policy engine into a "predicate → action" engine. Used by #4, #5, #6, #8, #11, #14.
 - **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
 - **F5** — Model pricing & capability matrix on top of `model-catalog`. Required by #5 cost compute and future routing.
+- **F6** — Deployment-mode + public-URL abstraction. Cloud installs declare an external URL; local installs run a tunnel (ngrok / Cloudflare / Tailscale). Required by #9, #18, #19, and the launch smoke scenario A1 in local mode.
+- **F7** — Global identity primitives. Canonical user IDs (`username@authority`, default authority `hybridai`) and canonical agent IDs (`agent-slug@user@instance-id`), plus a resolver and TOFU trust model. Required by #1 envelope addressing, #9 cross-instance delegation, #14 SSO federation, #15 handoff, #17 portfolio refs.
 
 ## Cross-cutting additions
 
@@ -82,7 +84,7 @@ Engineering hygiene that ships alongside P0:
 
 ## Sequencing rules
 
-- **Foundations first.** F1, F2, F3 unblock the majority of P0 children. F4 and F5 unblock specific items but are not on the critical path for the launch demo (A1).
+- **Foundations first.** F1, F2, F3 unblock the majority of P0 children. F4 and F5 unblock specific items but are not on the critical path for the launch demo (A1). F6 and F7 are critical-path the moment any cross-instance work or local-install demo is involved.
 - **A2A before workflow.** #1 must ship at least to 1.2 (send/receive runtime API) before #2.2 (sequential runner) becomes useful.
 - **Trajectory capture starts early.** 10.1 (trajectory collection) should land alongside F2, well before the rest of #10 — the data is the asset.
 - **Leak classifier needs a dataset.** 6.1 (classifier dataset) gates 6.2 / 6.3; budget for labeling time.
