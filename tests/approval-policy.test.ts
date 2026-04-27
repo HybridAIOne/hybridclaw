@@ -72,6 +72,23 @@ network:
     ]);
   });
 
+  test('parsePolicyYaml reads autonomy defaults and scoped overrides', () => {
+    const parsed = parsePolicyYaml(`
+autonomy:
+  default: supervised
+  tools:
+    read: manual
+  actions:
+    bash:install-deps: autonomous
+`);
+
+    expect(parsed.autonomy).toEqual({
+      defaultLevel: 'supervised',
+      tools: { read: 'manual' },
+      actions: { 'bash:install-deps': 'autonomous' },
+    });
+  });
+
   test('yellow actions promote to green after successful repeat', () => {
     const runtime = new TrustedCoworkerApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -93,6 +110,44 @@ network:
       latestUserPrompt: 'Install dependencies',
     });
     expect(second.tier).toBe('green');
+  });
+
+  test('autonomy metadata is emitted for default low-stakes read actions', () => {
+    const runtime = new TrustedCoworkerApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.autonomyLevel).toBe('autonomous');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.escalationRoute).toBe('none');
+  });
+
+  test('manual autonomy override escalates an otherwise read-only tool', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  tools:
+    read: manual
+`);
+    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.autonomyLevel).toBe('manual');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.stakes).toBe('high');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.requestId).toBeTruthy();
   });
 
   test('pip install is classified as dependency installation', () => {

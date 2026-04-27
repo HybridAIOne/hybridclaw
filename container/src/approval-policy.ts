@@ -32,6 +32,13 @@ export {
 } from '../shared/network-policy.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
+export type AutonomyLevel = 'autonomous' | 'supervised' | 'manual';
+export type StakesLevel = 'low' | 'medium' | 'high';
+export type EscalationRoute =
+  | 'none'
+  | 'implicit_notice'
+  | 'approval_request'
+  | 'policy_denial';
 
 export type ApprovalDecision =
   | 'auto'
@@ -53,6 +60,11 @@ export interface ApprovalPolicyRule {
 
 export interface ApprovalPolicyConfig {
   pinnedRed: ApprovalPolicyRule[];
+  autonomy: {
+    defaultLevel: AutonomyLevel;
+    tools: Record<string, AutonomyLevel>;
+    actions: Record<string, AutonomyLevel>;
+  };
   networkDefault: NetworkPolicyAction;
   networkRules: NetworkRule[];
   networkPresets: string[];
@@ -67,6 +79,7 @@ export interface ApprovalPolicyConfig {
 
 interface ClassifiedAction {
   tier: ApprovalTier;
+  stakes?: StakesLevel;
   actionKey: string;
   intent: string;
   consequenceIfDenied: string;
@@ -105,6 +118,9 @@ export interface ApprovalPrelude {
 export interface ToolApprovalEvaluation {
   baseTier: ApprovalTier;
   tier: ApprovalTier;
+  autonomyLevel: AutonomyLevel;
+  stakes: StakesLevel;
+  escalationRoute: EscalationRoute;
   decision: ApprovalDecision;
   actionKey: string;
   fingerprint: string;
@@ -169,6 +185,11 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
     { paths: ['~/.ssh/**', '/etc/**', '.env*'] },
     { tools: ['force_push'] },
   ],
+  autonomy: {
+    defaultLevel: 'autonomous',
+    tools: {},
+    actions: {},
+  },
   networkDefault: DEFAULT_NETWORK_DEFAULT,
   networkRules: DEFAULT_NETWORK_RULES,
   networkPresets: [],
@@ -235,6 +256,22 @@ function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
+function stakesForTier(tier: ApprovalTier): StakesLevel {
+  if (tier === 'red') return 'high';
+  if (tier === 'yellow') return 'medium';
+  return 'low';
+}
+
+function escalationRouteForDecision(
+  decision: ApprovalDecision,
+  tier: ApprovalTier,
+): EscalationRoute {
+  if (decision === 'denied') return 'policy_denial';
+  if (decision === 'required') return 'approval_request';
+  if (tier === 'yellow' && decision === 'implicit') return 'implicit_notice';
+  return 'none';
+}
+
 function parseJsonObject(raw: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -276,6 +313,28 @@ function normalizeStringList(raw: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (value === 'autonomous' || value === 'supervised' || value === 'manual') {
+    return value;
+  }
+  return null;
+}
+
+function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
+  const record = asRecord(raw);
+  const out: Record<string, AutonomyLevel> = {};
+  for (const [rawKey, rawValue] of Object.entries(record)) {
+    const key = rawKey.trim().toLowerCase();
+    const level = normalizeAutonomyLevel(rawValue);
+    if (!key || !level) continue;
+    out[key] = level;
+  }
+  return out;
 }
 
 function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
@@ -335,6 +394,7 @@ function matchesPathPattern(candidatePath: string, pattern: string): boolean {
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   const document = asRecord(YAML.parse(raw) as unknown);
   const approval = asRecord(document.approval);
+  const autonomy = asRecord(document.autonomy);
   const audit = asRecord(document.audit);
   const pinnedRed = Array.isArray(approval.pinned_red)
     ? approval.pinned_red
@@ -345,6 +405,13 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
 
   return {
     ...(pinnedRed.length > 0 ? { pinnedRed } : {}),
+    autonomy: {
+      defaultLevel:
+        normalizeAutonomyLevel(autonomy.default) ||
+        DEFAULT_POLICY.autonomy.defaultLevel,
+      tools: normalizeAutonomyMap(autonomy.tools),
+      actions: normalizeAutonomyMap(autonomy.actions),
+    },
     networkDefault: networkState.defaultAction,
     networkRules: networkState.rules.map((rule) => ({
       ...rule,
@@ -403,6 +470,21 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
       Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
         ? filePolicy.pinnedRed
         : DEFAULT_POLICY.pinnedRed,
+    autonomy: {
+      defaultLevel:
+        normalizeAutonomyLevel(filePolicy.autonomy?.defaultLevel) ||
+        DEFAULT_POLICY.autonomy.defaultLevel,
+      tools:
+        filePolicy.autonomy?.tools &&
+        typeof filePolicy.autonomy.tools === 'object'
+          ? { ...filePolicy.autonomy.tools }
+          : {},
+      actions:
+        filePolicy.autonomy?.actions &&
+        typeof filePolicy.autonomy.actions === 'object'
+          ? { ...filePolicy.autonomy.actions }
+          : {},
+    },
     networkDefault:
       filePolicy.networkDefault === 'allow' ||
       filePolicy.networkDefault === 'deny'
@@ -1205,8 +1287,18 @@ export class TrustedCoworkerApprovalRuntime {
       pathHints: classified.pathHints,
       args,
     });
-    const baseTier: ApprovalTier =
+    const autonomyLevel = this.resolveAutonomyLevel({
+      toolName: params.toolName,
+      actionKey: classified.actionKey,
+    });
+    let baseTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
+    if (autonomyLevel === 'manual' && baseTier !== 'red') {
+      baseTier = 'red';
+    } else if (autonomyLevel === 'supervised' && baseTier === 'green') {
+      baseTier = 'yellow';
+    }
+    const stakes = classified.stakes || stakesForTier(baseTier);
 
     let tier: ApprovalTier = baseTier;
     let decision: ApprovalDecision = 'auto';
@@ -1216,6 +1308,9 @@ export class TrustedCoworkerApprovalRuntime {
         return {
           baseTier,
           tier: 'red',
+          autonomyLevel,
+          stakes: 'high',
+          escalationRoute: 'policy_denial',
           decision: 'denied',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1273,6 +1368,9 @@ export class TrustedCoworkerApprovalRuntime {
           return {
             baseTier,
             tier: 'red',
+            autonomyLevel,
+            stakes,
+            escalationRoute: 'policy_denial',
             decision: 'denied',
             actionKey: classified.actionKey,
             fingerprint,
@@ -1299,6 +1397,9 @@ export class TrustedCoworkerApprovalRuntime {
         return {
           baseTier,
           tier: 'red',
+          autonomyLevel,
+          stakes,
+          escalationRoute: 'approval_request',
           decision: 'required',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1341,6 +1442,9 @@ export class TrustedCoworkerApprovalRuntime {
     return {
       baseTier,
       tier,
+      autonomyLevel,
+      stakes,
+      escalationRoute: escalationRouteForDecision(decision, tier),
       decision,
       actionKey: classified.actionKey,
       fingerprint,
@@ -1462,6 +1566,19 @@ export class TrustedCoworkerApprovalRuntime {
 
   private bumpCount(map: Map<string, number>, key: string): void {
     map.set(key, (map.get(key) || 0) + 1);
+  }
+
+  private resolveAutonomyLevel(params: {
+    toolName: string;
+    actionKey: string;
+  }): AutonomyLevel {
+    const toolName = params.toolName.trim().toLowerCase();
+    const actionKey = params.actionKey.trim().toLowerCase();
+    return (
+      this.loadedPolicy.autonomy.actions[actionKey] ||
+      this.loadedPolicy.autonomy.tools[toolName] ||
+      this.loadedPolicy.autonomy.defaultLevel
+    );
   }
 
   private classifyNetworkTargets(params: {

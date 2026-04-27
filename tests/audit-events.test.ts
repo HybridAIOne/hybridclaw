@@ -60,9 +60,19 @@ test('does not emit approval events for auto-approved read-only tools', async ()
   const events = getRecentStructuredAuditForSession('session-auto-read', 10);
   expect(events.map((event) => event.event_type)).toEqual([
     'tool.result',
+    'autonomy.decision',
     'authorization.check',
     'tool.call',
   ]);
+  expect(JSON.parse(events[1].payload)).toEqual(
+    expect.objectContaining({
+      type: 'autonomy.decision',
+      autonomyLevel: 'autonomous',
+      stakes: 'low',
+      escalationRoute: 'none',
+      approvalDecision: 'auto',
+    }),
+  );
 });
 
 test('emits approval request and response events for pending red actions', async () => {
@@ -93,6 +103,9 @@ test('emits approval request and response events for pending red actions', async
         blockedReason: 'this command may change local state',
         approvalTier: 'red',
         approvalBaseTier: 'red',
+        autonomyLevel: 'autonomous',
+        stakes: 'high',
+        escalationRoute: 'approval_request',
         approvalDecision: 'required',
         approvalActionKey: 'bash:other',
         approvalReason: 'this command may change local state',
@@ -106,7 +119,59 @@ test('emits approval request and response events for pending red actions', async
     'tool.result',
     'approval.response',
     'approval.request',
+    'autonomy.decision',
     'authorization.check',
     'tool.call',
   ]);
+});
+
+test('autonomy audit falls back to internally consistent approval metadata', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-autonomy-fallback',
+    runId: 'run-autonomy-fallback',
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: '{"command":"touch out.txt"}',
+        result: 'blocked',
+        durationMs: 4,
+        blocked: true,
+        blockedReason: 'blocked by security hook',
+        approvalTier: 'yellow',
+        approvalDecision: 'denied',
+      },
+    ],
+  });
+
+  const events = getRecentStructuredAuditForSession(
+    'session-autonomy-fallback',
+    10,
+  );
+  const autonomyEvent = events.find(
+    (event) => event.event_type === 'autonomy.decision',
+  );
+  expect(autonomyEvent).toBeDefined();
+  const autonomy = JSON.parse(autonomyEvent?.payload || '{}');
+  expect(autonomy).toEqual(
+    expect.objectContaining({
+      type: 'autonomy.decision',
+      escalationRoute: 'policy_denial',
+      approvalTier: 'yellow',
+      approvalBaseTier: 'yellow',
+      approvalDecision: 'denied',
+      reason: 'blocked by security hook',
+    }),
+  );
 });
