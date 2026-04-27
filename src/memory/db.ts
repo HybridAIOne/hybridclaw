@@ -59,6 +59,7 @@ import type {
   AuditEntry,
   StructuredAuditEntry,
 } from '../types/audit.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import {
   type KnowledgeEntity,
   KnowledgeEntityType,
@@ -111,7 +112,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 22;
+export const DATABASE_SCHEMA_VERSION = 23;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -170,6 +171,7 @@ interface ConversationHistoryPageRow {
   role: string | null;
   agent_id: string | null;
   content: string | null;
+  artifacts_json: string | null;
   created_at: string | null;
 }
 
@@ -499,6 +501,7 @@ function migrateV1(database: Database.Database): void {
       role TEXT NOT NULL,
       agent_id TEXT,
       content TEXT NOT NULL,
+      artifacts_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -1867,6 +1870,20 @@ function migrateV22(
   );
 }
 
+function migrateV23(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'artifacts_json',
+    ddl: 'artifacts_json TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 23, 'Persist assistant message artifacts');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1916,6 +1933,7 @@ function runMigrations(
   ) {
     migrateV22(database, opts);
   }
+  if (currentVersion < 23) migrateV23(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -4162,8 +4180,8 @@ export function forkSessionBranch(
     ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
-      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, created_at)
-       SELECT ?, user_id, username, role, agent_id, content, created_at
+      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, created_at)
+       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, created_at
        FROM messages
        WHERE session_id = ?
          AND id < ?
@@ -4823,6 +4841,43 @@ export function deleteSessionData(sessionId: string): {
   return transaction(resolvedSessionId);
 }
 
+function normalizeMessageArtifacts(
+  artifacts?: ArtifactMetadata[] | null,
+): ArtifactMetadata[] {
+  if (!Array.isArray(artifacts)) return [];
+  return artifacts
+    .map((artifact) => ({
+      path: String(artifact?.path || '').trim(),
+      filename: String(artifact?.filename || '').trim(),
+      mimeType: String(artifact?.mimeType || '').trim(),
+    }))
+    .filter(
+      (artifact) =>
+        artifact.path.length > 0 &&
+        artifact.filename.length > 0 &&
+        artifact.mimeType.length > 0,
+    );
+}
+
+function serializeMessageArtifacts(
+  artifacts?: ArtifactMetadata[] | null,
+): string | null {
+  const normalized = normalizeMessageArtifacts(artifacts);
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
+function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return normalizeMessageArtifacts(
+      Array.isArray(parsed) ? (parsed as ArtifactMetadata[]) : null,
+    );
+  } catch {
+    return [];
+  }
+}
+
 export function storeMessage(
   sessionId: string,
   userId: string,
@@ -4830,14 +4885,24 @@ export function storeMessage(
   role: string,
   content: string,
   agentId?: string | null,
+  artifacts?: ArtifactMetadata[] | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
+  const artifactsJson = serializeMessageArtifacts(artifacts);
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(resolvedSessionId, userId, username, role, normalizedAgentId, content);
+    .run(
+      resolvedSessionId,
+      userId,
+      username,
+      role,
+      normalizedAgentId,
+      content,
+      artifactsJson,
+    );
 
   db.prepare(
     "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
@@ -4985,6 +5050,7 @@ export function getConversationHistoryPage(
          m.role,
          m.agent_id,
          m.content,
+         m.artifacts_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -5032,6 +5098,7 @@ export function getConversationHistoryPage(
       role: row.role,
       agent_id: row.agent_id,
       content: row.content,
+      artifacts: parseMessageArtifacts(row.artifacts_json),
       created_at: row.created_at,
     });
   }

@@ -233,6 +233,11 @@ export interface GatewayHistoryMessage {
   username: string | null;
   role: string;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
 }
 

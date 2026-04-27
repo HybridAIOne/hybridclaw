@@ -21,6 +21,7 @@ export interface ChatHistoryMessage {
   content: string;
   id?: number | string | null;
   agent_id?: string | null;
+  artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
 }
 

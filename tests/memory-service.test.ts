@@ -15,6 +15,7 @@ import {
   forkSessionBranch,
   getAnyChatbotId,
   getCanonicalContext,
+  getConversationHistoryPage,
   getMemoryValue,
   getOrCreateSession,
   getRecentSessionsForChannel,
@@ -580,6 +581,9 @@ describe.sequential('schema migrations', () => {
     expect(messageColumns.some((column) => column.name === 'agent_id')).toBe(
       true,
     );
+    expect(
+      messageColumns.some((column) => column.name === 'artifacts_json'),
+    ).toBe(true);
     expect(requestLogSql?.sql?.toLowerCase()).not.toContain(
       "created_at text default (datetime('now'))",
     );
@@ -721,6 +725,45 @@ describe.sequential('schema migrations', () => {
     inspect.close();
 
     expect(stored?.agent_id).toBe('charly');
+  });
+
+  test('storeMessage persists assistant artifact metadata for history', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('session-artifact-message', null, 'web');
+    storeMessage(
+      'session-artifact-message',
+      'assistant',
+      null,
+      'assistant',
+      'Created haiku.pdf',
+      'charly',
+      [
+        {
+          path: '/tmp/haiku.pdf',
+          filename: 'haiku.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
+    );
+
+    const page = getConversationHistoryPage('session-artifact-message', 10);
+
+    expect(page.history).toEqual([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Created haiku.pdf',
+        agent_id: 'charly',
+        artifacts: [
+          {
+            path: '/tmp/haiku.pdf',
+            filename: 'haiku.pdf',
+            mimeType: 'application/pdf',
+          },
+        ],
+      }),
+    ]);
   });
 
   test('getRecentSessionsForUser returns recent web sessions scoped to the user', () => {

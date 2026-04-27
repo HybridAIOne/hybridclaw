@@ -3161,6 +3161,7 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   resultText: string;
+  artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
   startedAt: number;
   replaceBuiltInMemory?: boolean;
@@ -3185,6 +3186,7 @@ export function recordSuccessfulTurn(opts: {
             role: 'assistant',
             content: opts.resultText,
             agentId: opts.agentId,
+            artifacts: opts.artifacts,
           }),
         }
       : memoryService.storeTurn({
@@ -3199,6 +3201,7 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: opts.resultText,
+            artifacts: opts.artifacts,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {

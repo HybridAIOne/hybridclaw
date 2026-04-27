@@ -242,6 +242,11 @@ export interface GatewayHistoryMessage {
   role: string;
   agent_id?: string | null;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
 }
