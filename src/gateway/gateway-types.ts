@@ -76,6 +76,13 @@ export interface GatewayChatResult {
     blockedReason?: string;
     approvalTier?: 'green' | 'yellow' | 'red';
     approvalBaseTier?: 'green' | 'yellow' | 'red';
+    autonomyLevel?: 'autonomous' | 'supervised' | 'manual';
+    stakes?: 'low' | 'medium' | 'high';
+    escalationRoute?:
+      | 'none'
+      | 'implicit_notice'
+      | 'approval_request'
+      | 'policy_denial';
     approvalDecision?:
       | 'auto'
       | 'implicit'

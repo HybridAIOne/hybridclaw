@@ -673,6 +673,12 @@ async function executePreparedToolCall(
   const isError = runtimeResult.isError;
   const executionBlockedReason =
     blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+  const approvalDecision = executionBlockedReason
+    ? 'denied'
+    : approval.decision;
+  const escalationRoute = executionBlockedReason
+    ? 'policy_denial'
+    : approval.escalationRoute;
   const succeeded = !isError;
 
   if (succeeded) {
@@ -703,7 +709,10 @@ async function executePreparedToolCall(
       blockedReason: executionBlockedReason || undefined,
       approvalTier: approval.tier,
       approvalBaseTier: approval.baseTier,
-      approvalDecision: executionBlockedReason ? 'denied' : approval.decision,
+      autonomyLevel: approval.autonomyLevel,
+      stakes: approval.stakes,
+      escalationRoute,
+      approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
       approvalRequestId: approval.requestId,
@@ -1464,6 +1473,9 @@ async function processRequest(
           blockedReason: approval.reason,
           approvalTier: approval.tier,
           approvalBaseTier: approval.baseTier,
+          autonomyLevel: approval.autonomyLevel,
+          stakes: approval.stakes,
+          escalationRoute: approval.escalationRoute,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
@@ -1505,6 +1517,9 @@ async function processRequest(
           blockedReason: approval.reason,
           approvalTier: approval.tier,
           approvalBaseTier: approval.baseTier,
+          autonomyLevel: approval.autonomyLevel,
+          stakes: approval.stakes,
+          escalationRoute: approval.escalationRoute,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
