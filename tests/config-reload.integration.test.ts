@@ -158,6 +158,67 @@ describe('config reload integration', () => {
     expect(cfg.container.persistBashState).toBe(false);
   });
 
+  it('normalizes per-coworker skill autonomy rules', () => {
+    writeConfig({
+      skills: {
+        autonomy: {
+          defaultLevel: 'low-stakes-autonomous',
+          rules: [
+            {
+              coworkerId: ' writer ',
+              skillName: ' docs ',
+              level: 'full-autonomous',
+            },
+            {
+              coworkerId: 'writer',
+              skillName: 'email',
+              level: 'confirm-each',
+            },
+            {
+              coworkerId: '',
+              skillName: 'ignored',
+              level: 'full-autonomous',
+            },
+            {
+              coworkerId: 'writer',
+              skillName: 'bad-level',
+              level: 'unsupported',
+            },
+          ],
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.skills.autonomy).toEqual({
+      defaultLevel: 'low-stakes-autonomous',
+      rules: [
+        {
+          coworkerId: 'writer',
+          skillName: 'bad-level',
+          level: 'low-stakes-autonomous',
+        },
+        {
+          coworkerId: 'writer',
+          skillName: 'docs',
+          level: 'full-autonomous',
+        },
+        {
+          coworkerId: 'writer',
+          skillName: 'email',
+          level: 'confirm-each',
+        },
+      ],
+    });
+    expect(configMod.resolveSkillAutonomyLevel(cfg, ' writer ', ' docs ')).toBe(
+      'full-autonomous',
+    );
+    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
+      'low-stakes-autonomous',
+    );
+  });
+
   it('nested config updates do not clobber sibling keys', () => {
     configMod.ensureRuntimeConfigFile();
 
