@@ -1976,6 +1976,73 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
   expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 0 new');
 });
 
+test('status shows estimated cost when model pricing is cached', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.OPENROUTER_API_KEY = 'or-status-cost-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+    config.openrouter.enabled = true;
+  });
+  vi.resetModules();
+  mockHealthProbes({ openrouterReachable: true });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'hunter-alpha',
+                pricing: { prompt: '0.000001', completion: '0.000002' },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-cost',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 1_000,
+      completionTokens: 100,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-cost',
+    guildId: null,
+    channelId: 'channel-status-cost',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '🧮 Tokens: 1k in / 100 out · 0% local · Cost: $0.0012',
+  );
+});
+
 test('status shows delegate model, delegate token totals, and local token share', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

@@ -2269,6 +2269,20 @@ function formatUsd(value: number | null): string {
   return `$${value.toFixed(6)}`;
 }
 
+function resolveModelCostLabel(params: {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+}): string | null {
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
+  if (pricing.input == null && pricing.output == null) return null;
+  const inputCost =
+    pricing.input == null ? 0 : params.promptTokens * pricing.input;
+  const outputCost =
+    pricing.output == null ? 0 : params.completionTokens * pricing.output;
+  return formatUsd(inputCost + outputCost);
+}
+
 function resolveSessionAgentId(session: { agent_id: string }): string {
   const sessionAgent = session.agent_id?.trim();
   if (sessionAgent) return sessionAgent;
@@ -9390,6 +9404,7 @@ export async function handleGatewayCommand(
         if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
           await discoverMistralModels();
         }
+        await refreshModelCatalogMetadata(sessionModel);
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
@@ -9430,6 +9445,22 @@ export async function handleGatewayCommand(
         const localTokenLabel = ` · ${formatPercent(
           totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
         )} local`;
+        const mainCostLabel = resolveModelCostLabel({
+          model: sessionModel,
+          promptTokens: mainPromptTokens,
+          completionTokens: mainCompletionTokens,
+        });
+        const delegateCostLabel = showDelegateSetup
+          ? resolveModelCostLabel({
+              model: delegateModel,
+              promptTokens: delegatePromptTokens,
+              completionTokens: delegateCompletionTokens,
+            })
+          : null;
+        const costLabel =
+          mainCostLabel || delegateCostLabel
+            ? ` · Cost: ${mainCostLabel ?? 'n/a'}${showDelegateSetup ? ` (delegate: ${delegateCostLabel ?? 'n/a'})` : ''}`
+            : '';
         const performanceLabel =
           metrics.tokensPerSecond != null ||
           metrics.inputTokensPerSecond != null ||
@@ -9460,7 +9491,7 @@ export async function handleGatewayCommand(
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${costLabel}`,
           ...(performanceLabel ? [performanceLabel] : []),
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
