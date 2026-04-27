@@ -48,6 +48,7 @@ import {
 import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
+  shouldRetryEmptyFinalResponse,
 } from './stalled-turns.js';
 import {
   collapseSystemMessages,
@@ -1287,6 +1288,27 @@ async function processRequest(
         artifactPaths,
         startedAtMs: processStartedAt,
       });
+      if (
+        shouldRetryEmptyFinalResponse({
+          visibleAssistantText: latestVisibleAssistantText,
+          toolExecutionCount: toolExecutions.length,
+          artifactCount: artifacts.length,
+        })
+      ) {
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        history.push({
+          role: 'user',
+          content:
+            'Your last response had no visible answer and did not produce an artifact. Continue from the tool result and either finish the requested task or explain what blocked it.',
+        });
+        console.error('[model] retrying empty final response after tool use');
+        continue;
+      }
+
       const completed: ContainerOutput = {
         status: 'success',
         result: latestVisibleAssistantText,
