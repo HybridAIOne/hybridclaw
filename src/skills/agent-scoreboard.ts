@@ -33,6 +33,15 @@ function displayNameForAgent(agentId: string): string {
   return agent?.displayName || agent?.name || agentId;
 }
 
+function displayNamesByAgentId(): Map<string, string> {
+  return new Map(
+    listAgents().map((agent) => [
+      agent.id,
+      agent.displayName || agent.name || agent.id,
+    ]),
+  );
+}
+
 function cvPathForAgent(agentId: string): string {
   return path.join(agentWorkspaceDir(agentId), 'CV.md');
 }
@@ -395,12 +404,13 @@ export function recommendAgentsFor(
   }
 
   const scores = getRecommendationAgentSkillScores();
+  const displayNames = displayNamesByAgentId();
   return scores
     .map((score) => {
       const relevance = relevanceBySkill.get(score.skill_id) || 0;
       return {
         agent_id: score.agent_id,
-        display_name: displayNameForAgent(score.agent_id),
+        display_name: displayNames.get(score.agent_id) || score.agent_id,
         skill_id: score.skill_id,
         quality_score: score.quality_score,
         success_rate: score.success_rate,
