@@ -8004,10 +8004,7 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' ||
-          sub === 'info' ||
-          sub === 'default' ||
-          sub === 'set';
+          sub === 'list' || sub === 'default' || sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -8166,19 +8163,6 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
-          const currentModel = resolveRequestedCatalogModelName(
-            runtime.model,
-            availableModels,
-          );
-          const modelCatalog = availableModels.map((model) => ({
-            value: model,
-            label:
-              model === currentModel
-                ? `${formatModelForDisplay(model)} (current)`
-                : formatModelForDisplay(model),
-            isFree: isAvailableModelFree(model),
-            ...(isRecommendedModel(model) ? { recommended: true } : {}),
-          }));
           return infoCommand(
             'Model Info',
             [
@@ -8186,14 +8170,7 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
-              '',
-              'Available now:',
-              modelCatalog.length > 0
-                ? modelCatalog.map((entry) => entry.label).join('\n')
-                : '(none)',
             ].join('\n'),
-            undefined,
-            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 

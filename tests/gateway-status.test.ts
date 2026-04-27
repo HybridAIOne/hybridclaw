@@ -3081,9 +3081,11 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Global model: hybridai/gpt-5');
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
+  expect(result.text).not.toContain('Available now:');
+  expect(result.modelCatalog).toBeUndefined();
 });
 
-test('model info filters unavailable provider models from available now', async () => {
+test('model info does not return the available model catalog', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   process.env.HYBRIDAI_API_KEY = 'hai-model-info-1234567890';
@@ -3146,20 +3148,13 @@ test('model info filters unavailable provider models from available now', async 
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('Available now:');
+  expect(result.text).toContain('Effective model: hybridai/gpt-5');
   expect(result.text).toContain('hybridai/gpt-5');
-  expect(result.text).toContain('hybridai/gpt-5-ultra');
+  expect(result.text).not.toContain('Available now:');
+  expect(result.text).not.toContain('hybridai/gpt-5-ultra');
   expect(result.text).not.toContain('openai-codex/');
   expect(result.text).not.toContain('lmstudio/qwen/qwen3.5-9b');
-  expect(result.modelCatalog).toEqual(
-    expect.arrayContaining([
-      {
-        value: 'hybridai/gpt-5',
-        label: 'hybridai/gpt-5 (current)',
-        isFree: false,
-      },
-    ]),
-  );
+  expect(result.modelCatalog).toBeUndefined();
 });
 
 test('model list refreshes local backend health before filtering models', async () => {
