@@ -667,10 +667,7 @@ function hasApiAuth(
     Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
-  if (!WEB_API_TOKEN) {
-    return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
-  }
-  if (authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
   return gatewayTokenMatch;
 }
 

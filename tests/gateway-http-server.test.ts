@@ -12,6 +12,7 @@ const OPENAI_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/;
 const OPENAI_EXECUTION_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
+const DEFAULT_TEST_GATEWAY_API_TOKEN = 'gateway-token';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -296,6 +297,7 @@ function makeRequest(params: {
   body?: unknown;
   headers?: Record<string, string>;
   remoteAddress?: string;
+  authenticated?: boolean;
 }) {
   const chunks =
     params.body === undefined
@@ -312,7 +314,12 @@ function makeRequest(params: {
   return Object.assign(Readable.from(chunks), {
     method: params.method || 'GET',
     url: params.url,
-    headers: params.headers || {},
+    headers: {
+      ...(params.authenticated === false
+        ? {}
+        : { authorization: `Bearer ${DEFAULT_TEST_GATEWAY_API_TOKEN}` }),
+      ...(params.headers || {}),
+    },
     socket: {
       remoteAddress: params.remoteAddress || '127.0.0.1',
     },
@@ -1389,7 +1396,8 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/config/config.ts', () => ({
     CONTAINER_SANDBOX_MODE: 'container',
     DATA_DIR: dataDir,
-    GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
+    GATEWAY_API_TOKEN:
+      options?.gatewayApiToken ?? DEFAULT_TEST_GATEWAY_API_TOKEN,
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
@@ -1743,11 +1751,30 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('voice-webhook');
   });
 
-  test('rejects unauthorized API requests from non-loopback addresses', async () => {
+  test('rejects unauthenticated API requests even from loopback addresses', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       url: '/api/status',
-      remoteAddress: '203.0.113.10',
+      headers: { 'x-forwarded-for': '127.0.0.1' },
+      authenticated: false,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects an empty bearer token when WEB_API_TOKEN is unset', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { authorization: 'Bearer ' },
+      authenticated: false,
     });
     const res = makeResponse();
 
@@ -1765,6 +1792,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/v1/models',
       remoteAddress: '203.0.113.10',
+      authenticated: false,
     });
     const res = makeResponse();
 
@@ -3548,6 +3576,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/agent-avatar?agentId=charly&token=web-token',
       remoteAddress: '203.0.113.10',
+      authenticated: false,
     });
     const res = makeResponse();
 
@@ -3887,6 +3916,7 @@ describe('gateway HTTP server', () => {
       method: 'POST',
       url: '/api/chat/mobile-qr',
       remoteAddress: '203.0.113.10',
+      authenticated: false,
       body: {
         userId: 'web-user-a',
         sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
@@ -4089,6 +4119,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/admin/email',
       remoteAddress: '203.0.113.10',
+      authenticated: false,
     });
     const res = makeResponse();
 
@@ -4993,7 +5024,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('rejects terminal websocket upgrades without session auth or direct request auth', async () => {
-    const state = await importFreshHealth();
+    const state = await importFreshHealth({ gatewayApiToken: '' });
     const socket = {
       write: vi.fn(),
       destroy: vi.fn(),
@@ -5004,6 +5035,7 @@ describe('gateway HTTP server', () => {
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
         remoteAddress: '10.0.0.5',
+        authenticated: false,
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -5015,7 +5047,7 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('allows loopback terminal websocket upgrades to attach immediately', async () => {
+  test('allows terminal websocket upgrades with direct request auth', async () => {
     const state = await importFreshHealth();
     const socket = {
       write: vi.fn(),
@@ -5026,6 +5058,7 @@ describe('gateway HTTP server', () => {
       makeRequest({
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        remoteAddress: '203.0.113.10',
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -6674,7 +6707,7 @@ describe('gateway HTTP server', () => {
     await waitForResponse(res, (next) => next.writableEnded);
 
     expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
-      key: 'loopback:127.0.0.1',
+      key: 'gateway-token',
       bytes: 'png-bytes'.length,
     });
     expect(res.statusCode).toBe(429);
@@ -7520,6 +7553,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: `/api/artifact?path=${encodeURIComponent(artifactPath)}`,
       remoteAddress: '203.0.113.10',
+      authenticated: false,
     });
     const res = makeResponse();
 
