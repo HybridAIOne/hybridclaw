@@ -808,6 +808,61 @@ describe.sequential('schema migrations', () => {
     ]);
   });
 
+  test('getRecentSessionsForUser ranks by latest message instead of bumped session activity', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('older-conversation-bumped', null, 'web');
+    getOrCreateSession('newer-conversation', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'older-conversation-bumped',
+      'web-user-a',
+      'web',
+      'user',
+      'Older PDF request',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'newer-conversation',
+      'web-user-a',
+      'web',
+      'user',
+      'Newer PDF request',
+      '2026-03-24T10:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T12:00:00.000Z',
+      'older-conversation-bumped',
+    );
+    updateSession.run(1, '2026-03-24T10:00:00.000Z', 'newer-conversation');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 1,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'newer-conversation',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Newer PDF request"',
+      },
+    ]);
+  });
+
   test('getRecentSessionsForChannel returns recent web sessions across browser users', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
@@ -870,6 +925,64 @@ describe.sequential('schema migrations', () => {
         lastActive: '2026-03-24T09:00:00.000Z',
         messageCount: 1,
         title: '"First browser question"',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForChannel ranks by latest message instead of bumped session activity', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('older-channel-conversation-bumped', null, 'web');
+    getOrCreateSession('newer-channel-conversation', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'older-channel-conversation-bumped',
+      'web-user-a',
+      'web',
+      'user',
+      'Older browser request',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'newer-channel-conversation',
+      'web-user-b',
+      'web',
+      'user',
+      'Newer browser request',
+      '2026-03-24T10:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T12:00:00.000Z',
+      'older-channel-conversation-bumped',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T10:00:00.000Z',
+      'newer-channel-conversation',
+    );
+    inspect.close();
+
+    expect(
+      getRecentSessionsForChannel({
+        channelId: 'web',
+        limit: 1,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'newer-channel-conversation',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Newer browser request"',
       },
     ]);
   });

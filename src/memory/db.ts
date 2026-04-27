@@ -4408,10 +4408,12 @@ export interface RecentUserSessionSummary {
   searchSnippet?: string | null;
 }
 
-type RecentUserSessionRow = Pick<
-  Session,
-  'id' | 'last_active' | 'message_count'
->;
+interface RecentUserSessionRow {
+  id: string;
+  last_active: string;
+  last_message_at: string | null;
+  message_count: number;
+}
 
 interface RecentSessionBoundaryRow {
   session_id: string;
@@ -4534,8 +4536,12 @@ function buildRecentSessionSummaries(params: {
   limit: number;
 }): RecentUserSessionSummary[] {
   const sortedRows = [...params.rows].sort((left, right) => {
-    const rightTimestamp = parseTimestamp(right.last_active);
-    const leftTimestamp = parseTimestamp(left.last_active);
+    const rightTimestamp = parseTimestamp(
+      right.last_message_at || right.last_active,
+    );
+    const leftTimestamp = parseTimestamp(
+      left.last_message_at || left.last_active,
+    );
     if (rightTimestamp !== leftTimestamp) {
       return rightTimestamp - leftTimestamp;
     }
@@ -4587,7 +4593,7 @@ function buildRecentSessionSummaries(params: {
 
     return {
       sessionId: row.id,
-      lastActive: row.last_active,
+      lastActive: row.last_message_at || row.last_active,
       messageCount: normalizeUsageNumber(row.message_count),
       title,
       ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
@@ -4624,22 +4630,40 @@ export function getRecentSessionsForUser(params: {
   const rows = channelId
     ? queryAll<RecentUserSessionRow, [string, string]>(
         db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
            FROM sessions s
            INNER JOIN messages m
              ON m.session_id = s.id
            WHERE m.user_id = ?
-             AND s.channel_id = ?`,
+             AND s.channel_id = ?
+           GROUP BY s.id`,
         userId,
         channelId,
       )
     : queryAll<RecentUserSessionRow, [string]>(
         db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
            FROM sessions s
            INNER JOIN messages m
              ON m.session_id = s.id
-           WHERE m.user_id = ?`,
+           WHERE m.user_id = ?
+           GROUP BY s.id`,
         userId,
       );
 
@@ -4666,15 +4690,17 @@ export function getRecentSessionsForChannel(params: {
 
   const rows = queryAll<RecentUserSessionRow, [string, number]>(
     db,
-    `SELECT s.id, s.last_active, s.message_count
+    `SELECT
+       s.id,
+       s.last_active,
+       s.message_count,
+       MAX(m.created_at) AS last_message_at
        FROM sessions s
+       INNER JOIN messages m
+          ON m.session_id = s.id
       WHERE s.channel_id = ?
-        AND EXISTS (
-          SELECT 1
-            FROM messages m
-           WHERE m.session_id = s.id
-        )
-      ORDER BY s.last_active DESC
+      GROUP BY s.id
+      ORDER BY last_message_at DESC
       LIMIT ?`,
     channelId,
     sqlLimit,
