@@ -155,6 +155,29 @@ export function emitToolExecutionAuditEvents(input: {
       },
     });
 
+    if (effectiveEscalationRoute !== 'none') {
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'escalation.decision',
+          toolCallId,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          proposedAction:
+            execution.approvalIntent ||
+            execution.approvalActionKey ||
+            `tool:${execution.name}`,
+          escalationRoute: effectiveEscalationRoute,
+          target: execution.escalationTarget || null,
+          stakes: execution.stakes || 'low',
+          classifier: execution.stakesScore?.classifier || null,
+          classifierReasoning: execution.stakesScore?.reasons || [],
+          approvalDecision: effectiveDecision,
+          reason: effectiveReason,
+        },
+      });
+    }
+
     const isRedApprovalAction =
       execution.approvalTier === 'red' || execution.approvalBaseTier === 'red';
     const decision = execution.approvalDecision;
