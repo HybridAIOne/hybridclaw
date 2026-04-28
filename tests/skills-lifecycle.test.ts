@@ -263,6 +263,117 @@ describe('skill package lifecycle', () => {
     ).toBe(false);
   });
 
+  test('rollback rejects malformed snapshot file entries before restore', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'deal-desk',
+      version: '1.0.0',
+      scriptText: 'console.log("v1");\n',
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    const installed = await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    const revisionAssetPath = path.join(
+      installed.skillDir,
+      '.hybridclaw-skill-snapshot.json',
+    );
+    const validSnapshot = (label: string) =>
+      JSON.stringify({
+        schemaVersion: 1,
+        manifest: installed.manifest,
+        files: [
+          {
+            path: 'SKILL.md',
+            mode: 0o644,
+            contentBase64: Buffer.from(label).toString('base64'),
+          },
+        ],
+      });
+    const malformedFiles: Array<{ file: unknown; message: string }> = [
+      {
+        file: {
+          path: null,
+          mode: 0o644,
+          contentBase64: Buffer.from('ok').toString('base64'),
+        },
+        message: 'Skill revision snapshot file #1 has invalid path.',
+      },
+      {
+        file: {
+          path: 'scripts/run.js',
+          mode: 'rwxrwxrwx',
+          contentBase64: Buffer.from('ok').toString('base64'),
+        },
+        message: 'Skill revision snapshot file #1 has invalid mode.',
+      },
+      {
+        file: {
+          path: 'scripts/run.js',
+          mode: 0o755,
+          contentBase64: 123,
+        },
+        message: 'Skill revision snapshot file #1 has invalid contentBase64.',
+      },
+    ];
+
+    for (const [index, { file, message }] of malformedFiles.entries()) {
+      config.syncRuntimeAssetRevisionState(
+        'skill',
+        revisionAssetPath,
+        {
+          actor: 'test',
+          route: `test.skill.bad-snapshot.${index}`,
+          source: 'test',
+        },
+        {
+          exists: true,
+          content: JSON.stringify({
+            schemaVersion: 1,
+            manifest: installed.manifest,
+            files: [file],
+          }),
+        },
+      );
+      config.syncRuntimeAssetRevisionState(
+        'skill',
+        revisionAssetPath,
+        {
+          actor: 'test',
+          route: `test.skill.after-bad-snapshot.${index}`,
+          source: 'test',
+        },
+        {
+          exists: true,
+          content: validSnapshot(`after-${index}`),
+        },
+      );
+
+      const revision = lifecycle.listSkillPackageRevisions('deal-desk')[0];
+      expect(revision).toMatchObject({
+        route: `test.skill.after-bad-snapshot.${index}`,
+      });
+      expect(() =>
+        lifecycle.rollbackSkillPackage({
+          skillName: 'deal-desk',
+          revisionId: revision.id,
+          actor: 'test',
+          homeDir: tempHome,
+        }),
+      ).toThrow(message);
+      expect(
+        fs.readFileSync(
+          path.join(installed.skillDir, 'scripts', 'run.js'),
+          'utf-8',
+        ),
+      ).toBe('console.log("v1");\n');
+    }
+  });
+
   test('install rejects packaged skills without a valid version', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillDir = path.join(sourceRoot, 'versionless');

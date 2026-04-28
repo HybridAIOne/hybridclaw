@@ -15,6 +15,7 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   assertImportBudget,
   assertSafeRelativePath,
@@ -91,6 +92,9 @@ interface SkillPackageSnapshot {
   manifest: SkillManifest;
   files: SkillPackageSnapshotFile[];
 }
+
+const BASE64_RE =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 function pathWithin(root: string, target: string): boolean {
   const rel = path.relative(path.resolve(root), path.resolve(target));
@@ -176,15 +180,63 @@ function serializeSkillPackageSnapshot(
 }
 
 function parseSkillPackageSnapshot(content: string): SkillPackageSnapshot {
-  const parsed = JSON.parse(content) as Partial<SkillPackageSnapshot>;
+  const parsed = JSON.parse(content) as unknown;
   if (
+    !isRecord(parsed) ||
     parsed.schemaVersion !== 1 ||
-    !parsed.manifest ||
+    !isRecord(parsed.manifest) ||
     !Array.isArray(parsed.files)
   ) {
     throw new Error('Skill revision snapshot is not a supported package.');
   }
-  return parsed as SkillPackageSnapshot;
+  return {
+    schemaVersion: 1,
+    manifest: parsed.manifest as unknown as SkillManifest,
+    files: parsed.files.map(parseSkillPackageSnapshotFile),
+  };
+}
+
+function parseSkillPackageSnapshotFile(
+  value: unknown,
+  index: number,
+): SkillPackageSnapshotFile {
+  const label = `Skill revision snapshot file #${index + 1}`;
+  if (!isRecord(value)) {
+    throw new Error(`${label} is not a valid file entry.`);
+  }
+
+  const filePath = value.path;
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    throw new Error(`${label} has invalid path.`);
+  }
+  try {
+    assertSafeRelativePath(filePath);
+  } catch (err) {
+    throw new Error(
+      `${label} has invalid path: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const mode = value.mode;
+  if (
+    typeof mode !== 'number' ||
+    !Number.isInteger(mode) ||
+    mode < 0 ||
+    mode > 0o777
+  ) {
+    throw new Error(`${label} has invalid mode.`);
+  }
+
+  const contentBase64 = value.contentBase64;
+  if (typeof contentBase64 !== 'string' || !BASE64_RE.test(contentBase64)) {
+    throw new Error(`${label} has invalid contentBase64.`);
+  }
+
+  return {
+    path: filePath,
+    mode,
+    contentBase64,
+  };
 }
 
 function restoreSkillPackageSnapshot(
