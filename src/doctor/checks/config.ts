@@ -280,6 +280,7 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   const missingFields: string[] = [];
   const invalidFields: string[] = [];
   const rawDeployment = getRawDeployment(rawConfig);
+  // Missing deployment fields fall back to defaults so pre-v22 configs do not fail config check.
   const deployment = normalizeDeploymentConfig(
     rawDeployment,
     DEFAULT_RUNTIME_CONFIG.deployment,
