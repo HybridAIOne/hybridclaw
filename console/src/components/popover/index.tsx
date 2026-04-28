@@ -1,9 +1,9 @@
 import {
   type CSSProperties,
+  createContext,
   type HTMLAttributes,
   type ReactNode,
   type Ref,
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -97,10 +97,7 @@ export interface PopoverContentProps extends HTMLAttributes<HTMLDivElement> {
    *  - 'none': skip auto-focus (caller manages focus, e.g. listbox with aria-activedescendant)
    *  - function: caller-provided strategy, receives the content element
    */
-  focusOnOpen?:
-    | 'first-button'
-    | 'none'
-    | ((content: HTMLDivElement) => void);
+  focusOnOpen?: 'first-button' | 'none' | ((content: HTMLDivElement) => void);
   /** When true, Escape closes the popover and returns focus to the trigger. Defaults to true. */
   closeOnEscape?: boolean;
   /** When true, mousedown outside the popover closes it. Defaults to true. */
@@ -122,9 +119,11 @@ export function PopoverContent({
 }: PopoverContentProps) {
   const ctx = usePopoverContext('PopoverContent');
   const localRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<{ x: number; y: number; minWidth: number } | null>(
-    null,
-  );
+  const [position, setPosition] = useState<{
+    x: number;
+    y: number;
+    minWidth: number;
+  } | null>(null);
 
   const { setContentEl } = ctx;
   const setRefs = useCallback(
@@ -132,7 +131,8 @@ export function PopoverContent({
       localRef.current = node;
       setContentEl(node);
       if (typeof ref === 'function') ref(node);
-      else if (ref) (ref as React.RefObject<HTMLDivElement | null>).current = node;
+      else if (ref)
+        (ref as React.RefObject<HTMLDivElement | null>).current = node;
     },
     [setContentEl, ref],
   );

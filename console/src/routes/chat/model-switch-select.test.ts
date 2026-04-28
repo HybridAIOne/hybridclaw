@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { ChatModel } from '../../api/types';
 import { parseModel } from './model-switch-select';
 
-function model(overrides: Partial<ChatModel> & Pick<ChatModel, 'id'>): ChatModel {
+function model(
+  overrides: Partial<ChatModel> & Pick<ChatModel, 'id'>,
+): ChatModel {
   return {
     backend: null,
     contextWindow: null,
@@ -19,7 +21,9 @@ describe('parseModel', () => {
     // Regression guard: `gpt-4.1-mini` (the gateway-default HybridAI passthrough)
     // used to bucket under "Local · OpenAI" before the catalog rows started
     // carrying an explicit `provider` tag.
-    const parsed = parseModel(model({ id: 'gpt-4.1-mini', provider: 'hybridai' }));
+    const parsed = parseModel(
+      model({ id: 'gpt-4.1-mini', provider: 'hybridai' }),
+    );
     expect(parsed.groupLabel).toBe('HybridAI · OpenAI');
     expect(parsed.displayName).toBe('GPT-4.1 Mini');
   });

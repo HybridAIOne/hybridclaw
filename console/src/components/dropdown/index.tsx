@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cx } from '../../lib/cx';
 import { Popover, PopoverContent, usePopoverContext } from '../popover';
 import styles from './index.module.css';

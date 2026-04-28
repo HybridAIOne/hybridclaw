@@ -8,7 +8,12 @@ import {
 } from 'react';
 import type { GatewayModelProviderKey } from '../../../../src/gateway/gateway-types.js';
 import type { ChatModel } from '../../api/types';
-import { Menu, Search as SearchIcon } from '../../components/icons';
+import {
+  Local as LocalIcon,
+  Menu,
+  Search as SearchIcon,
+  Server as ServerIcon,
+} from '../../components/icons';
 import {
   Select,
   SelectContent,
@@ -211,64 +216,16 @@ function CodexIcon() {
   );
 }
 
-function LocalIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect width="16" height="16" x="4" y="4" rx="2" />
-      <rect width="6" height="6" x="9" y="9" />
-      <path d="M15 2v2" />
-      <path d="M15 20v2" />
-      <path d="M2 15h2" />
-      <path d="M2 9h2" />
-      <path d="M20 15h2" />
-      <path d="M20 9h2" />
-      <path d="M9 2v2" />
-      <path d="M9 20v2" />
-    </svg>
-  );
-}
-
-function ServerIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
-      <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
-      <line x1="6" x2="6.01" y1="6" y2="6" />
-      <line x1="6" x2="6.01" y1="18" y2="18" />
-    </svg>
-  );
-}
-
 const PROVIDER_ICONS: Partial<Record<KnownProvider, () => ReactElement>> = {
   HybridAI: HybridAIIcon,
   'OpenAI Codex': CodexIcon,
-  Local: LocalIcon,
+  Local: () => <LocalIcon width="18" height="18" />,
 };
 
 function ProviderIcon({ provider }: { provider: string }) {
-  const Icon = PROVIDER_ICONS[provider as KnownProvider] ?? ServerIcon;
+  const Icon =
+    PROVIDER_ICONS[provider as KnownProvider] ??
+    (() => <ServerIcon width="18" height="18" />);
   return <Icon />;
 }
 
@@ -304,11 +261,7 @@ function Search({
 
 function Rail({ children }: { children: ReactNode }) {
   return (
-    <div
-      role="toolbar"
-      aria-orientation="vertical"
-      className={chrome.rail}
-    >
+    <div role="toolbar" aria-orientation="vertical" className={chrome.rail}>
       {children}
     </div>
   );
