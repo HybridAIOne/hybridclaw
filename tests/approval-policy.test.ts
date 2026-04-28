@@ -241,8 +241,10 @@ autonomy:
 
     expect(evaluation.stakes).toBe('medium');
     expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.tier).toBe('red');
     expect(evaluation.decision).toBe('required');
     expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.escalationRoute).not.toBe('implicit_notice');
   });
 
   test('out-of-bound escalation carries target and classifier reasoning', () => {

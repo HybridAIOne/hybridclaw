@@ -1341,6 +1341,9 @@ export class TrustedAgentApprovalRuntime {
       outOfBoundByAutonomy = true;
       baseTier = 'red';
     } else if (autonomyLevel === 'low-stakes-autonomous') {
+      // Low-stakes autonomy permits only low-stakes actions to proceed without
+      // escalation. Medium and high stakes are out-of-bound and require a
+      // paused explicit approval path, rather than a yellow implicit notice.
       if (stakes !== 'low') {
         outOfBoundByAutonomy = true;
         baseTier = 'red';
