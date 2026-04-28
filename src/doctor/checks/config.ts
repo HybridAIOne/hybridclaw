@@ -6,6 +6,7 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
+  type RuntimeConfig,
   runtimeConfigPath,
   setRuntimeToolEnabled,
   updateRuntimeConfig,
@@ -223,6 +224,67 @@ function buildUnusedMcpServersResult(
   );
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function getRawDeploymentField(
+  rawConfig: Record<string, unknown>,
+  key: string,
+): unknown {
+  const rawDeployment = rawConfig.deployment;
+  if (
+    !rawDeployment ||
+    typeof rawDeployment !== 'object' ||
+    Array.isArray(rawDeployment)
+  ) {
+    return undefined;
+  }
+  if (!Object.hasOwn(rawDeployment, key)) return undefined;
+  return (rawDeployment as Record<string, unknown>)[key];
+}
+
+function getDeploymentConfigIssues(
+  config: RuntimeConfig,
+  rawConfig: Record<string, unknown>,
+): {
+  missingFields: string[];
+  invalidFields: string[];
+} {
+  const missingFields: string[] = [];
+  const invalidFields: string[] = [];
+  const publicUrl = config.deployment.public_url.trim();
+  const tunnelProvider = config.deployment.tunnel.provider.trim();
+  const rawMode = getRawDeploymentField(rawConfig, 'mode');
+  const normalizedRawMode =
+    typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
+
+  if (
+    rawMode !== undefined &&
+    normalizedRawMode !== 'cloud' &&
+    normalizedRawMode !== 'local'
+  ) {
+    invalidFields.push('deployment.mode must be "cloud" or "local"');
+  }
+
+  if (config.deployment.mode === 'cloud' && !publicUrl) {
+    missingFields.push('deployment.public_url');
+  }
+  if (config.deployment.mode === 'local' && !tunnelProvider) {
+    missingFields.push('deployment.tunnel.provider');
+  }
+  if (publicUrl && !isHttpUrl(publicUrl)) {
+    invalidFields.push('deployment.public_url must be an HTTP(S) URL');
+  }
+
+  return { missingFields, invalidFields };
+}
+
 export async function checkConfigFile(): Promise<DiagResult[]> {
   const filePath = runtimeConfigPath();
   const displayPath = shortenHomePath(filePath);
@@ -263,6 +325,7 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     ];
   }
 
+  const rawConfig = raw as Record<string, unknown>;
   const config = getRuntimeConfig();
   const mode = readUnixMode(filePath);
   const writableByOthers = isGroupOrWorldWritable(mode);
@@ -271,22 +334,25 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     config.ops.dbPath.trim() ? null : 'ops.dbPath',
     config.container.image.trim() ? null : 'container.image',
   ].filter(Boolean) as string[];
+  const deploymentIssues = getDeploymentConfigIssues(config, rawConfig);
+  missingFields.push(...deploymentIssues.missingFields);
 
-  if (missingFields.length > 0) {
+  if (missingFields.length > 0 || deploymentIssues.invalidFields.length > 0) {
+    const detail = [
+      missingFields.length > 0
+        ? `missing required field${missingFields.length === 1 ? '' : 's'}: ${missingFields.join(', ')}`
+        : null,
+      ...deploymentIssues.invalidFields,
+    ]
+      .filter(Boolean)
+      .join('; ');
     return [
-      makeResult(
-        'config',
-        'Config',
-        'error',
-        `${displayPath} missing required field${missingFields.length === 1 ? '' : 's'}: ${missingFields.join(', ')}`,
-      ),
+      makeResult('config', 'Config', 'error', `${displayPath} ${detail}`),
     ];
   }
 
   const version =
-    typeof (raw as { version?: unknown }).version === 'number'
-      ? (raw as { version: number }).version
-      : null;
+    typeof rawConfig.version === 'number' ? rawConfig.version : null;
   const severity = writableByOthers ? 'warn' : 'ok';
   const message =
     version === CONFIG_VERSION
