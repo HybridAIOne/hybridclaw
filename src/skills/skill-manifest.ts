@@ -21,6 +21,10 @@ export interface SkillManifest {
   supportedChannels: ChannelKind[];
 }
 
+export interface SkillManifestParseOptions {
+  requireVersion?: boolean;
+}
+
 export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
   'discord',
   'email',
@@ -241,6 +245,7 @@ function findFirstValue(
 export function parseSkillManifestFromMarkdown(
   raw: string,
   fallback: { name: string },
+  options: SkillManifestParseOptions = {},
 ): SkillManifest {
   const frontmatter = parseFrontmatterObject(raw);
   const { hybridclaw, sources } = buildManifestFieldSources(frontmatter);
@@ -250,7 +255,15 @@ export function parseSkillManifestFromMarkdown(
     normalizeString(findFirstValue(sources, ['id', 'skillId', 'skill_id'])) ||
     slugify(name);
   const rawVersion = normalizeString(findFirstValue(sources, ['version']));
-  const version = SEMVERISH_RE.test(rawVersion) ? rawVersion : '0.0.0';
+  const version = SEMVERISH_RE.test(rawVersion) ? rawVersion : null;
+  if (!version && options.requireVersion) {
+    const reason = rawVersion
+      ? `invalid version "${rawVersion}"`
+      : 'missing version';
+    throw new Error(
+      `Skill manifest for "${name}" has ${reason}; packaged skills must declare a semantic version like 1.2.3.`,
+    );
+  }
   const rawCredentials =
     findFirstValue(sources, [
       'requiredCredentials',
@@ -266,7 +279,7 @@ export function parseSkillManifestFromMarkdown(
   return {
     id: slugify(id),
     name,
-    version,
+    version: version || '0.0.0',
     capabilities: normalizeCapabilities(
       findFirstValue(sources, ['capabilities']),
     ),
@@ -278,10 +291,12 @@ export function parseSkillManifestFromMarkdown(
 export function parseSkillManifestFile(
   skillFilePath: string,
   fallback: { name: string },
+  options: SkillManifestParseOptions = {},
 ): SkillManifest {
   return parseSkillManifestFromMarkdown(
     fs.readFileSync(skillFilePath, 'utf-8'),
     fallback,
+    options,
   );
 }
 

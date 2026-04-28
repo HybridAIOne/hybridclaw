@@ -64,6 +64,7 @@ export interface ImportSkillOptions {
   installRootDir?: string;
   replaceExisting?: boolean;
   skipGuard?: boolean;
+  validateSkillFile?: (skillFilePath: string, skillName: string) => void;
 }
 
 function resolveManagedCommunitySkillsDir(
@@ -663,6 +664,7 @@ export async function importSkill(
     }
 
     const skillName = readSkillNameFromFile(skillFilePath);
+    options.validateSkillFile?.(skillFilePath, skillName);
     let guardDecision: SkillGuardDecision | null = null;
     let guardVerdict: SkillGuardVerdict | undefined;
     let guardFindingsCount = 0;

@@ -59,3 +59,38 @@ Use the skill.
   ]);
   expect(manifest.supportedChannels).toEqual(['slack', 'email', 'tui']);
 });
+
+test('requires valid versions when strict manifest parsing is requested', () => {
+  expect(() =>
+    parseSkillManifestFromMarkdown(
+      `---
+name: Missing Version
+manifest:
+  id: missing-version
+---
+Use the skill.
+`,
+      { name: 'fallback' },
+      { requireVersion: true },
+    ),
+  ).toThrow(
+    'Skill manifest for "Missing Version" has missing version; packaged skills must declare a semantic version like 1.2.3.',
+  );
+
+  expect(() =>
+    parseSkillManifestFromMarkdown(
+      `---
+name: Invalid Version
+manifest:
+  id: invalid-version
+  version: latest
+---
+Use the skill.
+`,
+      { name: 'fallback' },
+      { requireVersion: true },
+    ),
+  ).toThrow(
+    'Skill manifest for "Invalid Version" has invalid version "latest"; packaged skills must declare a semantic version like 1.2.3.',
+  );
+});

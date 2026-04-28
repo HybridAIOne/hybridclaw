@@ -414,11 +414,22 @@ export async function installSkillPackage(
     force: options.force,
     homeDir: options.homeDir,
     skipGuard: options.skipGuard,
+    validateSkillFile: (skillFilePath, skillName) => {
+      parseSkillManifestFile(
+        skillFilePath,
+        { name: skillName },
+        { requireVersion: true },
+      );
+    },
   });
   const manifestPath = path.join(importResult.skillDir, 'SKILL.md');
-  const manifest = parseSkillManifestFile(manifestPath, {
-    name: importResult.skillName,
-  });
+  const manifest = parseSkillManifestFile(
+    manifestPath,
+    {
+      name: importResult.skillName,
+    },
+    { requireVersion: true },
+  );
   const previous = findInstalledSkillByNameOrId(manifest.id);
   const meta = buildLifecycleMeta({
     action: importResult.replacedExisting ? 'upgrade' : 'install',

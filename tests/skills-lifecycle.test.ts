@@ -206,6 +206,40 @@ describe('skill package lifecycle', () => {
     });
   });
 
+  test('install rejects packaged skills without a valid version', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillDir = path.join(sourceRoot, 'versionless');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: versionless',
+        'manifest:',
+        '  id: versionless',
+        '  capabilities: [crm.sync]',
+        '---',
+        '',
+        '# Versionless',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    await expect(
+      lifecycle.installSkillPackage(skillDir, {
+        actor: 'test',
+        homeDir: tempHome,
+        skipGuard: true,
+      }),
+    ).rejects.toThrow(
+      'Skill manifest for "versionless" has missing version; packaged skills must declare a semantic version like 1.2.3.',
+    );
+    expect(fs.existsSync(path.join(tempHome, 'skills', 'versionless'))).toBe(
+      false,
+    );
+  });
+
   test('uninstall refuses skills outside the managed package directory', async () => {
     const lifecycle = await import('../src/skills/skills-lifecycle.ts');
 
