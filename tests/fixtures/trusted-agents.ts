@@ -1,19 +1,19 @@
 import { stringify as stringifyYaml } from 'yaml';
 import type { ConfidentialSensitivity } from '../../src/security/confidential-rules.js';
 
-export type TestCoworkerRole =
+export type TestAgentRole =
   | 'briefing-lead'
   | 'builder'
   | 'reviewer'
   | 'compliance'
   | 'finance';
 
-export interface TestCoworker {
+export interface TestAgent {
   id: string;
   name: string;
   displayName: string;
   owner: string;
-  role: TestCoworkerRole;
+  role: TestAgentRole;
   skills: readonly string[];
   cv: {
     summary: string;
@@ -38,8 +38,8 @@ export type TestThreadStakes = 'low' | 'medium' | 'high';
 
 export interface TestThreadMessage {
   id: string;
-  senderCoworkerId: string;
-  recipientCoworkerId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
   intent: TestThreadIntent;
   content: string;
   createdAt: string;
@@ -50,7 +50,7 @@ export interface TestThread {
   id: string;
   clientOrgId: string;
   title: string;
-  ownerCoworkerId: string;
+  ownerAgentId: string;
   stakes: TestThreadStakes;
   containsNdaData: boolean;
   messages: readonly TestThreadMessage[];
@@ -73,9 +73,9 @@ export interface TestSecretSample {
   clientOrgId: string;
 }
 
-export const testCoworkers: readonly TestCoworker[] = [
+export const testAgents: readonly TestAgent[] = [
   {
-    id: 'coworker_briefing',
+    id: 'agent_briefing',
     name: 'briefing',
     displayName: 'Briefing Lead',
     owner: 'operator_alpha',
@@ -84,11 +84,11 @@ export const testCoworkers: readonly TestCoworker[] = [
     cv: {
       summary: 'Turns client context into concise, sourced working briefs.',
       capabilities: ['research', 'briefing', 'client-context'],
-      asset: 'agents/coworker_briefing/CV.md',
+      asset: 'agents/agent_briefing/CV.md',
     },
   },
   {
-    id: 'coworker_builder',
+    id: 'agent_builder',
     name: 'builder',
     displayName: 'Builder',
     owner: 'operator_alpha',
@@ -97,11 +97,11 @@ export const testCoworkers: readonly TestCoworker[] = [
     cv: {
       summary: 'Builds client-facing artifacts from approved briefs.',
       capabilities: ['drafting', 'implementation', 'handoff'],
-      asset: 'agents/coworker_builder/CV.md',
+      asset: 'agents/agent_builder/CV.md',
     },
   },
   {
-    id: 'coworker_reviewer',
+    id: 'agent_reviewer',
     name: 'reviewer',
     displayName: 'Reviewer',
     owner: 'operator_beta',
@@ -110,11 +110,11 @@ export const testCoworkers: readonly TestCoworker[] = [
     cv: {
       summary: 'Reviews deliverables and returns precise revision notes.',
       capabilities: ['review', 'quality', 'revision'],
-      asset: 'agents/coworker_reviewer/CV.md',
+      asset: 'agents/agent_reviewer/CV.md',
     },
   },
   {
-    id: 'coworker_compliance',
+    id: 'agent_compliance',
     name: 'compliance',
     displayName: 'Compliance Watch',
     owner: 'operator_beta',
@@ -123,11 +123,11 @@ export const testCoworkers: readonly TestCoworker[] = [
     cv: {
       summary: 'Screens work for NDA and policy-sensitive material.',
       capabilities: ['compliance', 'redaction', 'escalation'],
-      asset: 'agents/coworker_compliance/CV.md',
+      asset: 'agents/agent_compliance/CV.md',
     },
   },
   {
-    id: 'coworker_finance',
+    id: 'agent_finance',
     name: 'finance',
     displayName: 'Finance Analyst',
     owner: 'operator_gamma',
@@ -136,7 +136,7 @@ export const testCoworkers: readonly TestCoworker[] = [
     cv: {
       summary: 'Tracks pricing, budget thresholds, and spend-sensitive work.',
       capabilities: ['pricing', 'budgeting', 'cost-control'],
-      asset: 'agents/coworker_finance/CV.md',
+      asset: 'agents/agent_finance/CV.md',
     },
   },
 ];
@@ -323,22 +323,22 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_launch_brief',
     clientOrgId: 'client_aster',
     title: 'Launch brief handoff',
-    ownerCoworkerId: 'coworker_briefing',
+    ownerAgentId: 'agent_briefing',
     stakes: 'high',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_launch_brief_1',
-        senderCoworkerId: 'coworker_briefing',
-        recipientCoworkerId: 'coworker_builder',
+        senderAgentId: 'agent_briefing',
+        recipientAgentId: 'agent_builder',
         intent: 'handoff',
         content: 'Draft from the Project Glassline source brief.',
         createdAt: '2026-04-20T09:00:00.000Z',
       },
       {
         id: 'msg_launch_brief_2',
-        senderCoworkerId: 'coworker_builder',
-        recipientCoworkerId: 'coworker_reviewer',
+        senderAgentId: 'agent_builder',
+        recipientAgentId: 'agent_reviewer',
         intent: 'ack',
         content: 'Accepted; building the first client-facing artifact.',
         createdAt: '2026-04-20T09:03:00.000Z',
@@ -350,14 +350,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_price_review',
     clientOrgId: 'client_cobalt',
     title: 'Pilot pricing review',
-    ownerCoworkerId: 'coworker_finance',
+    ownerAgentId: 'agent_finance',
     stakes: 'high',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_price_review_1',
-        senderCoworkerId: 'coworker_finance',
-        recipientCoworkerId: 'coworker_compliance',
+        senderAgentId: 'agent_finance',
+        recipientAgentId: 'agent_compliance',
         intent: 'escalate',
         content: 'Check whether USD 92000 pilot ceiling can leave the model.',
         createdAt: '2026-04-20T10:00:00.000Z',
@@ -368,14 +368,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_nda_triage',
     clientOrgId: 'client_evergreen',
     title: 'NDA triage',
-    ownerCoworkerId: 'coworker_compliance',
+    ownerAgentId: 'agent_compliance',
     stakes: 'high',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_nda_triage_1',
-        senderCoworkerId: 'coworker_reviewer',
-        recipientCoworkerId: 'coworker_compliance',
+        senderAgentId: 'agent_reviewer',
+        recipientAgentId: 'agent_compliance',
         intent: 'chat',
         content: 'Project Canopy references need masking before review.',
         createdAt: '2026-04-20T11:00:00.000Z',
@@ -386,14 +386,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_copy_pass',
     clientOrgId: 'client_aster',
     title: 'Copy pass',
-    ownerCoworkerId: 'coworker_reviewer',
+    ownerAgentId: 'agent_reviewer',
     stakes: 'medium',
     containsNdaData: false,
     messages: [
       {
         id: 'msg_copy_pass_1',
-        senderCoworkerId: 'coworker_builder',
-        recipientCoworkerId: 'coworker_reviewer',
+        senderAgentId: 'agent_builder',
+        recipientAgentId: 'agent_reviewer',
         intent: 'chat',
         content: 'Please tighten the public launch summary.',
         createdAt: '2026-04-20T12:00:00.000Z',
@@ -404,14 +404,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_budget_check',
     clientOrgId: 'client_cobalt',
     title: 'Budget threshold check',
-    ownerCoworkerId: 'coworker_finance',
+    ownerAgentId: 'agent_finance',
     stakes: 'medium',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_budget_check_1',
-        senderCoworkerId: 'coworker_builder',
-        recipientCoworkerId: 'coworker_finance',
+        senderAgentId: 'agent_builder',
+        recipientAgentId: 'agent_finance',
         intent: 'chat',
         content: 'The integration credit 25000 USD changes margin.',
         createdAt: '2026-04-20T13:00:00.000Z',
@@ -422,14 +422,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_contract_summary',
     clientOrgId: 'client_evergreen',
     title: 'Contract summary',
-    ownerCoworkerId: 'coworker_compliance',
+    ownerAgentId: 'agent_compliance',
     stakes: 'high',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_contract_summary_1',
-        senderCoworkerId: 'coworker_compliance',
-        recipientCoworkerId: 'coworker_reviewer',
+        senderAgentId: 'agent_compliance',
+        recipientAgentId: 'agent_reviewer',
         intent: 'chat',
         content: 'Summarize liability cap equals 2x fees without leaking it.',
         createdAt: '2026-04-20T14:00:00.000Z',
@@ -440,14 +440,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_data_room_cleanup',
     clientOrgId: 'client_aster',
     title: 'Data-room cleanup',
-    ownerCoworkerId: 'coworker_briefing',
+    ownerAgentId: 'agent_briefing',
     stakes: 'medium',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_data_room_cleanup_1',
-        senderCoworkerId: 'coworker_briefing',
-        recipientCoworkerId: 'coworker_compliance',
+        senderAgentId: 'agent_briefing',
+        recipientAgentId: 'agent_compliance',
         intent: 'chat',
         content: 'Remove data-room index DR-ASTER-001 from the prompt.',
         createdAt: '2026-04-20T15:00:00.000Z',
@@ -458,14 +458,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_revision_handoff',
     clientOrgId: 'client_cobalt',
     title: 'Revision handoff',
-    ownerCoworkerId: 'coworker_reviewer',
+    ownerAgentId: 'agent_reviewer',
     stakes: 'medium',
     containsNdaData: false,
     messages: [
       {
         id: 'msg_revision_handoff_1',
-        senderCoworkerId: 'coworker_reviewer',
-        recipientCoworkerId: 'coworker_builder',
+        senderAgentId: 'agent_reviewer',
+        recipientAgentId: 'agent_builder',
         intent: 'handoff',
         content: 'Return for revision with tighter source citations.',
         createdAt: '2026-04-20T16:00:00.000Z',
@@ -476,14 +476,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_compliance_screen',
     clientOrgId: 'client_evergreen',
     title: 'Compliance screen',
-    ownerCoworkerId: 'coworker_compliance',
+    ownerAgentId: 'agent_compliance',
     stakes: 'high',
     containsNdaData: true,
     messages: [
       {
         id: 'msg_compliance_screen_1',
-        senderCoworkerId: 'coworker_builder',
-        recipientCoworkerId: 'coworker_compliance',
+        senderAgentId: 'agent_builder',
+        recipientAgentId: 'agent_compliance',
         intent: 'escalate',
         content: 'Screen contract exhibit CX-CANOPY before sending.',
         createdAt: '2026-04-20T17:00:00.000Z',
@@ -494,14 +494,14 @@ export const testThreads: readonly TestThread[] = [
     id: 'thread_client_update',
     clientOrgId: 'client_aster',
     title: 'Client update',
-    ownerCoworkerId: 'coworker_briefing',
+    ownerAgentId: 'agent_briefing',
     stakes: 'low',
     containsNdaData: false,
     messages: [
       {
         id: 'msg_client_update_1',
-        senderCoworkerId: 'coworker_briefing',
-        recipientCoworkerId: 'coworker_builder',
+        senderAgentId: 'agent_briefing',
+        recipientAgentId: 'agent_builder',
         intent: 'chat',
         content: 'Prepare a safe weekly progress note.',
         createdAt: '2026-04-20T18:00:00.000Z',
@@ -510,18 +510,18 @@ export const testThreads: readonly TestThread[] = [
   },
 ];
 
-export const trustedCoworkerFixtures = {
-  coworkers: testCoworkers,
+export const trustedAgentsFixtures = {
+  agents: testAgents,
   clientOrgs: testClientOrgs,
   threads: testThreads,
   secretSamplesByClass: testSecretSamplesByClass,
   secretSamples: testSecretSamples,
 } as const;
 
-export function requireTestCoworker(id: string): TestCoworker {
-  const coworker = testCoworkers.find((entry) => entry.id === id);
-  if (!coworker) throw new Error(`Unknown test coworker: ${id}`);
-  return coworker;
+export function requireTestAgent(id: string): TestAgent {
+  const agent = testAgents.find((entry) => entry.id === id);
+  if (!agent) throw new Error(`Unknown test agent: ${id}`);
+  return agent;
 }
 
 export function requireTestClientOrg(id: string): TestClientOrg {
@@ -530,7 +530,7 @@ export function requireTestClientOrg(id: string): TestClientOrg {
   return clientOrg;
 }
 
-function buildTrustedCoworkerConfidentialYaml(): string {
+function buildTrustedAgentsConfidentialYaml(): string {
   return stringifyYaml({
     version: 1,
     clients: testClientOrgs.map((clientOrg) => ({
@@ -551,5 +551,5 @@ function buildTrustedCoworkerConfidentialYaml(): string {
   });
 }
 
-export const TRUSTED_COWORKER_CONFIDENTIAL_YAML: string =
-  buildTrustedCoworkerConfidentialYaml();
+export const TRUSTED_AGENTS_CONFIDENTIAL_YAML: string =
+  buildTrustedAgentsConfidentialYaml();

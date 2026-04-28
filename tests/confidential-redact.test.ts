@@ -8,9 +8,9 @@ import {
 } from '../src/security/confidential-redact.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 import {
-  TRUSTED_COWORKER_CONFIDENTIAL_YAML,
+  TRUSTED_AGENTS_CONFIDENTIAL_YAML,
   testSecretSamplesByClass,
-} from './fixtures/trusted-coworker.ts';
+} from './fixtures/trusted-agents.ts';
 
 const RULES_YAML = `
 version: 1
@@ -127,8 +127,8 @@ describe('dehydrate / rehydrate', () => {
 
   test('roadmap 4.x masks and rehydrates business-secret fixture classes', () => {
     const fixtureRuleSet = parseConfidentialYaml(
-      TRUSTED_COWORKER_CONFIDENTIAL_YAML,
-      'fixtures:trusted-coworker',
+      TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+      'fixtures:trusted-agents',
     );
     const secrets = [
       testSecretSamplesByClass.client[0],
@@ -153,10 +153,10 @@ describe('dehydrate / rehydrate', () => {
 });
 
 describe('scanForLeaks', () => {
-  test('trusted-coworker YAML does not double-count client identities as keywords', () => {
+  test('trusted-agents YAML does not double-count client identities as keywords', () => {
     const fixtureRuleSet = parseConfidentialYaml(
-      TRUSTED_COWORKER_CONFIDENTIAL_YAML,
-      'fixtures:trusted-coworker',
+      TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+      'fixtures:trusted-agents',
     );
 
     const result = scanForLeaks('AsterWorks Labs', fixtureRuleSet);
