@@ -305,7 +305,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   if (!match) return null;
   try {
     const raw = Buffer.from(match[1], 'base64').toString('utf-8');
-    const parsed = JSON.parse(raw) as PendingApproval;
+    const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
+      escalationTarget?: unknown;
+    };
     if (
       !parsed ||
       typeof parsed !== 'object' ||
@@ -316,6 +318,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     ) {
       return null;
     }
+    const escalationTarget = normalizeParsedEscalationTarget(
+      parsed.escalationTarget,
+    );
     return {
       approvalId: parsed.approvalId,
       prompt: redactCredentialSecrets(parsed.prompt),
@@ -329,13 +334,24 @@ function parseApprovalProgress(line: string): PendingApproval | null {
         Number.isFinite(parsed.expiresAt)
           ? parsed.expiresAt
           : null,
-      ...(parsed.escalationTarget
-        ? { escalationTarget: parsed.escalationTarget }
-        : {}),
+      ...(escalationTarget ? { escalationTarget } : {}),
     };
   } catch {
     return null;
   }
+}
+
+function normalizeParsedEscalationTarget(
+  value: unknown,
+): PendingApproval['escalationTarget'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as { channel?: unknown; recipient?: unknown };
+  const channel = typeof raw.channel === 'string' ? raw.channel.trim() : '';
+  const recipient =
+    typeof raw.recipient === 'string' ? raw.recipient.trim() : '';
+  return channel && recipient ? { channel, recipient } : undefined;
 }
 
 function emitApprovalProgress(entry: PoolEntry, line: string): boolean {

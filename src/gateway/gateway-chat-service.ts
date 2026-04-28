@@ -149,8 +149,18 @@ async function routeEscalationApproval(params: {
   const targetChannel = getPendingApprovalEscalationChannel(params.approval);
   if (!params.approval || !targetChannel) return;
   if (targetChannel === params.currentChannelId) return;
+  if (!params.onProactiveMessage) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        targetChannel,
+      },
+      'Unable to route escalation approval notification because onProactiveMessage is unavailable',
+    );
+    return;
+  }
   try {
-    await params.onProactiveMessage?.({
+    await params.onProactiveMessage({
       channelId: targetChannel,
       text: formatEscalationRouteNotice(params.approval),
     });

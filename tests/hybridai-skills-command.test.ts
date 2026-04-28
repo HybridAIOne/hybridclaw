@@ -6,8 +6,26 @@ import { afterAll, afterEach, describe, expect, test, vi } from 'vitest';
 const runtimeHome = vi.hoisted(() => {
   const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
   const originalHome = process.env.HOME;
-  const tempRoot = (process.env.TMPDIR || '/tmp').replace(/\/+$/, '');
-  const homeDir = `${tempRoot}/hybridclaw-hybridai-skills-module-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const getBuiltinModule = (
+    process as typeof process & {
+      getBuiltinModule?: (id: string) => unknown;
+    }
+  ).getBuiltinModule;
+  const fsModule = getBuiltinModule?.('fs') as
+    | { mkdtempSync: (prefix: string) => string }
+    | undefined;
+  const osModule = getBuiltinModule?.('os') as
+    | { tmpdir: () => string }
+    | undefined;
+  const pathModule = getBuiltinModule?.('path') as
+    | { join: (...parts: string[]) => string }
+    | undefined;
+  if (!fsModule || !osModule || !pathModule) {
+    throw new Error('Unable to initialize temporary runtime home for tests.');
+  }
+  const homeDir = fsModule.mkdtempSync(
+    pathModule.join(osModule.tmpdir(), 'hybridclaw-hybridai-skills-module-'),
+  );
   process.env.HYBRIDCLAW_DATA_DIR = homeDir;
   process.env.HOME = homeDir;
   return { homeDir, originalDataDir, originalHome };
