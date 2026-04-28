@@ -102,7 +102,7 @@ liveTest(
       expect(body).toBe(marker);
     } finally {
       if (provider) {
-        await provider.stop().catch(() => {});
+        await provider.stop();
       }
       await closeServer(server).catch(() => {});
       fs.rmSync(tmpDir, { recursive: true, force: true });

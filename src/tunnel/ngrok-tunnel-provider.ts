@@ -136,7 +136,13 @@ export class NgrokTunnelProvider implements TunnelProvider {
     this.listener = null;
     this.publicUrl = null;
     if (listener) {
-      await listener.close();
+      try {
+        await listener.close();
+      } catch {
+        console.warn(
+          '[tunnel] failed to stop ngrok tunnel cleanly; local tunnel state was cleared.',
+        );
+      }
     }
   }
 

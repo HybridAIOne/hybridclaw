@@ -75,6 +75,37 @@ describe('NgrokTunnelProvider', () => {
     await provider.stop();
   });
 
+  it('clears local state and warns when stopping fails', async () => {
+    const close = vi.fn(async () => {
+      throw new Error('close failed');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const forward = vi.fn(async () => ({
+      close,
+      url: () => 'https://stop-failure.ngrok.app',
+    }));
+    const provider = new NgrokTunnelProvider({
+      loadNgrok: async () => ({ forward }),
+      readSecret: () => 'test-token',
+    });
+
+    try {
+      await provider.start();
+      await expect(provider.stop()).resolves.toBeUndefined();
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        '[tunnel] failed to stop ngrok tunnel cleanly; local tunnel state was cleared.',
+      );
+      expect(provider.status()).toEqual({
+        running: false,
+        public_url: null,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('closes the listener and redacts the token when startup fails after connecting', async () => {
     const close = vi.fn(async () => {});
     const forward = vi.fn(async () => ({

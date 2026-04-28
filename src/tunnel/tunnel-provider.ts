@@ -11,6 +11,7 @@ export interface TunnelStatus {
 
 export interface TunnelProvider {
   start(): Promise<TunnelStartResult>;
+  // Stop is best-effort cleanup: provider shutdown failures should not escape.
   stop(): Promise<void>;
   status(): TunnelStatus;
 }
