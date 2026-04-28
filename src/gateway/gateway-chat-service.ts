@@ -126,6 +126,46 @@ import {
 
 const MAX_HISTORY_MESSAGES = 40;
 
+function getPendingApprovalEscalationChannel(
+  approval: PendingApproval | undefined,
+): string {
+  return approval?.escalationTarget?.channel?.trim() || '';
+}
+
+function formatEscalationRouteNotice(approval: PendingApproval): string {
+  const target = approval.escalationTarget;
+  if (!target) return approval.prompt;
+  return [
+    `Escalation for ${target.recipient} on ${target.channel}.`,
+    approval.prompt,
+  ].join('\n\n');
+}
+
+async function routeEscalationApproval(params: {
+  approval: PendingApproval | undefined;
+  currentChannelId: string;
+  onProactiveMessage: GatewayChatRequest['onProactiveMessage'];
+}): Promise<void> {
+  const targetChannel = getPendingApprovalEscalationChannel(params.approval);
+  if (!params.approval || !targetChannel) return;
+  if (targetChannel === params.currentChannelId) return;
+  try {
+    await params.onProactiveMessage?.({
+      channelId: targetChannel,
+      text: formatEscalationRouteNotice(params.approval),
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        targetChannel,
+        error,
+      },
+      'Failed to route escalation approval notification',
+    );
+  }
+}
+
 function readGatewayPromptModeDefault(): PromptMode | undefined {
   const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
     .trim()
@@ -1012,6 +1052,7 @@ async function handleGatewayMessageInner(
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
+      escalationTarget: resolvedAgent.escalationTarget,
     });
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
@@ -1019,6 +1060,11 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    await routeEscalationApproval({
+      approval: output.pendingApproval,
+      currentChannelId: req.channelId,
+      onProactiveMessage: req.onProactiveMessage,
+    });
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
       toolExecutions,

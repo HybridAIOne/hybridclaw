@@ -19,6 +19,11 @@ export interface AgentCv {
   asset?: string;
 }
 
+export interface AgentEscalationTarget {
+  channel: string;
+  recipient: string;
+}
+
 export interface AgentConfig {
   id: string;
   name?: string;
@@ -32,6 +37,7 @@ export interface AgentConfig {
   owner?: string;
   role?: string;
   cv?: AgentCv;
+  escalationTarget?: AgentEscalationTarget;
 }
 
 export interface AgentDefaultsConfig {
@@ -91,6 +97,36 @@ export function cloneAgentCv(value: AgentCv | undefined): AgentCv | undefined {
     ...value,
     ...(value.capabilities ? { capabilities: [...value.capabilities] } : {}),
   };
+}
+
+export function normalizeAgentEscalationTarget(
+  value: unknown,
+): AgentEscalationTarget | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as {
+    channel?: unknown;
+    recipient?: unknown;
+  };
+  const channel = normalizeTrimmedString(raw.channel);
+  const recipient = normalizeTrimmedString(raw.recipient);
+  return channel && recipient ? { channel, recipient } : undefined;
+}
+
+export function cloneAgentEscalationTarget(
+  value: AgentEscalationTarget | undefined,
+): AgentEscalationTarget | undefined {
+  return value ? { ...value } : undefined;
+}
+
+export function agentEscalationTargetEquals(
+  a?: AgentEscalationTarget,
+  b?: AgentEscalationTarget,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.channel === b.channel && a.recipient === b.recipient;
 }
 
 export function agentCvEquals(a?: AgentCv, b?: AgentCv): boolean {

@@ -246,6 +246,7 @@ export interface ContainerInput {
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface MediaContextItem {
@@ -259,6 +260,11 @@ export interface MediaContextItem {
 
 export type ToolExecutionStakesSignal = CanonicalStakesSignal;
 export type ToolExecutionStakesScore = CanonicalStakesScore;
+
+export interface EscalationTarget {
+  channel: string;
+  recipient: string;
+}
 
 export interface ToolExecution {
   name: string;
@@ -278,6 +284,7 @@ export interface ToolExecution {
     | 'implicit_notice'
     | 'approval_request'
     | 'policy_denial';
+  escalationTarget?: EscalationTarget;
   approvalDecision?:
     | 'auto'
     | 'implicit'
@@ -308,6 +315,7 @@ export interface PendingApproval {
   allowAgent: boolean;
   allowAll: boolean;
   expiresAt: number | null;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface TokenUsageStats {

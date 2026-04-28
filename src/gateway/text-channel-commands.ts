@@ -361,7 +361,7 @@ export async function handleTextChannelApprovalCommand(params: {
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
       prompt: getApprovalPromptText(pendingApproval, resultText),
-      userId,
+      userId: pendingApproval.escalationTarget?.recipient || userId,
       expiresAt: pendingApproval.expiresAt,
     });
     return {

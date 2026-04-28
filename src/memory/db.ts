@@ -7,7 +7,11 @@ import type {
   AgentCv,
   AgentModelConfig,
 } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID, normalizeAgentCv } from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+} from '../agents/agent-types.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
@@ -114,7 +118,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 24;
+export const DATABASE_SCHEMA_VERSION = 25;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -159,6 +163,7 @@ type AgentRow = {
   owner: string | null;
   role: string | null;
   cv: string | null;
+  escalation_target: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -2036,6 +2041,24 @@ function migrateV24(
   recordMigration(database, 24, 'Persist assistant message artifacts');
 }
 
+function migrateV25(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'escalation_target',
+    ddl: 'escalation_target TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    25,
+    'Persist per-agent escalation targets for approval routing',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2091,6 +2114,7 @@ function runMigrations(
   if (currentVersion < 24 || messageArtifactsNeedMigration(database)) {
     migrateV24(database, opts);
   }
+  if (currentVersion < 25) migrateV25(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2229,6 +2253,29 @@ function parseAgentCv(rawCv: string | null): AgentCv | undefined {
   }
 }
 
+function serializeAgentEscalationTarget(
+  target: AgentConfig['escalationTarget'],
+): string | null {
+  return target ? JSON.stringify(target) : null;
+}
+
+function parseAgentEscalationTarget(
+  rawTarget: string | null,
+): AgentConfig['escalationTarget'] {
+  const normalized = rawTarget?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentEscalationTarget(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { targetLength: normalized.length },
+      'Failed to parse persisted agent escalation target',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -2240,6 +2287,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const owner = row.owner?.trim() || '';
   const role = row.role?.trim() || '';
   const cv = parseAgentCv(row.cv);
+  const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -2255,11 +2303,12 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, created_at, updated_at';
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, escalation_target, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2300,6 +2349,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedOwner = agent.owner?.trim() || null;
   const normalizedRole = agent.role?.trim() || null;
   const normalizedCv = serializeAgentCv(agent.cv);
+  const normalizedEscalationTarget = serializeAgentEscalationTarget(
+    agent.escalationTarget,
+  );
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -2316,9 +2368,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        owner,
        role,
        cv,
+       escalation_target,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -2331,6 +2384,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        owner = excluded.owner,
        role = excluded.role,
        cv = excluded.cv,
+       escalation_target = excluded.escalation_target,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -2345,6 +2399,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedOwner,
     normalizedRole,
     normalizedCv,
+    normalizedEscalationTarget,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {

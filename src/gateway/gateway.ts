@@ -127,7 +127,7 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import type { ArtifactMetadata, EscalationTarget } from '../types/execution.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
@@ -292,6 +292,42 @@ function hasVoiceConfigChanged(
 const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
+
+function normalizeEscalationTarget(
+  target: EscalationTarget | undefined,
+): EscalationTarget | null {
+  const channel = target?.channel?.trim() || '';
+  const recipient = target?.recipient?.trim() || '';
+  return channel && recipient ? { channel, recipient } : null;
+}
+
+function getApprovalRecipientUserId(
+  approval: { escalationTarget?: EscalationTarget },
+  fallbackUserId: string,
+): string {
+  return (
+    normalizeEscalationTarget(approval.escalationTarget)?.recipient ||
+    fallbackUserId
+  );
+}
+
+function approvalRoutesAwayFromChannel(
+  approval: { escalationTarget?: EscalationTarget },
+  channelId: string,
+): EscalationTarget | null {
+  const target = normalizeEscalationTarget(approval.escalationTarget);
+  if (!target || target.channel === channelId) return null;
+  return target;
+}
+
+function formatRoutedApprovalNotice(approval: {
+  approvalId: string;
+  escalationTarget?: EscalationTarget;
+}): string {
+  const target = normalizeEscalationTarget(approval.escalationTarget);
+  if (!target) return `Escalation pending. Approval ID: ${approval.approvalId}`;
+  return `Escalation routed to ${target.recipient} on ${target.channel}. Approval ID: ${approval.approvalId}`;
+}
 
 function scheduleNextMemoryConsolidationRun(): void {
   if (!isMemoryConsolidationEnabled()) {
@@ -1096,7 +1132,7 @@ async function startDiscordIntegration(): Promise<boolean> {
                 },
                 onProactiveMessage: async (message) => {
                   await deliverProactiveMessage(
-                    channelId,
+                    message.channelId || channelId,
                     message.text,
                     'delegate',
                     message.artifacts,
@@ -1148,28 +1184,43 @@ async function startDiscordIntegration(): Promise<boolean> {
             result.memoryCitations,
           );
           if (pendingApproval) {
+            const approvalUserId = getApprovalRecipientUserId(
+              pendingApproval,
+              userId,
+            );
+            const routedTarget = approvalRoutesAwayFromChannel(
+              pendingApproval,
+              channelId,
+            );
             const storedPrompt = getApprovalPromptText(
               pendingApproval,
               responseText,
             );
-            const approvalPresentation = context.sendApprovalNotification
-              ? DISCORD_APPROVAL_PRESENTATION
-              : createApprovalPresentation('text');
+            const approvalPresentation =
+              context.sendApprovalNotification && !routedTarget
+                ? DISCORD_APPROVAL_PRESENTATION
+                : createApprovalPresentation('text');
             let cleanup: { disableButtons: () => Promise<void> } | null = null;
-            if (context.sendApprovalNotification) {
+            if (context.sendApprovalNotification && !routedTarget) {
               cleanup = await context.sendApprovalNotification({
                 approval: pendingApproval,
                 presentation: approvalPresentation,
-                userId,
+                userId: approvalUserId,
               });
+            } else if (routedTarget) {
+              await context.stream.finalize(
+                formatRoutedApprovalNotice(pendingApproval),
+              );
             } else {
-              await context.stream.finalize(`<@${userId}> ${storedPrompt}`);
+              await context.stream.finalize(
+                `<@${approvalUserId}> ${storedPrompt}`,
+              );
             }
             await rememberPendingApproval({
               sessionId: effectiveSessionId,
               approvalId: pendingApproval.approvalId,
               prompt: storedPrompt,
-              userId,
+              userId: approvalUserId,
               expiresAt: pendingApproval.expiresAt,
               presentation: approvalPresentation,
               disableButtons: cleanup?.disableButtons ?? null,
@@ -1391,6 +1442,14 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
+          const approvalUserId = getApprovalRecipientUserId(
+            pendingApproval,
+            userId,
+          );
+          const routedTarget = approvalRoutesAwayFromChannel(
+            pendingApproval,
+            channelId,
+          );
           const storedPrompt = getApprovalPromptText(
             pendingApproval,
             responseText,
@@ -1404,10 +1463,16 @@ async function startMSTeamsIntegration(): Promise<boolean> {
             sessionId: effectiveSessionId,
             approvalId: pendingApproval.approvalId,
             prompt: storedPrompt,
-            userId,
+            userId: approvalUserId,
             expiresAt: pendingApproval.expiresAt,
             presentation: TEAMS_APPROVAL_PRESENTATION,
           });
+          if (routedTarget) {
+            await context.stream.finalize(
+              formatRoutedApprovalNotice(pendingApproval),
+            );
+            return;
+          }
           await context.stream.finalize(
             `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
           );
@@ -1544,7 +1609,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -1695,7 +1760,7 @@ async function startEmailIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -1864,7 +1929,7 @@ async function startTelegramIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -2023,7 +2088,7 @@ async function startSignalIntegration(): Promise<boolean> {
               content,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -2137,7 +2202,7 @@ async function startSlackIntegration(): Promise<boolean> {
             reply: textReply,
             onProactiveMessage: async (message) => {
               await deliverProactiveMessage(
-                channelId,
+                message.channelId || channelId,
                 message.text,
                 'delegate',
                 message.artifacts,
@@ -2192,20 +2257,31 @@ async function startSlackIntegration(): Promise<boolean> {
               )
             : '';
           if (pendingApproval) {
+            const approvalUserId = getApprovalRecipientUserId(
+              pendingApproval,
+              userId,
+            );
+            const routedTarget = approvalRoutesAwayFromChannel(
+              pendingApproval,
+              channelId,
+            );
             const storedPrompt = getApprovalPromptText(
               pendingApproval,
               responseText,
             );
-            const approvalPresentation = context.sendApprovalNotification
-              ? SLACK_APPROVAL_PRESENTATION
-              : createApprovalPresentation('text');
+            const approvalPresentation =
+              context.sendApprovalNotification && !routedTarget
+                ? SLACK_APPROVAL_PRESENTATION
+                : createApprovalPresentation('text');
             let cleanup: { disableButtons: () => Promise<void> } | null = null;
-            if (context.sendApprovalNotification) {
+            if (context.sendApprovalNotification && !routedTarget) {
               cleanup = await context.sendApprovalNotification({
                 approval: pendingApproval,
                 presentation: approvalPresentation,
-                userId,
+                userId: approvalUserId,
               });
+            } else if (routedTarget) {
+              await reply(formatRoutedApprovalNotice(pendingApproval));
             } else {
               await reply(storedPrompt);
             }
@@ -2213,7 +2289,7 @@ async function startSlackIntegration(): Promise<boolean> {
               sessionId: effectiveSessionId,
               approvalId: pendingApproval.approvalId,
               prompt: storedPrompt,
-              userId,
+              userId: approvalUserId,
               expiresAt: pendingApproval.expiresAt,
               presentation: approvalPresentation,
               disableButtons: cleanup?.disableButtons ?? null,
@@ -2645,7 +2721,7 @@ async function startIMessageIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,

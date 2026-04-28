@@ -28,8 +28,10 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentCv,
+  cloneAgentEscalationTarget,
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
+  normalizeAgentEscalationTarget,
 } from './agent-types.js';
 
 const LEGACY_WORKSPACE_DIRS = [
@@ -160,6 +162,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const owner = normalizeString((value as { owner?: unknown }).owner);
   const role = normalizeString((value as { role?: unknown }).role);
   const cv = normalizeAgentCv((value as { cv?: unknown }).cv);
+  const escalationTarget = normalizeAgentEscalationTarget(
+    (value as { escalationTarget?: unknown }).escalationTarget,
+  );
   return {
     id,
     ...(name ? { name } : {}),
@@ -172,6 +177,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
@@ -219,6 +225,8 @@ function fingerprintAgent(agent: AgentConfig): string {
     fingerprintString(agent.owner),
     fingerprintString(agent.role),
     fingerprintCv(agent.cv),
+    fingerprintString(agent.escalationTarget?.channel),
+    fingerprintString(agent.escalationTarget?.recipient),
   ].join('|');
 }
 
@@ -290,6 +298,9 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.owner ? { owner: agent.owner } : {}),
     ...(agent.role ? { role: agent.role } : {}),
     ...(agent.cv ? { cv: agent.cv } : {}),
+    ...(agent.escalationTarget
+      ? { escalationTarget: cloneAgentEscalationTarget(agent.escalationTarget) }
+      : {}),
   };
 }
 
@@ -344,6 +355,7 @@ function syncConfiguredAgentsToDatabase(): void {
       owner: agent.owner,
       role: agent.role,
       cv: cloneAgentCv(agent.cv),
+      escalationTarget: agent.escalationTarget,
     });
   }
 }

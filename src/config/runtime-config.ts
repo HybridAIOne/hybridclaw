@@ -12,8 +12,10 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentCv,
+  cloneAgentEscalationTarget,
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
+  normalizeAgentEscalationTarget,
 } from '../agents/agent-types.js';
 import type {
   ChannelKind,
@@ -2185,6 +2187,9 @@ function normalizeAgentConfig(
   const cv = Object.hasOwn(value, 'cv')
     ? normalizeAgentCv(value.cv)
     : cloneAgentCv(fallback?.cv);
+  const escalationTarget = Object.hasOwn(value, 'escalationTarget')
+    ? normalizeAgentEscalationTarget(value.escalationTarget)
+    : cloneAgentEscalationTarget(fallback?.escalationTarget);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2197,6 +2202,7 @@ function normalizeAgentConfig(
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 

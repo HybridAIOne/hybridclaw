@@ -1,7 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest';
+
+const runtimeHome = vi.hoisted(() => {
+  const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
+  const originalHome = process.env.HOME;
+  const tempRoot = (process.env.TMPDIR || '/tmp').replace(/\/+$/, '');
+  const homeDir = `${tempRoot}/hybridclaw-hybridai-skills-module-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  process.env.HYBRIDCLAW_DATA_DIR = homeDir;
+  process.env.HOME = homeDir;
+  return { homeDir, originalDataDir, originalHome };
+});
 
 import { buildDefaultEvalProfile } from '../src/evals/eval-profile.js';
 import {
@@ -15,6 +25,20 @@ import {
 import { useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-hybridai-skills-');
+
+afterAll(() => {
+  if (runtimeHome.originalDataDir === undefined) {
+    delete process.env.HYBRIDCLAW_DATA_DIR;
+  } else {
+    process.env.HYBRIDCLAW_DATA_DIR = runtimeHome.originalDataDir;
+  }
+  if (runtimeHome.originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = runtimeHome.originalHome;
+  }
+  fs.rmSync(runtimeHome.homeDir, { recursive: true, force: true });
+});
 
 function writeDoc(dir: string, filename: string, body: string): string {
   const target = path.join(dir, filename);

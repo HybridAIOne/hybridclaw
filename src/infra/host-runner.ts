@@ -367,6 +367,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
         Number.isFinite(parsed.expiresAt)
           ? parsed.expiresAt
           : null,
+      ...(parsed.escalationTarget
+        ? { escalationTarget: parsed.escalationTarget }
+        : {}),
     };
   } catch {
     return null;
@@ -697,6 +700,7 @@ async function runHostProcessInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    escalationTarget,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
@@ -809,6 +813,7 @@ async function runHostProcessInner(
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
     agentId,

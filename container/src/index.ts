@@ -101,6 +101,7 @@ import {
   type ChatMessage,
   type ContainerInput,
   type ContainerOutput,
+  type EscalationTarget,
   type PendingApproval,
   TASK_MODEL_KEYS,
   type ToolCall,
@@ -714,6 +715,7 @@ async function executePreparedToolCall(
       stakes: approval.stakes,
       stakesScore: approval.stakesScore,
       escalationRoute,
+      escalationTarget: approval.escalationTarget,
       approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
@@ -939,6 +941,7 @@ async function processRequest(
   maxTokens?: number,
   effectiveUserPromptOverride?: string,
   ralphMaxIterationsOverride?: number | null,
+  escalationTarget?: EscalationTarget,
 ): Promise<ContainerOutput> {
   const processStartedAt = Date.now();
   await emitRuntimeEvent({
@@ -1372,6 +1375,7 @@ async function processRequest(
             argsJson: candidate.function.arguments,
             latestUserPrompt: effectiveUserPrompt,
             channelId,
+            escalationTarget,
           });
           if (
             candidateApproval.decision === 'required' ||
@@ -1460,6 +1464,7 @@ async function processRequest(
           argsJson: call.function.arguments,
           latestUserPrompt: effectiveUserPrompt,
           channelId,
+          escalationTarget,
         });
       logToolCallStart(toolName, call.function.arguments, approval);
 
@@ -1484,6 +1489,9 @@ async function processRequest(
             Number.isFinite(approval.expiresAtMs)
               ? approval.expiresAtMs
               : null,
+          ...(approval.escalationTarget
+            ? { escalationTarget: approval.escalationTarget }
+            : {}),
         };
         emitApprovalProgress(pendingApproval);
         toolExecutions.push({
@@ -1500,6 +1508,7 @@ async function processRequest(
           stakes: approval.stakes,
           stakesScore: approval.stakesScore,
           escalationRoute: approval.escalationRoute,
+          escalationTarget: approval.escalationTarget,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
@@ -1545,6 +1554,7 @@ async function processRequest(
           stakes: approval.stakes,
           stakesScore: approval.stakesScore,
           escalationRoute: approval.escalationRoute,
+          escalationTarget: approval.escalationTarget,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
@@ -1766,6 +1776,7 @@ async function main(): Promise<void> {
       firstInput.maxTokens,
       firstPromptOverride,
       firstInput.ralphMaxIterations,
+      firstInput.escalationTarget,
     );
     if (
       firstMessagesForRequest !== firstInput.messages &&
@@ -1804,6 +1815,7 @@ async function main(): Promise<void> {
         firstInput.maxTokens,
         firstPromptOverride,
         firstInput.ralphMaxIterations,
+        firstInput.escalationTarget,
       );
     }
   }
@@ -1929,6 +1941,7 @@ async function main(): Promise<void> {
       input.maxTokens,
       promptOverride,
       input.ralphMaxIterations,
+      input.escalationTarget,
     );
     if (
       messagesForRequestWithSkillCache !== input.messages &&
@@ -1966,6 +1979,7 @@ async function main(): Promise<void> {
         input.maxTokens,
         promptOverride,
         input.ralphMaxIterations,
+        input.escalationTarget,
       );
     }
 
