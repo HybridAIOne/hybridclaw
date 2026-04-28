@@ -34,7 +34,7 @@ async function loadDefaultNgrok(): Promise<NgrokClient> {
 }
 
 function normalizePublicUrl(value: string | null): string {
-  const raw = String(value || '').trim();
+  const raw = (value ?? '').trim();
   if (!raw) {
     throw new Error('ngrok listener did not report a public URL.');
   }
