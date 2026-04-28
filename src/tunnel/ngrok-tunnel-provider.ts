@@ -140,7 +140,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     }
   }
 
-  async status(): Promise<TunnelStatus> {
+  status(): TunnelStatus {
     return {
       running: Boolean(this.listener && this.publicUrl),
       public_url: this.publicUrl,

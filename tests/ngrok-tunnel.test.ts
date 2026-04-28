@@ -16,7 +16,7 @@ describe('NgrokTunnelProvider', () => {
         secretName === 'NGROK_AUTHTOKEN' ? ' test-token ' : null,
     });
 
-    await expect(provider.status()).resolves.toEqual({
+    expect(provider.status()).toEqual({
       running: false,
       public_url: null,
     });
@@ -29,14 +29,14 @@ describe('NgrokTunnelProvider', () => {
       authtoken: 'test-token',
       proto: 'http',
     });
-    await expect(provider.status()).resolves.toEqual({
+    expect(provider.status()).toEqual({
       running: true,
       public_url: 'https://abc123.ngrok.app',
     });
 
     await provider.stop();
     expect(close).toHaveBeenCalledTimes(1);
-    await expect(provider.status()).resolves.toEqual({
+    expect(provider.status()).toEqual({
       running: false,
       public_url: null,
     });
@@ -97,7 +97,7 @@ describe('NgrokTunnelProvider', () => {
     expect(thrown?.message).toContain('Failed to start ngrok tunnel');
     expect(thrown?.message).not.toContain('secret-token');
     expect(close).toHaveBeenCalledTimes(1);
-    await expect(provider.status()).resolves.toEqual({
+    expect(provider.status()).toEqual({
       running: false,
       public_url: null,
     });

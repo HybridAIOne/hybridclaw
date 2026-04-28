@@ -12,5 +12,5 @@ export interface TunnelStatus {
 export interface TunnelProvider {
   start(): Promise<TunnelStartResult>;
   stop(): Promise<void>;
-  status(): Promise<TunnelStatus>;
+  status(): TunnelStatus;
 }
