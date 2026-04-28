@@ -2310,6 +2310,14 @@ function buildSlashCommandCatalogDefinitions(
               '/skill install <skill> <dependency>',
             ],
           },
+          tuiMenuEntries: [
+            {
+              id: 'skill.install.dependency',
+              label: '/skill install <skill> <dependency>',
+              insertText: '/skill install ',
+              description: 'Install one declared dependency for a skill',
+            },
+          ],
           options: [
             {
               kind: 'string',
