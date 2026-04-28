@@ -73,6 +73,18 @@ Examples:
   sessions
 - `/model info` shows the effective, session, agent, and default models
 
+## Model Info And Usage
+
+`/model info` also reports known model metadata when HybridClaw can resolve it:
+context window, maximum output tokens, capability flags, pricing per 1M tokens,
+and source references. Local models and Codex subscription-backed models are
+shown as zero-cost in local usage summaries; remote-provider pricing is shown
+only when the provider catalog exposes usable pricing metadata.
+
+The admin Models page combines the same metadata with daily and monthly usage
+rollups, so operators can sort by context window or monthly usage and compare
+spend across active models.
+
 ## Allowed Model Lists
 
 - `codex.models` controls the allowed Codex model list shown in selectors and

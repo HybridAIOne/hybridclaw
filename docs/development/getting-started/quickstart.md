@@ -65,6 +65,8 @@ With the gateway running locally:
 - chat UI: `http://127.0.0.1:9090/chat`
 - agent/session dashboard: `http://127.0.0.1:9090/agents`
 - admin console: `http://127.0.0.1:9090/admin`
+- statistics: `http://127.0.0.1:9090/admin/statistics`
+- agent scoreboard: `http://127.0.0.1:9090/admin/agent-scoreboard`
 - docs: `http://127.0.0.1:9090/docs`
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
@@ -74,6 +76,9 @@ For access from another machine, keep the gateway on loopback and follow
 The `/chat` sidebar keeps recent conversations and can search session titles
 with contextual snippets, so you can jump back into older browser sessions
 without paging through the default recent list.
+The chat header also shows a live context-usage ring. Use `/context` for the
+full context snapshot, and use `/compact` when the ring shows that a long
+session is approaching its model window.
 
 ## Ground A Prompt With Files Or Repo Context
 
