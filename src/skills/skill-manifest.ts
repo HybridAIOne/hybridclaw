@@ -180,11 +180,56 @@ function readRecordPath(
   return isRecord(current) ? current : null;
 }
 
+interface ManifestFieldSource {
+  label: string;
+  record: Record<string, unknown> | null;
+}
+
+function buildManifestFieldSources(frontmatter: Record<string, unknown>): {
+  hybridclaw: Record<string, unknown> | null;
+  sources: ManifestFieldSource[];
+} {
+  const metadata = readRecordPath(frontmatter, ['metadata']);
+  const hybridclaw =
+    readRecordPath(frontmatter, ['metadata', 'hybridclaw']) ||
+    readRecordPath(frontmatter, ['metadata', 'openclaw']);
+
+  // Field lookup precedence, highest first. Keep future manifest fields on this
+  // ordered source list instead of adding ad hoc fallback chains.
+  const sources: ManifestFieldSource[] = [
+    {
+      label: 'manifest',
+      record: readRecordPath(frontmatter, ['manifest']),
+    },
+    {
+      label: 'metadata.hybridclaw.manifest / metadata.openclaw.manifest',
+      record:
+        readRecordPath(frontmatter, ['metadata', 'hybridclaw', 'manifest']) ||
+        readRecordPath(frontmatter, ['metadata', 'openclaw', 'manifest']),
+    },
+    {
+      label: 'metadata.hybridclaw / metadata.openclaw',
+      record: hybridclaw,
+    },
+    {
+      label: 'metadata',
+      record: metadata,
+    },
+    {
+      label: 'frontmatter',
+      record: frontmatter,
+    },
+  ];
+
+  return { hybridclaw, sources };
+}
+
 function findFirstValue(
-  records: readonly (Record<string, unknown> | null)[],
+  sources: readonly ManifestFieldSource[],
   keys: readonly string[],
 ): unknown {
-  for (const record of records) {
+  for (const source of sources) {
+    const record = source.record;
     if (!record) continue;
     for (const key of keys) {
       if (Object.hasOwn(record, key)) return record[key];
@@ -198,35 +243,21 @@ export function parseSkillManifestFromMarkdown(
   fallback: { name: string },
 ): SkillManifest {
   const frontmatter = parseFrontmatterObject(raw);
-  const metadata = readRecordPath(frontmatter, ['metadata']);
-  const hybridclaw =
-    readRecordPath(frontmatter, ['metadata', 'hybridclaw']) ||
-    readRecordPath(frontmatter, ['metadata', 'openclaw']);
-  const topLevelManifest = readRecordPath(frontmatter, ['manifest']);
-  const hybridclawManifest =
-    readRecordPath(frontmatter, ['metadata', 'hybridclaw', 'manifest']) ||
-    readRecordPath(frontmatter, ['metadata', 'openclaw', 'manifest']);
-  const records = [
-    topLevelManifest,
-    hybridclawManifest,
-    hybridclaw,
-    metadata,
-    frontmatter,
-  ];
+  const { hybridclaw, sources } = buildManifestFieldSources(frontmatter);
 
   const name = normalizeString(frontmatter.name) || fallback.name;
   const id =
-    normalizeString(findFirstValue(records, ['id', 'skillId', 'skill_id'])) ||
+    normalizeString(findFirstValue(sources, ['id', 'skillId', 'skill_id'])) ||
     slugify(name);
-  const rawVersion = normalizeString(findFirstValue(records, ['version']));
+  const rawVersion = normalizeString(findFirstValue(sources, ['version']));
   const version = SEMVERISH_RE.test(rawVersion) ? rawVersion : '0.0.0';
   const rawCredentials =
-    findFirstValue(records, [
+    findFirstValue(sources, [
       'requiredCredentials',
       'required_credentials',
       'credentials',
     ]) ?? readRecordPath(hybridclaw || {}, ['credentials'])?.required;
-  const rawChannels = findFirstValue(records, [
+  const rawChannels = findFirstValue(sources, [
     'supportedChannels',
     'supported_channels',
     'channels',
@@ -237,7 +268,7 @@ export function parseSkillManifestFromMarkdown(
     name,
     version,
     capabilities: normalizeCapabilities(
-      findFirstValue(records, ['capabilities']),
+      findFirstValue(sources, ['capabilities']),
     ),
     requiredCredentials: normalizeRequiredCredentials(rawCredentials),
     supportedChannels: normalizeSupportedChannels(rawChannels),

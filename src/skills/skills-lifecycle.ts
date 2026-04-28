@@ -18,8 +18,6 @@ import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import {
   assertImportBudget,
   assertSafeRelativePath,
-  MAX_IMPORT_FILE_COUNT,
-  MAX_IMPORT_TOTAL_BYTES,
   recordImportedFile,
 } from './skill-import-commons.js';
 import {
@@ -196,23 +194,11 @@ function restoreSkillPackageSnapshot(
   fs.rmSync(skillDir, { recursive: true, force: true });
   fs.mkdirSync(skillDir, { recursive: true });
 
-  let fileCount = 0;
-  let totalBytes = 0;
+  const state = { fileCount: 0, totalBytes: 0 };
   for (const file of snapshot.files) {
     assertSafeRelativePath(file.path);
-    fileCount += 1;
-    if (fileCount > MAX_IMPORT_FILE_COUNT) {
-      throw new Error(
-        `Skill snapshot exceeds the ${MAX_IMPORT_FILE_COUNT}-file limit.`,
-      );
-    }
     const content = Buffer.from(file.contentBase64, 'base64');
-    totalBytes += content.byteLength;
-    if (totalBytes > MAX_IMPORT_TOTAL_BYTES) {
-      throw new Error(
-        `Skill snapshot exceeds the ${MAX_IMPORT_TOTAL_BYTES} byte limit.`,
-      );
-    }
+    recordImportedFile(state, content.byteLength);
     const targetPath = path.join(skillDir, file.path);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, content);
