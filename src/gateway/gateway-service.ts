@@ -254,7 +254,6 @@ import {
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
-import { lookupModelMetadata } from '../providers/models-dev-catalog.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
@@ -420,6 +419,7 @@ import {
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistorySummary,
+  type GatewayModelProviderKey,
   type GatewayProviderHealthEntry,
   type GatewayRecentChatSession,
   type GatewayStatus,
@@ -4705,6 +4705,37 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
   };
 }
 
+const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
+  ['openai-codex/', 'codex'],
+  ['openrouter/', 'openrouter'],
+  ['mistral/', 'mistral'],
+  ['huggingface/', 'huggingface'],
+  ['gemini/', 'gemini'],
+  ['deepseek/', 'deepseek'],
+  ['xai/', 'xai'],
+  ['zai/', 'zai'],
+  ['kimi/', 'kimi'],
+  ['minimax/', 'minimax'],
+  ['dashscope/', 'dashscope'],
+  ['xiaomi/', 'xiaomi'],
+  ['kilo/', 'kilo'],
+  ['ollama/', 'ollama'],
+  ['lmstudio/', 'lmstudio'],
+  ['llamacpp/', 'llamacpp'],
+  ['vllm/', 'vllm'],
+];
+
+// Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
+// convention — that's what `runtimeConfig.hybridai.defaultModel` carries and
+// what `/model set <slug>` resolves through.
+function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
+  const normalized = modelId.trim().toLowerCase();
+  for (const [prefix, key] of MODEL_PROVIDER_KEY_BY_PREFIX) {
+    if (normalized.startsWith(prefix)) return key;
+  }
+  return 'hybridai';
+}
+
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
@@ -4764,40 +4795,10 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
 
-  for (const modelId of modelIds) {
-    const normalized = modelId.trim().toLowerCase();
-    if (!normalized) continue;
-
-    type ProviderKey = keyof NonNullable<
-      GatewayAdminModelsResponse['providerStatus']
-    >;
-    const PROVIDER_KEY_BY_PREFIX: Array<[string, ProviderKey]> = [
-      ['openai-codex/', 'codex'],
-      ['openrouter/', 'openrouter'],
-      ['mistral/', 'mistral'],
-      ['huggingface/', 'huggingface'],
-      ['gemini/', 'gemini'],
-      ['deepseek/', 'deepseek'],
-      ['xai/', 'xai'],
-      ['zai/', 'zai'],
-      ['kimi/', 'kimi'],
-      ['minimax/', 'minimax'],
-      ['dashscope/', 'dashscope'],
-      ['xiaomi/', 'xiaomi'],
-      ['kilo/', 'kilo'],
-      ['ollama/', 'ollama'],
-      ['lmstudio/', 'lmstudio'],
-      ['llamacpp/', 'llamacpp'],
-      ['vllm/', 'vllm'],
-    ];
-    let providerKey: ProviderKey = 'hybridai';
-    for (const [prefix, key] of PROVIDER_KEY_BY_PREFIX) {
-      if (normalized.startsWith(prefix)) {
-        providerKey = key;
-        break;
-      }
-    }
-
+  const providerKeyByModel = new Map(
+    modelIds.map((id) => [id, resolveModelProviderKey(id)] as const),
+  );
+  for (const providerKey of providerKeyByModel.values()) {
     modelCountByProvider.set(
       providerKey,
       (modelCountByProvider.get(providerKey) || 0) + 1,
@@ -4842,28 +4843,22 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
           getDiscoveredOpenRouterModelMaxTokens(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
-        const metadata = lookupModelMetadata(modelId);
-        const localContextWindow = resolveKnownModelContextWindow(modelId);
         return {
           id: modelId,
+          provider: providerKeyByModel.get(modelId) ?? 'hybridai',
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: localContextWindow ?? metadata?.contextWindow ?? null,
+          contextWindow: resolveKnownModelContextWindow(modelId),
           maxTokens:
             info?.maxTokens ??
             codexMaxTokens ??
             hybridaiMaxTokens ??
             openRouterMaxTokens ??
             null,
-          isReasoning: info?.isReasoning ?? metadata?.isReasoning ?? false,
+          isReasoning: info?.isReasoning ?? false,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
-          supportsVision: metadata?.supportsVision ?? false,
-          supportsTools: metadata?.supportsTools ?? false,
-          supportsImageGen: metadata?.supportsImageGen ?? false,
-          costTier: metadata?.costTier ?? null,
-          knowledgeCutoff: metadata?.knowledgeCutoff ?? null,
           usageDaily: dailySummary ? mapUsageSummary(dailySummary) : null,
           usageMonthly: monthlySummary ? mapUsageSummary(monthlySummary) : null,
         };

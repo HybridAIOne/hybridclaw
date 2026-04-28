@@ -850,8 +850,14 @@ export interface GatewayAdminAgentMarkdownRevisionResponse {
   };
 }
 
+/** Key into `GatewayAdminModelsResponse.providerStatus`. */
+export type GatewayModelProviderKey = keyof NonNullable<
+  GatewayAdminModelsResponse['providerStatus']
+>;
+
 export interface GatewayAdminModelCatalogEntry {
   id: string;
+  provider: GatewayModelProviderKey;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
@@ -860,14 +866,6 @@ export interface GatewayAdminModelCatalogEntry {
   thinkingFormat: string | null;
   family: string | null;
   parameterSize: string | null;
-  /** Capability flags sourced from models.dev when available. */
-  supportsVision: boolean;
-  supportsTools: boolean;
-  supportsImageGen: boolean;
-  /** Cost bucket derived from input $/M tokens (low/medium/high/highest). */
-  costTier: 'low' | 'medium' | 'high' | 'highest' | null;
-  /** YYYY-MM-style training-data cutoff, when known. */
-  knowledgeCutoff: string | null;
   usageDaily: GatewayAdminUsageSummary | null;
   usageMonthly: GatewayAdminUsageSummary | null;
 }

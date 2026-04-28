@@ -614,19 +614,13 @@ export interface AdminCommandResult {
 /** Minimum fields the chat surface needs to render and switch between models. */
 export interface ChatModel {
   id: string;
+  /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
+  provider: string;
   backend: 'ollama' | 'lmstudio' | 'vllm' | null;
   contextWindow: number | null;
   isReasoning: boolean;
   family: string | null;
   parameterSize: string | null;
-  /** Capability flags, when known (sourced from the models.dev catalog). */
-  supportsVision: boolean;
-  supportsTools: boolean;
-  supportsImageGen: boolean;
-  /** Cost bucket derived from input $/M tokens. */
-  costTier: 'low' | 'medium' | 'high' | 'highest' | null;
-  /** YYYY-MM training-data cutoff, when known. */
-  knowledgeCutoff: string | null;
 }
 
 export interface AdminModelCatalogEntry extends ChatModel {

@@ -120,7 +120,6 @@ import {
   stopDiscoveryLoop,
 } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
-import { preloadModelsDevCatalog } from '../providers/models-dev-catalog.js';
 import { startHeartbeat, stopHeartbeat } from '../scheduler/heartbeat.js';
 import {
   rearmScheduler,
@@ -3022,7 +3021,6 @@ async function main(): Promise<void> {
   void hybridAIProbe.get().catch((err) => {
     logger.warn({ err }, 'Startup warm-up of HybridAI probe failed');
   });
-  void preloadModelsDevCatalog();
   detachConfigListener = onConfigChange((next, prev) => {
     void refreshEmailIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
