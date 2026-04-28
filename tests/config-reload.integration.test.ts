@@ -219,6 +219,14 @@ describe('config reload integration', () => {
     expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
       'low-stakes-autonomous',
     );
+    expect(() => configMod.resolveSkillAutonomyLevel(cfg, '', 'docs')).toThrow(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+    expect(() =>
+      configMod.resolveSkillAutonomyLevel(cfg, 'writer', ''),
+    ).toThrow(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
     expect(warnSpy).toHaveBeenCalledWith(
       '[runtime-config] skipping skills.autonomy rule: expected an object',
     );

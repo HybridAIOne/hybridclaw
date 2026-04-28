@@ -5926,7 +5926,11 @@ export function resolveSkillAutonomyLevel(
   skillName: string,
 ): SkillAutonomyLevel {
   const defaultLevel = config.skills.autonomy.defaultLevel;
-  if (!agentId || !skillName) return defaultLevel;
+  if (!agentId || !skillName) {
+    throw new Error(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+  }
 
   const rule = config.skills.autonomy.rules.find(
     (entry) => entry.agentId === agentId && entry.skillName === skillName,
