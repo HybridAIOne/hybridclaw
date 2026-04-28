@@ -27,6 +27,7 @@ import {
   listUsageByAgent,
   listUsageByModel,
   listUsageDailyBreakdown,
+  monthlySpend,
   queryKnowledgeGraph,
   recallSemanticMemories,
   recordUsageEvent,
@@ -2091,6 +2092,10 @@ describe.sequential('usage aggregation DB', () => {
   test('records usage events and returns daily/monthly + by-model aggregates', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
+    const now = new Date();
+    const previousMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12),
+    );
 
     recordUsageEvent({
       sessionId: 's-a',
@@ -2122,6 +2127,16 @@ describe.sequential('usage aggregation DB', () => {
       toolCalls: 0,
       costUsd: 0.0013,
     });
+    recordUsageEvent({
+      sessionId: 's-old',
+      agentId: 'agent-a',
+      model: 'gpt-5-nano',
+      inputTokens: 1_000,
+      outputTokens: 1_000,
+      totalTokens: 2_000,
+      costUsd: 9,
+      timestamp: previousMonth.toISOString(),
+    });
 
     const agentDaily = getUsageTotals({
       agentId: 'agent-a',
@@ -2130,6 +2145,9 @@ describe.sequential('usage aggregation DB', () => {
     expect(agentDaily.call_count).toBe(2);
     expect(agentDaily.total_tokens).toBe(800);
     expect(agentDaily.total_cost_usd).toBeCloseTo(0.0049, 6);
+    expect(monthlySpend(' agent-a ')).toBeCloseTo(0.0049, 6);
+    expect(monthlySpend('agent-b')).toBeCloseTo(0.0013, 6);
+    expect(() => monthlySpend('')).toThrow('Coworker id is required.');
 
     const monthlyByModel = listUsageByModel({
       window: 'monthly',

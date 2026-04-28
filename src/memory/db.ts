@@ -2984,6 +2984,14 @@ export function getUsageTotals(params?: {
   };
 }
 
+export function monthlySpend(coworkerId: string): number {
+  const agentId = coworkerId.trim();
+  if (!agentId) {
+    throw new Error('Coworker id is required.');
+  }
+  return getUsageTotals({ agentId, window: 'monthly' }).total_cost_usd;
+}
+
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
   return getSessionUsageTotalsSince(sessionId, null);
 }

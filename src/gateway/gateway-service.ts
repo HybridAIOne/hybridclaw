@@ -4258,6 +4258,11 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
       (row) => [row.agent_id, row] as const,
     ),
   );
+  const monthlyUsageByAgent = new Map(
+    listUsageByAgent({ window: 'monthly' }).map(
+      (row) => [row.agent_id, row] as const,
+    ),
+  );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
       (row) => [row.session_id, row] as const,
@@ -4299,6 +4304,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
         agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
         sessions: sessionsByAgent.get(agentId) ?? [],
         usage: usageByAgent.get(agentId),
+        monthlyUsage: monthlyUsageByAgent.get(agentId),
       }),
     )
     .sort((left, right) => {

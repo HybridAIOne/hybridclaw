@@ -887,6 +887,7 @@ async function importFreshHealth(options?: {
         inputTokens: 10,
         outputTokens: 5,
         costUsd: 0.01,
+        monthlySpend: 0.01,
         messageCount: 2,
         toolCalls: 1,
         recentSessionId: DEFAULT_WEB_SESSION_ID,
@@ -4934,6 +4935,7 @@ describe('gateway HTTP server', () => {
         {
           id: 'main',
           sessionCount: 1,
+          monthlySpend: 0.01,
           status: 'active',
         },
       ],
