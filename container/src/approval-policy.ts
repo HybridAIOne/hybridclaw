@@ -96,7 +96,6 @@ export interface ApprovalPolicyConfig {
 
 interface ClassifiedAction {
   tier: ApprovalTier;
-  stakes?: StakesLevel;
   actionKey: string;
   intent: string;
   consequenceIfDenied: string;
@@ -1306,7 +1305,7 @@ export class TrustedAgentApprovalRuntime {
     });
     const safetyTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
-    let stakesScore = classifyStakes(
+    const stakesScore = classifyStakes(
       {
         toolName: params.toolName,
         args,
@@ -1322,16 +1321,6 @@ export class TrustedAgentApprovalRuntime {
       },
       this.stakesClassifier,
     );
-    if (classified.stakes && classified.stakes !== stakesScore.level) {
-      stakesScore = {
-        ...stakesScore,
-        level: classified.stakes,
-        reasons: [
-          `approval classifier explicitly set ${classified.stakes} stakes`,
-          ...stakesScore.reasons,
-        ],
-      };
-    }
     const stakes = stakesScore.level;
 
     let baseTier: ApprovalTier = safetyTier;
