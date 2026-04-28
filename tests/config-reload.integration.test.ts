@@ -225,6 +225,9 @@ describe('config reload integration', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] invalid skills.autonomy level "unsupported" for agentId "writer" and skillName "bad-level"; using default "low-stakes-autonomous"',
+    );
     warnSpy.mockRestore();
   });
 

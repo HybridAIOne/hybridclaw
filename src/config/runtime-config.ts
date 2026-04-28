@@ -1695,6 +1695,15 @@ function normalizeSkillAutonomyConfig(
       continue;
     }
     const level = normalizeSkillAutonomyLevel(item.level, defaultLevel);
+    if (
+      typeof item.level === 'string' &&
+      item.level.trim() &&
+      level !== item.level.trim().toLowerCase()
+    ) {
+      console.warn(
+        `[runtime-config] invalid skills.autonomy level "${item.level.trim()}" for agentId "${agentId}" and skillName "${skillName}"; using default "${defaultLevel}"`,
+      );
+    }
     rulesByKey.set(JSON.stringify([agentId, skillName]), {
       agentId,
       skillName,
