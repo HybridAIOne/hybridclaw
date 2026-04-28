@@ -25,7 +25,8 @@
       "voice": [],
       "whatsapp": [],
       "email": []
-    }
+    },
+    "installed": []
   },
   "tools": {
     "disabled": []

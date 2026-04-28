@@ -9,6 +9,10 @@ import {
   type PolicyPredicateRegistry,
   type PolicyRule,
 } from '../src/policy/policy-engine.js';
+import {
+  evaluateSkillPolicyAccess,
+  readSkillPolicyState,
+} from '../src/policy/skill-policy.js';
 
 interface ExampleContext {
   agent: string;
@@ -126,4 +130,47 @@ test('network policy is evaluated as a policy-engine consumer', () => {
     decision: 'allow',
     matchedRule: rules[1],
   });
+});
+
+test('skill policy is evaluated as a policy-engine consumer', () => {
+  const state = readSkillPolicyState({
+    skill: {
+      rules: [
+        {
+          id: 'deny-sap-outside-finance',
+          when: {
+            all: [
+              { predicate: 'skill.name', equals: 'sap' },
+              { not: { predicate: 'actor.role', equals: 'finance' } },
+            ],
+          },
+          action: {
+            type: 'deny',
+            reason: 'SAP is finance-only.',
+          },
+        },
+      ],
+    },
+  });
+
+  expect(
+    evaluateSkillPolicyAccess({
+      rules: state.rules,
+      agentId: 'main',
+      skillName: 'sap',
+      roles: ['engineering'],
+    }),
+  ).toMatchObject({
+    decision: 'deny',
+    matchedRule: { id: 'deny-sap-outside-finance' },
+  });
+
+  expect(
+    evaluateSkillPolicyAccess({
+      rules: state.rules,
+      agentId: 'main',
+      skillName: 'sap',
+      roles: ['finance'],
+    }).decision,
+  ).toBe('allow');
 });

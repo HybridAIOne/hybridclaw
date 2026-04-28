@@ -594,7 +594,12 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <source>
   hybridclaw skill install <skill-name> <dependency>
+  hybridclaw skill upgrade <source>
+  hybridclaw skill uninstall <skill-name>
+  hybridclaw skill revisions <skill-name>
+  hybridclaw skill rollback <skill-name> <revision-id>
   hybridclaw skill setup <skill-name>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
@@ -606,7 +611,9 @@ Commands:
 
 Notes:
   - \`list\` shows declared dependency ids from skill frontmatter.
-  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
+  - \`install <source>\` installs a packaged skill into \`~/.hybridclaw/skills\`, records a package manifest, and snapshots it for rollback.
+  - \`install <skill> <dependency>\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter.
+  - \`upgrade\`, \`uninstall\`, \`revisions\`, and \`rollback\` manage packaged skills through audited lifecycle records.
   - \`setup\` installs every declared dependency for a skill in order.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
@@ -617,8 +624,7 @@ Notes:
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
-  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
+  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.`);
 }
 
 export function printToolUsage(): void {
