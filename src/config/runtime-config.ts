@@ -1731,7 +1731,7 @@ function normalizeDeploymentTunnelProvider(
   return '';
 }
 
-function normalizeDeploymentConfig(
+export function normalizeDeploymentConfig(
   value: unknown,
   fallback: RuntimeDeploymentConfig,
 ): RuntimeDeploymentConfig {

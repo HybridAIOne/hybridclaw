@@ -3,9 +3,11 @@ import { buildMcpServerNamespaces } from '../../../container/shared/mcp-tool-nam
 import { listKnownToolNames } from '../../agent/tool-summary.js';
 import {
   CONFIG_VERSION,
+  DEFAULT_RUNTIME_CONFIG,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
+  normalizeDeploymentConfig,
   runtimeConfigPath,
   setRuntimeToolEnabled,
   updateRuntimeConfig,
@@ -34,8 +36,15 @@ type UsageEntry = UnusedEntry & {
   toolNames: string[];
 };
 
-// Deployment fields were introduced in config v22 and older configs remain valid without them.
-const MIN_DEPLOYMENT_SCHEMA_VERSION = 22;
+const LOCAL_DEPLOYMENT_MODE_FALLBACK = {
+  ...DEFAULT_RUNTIME_CONFIG.deployment,
+  mode: 'local',
+} satisfies typeof DEFAULT_RUNTIME_CONFIG.deployment;
+
+const CLOUD_DEPLOYMENT_MODE_FALLBACK = {
+  ...DEFAULT_RUNTIME_CONFIG.deployment,
+  mode: 'cloud',
+} satisfies typeof DEFAULT_RUNTIME_CONFIG.deployment;
 
 function formatUnusedEntries(entries: readonly UnusedEntry[]): string {
   return entries
@@ -249,27 +258,19 @@ function getRawDeployment(
   return rawDeployment as Record<string, unknown>;
 }
 
-function getRawDeploymentField(
-  rawConfig: Record<string, unknown>,
-  key: string,
-): unknown {
-  const rawDeployment = getRawDeployment(rawConfig);
-  if (!rawDeployment) return undefined;
-  if (!Object.hasOwn(rawDeployment, key)) return undefined;
-  return rawDeployment[key];
-}
-
-function getRawDeploymentTunnelProvider(
-  rawConfig: Record<string, unknown>,
-  fallback: string,
-): string {
-  const rawDeployment = getRawDeployment(rawConfig);
-  const rawTunnel = rawDeployment?.tunnel;
-  if (!rawTunnel || typeof rawTunnel !== 'object' || Array.isArray(rawTunnel)) {
-    return fallback;
-  }
-  const rawProvider = (rawTunnel as Record<string, unknown>).provider;
-  return typeof rawProvider === 'string' ? rawProvider.trim() : fallback;
+function hasInvalidDeploymentMode(
+  rawDeployment: Record<string, unknown> | null,
+): boolean {
+  if (!rawDeployment || !Object.hasOwn(rawDeployment, 'mode')) return false;
+  const localFallback = normalizeDeploymentConfig(
+    rawDeployment,
+    LOCAL_DEPLOYMENT_MODE_FALLBACK,
+  );
+  const cloudFallback = normalizeDeploymentConfig(
+    rawDeployment,
+    CLOUD_DEPLOYMENT_MODE_FALLBACK,
+  );
+  return localFallback.mode !== cloudFallback.mode;
 }
 
 function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
@@ -279,39 +280,22 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   const missingFields: string[] = [];
   const invalidFields: string[] = [];
   const rawDeployment = getRawDeployment(rawConfig);
-  const hasCurrentDeploymentSchema =
-    rawDeployment !== null ||
-    (typeof rawConfig.version === 'number' &&
-      rawConfig.version >= MIN_DEPLOYMENT_SCHEMA_VERSION);
-  const rawMode = getRawDeploymentField(rawConfig, 'mode');
-  const normalizedRawMode =
-    typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
-  const deploymentMode =
-    normalizedRawMode === 'cloud' || normalizedRawMode === 'local'
-      ? normalizedRawMode
-      : 'local';
-  const rawPublicUrl = getRawDeploymentField(rawConfig, 'public_url');
-  const publicUrl = typeof rawPublicUrl === 'string' ? rawPublicUrl.trim() : '';
-  const tunnelProvider = getRawDeploymentTunnelProvider(
-    rawConfig,
-    hasCurrentDeploymentSchema ? '' : 'manual',
+  const deployment = normalizeDeploymentConfig(
+    rawDeployment,
+    DEFAULT_RUNTIME_CONFIG.deployment,
   );
 
-  if (
-    rawMode !== undefined &&
-    normalizedRawMode !== 'cloud' &&
-    normalizedRawMode !== 'local'
-  ) {
+  if (hasInvalidDeploymentMode(rawDeployment)) {
     invalidFields.push('deployment.mode must be "cloud" or "local"');
   }
 
-  if (deploymentMode === 'cloud' && !publicUrl) {
+  if (deployment.mode === 'cloud' && !deployment.public_url) {
     missingFields.push('deployment.public_url');
   }
-  if (deploymentMode === 'local' && !tunnelProvider) {
+  if (deployment.mode === 'local' && !deployment.tunnel.provider) {
     missingFields.push('deployment.tunnel.provider');
   }
-  if (publicUrl && !isHttpUrl(publicUrl)) {
+  if (deployment.public_url && !isHttpUrl(deployment.public_url)) {
     invalidFields.push('deployment.public_url must be an HTTP(S) URL');
   }
 
