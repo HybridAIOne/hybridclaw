@@ -208,8 +208,6 @@ import {
 } from '../policy/policy-store.js';
 import {
   discoverCodexModels,
-  getDiscoveredCodexModelContextWindow,
-  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
 } from '../providers/codex-discovery.js';
 import {
@@ -218,7 +216,6 @@ import {
 } from '../providers/factory.js';
 import {
   discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
 import {
@@ -226,32 +223,25 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import {
-  getDiscoveredHybridAIModelContextWindow,
-  getDiscoveredHybridAIModelMaxTokens,
-  getDiscoveredHybridAIModelNames,
-} from '../providers/hybridai-discovery.js';
+import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import {
   type HybridAIHealthResult,
   hybridAIProbe,
 } from '../providers/hybridai-health.js';
-import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  getLocalModelInfo,
-  resolveLocalModelContextWindow,
-} from '../providers/local-discovery.js';
+import { getLocalModelInfo } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelContextWindow,
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
   getAvailableModelList,
+  getModelCatalogMetadata,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
+  refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
@@ -263,8 +253,6 @@ import {
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelContextWindow,
-  getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -1724,15 +1712,7 @@ function mapModelUsageRow(
 }
 
 function resolveKnownModelContextWindow(model: string): number | null {
-  return (
-    resolveLocalModelContextWindow(model) ??
-    getDiscoveredCodexModelContextWindow(model) ??
-    getDiscoveredHuggingFaceModelContextWindow(model) ??
-    getDiscoveredHybridAIModelContextWindow(model) ??
-    getDiscoveredMistralModelContextWindow(model) ??
-    getDiscoveredOpenRouterModelContextWindow(model) ??
-    resolveModelContextWindowFallback(model)
-  );
+  return getModelCatalogMetadata(model).contextWindow;
 }
 
 function resolveDisplayedModelName(model: string): string {
@@ -2296,6 +2276,20 @@ function formatUsd(value: number | null): string {
   if (value >= 1) return `$${value.toFixed(2)}`;
   if (value >= 0.01) return `$${value.toFixed(4)}`;
   return `$${value.toFixed(6)}`;
+}
+
+function resolveModelCostLabel(params: {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+}): string | null {
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
+  if (pricing.input == null && pricing.output == null) return null;
+  const inputCost =
+    pricing.input == null ? 0 : params.promptTokens * pricing.input;
+  const outputCost =
+    pricing.output == null ? 0 : params.completionTokens * pricing.output;
+  return formatUsd(inputCost + outputCost);
 }
 
 function resolveSessionAgentId(session: { agent_id: string }): string {
@@ -4993,25 +4987,20 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
-        const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
         const info = getLocalModelInfo(modelId);
-        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
-        const openRouterMaxTokens =
-          getDiscoveredOpenRouterModelMaxTokens(modelId);
+        const metadata = getModelCatalogMetadata(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: resolveKnownModelContextWindow(modelId),
-          maxTokens:
-            info?.maxTokens ??
-            codexMaxTokens ??
-            hybridaiMaxTokens ??
-            openRouterMaxTokens ??
-            null,
-          isReasoning: info?.isReasoning ?? false,
+          contextWindow: metadata.contextWindow,
+          maxTokens: metadata.maxTokens,
+          pricingUsdPerToken: metadata.pricingUsdPerToken,
+          capabilities: metadata.capabilities,
+          metadataSources: metadata.sources,
+          isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
@@ -8188,10 +8177,7 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' ||
-          sub === 'info' ||
-          sub === 'default' ||
-          sub === 'set';
+          sub === 'list' || sub === 'default' || sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -8211,6 +8197,9 @@ export async function handleGatewayCommand(
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
+        if (sub === 'info') {
+          await refreshModelCatalogMetadata(runtime.model);
+        }
         if (sub === 'list') {
           if (providerFilterArg && !providerFilter) {
             return badCommand(
@@ -8350,19 +8339,33 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
-          const currentModel = resolveRequestedCatalogModelName(
-            runtime.model,
-            availableModels,
-          );
-          const modelCatalog = availableModels.map((model) => ({
-            value: model,
-            label:
-              model === currentModel
-                ? `${formatModelForDisplay(model)} (current)`
-                : formatModelForDisplay(model),
-            isFree: isAvailableModelFree(model),
-            ...(isRecommendedModel(model) ? { recommended: true } : {}),
-          }));
+          const metadata = getModelCatalogMetadata(runtime.model);
+          const normalizedRuntimeModel = runtime.model.trim().toLowerCase();
+          const pricing = metadata.pricingUsdPerToken;
+          const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
+            ? 'Pricing: subscription included (0 EUR)'
+            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+              ? 'Pricing: local model (0 EUR)'
+              : pricing.input != null || pricing.output != null
+                ? `Pricing: ${
+                    pricing.input == null
+                      ? 'unknown'
+                      : formatUsd(pricing.input * 1_000_000)
+                  } input / ${
+                    pricing.output == null
+                      ? 'unknown'
+                      : formatUsd(pricing.output * 1_000_000)
+                  } output per 1M tokens`
+                : 'Pricing: dynamic pricing unavailable';
+          const capabilities =
+            [
+              metadata.capabilities.vision ? 'vision' : null,
+              metadata.capabilities.tools ? 'tools' : null,
+              metadata.capabilities.jsonMode ? 'JSON mode' : null,
+              metadata.capabilities.reasoning ? 'reasoning' : null,
+            ]
+              .filter((capability) => capability != null)
+              .join(', ') || 'unknown';
           return infoCommand(
             'Model Info',
             [
@@ -8370,14 +8373,13 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
-              '',
-              'Available now:',
-              modelCatalog.length > 0
-                ? modelCatalog.map((entry) => entry.label).join('\n')
-                : '(none)',
+              `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
+              `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
+              `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
+              `Capabilities: ${capabilities}`,
+              pricingLine,
+              `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
-            undefined,
-            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 
@@ -9560,6 +9562,7 @@ export async function handleGatewayCommand(
         if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
           await discoverMistralModels();
         }
+        await refreshModelCatalogMetadata(sessionModel);
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
@@ -9600,6 +9603,22 @@ export async function handleGatewayCommand(
         const localTokenLabel = ` · ${formatPercent(
           totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
         )} local`;
+        const mainCostLabel = resolveModelCostLabel({
+          model: sessionModel,
+          promptTokens: mainPromptTokens,
+          completionTokens: mainCompletionTokens,
+        });
+        const delegateCostLabel = showDelegateSetup
+          ? resolveModelCostLabel({
+              model: delegateModel,
+              promptTokens: delegatePromptTokens,
+              completionTokens: delegateCompletionTokens,
+            })
+          : null;
+        const costLabel =
+          mainCostLabel || delegateCostLabel
+            ? ` · Cost: ${mainCostLabel ?? 'n/a'}${showDelegateSetup ? ` (delegate: ${delegateCostLabel ?? 'n/a'})` : ''}`
+            : '';
         const performanceLabel =
           metrics.tokensPerSecond != null ||
           metrics.inputTokensPerSecond != null ||
@@ -9630,7 +9649,7 @@ export async function handleGatewayCommand(
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${costLabel}`,
           ...(performanceLabel ? [performanceLabel] : []),
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`

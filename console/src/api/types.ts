@@ -658,9 +658,20 @@ export interface AdminCommandResult {
 export interface AdminModelCatalogEntry {
   id: string;
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+  capabilities: {
+    vision: boolean;
+    tools: boolean;
+    jsonMode: boolean;
+    reasoning: boolean;
+  };
+  metadataSources: string[];
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;
