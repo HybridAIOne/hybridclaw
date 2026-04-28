@@ -551,8 +551,14 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
-const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
-export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
+let internalGatewayApiToken = '';
+function getInternalGatewayApiToken(): string {
+  if (!internalGatewayApiToken) {
+    internalGatewayApiToken = randomBytes(24).toString('hex');
+  }
+  return internalGatewayApiToken;
+}
+export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -949,7 +955,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
-    INTERNAL_GATEWAY_API_TOKEN;
+    getInternalGatewayApiToken();
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 
