@@ -5912,12 +5912,10 @@ export function resolveSkillAutonomyLevel(
   const normalizedSkillName = normalizeString(skillName, '', {
     allowEmpty: false,
   });
-  const defaultLevel =
-    config.skills.autonomy?.defaultLevel ??
-    DEFAULT_RUNTIME_CONFIG.skills.autonomy.defaultLevel;
+  const defaultLevel = config.skills.autonomy.defaultLevel;
   if (!normalizedAgentId || !normalizedSkillName) return defaultLevel;
 
-  const rule = config.skills.autonomy?.rules.find(
+  const rule = config.skills.autonomy.rules.find(
     (entry) =>
       entry.agentId === normalizedAgentId &&
       entry.skillName === normalizedSkillName,
