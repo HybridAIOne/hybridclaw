@@ -42,6 +42,10 @@ const DEFAULT_MEDIUM_COST_EUR = 50;
 const DEFAULT_HIGH_COST_EUR = 500;
 const DEFAULT_ML_MIN_CONFIDENCE = 0.55;
 const MAX_COST_AMOUNT_DEPTH = 10;
+const MAX_ARGS_INSPECTION_DEPTH = 4;
+const MAX_ARGS_INSPECTION_ENTRIES = 40;
+const MAX_ARGS_INSPECTION_CHARS = 8_192;
+const MAX_ARGS_INSPECTION_STRING_CHARS = 1_024;
 const COST_KEY_RE =
   /\b(cost|price|amount|budget|spend|charge|payment|refund|invoice|revenue|expense|salary|fee|subscription|order[_ -]?value)\b/i;
 const CUSTOMER_FACING_RE =
@@ -81,6 +85,59 @@ function normalizeStakesLevel(value: unknown): StakesLevel | null {
   return null;
 }
 
+function stringifyArgsForInspection(value: unknown): string {
+  const chunks: string[] = [];
+  const seen = new WeakSet<object>();
+  const state = { remaining: MAX_ARGS_INSPECTION_CHARS };
+
+  const append = (text: string): void => {
+    if (state.remaining <= 0) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const chunk = trimmed.slice(0, state.remaining);
+    chunks.push(chunk);
+    state.remaining -= chunk.length;
+  };
+
+  const visit = (entry: unknown, depth: number): void => {
+    if (state.remaining <= 0 || depth > MAX_ARGS_INSPECTION_DEPTH) return;
+
+    if (typeof entry === 'string') {
+      append(entry.slice(0, MAX_ARGS_INSPECTION_STRING_CHARS));
+      return;
+    }
+    if (
+      typeof entry === 'number' ||
+      typeof entry === 'boolean' ||
+      typeof entry === 'bigint'
+    ) {
+      append(String(entry));
+      return;
+    }
+    if (!entry || typeof entry !== 'object') return;
+    if (seen.has(entry)) return;
+    seen.add(entry);
+
+    if (Array.isArray(entry)) {
+      for (const item of entry.slice(0, MAX_ARGS_INSPECTION_ENTRIES)) {
+        visit(item, depth + 1);
+      }
+      return;
+    }
+
+    for (const [key, item] of Object.entries(entry).slice(
+      0,
+      MAX_ARGS_INSPECTION_ENTRIES,
+    )) {
+      append(key);
+      visit(item, depth + 1);
+    }
+  };
+
+  visit(value, 0);
+  return chunks.join(' ');
+}
+
 function stringifyForInspection(input: StakesClassificationInput): string {
   return [
     input.toolName,
@@ -88,7 +145,7 @@ function stringifyForInspection(input: StakesClassificationInput): string {
     input.intent,
     input.reason,
     input.target,
-    JSON.stringify(input.args),
+    stringifyArgsForInspection(input.args),
     input.pathHints.join(' '),
     input.hostHints.join(' '),
   ]

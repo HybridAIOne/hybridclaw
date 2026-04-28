@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
   classifyStakes,
@@ -261,6 +261,29 @@ describe('stakes classifier', () => {
     expect(result.classifier).toBe('rules:v1');
     expect(result.signals.map((signal) => signal.name)).toContain('cost:high');
     expect(result.reasons).toContain('detected cost exposure >= EUR 500');
+  });
+
+  test('large argument inspection does not JSON stringify full args', () => {
+    const stringifySpy = vi.spyOn(JSON, 'stringify').mockImplementation(() => {
+      throw new Error('JSON.stringify should not be called');
+    });
+    let result: ReturnType<typeof classifyWithTestDefaults> | undefined;
+
+    try {
+      result = classifyWithTestDefaults(
+        makeInput({
+          args: {
+            path: 'src/billing.ts',
+            contents: 'x'.repeat(100_000),
+            amount: '€900',
+          },
+        }),
+      );
+    } finally {
+      stringifySpy.mockRestore();
+    }
+
+    expect(result?.signals.map((signal) => signal.name)).toContain('cost:high');
   });
 
   test('classifyStakes requires a configured classifier instance', () => {
