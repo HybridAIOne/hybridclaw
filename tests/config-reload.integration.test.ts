@@ -159,11 +159,13 @@ describe('config reload integration', () => {
   });
 
   it('normalizes per-agent skill autonomy rules', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     writeConfig({
       skills: {
         autonomy: {
           defaultLevel: 'low-stakes-autonomous',
           rules: [
+            'not-a-rule',
             {
               agentId: ' writer ',
               skillName: ' docs ',
@@ -217,6 +219,13 @@ describe('config reload integration', () => {
     expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
       'low-stakes-autonomous',
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] skipping skills.autonomy rule: expected an object',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
+    );
+    warnSpy.mockRestore();
   });
 
   it('keeps autonomy rules distinct when ids contain null bytes', () => {

@@ -1676,14 +1676,24 @@ function normalizeSkillAutonomyConfig(
   const rulesByKey = new Map<string, RuntimeSkillAutonomyRule>();
   const rawRules = Array.isArray(raw.rules) ? raw.rules : [];
   for (const item of rawRules) {
-    if (!isRecord(item)) continue;
+    if (!isRecord(item)) {
+      console.warn(
+        '[runtime-config] skipping skills.autonomy rule: expected an object',
+      );
+      continue;
+    }
     const agentId = normalizeString(item.agentId, '', {
       allowEmpty: false,
     });
     const skillName = normalizeString(item.skillName, '', {
       allowEmpty: false,
     });
-    if (!agentId || !skillName) continue;
+    if (!agentId || !skillName) {
+      console.warn(
+        '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
+      );
+      continue;
+    }
     const level = normalizeSkillAutonomyLevel(item.level, defaultLevel);
     rulesByKey.set(JSON.stringify([agentId, skillName]), {
       agentId,
