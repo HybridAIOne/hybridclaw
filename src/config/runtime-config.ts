@@ -15,8 +15,14 @@ import {
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
 } from '../agents/agent-types.js';
-import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  ChannelKind,
+  SkillConfigChannelKind,
+} from '../channels/channel.js';
+import {
+  normalizeChannelKind,
+  normalizeSkillConfigChannelKind,
+} from '../channels/channel-registry.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -568,6 +574,33 @@ export interface RuntimeSkillAutonomyConfig {
   rules: RuntimeSkillAutonomyRule[];
 }
 
+export interface RuntimeSkillCredentialManifest {
+  id: string;
+  env?: string;
+  description?: string;
+  required: boolean;
+}
+
+export type RuntimeSkillLifecycleStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'uninstalled';
+
+export interface RuntimeInstalledSkillManifest {
+  id: string;
+  name: string;
+  version: string;
+  source: string;
+  skillDir: string;
+  manifestPath: string;
+  status: RuntimeSkillLifecycleStatus;
+  capabilities: string[];
+  requiredCredentials: RuntimeSkillCredentialManifest[];
+  supportedChannels: ChannelKind[];
+  installedAt: string;
+  updatedAt: string;
+}
+
 type RuntimeSkillAutonomyRuleIndex = Map<
   string,
   Map<string, SkillAutonomyLevel>
@@ -587,6 +620,7 @@ export interface RuntimeConfig {
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
     autonomy: RuntimeSkillAutonomyConfig;
+    installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
     disabled: string[];
@@ -963,6 +997,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       defaultLevel: 'confirm-each',
       rules: [],
     },
+    installed: [],
   },
   tools: {
     disabled: [],
@@ -1765,6 +1800,117 @@ function normalizeSkillChannelDisabled(
     channelDisabled[channelKind] = normalizeStringArray(rawDisabled, []);
   }
   return channelDisabled;
+}
+
+function normalizeSkillLifecycleStatus(
+  value: unknown,
+): RuntimeSkillLifecycleStatus {
+  const normalized = normalizeString(value, 'enabled', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return normalized === 'disabled' || normalized === 'uninstalled'
+    ? normalized
+    : 'enabled';
+}
+
+function normalizeRuntimeSkillCredentialManifests(
+  value: unknown,
+): RuntimeSkillCredentialManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const credentials: RuntimeSkillCredentialManifest[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const env = normalizeString(item.env, '', { allowEmpty: true });
+    const description = normalizeString(item.description, '', {
+      allowEmpty: true,
+    });
+    credentials.push({
+      id,
+      ...(env ? { env } : {}),
+      ...(description ? { description } : {}),
+      required: item.required === undefined ? true : item.required !== false,
+    });
+  }
+  return credentials;
+}
+
+function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
+  const channels: ChannelKind[] = [];
+  const seen = new Set<ChannelKind>();
+  for (const raw of normalizeStringArray(value, [])) {
+    const normalized =
+      raw.toLowerCase() === 'web' ? 'tui' : normalizeChannelKind(raw);
+    if (
+      !normalized ||
+      normalized === 'heartbeat' ||
+      normalized === 'scheduler'
+    ) {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    channels.push(normalized);
+  }
+  return channels;
+}
+
+function normalizeRuntimeInstalledSkillManifests(
+  value: unknown,
+): RuntimeInstalledSkillManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const manifestsById = new Map<string, RuntimeInstalledSkillManifest>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    const name = normalizeString(item.name, id, { allowEmpty: false });
+    if (!id || !name) continue;
+    const version = normalizeString(item.version, '0.0.0', {
+      allowEmpty: false,
+    });
+    const source = normalizeString(item.source, 'unknown', {
+      allowEmpty: false,
+    });
+    const skillDir = normalizeString(item.skillDir, '', {
+      allowEmpty: false,
+    });
+    const manifestPath = normalizeString(item.manifestPath, '', {
+      allowEmpty: false,
+    });
+    const installedAt = normalizeString(item.installedAt, '', {
+      allowEmpty: true,
+    });
+    const updatedAt = normalizeString(item.updatedAt, '', {
+      allowEmpty: true,
+    });
+    manifestsById.set(id, {
+      id,
+      name,
+      version,
+      source,
+      skillDir,
+      manifestPath,
+      status: normalizeSkillLifecycleStatus(item.status),
+      capabilities: normalizeStringArray(item.capabilities, []),
+      requiredCredentials: normalizeRuntimeSkillCredentialManifests(
+        item.requiredCredentials,
+      ),
+      supportedChannels: normalizeRuntimeSkillSupportedChannels(
+        item.supportedChannels,
+      ),
+      installedAt,
+      updatedAt,
+    });
+  }
+
+  return [...manifestsById.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
 }
 
 export function setRuntimeSkillScopeEnabled(
@@ -4520,6 +4666,7 @@ function normalizeRuntimeConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,
       ),
+      installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
       disabled: normalizeStringArray(

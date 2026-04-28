@@ -121,16 +121,12 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       );
     }
 
-    const { loadSkillCatalog } = await import('../skills/skills.js');
-    const known = loadSkillCatalog().some((skill) => skill.name === skillName);
-    if (!known) {
-      throw new Error(`Unknown skill: ${skillName}`);
-    }
-
     const enabled = sub === 'enable';
-    const nextConfig = updateRuntimeConfig((draft) => {
-      setRuntimeSkillScopeEnabled(draft, skillName, enabled, channelKind);
-    });
+    const { setSkillPackageEnabled } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    setSkillPackageEnabled({ skillName, enabled, channelKind, actor: 'cli' });
+    const nextConfig = getRuntimeConfig();
     console.log(
       `${enabled ? 'Enabled' : 'Disabled'} ${skillName} in ${channelKind ?? 'global'} scope.`,
     );
@@ -360,11 +356,51 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   if (sub === 'install') {
     const skillName = normalized[1];
     const installId = normalized[2];
-    if (!skillName || !installId) {
+    const hasPackageInstallFlag = normalized
+      .slice(1)
+      .some((arg) => arg === '--force' || arg === '--skip-skill-scan');
+    if (!skillName) {
       printSkillUsage();
       throw new Error(
-        'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
+        'Usage: `hybridclaw skill install <source>` or `hybridclaw skill install <skill-name> <dependency>`.',
       );
+    }
+    if (!installId || hasPackageInstallFlag) {
+      if (!installId && !hasPackageInstallFlag) {
+        const { findSkillCatalogEntry } = await import(
+          '../skills/skills-install.js'
+        );
+        if (findSkillCatalogEntry(skillName)) {
+          printSkillUsage();
+          throw new Error(
+            'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
+          );
+        }
+      }
+      const { source, force, skipSkillScan } = parseSkillImportArgs(
+        normalized.slice(1),
+        {
+          commandPrefix: 'hybridclaw skill',
+          commandName: 'install',
+          allowForce: true,
+        },
+      );
+      const { installSkillPackage } = await import(
+        '../skills/skills-lifecycle.js'
+      );
+      const result = await installSkillPackage(source, {
+        actor: 'cli',
+        force,
+        skipGuard: skipSkillScan,
+      });
+      for (const warning of buildGuardWarningLines(result)) {
+        console.warn(warning);
+      }
+      console.log(
+        `${result.action === 'upgrade' ? 'Upgraded' : 'Installed'} ${result.manifest.name} v${result.manifest.version} from ${result.resolvedSource}`,
+      );
+      console.log(`Installed to ${result.skillDir}`);
+      return;
     }
 
     const { installSkillDependency } = await import(
@@ -377,6 +413,91 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       throw new Error(result.message);
     }
     console.log(result.message);
+    return;
+  }
+
+  if (sub === 'upgrade') {
+    const { source, skipSkillScan } = parseSkillImportArgs(
+      normalized.slice(1),
+      {
+        commandPrefix: 'hybridclaw skill',
+        commandName: 'upgrade',
+        allowForce: false,
+      },
+    );
+    const { upgradeSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = await upgradeSkillPackage(source, {
+      actor: 'cli',
+      skipGuard: skipSkillScan,
+    });
+    for (const warning of buildGuardWarningLines(result)) {
+      console.warn(warning);
+    }
+    console.log(
+      `Upgraded ${result.manifest.name} v${result.manifest.version} from ${result.resolvedSource}`,
+    );
+    console.log(`Installed to ${result.skillDir}`);
+    return;
+  }
+
+  if (sub === 'uninstall') {
+    const skillName = normalized[1];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Usage: `hybridclaw skill uninstall <skill-name>`.');
+    }
+    const { uninstallSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = uninstallSkillPackage(skillName, { actor: 'cli' });
+    console.log(`Uninstalled ${result.skillName} from ${result.skillDir}`);
+    return;
+  }
+
+  if (sub === 'revisions') {
+    const skillName = normalized[1];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Usage: `hybridclaw skill revisions <skill-name>`.');
+    }
+    const { listSkillPackageRevisions } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const revisions = listSkillPackageRevisions(skillName);
+    if (revisions.length === 0) {
+      console.log(`No package revisions found for ${skillName}.`);
+      return;
+    }
+    for (const revision of revisions) {
+      console.log(
+        `${revision.id} ${revision.createdAt} ${revision.md5} ${revision.byteLength} bytes route=${revision.route}`,
+      );
+    }
+    return;
+  }
+
+  if (sub === 'rollback') {
+    const skillName = normalized[1];
+    const revisionId = Number.parseInt(normalized[2] || '', 10);
+    if (!skillName || !Number.isInteger(revisionId)) {
+      printSkillUsage();
+      throw new Error(
+        'Usage: `hybridclaw skill rollback <skill-name> <revision-id>`.',
+      );
+    }
+    const { rollbackSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = rollbackSkillPackage({
+      skillName,
+      revisionId,
+      actor: 'cli',
+    });
+    console.log(
+      `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
+    );
     return;
   }
 

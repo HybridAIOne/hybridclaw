@@ -348,7 +348,12 @@ hybridclaw skill toggle [--channel <kind>]
 hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
+hybridclaw skill install <source>
 hybridclaw skill install <skill-name> <dependency>
+hybridclaw skill upgrade <source>
+hybridclaw skill uninstall <skill-name>
+hybridclaw skill revisions <skill-name>
+hybridclaw skill rollback <skill-name> <revision-id>
 hybridclaw skill setup <skill-name>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
@@ -376,6 +381,11 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, explicit GitHub repo/path refs, local
 directories, and `.zip` archives. Locally-imported skills receive personal
 trust and persist their import-source marker across restarts.
+`skill install <source>` and `skill upgrade <source>` manage packaged skills
+with manifest records, audit events, and rollback snapshots. `skill uninstall
+<skill-name>` removes a managed package, `skill revisions <skill-name>` lists
+recorded snapshots, and `skill rollback <skill-name> <revision-id>` restores
+one snapshot.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
 named skill. `skill setup <skill-name>` runs every declared dependency for that
 skill in order. Use `skill list` first to discover the dependency ids exposed by
@@ -457,8 +467,11 @@ through the same gateway command surface used by TUI and web chat.
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
 - local TUI and web chat support `/skill list` to inspect dependency ids,
-  `/skill install <skill> <dependency>` to run one declared skill dependency,
-  and `/skill setup <skill>` to run every declared dependency for a skill
+  `/skill install <source>`, `/skill upgrade <source>`, `/skill uninstall
+  <skill>`, `/skill revisions <skill>`, and `/skill rollback <skill>
+  <revision-id>` for package lifecycle work, `/skill install <skill>
+  <dependency>` to run one declared skill dependency, and `/skill setup
+  <skill>` to run every declared dependency for a skill
 - an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
   the next plain-text follow-up in the same session; a new slash command
   cancels that carry-over

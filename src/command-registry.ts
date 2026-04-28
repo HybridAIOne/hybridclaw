@@ -2300,23 +2300,114 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'install',
-          description: 'Install one declared dependency for a skill',
+          description:
+            'Install a packaged skill, or one declared dependency for a skill',
           tuiMenu: {
-            label: '/skill install <skill> <dependency>',
+            label: '/skill install <source>',
             insertText: '/skill install ',
-            aliases: ['/skill install <skill> <dependency>'],
+            aliases: [
+              '/skill install <source>',
+              '/skill install <skill> <dependency>',
+            ],
           },
           options: [
             {
               kind: 'string',
-              name: 'skill',
-              description: 'Skill name',
+              name: 'source',
+              description: 'Skill source or skill name',
               required: true,
             },
             {
               kind: 'string',
               name: 'dependency',
-              description: 'Dependency id declared by that skill',
+              description:
+                'Optional dependency id declared by that skill; omit to install a package',
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override for caution findings',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'upgrade',
+          description: 'Upgrade an installed packaged skill from a source',
+          tuiMenu: {
+            label: '/skill upgrade <source>',
+            insertText: '/skill upgrade ',
+            aliases: ['/skill upgrade <source> [--skip-skill-scan]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source identifier or URL',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'uninstall',
+          description: 'Uninstall a managed packaged skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'revisions',
+          description: 'List package revisions for a managed skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'rollback',
+          description: 'Restore a managed skill package revision',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'revision-id',
+              description: 'Revision id from /skill revisions',
               required: true,
             },
           ],

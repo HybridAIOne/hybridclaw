@@ -3,9 +3,8 @@ import { SKILL_CONFIG_CHANNEL_KINDS } from '../channels/channel.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { normalizeArg, parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
+  getRuntimeConfig,
   getRuntimeSkillScopeDisabledNames,
-  setRuntimeSkillScopeEnabled,
-  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import type {
   SkillAmendment,
@@ -17,7 +16,7 @@ import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
+  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 const SKILL_LIST_LINE_MAX_CHARS = 113;
 
 interface SkillCommandContext {
@@ -265,16 +264,24 @@ export async function handleSkillCommand(
       return context.badCommand('Usage', usageMessage);
     }
 
-    const { loadSkillCatalog } = await import('../skills/skills.js');
-    const known = loadSkillCatalog().some((skill) => skill.name === skillName);
-    if (!known) {
-      return context.badCommand('Unknown Skill', `Unknown skill: ${skillName}`);
-    }
-
     const enabled = sub === 'enable';
-    const nextConfig = updateRuntimeConfig((draft) => {
-      setRuntimeSkillScopeEnabled(draft, skillName, enabled, channelKind);
-    });
+    const { setSkillPackageEnabled } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    try {
+      setSkillPackageEnabled({
+        skillName,
+        enabled,
+        channelKind,
+        actor: 'gateway-command',
+      });
+    } catch (err) {
+      return context.badCommand(
+        'Unknown Skill',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    const nextConfig = getRuntimeConfig();
     const scope = channelKind ?? 'global';
     const lines = [
       `${enabled ? 'Enabled' : 'Disabled'} \`${skillName}\` in ${scope} scope.`,
@@ -487,17 +494,56 @@ export async function handleSkillCommand(
   if (sub === 'install') {
     const skillName = parseIdArg(context.args, 2);
     const installId = parseIdArg(context.args, 3) || undefined;
+    const hasPackageInstallFlag = context.args
+      .slice(2)
+      .some((arg) => arg === '--force' || arg === '--skip-skill-scan');
     if (!isLocalSession(context)) {
       return context.badCommand(
         'Skill Install Restricted',
         '`skill install` is only available from local TUI/web sessions.',
       );
     }
-    if (!skillName || !installId) {
+    if (!skillName) {
       return context.badCommand(
         'Usage',
-        'Usage: `skill install <skill> <dependency>`',
+        'Usage: `skill install <source>` or `skill install <skill> <dependency>`',
       );
+    }
+    if (!installId || hasPackageInstallFlag) {
+      if (!installId && !hasPackageInstallFlag) {
+        const { findSkillCatalogEntry } = await import(
+          '../skills/skills-install.js'
+        );
+        if (findSkillCatalogEntry(skillName)) {
+          return context.badCommand(
+            'Usage',
+            'Usage: `skill install <skill> <dependency>`',
+          );
+        }
+      }
+      const { source, force, skipSkillScan } = parseSkillImportArgs(
+        context.args.slice(2),
+        {
+          commandPrefix: 'skill',
+          commandName: 'install',
+          allowForce: true,
+        },
+      );
+
+      const { installSkillPackage } = await import(
+        '../skills/skills-lifecycle.js'
+      );
+      const result = await installSkillPackage(source, {
+        actor: 'gateway-command',
+        force,
+        skipGuard: skipSkillScan,
+      });
+      const lines = [
+        ...buildGuardWarningLines(result),
+        `${result.action === 'upgrade' ? 'Upgraded' : 'Installed'} ${result.manifest.name} v${result.manifest.version} from ${result.resolvedSource}`,
+        `Installed to ${result.skillDir}`,
+      ];
+      return context.infoCommand('Skill Package Installed', lines.join('\n'));
     }
 
     const { installSkillDependency } = await import(
@@ -542,6 +588,114 @@ export async function handleSkillCommand(
     return result.ok
       ? context.infoCommand('Skill Setup Complete', lines.join('\n'))
       : context.badCommand('Skill Setup Failed', lines.join('\n'));
+  }
+
+  if (sub === 'upgrade') {
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Upgrade Restricted',
+        '`skill upgrade` is only available from local TUI/web sessions.',
+      );
+    }
+    const { source, skipSkillScan } = parseSkillImportArgs(
+      context.args.slice(2),
+      {
+        commandPrefix: 'skill',
+        commandName: 'upgrade',
+        allowForce: false,
+      },
+    );
+
+    const { upgradeSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = await upgradeSkillPackage(source, {
+      actor: 'gateway-command',
+      skipGuard: skipSkillScan,
+    });
+    const lines = [
+      ...buildGuardWarningLines(result),
+      `Upgraded ${result.manifest.name} v${result.manifest.version} from ${result.resolvedSource}`,
+      `Installed to ${result.skillDir}`,
+    ];
+    return context.infoCommand('Skill Package Upgraded', lines.join('\n'));
+  }
+
+  if (sub === 'uninstall') {
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Uninstall Restricted',
+        '`skill uninstall` is only available from local TUI/web sessions.',
+      );
+    }
+    const skillName = parseIdArg(context.args, 2);
+    if (!skillName) {
+      return context.badCommand('Usage', 'Usage: `skill uninstall <name>`');
+    }
+    const { uninstallSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = uninstallSkillPackage(skillName, {
+      actor: 'gateway-command',
+    });
+    return context.infoCommand(
+      'Skill Package Uninstalled',
+      `Uninstalled ${result.skillName} from ${result.skillDir}`,
+    );
+  }
+
+  if (sub === 'revisions') {
+    const skillName = parseIdArg(context.args, 2);
+    if (!skillName) {
+      return context.badCommand('Usage', 'Usage: `skill revisions <name>`');
+    }
+    const { listSkillPackageRevisions } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const revisions = listSkillPackageRevisions(skillName);
+    if (revisions.length === 0) {
+      return context.plainCommand(
+        `No package revisions found for \`${skillName}\`.`,
+      );
+    }
+    return context.infoCommand(
+      `Skill Revisions (${skillName})`,
+      revisions
+        .map(
+          (revision) =>
+            `${revision.id} ${revision.createdAt} ${revision.md5} ${revision.byteLength} bytes route=${revision.route}`,
+        )
+        .join('\n'),
+    );
+  }
+
+  if (sub === 'rollback') {
+    if (!isLocalSession(context)) {
+      return context.badCommand(
+        'Skill Rollback Restricted',
+        '`skill rollback` is only available from local TUI/web sessions.',
+      );
+    }
+    const skillName = parseIdArg(context.args, 2);
+    const revisionId = Number.parseInt(parseIdArg(context.args, 3) || '', 10);
+    if (!skillName || !Number.isInteger(revisionId)) {
+      return context.badCommand(
+        'Usage',
+        'Usage: `skill rollback <name> <revision-id>`',
+      );
+    }
+    const { rollbackSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = rollbackSkillPackage({
+      skillName,
+      revisionId,
+      actor: 'gateway-command',
+    });
+    return context.infoCommand(
+      'Skill Package Rolled Back',
+      `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
+    );
   }
 
   if (sub === 'import') {

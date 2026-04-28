@@ -25,6 +25,12 @@ import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  DEFAULT_SKILL_SUPPORTED_CHANNELS,
+  isSkillSupportedOnChannel,
+  parseSkillManifestFromMarkdown,
+  type SkillManifest,
+} from './skill-manifest.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -62,6 +68,7 @@ interface SkillCandidate {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -86,6 +93,7 @@ export interface Skill {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -946,12 +954,14 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
+        const manifest = parseSkillManifestFromMarkdown(raw, { name });
         const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
         skills.push({
           name,
           description: (meta.description || '').trim(),
           category: parseSkillCategory(frontmatter),
+          manifest,
           userInvocable: parseBool(meta['user-invocable'], true),
           disableModelInvocation: parseBool(
             meta['disable-model-invocation'],
@@ -1636,10 +1646,24 @@ export function expandResolvedSkillInvocation(
   return lines.join('\n');
 }
 
+function resolveSkillManifest(skill: Skill): SkillManifest {
+  return (
+    skill.manifest || {
+      id: sanitizeSkillDirName(skill.name),
+      name: skill.name,
+      version: '0.0.0',
+      capabilities: [],
+      requiredCredentials: [],
+      supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+    }
+  );
+}
+
 export interface SkillCatalogEntry {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -1915,6 +1939,7 @@ function loadSkillsInner(
     (skill) =>
       checkEligibility(skill).available &&
       !disabled.has(skill.name) &&
+      isSkillSupportedOnChannel(skill.manifest, channelKind) &&
       (allowedSkills === null || allowedSkills.has(skill.name)),
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
@@ -2014,11 +2039,17 @@ export function buildSkillsPrompt(skills: Skill[]): string {
 
     let chars = 0;
     for (const skill of summaryCandidates) {
+      const manifest = resolveSkillManifest(skill);
       const block = [
         '  <skill>',
+        `    <id>${escapeXml(manifest.id)}</id>`,
         `    <name>${escapeXml(skill.name)}</name>`,
+        `    <version>${escapeXml(manifest.version)}</version>`,
         `    <category>${escapeXml(skill.category)}</category>`,
         `    <description>${escapeXml(skill.description || skill.name)}</description>`,
+        `    <capabilities>${escapeXml(manifest.capabilities.join(', '))}</capabilities>`,
+        `    <required_credentials>${escapeXml(manifest.requiredCredentials.map((credential) => credential.id).join(', '))}</required_credentials>`,
+        `    <supported_channels>${escapeXml(manifest.supportedChannels.join(', '))}</supported_channels>`,
         `    <location>${escapeXml(skill.location)}</location>`,
         '  </skill>',
       ];
