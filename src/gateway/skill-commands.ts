@@ -37,7 +37,7 @@ function isLocalSession(context: SkillCommandContext): boolean {
   );
 }
 
-function isForeignSkillSource(source: string): boolean {
+function hasExternalSkillSourceLabel(source: string): boolean {
   return (
     source === 'codex' ||
     source === 'claude' ||
@@ -89,7 +89,7 @@ export async function handleSkillCommand(
       return context.plainCommand('No skills are available.');
     }
     const lines: string[] = [];
-    let hasForeignSkills = false;
+    let hasExternalSourceLabels = false;
     let currentCategory = '';
     for (const skill of catalog) {
       const category = formatSkillCategoryLabel(skill.category);
@@ -98,14 +98,16 @@ export async function handleSkillCommand(
         currentCategory = category;
         lines.push(`${category}:`);
       }
-      const foreignMarker = isForeignSkillSource(skill.source) ? '*' : '';
-      if (foreignMarker) hasForeignSkills = true;
+      const externalSourceMarker = hasExternalSkillSourceLabel(skill.source)
+        ? '*'
+        : '';
+      if (externalSourceMarker) hasExternalSourceLabels = true;
       const availability = skill.available
         ? skill.enabled
           ? 'available'
           : 'disabled'
         : skill.missing.join(', ');
-      const prefix = `  ${skill.name}${foreignMarker} [${availability}]`;
+      const prefix = `  ${skill.name}${externalSourceMarker} [${availability}]`;
       const listDescription =
         skill.metadata.hybridclaw.shortDescription || skill.description;
       const description = truncateSkillListDescription(prefix, listDescription);
@@ -120,8 +122,8 @@ export async function handleSkillCommand(
         lines.push(`    installs: ${installs}`);
       }
     }
-    if (hasForeignSkills) {
-      lines.push('', '* foreign skill source');
+    if (hasExternalSourceLabels) {
+      lines.push('', '* external source label, not verified provenance');
     }
     return context.infoCommand('Skills', lines.join('\n'));
   }
