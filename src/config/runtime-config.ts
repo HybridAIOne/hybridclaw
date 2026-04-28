@@ -95,7 +95,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 21;
+export const CONFIG_VERSION = 22;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -231,6 +231,29 @@ export type RuntimeAudioTranscriptionProvider =
   | 'groq'
   | 'deepgram'
   | 'google';
+export type RuntimeDeploymentMode = 'cloud' | 'local';
+export const RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS = [
+  'cloudflare',
+  'manual',
+  'ngrok',
+  'ssh',
+  'tailscale',
+] as const;
+export type RuntimeDeploymentKnownTunnelProvider =
+  (typeof RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS)[number];
+export type RuntimeDeploymentTunnelProvider =
+  | RuntimeDeploymentKnownTunnelProvider
+  | (string & {});
+
+export interface RuntimeDeploymentTunnelConfig {
+  provider?: RuntimeDeploymentTunnelProvider;
+}
+
+export interface RuntimeDeploymentConfig {
+  mode: RuntimeDeploymentMode;
+  public_url: string;
+  tunnel: RuntimeDeploymentTunnelConfig;
+}
 
 export interface RuntimeAudioProviderModelConfig {
   type: 'provider';
@@ -581,6 +604,7 @@ const skillAutonomyRuleIndexes = new WeakMap<
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
+  deployment: RuntimeDeploymentConfig;
   agents: AgentsConfig;
   skills: {
     extraDirs: string[];
@@ -949,6 +973,13 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trustModelAcceptedAt: '',
     trustModelVersion: '',
     trustModelAcceptedBy: '',
+  },
+  deployment: {
+    mode: 'local',
+    public_url: '',
+    tunnel: {
+      provider: 'manual',
+    },
   },
   agents: {
     defaultAgentId: DEFAULT_AGENT_ID,
@@ -1660,6 +1691,64 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   }
 
   return fallback;
+}
+
+function normalizeOptionalBaseUrl(value: unknown, fallback: string): string {
+  const candidate = normalizeString(value, fallback, { allowEmpty: true });
+  return candidate ? candidate.replace(/\/+$/, '') : '';
+}
+
+function normalizeDeploymentMode(
+  value: unknown,
+  fallback: RuntimeDeploymentMode,
+): RuntimeDeploymentMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'cloud' || normalized === 'local') return normalized;
+  return fallback;
+}
+
+function normalizeDeploymentTunnelProvider(
+  value: unknown,
+  fallback: RuntimeDeploymentTunnelProvider | undefined,
+): RuntimeDeploymentTunnelProvider | undefined {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (
+    (RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+      normalized,
+    )
+  ) {
+    return normalized as RuntimeDeploymentKnownTunnelProvider;
+  }
+  if (normalized === 'cloudflared' || normalized === 'cloudflare-tunnel') {
+    return 'cloudflare';
+  }
+  if (normalized === 'tailscale-funnel' || normalized === 'tailscale-serve') {
+    return 'tailscale';
+  }
+  if (normalized === 'reverse-proxy' || normalized === 'proxy') {
+    return 'manual';
+  }
+  return normalized;
+}
+
+export function normalizeDeploymentConfig(
+  value: unknown,
+  fallback: RuntimeDeploymentConfig,
+): RuntimeDeploymentConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawTunnel = isRecord(raw.tunnel) ? raw.tunnel : {};
+  const tunnelProvider = normalizeDeploymentTunnelProvider(
+    rawTunnel.provider,
+    fallback.tunnel.provider,
+  );
+  return {
+    mode: normalizeDeploymentMode(raw.mode, fallback.mode),
+    public_url: normalizeOptionalBaseUrl(raw.public_url, fallback.public_url),
+    tunnel: tunnelProvider ? { provider: tunnelProvider } : {},
+  };
 }
 
 function normalizeSkillAutonomyLevel(
@@ -4166,6 +4255,7 @@ function normalizeRuntimeConfig(
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
+  const rawDeployment = isRecord(raw.deployment) ? raw.deployment : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
@@ -4505,6 +4595,10 @@ function normalizeRuntimeConfig(
         { allowEmpty: true },
       ),
     },
+    deployment: normalizeDeploymentConfig(
+      rawDeployment,
+      DEFAULT_RUNTIME_CONFIG.deployment,
+    ),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
       extraDirs: normalizeStringArray(
@@ -5845,6 +5939,12 @@ function migrateConfigSchemaOnStartup(): void {
       `[runtime-config] schema migration skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
     return;
+  }
+
+  if (migrated.deployment.mode === 'cloud' && !migrated.deployment.public_url) {
+    console.warn(
+      '[runtime-config] deployment.mode is "cloud" but deployment.public_url is empty; inbound webhooks and public callbacks may fail until a public URL is configured',
+    );
   }
 
   try {

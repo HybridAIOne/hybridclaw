@@ -167,6 +167,11 @@ saved revision history directly.
   the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
+- `deployment.mode`, `deployment.public_url`, and `deployment.tunnel.provider`
+  for declaring whether the gateway runs behind a cloud URL or a local tunnel;
+  cloud mode requires `deployment.public_url`, while local mode requires a
+  tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or
+  `tailscale`
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
