@@ -35,13 +35,6 @@ export interface SkillRunTrajectoryToolUse
 
 export interface SkillRunTrajectoryScore {
   run: number;
-  agent_skill: {
-    score: number;
-    quality_score: number;
-    reliability_score: number;
-    timing_score: number;
-    total_executions: number;
-  } | null;
 }
 
 export interface SkillRunTrajectoryRecord {
@@ -204,7 +197,6 @@ function buildTrajectoryScore(
 ): SkillRunTrajectoryScore {
   return {
     run: scoreSkillRunOutcome(outcome),
-    agent_skill: null,
   };
 }
 
