@@ -1,4 +1,6 @@
 export interface TunnelStartResult {
+  // Keep the deployment-facing result shape aligned with runtime config/API
+  // fields instead of returning a bare URL string.
   public_url: string;
 }
 
