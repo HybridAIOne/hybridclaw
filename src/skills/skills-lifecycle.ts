@@ -379,7 +379,6 @@ function recordSkillLifecycleAudit(params: {
       requiredCredentials:
         params.manifest?.requiredCredentials.map((credential) => ({
           id: credential.id,
-          env: credential.env || null,
           required: credential.required,
         })) || [],
       supportedChannels: params.manifest?.supportedChannels || [],

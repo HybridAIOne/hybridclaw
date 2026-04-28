@@ -140,6 +140,24 @@ describe('skill package lifecycle', () => {
       actor: 'test',
       homeDir: tempHome,
     });
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditLines = fs
+      .readFileSync(getAuditWirePath('skill-lifecycle'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { event?: Record<string, unknown> });
+    const lifecycleAuditEvent = auditLines.find(
+      (line) => line.event?.type === 'skill.lifecycle',
+    )?.event;
+    expect(JSON.stringify(lifecycleAuditEvent)).not.toContain(
+      'SALESFORCE_TOKEN',
+    );
+    expect(lifecycleAuditEvent?.requiredCredentials).toEqual([
+      {
+        id: 'salesforce',
+        required: true,
+      },
+    ]);
 
     expect(installed.manifest).toMatchObject({
       id: 'deal-desk',
