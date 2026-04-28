@@ -68,7 +68,6 @@ export type SecretFixtureClass = (typeof SECRET_FIXTURE_CLASSES)[number];
 export interface TestSecretSample {
   id: string;
   className: SecretFixtureClass;
-  label: string;
   value: string;
   sensitivity: ConfidentialSensitivity;
   clientOrgId: string;
@@ -298,7 +297,6 @@ function makeSecretSamples(
   return values.map((entry, index) => ({
     id: `${className}_${String(index + 1).padStart(2, '0')}`,
     className,
-    label: `${className} sample ${index + 1}`,
     value: entry.value,
     sensitivity: sensitivityBySecretClass[className],
     clientOrgId: entry.clientOrgId,
