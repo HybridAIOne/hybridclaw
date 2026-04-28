@@ -5906,19 +5906,11 @@ export function resolveSkillAutonomyLevel(
   agentId: string,
   skillName: string,
 ): SkillAutonomyLevel {
-  const normalizedAgentId = normalizeString(agentId, '', {
-    allowEmpty: false,
-  });
-  const normalizedSkillName = normalizeString(skillName, '', {
-    allowEmpty: false,
-  });
   const defaultLevel = config.skills.autonomy.defaultLevel;
-  if (!normalizedAgentId || !normalizedSkillName) return defaultLevel;
+  if (!agentId || !skillName) return defaultLevel;
 
   const rule = config.skills.autonomy.rules.find(
-    (entry) =>
-      entry.agentId === normalizedAgentId &&
-      entry.skillName === normalizedSkillName,
+    (entry) => entry.agentId === agentId && entry.skillName === skillName,
   );
   return rule?.level ?? defaultLevel;
 }

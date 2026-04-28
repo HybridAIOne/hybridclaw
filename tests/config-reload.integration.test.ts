@@ -211,7 +211,7 @@ describe('config reload integration', () => {
         },
       ],
     });
-    expect(configMod.resolveSkillAutonomyLevel(cfg, ' writer ', ' docs ')).toBe(
+    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'docs')).toBe(
       'full-autonomous',
     );
     expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
