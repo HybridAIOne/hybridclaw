@@ -405,7 +405,7 @@ function findInstalledSkillByNameOrId(
 ): RuntimeInstalledSkillManifest | null {
   const normalized = nameOrId.trim().toLowerCase();
   return (
-    getRuntimeConfig().skills.installed.find(
+    (getRuntimeConfig().skills.installed ?? []).find(
       (entry) =>
         entry.name.toLowerCase() === normalized ||
         entry.id.toLowerCase() === normalized,
