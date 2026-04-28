@@ -15,15 +15,22 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 
 ## Status snapshot — 2026-04-28
 
-**Foundations:** 5 of 11 fully done (F1–F5 ✅) · F6 + F8 partially done (2/5 children each) · F7, F9, F10, F11 not started.
+**Foundations:** 5 of 11 fully done (F1–F5 ✅) · F6 + F8 partially done (2/5 each) · F6 also has 2 additional tunnel providers filed (F6.6 Tailscale, F6.7 Cloudflare) · F7, F9, F10, F11 not started.
 
 **P0 features:** R3 fully done (5 children) · R1 + R5 + R21 each have one child shipped · R2, R4, R6 not started.
 
 **Cross-cutting:** A2 + A3 done (2 of 5) · A1, A4, A5 not started.
 
-**P1/P2:** R10.1 (trajectory capture) just landed early per "data is the asset" rule. R8 brand voice + R9 peer-delegation have PRs in flight. Most P1/P2 work not started.
+**P1/P2:** R10.1 (trajectory capture) just landed early per "data is the asset" rule. R8 brand voice + R9 peer-delegation + R23 backup CLI have PRs in flight.
 
-**Total closed roadmap issues:** 24 of ~145 (≈17%). Critical-path foundations are well ahead of feature work — the right ratio for early P0.
+**EU positioning bundle just filed (2026-04-28):**
+- *Connectivity:* F6.6 Tailscale · F6.7 Cloudflare · R18.7 SIP outbound · R24 SMS channel
+- *Deployment:* R25 EU deployment recipes (Hetzner / IONOS / Open Telekom Cloud)
+- *Skills:* R21.7 Hetzner DevOps · R21.8 SAP Analytics Cloud · R21.9 DATEV · R21.10 Lexware Office
+
+Not on critical path; positioning lever for German B2B prospecting. Once shipped, HybridClaw covers the full German SME stack: deployed on EU sovereign cloud, talking via SIP/SMS through German telcos, integrated with DATEV / Lexware accounting + SAP analytics / Salesforce/HubSpot CRM.
+
+**Total closed roadmap issues:** 24 of ~151 (≈16%). Denominator grew with the EU bundle — closure ratio still healthy. Critical-path foundations remain well ahead of feature work — the right ratio for early P0.
 
 ## Status legend
 
@@ -31,7 +38,7 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 
 | # | Feature | Description | Priority | Status |
 |---|---------|-------------|----------|--------|
-| 21 | **Business-skill pipeline + first 5 production skills** | Opinionated, ready-on-day-one skills (Salesforce, HubSpot, SAP, GA4, NL→SQL on warehouse) on top of a shared packaging + lifecycle framework. *Principle I — the skills are the product.* | P0 | 🟡 1/6 |
+| 21 | **Business-skill pipeline + production skills** | R21.1 framework + 5 launch skills (Salesforce, HubSpot, SAP ERP, GA4, NL→SQL warehouse) + R21.7 Hetzner DevOps suite + R21.8 SAP Analytics Cloud + R21.9 DATEV + R21.10 Lexware Office. *Principle I — the skills are the product.* | P0 | 🟡 1/10 |
 | 1 | **Agent-to-agent messaging** | First-class primitive for one agent to message, hand off, or escalate to another. Persisted envelopes; intent typed; integrates with the hash-chain audit log. *Principle VI.* | P0 | 🟡 1/5 |
 | 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps (driven by F8 stakes classifier — **not** approval-by-default). Return-for-revision rewinds. Built on top of #1. *Principles II + VI.* | P0 | ⬜ |
 | 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. *Principle IV.* | P0 | ✅ (5/5; 3 follow-ups #616, #618, #619 open) |
@@ -49,11 +56,13 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 | 15 | **Agent handoff with context transfer** | Extends the `handoff` intent from #1 to carry a context bundle (thread refs, brief, client tags). Recipient absorbs context before resuming. *Principle VI.* | P2 | ⬜ |
 | 16 | **Skill A/B testing + canary deployments** | Variant routing by deterministic hash, per-variant metrics from the event bus, statistical comparison, promotion gate via the eval harness. *Principle VIII.* | P2 | ⬜ |
 | 17 | **Agent references / portfolio export** | Anonymized portfolio bundle (work samples + scores). Export and import flows so an agent template can be instantiated on a fresh instance. *Principle IV.* | P2 | ⬜ |
-| 18 | **Voice / outbound phone channel** | Twilio Programmable Voice for outbound dial. Existing TTS plus STT for callee responses; call-flow primitive; transcript on the audit log. *Principle V.* | P2 | ⬜ |
+| 18 | **Voice / outbound phone channel** | Twilio Programmable Voice for outbound dial. Existing TTS plus STT for callee responses; call-flow primitive; transcript on the audit log. R18.7 adds SIP outbound for B2B operators with existing PBX/SIP trunks. *Principle V.* | P2 | ⬜ |
 | 19 | **Calendar / meeting presence** | Bot joins Zoom / Meet, real-time STT, live notes, post-meeting summary, action-item dispatch via #1 to other agents. *Principle V.* | P2 | ⬜ |
 | 20 | **Right-to-be-forgotten / GDPR data export** | Identifier registry, cascading data discovery, audited deletion, machine + human readable export. Hash-chain entry of the deletion preserved. *Principle VII.* | P2 | ⬜ |
 | 22 | **Async voice channel** | Inbound voice notes (STT) + outbound TTS replies, channel-agnostic. Wires through existing voice-tts integration. *Principle V.* | P2 | ⬜ |
 | 23 | **Whole-instance backup + restore (disaster recovery)** | `hybridclaw backup` + `restore` CLI for WAL-safe SQLite snapshot + zip-archive re-hydration on a fresh host. *Principle VII.* | P1 | 🔄 PR #428 |
+| 24 | **SMS channel via European operator APIs** | Pluggable SMS provider via the existing channel layer — Telekom MMS API, Vodafone Messaging, 1&1 SMS gateway. For transactional B2B messaging (OTPs, alerts) where WhatsApp/Telegram aren't the right modality. *Principle V.* | P2 | ⬜ |
+| 25 | **EU deployment recipes (Hetzner / IONOS / Open Telekom Cloud)** | Operator guides for deploying HybridClaw on each EU cloud provider — Docker Compose, Terraform, secret-store setup, F6-tunnel vs cloud-native ingress, backup wiring (R23). DSGVO talking points for sales. *Principle X.* | P1 (Hetzner) / P2 (IONOS, OTC) | ⬜ |
 
 ---
 
@@ -66,7 +75,7 @@ Cross-cutting work that several roadmap items depend on. Decomposed under the `f
 - ✅ **F3** — Generalize the network-only policy engine into a "predicate → action" engine. Used by #4, #5, #6, #8, #14, F8.
 - ✅ **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
 - ✅ **F5** — Model pricing & capability matrix on top of `model-catalog`. Required by #5 cost compute and future routing.
-- 🟡 **F6 (2/5)** — Deployment-mode + public-URL abstraction. F6.1 (config schema) ✅ and F6.2 (TunnelProvider + ngrok ref impl) ✅. F6.3 health-check, F6.4 admin surface, F6.5 docs still open.
+- 🟡 **F6 (2/5)** — Deployment-mode + public-URL abstraction. F6.1 (config schema) ✅ and F6.2 (TunnelProvider + ngrok ref impl) ✅. F6.3 health-check, F6.4 admin surface, F6.5 docs still open. **Additional providers filed:** F6.6 Tailscale Funnel, F6.7 Cloudflare Tunnel — both P1, both slot into the F6.2 interface.
 - ⬜ **F7** — Global identity primitives. Canonical user IDs (`username@authority`, default authority `hybridai`) and canonical agent IDs (`agent-slug@user@instance-id`), plus a resolver and TOFU trust model. Required by #1 envelope addressing, #9 cross-instance delegation, #14 SSO federation, #15 handoff, #17 portfolio refs. *(Note: R1.1 inline-implements the bare-minimum canonical-id; full F7 still needed for #9.)*
 - 🟡 **F8 (2/5)** — Autonomy + escalation policy framework. F8.1 (autonomy levels) ✅ and F8.2 (stakes classifier) ✅. F8.3 escalation routing, F8.4 default-action runtime, F8.5 audit events still open. **Required by Principle II.**
 - ⬜ **F9** — Always-on runtime guarantees. Warm process pool, per-agent liveness probe, auto-restart with backoff, fleet red/green dashboard. **Required by Principle III** ("doesn't clock out") — without it the principle is aspirational.
