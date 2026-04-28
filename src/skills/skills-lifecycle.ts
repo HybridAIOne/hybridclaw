@@ -270,12 +270,17 @@ function restoreSkillPackageSnapshot(
   fs.mkdirSync(skillDir, { recursive: true });
 
   const state = { fileCount: 0, totalBytes: 0 };
+  const createdDirs = new Set<string>([skillDir]);
   for (const file of snapshot.files) {
     assertSafeRelativePath(file.path);
     const content = Buffer.from(file.contentBase64, 'base64');
     recordImportedFile(state, content.byteLength);
     const targetPath = path.join(skillDir, file.path);
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    const parentDir = path.dirname(targetPath);
+    if (!createdDirs.has(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+      createdDirs.add(parentDir);
+    }
     fs.writeFileSync(targetPath, content);
     fs.chmodSync(targetPath, sanitizeRestoredSkillFileMode(file.mode));
   }
