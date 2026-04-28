@@ -23,6 +23,7 @@ export { PanelLeft } from './PanelLeft';
 export { Plugins } from './Plugins';
 export { Policy } from './Policy';
 export { Scheduler } from './Scheduler';
+export { Search } from './Search';
 export { Sessions } from './Sessions';
 export { Skills } from './Skills';
 export { SquarePen } from './SquarePen';

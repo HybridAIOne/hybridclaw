@@ -49,4 +49,14 @@ describe('parseModel', () => {
     expect(parsed.groupLabel).toBe('HybridAI · Anthropic');
     expect(parsed.displayName).toBe('Claude Haiku 4.5');
   });
+
+  it('strips Anthropic date-stamp suffixes from displayName', () => {
+    const parsed = parseModel(
+      model({
+        id: 'hybridai/anthropic/claude-opus-4-1-20250805',
+        provider: 'hybridai',
+      }),
+    );
+    expect(parsed.displayName).toBe('Claude Opus 4.1');
+  });
 });

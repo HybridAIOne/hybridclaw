@@ -1,7 +1,14 @@
-import { type ReactElement, useMemo, useState } from 'react';
+import {
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+  useMemo,
+  useState,
+} from 'react';
 import type { GatewayModelProviderKey } from '../../../../src/gateway/gateway-types.js';
 import type { ChatModel } from '../../api/types';
-import { Menu } from '../../components/icons';
+import { Menu, Search as SearchIcon } from '../../components/icons';
 import {
   Select,
   SelectContent,
@@ -14,13 +21,12 @@ import {
   SelectItemMeta,
   SelectItemSubtitle,
   SelectItemText,
-  SelectRail,
-  SelectRailItem,
-  SelectSearch,
   SelectTrigger,
   SelectValue,
 } from '../../components/select';
+import { cx } from '../../lib/cx';
 import { formatCompactNumber } from '../../lib/format';
+import chrome from './model-switch-select.module.css';
 
 export type ModelSwitchEntry = ChatModel;
 
@@ -135,16 +141,17 @@ function prettifyToken(token: string): string {
 
 /**
  * Turn a kebab-cased model slug into a human label.
- *   "claude-haiku-4-5"   -> "Claude Haiku 4.5"
- *   "claude-3-7-sonnet"  -> "Claude 3.7 Sonnet"
- *   "gpt-4.1-mini"       -> "GPT-4.1 Mini"
- *   "gemini-3-flash"     -> "Gemini 3 Flash"
- *   "deepseek-r1"        -> "DeepSeek r1"
- *   "o3"                 -> "o3"
+ *   "claude-haiku-4-5"            -> "Claude Haiku 4.5"
+ *   "claude-opus-4-1-20250805"    -> "Claude Opus 4.1" (drops date stamp)
+ *   "claude-3-7-sonnet"           -> "Claude 3.7 Sonnet"
+ *   "gpt-4.1-mini"                -> "GPT-4.1 Mini"
+ *   "gemini-3-flash"              -> "Gemini 3 Flash"
+ *   "deepseek-r1"                 -> "DeepSeek r1"
+ *   "o3"                          -> "o3"
  */
 function prettifyModelName(slug: string): string {
   if (!slug) return slug;
-  const segments = slug.split('-');
+  const segments = slug.split('-').filter((seg) => !/^\d{5,}$/.test(seg));
   const out: string[] = [];
   let prevSegLower: string | null = null;
   let i = 0;
@@ -263,6 +270,85 @@ const PROVIDER_ICONS: Partial<Record<KnownProvider, () => ReactElement>> = {
 function ProviderIcon({ provider }: { provider: string }) {
   const Icon = PROVIDER_ICONS[provider as KnownProvider] ?? ServerIcon;
   return <Icon />;
+}
+
+interface SearchProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  value: string;
+  onValueChange: (value: string) => void;
+}
+
+function Search({
+  value,
+  onValueChange,
+  className,
+  placeholder = 'Search…',
+  ...rest
+}: SearchProps) {
+  return (
+    <div className={cx(chrome.search, className)}>
+      <SearchIcon width="14" height="14" />
+      <input
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        className={chrome.searchInput}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        {...rest}
+      />
+    </div>
+  );
+}
+
+function Rail({ children }: { children: ReactNode }) {
+  return (
+    <div
+      role="toolbar"
+      aria-orientation="vertical"
+      className={chrome.rail}
+    >
+      {children}
+    </div>
+  );
+}
+
+interface RailItemProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onSelect'> {
+  active?: boolean;
+  label: string;
+  color?: string;
+  icon?: ReactNode;
+}
+
+function RailItem({
+  active = false,
+  label,
+  color,
+  icon,
+  className,
+  ...rest
+}: RailItemProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      data-active={active ? '' : undefined}
+      className={cx(chrome.railItem, className)}
+      {...rest}
+    >
+      <span
+        aria-hidden="true"
+        className={chrome.railGlyph}
+        style={color ? { color } : undefined}
+      >
+        {icon ?? label.charAt(0).toUpperCase()}
+      </span>
+    </button>
+  );
 }
 
 const VENDOR_BY_PREFIX: ReadonlyArray<readonly [string, string]> = [
@@ -438,7 +524,7 @@ export function ModelSwitchSelect(props: {
       <SelectContent
         align="start"
         header={
-          <SelectSearch
+          <Search
             value={query}
             onValueChange={setQuery}
             placeholder="Search models…"
@@ -446,15 +532,15 @@ export function ModelSwitchSelect(props: {
           />
         }
         rail={
-          <SelectRail>
-            <SelectRailItem
+          <Rail>
+            <RailItem
               label={railFilter === null ? 'All providers' : 'Clear filter'}
               active={railFilter === null}
               icon={<Menu width="16" height="16" />}
               onClick={() => setRailFilter(null)}
             />
             {railEntries.map(({ key, count }) => (
-              <SelectRailItem
+              <RailItem
                 key={key}
                 label={`${key} (${count})`}
                 active={railFilter === key}
@@ -464,7 +550,7 @@ export function ModelSwitchSelect(props: {
                 }
               />
             ))}
-          </SelectRail>
+          </Rail>
         }
       >
         {groups.length === 0 ? (

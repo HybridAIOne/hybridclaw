@@ -1,21 +1,24 @@
 import {
   type ButtonHTMLAttributes,
-  createContext,
   type HTMLAttributes,
-  type InputHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  createContext,
   useCallback,
   useContext,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { createPortal } from 'react-dom';
 import { cx } from '../../lib/cx';
+import {
+  Popover,
+  PopoverContent,
+  type PopoverContentProps,
+  usePopoverContext,
+} from '../popover';
 import {
   ScrollArea,
   ScrollAreaScrollbar,
@@ -25,12 +28,8 @@ import {
 import css from './index.module.css';
 
 type SelectContextValue = {
-  open: boolean;
-  setOpen: (open: boolean) => void;
   value: string;
   selectValue: (value: string) => void;
-  triggerEl: HTMLButtonElement | null;
-  setTriggerEl: (el: HTMLButtonElement | null) => void;
   listEl: HTMLDivElement | null;
   setListEl: (el: HTMLDivElement | null) => void;
   listId: string;
@@ -39,10 +38,6 @@ type SelectContextValue = {
   disabled: boolean;
   getItemId: (value: string) => string;
 };
-
-// Sentinel attribute used by SelectContent's focus effect to find the search
-// input inside the popup; SelectSearch must set the matching attribute.
-const SEARCH_ATTR = 'data-select-search';
 
 const SelectContext = createContext<SelectContextValue | null>(null);
 
@@ -56,6 +51,9 @@ interface SelectProps {
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   children: ReactNode;
 }
@@ -64,26 +62,19 @@ export function Select({
   value: valueProp,
   defaultValue = '',
   onValueChange,
+  open,
+  defaultOpen,
+  onOpenChange,
   disabled = false,
   children,
 }: SelectProps) {
   const isControlled = valueProp !== undefined;
   const [internalValue, setInternalValue] = useState(defaultValue);
   const value = isControlled ? valueProp : internalValue;
-  const [openState, setOpenState] = useState(false);
-  const [triggerEl, setTriggerEl] = useState<HTMLButtonElement | null>(null);
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
   const [highlightedValue, setHighlightedValue] = useState<string | null>(null);
   const listId = useId();
   const baseId = useId();
-
-  const setOpen = useCallback(
-    (next: boolean) => {
-      if (disabled && next) return;
-      setOpenState(next);
-    },
-    [disabled],
-  );
 
   const selectValue = useCallback(
     (next: string) => {
@@ -100,12 +91,8 @@ export function Select({
 
   const ctx = useMemo<SelectContextValue>(
     () => ({
-      open: openState,
-      setOpen,
       value,
       selectValue,
-      triggerEl,
-      setTriggerEl,
       listEl,
       setListEl,
       listId,
@@ -114,22 +101,26 @@ export function Select({
       disabled,
       getItemId,
     }),
-    [
-      openState,
-      setOpen,
-      value,
-      selectValue,
-      triggerEl,
-      listEl,
-      listId,
-      highlightedValue,
-      disabled,
-      getItemId,
-    ],
+    [value, selectValue, listEl, listId, highlightedValue, disabled, getItemId],
+  );
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (disabled && next) return;
+      if (!next) setHighlightedValue(null);
+      onOpenChange?.(next);
+    },
+    [disabled, onOpenChange],
   );
 
   return (
-    <SelectContext.Provider value={ctx}>{children}</SelectContext.Provider>
+    <Popover
+      open={open}
+      defaultOpen={defaultOpen}
+      onOpenChange={handleOpenChange}
+    >
+      <SelectContext.Provider value={ctx}>{children}</SelectContext.Provider>
+    </Popover>
   );
 }
 
@@ -146,25 +137,26 @@ export function SelectTrigger({
   onKeyDown,
   ...rest
 }: SelectTriggerProps) {
+  const popover = usePopoverContext('SelectTrigger');
   const ctx = useSelectContext('SelectTrigger');
   return (
     <button
-      ref={ctx.setTriggerEl}
+      ref={popover.setTriggerEl}
       type="button"
       role="combobox"
       aria-haspopup="listbox"
-      aria-expanded={ctx.open}
-      aria-controls={ctx.open ? ctx.listId : undefined}
+      aria-expanded={popover.open}
+      aria-controls={popover.open ? ctx.listId : undefined}
       aria-disabled={ctx.disabled || undefined}
-      data-state={ctx.open ? 'open' : 'closed'}
+      data-state={popover.open ? 'open' : 'closed'}
       data-disabled={ctx.disabled ? '' : undefined}
       disabled={ctx.disabled}
       className={cx(css.trigger, className)}
       onClick={(event) => {
         onClick?.(event);
         if (event.defaultPrevented) return;
-        ctx.setOpen(!ctx.open);
-        if (!ctx.open) ctx.setHighlightedValue(ctx.value || null);
+        if (!popover.open) ctx.setHighlightedValue(ctx.value || null);
+        popover.toggle();
       }}
       onKeyDown={(event) => {
         onKeyDown?.(event);
@@ -176,8 +168,8 @@ export function SelectTrigger({
           event.key === ' '
         ) {
           event.preventDefault();
-          ctx.setOpen(true);
           ctx.setHighlightedValue(ctx.value || null);
+          popover.setOpen(true);
         }
       }}
       {...rest}
@@ -243,15 +235,24 @@ function ChevronIcon() {
   );
 }
 
-interface SelectContentProps extends HTMLAttributes<HTMLDivElement> {
-  align?: 'start' | 'center' | 'end';
-  sideOffset?: number;
-  /** Optional sticky header rendered above the listbox (e.g. <SelectSearch>). */
+interface SelectContentProps
+  extends Omit<PopoverContentProps, 'focusOnOpen' | 'children'> {
+  /** Optional sticky header rendered above the listbox (e.g. a search input). */
   header?: ReactNode;
-  /** Optional vertical rail rendered to the side of the listbox (e.g. <SelectRail>). */
+  /** Optional vertical rail rendered to the side of the listbox. */
   rail?: ReactNode;
   children: ReactNode;
 }
+
+const focusFirstInputOrList = (content: HTMLDivElement) => {
+  const search = content.querySelector<HTMLInputElement>('input');
+  if (search) {
+    search.focus();
+    return;
+  }
+  const list = content.querySelector<HTMLDivElement>('[role="listbox"]');
+  list?.focus();
+};
 
 export function SelectContent({
   align = 'start',
@@ -262,126 +263,19 @@ export function SelectContent({
   className,
   ...rest
 }: SelectContentProps) {
+  const popover = usePopoverContext('SelectContent');
   const ctx = useSelectContext('SelectContent');
-  const popupRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<{
-    x: number;
-    y: number;
-    minWidth: number;
-  } | null>(null);
-
-  useLayoutEffect(() => {
-    const popupEl = popupRef.current;
-    if (!ctx.open || !ctx.triggerEl || !popupEl) return;
-    const updatePosition = () => {
-      if (!ctx.triggerEl || !popupEl) return;
-      const triggerRect = ctx.triggerEl.getBoundingClientRect();
-      const contentRect = popupEl.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      let x = triggerRect.left;
-      if (align === 'end') x = triggerRect.right - contentRect.width;
-      else if (align === 'center')
-        x = triggerRect.left + (triggerRect.width - contentRect.width) / 2;
-      let y = triggerRect.bottom + sideOffset;
-      if (x + contentRect.width > vw - 8) x = vw - contentRect.width - 8;
-      if (x < 8) x = 8;
-      if (y + contentRect.height > vh - 8) {
-        const flipped = triggerRect.top - contentRect.height - sideOffset;
-        if (flipped >= 8) y = flipped;
-      }
-      setPosition({ x, y, minWidth: triggerRect.width });
-    };
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
-  }, [ctx.open, ctx.triggerEl, align, sideOffset]);
-
-  useEffect(() => {
-    const popupEl = popupRef.current;
-    if (!ctx.open || !popupEl || !ctx.triggerEl) return;
-    const trigger = ctx.triggerEl;
-
-    const focusTimer = window.setTimeout(() => {
-      const search = popupEl.querySelector<HTMLInputElement>(
-        `input[${SEARCH_ATTR}]`,
-      );
-      if (search) {
-        search.focus();
-      } else {
-        ctx.listEl?.focus();
-      }
-      const activeId = ctx.highlightedValue
-        ? ctx.getItemId(ctx.highlightedValue)
-        : null;
-      const target = activeId
-        ? popupEl.querySelector<HTMLElement>(`#${cssEsc(activeId)}`)
-        : null;
-      target?.scrollIntoView({ block: 'nearest' });
-    }, 0);
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (trigger.contains(target) || popupEl.contains(target)) return;
-      ctx.setOpen(false);
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      window.clearTimeout(focusTimer);
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [
-    ctx.open,
-    ctx.listEl,
-    ctx.triggerEl,
-    ctx.highlightedValue,
-    ctx.getItemId,
-    ctx.setOpen,
-  ]);
-
-  if (!ctx.open) return null;
-  if (typeof document === 'undefined') return null;
-
-  return createPortal(
-    <SelectPopup
-      ref={popupRef}
-      position={position}
-      className={className}
-      header={header}
-      rail={rail}
-      {...rest}
-    >
-      {children}
-    </SelectPopup>,
-    document.body,
-  );
-}
-
-interface SelectPopupProps extends HTMLAttributes<HTMLDivElement> {
-  position: { x: number; y: number; minWidth: number } | null;
-  header: ReactNode;
-  rail: ReactNode;
-  ref: React.Ref<HTMLDivElement>;
-}
-
-function SelectPopup({
-  ref,
-  position,
-  className,
-  header,
-  rail,
-  children,
-  ...rest
-}: SelectPopupProps) {
+  const typeaheadRef = useRef({ buffer: '', timer: 0 });
   const hasSearch = header != null && header !== false;
   const hasRail = rail != null && rail !== false;
-  const ctx = useSelectContext('SelectPopup');
-  const typeaheadRef = useRef({ buffer: '', timer: 0 });
+
+  useEffect(() => {
+    const popupEl = popover.contentEl;
+    if (!popover.open || !popupEl || !ctx.highlightedValue) return;
+    const activeId = ctx.getItemId(ctx.highlightedValue);
+    const target = popupEl.querySelector<HTMLElement>(`#${cssEsc(activeId)}`);
+    target?.scrollIntoView({ block: 'nearest' });
+  }, [popover.open, popover.contentEl, ctx.highlightedValue, ctx.getItemId]);
 
   useEffect(() => {
     const state = typeaheadRef.current;
@@ -452,14 +346,8 @@ function SelectPopup({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      ctx.setOpen(false);
-      ctx.triggerEl?.focus();
-      return;
-    }
     if (event.key === 'Tab') {
-      ctx.setOpen(false);
+      popover.setOpen(false);
       return;
     }
     if (event.key === 'ArrowDown') {
@@ -486,15 +374,15 @@ function SelectPopup({
       if (ctx.highlightedValue == null) return;
       event.preventDefault();
       ctx.selectValue(ctx.highlightedValue);
-      ctx.setOpen(false);
-      ctx.triggerEl?.focus();
+      popover.setOpen(false);
+      popover.triggerEl?.focus();
       return;
     }
     if (!hasSearch && event.key === ' ' && ctx.highlightedValue != null) {
       event.preventDefault();
       ctx.selectValue(ctx.highlightedValue);
-      ctx.setOpen(false);
-      ctx.triggerEl?.focus();
+      popover.setOpen(false);
+      popover.triggerEl?.focus();
       return;
     }
     if (
@@ -512,17 +400,11 @@ function SelectPopup({
     : undefined;
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: keyboard handler is on the popup wrapper to handle both search-input and listbox children
-    <div
-      ref={ref}
+    <PopoverContent
+      align={align}
+      sideOffset={sideOffset}
+      focusOnOpen={focusFirstInputOrList}
       className={cx(css.popup, className)}
-      data-state="open"
-      style={{
-        left: position?.x ?? 0,
-        top: position?.y ?? 0,
-        minWidth: position?.minWidth,
-        visibility: position ? 'visible' : 'hidden',
-      }}
       onKeyDown={handleKeyDown}
       {...rest}
     >
@@ -545,112 +427,7 @@ function SelectPopup({
           </ScrollAreaScrollbar>
         </ScrollArea>
       </div>
-    </div>
-  );
-}
-
-interface SelectSearchProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
-  value: string;
-  onValueChange: (value: string) => void;
-}
-
-export function SelectSearch({
-  value,
-  onValueChange,
-  className,
-  placeholder = 'Search…',
-  ...rest
-}: SelectSearchProps) {
-  return (
-    <div className={cx(css.search, className)}>
-      <SearchIcon />
-      <input
-        type="text"
-        autoComplete="off"
-        spellCheck={false}
-        {...{ [SEARCH_ATTR]: '' }}
-        className={css.searchInput}
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onValueChange(event.target.value)}
-        {...rest}
-      />
-    </div>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
-  );
-}
-
-export function SelectRail({
-  className,
-  children,
-  ...rest
-}: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      role="toolbar"
-      aria-orientation="vertical"
-      className={cx(css.rail, className)}
-      {...rest}
-    >
-      {children}
-    </div>
-  );
-}
-
-interface SelectRailItemProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onSelect'> {
-  active?: boolean;
-  label: string;
-  color?: string;
-  icon?: ReactNode;
-}
-
-export function SelectRailItem({
-  active = false,
-  label,
-  color,
-  icon,
-  className,
-  ...rest
-}: SelectRailItemProps) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      aria-label={label}
-      title={label}
-      data-active={active ? '' : undefined}
-      className={cx(css.railItem, className)}
-      {...rest}
-    >
-      <span
-        aria-hidden="true"
-        className={css.railGlyph}
-        style={color ? { color } : undefined}
-      >
-        {icon ?? label.charAt(0).toUpperCase()}
-      </span>
-    </button>
+    </PopoverContent>
   );
 }
 
@@ -717,6 +494,7 @@ export function SelectItem({
   onPointerEnter,
   ...rest
 }: SelectItemProps) {
+  const popover = usePopoverContext('SelectItem');
   const ctx = useSelectContext('SelectItem');
   const selected = ctx.value === value;
   const highlighted = ctx.highlightedValue === value;
@@ -741,8 +519,8 @@ export function SelectItem({
         onClick?.(event);
         if (event.defaultPrevented) return;
         ctx.selectValue(value);
-        ctx.setOpen(false);
-        ctx.triggerEl?.focus();
+        popover.setOpen(false);
+        popover.triggerEl?.focus();
       }}
       onPointerEnter={(event) => {
         onPointerEnter?.(event);
@@ -815,18 +593,6 @@ export function SelectItemMeta({
 }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span className={cx(css.itemMeta, className)} {...rest}>
-      {children}
-    </span>
-  );
-}
-
-export function SelectBadge({
-  className,
-  children,
-  ...rest
-}: HTMLAttributes<HTMLSpanElement>) {
-  return (
-    <span className={cx(css.badge, className)} {...rest}>
       {children}
     </span>
   );
