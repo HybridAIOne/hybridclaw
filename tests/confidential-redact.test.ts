@@ -153,6 +153,23 @@ describe('dehydrate / rehydrate', () => {
 });
 
 describe('scanForLeaks', () => {
+  test('trusted-coworker YAML does not double-count client identities as keywords', () => {
+    const fixtureRuleSet = parseConfidentialYaml(
+      trustedCoworkerConfidentialYaml(),
+      'fixtures:trusted-coworker',
+    );
+
+    const result = scanForLeaks('AsterWorks Labs', fixtureRuleSet);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        kind: 'client',
+        label: 'AsterWorks Labs',
+      }),
+    ]);
+  });
+
   test('flags multiple sensitivities and produces a non-zero score', () => {
     const text =
       'Serviceplan brief: Project Falcon launches Q4 2026 budget review with INT-654321.';

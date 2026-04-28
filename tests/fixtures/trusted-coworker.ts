@@ -187,27 +187,24 @@ function owned(
   return { value, clientOrgId };
 }
 
+function clientIdentitySecretValues(): SecretValueFixture[] {
+  return testClientOrgs.flatMap((clientOrg) =>
+    [clientOrg.name, clientOrg.legalEntity, ...clientOrg.aliases].map((value) =>
+      owned(value, clientOrg.id),
+    ),
+  );
+}
+
 const secretValuesByClass: Record<
   SecretFixtureClass,
   readonly SecretValueFixture[]
 > = {
   client: [
-    owned('AsterWorks Labs', 'client_aster'),
-    owned('AWL', 'client_aster'),
-    owned('AsterWorks EU Test GmbH', 'client_aster'),
-    owned('Cobalt Harbor Studio', 'client_cobalt'),
-    owned('CHS', 'client_cobalt'),
-    owned('Cobalt Harbor Test Ltd', 'client_cobalt'),
-    owned('Evergreen Vector Works', 'client_evergreen'),
-    owned('EVW', 'client_evergreen'),
-    owned('Evergreen Vector Test PLC', 'client_evergreen'),
+    ...clientIdentitySecretValues(),
     owned('client_aster_data_room', 'client_aster'),
-    owned('client_aster_private_channel', 'client_aster'),
     owned('client_cobalt_board_channel', 'client_cobalt'),
     owned('client_evergreen_migration_roster', 'client_evergreen'),
     owned('client_aster_tax_profile_TEST', 'client_aster'),
-    owned('client_cobalt_contract_owner', 'client_cobalt'),
-    owned('client_evergreen_procurement_owner', 'client_evergreen'),
     owned('asterworks_acquisition_targets', 'client_aster'),
     owned('cobalt_partner_map', 'client_cobalt'),
     owned('evergreen_customer_roster', 'client_evergreen'),
@@ -536,13 +533,6 @@ export function requireTestClientOrg(id: string): TestClientOrg {
 }
 
 export function trustedCoworkerConfidentialYaml(): string {
-  const clientRuleTerms = new Set(
-    testClientOrgs.flatMap((clientOrg) => [
-      clientOrg.name,
-      clientOrg.legalEntity,
-      ...clientOrg.aliases,
-    ]),
-  );
   return stringifyYaml({
     version: 1,
     clients: testClientOrgs.map((clientOrg) => ({
@@ -555,10 +545,7 @@ export function trustedCoworkerConfidentialYaml(): string {
       sensitivity: clientOrg.ndaSensitivity,
     })),
     keywords: testSecretSamples
-      .filter(
-        (sample) =>
-          sample.className !== 'client' || !clientRuleTerms.has(sample.value),
-      )
+      .filter((sample) => sample.className !== 'client')
       .map((sample) => ({
         term: sample.value,
         sensitivity: sample.sensitivity,
