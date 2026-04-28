@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   classifyStakes,
   createStakesClassifier,
+  RuleBasedStakesClassifier,
   type StakesClassificationInput,
   type StakesClassifier,
   type StakesLevel,
@@ -245,6 +246,21 @@ describe('stakes classifier', () => {
     expect(result.classifier).toBe('rules:v1');
     expect(result.signals.map((signal) => signal.name)).toContain('cost:high');
     expect(result.reasons).toContain('detected cost exposure >= EUR 500');
+  });
+
+  test('rule classifier rejects invalid cost thresholds', () => {
+    expect(() => new RuleBasedStakesClassifier({ mediumCostEur: 0 })).toThrow(
+      'mediumCostEur must be a positive finite number',
+    );
+    expect(() => new RuleBasedStakesClassifier({ mediumCostEur: -1 })).toThrow(
+      'mediumCostEur must be a positive finite number',
+    );
+    expect(() => new RuleBasedStakesClassifier({ highCostEur: -1 })).toThrow(
+      'highCostEur must be a positive finite number',
+    );
+    expect(
+      () => new RuleBasedStakesClassifier({ highCostEur: Number.NaN }),
+    ).toThrow('highCostEur must be a positive finite number');
   });
 
   test('optional ML classifier can raise stakes but cannot lower rule safety', () => {

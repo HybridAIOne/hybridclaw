@@ -201,20 +201,34 @@ function normalizeMlScore(score: unknown): StakesScore | null {
   };
 }
 
+function resolveCostThreshold(
+  name: 'mediumCostEur' | 'highCostEur',
+  value: unknown,
+  fallback: number,
+): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a positive finite number`);
+  }
+  return value;
+}
+
 export class RuleBasedStakesClassifier implements StakesClassifier {
   private readonly mediumCostEur: number;
   private readonly highCostEur: number;
   private readonly classifierName: string;
 
   constructor(options: RuleBasedStakesClassifierOptions = {}) {
-    this.mediumCostEur =
-      typeof options.mediumCostEur === 'number' && options.mediumCostEur > 0
-        ? options.mediumCostEur
-        : DEFAULT_MEDIUM_COST_EUR;
-    this.highCostEur =
-      typeof options.highCostEur === 'number' && options.highCostEur > 0
-        ? options.highCostEur
-        : DEFAULT_HIGH_COST_EUR;
+    this.mediumCostEur = resolveCostThreshold(
+      'mediumCostEur',
+      options.mediumCostEur,
+      DEFAULT_MEDIUM_COST_EUR,
+    );
+    this.highCostEur = resolveCostThreshold(
+      'highCostEur',
+      options.highCostEur,
+      DEFAULT_HIGH_COST_EUR,
+    );
     this.classifierName = options.classifierName || 'rules:v1';
   }
 
