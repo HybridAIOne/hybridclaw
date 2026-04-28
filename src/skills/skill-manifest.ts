@@ -160,16 +160,20 @@ function normalizeSupportedChannels(value: unknown): ChannelKind[] {
   return channels.length > 0 ? channels : [...DEFAULT_SKILL_SUPPORTED_CHANNELS];
 }
 
-function parseFrontmatterObject(raw: string): Record<string, unknown> {
-  const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) return {};
+function parseFrontmatterBlockObject(block: string): Record<string, unknown> {
   try {
-    const parsed = YAML.parse(match[1] || '') as unknown;
+    const parsed = YAML.parse(block) as unknown;
     return isRecord(parsed) ? parsed : {};
   } catch {
     return {};
   }
+}
+
+function parseFrontmatterObject(raw: string): Record<string, unknown> {
+  const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!match) return {};
+  return parseFrontmatterBlockObject(match[1] || '');
 }
 
 function readRecordPath(
@@ -247,7 +251,30 @@ export function parseSkillManifestFromMarkdown(
   fallback: { name: string },
   options: SkillManifestParseOptions = {},
 ): SkillManifest {
-  const frontmatter = parseFrontmatterObject(raw);
+  return parseSkillManifestFromFrontmatterObject(
+    parseFrontmatterObject(raw),
+    fallback,
+    options,
+  );
+}
+
+export function parseSkillManifestFromFrontmatterBlock(
+  block: string,
+  fallback: { name: string },
+  options: SkillManifestParseOptions = {},
+): SkillManifest {
+  return parseSkillManifestFromFrontmatterObject(
+    parseFrontmatterBlockObject(block),
+    fallback,
+    options,
+  );
+}
+
+function parseSkillManifestFromFrontmatterObject(
+  frontmatter: Record<string, unknown>,
+  fallback: { name: string },
+  options: SkillManifestParseOptions,
+): SkillManifest {
   const { hybridclaw, sources } = buildManifestFieldSources(frontmatter);
 
   const name = normalizeString(frontmatter.name) || fallback.name;

@@ -28,7 +28,7 @@ import { isRecord } from '../utils/type-guards.js';
 import {
   DEFAULT_SKILL_SUPPORTED_CHANNELS,
   isSkillSupportedOnChannel,
-  parseSkillManifestFromMarkdown,
+  parseSkillManifestFromFrontmatterBlock,
   type SkillManifest,
 } from './skill-manifest.js';
 import { guardSkillDirectory } from './skills-guard.js';
@@ -954,7 +954,10 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
-        const manifest = parseSkillManifestFromMarkdown(raw, { name });
+        const manifest = parseSkillManifestFromFrontmatterBlock(
+          frontmatter.block,
+          { name },
+        );
         const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
         skills.push({
