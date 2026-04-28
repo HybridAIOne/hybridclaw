@@ -430,6 +430,9 @@ test('browser_navigate refuses headed mode without a system browser', async () =
   );
   const logPath = path.join(tempRoot, 'browser-env.jsonl');
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_EXECUTABLE_PATH', '');
+  vi.stubEnv('BROWSER_CDP_URL', '');
+  vi.stubEnv('CHROME_BIN', '');
   vi.stubEnv('PATH', path.dirname(process.execPath));
   vi.stubEnv(
     'AGENT_BROWSER_BIN',
