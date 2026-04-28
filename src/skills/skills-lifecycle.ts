@@ -250,19 +250,21 @@ function removeSkillPackageRevisionState(params: {
 }
 
 function toRuntimeInstalledSkillManifest(params: {
-  importResult: SkillImportResult;
   manifest: SkillManifest;
   status: RuntimeInstalledSkillManifest['status'];
-  previous?: RuntimeInstalledSkillManifest;
+  previous?: RuntimeInstalledSkillManifest | null;
+  source: string;
+  skillDir: string;
+  manifestPath?: string;
 }): RuntimeInstalledSkillManifest {
   const now = new Date().toISOString();
   return {
     id: params.manifest.id,
     name: params.manifest.name,
     version: params.manifest.version,
-    source: params.importResult.resolvedSource,
-    skillDir: params.importResult.skillDir,
-    manifestPath: path.join(params.importResult.skillDir, 'SKILL.md'),
+    source: params.source,
+    skillDir: params.skillDir,
+    manifestPath: params.manifestPath || path.join(params.skillDir, 'SKILL.md'),
     status: params.status,
     capabilities: params.manifest.capabilities,
     requiredCredentials: params.manifest.requiredCredentials,
@@ -446,9 +448,11 @@ export async function installSkillPackage(
     updateInstalledSkillManifest(
       draft,
       toRuntimeInstalledSkillManifest({
-        importResult,
         manifest,
-        previous: previous || undefined,
+        previous,
+        source: importResult.resolvedSource,
+        skillDir: importResult.skillDir,
+        manifestPath,
         status: 'enabled',
       }),
     );
@@ -536,6 +540,7 @@ export function uninstallSkillPackage(
   const manifest = fs.existsSync(target.manifestPath)
     ? parseSkillManifestFile(target.manifestPath, { name: target.name })
     : target.manifest;
+  const previous = manifest ? findInstalledSkillByNameOrId(manifest.id) : null;
   const meta = buildLifecycleMeta({
     action: 'uninstall',
     actor: options.actor,
@@ -557,22 +562,17 @@ export function uninstallSkillPackage(
   updateRuntimeConfig((draft) => {
     removeSkillFromDisabledScopes(draft, target.name);
     if (manifest) {
-      updateInstalledSkillManifest(draft, {
-        id: manifest.id,
-        name: manifest.name,
-        version: manifest.version,
-        source: target.manifestPath,
-        skillDir: target.skillDir,
-        manifestPath: target.manifestPath,
-        status: 'uninstalled',
-        capabilities: manifest.capabilities,
-        requiredCredentials: manifest.requiredCredentials,
-        supportedChannels: manifest.supportedChannels,
-        installedAt:
-          findInstalledSkillByNameOrId(manifest.id)?.installedAt ||
-          new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      updateInstalledSkillManifest(
+        draft,
+        toRuntimeInstalledSkillManifest({
+          manifest,
+          status: 'uninstalled',
+          previous,
+          source: target.manifestPath,
+          skillDir: target.skillDir,
+          manifestPath: target.manifestPath,
+        }),
+      );
       removeSkillFromDisabledScopes(draft, manifest.id);
       return;
     }
@@ -629,6 +629,7 @@ export function rollbackSkillPackage(params: {
 
   const snapshot = parseSkillPackageSnapshot(revision.content);
   restoreSkillPackageSnapshot(target.skillDir, snapshot);
+  const previous = findInstalledSkillByNameOrId(snapshot.manifest.id);
   const meta = buildLifecycleMeta({
     action: 'rollback',
     actor: params.actor,
@@ -640,22 +641,17 @@ export function rollbackSkillPackage(params: {
     meta,
   });
   updateRuntimeConfig((draft) => {
-    updateInstalledSkillManifest(draft, {
-      id: snapshot.manifest.id,
-      name: snapshot.manifest.name,
-      version: snapshot.manifest.version,
-      source: target.manifestPath,
-      skillDir: target.skillDir,
-      manifestPath: path.join(target.skillDir, 'SKILL.md'),
-      status: 'enabled',
-      capabilities: snapshot.manifest.capabilities,
-      requiredCredentials: snapshot.manifest.requiredCredentials,
-      supportedChannels: snapshot.manifest.supportedChannels,
-      installedAt:
-        findInstalledSkillByNameOrId(snapshot.manifest.id)?.installedAt ||
-        new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    updateInstalledSkillManifest(
+      draft,
+      toRuntimeInstalledSkillManifest({
+        manifest: snapshot.manifest,
+        status: 'enabled',
+        previous,
+        source: target.manifestPath,
+        skillDir: target.skillDir,
+        manifestPath: path.join(target.skillDir, 'SKILL.md'),
+      }),
+    );
   }, meta);
   recordSkillLifecycleAudit({
     action: 'rollback',
