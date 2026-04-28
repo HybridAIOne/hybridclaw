@@ -276,18 +276,16 @@ function hasInvalidDeploymentMode(
 
 function hasInvalidDeploymentTunnelProvider(
   rawDeployment: Record<string, unknown> | null,
-  provider: string,
+  provider: string | undefined,
 ): boolean {
   const rawTunnel = rawDeployment?.tunnel;
   if (!rawTunnel || typeof rawTunnel !== 'object' || Array.isArray(rawTunnel)) {
     return false;
   }
   if (!Object.hasOwn(rawTunnel, 'provider')) return false;
-  return (
-    provider !== '' &&
-    !(RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
-      provider,
-    )
+  if (!provider) return false;
+  return !(RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+    provider,
   );
 }
 

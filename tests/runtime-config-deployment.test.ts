@@ -101,11 +101,16 @@ describe('runtime deployment config', () => {
   });
 
   it('validates local mode requires deployment.tunnel.provider', async () => {
-    const { runtimeConfig, checkConfigFile } = await importFreshRuntimeConfig();
-    runtimeConfig.updateRuntimeConfig((draft) => {
-      draft.deployment.mode = 'local';
-      draft.deployment.tunnel.provider = '';
-    });
+    const { checkConfigFile } = await importFreshRuntimeConfig();
+    const config = readDiskConfig();
+    config.deployment = {
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: '',
+      },
+    };
+    writeDiskConfig(config);
 
     const results = await checkConfigFile();
 

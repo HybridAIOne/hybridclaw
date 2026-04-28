@@ -242,12 +242,11 @@ export const RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS = [
 export type RuntimeDeploymentKnownTunnelProvider =
   (typeof RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS)[number];
 export type RuntimeDeploymentTunnelProvider =
-  | ''
   | RuntimeDeploymentKnownTunnelProvider
   | (string & {});
 
 export interface RuntimeDeploymentTunnelConfig {
-  provider: RuntimeDeploymentTunnelProvider;
+  provider?: RuntimeDeploymentTunnelProvider;
 }
 
 export interface RuntimeDeploymentConfig {
@@ -1711,11 +1710,11 @@ function normalizeDeploymentMode(
 
 function normalizeDeploymentTunnelProvider(
   value: unknown,
-  fallback: RuntimeDeploymentTunnelProvider,
-): RuntimeDeploymentTunnelProvider {
+  fallback: RuntimeDeploymentTunnelProvider | undefined,
+): RuntimeDeploymentTunnelProvider | undefined {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (!normalized) return '';
+  if (!normalized) return undefined;
   if (
     (RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
       normalized,
@@ -1741,15 +1740,14 @@ export function normalizeDeploymentConfig(
 ): RuntimeDeploymentConfig {
   const raw = isRecord(value) ? value : {};
   const rawTunnel = isRecord(raw.tunnel) ? raw.tunnel : {};
+  const tunnelProvider = normalizeDeploymentTunnelProvider(
+    rawTunnel.provider,
+    fallback.tunnel.provider,
+  );
   return {
     mode: normalizeDeploymentMode(raw.mode, fallback.mode),
     public_url: normalizeOptionalBaseUrl(raw.public_url, fallback.public_url),
-    tunnel: {
-      provider: normalizeDeploymentTunnelProvider(
-        rawTunnel.provider,
-        fallback.tunnel.provider,
-      ),
-    },
+    tunnel: tunnelProvider ? { provider: tunnelProvider } : {},
   };
 }
 
