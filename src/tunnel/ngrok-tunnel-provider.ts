@@ -61,10 +61,6 @@ function redactSecret(message: string, secret: string): string {
   return message.split(trimmed).join('<redacted>');
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export class NgrokTunnelProvider implements TunnelProvider {
   private readonly addr: Config['addr'];
   private readonly domain?: string;
@@ -130,7 +126,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
       this.listener = null;
       this.publicUrl = null;
       throw new Error(
-        `Failed to start ngrok tunnel: ${redactSecret(errorMessage(error), token)}`,
+        `Failed to start ngrok tunnel: ${redactSecret(error instanceof Error ? error.message : String(error), token)}`,
       );
     }
   }
