@@ -34,7 +34,8 @@ type UsageEntry = UnusedEntry & {
   toolNames: string[];
 };
 
-const DEPLOYMENT_CONFIG_VERSION = 22;
+// Deployment fields were introduced in config v22 and older configs remain valid without them.
+const MIN_DEPLOYMENT_SCHEMA_VERSION = 22;
 
 function formatUnusedEntries(entries: readonly UnusedEntry[]): string {
   return entries
@@ -281,7 +282,7 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   const hasCurrentDeploymentSchema =
     rawDeployment !== null ||
     (typeof rawConfig.version === 'number' &&
-      rawConfig.version >= DEPLOYMENT_CONFIG_VERSION);
+      rawConfig.version >= MIN_DEPLOYMENT_SCHEMA_VERSION);
   const rawMode = getRawDeploymentField(rawConfig, 'mode');
   const normalizedRawMode =
     typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
