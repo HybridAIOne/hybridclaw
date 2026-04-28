@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import { classifyMcpTool } from '../container/src/mcp/tool-classifier.js';
 import {
   classifyStakes,
   createStakesClassifier,
@@ -47,6 +48,13 @@ function makeNestedArgs(
 
 function classifyWithTestDefaults(input: StakesClassificationInput) {
   return classifyStakes(input, createStakesClassifier());
+}
+
+function actionKeyForEvalTool(toolName: string): string {
+  const lowerTool = toolName.toLowerCase();
+  if (!lowerTool.includes('__')) return lowerTool;
+  const [serverName] = lowerTool.split('__', 2);
+  return `mcp:${serverName || 'server'}:${classifyMcpTool(lowerTool)}`;
 }
 
 const lowTools = [
@@ -187,7 +195,7 @@ const evalExamples: StakesEvalExample[] = [
       expected: 'low' as const,
       input: makeInput({
         toolName,
-        actionKey: toolName.includes('__') ? 'mcp:search:search' : toolName,
+        actionKey: actionKeyForEvalTool(toolName),
         intent: `run ${toolName}`,
         target: `internal/reference-${index}.md`,
         args: { path: `internal/reference-${index}.md` },
@@ -261,6 +269,40 @@ describe('stakes classifier', () => {
     expect(result.classifier).toBe('rules:v1');
     expect(result.signals.map((signal) => signal.name)).toContain('cost:high');
     expect(result.reasons).toContain('detected cost exposure >= EUR 500');
+  });
+
+  test('customer channel matching ignores ordinary preposition text', () => {
+    const result = classifyWithTestDefaults(
+      makeInput({
+        toolName: 'write',
+        actionKey: 'write:docs',
+        intent: 'write to local notes',
+        target: 'docs/notes.md',
+        args: {
+          path: 'docs/notes.md',
+          contents: 'write to local notes',
+        },
+        writeIntent: true,
+      }),
+    );
+
+    expect(result.level).toBe('medium');
+    expect(result.signals.map((signal) => signal.name)).not.toContain(
+      'customer-facing',
+    );
+
+    const labeledRecipient = classifyWithTestDefaults(
+      makeInput({
+        toolName: 'write',
+        actionKey: 'write:draft',
+        intent: 'draft update to: release team',
+        target: 'draft recipient update',
+        writeIntent: true,
+      }),
+    );
+    expect(labeledRecipient.signals.map((signal) => signal.name)).toContain(
+      'customer-facing',
+    );
   });
 
   test('large argument inspection does not JSON stringify full args', () => {

@@ -51,7 +51,7 @@ const COST_KEY_RE =
 const CUSTOMER_FACING_RE =
   /\b(customer|client|external|public|user|recipient|audience|subscriber|prospect|lead|buyer|patient|tenant)\b/i;
 const CUSTOMER_CHANNEL_RE =
-  /\b(email|sms|whatsapp|telegram|slack|discord|msteams|teams|imessage|post|publish|tweet|dm|recipient|to|cc|bcc)\b|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+  /\b(email|sms|whatsapp|telegram|slack|discord|msteams|teams|imessage|post|publish|tweet|dm|recipient)\b|\b(?:to|cc|bcc)\s*:|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const IRREVERSIBLE_RE =
   /\b(rm\s+-rf|delete|destroy|drop\s+table|truncate|erase|wipe|terminate|cancel|void|refund|charge|transfer|revoke|disable|force\s+push|git\s+push\s+--force)\b/i;
 const PRODUCTION_RE =
