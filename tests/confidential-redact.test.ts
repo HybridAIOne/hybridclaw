@@ -7,6 +7,10 @@ import {
   scanForLeaks,
 } from '../src/security/confidential-redact.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
+import {
+  testSecretSamplesByClass,
+  trustedCoworkerConfidentialYaml,
+} from './fixtures/trusted-coworker.ts';
 
 const RULES_YAML = `
 version: 1
@@ -119,6 +123,32 @@ describe('dehydrate / rehydrate', () => {
       createPlaceholderMap(),
     );
     expect(out).toBe('See «CONF:UNKNOWN_001» here.');
+  });
+
+  test('roadmap 4.x masks and rehydrates business-secret fixture classes', () => {
+    const fixtureRuleSet = parseConfidentialYaml(
+      trustedCoworkerConfidentialYaml(),
+      'fixtures:trusted-coworker',
+    );
+    const secrets = [
+      testSecretSamplesByClass.client[0],
+      testSecretSamplesByClass.nda[0],
+      testSecretSamplesByClass.price[0],
+      testSecretSamplesByClass.contract[0],
+    ];
+    const text = `Review ${secrets.map((secret) => secret.value).join(' and ')}.`;
+
+    const {
+      text: dehydrated,
+      mappings,
+      hits,
+    } = dehydrateConfidential(text, fixtureRuleSet);
+
+    expect(hits).toBeGreaterThanOrEqual(secrets.length);
+    for (const secret of secrets) {
+      expect(dehydrated).not.toContain(secret.value);
+    }
+    expect(rehydrateConfidential(dehydrated, mappings)).toBe(text);
   });
 });
 
