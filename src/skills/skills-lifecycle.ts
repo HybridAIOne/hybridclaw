@@ -348,9 +348,7 @@ function updateInstalledSkillManifest(
     (entry) => entry.id !== manifest.id && entry.name !== manifest.name,
   );
   next.push(manifest);
-  draft.skills.installed = next.sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  draft.skills.installed = next;
 }
 
 function removeInstalledSkillManifest(
