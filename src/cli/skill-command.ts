@@ -13,6 +13,7 @@ import {
 } from '../skills/skill-formatters.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
+import { resolveSkillInstallMode } from '../skills/skill-install-mode.js';
 import { normalizeArgs, parseSkillScopeArgs } from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
@@ -305,44 +306,28 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
   }
 
   if (sub === 'install') {
-    const skillName = normalized[1];
-    const installId = normalized[2];
-    const hasPackageInstallFlag = normalized
-      .slice(1)
-      .some((arg) => arg === '--force' || arg === '--skip-skill-scan');
-    if (!skillName) {
+    const installMode = resolveSkillInstallMode(normalized.slice(1), {
+      commandPrefix: 'hybridclaw skill',
+    });
+    if (!installMode.ok) {
       printSkillUsage();
+      if (installMode.error === 'missing-dependency') {
+        throw new Error(
+          'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
+        );
+      }
       throw new Error(
         'Usage: `hybridclaw skill install <source>` or `hybridclaw skill install <skill-name> <dependency>`.',
       );
     }
-    if (!installId || hasPackageInstallFlag) {
-      if (!installId && !hasPackageInstallFlag) {
-        const { findSkillCatalogEntry } = await import(
-          '../skills/skills-install.js'
-        );
-        if (findSkillCatalogEntry(skillName)) {
-          printSkillUsage();
-          throw new Error(
-            'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
-          );
-        }
-      }
-      const { source, force, skipSkillScan } = parseSkillImportArgs(
-        normalized.slice(1),
-        {
-          commandPrefix: 'hybridclaw skill',
-          commandName: 'install',
-          allowForce: true,
-        },
-      );
+    if (installMode.mode === 'package') {
       const { installSkillPackage } = await import(
         '../skills/skills-lifecycle.js'
       );
-      const result = await installSkillPackage(source, {
+      const result = await installSkillPackage(installMode.source, {
         actor: 'cli',
-        force,
-        skipGuard: skipSkillScan,
+        force: installMode.force,
+        skipGuard: installMode.skipSkillScan,
       });
       for (const warning of buildGuardWarningLines(result)) {
         console.warn(warning);
@@ -357,7 +342,10 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     const { installSkillDependency } = await import(
       '../skills/skills-install.js'
     );
-    const result = await installSkillDependency({ skillName, installId });
+    const result = await installSkillDependency({
+      skillName: installMode.skillName,
+      installId: installMode.installId,
+    });
     if (result.stdout) console.log(result.stdout);
     if (result.stderr) console.error(result.stderr);
     if (!result.ok) {

@@ -13,6 +13,7 @@ import {
 } from '../skills/skill-formatters.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
+import { resolveSkillInstallMode } from '../skills/skill-install-mode.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
@@ -419,51 +420,35 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'install') {
-    const skillName = parseIdArg(context.args, 2);
-    const installId = parseIdArg(context.args, 3) || undefined;
-    const hasPackageInstallFlag = context.args
-      .slice(2)
-      .some((arg) => arg === '--force' || arg === '--skip-skill-scan');
     if (!isLocalSession(context)) {
       return context.badCommand(
         'Skill Install Restricted',
         '`skill install` is only available from local TUI/web sessions.',
       );
     }
-    if (!skillName) {
+    const installMode = resolveSkillInstallMode(context.args.slice(2), {
+      commandPrefix: 'skill',
+    });
+    if (!installMode.ok) {
+      if (installMode.error === 'missing-dependency') {
+        return context.badCommand(
+          'Usage',
+          'Usage: `skill install <skill> <dependency>`',
+        );
+      }
       return context.badCommand(
         'Usage',
         'Usage: `skill install <source>` or `skill install <skill> <dependency>`',
       );
     }
-    if (!installId || hasPackageInstallFlag) {
-      if (!installId && !hasPackageInstallFlag) {
-        const { findSkillCatalogEntry } = await import(
-          '../skills/skills-install.js'
-        );
-        if (findSkillCatalogEntry(skillName)) {
-          return context.badCommand(
-            'Usage',
-            'Usage: `skill install <skill> <dependency>`',
-          );
-        }
-      }
-      const { source, force, skipSkillScan } = parseSkillImportArgs(
-        context.args.slice(2),
-        {
-          commandPrefix: 'skill',
-          commandName: 'install',
-          allowForce: true,
-        },
-      );
-
+    if (installMode.mode === 'package') {
       const { installSkillPackage } = await import(
         '../skills/skills-lifecycle.js'
       );
-      const result = await installSkillPackage(source, {
+      const result = await installSkillPackage(installMode.source, {
         actor: 'gateway-command',
-        force,
-        skipGuard: skipSkillScan,
+        force: installMode.force,
+        skipGuard: installMode.skipSkillScan,
       });
       const lines = [
         ...buildGuardWarningLines(result),
@@ -476,7 +461,10 @@ export async function handleSkillCommand(
     const { installSkillDependency } = await import(
       '../skills/skills-install.js'
     );
-    const result = await installSkillDependency({ skillName, installId });
+    const result = await installSkillDependency({
+      skillName: installMode.skillName,
+      installId: installMode.installId,
+    });
     const lines = [result.message];
     if (result.stdout) {
       lines.push('', 'stdout:', result.stdout);
