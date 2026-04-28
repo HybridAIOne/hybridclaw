@@ -26,6 +26,7 @@ import {
   type StakesLevel,
   type StakesScore,
 } from './stakes-classifier.js';
+import { normalizeText } from './text-normalization.js';
 import type { ChatMessage } from './types.js';
 
 export type {
@@ -249,12 +250,6 @@ function isVoiceChannelId(value: string | undefined): boolean {
     .trim()
     .toLowerCase()
     .startsWith('voice:');
-}
-
-function normalizeText(value: unknown): string {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function normalizePrompt(value: string): string {

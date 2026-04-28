@@ -5,6 +5,7 @@ import type {
   StakesScore,
   StakesSignal,
 } from '../shared/stakes-classifier.js';
+import { normalizeText } from './text-normalization.js';
 
 export type {
   StakesApprovalTier,
@@ -73,12 +74,6 @@ function levelForScore(score: number): StakesLevel {
 function normalizeStakesLevel(value: unknown): StakesLevel | null {
   if (value === 'low' || value === 'medium' || value === 'high') return value;
   return null;
-}
-
-function normalizeText(value: unknown): string {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function stringifyForInspection(input: StakesClassificationInput): string {
