@@ -165,12 +165,11 @@ function uniqueReasons(signals: StakesSignal[]): string[] {
   return [...new Set(signals.map((signal) => signal.reason))];
 }
 
-function normalizeScore(
-  score: StakesScore | null | undefined,
-): StakesScore | null {
-  if (!score) return null;
+function normalizeScore(score: StakesScore): StakesScore {
   const level = normalizeStakesLevel(score.level);
-  if (!level) return null;
+  if (!level) {
+    throw new Error('Stakes classifier returned an invalid level.');
+  }
   const signals = Array.isArray(score.signals) ? score.signals : [];
   const reasons = Array.isArray(score.reasons)
     ? score.reasons.map(normalizeText).filter(Boolean)
@@ -329,7 +328,7 @@ export class RuleBasedStakesClassifier implements StakesClassifier {
 }
 
 export class CompositeStakesClassifier implements StakesClassifier {
-  private readonly ruleClassifier: StakesClassifier;
+  private readonly ruleClassifier: RuleBasedStakesClassifier;
   private readonly mlClassifier: StakesClassifier | null;
   private readonly minMlConfidence: number;
 
@@ -343,10 +342,10 @@ export class CompositeStakesClassifier implements StakesClassifier {
   }
 
   classify(input: StakesClassificationInput): StakesScore {
-    const ruleScore =
-      normalizeScore(this.ruleClassifier.classify(input)) ||
-      new RuleBasedStakesClassifier().classify(input);
-    const mlScore = normalizeScore(this.mlClassifier?.classify(input));
+    const ruleScore = this.ruleClassifier.classify(input);
+    const mlScore = this.mlClassifier
+      ? normalizeScore(this.mlClassifier.classify(input))
+      : null;
     if (!mlScore || mlScore.confidence < this.minMlConfidence) {
       return ruleScore;
     }
@@ -376,8 +375,5 @@ export function classifyStakes(
   input: StakesClassificationInput,
   classifier: StakesClassifier = DEFAULT_STAKES_CLASSIFIER,
 ): StakesScore {
-  return (
-    normalizeScore(classifier.classify(input)) ||
-    new RuleBasedStakesClassifier().classify(input)
-  );
+  return normalizeScore(classifier.classify(input));
 }

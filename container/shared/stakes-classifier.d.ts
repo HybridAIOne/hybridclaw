@@ -32,5 +32,5 @@ export interface StakesClassificationInput {
 }
 
 export interface StakesClassifier {
-  classify(input: StakesClassificationInput): StakesScore | null | undefined;
+  classify(input: StakesClassificationInput): StakesScore;
 }
