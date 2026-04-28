@@ -315,10 +315,15 @@ describe('skill package lifecycle', () => {
       homeDir: tempHome,
     });
 
-    lifecycle.setSkillPackageEnabled({
+    const disabled = lifecycle.setSkillPackageEnabled({
       skillName: 'managed-skill',
       enabled: false,
       actor: 'test',
+    });
+    expect(disabled).toMatchObject({
+      action: 'disable',
+      skillName: 'managed-skill',
+      scope: 'global',
     });
     expect(
       config.getRuntimeConfig().skills.installed.find(
@@ -330,6 +335,70 @@ describe('skill package lifecycle', () => {
     expect(config.getRuntimeConfig().skills.disabled).toContain(
       'managed-skill',
     );
+
+    const enabled = lifecycle.setSkillPackageEnabled({
+      skillName: 'managed-skill',
+      enabled: true,
+      actor: '   ',
+    });
+    expect(enabled.scope).toBe('global');
+    expect(
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'managed-skill',
+      ),
+    ).toMatchObject({
+      status: 'enabled',
+    });
+    expect(config.getRuntimeConfig().skills.disabled).not.toContain(
+      'managed-skill',
+    );
+
+    const slackDisabled = lifecycle.setSkillPackageEnabled({
+      skillName: 'managed-skill',
+      enabled: false,
+      channelKind: 'slack',
+      actor: 'test',
+    });
+    expect(slackDisabled).toMatchObject({
+      action: 'disable',
+      skillName: 'managed-skill',
+      scope: 'slack',
+    });
+    expect(config.getRuntimeConfig().skills.channelDisabled?.slack).toContain(
+      'managed-skill',
+    );
+    expect(
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'managed-skill',
+      ),
+    ).toMatchObject({
+      status: 'enabled',
+    });
+
+    const slackEnabled = lifecycle.setSkillPackageEnabled({
+      skillName: 'managed-skill',
+      enabled: true,
+      channelKind: 'slack',
+      actor: 'test',
+    });
+    expect(slackEnabled.scope).toBe('slack');
+    expect(
+      config.getRuntimeConfig().skills.channelDisabled?.slack || [],
+    ).not.toContain('managed-skill');
+
+    const { getAuditWirePath } = await import('../src/audit/audit-trail.ts');
+    const auditEvents = fs
+      .readFileSync(getAuditWirePath('skill-lifecycle'), 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { event?: Record<string, unknown> })
+      .map((line) => line.event)
+      .filter((event) => event?.type === 'skill.lifecycle');
+    expect(auditEvents.at(-3)).toMatchObject({
+      action: 'enable',
+      actor: 'skill-lifecycle',
+      skillName: 'managed-skill',
+    });
   });
 
   test('rollback rejects malformed snapshot file entries before restore', async () => {

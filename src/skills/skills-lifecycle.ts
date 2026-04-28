@@ -60,7 +60,7 @@ export interface SkillPackageInstallResult extends SkillImportResult {
 export interface SkillPackageStatusResult {
   action: 'enable' | 'disable';
   skillName: string;
-  scope: string;
+  scope: SkillConfigChannelKind | 'global';
   manifest: SkillManifest | null;
 }
 
@@ -105,7 +105,7 @@ function toPosixPath(value: string): string {
   return value.split(path.sep).join('/');
 }
 
-function normalizeActor(actor?: string): string {
+function actorOrDefault(actor?: string): string {
   return String(actor || '').trim() || 'skill-lifecycle';
 }
 
@@ -115,7 +115,7 @@ function buildLifecycleMeta(params: {
   source?: string;
 }): RuntimeConfigChangeMeta {
   return {
-    actor: normalizeActor(params.actor),
+    actor: actorOrDefault(params.actor),
     route: `skill.lifecycle.${params.action}`,
     source: params.source || 'skill-lifecycle',
   };
@@ -407,7 +407,7 @@ function recordSkillLifecycleAudit(params: {
       skillDir: params.skillDir || null,
       source: params.source || null,
       revisionId: params.revisionId || null,
-      actor: normalizeActor(params.actor),
+      actor: actorOrDefault(params.actor),
     },
   });
 }
@@ -524,10 +524,11 @@ async function installSkillPackageForCommand(
   options: SkillPackageLifecycleOptions,
   command: SkillPackageInstallCommand,
 ): Promise<SkillPackageInstallResult> {
+  const homeDir = options.homeDir || DEFAULT_RUNTIME_HOME_DIR;
   let sourceManifest: SkillManifest | null = null;
   const importResult = await importSkill(source, {
     force: options.force,
-    homeDir: options.homeDir,
+    homeDir,
     skipGuard: options.skipGuard,
     validateSkillFile: (skillFilePath, skillName) => {
       sourceManifest = parseSkillManifestFile(
@@ -540,6 +541,7 @@ async function installSkillPackageForCommand(
       }
     },
   });
+  assertManagedSkillPackage(importResult.skillDir, homeDir);
   const manifestPath = path.join(importResult.skillDir, 'SKILL.md');
   const manifest =
     sourceManifest ||
