@@ -107,27 +107,32 @@ function logTrajectoryCaptureEnabledOnce(input: {
   );
 }
 
+function isEnabledTrajectoryCaptureAgentId(
+  agentId: string | null | undefined,
+  enabledAgentIds: string[],
+): agentId is string {
+  const normalizedAgentId = agentId?.trim();
+  if (!normalizedAgentId || enabledAgentIds.length === 0) return false;
+  return enabledAgentIds.some((enabledAgentId) => {
+    return enabledAgentId.trim() === normalizedAgentId;
+  });
+}
+
 export function isTrajectoryCaptureEnabledForAgentId(
   agentId: string | null | undefined,
   config: RuntimeConfig,
 ): agentId is string {
-  const normalizedAgentId = agentId?.trim();
-  if (!normalizedAgentId) return false;
-  const enabledAgentIds =
-    config.adaptiveSkills.trajectoryCapture.enabledAgentIds;
-  if (enabledAgentIds.length === 0) return false;
-  return enabledAgentIds.some((enabledAgentId) => {
-    return enabledAgentId.trim() === normalizedAgentId;
-  });
+  return isEnabledTrajectoryCaptureAgentId(
+    agentId,
+    config.adaptiveSkills.trajectoryCapture.enabledAgentIds,
+  );
 }
 
 function isTrajectoryCaptureEnabledForAgent(
   event: SkillRunEvent,
   enabledAgentIds: string[],
 ): event is SkillRunEvent & { agent_id: string } {
-  const agentId = event.agent_id?.trim();
-  if (!agentId) return false;
-  return enabledAgentIds.includes(agentId);
+  return isEnabledTrajectoryCaptureAgentId(event.agent_id, enabledAgentIds);
 }
 
 export function skillRunTrajectoryFilePath(input: {
