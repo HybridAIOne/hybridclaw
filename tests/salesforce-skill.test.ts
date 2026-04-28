@@ -168,6 +168,70 @@ test('salesforce helper validates Salesforce request URLs and reuses resolved op
   expect(payload.capturedTargets).toEqual(['006000000000001AAA']);
 });
 
+test('salesforce helper validates planned actions before writes and ignores malformed API versions', () => {
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      [
+        'import importlib.util, json, pathlib, sys',
+        'helper_path = pathlib.Path(sys.argv[1])',
+        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
+        'module = importlib.util.module_from_spec(spec)',
+        'sys.modules[spec.name] = module',
+        'spec.loader.exec_module(module)',
+        'gateway_payloads = []',
+        'def fake_gateway_request(gateway, **kwargs):',
+        '    return gateway_payloads.pop(0)',
+        'module.gateway_request = fake_gateway_request',
+        'gateway = module.GatewayConfig(base_url="http://127.0.0.1:9090", api_token="test-token", timeout_ms=1000)',
+        'gateway_payloads.append(["not-an-object", {"version": "60.0"}, 7, {"version": "61.0"}])',
+        'latest = module.resolve_latest_api_version(gateway)',
+        'gateway_payloads.append(["bad", {"label": "missing version"}])',
+        'invalid_version_error = ""',
+        'try:',
+        '    module.resolve_latest_api_version(gateway)',
+        'except module.SalesforceError as exc:',
+        '    invalid_version_error = str(exc)',
+        'writes = []',
+        'class DummySession:',
+        '    api_version = "61.0"',
+        'module.plan_natural_language = lambda statement: {',
+        '    "statement": statement,',
+        '    "actions": [',
+        '        {"action": "update-opportunity", "opportunity": "Acme", "stage": "Closed Won", "probability": 100},',
+        '        {"action": "find-records", "recordType": "leads", "search": "Acme", "limit": 10},',
+        '    ],',
+        '}',
+        'def fake_update(*args, **kwargs):',
+        '    writes.append(kwargs)',
+        '    return {"target": {"id": "006000000000001AAA", "name": "Acme"}}',
+        'module.update_opportunity = fake_update',
+        'plan_error = ""',
+        'try:',
+        '    module.run_planned_actions(DummySession(), statement="bad plan", dry_run=False)',
+        'except module.ConfigError as exc:',
+        '    plan_error = str(exc)',
+        'print(json.dumps({',
+        '    "latest": latest,',
+        '    "invalidVersionError": invalid_version_error,',
+        '    "planError": plan_error,',
+        '    "writeCount": len(writes),',
+        '}))',
+      ].join('\n'),
+      helperPath,
+    ],
+    { encoding: 'utf-8' },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.latest).toBe('61.0');
+  expect(payload.invalidVersionError).toContain('invalid API version payload');
+  expect(payload.planError).toContain("missing: openOnly");
+  expect(payload.writeCount).toBe(0);
+});
+
 test('salesforce helper eval suite covers 30 read and write scenarios', () => {
   const scenarios = JSON.parse(
     fs.readFileSync(scenariosPath, 'utf-8'),

@@ -371,7 +371,15 @@ def resolve_latest_api_version(gw: GatewayConfig) -> str:
     if not isinstance(versions, list) or not versions:
         raise SalesforceError("Salesforce did not return any API versions")
 
-    def version_key(item: Any) -> tuple[int, ...]:
+    valid_versions = [
+        item
+        for item in versions
+        if is_mapping(item) and str(item.get("version", "")).strip()
+    ]
+    if not valid_versions:
+        raise SalesforceError("Salesforce returned an invalid API version payload")
+
+    def version_key(item: dict[str, Any]) -> tuple[int, ...]:
         raw_version = str(item.get("version", "")).strip()
         parts = []
         for chunk in raw_version.split("."):
@@ -380,10 +388,8 @@ def resolve_latest_api_version(gw: GatewayConfig) -> str:
             parts.append(int(chunk))
         return tuple(parts)
 
-    latest = max(versions, key=version_key)
+    latest = max(valid_versions, key=version_key)
     version = str(latest.get("version", "")).strip()
-    if not version:
-        raise SalesforceError("Salesforce returned an invalid API version payload")
     return version
 
 
@@ -1161,6 +1167,45 @@ def plan_natural_language(statement: str) -> dict[str, Any]:
     )
 
 
+def require_action_fields(action: dict[str, Any], required: list[str]) -> None:
+    missing = [field for field in required if field not in action]
+    if missing:
+        action_name = action.get("action", "<missing>")
+        raise ConfigError(
+            f"Planned Salesforce action {action_name!r} is missing: "
+            f"{', '.join(missing)}."
+        )
+
+
+def validate_planned_actions(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    actions = plan.get("actions")
+    if not isinstance(actions, list):
+        raise ConfigError("Salesforce plan did not include an actions list.")
+    validated: list[dict[str, Any]] = []
+    required_by_action = {
+        "find-records": ["recordType", "search", "limit", "openOnly"],
+        "update-opportunity": ["opportunity", "stage", "probability"],
+        "log-activity": [
+            "activityType",
+            "target",
+            "targetObject",
+            "subject",
+            "date",
+            "notes",
+        ],
+    }
+    for action in actions:
+        if not is_mapping(action):
+            raise ConfigError("Salesforce plan included a non-object action.")
+        action_name = action.get("action")
+        required = required_by_action.get(str(action_name))
+        if required is None:
+            raise ConfigError(f"Unsupported planned Salesforce action: {action_name!r}.")
+        require_action_fields(action, ["action", *required])
+        validated.append(action)
+    return validated
+
+
 def run_planned_actions(
     session: SalesforceSession,
     *,
@@ -1168,17 +1213,18 @@ def run_planned_actions(
     dry_run: bool,
 ) -> dict[str, Any]:
     plan = plan_natural_language(statement)
+    actions = validate_planned_actions(plan)
     if dry_run:
         return command_payload(
             "run",
             dryRun=True,
-            statement=plan["statement"],
-            actions=plan["actions"],
+            statement=plan.get("statement", statement),
+            actions=actions,
             results=[],
         )
     results: list[dict[str, Any]] = []
     last_updated_opportunity_id = ""
-    for action in plan["actions"]:
+    for action in actions:
         if action["action"] == "find-records":
             results.append(
                 find_records(
@@ -1222,8 +1268,8 @@ def run_planned_actions(
     return command_payload(
         "run",
         dryRun=False,
-        statement=plan["statement"],
-        actions=plan["actions"],
+        statement=plan.get("statement", statement),
+        actions=actions,
         results=results,
     )
 
@@ -1808,7 +1854,7 @@ def main() -> int:
                 statement=args.statement,
                 dry_run=False,
             )
-        else:
+        elif args.command == "tooling-query":
             payload = run_query(
                 session,
                 soql=args.soql,
@@ -1816,6 +1862,8 @@ def main() -> int:
                 max_records=args.max_records,
                 keep_attributes=args.keep_attributes,
             )
+        else:
+            raise AssertionError(f"Unreachable: {args.command}")
     except (ConfigError, SalesforceError, GatewayError) as exc:
         payload = {"status": "error", "message": str(exc)}
         if args.format == "json":
