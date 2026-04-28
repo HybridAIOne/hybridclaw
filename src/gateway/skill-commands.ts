@@ -6,11 +6,11 @@ import {
   getRuntimeConfig,
   getRuntimeSkillScopeDisabledNames,
 } from '../config/runtime-config.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-  SkillObservation,
-} from '../skills/adaptive-skills-types.js';
+import {
+  formatSkillAmendment,
+  formatSkillHealthMetrics,
+  formatSkillObservationRun,
+} from '../skills/skill-formatters.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import type { GatewayCommandResult } from './gateway-types.js';
@@ -69,81 +69,6 @@ function truncateSkillListDescription(
   if (normalized.length <= available) return normalized;
   if (available <= 3) return '.'.repeat(available);
   return `${normalized.slice(0, available - 3).trimEnd()}...`;
-}
-
-function formatRatioAsPercent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
-}
-
-function formatSkillHealthMetrics(metrics: SkillHealthMetrics): string {
-  const lines = [
-    `Skill: ${metrics.skill_name}`,
-    `Executions: ${metrics.total_executions}`,
-    `Success rate: ${formatRatioAsPercent(metrics.success_rate)}`,
-    `Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`,
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
-    `Positive feedback: ${metrics.positive_feedback_count}`,
-    `Negative feedback: ${metrics.negative_feedback_count}`,
-    `Degraded: ${metrics.degraded ? 'yes' : 'no'}`,
-  ];
-  if (metrics.degradation_reasons.length > 0) {
-    lines.push(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
-  }
-  if (metrics.error_clusters.length > 0) {
-    lines.push(
-      `Error clusters: ${metrics.error_clusters
-        .map((cluster) =>
-          cluster.sample_detail
-            ? `${cluster.category}=${cluster.count} (${cluster.sample_detail})`
-            : `${cluster.category}=${cluster.count}`,
-        )
-        .join('; ')}`,
-    );
-  }
-  return lines.join('\n');
-}
-
-function formatSkillAmendment(amendment: SkillAmendment): string {
-  const lines = [
-    `Version: ${amendment.version}`,
-    `Status: ${amendment.status}`,
-    `Guard: ${amendment.guard_verdict} (${amendment.guard_findings_count} finding(s))`,
-    `Runs since apply: ${amendment.runs_since_apply}`,
-    `Created: ${amendment.created_at}`,
-  ];
-  if (amendment.reviewed_by) {
-    lines.push(`Reviewed by: ${amendment.reviewed_by}`);
-  }
-  if (amendment.rationale) {
-    lines.push(`Rationale: ${amendment.rationale}`);
-  }
-  if (amendment.diff_summary) {
-    lines.push(`Diff: ${amendment.diff_summary}`);
-  }
-  return lines.join('\n');
-}
-
-function formatSkillObservationRun(observation: SkillObservation): string {
-  const lines = [
-    `Run: ${observation.run_id}`,
-    `Outcome: ${observation.outcome}`,
-    `Observed: ${observation.created_at}`,
-    `Duration: ${observation.duration_ms}ms`,
-    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
-  ];
-  if (observation.feedback_sentiment) {
-    lines.push(`Feedback: ${observation.feedback_sentiment}`);
-  }
-  if (observation.user_feedback) {
-    lines.push(`Feedback note: ${observation.user_feedback}`);
-  }
-  if (observation.error_category) {
-    lines.push(`Error category: ${observation.error_category}`);
-  }
-  if (observation.error_detail) {
-    lines.push(`Error detail: ${observation.error_detail}`);
-  }
-  return lines.join('\n');
 }
 
 export async function handleSkillCommand(
@@ -314,7 +239,9 @@ export async function handleSkillCommand(
       }
       return context.infoCommand(
         'Skill Health',
-        metricsList.map(formatSkillHealthMetrics).join('\n\n'),
+        metricsList
+          .map((metrics) => formatSkillHealthMetrics(metrics))
+          .join('\n\n'),
       );
     }
 
@@ -467,7 +394,7 @@ export async function handleSkillCommand(
     }
     return context.infoCommand(
       `Skill History (${skillName})`,
-      history.map(formatSkillAmendment).join('\n\n'),
+      history.map((amendment) => formatSkillAmendment(amendment)).join('\n\n'),
     );
   }
 

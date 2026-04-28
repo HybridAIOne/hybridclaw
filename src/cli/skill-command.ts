@@ -6,76 +6,19 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-  SkillObservation,
-} from '../skills/adaptive-skills-types.js';
+import {
+  formatSkillAmendment,
+  formatSkillHealthMetrics,
+  formatSkillObservationRun,
+} from '../skills/skill-formatters.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import { normalizeArgs, parseSkillScopeArgs } from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
-function printSkillMetrics(metrics: SkillHealthMetrics): void {
-  const formatRatioAsPercent = (value: number): string =>
-    `${(value * 100).toFixed(2)}%`;
-  console.log(`Skill: ${metrics.skill_name}`);
-  console.log(`Executions: ${metrics.total_executions}`);
-  console.log(`Success rate: ${formatRatioAsPercent(metrics.success_rate)}`);
-  console.log(`Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`);
-  console.log(
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
-  );
-  console.log(`Positive feedback: ${metrics.positive_feedback_count}`);
-  console.log(`Negative feedback: ${metrics.negative_feedback_count}`);
-  console.log(`Degraded: ${metrics.degraded ? 'yes' : 'no'}`);
-  if (metrics.degradation_reasons.length > 0) {
-    console.log(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
-  }
-  if (metrics.error_clusters.length > 0) {
-    console.log('Error clusters:');
-    for (const cluster of metrics.error_clusters) {
-      const sample = cluster.sample_detail ? ` — ${cluster.sample_detail}` : '';
-      console.log(`  ${cluster.category}: ${cluster.count}${sample}`);
-    }
-  }
-}
-
-function printAmendmentSummary(amendment: SkillAmendment): void {
-  console.log(
-    `v${amendment.version} [${amendment.status}] guard=${amendment.guard_verdict}/${amendment.guard_findings_count} runs=${amendment.runs_since_apply}`,
-  );
-  console.log(`  created: ${amendment.created_at}`);
-  if (amendment.reviewed_by) {
-    console.log(`  reviewed by: ${amendment.reviewed_by}`);
-  }
-  if (amendment.rationale) {
-    console.log(`  rationale: ${amendment.rationale}`);
-  }
-  if (amendment.diff_summary) {
-    console.log(`  diff: ${amendment.diff_summary}`);
-  }
-}
-
-function printSkillObservationRun(observation: SkillObservation): void {
-  console.log(`Run: ${observation.run_id}`);
-  console.log(`Outcome: ${observation.outcome}`);
-  console.log(`Observed: ${observation.created_at}`);
-  console.log(`Duration: ${observation.duration_ms}ms`);
-  console.log(
-    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
-  );
-  if (observation.feedback_sentiment) {
-    console.log(`Feedback: ${observation.feedback_sentiment}`);
-  }
-  if (observation.user_feedback) {
-    console.log(`Feedback note: ${observation.user_feedback}`);
-  }
-  if (observation.error_category) {
-    console.log(`Error category: ${observation.error_category}`);
-  }
-  if (observation.error_detail) {
-    console.log(`Error detail: ${observation.error_detail}`);
+function printFormattedBlock(block: string): void {
+  for (const line of block.split('\n')) {
+    console.log(line);
   }
 }
 
@@ -241,7 +184,9 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       }
       for (const [index, metrics] of metricsList.entries()) {
         if (index > 0) console.log('');
-        printSkillMetrics(metrics);
+        printFormattedBlock(
+          formatSkillHealthMetrics(metrics, { errorClusterLayout: 'expanded' }),
+        );
       }
       return;
     }
@@ -249,7 +194,11 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       printSkillUsage();
       throw new Error('Missing skill name for `hybridclaw skill inspect`.');
     }
-    printSkillMetrics(inspectObservedSkill(target));
+    printFormattedBlock(
+      formatSkillHealthMetrics(inspectObservedSkill(target), {
+        errorClusterLayout: 'expanded',
+      }),
+    );
     return;
   }
 
@@ -327,7 +276,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     }
     for (const [index, observation] of runs.entries()) {
       if (index > 0) console.log('');
-      printSkillObservationRun(observation);
+      printFormattedBlock(formatSkillObservationRun(observation));
     }
     return;
   }
@@ -348,7 +297,9 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     }
     for (const [index, amendment] of history.entries()) {
       if (index > 0) console.log('');
-      printAmendmentSummary(amendment);
+      printFormattedBlock(
+        formatSkillAmendment(amendment, { style: 'compact' }),
+      );
     }
     return;
   }
