@@ -192,7 +192,7 @@ describe('runtime config revisions integration', () => {
         defaultLevel: 'confirm-each',
         rules: [
           {
-            coworkerId: 'writer',
+            agentId: 'writer',
             skillName: 'docs',
             level: 'full-autonomous',
           },
@@ -225,7 +225,7 @@ describe('runtime config revisions integration', () => {
       defaultLevel: 'confirm-each',
       rules: [
         {
-          coworkerId: 'writer',
+          agentId: 'writer',
           skillName: 'docs',
           level: 'full-autonomous',
         },

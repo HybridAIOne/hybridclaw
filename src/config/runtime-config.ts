@@ -558,7 +558,7 @@ export interface RuntimeHttpRequestToolConfig {
 }
 
 export interface RuntimeSkillAutonomyRule {
-  coworkerId: string;
+  agentId: string;
   skillName: string;
   level: SkillAutonomyLevel;
 }
@@ -1677,16 +1677,16 @@ function normalizeSkillAutonomyConfig(
   const rawRules = Array.isArray(raw.rules) ? raw.rules : [];
   for (const item of rawRules) {
     if (!isRecord(item)) continue;
-    const coworkerId = normalizeString(item.coworkerId, '', {
+    const agentId = normalizeString(item.agentId, '', {
       allowEmpty: false,
     });
     const skillName = normalizeString(item.skillName, '', {
       allowEmpty: false,
     });
-    if (!coworkerId || !skillName) continue;
+    if (!agentId || !skillName) continue;
     const level = normalizeSkillAutonomyLevel(item.level, defaultLevel);
-    rulesByKey.set(JSON.stringify([coworkerId, skillName]), {
-      coworkerId,
+    rulesByKey.set(JSON.stringify([agentId, skillName]), {
+      agentId,
       skillName,
       level,
     });
@@ -1695,8 +1695,8 @@ function normalizeSkillAutonomyConfig(
   return {
     defaultLevel,
     rules: [...rulesByKey.values()].sort((a, b) => {
-      const byCoworker = a.coworkerId.localeCompare(b.coworkerId);
-      return byCoworker || a.skillName.localeCompare(b.skillName);
+      const byAgent = a.agentId.localeCompare(b.agentId);
+      return byAgent || a.skillName.localeCompare(b.skillName);
     }),
   };
 }
@@ -5903,10 +5903,10 @@ export function resolveDefaultAgentId(
 
 export function resolveSkillAutonomyLevel(
   config: Pick<RuntimeConfig, 'skills'> = currentConfig,
-  coworkerId: string,
+  agentId: string,
   skillName: string,
 ): SkillAutonomyLevel {
-  const normalizedCoworkerId = normalizeString(coworkerId, '', {
+  const normalizedAgentId = normalizeString(agentId, '', {
     allowEmpty: false,
   });
   const normalizedSkillName = normalizeString(skillName, '', {
@@ -5915,11 +5915,11 @@ export function resolveSkillAutonomyLevel(
   const defaultLevel =
     config.skills.autonomy?.defaultLevel ??
     DEFAULT_RUNTIME_CONFIG.skills.autonomy.defaultLevel;
-  if (!normalizedCoworkerId || !normalizedSkillName) return defaultLevel;
+  if (!normalizedAgentId || !normalizedSkillName) return defaultLevel;
 
   const rule = config.skills.autonomy?.rules.find(
     (entry) =>
-      entry.coworkerId === normalizedCoworkerId &&
+      entry.agentId === normalizedAgentId &&
       entry.skillName === normalizedSkillName,
   );
   return rule?.level ?? defaultLevel;

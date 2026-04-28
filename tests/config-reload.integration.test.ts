@@ -158,29 +158,29 @@ describe('config reload integration', () => {
     expect(cfg.container.persistBashState).toBe(false);
   });
 
-  it('normalizes per-coworker skill autonomy rules', () => {
+  it('normalizes per-agent skill autonomy rules', () => {
     writeConfig({
       skills: {
         autonomy: {
           defaultLevel: 'low-stakes-autonomous',
           rules: [
             {
-              coworkerId: ' writer ',
+              agentId: ' writer ',
               skillName: ' docs ',
               level: 'full-autonomous',
             },
             {
-              coworkerId: 'writer',
+              agentId: 'writer',
               skillName: 'email',
               level: 'confirm-each',
             },
             {
-              coworkerId: '',
+              agentId: '',
               skillName: 'ignored',
               level: 'full-autonomous',
             },
             {
-              coworkerId: 'writer',
+              agentId: 'writer',
               skillName: 'bad-level',
               level: 'unsupported',
             },
@@ -195,17 +195,17 @@ describe('config reload integration', () => {
       defaultLevel: 'low-stakes-autonomous',
       rules: [
         {
-          coworkerId: 'writer',
+          agentId: 'writer',
           skillName: 'bad-level',
           level: 'low-stakes-autonomous',
         },
         {
-          coworkerId: 'writer',
+          agentId: 'writer',
           skillName: 'docs',
           level: 'full-autonomous',
         },
         {
-          coworkerId: 'writer',
+          agentId: 'writer',
           skillName: 'email',
           level: 'confirm-each',
         },
@@ -225,12 +225,12 @@ describe('config reload integration', () => {
         autonomy: {
           rules: [
             {
-              coworkerId: 'team\u0000alpha',
+              agentId: 'team\u0000alpha',
               skillName: 'docs',
               level: 'full-autonomous',
             },
             {
-              coworkerId: 'team',
+              agentId: 'team',
               skillName: 'alpha\u0000docs',
               level: 'low-stakes-autonomous',
             },
