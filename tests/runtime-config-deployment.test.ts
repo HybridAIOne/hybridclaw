@@ -121,7 +121,7 @@ describe('runtime deployment config', () => {
       mode: 'managed',
       public_url: '',
       tunnel: {
-        provider: 'manual',
+        provider: '',
       },
     };
     writeDiskConfig(config);
@@ -131,6 +131,7 @@ describe('runtime deployment config', () => {
     expect(results).toHaveLength(1);
     expect(results[0]?.severity).toBe('error');
     expect(results[0]?.message).toContain('deployment.mode');
+    expect(results[0]?.message).not.toContain('deployment.tunnel.provider');
   });
 
   it('validates deployment.public_url protocols from disk', async () => {

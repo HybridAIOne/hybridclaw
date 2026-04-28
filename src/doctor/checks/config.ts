@@ -286,15 +286,18 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
     DEFAULT_RUNTIME_CONFIG.deployment,
   );
 
-  if (hasInvalidDeploymentMode(rawDeployment)) {
+  const invalidDeploymentMode = hasInvalidDeploymentMode(rawDeployment);
+  if (invalidDeploymentMode) {
     invalidFields.push('deployment.mode must be "cloud" or "local"');
   }
 
-  if (deployment.mode === 'cloud' && !deployment.public_url) {
-    missingFields.push('deployment.public_url');
-  }
-  if (deployment.mode === 'local' && !deployment.tunnel.provider) {
-    missingFields.push('deployment.tunnel.provider');
+  if (!invalidDeploymentMode) {
+    if (deployment.mode === 'cloud' && !deployment.public_url) {
+      missingFields.push('deployment.public_url');
+    }
+    if (deployment.mode === 'local' && !deployment.tunnel.provider) {
+      missingFields.push('deployment.tunnel.provider');
+    }
   }
   if (deployment.public_url && !isHttpUrl(deployment.public_url)) {
     invalidFields.push('deployment.public_url must be an HTTP(S) URL');
