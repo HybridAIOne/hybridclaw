@@ -44,7 +44,9 @@ is disabled by default.
     "rollbackImprovementThreshold": 0.05,
     "trajectoryCapture": {
       "enabledAgentIds": [],
-      "storeDir": ""
+      "storeDir": "",
+      "retentionDays": 365,
+      "retentionDaysByTenant": {}
     }
   }
 }
@@ -66,6 +68,10 @@ Key settings:
 - `trajectoryCapture.storeDir`: optional trajectory store location; empty uses
   a `trajectories/` directory beside the runtime database, absolute paths are
   used as-is, and relative paths resolve under the runtime home directory
+- `trajectoryCapture.retentionDays`: trajectory JSONL retention window; default
+  is 365 days and `0` disables trajectory pruning
+- `trajectoryCapture.retentionDaysByTenant`: optional per-coworker retention
+  overrides keyed by tenant ID; trajectory tenants currently map to agent IDs
 
 Legacy `skillCognee` config input is still normalized into `adaptiveSkills` for
 backward compatibility.
@@ -90,12 +96,14 @@ Feedback is attached to the most recent observation for the same session.
 
 ## Retention
 
-Observation queries are windowed, but storage is also pruned now. On each
+Observation queries are windowed, but storage is also pruned. On each
 inspection interval the heartbeat deletes `skill_observations` rows older than
-`observationRetentionDays`.
+`observationRetentionDays` and removes expired trajectory JSONL files according
+to the trajectory retention policy.
 
-This keeps high-traffic skills from accumulating unbounded observation history
-while preserving the amendment history table as the durable review log.
+This keeps high-traffic skills from accumulating unbounded observation and
+trajectory history while preserving the amendment history table as the durable
+review log.
 
 ## Operator Surfaces
 

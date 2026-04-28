@@ -15,10 +15,12 @@ import type {
   AdaptiveSkillsConfig,
   SkillHealthMetrics,
 } from './adaptive-skills-types.js';
+import { pruneExpiredSkillRunTrajectories } from './skill-run-trajectories.js';
 import { applyAmendment, proposeAmendment } from './skills-amendment.js';
 
 const LAST_INSPECTION_KEY = 'adaptive-skills:last-inspection-at';
 const LAST_OBSERVATION_PRUNE_KEY = 'adaptive-skills:last-observation-prune-at';
+const LAST_TRAJECTORY_PRUNE_KEY = 'adaptive-skills:last-trajectory-prune-at';
 const queuedSkillAmendments = new Set<string>();
 let queuedSkillAmendmentWork: Promise<void> = Promise.resolve();
 
@@ -75,6 +77,28 @@ function runObservationPruneIfDue(
     return 0;
   }
   return pruneSkillObservations({ createdBefore: cutoffIso });
+}
+
+function runTrajectoryPruneIfDue(
+  agentId: string,
+  config: AdaptiveSkillsConfig,
+  now: number,
+): number {
+  if (config.trajectoryCapture.retentionDays <= 0) return 0;
+  if (
+    !shouldRunScheduledWork(
+      agentId,
+      LAST_TRAJECTORY_PRUNE_KEY,
+      config.inspectionIntervalMs,
+      now,
+    )
+  ) {
+    return 0;
+  }
+  return pruneExpiredSkillRunTrajectories({
+    adaptiveSkills: config,
+    now: new Date(now),
+  });
 }
 
 function inspectionSeverity(metrics: SkillHealthMetrics): number {
@@ -241,6 +265,13 @@ export async function runPeriodicSkillInspection(input?: {
     logger.info(
       { prunedObservations },
       'Pruned expired adaptive skill observations',
+    );
+  }
+  const prunedTrajectories = runTrajectoryPruneIfDue(agentId, config, now);
+  if (prunedTrajectories > 0) {
+    logger.info(
+      { prunedTrajectories },
+      'Pruned expired skill run trajectories',
     );
   }
 

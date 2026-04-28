@@ -88,6 +88,31 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('reloadRuntimeConfig normalizes trajectory retention policy', () => {
+    writeConfig({
+      adaptiveSkills: {
+        trajectoryCapture: {
+          retentionDays: 90,
+          retentionDaysByTenant: {
+            writer: '30',
+            reviewer: -5,
+            invalid: 'not-a-number',
+          },
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.adaptiveSkills.trajectoryCapture.retentionDays).toBe(90);
+    expect(
+      cfg.adaptiveSkills.trajectoryCapture.retentionDaysByTenant,
+    ).toEqual({
+      writer: 30,
+      reviewer: 0,
+      invalid: 90,
+    });
+  });
+
   it('missing config.json yields default config after ensureRuntimeConfigFile', () => {
     // Remove any config.json that ensureRuntimeConfigFile may have seeded.
     if (fs.existsSync(configPath)) fs.unlinkSync(configPath);

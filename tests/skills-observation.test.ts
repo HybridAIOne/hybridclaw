@@ -696,9 +696,50 @@ test('captures opt-in skill_run trajectories in append-only files keyed by date 
 
   expect(rows).toHaveLength(2);
   expect(rows[0]).toMatchObject({
-    schema_version: 1,
+    schema_version: 2,
     date,
+    tenant_id: 'agent-1',
     agent_id: 'agent-1',
+    skill_id: context.skillName,
+    session_id: 'session-trajectory-1',
+    run_id: 'run-trajectory-1',
+    input: {
+      truncated: false,
+      source: 'full',
+      content: expect.stringContaining('draft the note'),
+    },
+    output: {
+      truncated: false,
+      source: 'full',
+      content: expect.stringContaining('o'.repeat(4_500)),
+    },
+    model: null,
+    tools_used: [
+      {
+        name: 'bash',
+        arguments: {
+          source: 'full',
+          truncated: false,
+          content: expect.stringContaining('printf data'),
+        },
+        result: {
+          source: 'full',
+          truncated: false,
+          content: expect.stringContaining('tool-output-'),
+        },
+      },
+    ],
+    outcome: 'success',
+    score: {
+      run: 1,
+      agent_skill: {
+        score: expect.any(Number),
+        quality_score: expect.any(Number),
+        reliability_score: expect.any(Number),
+        timing_score: expect.any(Number),
+        total_executions: 1,
+      },
+    },
     event: {
       type: 'skill_run',
       skill_id: context.skillName,
