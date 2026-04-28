@@ -37,6 +37,7 @@ import css from './chat-page.module.css';
 import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
+import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
@@ -294,6 +295,16 @@ export function ChatPage() {
     [messages, branchFamilies],
   );
 
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !stream.isStreaming && sessionId) {
+      void queryClient.invalidateQueries({
+        queryKey: ['chat-context', auth.token, sessionId],
+      });
+    }
+    wasStreamingRef.current = stream.isStreaming;
+  }, [stream.isStreaming, queryClient, auth.token, sessionId]);
+
   const scrollRafRef = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
   useEffect(() => {
@@ -522,6 +533,7 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
+            <ContextRing sessionId={sessionId} />
             <button
               type="button"
               className={css.mobileQrButton}

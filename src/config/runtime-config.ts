@@ -15,8 +15,14 @@ import {
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
 } from '../agents/agent-types.js';
-import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  ChannelKind,
+  SkillConfigChannelKind,
+} from '../channels/channel.js';
+import {
+  normalizeChannelKind,
+  normalizeSkillConfigChannelKind,
+} from '../channels/channel-registry.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -67,6 +73,7 @@ import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
+import { expandHomePath } from '../utils/path.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -95,7 +102,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 22;
+export const CONFIG_VERSION = 23;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -591,6 +598,33 @@ export interface RuntimeSkillAutonomyConfig {
   rules: RuntimeSkillAutonomyRule[];
 }
 
+export interface RuntimeSkillCredentialManifest {
+  id: string;
+  env?: string;
+  description?: string;
+  required: boolean;
+}
+
+export type RuntimeSkillLifecycleStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'uninstalled';
+
+export interface RuntimeInstalledSkillManifest {
+  id: string;
+  name: string;
+  version: string;
+  source: string;
+  skillDir: string;
+  manifestPath: string;
+  status: RuntimeSkillLifecycleStatus;
+  capabilities: string[];
+  requiredCredentials: RuntimeSkillCredentialManifest[];
+  supportedChannels: ChannelKind[];
+  installedAt: string;
+  updatedAt: string;
+}
+
 type RuntimeSkillAutonomyRuleIndex = Map<
   string,
   Map<string, SkillAutonomyLevel>
@@ -611,6 +645,7 @@ export interface RuntimeConfig {
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
     autonomy: RuntimeSkillAutonomyConfig;
+    installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
     disabled: string[];
@@ -994,6 +1029,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       defaultLevel: 'confirm-each',
       rules: [],
     },
+    installed: [],
   },
   tools: {
     disabled: [],
@@ -1010,6 +1046,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
+    trajectoryCapture: {
+      enabledAgentIds: [],
+      storeDir: '',
+    },
     inspectionIntervalMs: 3_600_000,
     observationRetentionDays: 30,
     trailingWindowHours: 168,
@@ -1856,6 +1896,117 @@ function normalizeSkillChannelDisabled(
   return channelDisabled;
 }
 
+function normalizeSkillLifecycleStatus(
+  value: unknown,
+): RuntimeSkillLifecycleStatus {
+  const normalized = normalizeString(value, 'enabled', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return normalized === 'disabled' || normalized === 'uninstalled'
+    ? normalized
+    : 'enabled';
+}
+
+function normalizeRuntimeSkillCredentialManifests(
+  value: unknown,
+): RuntimeSkillCredentialManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const credentials: RuntimeSkillCredentialManifest[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const env = normalizeString(item.env, '', { allowEmpty: true });
+    const description = normalizeString(item.description, '', {
+      allowEmpty: true,
+    });
+    credentials.push({
+      id,
+      ...(env ? { env } : {}),
+      ...(description ? { description } : {}),
+      required: item.required === undefined ? true : item.required !== false,
+    });
+  }
+  return credentials;
+}
+
+function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
+  const channels: ChannelKind[] = [];
+  const seen = new Set<ChannelKind>();
+  for (const raw of normalizeStringArray(value, [])) {
+    const normalized =
+      raw.toLowerCase() === 'web' ? 'tui' : normalizeChannelKind(raw);
+    if (
+      !normalized ||
+      normalized === 'heartbeat' ||
+      normalized === 'scheduler'
+    ) {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    channels.push(normalized);
+  }
+  return channels;
+}
+
+function normalizeRuntimeInstalledSkillManifests(
+  value: unknown,
+): RuntimeInstalledSkillManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const manifestsById = new Map<string, RuntimeInstalledSkillManifest>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    const name = normalizeString(item.name, id, { allowEmpty: false });
+    if (!id || !name) continue;
+    const version = normalizeString(item.version, '0.0.0', {
+      allowEmpty: false,
+    });
+    const source = normalizeString(item.source, 'unknown', {
+      allowEmpty: false,
+    });
+    const skillDir = normalizeString(item.skillDir, '', {
+      allowEmpty: false,
+    });
+    const manifestPath = normalizeString(item.manifestPath, '', {
+      allowEmpty: false,
+    });
+    const installedAt = normalizeString(item.installedAt, '', {
+      allowEmpty: true,
+    });
+    const updatedAt = normalizeString(item.updatedAt, '', {
+      allowEmpty: true,
+    });
+    manifestsById.set(id, {
+      id,
+      name,
+      version,
+      source,
+      skillDir,
+      manifestPath,
+      status: normalizeSkillLifecycleStatus(item.status),
+      capabilities: normalizeStringArray(item.capabilities, []),
+      requiredCredentials: normalizeRuntimeSkillCredentialManifests(
+        item.requiredCredentials,
+      ),
+      supportedChannels: normalizeRuntimeSkillSupportedChannels(
+        item.supportedChannels,
+      ),
+      installedAt,
+      updatedAt,
+    });
+  }
+
+  return [...manifestsById.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+}
+
 export function setRuntimeSkillScopeEnabled(
   draft: RuntimeSkillScopeConfigDraft,
   skillName: string,
@@ -2227,15 +2378,6 @@ function normalizeCodexModelArray(
 
 function normalizePathForCompare(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
-}
-
-function expandHomePath(value: string): string {
-  const normalized = value.trim();
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/') || normalized.startsWith('~\\')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  return normalized;
 }
 
 function isLegacyDefaultDbPath(value: string): boolean {
@@ -4262,6 +4404,9 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
+    ? rawAdaptiveSkills.trajectoryCapture
+    : {};
   const rawChannelInstructions = isRecord(raw.channelInstructions)
     ? raw.channelInstructions
     : {};
@@ -4614,6 +4759,7 @@ function normalizeRuntimeConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,
       ),
+      installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
       disabled: normalizeStringArray(
@@ -4646,6 +4792,18 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.observationEnabled,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
+      trajectoryCapture: {
+        enabledAgentIds: normalizeStringArray(
+          rawTrajectoryCapture.enabledAgentIds,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .enabledAgentIds,
+        ),
+        storeDir: normalizeString(
+          rawTrajectoryCapture.storeDir,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.storeDir,
+          { allowEmpty: true },
+        ),
+      },
       inspectionIntervalMs: normalizeInteger(
         rawAdaptiveSkills.inspectionIntervalMs,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,

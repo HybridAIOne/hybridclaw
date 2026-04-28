@@ -13,29 +13,47 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 
 > **Naming convention.** Product, manifesto, and marketing surfaces use **Coworker** (*"hire Lena"*). Code, admin UI, CV, scoreboard, types, and APIs use **Agent**. The two refer to the same entity. This roadmap uses *Agent* in technical descriptions and reverts to *Coworker* when paraphrasing the manifesto. See `docs/content/manifesto.md` for the customer-facing voice.
 
-| # | Feature | Description | Priority |
-|---|---------|-------------|----------|
-| 21 | **Business-skill pipeline + first 5 production skills** | Opinionated, ready-on-day-one skills (Salesforce, HubSpot, SAP, GA4, NL→SQL on warehouse) on top of a shared packaging + lifecycle framework. *Principle I — the skills are the product.* | P0 |
-| 1 | **Agent-to-agent messaging** | First-class primitive for one agent to message, hand off, or escalate to another. Persisted envelopes; intent typed; integrates with the hash-chain audit log. *Principle VI.* | P0 |
-| 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps (driven by F8 stakes classifier — **not** approval-by-default). Return-for-revision rewinds. Built on top of #1. *Principles II + VI.* | P0 |
-| 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. *Principle IV.* | P0 |
-| 4 | **Business-secret masking + demasking** | Extends `confidential-redact.ts` with NDA / client / price / contract classes. Round-trip placeholder scheme; post-LLM rehydrator; mask/demask events on the audit log. *Principle VII.* | P0 |
-| 5 | **Token / money budgets per agent** | Per-agent monthly € cap backed by existing `UsageTotals`. Soft-warn at threshold, hard-stop via the policy engine, per-skill sub-limits. *Principle IX.* | P0 |
-| 6 | **NDA / secret-leak classifier** | Classifier on every prompt and response, fed by the skill-run event bus. Block / warn / log via policy engine; eval suite extends the existing harness. *Principle VII.* | P0 |
-| 7 | **Shared enterprise memory** | RAG over team docs / CRM / wiki, available in self-hosted HC. Pluggable vector store, per-agent source scoping, retrieval-quality eval suite. *Principle I.* | P1 |
-| 8 | **Brand-voice + output classifier** | Per-tenant voice profile (do / don't, tone, banned phrases). Pre-ship classifier on responses; block / rewrite via policy engine. *Principle VII.* | P1 |
-| 9 | **Hierarchical swarm — HC1 delegates to HC2** | Cross-instance delegation. Signed delegation tokens, transport over HTTP, audit-log linking across instances. *Principle VI.* | P1 |
-| 10 | **Auto fine-tuning on real tasks** | Trajectory capture → PII scrub → per-customer training data → fine-tuning pipeline → tuned-model registry with eval gate before promotion. *Principle VIII.* | P1 |
-| 11 | **Operator notification windows + escalation routing** | *Reframed under v3 Principle III.* The coworker is always on; this issue covers per-operator notification preferences (when to page vs. queue for the morning summary) and escalation routing through F8. | P2 |
-| 12 | **Mobile-first admin (iOS / Android wrapper)** | Responsive admin pages, mobile-friendly approval flow, push notifications, native wrappers via Capacitor or React Native. *Principle X.* | P1 |
-| 13 | **Per-client cost & audit reports** | Client tagging on activity, per-client cost rollup extending #5, per-client audit-log filter, branded PDF export. *Principle VII.* | P1 |
-| 14 | **SSO + RBAC** | OAuth2 / OIDC framework with Okta, Google Workspace, Microsoft Entra providers. Role + permission model; per-agent access policies for human users. *Principle VII.* | P1 |
-| 15 | **Agent handoff with context transfer** | Extends the `handoff` intent from #1 to carry a context bundle (thread refs, brief, client tags). Recipient absorbs context before resuming. *Principle VI.* | P2 |
-| 16 | **Skill A/B testing + canary deployments** | Variant routing by deterministic hash, per-variant metrics from the event bus, statistical comparison, promotion gate via the eval harness. *Principle VIII.* | P2 |
-| 17 | **Agent references / portfolio export** | Anonymized portfolio bundle (work samples + scores). Export and import flows so an agent template can be instantiated on a fresh instance. *Principle IV.* | P2 |
-| 18 | **Voice / outbound phone channel** | Twilio Programmable Voice for outbound dial. Existing TTS plus STT for callee responses; call-flow primitive; transcript on the audit log. *Principle V.* | P2 |
-| 19 | **Calendar / meeting presence** | Bot joins Zoom / Meet, real-time STT, live notes, post-meeting summary, action-item dispatch via #1 to other agents. *Principle V.* | P2 |
-| 20 | **Right-to-be-forgotten / GDPR data export** | Identifier registry, cascading data discovery, audited deletion, machine + human readable export. Hash-chain entry of the deletion preserved. *Principle VII.* | P2 |
+## Status snapshot — 2026-04-28
+
+**Foundations:** 5 of 11 fully done (F1–F5 ✅) · F6 + F8 partially done (2/5 children each) · F7, F9, F10, F11 not started.
+
+**P0 features:** R3 fully done (5 children) · R1 + R5 + R21 each have one child shipped · R2, R4, R6 not started.
+
+**Cross-cutting:** A2 + A3 done (2 of 5) · A1, A4, A5 not started.
+
+**P1/P2:** R10.1 (trajectory capture) just landed early per "data is the asset" rule. R8 brand voice + R9 peer-delegation have PRs in flight. Most P1/P2 work not started.
+
+**Total closed roadmap issues:** 24 of ~145 (≈17%). Critical-path foundations are well ahead of feature work — the right ratio for early P0.
+
+## Status legend
+
+✅ Done · 🟡 *N/M* partial (children closed/total) · 🔄 PR in flight · ⬜ Not started
+
+| # | Feature | Description | Priority | Status |
+|---|---------|-------------|----------|--------|
+| 21 | **Business-skill pipeline + first 5 production skills** | Opinionated, ready-on-day-one skills (Salesforce, HubSpot, SAP, GA4, NL→SQL on warehouse) on top of a shared packaging + lifecycle framework. *Principle I — the skills are the product.* | P0 | 🟡 1/6 |
+| 1 | **Agent-to-agent messaging** | First-class primitive for one agent to message, hand off, or escalate to another. Persisted envelopes; intent typed; integrates with the hash-chain audit log. *Principle VI.* | P0 | 🟡 1/5 |
+| 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps (driven by F8 stakes classifier — **not** approval-by-default). Return-for-revision rewinds. Built on top of #1. *Principles II + VI.* | P0 | ⬜ |
+| 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. *Principle IV.* | P0 | ✅ (5/5; 3 follow-ups #616, #618, #619 open) |
+| 4 | **Business-secret masking + demasking** | Extends `confidential-redact.ts` with NDA / client / price / contract classes. Round-trip placeholder scheme; post-LLM rehydrator; mask/demask events on the audit log. *Principle VII.* | P0 | ⬜ |
+| 5 | **Token / money budgets per agent** | Per-agent monthly € cap backed by existing `UsageTotals`. Soft-warn at threshold, hard-stop via the policy engine, per-skill sub-limits. *Principle IX.* | P0 | 🟡 1/6 |
+| 6 | **NDA / secret-leak classifier** | Classifier on every prompt and response, fed by the skill-run event bus. Block / warn / log via policy engine; eval suite extends the existing harness. *Principle VII.* | P0 | ⬜ (#406 shipped a rule-based variant) |
+| 7 | **Shared enterprise memory** | RAG over team docs / CRM / wiki, available in self-hosted HC. Pluggable vector store, per-agent source scoping, retrieval-quality eval suite. *Principle I.* | P1 | ⬜ |
+| 8 | **Brand-voice + output classifier** | Per-tenant voice profile (do / don't, tone, banned phrases). Pre-ship classifier on responses; block / rewrite via policy engine. *Principle VII.* | P1 | 🔄 PR #408 |
+| 9 | **Hierarchical swarm — HC1 delegates to HC2** | Cross-instance delegation. Signed delegation tokens, transport over HTTP, audit-log linking across instances. *Principle VI.* | P1 | 🔄 PR #409 |
+| 10 | **Auto fine-tuning on real tasks** | Trajectory capture → PII scrub → per-customer training data → fine-tuning pipeline → tuned-model registry with eval gate before promotion. *Principle VIII.* | P1 | 🔄 PR #637 (10.1) |
+| 11 | **Operator notification windows + escalation routing** | *Reframed under v3 Principle III.* The coworker is always on; this issue covers per-operator notification preferences (when to page vs. queue for the morning summary) and escalation routing through F8. | P2 | ⬜ (2 anti-principle children closed) |
+| 12 | **Mobile-first admin (iOS / Android wrapper)** | Responsive admin pages, mobile-friendly approval flow, push notifications, native wrappers via Capacitor or React Native. *Principle X.* | P1 | ⬜ |
+| 13 | **Per-client cost & audit reports** | Client tagging on activity, per-client cost rollup extending #5, per-client audit-log filter, branded PDF export. *Principle VII.* | P1 | ⬜ |
+| 14 | **SSO + RBAC** | OAuth2 / OIDC framework with Okta, Google Workspace, Microsoft Entra providers. Role + permission model; per-agent access policies for human users. *Principle VII.* | P1 | ⬜ |
+| 15 | **Agent handoff with context transfer** | Extends the `handoff` intent from #1 to carry a context bundle (thread refs, brief, client tags). Recipient absorbs context before resuming. *Principle VI.* | P2 | ⬜ |
+| 16 | **Skill A/B testing + canary deployments** | Variant routing by deterministic hash, per-variant metrics from the event bus, statistical comparison, promotion gate via the eval harness. *Principle VIII.* | P2 | ⬜ |
+| 17 | **Agent references / portfolio export** | Anonymized portfolio bundle (work samples + scores). Export and import flows so an agent template can be instantiated on a fresh instance. *Principle IV.* | P2 | ⬜ |
+| 18 | **Voice / outbound phone channel** | Twilio Programmable Voice for outbound dial. Existing TTS plus STT for callee responses; call-flow primitive; transcript on the audit log. *Principle V.* | P2 | ⬜ |
+| 19 | **Calendar / meeting presence** | Bot joins Zoom / Meet, real-time STT, live notes, post-meeting summary, action-item dispatch via #1 to other agents. *Principle V.* | P2 | ⬜ |
+| 20 | **Right-to-be-forgotten / GDPR data export** | Identifier registry, cascading data discovery, audited deletion, machine + human readable export. Hash-chain entry of the deletion preserved. *Principle VII.* | P2 | ⬜ |
+| 22 | **Async voice channel** | Inbound voice notes (STT) + outbound TTS replies, channel-agnostic. Wires through existing voice-tts integration. *Principle V.* | P2 | ⬜ |
+| 23 | **Whole-instance backup + restore (disaster recovery)** | `hybridclaw backup` + `restore` CLI for WAL-safe SQLite snapshot + zip-archive re-hydration on a fresh host. *Principle VII.* | P1 | 🔄 PR #428 |
 
 ---
 
@@ -43,26 +61,27 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 
 Cross-cutting work that several roadmap items depend on. Decomposed under the `foundation` label rather than belonging to any single feature.
 
-- **F1** — Extend `AgentConfig` with `owner` / `role` / `cv` fields and persistence. `owner` is a typed reference to a canonical user (see F7). Required by #1, #3, #5, #11, #21.
-- **F2** — Unified skill-run event bus (streaming, not post-hoc). Required by #3, #5, #6, #10, #16, F8.
-- **F3** — Generalize the network-only policy engine into a "predicate → action" engine. Used by #4, #5, #6, #8, #14, F8.
-- **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
-- **F5** — Model pricing & capability matrix on top of `model-catalog`. Required by #5 cost compute and future routing.
-- **F6** — Deployment-mode + public-URL abstraction. Cloud installs declare an external URL; local installs run a tunnel (ngrok / Cloudflare / Tailscale). Required by #9, #18, #19, and the launch smoke scenario A1 in local mode.
-- **F7** — Global identity primitives. Canonical user IDs (`username@authority`, default authority `hybridai`) and canonical agent IDs (`agent-slug@user@instance-id`), plus a resolver and TOFU trust model. Required by #1 envelope addressing, #9 cross-instance delegation, #14 SSO federation, #15 handoff, #17 portfolio refs.
-- **F8** — Autonomy + escalation policy framework. Per-agent / per-skill autonomy levels, stakes classifier, escalation routing, default-action runtime that inverts approval-by-default. **Required by Principle II** and reframes the default behaviour of #2.
-- **F9** — Always-on runtime guarantees. Warm process pool, per-agent liveness probe, auto-restart with backoff, fleet red/green dashboard. **Required by Principle III** ("doesn't clock out") — without it the principle is aspirational.
-- **F10** — Agent org-chart / team primitive. Roles, reporting lines, escalation chains as first-class data — not derived from message graphs. Required by F8 escalation routing and #15 handoff context.
+- ✅ **F1** — Extend `AgentConfig` with `owner` / `role` / `cv` fields and persistence. `owner` is a typed reference to a canonical user (see F7). Required by #1, #3, #5, #11, #21.
+- ✅ **F2** — Unified skill-run event bus (streaming, not post-hoc). Required by #3, #5, #6, #10, #16, F8.
+- ✅ **F3** — Generalize the network-only policy engine into a "predicate → action" engine. Used by #4, #5, #6, #8, #14, F8.
+- ✅ **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
+- ✅ **F5** — Model pricing & capability matrix on top of `model-catalog`. Required by #5 cost compute and future routing.
+- 🟡 **F6 (2/5)** — Deployment-mode + public-URL abstraction. F6.1 (config schema) ✅ and F6.2 (TunnelProvider + ngrok ref impl) ✅. F6.3 health-check, F6.4 admin surface, F6.5 docs still open.
+- ⬜ **F7** — Global identity primitives. Canonical user IDs (`username@authority`, default authority `hybridai`) and canonical agent IDs (`agent-slug@user@instance-id`), plus a resolver and TOFU trust model. Required by #1 envelope addressing, #9 cross-instance delegation, #14 SSO federation, #15 handoff, #17 portfolio refs. *(Note: R1.1 inline-implements the bare-minimum canonical-id; full F7 still needed for #9.)*
+- 🟡 **F8 (2/5)** — Autonomy + escalation policy framework. F8.1 (autonomy levels) ✅ and F8.2 (stakes classifier) ✅. F8.3 escalation routing, F8.4 default-action runtime, F8.5 audit events still open. **Required by Principle II.**
+- ⬜ **F9** — Always-on runtime guarantees. Warm process pool, per-agent liveness probe, auto-restart with backoff, fleet red/green dashboard. **Required by Principle III** ("doesn't clock out") — without it the principle is aspirational.
+- ⬜ **F10** — Agent org-chart / team primitive. Roles, reporting lines, escalation chains as first-class data — not derived from message graphs. Required by F8 escalation routing and #15 handoff context.
+- ⬜ **F11** — Aux-LLM trace-judge framework. Pluggable judge over agent traces, used by #6 leak detection, #8 brand voice, #3.8 risk score, #10 trajectory rating. Filed retrospectively after R10.1 made traces real.
 
 ## Cross-cutting additions
 
 Engineering hygiene that ships alongside P0:
 
-- **A1** — End-to-end smoke scenario exercising #1 + #2 + #3 + #4 + #5 + #6 in one run.
-- **A2** — `CHANGELOG.md` with manifesto-principle tags per entry.
-- **A3** — Test-fixtures library (agents, clients, threads, secrets).
-- **A4** — CI cost-regression gate against the eval suite.
-- **A5** — Threat-model document for any feature touching secrets or keys.
+- ⬜ **A1** — End-to-end smoke scenario exercising #1 + #2 + #3 + #4 + #5 + #6 in one run.
+- ✅ **A2** — `CHANGELOG.md` with manifesto-principle tags per entry.
+- ✅ **A3** — Test-fixtures library (agents, clients, threads, secrets).
+- ⬜ **A4** — CI cost-regression gate against the eval suite.
+- ⬜ **A5** — Threat-model document for any feature touching secrets or keys.
 
 ---
 

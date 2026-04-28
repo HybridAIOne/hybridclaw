@@ -159,6 +159,7 @@ import {
   getGatewayHistory,
   getGatewayHistorySummary,
   getGatewayRecentChatSessions,
+  getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
   removeGatewayAdminChannel,
@@ -1880,7 +1881,7 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
-    sessionId,
+    sessionId: historyPage.sessionId,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -2040,6 +2041,27 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
   );
   cachedSlashMenuPluginKey = pluginKey;
   return cachedSlashMenuEntries;
+}
+
+function handleApiChatContext(res: ServerResponse, url: URL): void {
+  const sessionId = url.searchParams.get('sessionId')?.trim();
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const result = getGatewaySessionContextUsage(sessionId);
+  if (result.status === 'not_found' || !result.snapshot) {
+    sendJson(res, 200, { sessionId, snapshot: null });
+    return;
+  }
+  sendJson(res, 200, {
+    sessionId: result.sessionId,
+    snapshot: result.snapshot,
+  });
 }
 
 function handleApiChatCommands(res: ServerResponse, url: URL): void {
@@ -3895,6 +3917,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/chat/commands' && method === 'GET') {
             handleApiChatCommands(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/context' && method === 'GET') {
+            handleApiChatContext(res, url);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {

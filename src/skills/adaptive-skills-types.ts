@@ -136,6 +136,10 @@ export interface SkillAmendment {
 export interface AdaptiveSkillsConfig {
   enabled: boolean;
   observationEnabled: boolean;
+  trajectoryCapture: {
+    enabledAgentIds: string[];
+    storeDir: string;
+  };
   inspectionIntervalMs: number;
   observationRetentionDays: number;
   trailingWindowHours: number;

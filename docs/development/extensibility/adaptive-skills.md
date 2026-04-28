@@ -41,7 +41,11 @@ is disabled by default.
     "degradationToolBreakageThreshold": 0.3,
     "autoApplyEnabled": false,
     "evaluationRunsBeforeRollback": 10,
-    "rollbackImprovementThreshold": 0.05
+    "rollbackImprovementThreshold": 0.05,
+    "trajectoryCapture": {
+      "enabledAgentIds": [],
+      "storeDir": ""
+    }
   }
 }
 ```
@@ -57,6 +61,11 @@ Key settings:
 - `trailingWindowHours`: observation lookback used when computing health
 - `autoApplyEnabled`: only applies staged amendments automatically when the
   guard verdict is `safe` with zero findings
+- `trajectoryCapture.enabledAgentIds`: opt-in agent IDs whose full redacted
+  skill-run trajectories are appended to JSONL files
+- `trajectoryCapture.storeDir`: optional trajectory store location; empty uses
+  a `trajectories/` directory beside the runtime database, absolute paths are
+  used as-is, and relative paths resolve under the runtime home directory
 
 Legacy `skillCognee` config input is still normalized into `adaptiveSkills` for
 backward compatibility.

@@ -10,8 +10,8 @@ sidebar_position: 5
 
 ```bash
 hybridclaw --version
-hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
+hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
 hybridclaw gateway voice info
@@ -61,6 +61,10 @@ reopen an earlier TUI session by canonical session id.
 `gateway voice info` reports the current local Twilio voice setup, and
 `gateway voice call <number>` places an outbound call through the configured
 Twilio account.
+Use `--debug-model-responses` only for local troubleshooting; it writes raw
+provider response diagnostics and the last prompt under the HybridClaw data
+directory. Use `--system-prompt=<parts|none>` and `--tools=full|none` for
+local eval and prompt-surface experiments.
 
 ## Local Eval Workflows
 
@@ -348,7 +352,12 @@ hybridclaw skill toggle [--channel <kind>]
 hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
+hybridclaw skill install <source>
 hybridclaw skill install <skill-name> <dependency>
+hybridclaw skill upgrade <source>
+hybridclaw skill uninstall <skill-name>
+hybridclaw skill revisions <skill-name>
+hybridclaw skill rollback <skill-name> <revision-id>
 hybridclaw skill setup <skill-name>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
@@ -368,6 +377,7 @@ hybridclaw audit recent
 hybridclaw audit approvals [n] [--denied]
 hybridclaw audit search <query>
 hybridclaw audit verify [sessionId]
+hybridclaw audit scan-leaks [sessionId] [--quiet|--all] [--level <critical|high|medium|low>] [--type <in,out,tool,url>] [--json]
 hybridclaw audit instructions [--sync]
 ```
 
@@ -376,10 +386,20 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, explicit GitHub repo/path refs, local
 directories, and `.zip` archives. Locally-imported skills receive personal
 trust and persist their import-source marker across restarts.
+`skill install <source>` and `skill upgrade <source>` manage packaged skills
+with manifest records, audit events, and rollback snapshots. `skill uninstall
+<skill-name>` removes a managed package, `skill revisions <skill-name>` lists
+recorded snapshots, and `skill rollback <skill-name> <revision-id>` restores
+one snapshot.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
 named skill. `skill setup <skill-name>` runs every declared dependency for that
 skill in order. Use `skill list` first to discover the dependency ids exposed by
 a skill.
+`audit scan-leaks` loads rules from `./.confidential.yml` or
+`~/.hybridclaw/.confidential.yml`, scans prompt-bearing audit records, prints a
+severity summary, and exits with code `2` when matches are found. Use
+`--level` to set a minimum severity, `--type` to narrow to inbound prompts,
+outbound responses, tool I/O, or URL records, and `--json` for automation.
 `update` checks for a newer installed release and can upgrade a global npm
 install. When `--yes` completes successfully and a local gateway is already
 running with a replayable launch command, HybridClaw restarts it automatically
@@ -422,7 +442,8 @@ actions. Common examples:
 ```
 
 `/agent`, `/model`, `/reset`, `/mcp`, `/btw`, and related slash commands route
-through the same gateway command surface used by TUI and web chat.
+through the same gateway command surface used by TUI and web chat. `/context`
+is local-only because it exposes session context-window accounting.
 
 ## In Session
 
@@ -437,6 +458,8 @@ through the same gateway command surface used by TUI and web chat.
   current run is active
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
+- local TUI/web sessions support `/context` to inspect context-window usage,
+  remaining headroom, and compaction count for the active session
 - local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
   for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
@@ -456,9 +479,9 @@ through the same gateway command surface used by TUI and web chat.
   and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
-- local TUI and web chat support `/skill list` to inspect dependency ids,
-  `/skill install <skill> <dependency>` to run one declared skill dependency,
-  and `/skill setup <skill>` to run every declared dependency for a skill
+- local TUI and web chat support `/skill list` to inspect dependency ids.
+- local TUI and web chat support `/skill install <source>`, `/skill upgrade <source>`, `/skill uninstall <skill>`, `/skill revisions <skill>`, and `/skill rollback <skill> <revision-id>` for package lifecycle work.
+- local TUI and web chat support `/skill install <skill> <dependency>` to run one declared skill dependency, and `/skill setup <skill>` to run every declared dependency for a skill.
 - an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
   the next plain-text follow-up in the same session; a new slash command
   cancels that carry-over

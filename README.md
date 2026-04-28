@@ -78,7 +78,7 @@ Open locally:
 
 - Chat UI: `http://127.0.0.1:9090/chat`
 - Admin UI: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, config, and channel-specific instructions
+  scheduler, audit, statistics, config, and channel-specific instructions
 - Agents UI: `http://127.0.0.1:9090/agents`
 - OpenAI-compatible API: `http://127.0.0.1:9090/v1/models` and `http://127.0.0.1:9090/v1/chat/completions`
 
@@ -95,16 +95,21 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Web Chat keeps a recent-session sidebar and can search conversation titles
   with contextual snippets before you reopen an older browser session
+- Web Chat shows live context-window usage, accepts `/context`, and lets you
+  switch the active agent from the composer
 - Web Chat accepts `/btw <question>` side questions while a primary run is
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
-  scheduler, audit, config, and channel-specific instructions
+  scheduler, audit, statistics, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
 - or connect Slack, Signal, WhatsApp, Telegram, Discord, Microsoft Teams, Email
 
 ## Operator workflows
 
+- Install from npm, source, or the multi-arch Nix flake; a preview Homebrew
+  formula is available for `--HEAD` builds while stable tap publication is
+  prepared.
 - `hybridclaw gateway status` reports sandbox/runtime details, and in
   container mode it includes the configured image name plus the resolved
   version and short image id.
@@ -114,22 +119,34 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/agents` edits allowlisted bootstrap markdown files such as
   `AGENTS.md`, keeps saved revisions, and restores earlier versions from the
   browser.
+- `/admin/statistics` reports message, session, token, cost, and channel trends
+  across a selected date range.
+- `/admin/agent-scoreboard` ranks agents by observed skill scores, reliability,
+  timing, best skills, and CV links.
 - `hybridclaw agent config` accepts generated JSON payloads to upsert agent
   metadata, write bootstrap markdown, import profile images into the agent
   workspace, and optionally activate the agent.
 - `/admin/channels` edits transport config, encrypted channel credentials,
-  Twilio voice settings, and per-channel instructions that are injected into
-  prompts at runtime.
+  Signal QR linking, Twilio voice settings, and per-channel instructions that
+  are injected into prompts at runtime.
 - `/admin/approvals` manages approval policies from the browser.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser without tearing down the enclosing workspace container; keep
   `hybridclaw gateway restart` for local/manual full restarts.
+- `/context` and the web chat context ring show current context-window usage,
+  remaining headroom, and compaction counts for the active session.
 - `proactive.delegation.model` can pin delegated work to a different model
   from the parent turn; `/status` shows delegate token totals and local-token
   share when that split is configured.
+- `deployment.mode`, `deployment.public_url`, and `deployment.tunnel.provider`
+  describe local/cloud exposure. The built-in ngrok tunnel provider reads
+  `NGROK_AUTHTOKEN` from the encrypted runtime secret store.
 - `container.persistBashState` controls whether bash tool calls share shell
   state (`cd`, exported env vars, aliases) across turns in the same active
   runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
+- `hybridclaw audit scan-leaks` scans historical audit logs against optional
+  `.confidential.yml` rules for NDA-class client, project, person, keyword,
+  and regex matches.
 - Generated artifacts remain downloadable and attachable even when the sandbox
   exposes a custom workspace display root such as `/app`.
 - `hybridclaw tui` includes live delegate progress, pulsing tool rows,
@@ -142,6 +159,9 @@ Once the gateway is running, open HybridClaw locally:
   `config.json` becomes invalid.
 - `hybridclaw skill import` supports community sources, local directories,
   and `.zip` archives.
+- `hybridclaw skill install <source>`, `skill upgrade`, `skill revisions`, and
+  `skill rollback` manage packaged business skills with manifests, audit
+  events, and snapshots.
 - The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
   invoicing, webinar, and release-launch workflows that can run from the TUI,
   web chat, or connected channels.
@@ -161,6 +181,10 @@ Once the gateway is running, open HybridClaw locally:
   Kimi, MiniMax, DashScope, Xiaomi, Kilo Code, and local backends such as
   Ollama, LM Studio, llama.cpp, and vLLM. Remote OpenAI-compatible providers
   can merge runtime-discovered model catalogs with operator-pinned lists.
+- `/model info`, `/usage monthly`, `/usage model monthly`, and the admin
+  Models page surface discovered context windows, output limits, model
+  capabilities, pricing, and per-model monthly spend where provider metadata is
+  available.
 - Anthropic can run through the direct Messages API with `ANTHROPIC_API_KEY`
   or through the official Claude CLI transport in host sandbox mode.
 - Brave, Perplexity, and Tavily web-search credentials can live in the
@@ -172,6 +196,8 @@ Once the gateway is running, open HybridClaw locally:
 - Skills can be enabled or disabled globally or per channel from
   `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
   `Skills` page.
+- Packaged skills can declare versioned manifests, capabilities, required
+  credentials, supported channels, and per-agent autonomy policy.
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   GitHub issue queue processing (`gh-issues`), and editable Excalidraw diagram
   creation.
@@ -210,6 +236,8 @@ Once the gateway is running, open HybridClaw locally:
 ## Security and governance built in
 
 - secure credential storage
+- optional confidential-info redaction before model calls
+- retroactive audit leak scanning
 - sandboxed execution
 - approvals
 - audit trails with hash chain

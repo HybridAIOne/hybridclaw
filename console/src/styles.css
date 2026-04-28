@@ -45,6 +45,14 @@ code {
   min-width: 0;
 }
 
+.chat-shell {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 100vh;
+  background: var(--page-bg);
+}
+
 .page-content,
 .page-stack,
 .detail-stack,

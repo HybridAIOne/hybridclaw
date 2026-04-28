@@ -49,3 +49,14 @@ hybridclaw gateway restart --log-requests
 That persists best-effort redacted prompts, responses, and tool payloads to
 SQLite `request_log` for turn-level debugging. Treat it as sensitive operator
 data.
+
+For lower-level provider debugging on a local machine, use:
+
+```bash
+hybridclaw gateway start --debug-model-responses
+hybridclaw gateway restart --debug-model-responses
+```
+
+This writes provider response diagnostics and the last prompt under the
+HybridClaw data directory. Treat those files as highly sensitive, because they
+can include model payloads that normal operator logs intentionally avoid.
