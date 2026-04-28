@@ -1,8 +1,8 @@
-import os from 'node:os';
 import path from 'node:path';
 
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { AdditionalMount } from '../types/security.js';
+import { expandHomePath } from '../utils/path.js';
 
 export interface ConfiguredMountParseResult {
   mounts: AdditionalMount[];
@@ -10,13 +10,8 @@ export interface ConfiguredMountParseResult {
 }
 
 function expandUserPath(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return '';
-  if (trimmed === '~') return os.homedir();
-  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
-    return path.join(os.homedir(), trimmed.slice(2));
-  }
-  return path.resolve(trimmed);
+  const expanded = expandHomePath(input);
+  return expanded ? path.resolve(expanded) : '';
 }
 
 function normalizeMountKey(mount: AdditionalMount): string {

@@ -23,12 +23,19 @@ import {
 } from './agent-scoreboard.js';
 import {
   buildSkillRunBoundedPayload,
+  buildSkillRunFullToolExecutions,
+  buildSkillRunPayloads,
   buildSkillRunTokens,
   emitSkillRunEvent,
   type SkillRunEvent,
+  type SkillRunPayloads,
   subscribeSkillRunEvents,
   summarizeSkillRunToolExecutions,
 } from './skill-run-events.js';
+import {
+  isTrajectoryCaptureEnabledForAgentId,
+  recordSkillRunTrajectory,
+} from './skill-run-trajectories.js';
 import { evaluateAmendment, rollbackAmendment } from './skills-evaluation.js';
 
 let queuedSkillEvaluationWork: Promise<void> = Promise.resolve();
@@ -192,6 +199,7 @@ export async function waitForQueuedSkillEvaluations(): Promise<void> {
 
 subscribeSkillRunEvents(recordSkillExecutionObservation);
 subscribeSkillRunEvents(refreshAgentCvForSkillRun);
+subscribeSkillRunEvents(recordSkillRunTrajectory);
 
 function collectSkillRunErrors(input: {
   errorDetail?: string | null;
@@ -218,6 +226,17 @@ function normalizeSkillRunCostUsd(costUsd?: number | null): number {
   return 0;
 }
 
+function buildSkillRunEventPayloads(
+  value: unknown,
+  includeFull: boolean,
+): SkillRunPayloads {
+  if (includeFull) return buildSkillRunPayloads(value);
+  return {
+    bounded: buildSkillRunBoundedPayload(value),
+    full: null,
+  };
+}
+
 export function recordSkillExecution(input: {
   skillName: string;
   sessionId: string;
@@ -242,14 +261,30 @@ export function recordSkillExecution(input: {
     classifyErrorCategory(input.toolExecutions, input.errorDetail);
   const errorDetail =
     input.errorDetail?.trim() || firstFailedToolDetail(input.toolExecutions);
+  const config = getRuntimeConfig();
+  const agentId = input.agentId?.trim() || null;
+  const includeFullPayloads = isTrajectoryCaptureEnabledForAgentId(
+    agentId,
+    config,
+  );
+  const inputPayloads = buildSkillRunEventPayloads(
+    input.input,
+    includeFullPayloads,
+  );
+  const outputPayloads = buildSkillRunEventPayloads(
+    input.output,
+    includeFullPayloads,
+  );
   const event: SkillRunEvent = {
     type: 'skill_run',
     skill_id: skillName,
-    agent_id: input.agentId?.trim() || null,
+    agent_id: agentId,
     session_id: input.sessionId,
     run_id: input.runId,
-    input: buildSkillRunBoundedPayload(input.input),
-    output: buildSkillRunBoundedPayload(input.output),
+    input: inputPayloads.bounded,
+    output: outputPayloads.bounded,
+    input_full: inputPayloads.full,
+    output_full: outputPayloads.full,
     model: input.model?.trim() || null,
     tokens: buildSkillRunTokens(input.tokenUsage),
     latency_ms: input.durationMs,
@@ -262,6 +297,9 @@ export function recordSkillExecution(input: {
     error_category: errorCategory,
     error_detail: errorDetail,
     tool_executions: summarizeSkillRunToolExecutions(input.toolExecutions),
+    tool_executions_full: includeFullPayloads
+      ? buildSkillRunFullToolExecutions(input.toolExecutions)
+      : [],
   };
 
   emitSkillRunEvent(event);

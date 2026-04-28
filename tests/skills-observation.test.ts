@@ -494,10 +494,11 @@ test('emits a skill_run event to subscribers for every skill execution', async (
           name: 'bash',
           arguments: JSON.stringify({
             cmd: 'echo hello',
-            apiKey: 'test-key',
-            nested: { token: 'secret-token' },
+            apiKey: 'sk-1234567890abcdefghijklmnop',
+            nested: { token: 'Bearer 1234567890abcdefghijklmnopqrstuv' },
+            body: 'a'.repeat(4_500),
           }),
-          result: `${'x'.repeat(320)} secret-token`,
+          result: `${'x'.repeat(4_500)} OPENAI_API_KEY=sk-1234567890abcdefghijklmnop`,
           durationMs: 11,
         },
       ],
@@ -564,10 +565,12 @@ test('emits a skill_run event to subscribers for every skill execution', async (
       content: expect.stringContaining('draft the note'),
       truncated: true,
     },
+    input_full: null,
     output: {
       content: '{"text":"done","token":"***"}',
       truncated: false,
     },
+    output_full: null,
     model: 'test-model',
     tokens: {
       prompt: 9,
@@ -593,9 +596,14 @@ test('emits a skill_run event to subscribers for every skill execution', async (
         blocked: false,
       },
     ],
+    tool_executions_full: [],
   });
-  expect(JSON.stringify(events[0])).not.toContain('echo hello');
-  expect(JSON.stringify(events[0])).not.toContain('secret-token');
+  expect(JSON.stringify(events[0])).not.toContain(
+    'sk-1234567890abcdefghijklmnop',
+  );
+  expect(JSON.stringify(events[0])).not.toContain(
+    '1234567890abcdefghijklmnopqrstuv',
+  );
   expect(JSON.stringify(events[0])).not.toContain('test-key');
   expect(
     (events[0] as { input: { content: string } }).input.content.length,
@@ -605,9 +613,169 @@ test('emits a skill_run event to subscribers for every skill execution', async (
     session_id: 'session-event-2',
     input: null,
     output: null,
+    input_full: null,
+    output_full: null,
+    tool_executions: [],
+    tool_executions_full: [],
     tokens: expect.objectContaining({ modelCalls: 0 }),
     cost_usd: 0,
   });
+});
+
+test('captures opt-in skill_run trajectories in append-only files keyed by date and agent', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const storeDir = path.join(context.homeDir, 'trajectory-store');
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.adaptiveSkills.trajectoryCapture.enabledAgentIds = ['agent-1'];
+    draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
+  });
+
+  const { logger } = await import('../src/logger.ts');
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => logger);
+
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-trajectory-1',
+    runId: 'run-trajectory-1',
+    agentId: 'agent-1',
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: JSON.stringify({
+          cmd: 'printf data',
+          apiKey: 'sk-1234567890abcdefghijklmnop',
+          body: 'a'.repeat(4_500),
+        }),
+        result: `${'tool-output-'.repeat(450)} OPENAI_API_KEY=sk-1234567890abcdefghijklmnop`,
+        durationMs: 12,
+      },
+    ],
+    outcome: 'success',
+    durationMs: 25,
+    input: {
+      prompt: 'draft the note',
+      body: 'i'.repeat(4_500),
+      apiKey: 'real-secret-value-1234',
+    },
+    output: { text: 'o'.repeat(4_500), token: 'real-secret-value-5678' },
+  });
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-trajectory-2',
+    runId: 'run-trajectory-2',
+    agentId: 'agent-1',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 30,
+    input: 'second run',
+    output: 'done',
+  });
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-trajectory-skipped',
+    runId: 'run-trajectory-skipped',
+    agentId: 'agent-2',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 30,
+    input: 'not opted in',
+    output: 'done',
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  const trajectoryPath = path.join(storeDir, date, 'agent-1.jsonl');
+  const trajectoryDateDir = path.dirname(trajectoryPath);
+  const rows = fs
+    .readFileSync(trajectoryPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatchObject({
+    schema_version: 1,
+    date,
+    agent_id: 'agent-1',
+    event: {
+      type: 'skill_run',
+      skill_id: context.skillName,
+      agent_id: 'agent-1',
+      session_id: 'session-trajectory-1',
+      run_id: 'run-trajectory-1',
+      input: {
+        truncated: true,
+      },
+      input_full: {
+        content: expect.stringContaining('draft the note'),
+      },
+      output_full: {
+        content: expect.stringContaining('o'.repeat(4_500)),
+      },
+      tool_executions_full: [
+        {
+          name: 'bash',
+          arguments: {
+            content: expect.stringContaining('printf data'),
+          },
+          result: {
+            content: expect.stringContaining('tool-output-'),
+          },
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(rows[0])).not.toContain('real-secret-value');
+  expect(JSON.stringify(rows[0])).not.toContain(
+    'sk-1234567890abcdefghijklmnop',
+  );
+  expect(
+    (
+      rows[0] as {
+        event: { input_full: { content: string } };
+      }
+    ).event.input_full.content.length,
+  ).toBeGreaterThan(4_500);
+  expect(
+    (
+      rows[0] as {
+        event: {
+          tool_executions_full: Array<{
+            arguments: { content: string };
+            result: { content: string };
+          }>;
+        };
+      }
+    ).event.tool_executions_full[0]?.arguments.content.length,
+  ).toBeGreaterThan(4_500);
+  expect(
+    (
+      rows[0] as {
+        event: {
+          tool_executions_full: Array<{
+            arguments: { content: string };
+            result: { content: string };
+          }>;
+        };
+      }
+    ).event.tool_executions_full[0]?.result.content.length,
+  ).toBeGreaterThan(4_500);
+  expect(infoSpy).toHaveBeenCalledTimes(1);
+  expect(infoSpy).toHaveBeenCalledWith(
+    {
+      agentIds: ['agent-1'],
+      storeDir,
+    },
+    `Trajectory capture enabled for agents: [agent-1] -> ${storeDir}`,
+  );
+  infoSpy.mockRestore();
+  if (process.platform !== 'win32') {
+    expect(fs.statSync(storeDir).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(trajectoryDateDir).mode & 0o777).toBe(0o700);
+  }
+  expect(fs.existsSync(path.join(storeDir, date, 'agent-2.jsonl'))).toBe(false);
 });
 
 test('skill_run subscriber failures do not block observation persistence', async () => {
