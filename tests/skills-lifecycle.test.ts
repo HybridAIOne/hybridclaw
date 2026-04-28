@@ -263,6 +263,57 @@ describe('skill package lifecycle', () => {
     ).toBe(false);
   });
 
+  test('global enable and disable require installed records for managed community skills', async () => {
+    const managedRoot = path.join(tempHome, 'skills');
+    writeSkillSource({
+      rootDir: managedRoot,
+      name: 'manual-skill',
+      version: '1.0.0',
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    expect(() =>
+      lifecycle.setSkillPackageEnabled({
+        skillName: 'manual-skill',
+        enabled: false,
+        actor: 'test',
+      }),
+    ).toThrow(
+      'Cannot disable skill package "manual-skill" because it does not have an installed package record.',
+    );
+    expect(config.getRuntimeConfig().skills.disabled).not.toContain(
+      'manual-skill',
+    );
+
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'managed-skill',
+      version: '1.0.0',
+    });
+    await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+
+    lifecycle.setSkillPackageEnabled({
+      skillName: 'managed-skill',
+      enabled: false,
+      actor: 'test',
+    });
+    expect(
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'managed-skill',
+      ),
+    ).toMatchObject({
+      status: 'disabled',
+    });
+    expect(config.getRuntimeConfig().skills.disabled).toContain(
+      'managed-skill',
+    );
+  });
+
   test('rollback rejects malformed snapshot file entries before restore', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillV1 = writeSkillSource({

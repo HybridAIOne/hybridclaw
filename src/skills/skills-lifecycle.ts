@@ -436,14 +436,21 @@ function resolveSkillPackageTarget(nameOrId: string): {
   skillDir: string;
   manifestPath: string;
   manifest: SkillManifest | null;
+  source: SkillCatalogEntry['source'] | 'installed';
+  installed: RuntimeInstalledSkillManifest | null;
 } {
   const catalogSkill = findCatalogSkillByNameOrId(nameOrId);
   if (catalogSkill) {
+    const installed = catalogSkill.manifest
+      ? findInstalledSkillByManifest(catalogSkill.manifest)
+      : findInstalledSkillByNameOrId(catalogSkill.name);
     return {
       name: catalogSkill.name,
       skillDir: catalogSkill.baseDir,
       manifestPath: catalogSkill.filePath,
-      manifest: catalogSkill.manifest,
+      manifest: catalogSkill.manifest || null,
+      source: catalogSkill.source,
+      installed,
     };
   }
 
@@ -461,6 +468,8 @@ function resolveSkillPackageTarget(nameOrId: string): {
         requiredCredentials: installed.requiredCredentials,
         supportedChannels: installed.supportedChannels,
       },
+      source: 'installed',
+      installed,
     };
   }
 
@@ -585,6 +594,15 @@ export function setSkillPackageEnabled(params: {
 }): SkillPackageStatusResult {
   const target = resolveSkillPackageTarget(params.skillName);
   const action = params.enabled ? 'enable' : 'disable';
+  if (
+    !params.channelKind &&
+    target.source === 'community' &&
+    !target.installed
+  ) {
+    throw new Error(
+      `Cannot ${action} skill package "${target.name}" because it does not have an installed package record.`,
+    );
+  }
   const meta = buildLifecycleMeta({
     action,
     actor: params.actor,
