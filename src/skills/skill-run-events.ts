@@ -28,6 +28,15 @@ export interface SkillRunBoundedPayload {
   truncated: boolean;
 }
 
+export interface SkillRunFullPayload {
+  content: string;
+}
+
+export interface SkillRunPayloads {
+  bounded: SkillRunBoundedPayload | null;
+  full: SkillRunFullPayload | null;
+}
+
 export interface SkillRunToolExecutionSummary {
   name: string;
   duration_ms: number;
@@ -35,6 +44,12 @@ export interface SkillRunToolExecutionSummary {
   blocked: boolean;
   approval_tier?: ToolExecution['approvalTier'];
   approval_decision?: ToolExecution['approvalDecision'];
+}
+
+export interface SkillRunToolExecutionFull
+  extends SkillRunToolExecutionSummary {
+  arguments: SkillRunFullPayload;
+  result: SkillRunFullPayload;
 }
 
 export interface SkillRunEvent {
@@ -45,6 +60,8 @@ export interface SkillRunEvent {
   run_id: string;
   input: SkillRunBoundedPayload | null;
   output: SkillRunBoundedPayload | null;
+  input_full: SkillRunFullPayload | null;
+  output_full: SkillRunFullPayload | null;
   model: string | null;
   tokens: SkillRunTokenEnvelope;
   latency_ms: number;
@@ -54,6 +71,7 @@ export interface SkillRunEvent {
   error_category: SkillErrorCategory | null;
   error_detail: string | null;
   tool_executions: SkillRunToolExecutionSummary[];
+  tool_executions_full: SkillRunToolExecutionFull[];
 }
 
 export type SkillRunSubscriber = (event: SkillRunEvent) => unknown;
@@ -70,21 +88,41 @@ export function subscribeSkillRunEvents(
   };
 }
 
+function summarizeSkillRunToolExecution(
+  execution: ToolExecution,
+): SkillRunToolExecutionSummary {
+  return {
+    name: execution.name,
+    duration_ms: execution.durationMs,
+    is_error: Boolean(execution.isError),
+    blocked: Boolean(execution.blocked),
+    ...(execution.approvalTier
+      ? { approval_tier: execution.approvalTier }
+      : {}),
+    ...(execution.approvalDecision
+      ? { approval_decision: execution.approvalDecision }
+      : {}),
+  };
+}
+
 export function summarizeSkillRunToolExecutions(
   toolExecutions: ToolExecution[],
 ): SkillRunToolExecutionSummary[] {
+  return toolExecutions.map(summarizeSkillRunToolExecution);
+}
+
+export function buildSkillRunFullToolExecutions(
+  toolExecutions: ToolExecution[],
+): SkillRunToolExecutionFull[] {
   return toolExecutions.map((execution) => {
     return {
-      name: execution.name,
-      duration_ms: execution.durationMs,
-      is_error: Boolean(execution.isError),
-      blocked: Boolean(execution.blocked),
-      ...(execution.approvalTier
-        ? { approval_tier: execution.approvalTier }
-        : {}),
-      ...(execution.approvalDecision
-        ? { approval_decision: execution.approvalDecision }
-        : {}),
+      ...summarizeSkillRunToolExecution(execution),
+      arguments: {
+        content: stringifyRedactedSkillRunPayload(execution.arguments) ?? '',
+      },
+      result: {
+        content: stringifyRedactedSkillRunPayload(execution.result) ?? '',
+      },
     };
   });
 }
@@ -98,12 +136,14 @@ function stringifySkillRunPayload(value: unknown): string {
   }
 }
 
-export function buildSkillRunBoundedPayload(
-  value: unknown,
-): SkillRunBoundedPayload | null {
+function stringifyRedactedSkillRunPayload(value: unknown): string | null {
   if (value == null) return null;
-  const redacted = redactSecretsDeep(value);
-  const content = stringifySkillRunPayload(redacted);
+  return stringifySkillRunPayload(redactSecretsDeep(value));
+}
+
+function buildBoundedPayloadFromContent(
+  content: string,
+): SkillRunBoundedPayload {
   if (content.length <= MAX_SKILL_RUN_PAYLOAD_CHARS) {
     return { content, truncated: false };
   }
@@ -111,6 +151,29 @@ export function buildSkillRunBoundedPayload(
     content: `${content.slice(0, MAX_SKILL_RUN_PAYLOAD_CHARS)}...`,
     truncated: true,
   };
+}
+
+export function buildSkillRunPayloads(value: unknown): SkillRunPayloads {
+  const content = stringifyRedactedSkillRunPayload(value);
+  if (content == null) return { bounded: null, full: null };
+  return {
+    bounded: buildBoundedPayloadFromContent(content),
+    full: { content },
+  };
+}
+
+export function buildSkillRunBoundedPayload(
+  value: unknown,
+): SkillRunBoundedPayload | null {
+  const content = stringifyRedactedSkillRunPayload(value);
+  if (content == null) return null;
+  return buildBoundedPayloadFromContent(content);
+}
+
+export function buildSkillRunFullPayload(
+  value: unknown,
+): SkillRunFullPayload | null {
+  return buildSkillRunPayloads(value).full;
 }
 
 export function emitSkillRunEvent(event: SkillRunEvent): void {

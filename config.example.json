@@ -1,5 +1,5 @@
 {
-  "version": 22,
+  "version": 23,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -45,6 +45,10 @@
   "adaptiveSkills": {
     "enabled": false,
     "observationEnabled": true,
+    "trajectoryCapture": {
+      "enabledAgentIds": [],
+      "storeDir": ""
+    },
     "inspectionIntervalMs": 3600000,
     "observationRetentionDays": 30,
     "trailingWindowHours": 168,
