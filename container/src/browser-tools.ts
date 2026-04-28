@@ -43,6 +43,16 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
+const HEADED_BROWSER_ARGS = [
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--disable-translate',
+  '--metrics-recording-only',
+  '--password-store=basic',
+  '--use-mock-keychain',
+];
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -406,6 +416,58 @@ function resolveRunner(): BrowserRunner | null {
 
   cachedRunner = null;
   return cachedRunner;
+}
+
+function resolveHeadedBrowserExecutable(): string | undefined {
+  const configured = String(
+    process.env.AGENT_BROWSER_EXECUTABLE_PATH || '',
+  ).trim();
+  if (configured) return configured;
+
+  const chromeBin = String(process.env.CHROME_BIN || '').trim();
+  if (chromeBin) return chromeBin;
+
+  if (process.platform === 'darwin') {
+    const candidates = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    ];
+    return candidates.find((candidate) => fs.existsSync(candidate));
+  }
+
+  if (process.platform === 'linux') {
+    for (const name of [
+      'google-chrome',
+      'google-chrome-stable',
+      'chromium-browser',
+      'chromium',
+    ]) {
+      const result = spawnSync('which', [name], { encoding: 'utf-8' });
+      if (result.status === 0 && result.stdout.trim()) {
+        return result.stdout.trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function resolveBrowserLaunchArgs(session: BrowserSession): string | undefined {
+  const configured = String(process.env.AGENT_BROWSER_ARGS || '').trim();
+  if (!session.headed) return configured || undefined;
+
+  const configuredArgs = configured
+    ? configured
+        .split(/[,\n]/)
+        .map((arg) => arg.trim())
+        .filter(Boolean)
+    : [];
+  const merged = [...configuredArgs];
+  const existing = new Set(merged);
+  for (const arg of HEADED_BROWSER_ARGS) {
+    if (!existing.has(arg)) merged.push(arg);
+  }
+  return merged.length > 0 ? merged.join('\n') : undefined;
 }
 
 function getSession(
@@ -1370,6 +1432,18 @@ async function runAgentBrowser(
   }
   if (!cdpUrl && session.profileDir) {
     browserEnv.AGENT_BROWSER_PROFILE = session.profileDir;
+  }
+  const launchArgs = resolveBrowserLaunchArgs(session);
+  if (launchArgs) {
+    browserEnv.AGENT_BROWSER_ARGS = launchArgs;
+  } else {
+    delete browserEnv.AGENT_BROWSER_ARGS;
+  }
+  if (session.headed && !cdpUrl) {
+    const executablePath = resolveHeadedBrowserExecutable();
+    if (executablePath) {
+      browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
+    }
   }
 
   try {

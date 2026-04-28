@@ -107,7 +107,9 @@ const commandArgs = jsonIndex >= 0 ? args.slice(jsonIndex + 2) : [];
 const record = {
   command,
   commandArgs,
-  headed: process.env.AGENT_BROWSER_HEADED || null
+  headed: process.env.AGENT_BROWSER_HEADED || null,
+  executablePath: process.env.AGENT_BROWSER_EXECUTABLE_PATH || null,
+  browserArgs: process.env.AGENT_BROWSER_ARGS || null
 };
 fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(record) + '\\n');
 
@@ -273,7 +275,9 @@ test('browser_navigate can request a headed browser session', async () => {
     path.join(os.tmpdir(), 'hybridclaw-browser-headed-'),
   );
   const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  const chromeBin = path.join(tempRoot, 'Google Chrome');
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('CHROME_BIN', chromeBin);
   vi.stubEnv(
     'AGENT_BROWSER_BIN',
     createAgentBrowserHeadedEnvStub(tempRoot, logPath),
@@ -293,7 +297,15 @@ test('browser_navigate can request a headed browser session', async () => {
     .readFileSync(logPath, 'utf-8')
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line) as { command: string; headed: string });
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          command: string;
+          headed: string;
+          executablePath: string | null;
+          browserArgs: string | null;
+        },
+    );
 
   expect(parsed.success).toBe(true);
   expect(parsed.headed).toBe(true);
@@ -303,6 +315,17 @@ test('browser_navigate can request a headed browser session', async () => {
     'network',
   ]);
   expect(records.every((record) => record.headed === '1')).toBe(true);
+  expect(records.every((record) => record.executablePath === chromeBin)).toBe(
+    true,
+  );
+  expect(records[0]?.browserArgs?.split('\n')).toEqual(
+    expect.arrayContaining([
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--password-store=basic',
+      '--use-mock-keychain',
+    ]),
+  );
 });
 
 test('browser_navigate relaunches when headed mode changes', async () => {
@@ -352,4 +375,49 @@ test('browser_navigate relaunches when headed mode changes', async () => {
     true,
   );
   expect(records.slice(4).every((record) => record.headed === '0')).toBe(true);
+});
+
+test('browser_navigate preserves configured browser args in headed mode', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-headed-args-'),
+  );
+  const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_ARGS', '--start-maximized');
+  vi.stubEnv(
+    'AGENT_BROWSER_BIN',
+    createAgentBrowserHeadedEnvStub(tempRoot, logPath),
+  );
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_navigate',
+    { url: 'https://example.com/', headed: true },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as { success: boolean; headed: boolean };
+  const records = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          command: string;
+          browserArgs: string | null;
+        },
+    );
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.headed).toBe(true);
+  expect(records[0]?.browserArgs?.split('\n')).toEqual(
+    expect.arrayContaining([
+      '--start-maximized',
+      '--no-first-run',
+      '--password-store=basic',
+    ]),
+  );
 });
