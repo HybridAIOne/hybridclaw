@@ -58,7 +58,7 @@ function normalizePublicUrl(value: string | null): string {
 function redactSecret(message: string, secret: string): string {
   const trimmed = secret.trim();
   if (!trimmed) return message;
-  return message.split(trimmed).join('<redacted>');
+  return message.replaceAll(trimmed, '<redacted>');
 }
 
 export class NgrokTunnelProvider implements TunnelProvider {
