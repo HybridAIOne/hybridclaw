@@ -716,6 +716,7 @@ export interface GatewayLogicalAgentCard {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  monthlySpendUsd: number;
   messageCount: number;
   toolCalls: number;
   recentSessionId: string | null;

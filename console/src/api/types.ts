@@ -802,6 +802,7 @@ export interface AgentCard {
   effectiveModels: string[];
   lastActive: string | null;
   status: 'active' | 'idle' | 'stopped' | 'unused';
+  monthlySpendUsd: number;
 }
 
 export interface AgentSessionCard {
