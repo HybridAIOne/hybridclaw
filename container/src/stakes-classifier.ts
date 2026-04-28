@@ -22,9 +22,13 @@ export interface RuleBasedStakesClassifierOptions {
   classifierName?: string;
 }
 
+export interface MlStakesClassifier {
+  classify(input: StakesClassificationInput): unknown;
+}
+
 export interface StakesClassifierOptions {
   ruleOptions?: RuleBasedStakesClassifierOptions;
-  mlClassifier?: StakesClassifier | null;
+  mlClassifier?: MlStakesClassifier | null;
   minMlConfidence?: number;
 }
 
@@ -165,26 +169,34 @@ function uniqueReasons(signals: StakesSignal[]): string[] {
   return [...new Set(signals.map((signal) => signal.reason))];
 }
 
-function normalizeScore(score: StakesScore): StakesScore {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeMlScore(score: unknown): StakesScore | null {
+  if (!isRecord(score)) return null;
   const level = normalizeStakesLevel(score.level);
-  if (!level) {
-    throw new Error('Stakes classifier returned an invalid level.');
-  }
-  const signals = Array.isArray(score.signals) ? score.signals : [];
+  if (!level) return null;
+  const signals = Array.isArray(score.signals)
+    ? score.signals.map((signal) => {
+        const record = isRecord(signal) ? signal : {};
+        return {
+          name: normalizeText(record.name) || 'ml',
+          level: normalizeStakesLevel(record.level) || level,
+          score: clamp01(Number(record.score)),
+          reason: normalizeText(record.reason) || 'ML classifier signal',
+        };
+      })
+    : [];
   const reasons = Array.isArray(score.reasons)
     ? score.reasons.map(normalizeText).filter(Boolean)
     : uniqueReasons(signals);
   return {
     level,
-    score: clamp01(score.score),
-    confidence: clamp01(score.confidence),
+    score: clamp01(Number(score.score)),
+    confidence: clamp01(Number(score.confidence)),
     classifier: normalizeText(score.classifier) || 'ml',
-    signals: signals.map((signal) => ({
-      name: normalizeText(signal.name) || 'ml',
-      level: normalizeStakesLevel(signal.level) || level,
-      score: clamp01(signal.score),
-      reason: normalizeText(signal.reason) || 'ML classifier signal',
-    })),
+    signals,
     reasons,
   };
 }
@@ -329,7 +341,7 @@ export class RuleBasedStakesClassifier implements StakesClassifier {
 
 export class CompositeStakesClassifier implements StakesClassifier {
   private readonly ruleClassifier: RuleBasedStakesClassifier;
-  private readonly mlClassifier: StakesClassifier | null;
+  private readonly mlClassifier: MlStakesClassifier | null;
   private readonly minMlConfidence: number;
 
   constructor(options: StakesClassifierOptions = {}) {
@@ -344,7 +356,7 @@ export class CompositeStakesClassifier implements StakesClassifier {
   classify(input: StakesClassificationInput): StakesScore {
     const ruleScore = this.ruleClassifier.classify(input);
     const mlScore = this.mlClassifier
-      ? normalizeScore(this.mlClassifier.classify(input))
+      ? normalizeMlScore(this.mlClassifier.classify(input))
       : null;
     if (!mlScore || mlScore.confidence < this.minMlConfidence) {
       return ruleScore;
@@ -375,5 +387,5 @@ export function classifyStakes(
   input: StakesClassificationInput,
   classifier: StakesClassifier = DEFAULT_STAKES_CLASSIFIER,
 ): StakesScore {
-  return normalizeScore(classifier.classify(input));
+  return classifier.classify(input);
 }

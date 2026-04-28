@@ -275,6 +275,9 @@ describe('stakes classifier', () => {
         reasons: ['ML classifier considered it low risk'],
       }),
     };
+    const malformedMl = {
+      classify: () => ({ level: 'urgent', confidence: 0.99 }),
+    };
 
     const raised = createStakesClassifier({ mlClassifier: raiseMl }).classify(
       makeInput({ toolName: 'read', actionKey: 'read' }),
@@ -295,5 +298,11 @@ describe('stakes classifier', () => {
       }),
     );
     expect(preserved?.level).toBe('high');
+
+    const ignored = createStakesClassifier({
+      mlClassifier: malformedMl,
+    }).classify(makeInput({ toolName: 'read', actionKey: 'read' }));
+    expect(ignored?.level).toBe('low');
+    expect(ignored?.classifier).toBe('rules:v1');
   });
 });
