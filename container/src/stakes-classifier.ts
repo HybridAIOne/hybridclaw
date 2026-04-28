@@ -397,11 +397,14 @@ export function createStakesClassifier(
   return new CompositeStakesClassifier(options);
 }
 
-const DEFAULT_STAKES_CLASSIFIER = createStakesClassifier();
-
 export function classifyStakes(
   input: StakesClassificationInput,
-  classifier: StakesClassifier = DEFAULT_STAKES_CLASSIFIER,
+  classifier: StakesClassifier,
 ): StakesScore {
+  if (!classifier || typeof classifier.classify !== 'function') {
+    throw new Error(
+      'classifyStakes requires a configured StakesClassifier instance',
+    );
+  }
   return classifier.classify(input);
 }

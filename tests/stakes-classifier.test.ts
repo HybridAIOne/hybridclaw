@@ -45,6 +45,10 @@ function makeNestedArgs(
   return value;
 }
 
+function classifyWithTestDefaults(input: StakesClassificationInput) {
+  return classifyStakes(input, createStakesClassifier());
+}
+
 const lowTools = [
   'read',
   'glob',
@@ -232,7 +236,7 @@ describe('stakes classifier', () => {
       .map((example) => ({
         label: example.label,
         expected: example.expected,
-        actual: classifyStakes(example.input).level,
+        actual: classifyWithTestDefaults(example.input).level,
       }))
       .filter((result) => result.actual !== result.expected);
 
@@ -240,7 +244,7 @@ describe('stakes classifier', () => {
   });
 
   test('rule classifier reports structured scoring signals', () => {
-    const result = classifyStakes(
+    const result = classifyWithTestDefaults(
       makeInput({
         toolName: 'http_request',
         actionKey: 'billing:charge',
@@ -259,8 +263,39 @@ describe('stakes classifier', () => {
     expect(result.reasons).toContain('detected cost exposure >= EUR 500');
   });
 
+  test('classifyStakes requires a configured classifier instance', () => {
+    const callWithoutClassifier = classifyStakes as unknown as (
+      input: StakesClassificationInput,
+    ) => unknown;
+
+    expect(() => callWithoutClassifier(makeInput({}))).toThrow(
+      'classifyStakes requires a configured StakesClassifier instance',
+    );
+  });
+
+  test('classifyStakes uses the provided configured classifier', () => {
+    const classifier = createStakesClassifier({
+      ruleOptions: { highCostEur: 1000 },
+    });
+
+    const result = classifyStakes(
+      makeInput({
+        args: { amount: '€900' },
+      }),
+      classifier,
+    );
+
+    expect(result.level).toBe('medium');
+    expect(result.signals.map((signal) => signal.name)).toContain(
+      'cost:medium',
+    );
+    expect(result.signals.map((signal) => signal.name)).not.toContain(
+      'cost:high',
+    );
+  });
+
   test('cost extraction stops at the configured recursion depth', () => {
-    const withinLimit = classifyStakes(
+    const withinLimit = classifyWithTestDefaults(
       makeInput({
         args: makeNestedArgs(9, { amount: '€900' }),
       }),
@@ -269,7 +304,7 @@ describe('stakes classifier', () => {
       'cost:high',
     );
 
-    const beyondLimit = classifyStakes(
+    const beyondLimit = classifyWithTestDefaults(
       makeInput({
         args: makeNestedArgs(10, { amount: '€900' }),
       }),
