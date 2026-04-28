@@ -316,6 +316,11 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
           'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
         );
       }
+      if (installMode.error === 'dependency-flags') {
+        throw new Error(
+          'Package install flags can only be used with `hybridclaw skill install <source>`.',
+        );
+      }
       throw new Error(
         'Usage: `hybridclaw skill install <source>` or `hybridclaw skill install <skill-name> <dependency>`.',
       );
@@ -390,8 +395,14 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     const { uninstallSkillPackage } = await import(
       '../skills/skills-lifecycle.js'
     );
-    const result = uninstallSkillPackage(skillName, { actor: 'cli' });
-    console.log(`Uninstalled ${result.skillName} from ${result.skillDir}`);
+    try {
+      const result = uninstallSkillPackage(skillName, { actor: 'cli' });
+      console.log(`Uninstalled ${result.skillName} from ${result.skillDir}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to uninstall skill.';
+      throw new Error(`Failed to uninstall ${skillName}: ${message}`);
+    }
     return;
   }
 
@@ -404,7 +415,14 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     const { listSkillPackageRevisions } = await import(
       '../skills/skills-lifecycle.js'
     );
-    const revisions = listSkillPackageRevisions(skillName);
+    let revisions: ReturnType<typeof listSkillPackageRevisions>;
+    try {
+      revisions = listSkillPackageRevisions(skillName);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Unknown skill ${skillName}.`;
+      throw new Error(`Failed to list revisions for ${skillName}: ${message}`);
+    }
     if (revisions.length === 0) {
       console.log(`No package revisions found for ${skillName}.`);
       return;
@@ -429,14 +447,22 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     const { rollbackSkillPackage } = await import(
       '../skills/skills-lifecycle.js'
     );
-    const result = rollbackSkillPackage({
-      skillName,
-      revisionId,
-      actor: 'cli',
-    });
-    console.log(
-      `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
-    );
+    try {
+      const result = rollbackSkillPackage({
+        skillName,
+        revisionId,
+        actor: 'cli',
+      });
+      console.log(
+        `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown rollback error.';
+      throw new Error(
+        `Failed to roll back skill "${skillName}" to revision ${revisionId}: ${message}`,
+      );
+    }
     return;
   }
 

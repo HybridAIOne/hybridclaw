@@ -393,12 +393,9 @@ the same gateway command surface used by TUI and web chat.
   and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
-- local TUI and web chat support `/skill list` to inspect dependency ids,
-  `/skill install <source>`, `/skill upgrade <source>`, `/skill uninstall
-  <skill>`, `/skill revisions <skill>`, and `/skill rollback <skill>
-  <revision-id>` for package lifecycle work, `/skill install <skill>
-  <dependency>` to run one declared skill dependency, and `/skill setup
-  <skill>` to run every declared dependency for a skill
+- local TUI and web chat support `/skill list` to inspect dependency ids.
+- local TUI and web chat support `/skill install <source>`, `/skill upgrade <source>`, `/skill uninstall <skill>`, `/skill revisions <skill>`, and `/skill rollback <skill> <revision-id>` for package lifecycle work.
+- local TUI and web chat support `/skill install <skill> <dependency>` to run one declared skill dependency, and `/skill setup <skill>` to run every declared dependency for a skill.
 - an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
   the next plain-text follow-up in the same session; a new slash command
   cancels that carry-over

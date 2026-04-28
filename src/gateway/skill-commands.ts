@@ -205,7 +205,7 @@ export async function handleSkillCommand(
       });
     } catch (err) {
       return context.badCommand(
-        'Unknown Skill',
+        'Skill Enable/Disable Failed',
         err instanceof Error ? err.message : String(err),
       );
     }
@@ -438,6 +438,12 @@ export async function handleSkillCommand(
           'Usage: `skill install <skill> <dependency>`',
         );
       }
+      if (installMode.error === 'dependency-flags') {
+        return context.badCommand(
+          'Usage',
+          'Package install flags can only be used with `skill install <source>`.',
+        );
+      }
       return context.badCommand(
         'Usage',
         'Usage: `skill install <source>` or `skill install <skill> <dependency>`',
@@ -552,13 +558,21 @@ export async function handleSkillCommand(
     const { uninstallSkillPackage } = await import(
       '../skills/skills-lifecycle.js'
     );
-    const result = uninstallSkillPackage(skillName, {
-      actor: 'gateway-command',
-    });
-    return context.infoCommand(
-      'Skill Package Uninstalled',
-      `Uninstalled ${result.skillName} from ${result.skillDir}`,
-    );
+    try {
+      const result = uninstallSkillPackage(skillName, {
+        actor: 'gateway-command',
+      });
+      return context.infoCommand(
+        'Skill Package Uninstalled',
+        `Uninstalled ${result.skillName} from ${result.skillDir}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return context.badCommand(
+        'Skill Uninstall Failed',
+        `Unable to uninstall \`${skillName}\`: ${message}`,
+      );
+    }
   }
 
   if (sub === 'revisions') {
@@ -569,7 +583,17 @@ export async function handleSkillCommand(
     const { listSkillPackageRevisions } = await import(
       '../skills/skills-lifecycle.js'
     );
-    const revisions = listSkillPackageRevisions(skillName);
+    let revisions: ReturnType<typeof listSkillPackageRevisions>;
+    try {
+      revisions = listSkillPackageRevisions(skillName);
+    } catch (error) {
+      return context.badCommand(
+        'Unknown Skill',
+        error instanceof Error
+          ? error.message
+          : `Unknown skill \`${skillName}\`.`,
+      );
+    }
     if (revisions.length === 0) {
       return context.plainCommand(
         `No package revisions found for \`${skillName}\`.`,
@@ -604,15 +628,23 @@ export async function handleSkillCommand(
     const { rollbackSkillPackage } = await import(
       '../skills/skills-lifecycle.js'
     );
-    const result = rollbackSkillPackage({
-      skillName,
-      revisionId,
-      actor: 'gateway-command',
-    });
-    return context.infoCommand(
-      'Skill Package Rolled Back',
-      `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
-    );
+    try {
+      const result = rollbackSkillPackage({
+        skillName,
+        revisionId,
+        actor: 'gateway-command',
+      });
+      return context.infoCommand(
+        'Skill Package Rolled Back',
+        `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Invalid skill name or revision id.';
+      return context.badCommand('Skill Rollback Failed', message);
+    }
   }
 
   if (sub === 'import') {

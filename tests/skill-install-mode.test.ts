@@ -27,6 +27,17 @@ test('resolves dependency skill install arguments', () => {
     });
 });
 
+test('rejects package flags with dependency skill install arguments', () => {
+  expect(
+    resolveSkillInstallMode(['pdf', 'poppler', '--skip-skill-scan'], {
+      commandPrefix: 'skill',
+    }),
+  ).toEqual({
+    ok: false,
+    error: 'dependency-flags',
+  });
+});
+
 test('asks for a dependency when a single argument matches a bundled skill', () => {
   expect(resolveSkillInstallMode(['pdf'], { commandPrefix: 'skill' })).toEqual({
     ok: false,

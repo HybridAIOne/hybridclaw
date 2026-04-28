@@ -170,6 +170,7 @@ describe('skill package lifecycle', () => {
       id: 'deal-desk',
       status: 'enabled',
       version: '1.0.0',
+      source: installed.resolvedSource,
     });
 
     const skillV2 = writeSkillSource({
@@ -187,7 +188,9 @@ describe('skill package lifecycle', () => {
       id: 'deal-desk',
       status: 'enabled',
       version: '2.0.0',
+      source: upgraded.resolvedSource,
     });
+    const upgradedSource = config.getRuntimeConfig().skills.installed[0].source;
 
     const upgradeRevisions = lifecycle.listSkillPackageRevisions('deal-desk');
     expect(upgradeRevisions).toHaveLength(1);
@@ -200,6 +203,7 @@ describe('skill package lifecycle', () => {
     expect(config.getRuntimeConfig().skills.installed[0]).toMatchObject({
       id: 'deal-desk',
       status: 'uninstalled',
+      source: upgradedSource,
     });
 
     const revisionsAfterUninstall =
@@ -221,6 +225,7 @@ describe('skill package lifecycle', () => {
       id: 'deal-desk',
       status: 'enabled',
       version: '2.0.0',
+      source: upgradedSource,
     });
   });
 
