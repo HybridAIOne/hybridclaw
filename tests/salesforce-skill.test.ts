@@ -67,6 +67,40 @@ test('salesforce helper plans compound natural-language workflows offline', () =
   ]);
 });
 
+test('salesforce helper preserves custom stage names and escapes SOQL LIKE wildcards', () => {
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      [
+        'import importlib.util, json, pathlib, sys',
+        'helper_path = pathlib.Path(sys.argv[1])',
+        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
+        'module = importlib.util.module_from_spec(spec)',
+        'sys.modules[spec.name] = module',
+        'spec.loader.exec_module(module)',
+        'print(json.dumps({',
+        '    "standardStage": module.normalize_stage_name("closed won"),',
+        '    "customStage": module.normalize_stage_name("legal review - phase_2"),',
+        '    "literal": module.escape_soql_literal("Acme_50%\'s"),',
+        '    "likeLiteral": module.escape_soql_like_literal("Acme_50%\'s"),',
+        '}))',
+      ].join('\n'),
+      helperPath,
+    ],
+    { encoding: 'utf-8' },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload).toEqual({
+    standardStage: 'Closed Won',
+    customStage: 'legal review - phase_2',
+    literal: "Acme_50%\\'s",
+    likeLiteral: "Acme\\_50\\%\\'s",
+  });
+});
+
 test('salesforce helper eval suite covers 30 read and write scenarios', () => {
   const scenarios = JSON.parse(
     fs.readFileSync(scenariosPath, 'utf-8'),

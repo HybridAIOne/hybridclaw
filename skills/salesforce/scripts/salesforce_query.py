@@ -405,6 +405,10 @@ def escape_soql_literal(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def escape_soql_like_literal(value: str) -> str:
+    return escape_soql_literal(value).replace("%", "\\%").replace("_", "\\_")
+
+
 def is_salesforce_id(value: str) -> bool:
     return bool(SALESFORCE_ID_RE.fullmatch(value.strip()))
 
@@ -425,7 +429,7 @@ def normalize_stage_name(value: str) -> str:
         "closed won": "Closed Won",
         "closed lost": "Closed Lost",
     }
-    return known.get(normalized.lower(), normalized.title())
+    return known.get(normalized.lower(), normalized)
 
 
 def normalize_probability(value: int | None) -> int | None:
@@ -568,7 +572,7 @@ def find_single_record(
     if is_salesforce_id(cleaned):
         raise SalesforceError(f"No {sobject} found for id {cleaned!r}")
 
-    like = escape_soql_literal(cleaned)
+    like = escape_soql_like_literal(cleaned)
     soql = (
         f"SELECT {', '.join(select_fields)} FROM {sobject} "
         f"WHERE Name LIKE '%{like}%' ORDER BY LastModifiedDate DESC LIMIT 6"
@@ -830,7 +834,7 @@ def find_records(
     where_parts: list[str] = []
     cleaned_search = search.strip()
     if cleaned_search:
-        needle = escape_soql_literal(cleaned_search)
+        needle = escape_soql_like_literal(cleaned_search)
         where_parts.append(
             "("
             + " OR ".join(
