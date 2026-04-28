@@ -4875,6 +4875,7 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
 
 const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
   ['openai-codex/', 'codex'],
+  ['anthropic/', 'anthropic'],
   ['openrouter/', 'openrouter'],
   ['mistral/', 'mistral'],
   ['huggingface/', 'huggingface'],
@@ -4900,6 +4901,15 @@ function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
   const normalized = modelId.trim().toLowerCase();
   for (const [prefix, key] of MODEL_PROVIDER_KEY_BY_PREFIX) {
     if (normalized.startsWith(prefix)) return key;
+  }
+  // A `/`-bearing slug that didn't match any known prefix means a new provider
+  // landed in the catalog without an entry here; surface it instead of silently
+  // miscategorizing as HybridAI.
+  if (normalized.includes('/')) {
+    logger.warn(
+      { modelId },
+      'Unknown provider prefix in model id; defaulting to hybridai',
+    );
   }
   return 'hybridai';
 }

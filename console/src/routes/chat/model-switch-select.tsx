@@ -1,4 +1,5 @@
 import { type ReactElement, useMemo, useState } from 'react';
+import type { GatewayModelProviderKey } from '../../../../src/gateway/gateway-types.js';
 import type { ChatModel } from '../../api/types';
 import { Menu } from '../../components/icons';
 import {
@@ -23,7 +24,7 @@ import { formatCompactNumber } from '../../lib/format';
 
 export type ModelSwitchEntry = ChatModel;
 
-interface ParsedModel {
+export interface ParsedModel {
   id: string;
   groupLabel: string;
   providerRank: number;
@@ -35,11 +36,51 @@ interface ParsedModel {
   meta: ModelSwitchEntry;
 }
 
-type KnownProvider = 'Local' | 'HybridAI' | 'OpenAI Codex';
+type KnownProvider =
+  | 'Local'
+  | 'HybridAI'
+  | 'OpenAI Codex'
+  | 'Anthropic'
+  | 'OpenRouter'
+  | 'Mistral'
+  | 'Hugging Face'
+  | 'Gemini'
+  | 'DeepSeek'
+  | 'xAI'
+  | 'Z.ai'
+  | 'Kimi'
+  | 'MiniMax'
+  | 'DashScope'
+  | 'Xiaomi'
+  | 'Kilo'
+  | 'Ollama'
+  | 'LM Studio'
+  | 'llama.cpp'
+  | 'vLLM';
 
-const PROVIDER_LABELS: Record<string, KnownProvider> = {
+// `Record<GatewayModelProviderKey, …>` makes the compiler flag any new gateway
+// provider that ships without an explicit display label — without it, new
+// providers silently fall through to the kebab-to-Title fallback in pretty().
+const PROVIDER_LABELS: Record<GatewayModelProviderKey, KnownProvider> = {
   hybridai: 'HybridAI',
-  'openai-codex': 'OpenAI Codex',
+  codex: 'OpenAI Codex',
+  anthropic: 'Anthropic',
+  openrouter: 'OpenRouter',
+  mistral: 'Mistral',
+  huggingface: 'Hugging Face',
+  gemini: 'Gemini',
+  deepseek: 'DeepSeek',
+  xai: 'xAI',
+  zai: 'Z.ai',
+  kimi: 'Kimi',
+  minimax: 'MiniMax',
+  dashscope: 'DashScope',
+  xiaomi: 'Xiaomi',
+  kilo: 'Kilo',
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+  llamacpp: 'llama.cpp',
+  vllm: 'vLLM',
 };
 
 const VENDOR_LABELS: Record<string, string> = {
@@ -52,7 +93,7 @@ const VENDOR_LABELS: Record<string, string> = {
   xai: 'xAI',
 };
 
-const PROVIDER_RANK: Record<KnownProvider, number> = {
+const PROVIDER_RANK: Partial<Record<KnownProvider, number>> = {
   Local: 0,
   HybridAI: 1,
   'OpenAI Codex': 2,
@@ -213,7 +254,7 @@ function ServerIcon() {
   );
 }
 
-const PROVIDER_ICONS: Record<KnownProvider, () => ReactElement> = {
+const PROVIDER_ICONS: Partial<Record<KnownProvider, () => ReactElement>> = {
   HybridAI: HybridAIIcon,
   'OpenAI Codex': CodexIcon,
   Local: LocalIcon,
@@ -245,24 +286,23 @@ function inferVendor(name: string): string | null {
   return VENDOR_BY_PREFIX.find(([prefix]) => n.startsWith(prefix))?.[1] ?? null;
 }
 
-function parseModel(entry: ModelSwitchEntry): ParsedModel {
+export function parseModel(entry: ModelSwitchEntry): ParsedModel {
   const id = entry.id;
   const parts = id.split('/');
-  let provider: string;
+  // Always trust the gateway-tagged provider over the id prefix — `parts[0]`
+  // can be the id prefix (`openai-codex`) while `entry.provider` carries the
+  // canonical providerHealth key (`codex`) that PROVIDER_LABELS is keyed by.
+  const provider = pretty(entry.provider, PROVIDER_LABELS);
   let vendor: string | null;
   let shortName: string;
 
   if (parts.length === 1) {
-    // Bare slug — trust the gateway-tagged provider rather than guessing.
-    provider = pretty(entry.provider, PROVIDER_LABELS);
     vendor = inferVendor(parts[0]);
     shortName = parts[0];
   } else if (parts.length === 2) {
-    provider = pretty(parts[0], PROVIDER_LABELS);
     vendor = inferVendor(parts[1]);
     shortName = parts[1];
   } else {
-    provider = pretty(parts[0], PROVIDER_LABELS);
     vendor = pretty(parts[1], VENDOR_LABELS);
     shortName = parts.slice(2).join('/');
   }
