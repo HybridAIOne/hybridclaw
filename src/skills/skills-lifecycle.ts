@@ -239,6 +239,10 @@ function parseSkillPackageSnapshotFile(
   };
 }
 
+function sanitizeRestoredSkillFileMode(mode: number): number {
+  return mode & 0o644;
+}
+
 function restoreSkillPackageSnapshot(
   skillDir: string,
   snapshot: SkillPackageSnapshot,
@@ -254,7 +258,7 @@ function restoreSkillPackageSnapshot(
     const targetPath = path.join(skillDir, file.path);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, content);
-    fs.chmodSync(targetPath, file.mode & 0o777);
+    fs.chmodSync(targetPath, sanitizeRestoredSkillFileMode(file.mode));
   }
 }
 

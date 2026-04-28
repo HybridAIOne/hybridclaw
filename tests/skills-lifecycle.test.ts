@@ -425,6 +425,99 @@ describe('skill package lifecycle', () => {
     }
   });
 
+  test('rollback caps restored file permissions from snapshot data', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'deal-desk',
+      version: '1.0.0',
+      scriptText: 'console.log("v1");\n',
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    const installed = await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    const revisionAssetPath = path.join(
+      installed.skillDir,
+      '.hybridclaw-skill-snapshot.json',
+    );
+    const snapshotWithMode = (mode: number, label: string) =>
+      JSON.stringify({
+        schemaVersion: 1,
+        manifest: installed.manifest,
+        files: [
+          {
+            path: 'SKILL.md',
+            mode,
+            contentBase64: fs
+              .readFileSync(path.join(skillV1, 'SKILL.md'))
+              .toString('base64'),
+          },
+          {
+            path: 'scripts/run.js',
+            mode,
+            contentBase64: Buffer.from(label).toString('base64'),
+          },
+        ],
+      });
+
+    config.syncRuntimeAssetRevisionState(
+      'skill',
+      revisionAssetPath,
+      {
+        actor: 'test',
+        route: 'test.skill.tampered-mode',
+        source: 'test',
+      },
+      {
+        exists: true,
+        content: snapshotWithMode(0o777, 'console.log("tampered");\n'),
+      },
+    );
+    config.syncRuntimeAssetRevisionState(
+      'skill',
+      revisionAssetPath,
+      {
+        actor: 'test',
+        route: 'test.skill.after-tampered-mode',
+        source: 'test',
+      },
+      {
+        exists: true,
+        content: snapshotWithMode(0o644, 'console.log("current");\n'),
+      },
+    );
+
+    const revision = lifecycle.listSkillPackageRevisions('deal-desk')[0];
+    expect(revision).toMatchObject({
+      route: 'test.skill.after-tampered-mode',
+    });
+
+    lifecycle.rollbackSkillPackage({
+      skillName: 'deal-desk',
+      revisionId: revision.id,
+      actor: 'test',
+      homeDir: tempHome,
+    });
+
+    expect(
+      fs.readFileSync(
+        path.join(installed.skillDir, 'scripts', 'run.js'),
+        'utf-8',
+      ),
+    ).toBe('console.log("tampered");\n');
+    expect(
+      fs.statSync(path.join(installed.skillDir, 'scripts', 'run.js')).mode &
+        0o777,
+    ).toBe(0o644);
+    expect(
+      fs.statSync(path.join(installed.skillDir, 'SKILL.md')).mode & 0o777,
+    ).toBe(0o644);
+  });
+
   test('install rejects packaged skills without a valid version', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillDir = path.join(sourceRoot, 'versionless');
