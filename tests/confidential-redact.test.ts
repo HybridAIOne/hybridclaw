@@ -8,8 +8,8 @@ import {
 } from '../src/security/confidential-redact.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 import {
+  TRUSTED_COWORKER_CONFIDENTIAL_YAML,
   testSecretSamplesByClass,
-  trustedCoworkerConfidentialYaml,
 } from './fixtures/trusted-coworker.ts';
 
 const RULES_YAML = `
@@ -127,7 +127,7 @@ describe('dehydrate / rehydrate', () => {
 
   test('roadmap 4.x masks and rehydrates business-secret fixture classes', () => {
     const fixtureRuleSet = parseConfidentialYaml(
-      trustedCoworkerConfidentialYaml(),
+      TRUSTED_COWORKER_CONFIDENTIAL_YAML,
       'fixtures:trusted-coworker',
     );
     const secrets = [
@@ -155,7 +155,7 @@ describe('dehydrate / rehydrate', () => {
 describe('scanForLeaks', () => {
   test('trusted-coworker YAML does not double-count client identities as keywords', () => {
     const fixtureRuleSet = parseConfidentialYaml(
-      trustedCoworkerConfidentialYaml(),
+      TRUSTED_COWORKER_CONFIDENTIAL_YAML,
       'fixtures:trusted-coworker',
     );
 

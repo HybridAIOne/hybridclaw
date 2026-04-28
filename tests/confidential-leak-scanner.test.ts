@@ -14,8 +14,8 @@ import {
 } from '../src/audit/leak-scanner.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 import {
+  TRUSTED_COWORKER_CONFIDENTIAL_YAML,
   testThreads,
-  trustedCoworkerConfidentialYaml,
 } from './fixtures/trusted-coworker.ts';
 
 let tempDir: string;
@@ -95,7 +95,7 @@ describe('audit log leak scanner', () => {
 
   test('roadmap 6.x flags NDA content from trusted-coworker thread fixtures', () => {
     const fixtureRules = parseConfidentialYaml(
-      trustedCoworkerConfidentialYaml(),
+      TRUSTED_COWORKER_CONFIDENTIAL_YAML,
       'fixtures:trusted-coworker',
     );
     const thread = testThreads.find(

@@ -530,7 +530,7 @@ export function requireTestClientOrg(id: string): TestClientOrg {
   return clientOrg;
 }
 
-export function trustedCoworkerConfidentialYaml(): string {
+function buildTrustedCoworkerConfidentialYaml(): string {
   return stringifyYaml({
     version: 1,
     clients: testClientOrgs.map((clientOrg) => ({
@@ -550,3 +550,6 @@ export function trustedCoworkerConfidentialYaml(): string {
       })),
   });
 }
+
+export const TRUSTED_COWORKER_CONFIDENTIAL_YAML: string =
+  buildTrustedCoworkerConfidentialYaml();
