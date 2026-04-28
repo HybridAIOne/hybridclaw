@@ -102,6 +102,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'clear',
   'reset',
   'compact',
+  'context',
   'help',
 ]);
 
@@ -224,6 +225,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   config: {
     command: '/config [check|reload|set <key> <value>]',
     description: 'Show or update local runtime config',
+  },
+  context: {
+    command: '/context',
+    description: 'Show context window usage and compaction headroom',
   },
   policy: {
     command: '/policy [status|list|allow|deny|delete|preset|default|reset]',
@@ -581,6 +586,9 @@ export function mapCanonicalCommandToGatewayArgs(
     case 'compact':
       return ['compact'];
 
+    case 'context':
+      return ['context'];
+
     case 'clear':
       return ['clear'];
 
@@ -756,6 +764,10 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'compact',
       description: 'Archive older session history and compact it into memory',
+    },
+    {
+      name: 'context',
+      description: 'Show context window usage and compaction headroom',
     },
     {
       name: 'dream',
@@ -2808,6 +2820,9 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'context':
+      return ['context'];
 
     case 'dream': {
       const subcommand = normalizeSubcommand(interaction);
