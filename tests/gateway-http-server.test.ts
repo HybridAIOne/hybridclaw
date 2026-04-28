@@ -53,7 +53,6 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
-  fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
   fs.writeFileSync(
     path.join(docsDir, 'agents.html'),
     '<h1>Agents</h1>',
@@ -636,6 +635,48 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const getGatewayAdminStatistics = vi.fn(
+    (params?: { days?: number | string }) => {
+      const raw =
+        typeof params?.days === 'number'
+          ? params.days
+          : typeof params?.days === 'string'
+            ? Number.parseInt(params.days, 10)
+            : 30;
+      const rangeDays = Math.max(
+        1,
+        Math.min(90, Number.isFinite(raw) ? Math.floor(raw) : 30),
+      );
+      return {
+        rangeDays,
+        startDate: '2026-04-01',
+        endDate: '2026-04-30',
+        totals: {
+          newSessions: 1,
+          activeSessions: 2,
+          totalMessages: 5,
+          userMessages: 3,
+          assistantMessages: 2,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalTokens: 0,
+          totalCostUsd: 0,
+          callCount: 0,
+          totalToolCalls: 0,
+        },
+        trend: [],
+        channels: [
+          {
+            channelId: 'web',
+            sessionCount: 2,
+            userMessages: 3,
+            assistantMessages: 2,
+            totalMessages: 5,
+          },
+        ],
+      };
+    },
+  );
   const getGatewayAdminEmailMailbox = vi.fn(() => ({
     enabled: true,
     address: 'agent@example.com',
@@ -846,6 +887,7 @@ async function importFreshHealth(options?: {
         inputTokens: 10,
         outputTokens: 5,
         costUsd: 0.01,
+        monthlySpendUsd: 0.01,
         messageCount: 2,
         toolCalls: 1,
         recentSessionId: DEFAULT_WEB_SESSION_ID,
@@ -1196,6 +1238,23 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const getGatewayAdminAgentScoreboard = vi.fn(() => ({
+    observed_skill_count: 2,
+    agents: [
+      {
+        agent_id: 'charly',
+        display_name: 'Charly',
+        total_executions: 3,
+        success_rate: 1,
+        avg_score: 90,
+        avg_quality_score: 95,
+        avg_reliability_score: 88,
+        avg_timing_score: 70,
+        best_skills: [],
+        last_observed_at: '2026-04-27T10:00:00.000Z',
+      },
+    ],
+  }));
   const createGatewayAdminSkill = vi.fn(() => ({
     extraDirs: [],
     disabled: [],
@@ -1487,7 +1546,9 @@ async function importFreshHealth(options?: {
     getGatewayAdminModels,
     getGatewayAdminOverview,
     getGatewayAdminSessions,
+    getGatewayAdminAgentScoreboard,
     getGatewayAdminSkills,
+    getGatewayAdminStatistics,
     getGatewayAdminTools,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
@@ -1591,6 +1652,7 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    getGatewayAdminStatistics,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -1611,6 +1673,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
+    getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getGatewayAdminTools,
     startTerminalSession,
@@ -3744,6 +3807,7 @@ describe('gateway HTTP server', () => {
       userId: 'web-user-a',
       channelId: 'web',
       limit: 10,
+      fallbackToChannelRecent: true,
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -3876,8 +3940,130 @@ describe('gateway HTTP server', () => {
       channelId: 'web',
       limit: 25,
       query: 'deploy',
+      fallbackToChannelRecent: true,
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  test('requires API auth for mobile chat QR handoff creation', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      remoteAddress: '203.0.113.10',
+      body: {
+        userId: 'web-user-a',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('creates and redeems mobile chat QR handoffs once', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const sessionId = 'agent:main:channel:web:chat:dm:peer:1234567890abcdef';
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+      body: {
+        userId: 'web-user-a',
+        sessionId,
+        baseUrl: 'https://example.test/chat',
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await waitForResponse(createRes, (next) => next.writableEnded);
+
+    expect(createRes.statusCode).toBe(200);
+    const payload = JSON.parse(createRes.body) as {
+      launchUrl: string;
+      expiresAt: string;
+      qrSvg: string;
+    };
+    expect(payload.launchUrl).toMatch(
+      /^https:\/\/example\.test\/chat\/continue\?token=/,
+    );
+    expect(payload.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(payload.qrSvg).toContain('<svg');
+
+    const continueUrl = new URL(payload.launchUrl);
+    const continueReq = makeRequest({
+      url: `${continueUrl.pathname}${continueUrl.search}`,
+    });
+    const continueRes = makeResponse();
+
+    state.handler(continueReq as never, continueRes as never);
+    await waitForResponse(continueRes, (next) => next.writableEnded);
+
+    expect(continueRes.statusCode).toBe(200);
+    expect(continueRes.body).toContain(
+      `localStorage.setItem('hybridclaw_user_id',"web-user-a");`,
+    );
+    expect(continueRes.body).toContain(
+      `localStorage.setItem('hybridclaw_session',"${sessionId}");`,
+    );
+    expect(continueRes.body).toContain(
+      `window.location.replace("/chat/${encodeURIComponent(sessionId)}");`,
+    );
+
+    const replayRes = makeResponse();
+    state.handler(continueReq as never, replayRes as never);
+    await waitForResponse(replayRes, (next) => next.writableEnded);
+
+    expect(replayRes.statusCode).toBe(401);
+    expect(replayRes.body).toBe('Mobile launch QR code is invalid or expired.');
+  });
+
+  test('rejects expired mobile chat QR handoff tokens', async () => {
+    const dateNow = vi.spyOn(Date, 'now');
+    dateNow.mockReturnValue(new Date('2026-04-26T12:00:00.000Z').getTime());
+    try {
+      const state = await importFreshHealth();
+      const createReq = makeRequest({
+        method: 'POST',
+        url: '/api/chat/mobile-qr',
+        body: {
+          userId: 'web-user-a',
+          sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+          baseUrl: 'https://example.test',
+        },
+      });
+      const createRes = makeResponse();
+
+      state.handler(createReq as never, createRes as never);
+      await waitForResponse(createRes, (next) => next.writableEnded);
+
+      const payload = JSON.parse(createRes.body) as { launchUrl: string };
+      dateNow.mockReturnValue(new Date('2026-04-26T12:10:00.001Z').getTime());
+
+      const continueUrl = new URL(payload.launchUrl);
+      const continueReq = makeRequest({
+        url: `${continueUrl.pathname}${continueUrl.search}`,
+      });
+      const continueRes = makeResponse();
+      state.handler(continueReq as never, continueRes as never);
+      await waitForResponse(continueRes, (next) => next.writableEnded);
+
+      expect(continueRes.statusCode).toBe(401);
+      expect(continueRes.body).toBe(
+        'Mobile launch QR code is invalid or expired.',
+      );
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   test('rejects history requests without an explicit session id', async () => {
@@ -3943,6 +4129,58 @@ describe('gateway HTTP server', () => {
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
     });
+  });
+
+  test('returns admin statistics with default range when days is omitted', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      rangeDays: 30,
+      startDate: '2026-04-01',
+      endDate: '2026-04-30',
+      totals: { totalMessages: 5 },
+      channels: [{ channelId: 'web', sessionCount: 2 }],
+    });
+  });
+
+  test('forwards days query param to admin statistics service', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics?days=7' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: '7',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rangeDays).toBe(7);
+  });
+
+  test('clamps oversized days query param via the statistics service', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics?days=9999' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: '9999',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rangeDays).toBe(90);
   });
 
   test('returns live admin email mailbox metadata for authorized API requests', async () => {
@@ -4697,6 +4935,7 @@ describe('gateway HTTP server', () => {
         {
           id: 'main',
           sessionCount: 1,
+          monthlySpendUsd: 0.01,
           status: 'active',
         },
       ],
@@ -4738,6 +4977,35 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       defaultModel: 'gpt-5',
+    });
+  });
+
+  test('returns admin agent scoreboard for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agent-scoreboard' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentScoreboard).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      observed_skill_count: 2,
+      agents: [
+        {
+          agent_id: 'charly',
+          display_name: 'Charly',
+          total_executions: 3,
+          success_rate: 1,
+          avg_score: 90,
+          avg_quality_score: 95,
+          avg_reliability_score: 88,
+          avg_timing_score: 70,
+          best_skills: [],
+          last_observed_at: '2026-04-27T10:00:00.000Z',
+        },
+      ],
     });
   });
 

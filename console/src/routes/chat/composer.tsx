@@ -69,6 +69,7 @@ export function Composer(props: {
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
@@ -80,6 +81,34 @@ export function Composer(props: {
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const updateComposerHeight = () => {
+      const height = wrapper.getBoundingClientRect().height;
+      if (!Number.isFinite(height) || height <= 0) return;
+      document.documentElement.style.setProperty(
+        '--chat-composer-height',
+        `${Math.ceil(height)}px`,
+      );
+    };
+
+    updateComposerHeight();
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(updateComposerHeight);
+    observer?.observe(wrapper);
+    window.addEventListener('resize', updateComposerHeight);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateComposerHeight);
+      document.documentElement.style.removeProperty('--chat-composer-height');
     };
   }, []);
 
@@ -218,7 +247,7 @@ export function Composer(props: {
   const selectedModelId = props.selectedModelId ?? '';
 
   return (
-    <div className={css.composerWrapper}>
+    <div className={css.composerWrapper} ref={wrapperRef}>
       <div className={css.composer} style={{ position: 'relative' }}>
         {showSuggestions ? (
           <SlashSuggestions

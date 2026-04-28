@@ -20,6 +20,7 @@ vi.mock('@tanstack/react-router', async () => {
 import type {
   BranchResponse,
   ChatHistoryResponse,
+  ChatMobileQrResponse,
   ChatRecentResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
@@ -44,6 +45,13 @@ const fetchChatRecentMock =
   >();
 const fetchChatHistoryMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
+const createChatMobileQrMock =
+  vi.fn<
+    (
+      token: string,
+      payload: { userId: string; sessionId: string; baseUrl?: string },
+    ) => Promise<ChatMobileQrResponse>
+  >();
 const createChatBranchMock =
   vi.fn<
     (
@@ -74,6 +82,10 @@ vi.mock('../../api/chat', () => ({
   ) => fetchChatRecentMock(token, userId, channelId, limit, query),
   fetchChatHistory: (token: string, sessionId: string) =>
     fetchChatHistoryMock(token, sessionId),
+  createChatMobileQr: (
+    token: string,
+    payload: { userId: string; sessionId: string; baseUrl?: string },
+  ) => createChatMobileQrMock(token, payload),
   createChatBranch: (
     token: string,
     sessionId: string,
@@ -145,6 +157,7 @@ describe('ChatPage', () => {
     fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
+    createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
     fetchAgentListMock.mockReset();
@@ -206,6 +219,11 @@ describe('ChatPage', () => {
       { id: 'main', name: 'Assistant' },
       { id: 'charly', name: 'Charly' },
     ]);
+    createChatMobileQrMock.mockResolvedValue({
+      launchUrl: 'https://example.test/chat/continue?token=test-token',
+      expiresAt: '2026-04-14T10:10:00.000Z',
+      qrSvg: '<svg viewBox="0 0 1 1"></svg>',
+    });
     isActiveMock.mockReturnValue(false);
     useChatStreamMock.mockReturnValue({
       sendMessage: sendMessageMock,
@@ -725,5 +743,67 @@ describe('ChatPage', () => {
     });
 
     expect(openTriggersInChatTopbar()).toBe(0);
+  });
+
+  it('refreshes recent sessions when the mobile sidebar opens', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 800,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(1));
+
+    const topbar = document.querySelector('[class*="chatTopbar"]');
+    if (!(topbar instanceof HTMLElement)) {
+      throw new Error('Missing chat topbar');
+    }
+
+    fireEvent.click(
+      within(topbar).getByRole('button', { name: 'Open sidebar' }),
+    );
+
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('creates a mobile handoff QR code for the active chat session', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show mobile QR code' }),
+    );
+
+    await waitFor(() =>
+      expect(createChatMobileQrMock).toHaveBeenCalledWith('test-token', {
+        userId: 'web-user-1',
+        sessionId: 'session-a',
+        baseUrl: 'http://localhost:3000',
+      }),
+    );
+    expect(await screen.findByText('Open on mobile')).not.toBeNull();
+    expect(screen.getByText('Open link')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Close mobile QR code' })).toBe(
+      document.activeElement,
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() =>
+      expect(screen.queryByText('Open on mobile')).toBeNull(),
+    );
   });
 });

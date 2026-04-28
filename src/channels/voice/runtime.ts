@@ -425,7 +425,9 @@ async function dispatchPromptToHandler(
       }
     }
   } finally {
-    sessionStore.setController(session.callSid, null);
+    if (session.controller === controller) {
+      sessionStore.setController(session.callSid, null);
+    }
   }
 }
 
@@ -572,9 +574,9 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     if (!session) {
       return;
     }
-    session.controller?.abort();
+    // A relay close can be transient; keep the active turn alive so a reconnect
+    // does not kill the model/container mid-request.
     session.ws = null;
-    sessionStore.setController(callSid, null);
     if (!draining && session.state !== 'ended' && session.state !== 'failed') {
       transitionSession(callSid, 'reconnecting');
     }

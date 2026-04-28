@@ -10,11 +10,18 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatMobileQrResponse {
+  launchUrl: string;
+  expiresAt: string;
+  qrSvg: string;
+}
+
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   id?: number | string | null;
   agent_id?: string | null;
+  artifacts?: ChatArtifact[];
   assistantPresentation?: AssistantPresentation | null;
 }
 

@@ -158,6 +158,117 @@ describe('config reload integration', () => {
     expect(cfg.container.persistBashState).toBe(false);
   });
 
+  it('normalizes per-agent skill autonomy rules', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeConfig({
+      skills: {
+        autonomy: {
+          defaultLevel: 'low-stakes-autonomous',
+          rules: [
+            'not-a-rule',
+            {
+              agentId: ' writer ',
+              skillName: ' docs ',
+              level: 'full-autonomous',
+            },
+            {
+              agentId: 'writer',
+              skillName: 'email',
+              level: 'confirm-each',
+            },
+            {
+              agentId: '',
+              skillName: 'ignored',
+              level: 'full-autonomous',
+            },
+            {
+              agentId: 'writer',
+              skillName: 'bad-level',
+              level: 'unsupported',
+            },
+          ],
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.skills.autonomy).toEqual({
+      defaultLevel: 'low-stakes-autonomous',
+      rules: [
+        {
+          agentId: 'writer',
+          skillName: 'bad-level',
+          level: 'low-stakes-autonomous',
+        },
+        {
+          agentId: 'writer',
+          skillName: 'docs',
+          level: 'full-autonomous',
+        },
+        {
+          agentId: 'writer',
+          skillName: 'email',
+          level: 'confirm-each',
+        },
+      ],
+    });
+    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'docs')).toBe(
+      'full-autonomous',
+    );
+    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
+      'low-stakes-autonomous',
+    );
+    expect(() => configMod.resolveSkillAutonomyLevel(cfg, '', 'docs')).toThrow(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+    expect(() =>
+      configMod.resolveSkillAutonomyLevel(cfg, 'writer', ''),
+    ).toThrow(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] skipping skills.autonomy rule: expected an object',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] invalid skills.autonomy level "unsupported" for agentId "writer" and skillName "bad-level"; using default "low-stakes-autonomous"',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('keeps autonomy rules distinct when ids contain null bytes', () => {
+    writeConfig({
+      skills: {
+        autonomy: {
+          rules: [
+            {
+              agentId: 'team\u0000alpha',
+              skillName: 'docs',
+              level: 'full-autonomous',
+            },
+            {
+              agentId: 'team',
+              skillName: 'alpha\u0000docs',
+              level: 'low-stakes-autonomous',
+            },
+          ],
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(
+      configMod.resolveSkillAutonomyLevel(cfg, 'team\u0000alpha', 'docs'),
+    ).toBe('full-autonomous');
+    expect(
+      configMod.resolveSkillAutonomyLevel(cfg, 'team', 'alpha\u0000docs'),
+    ).toBe('low-stakes-autonomous');
+  });
+
   it('nested config updates do not clobber sibling keys', () => {
     configMod.ensureRuntimeConfigFile();
 

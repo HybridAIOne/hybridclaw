@@ -130,6 +130,21 @@ describe('runtime config migration logging', () => {
     ).toBe(true);
   });
 
+  it('warns on startup when cloud deployment is missing a public URL', async () => {
+    const homeDir = makeTempHome();
+    writeRuntimeConfig(homeDir, (config) => {
+      config.deployment.mode = 'cloud';
+      config.deployment.public_url = '';
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await importFreshRuntimeConfig(homeDir);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] deployment.mode is "cloud" but deployment.public_url is empty; inbound webhooks and public callbacks may fail until a public URL is configured',
+    );
+  });
+
   it('normalizes MCP server transport aliases on startup', async () => {
     const homeDir = makeTempHome();
     writeRuntimeConfig(homeDir, (config) => {

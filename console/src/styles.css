@@ -462,6 +462,7 @@ code {
 
 .metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
 }
 
 .two-column-grid {
@@ -492,11 +493,13 @@ code {
 }
 
 .metric-card {
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
   display: grid;
-  gap: 6px;
+  align-content: start;
+  gap: 3px;
+  min-height: 0;
 }
 
 .metric-card-link {
@@ -509,8 +512,14 @@ code {
 }
 
 .metric-card strong {
-  font-size: 1.8rem;
+  font-size: 1.45rem;
   font-weight: 700;
+  line-height: 1.15;
+}
+
+.metric-card span,
+.metric-card small {
+  line-height: 1.25;
 }
 
 .list-row,

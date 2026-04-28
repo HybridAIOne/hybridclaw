@@ -4,6 +4,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
@@ -31,6 +32,7 @@ import type {
   AdminSchedulerResponse,
   AdminSession,
   AdminSkillsResponse,
+  AdminStatisticsResponse,
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
@@ -197,6 +199,20 @@ export function fetchHealth(): Promise<GatewayStatus> {
 
 export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
+}
+
+export function fetchStatistics(
+  token: string,
+  days?: number,
+): Promise<AdminStatisticsResponse> {
+  const search =
+    typeof days === 'number' && Number.isFinite(days)
+      ? `?days=${Math.max(1, Math.floor(days))}`
+      : '';
+  return requestJson<AdminStatisticsResponse>(
+    `/api/admin/statistics${search}`,
+    { token },
+  );
 }
 
 export function reloadGateway(
@@ -773,6 +789,15 @@ export function fetchAdaptiveSkillHealth(
   return requestJson<AdminAdaptiveSkillHealthResponse>('/api/skills/health', {
     token,
   });
+}
+
+export function fetchAgentScoreboard(
+  token: string,
+): Promise<AdminAgentScoreboardResponse> {
+  return requestJson<AdminAgentScoreboardResponse>(
+    '/api/admin/agent-scoreboard',
+    { token },
+  );
 }
 
 export function fetchAdaptiveSkillAmendments(

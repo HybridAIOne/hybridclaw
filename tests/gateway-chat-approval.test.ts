@@ -51,6 +51,7 @@ test('returns null when there is no structured pending approval metadata', () =>
           approvalRequestId: 'approve123',
           approvalAllowSession: true,
           approvalAllowAgent: true,
+          approvalAllowAll: true,
         },
       ],
     }),
