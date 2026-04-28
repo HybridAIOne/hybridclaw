@@ -171,7 +171,8 @@ saved revision history directly.
   for declaring whether the gateway runs behind a cloud URL or a local tunnel;
   cloud mode requires `deployment.public_url`, while local mode requires a
   tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or
-  `tailscale`
+  `tailscale`. The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from
+  the encrypted runtime secret store
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
