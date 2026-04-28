@@ -75,14 +75,6 @@ function normalizeStringList(value: unknown): string[] {
   }
   const raw = normalizeString(value);
   if (!raw) return [];
-  if (raw.startsWith('[') && raw.endsWith(']')) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) return normalizeStringList(parsed);
-    } catch {
-      // Fall through to comma-separated parsing.
-    }
-  }
   return [
     ...new Set(
       raw
