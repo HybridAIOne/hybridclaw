@@ -3,6 +3,8 @@ import {
   requireTestClientOrg,
   requireTestCoworker,
   SECRET_FIXTURE_CLASSES,
+  testClientOrgs,
+  testSecretSamples,
   testSecretSamplesByClass,
   testThreads,
   trustedCoworkerFixtures,
@@ -22,17 +24,37 @@ describe('trusted coworker test fixtures', () => {
       trustedCoworkerFixtures.secretSamples.map((sample) => sample.id),
     );
     expect(secretIds.size).toBe(SECRET_FIXTURE_CLASSES.length * 20);
+
+    const clientOrgIds = new Set(
+      testClientOrgs.map((clientOrg) => clientOrg.id),
+    );
+    expect(
+      testSecretSamples.every((sample) => clientOrgIds.has(sample.clientOrgId)),
+    ).toBe(true);
+    expect(
+      testSecretSamplesByClass.client.find((sample) => sample.value === 'AWL')
+        ?.clientOrgId,
+    ).toBe('client_aster');
+    expect(
+      testSecretSamplesByClass.nda.find((sample) =>
+        sample.value.includes('DR-ASTER-001'),
+      )?.clientOrgId,
+    ).toBe('client_aster');
   });
 
   test('roadmap 1.x A2A thread fixtures resolve sender and recipient coworkers', () => {
     const coworkerIds = new Set(
       trustedCoworkerFixtures.coworkers.map((coworker) => coworker.id),
     );
+    const clientOrgIds = new Set(
+      trustedCoworkerFixtures.clientOrgs.map((clientOrg) => clientOrg.id),
+    );
     const threadIds = new Set(testThreads.map((thread) => thread.id));
     expect(threadIds.size).toBe(10);
 
     for (const thread of testThreads) {
       expect(coworkerIds.has(thread.ownerCoworkerId)).toBe(true);
+      expect(clientOrgIds.has(thread.clientOrgId)).toBe(true);
       const messageIds = new Set(thread.messages.map((message) => message.id));
       for (const message of thread.messages) {
         expect(coworkerIds.has(message.senderCoworkerId)).toBe(true);

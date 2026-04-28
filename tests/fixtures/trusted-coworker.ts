@@ -175,94 +175,112 @@ export const testClientOrgs: readonly TestClientOrg[] = [
   },
 ];
 
-const secretValuesByClass: Record<SecretFixtureClass, readonly string[]> = {
+interface SecretValueFixture {
+  value: string;
+  clientOrgId: TestClientOrg['id'];
+}
+
+function owned(
+  value: string,
+  clientOrgId: TestClientOrg['id'],
+): SecretValueFixture {
+  return { value, clientOrgId };
+}
+
+const secretValuesByClass: Record<
+  SecretFixtureClass,
+  readonly SecretValueFixture[]
+> = {
   client: [
-    'AsterWorks Labs',
-    'AWL',
-    'AsterWorks EU Test GmbH',
-    'Cobalt Harbor Studio',
-    'CHS',
-    'Cobalt Harbor Test Ltd',
-    'Evergreen Vector Works',
-    'EVW',
-    'Evergreen Vector Test PLC',
-    'client_aster_data_room',
-    'client_aster_private_channel',
-    'client_cobalt_board_channel',
-    'client_evergreen_migration_roster',
-    'client_aster_tax_profile_TEST',
-    'client_cobalt_contract_owner',
-    'client_evergreen_procurement_owner',
-    'asterworks_acquisition_targets',
-    'cobalt_partner_map',
-    'evergreen_customer_roster',
-    'test_client_priority_pipeline',
+    owned('AsterWorks Labs', 'client_aster'),
+    owned('AWL', 'client_aster'),
+    owned('AsterWorks EU Test GmbH', 'client_aster'),
+    owned('Cobalt Harbor Studio', 'client_cobalt'),
+    owned('CHS', 'client_cobalt'),
+    owned('Cobalt Harbor Test Ltd', 'client_cobalt'),
+    owned('Evergreen Vector Works', 'client_evergreen'),
+    owned('EVW', 'client_evergreen'),
+    owned('Evergreen Vector Test PLC', 'client_evergreen'),
+    owned('client_aster_data_room', 'client_aster'),
+    owned('client_aster_private_channel', 'client_aster'),
+    owned('client_cobalt_board_channel', 'client_cobalt'),
+    owned('client_evergreen_migration_roster', 'client_evergreen'),
+    owned('client_aster_tax_profile_TEST', 'client_aster'),
+    owned('client_cobalt_contract_owner', 'client_cobalt'),
+    owned('client_evergreen_procurement_owner', 'client_evergreen'),
+    owned('asterworks_acquisition_targets', 'client_aster'),
+    owned('cobalt_partner_map', 'client_cobalt'),
+    owned('evergreen_customer_roster', 'client_evergreen'),
+    owned('client_aster_priority_pipeline', 'client_aster'),
   ],
   nda: [
-    'Project Glassline',
-    'Project Harborlight',
-    'Project Canopy',
-    'unannounced Series B scenario',
-    'private churn-risk memo',
-    'board-only launch timeline',
-    'pre-release customer migration plan',
-    'internal competitor response brief',
-    'closed-beta invite list',
-    'founder compensation model',
-    'M&A diligence checklist',
-    'pilot failure retrospective',
-    'support incident appendix',
-    'partner exclusivity memo',
-    'pre-announcement pricing deck',
-    'confidential benchmark results',
-    'data-room index DR-ASTER-001',
-    'data-room index DR-COBALT-014',
-    'data-room index DR-EVERGREEN-027',
-    'NDA exhibit schedule TEST-2026',
+    owned('Project Glassline', 'client_aster'),
+    owned('Project Harborlight', 'client_cobalt'),
+    owned('Project Canopy', 'client_evergreen'),
+    owned('AsterWorks unannounced Series B scenario', 'client_aster'),
+    owned('Cobalt private churn-risk memo', 'client_cobalt'),
+    owned('Evergreen board-only launch timeline', 'client_evergreen'),
+    owned('AsterWorks pre-release customer migration plan', 'client_aster'),
+    owned('Cobalt internal competitor response brief', 'client_cobalt'),
+    owned('Evergreen closed-beta invite list', 'client_evergreen'),
+    owned('AsterWorks founder compensation model', 'client_aster'),
+    owned('Cobalt M&A diligence checklist', 'client_cobalt'),
+    owned('Evergreen pilot failure retrospective', 'client_evergreen'),
+    owned('AsterWorks support incident appendix', 'client_aster'),
+    owned('Cobalt partner exclusivity memo', 'client_cobalt'),
+    owned('Evergreen pre-announcement pricing deck', 'client_evergreen'),
+    owned('AsterWorks confidential benchmark results', 'client_aster'),
+    owned('data-room index DR-ASTER-001', 'client_aster'),
+    owned('data-room index DR-COBALT-014', 'client_cobalt'),
+    owned('data-room index DR-EVERGREEN-027', 'client_evergreen'),
+    owned('AsterWorks NDA exhibit schedule TEST-2026', 'client_aster'),
   ],
   price: [
-    'EUR 180000 annual floor',
-    'EUR 220000 annual ceiling',
-    'USD 92000 pilot ceiling',
-    'GBP 145000 renewal target',
-    '12 percent discretionary discount',
-    '35 percent migration concession',
-    'net-45 payment exception',
-    'success-fee cap 3 percent',
-    'support uplift 18000 EUR',
-    'integration credit 25000 USD',
-    'volume tier starts at 400 seats',
-    'minimum commit 18 months',
-    'price hold expires 2026-09-30',
-    'expansion quote Q-TEST-118',
-    'procurement fallback 15 percent',
-    'pilot-to-annual conversion 2.4x',
-    'board-approved walkaway 275000 EUR',
-    'gross-margin floor 62 percent',
-    'services bundle 48000 GBP',
-    'renewal-risk reserve 31000 USD',
+    owned('EUR 180000 annual floor', 'client_aster'),
+    owned('EUR 220000 annual ceiling', 'client_aster'),
+    owned('USD 92000 pilot ceiling', 'client_cobalt'),
+    owned('GBP 145000 renewal target', 'client_evergreen'),
+    owned('AsterWorks 12 percent discretionary discount', 'client_aster'),
+    owned('Cobalt 35 percent migration concession', 'client_cobalt'),
+    owned('Evergreen net-45 payment exception', 'client_evergreen'),
+    owned('AsterWorks success-fee cap 3 percent', 'client_aster'),
+    owned('support uplift 18000 EUR', 'client_aster'),
+    owned('integration credit 25000 USD', 'client_cobalt'),
+    owned('Evergreen volume tier starts at 400 seats', 'client_evergreen'),
+    owned('AsterWorks minimum commit 18 months', 'client_aster'),
+    owned('Cobalt price hold expires 2026-09-30', 'client_cobalt'),
+    owned('Evergreen expansion quote Q-TEST-118', 'client_evergreen'),
+    owned('AsterWorks procurement fallback 15 percent', 'client_aster'),
+    owned('Cobalt pilot-to-annual conversion 2.4x', 'client_cobalt'),
+    owned('board-approved walkaway 275000 EUR', 'client_aster'),
+    owned('Evergreen gross-margin floor 62 percent', 'client_evergreen'),
+    owned('services bundle 48000 GBP', 'client_evergreen'),
+    owned('renewal-risk reserve 31000 USD', 'client_cobalt'),
   ],
   contract: [
-    'termination for convenience after 30 days',
-    'mutual NDA expires 2031-12-31',
-    'liability cap equals 2x fees',
-    'security addendum SA-TEST-004',
-    'DPA annex version DPA-2026-02',
-    'non-solicit period 18 months',
-    'exclusive beta territory clause',
-    'audit rights limited to twice yearly',
-    'service credit cap 10 percent',
-    'custom indemnity carveout',
-    'data residency restricted to EU',
-    'source escrow trigger wording',
-    'subprocessor notice window 45 days',
-    'assignment requires written consent',
-    'benchmark publication prohibited',
-    'contract exhibit CX-GLASSLINE',
-    'contract exhibit CX-HARBORLIGHT',
-    'contract exhibit CX-CANOPY',
-    'renewal notice window 120 days',
-    'change-control threshold 15000 EUR',
+    owned(
+      'AsterWorks termination for convenience after 30 days',
+      'client_aster',
+    ),
+    owned('Cobalt mutual NDA expires 2031-12-31', 'client_cobalt'),
+    owned('Evergreen liability cap equals 2x fees', 'client_evergreen'),
+    owned('AsterWorks security addendum SA-TEST-004', 'client_aster'),
+    owned('Cobalt DPA annex version DPA-2026-02', 'client_cobalt'),
+    owned('Evergreen non-solicit period 18 months', 'client_evergreen'),
+    owned('AsterWorks exclusive beta territory clause', 'client_aster'),
+    owned('Cobalt audit rights limited to twice yearly', 'client_cobalt'),
+    owned('Evergreen service credit cap 10 percent', 'client_evergreen'),
+    owned('AsterWorks custom indemnity carveout', 'client_aster'),
+    owned('Cobalt data residency restricted to EU', 'client_cobalt'),
+    owned('Evergreen source escrow trigger wording', 'client_evergreen'),
+    owned('AsterWorks subprocessor notice window 45 days', 'client_aster'),
+    owned('Cobalt assignment requires written consent', 'client_cobalt'),
+    owned('Evergreen benchmark publication prohibited', 'client_evergreen'),
+    owned('contract exhibit CX-GLASSLINE', 'client_aster'),
+    owned('contract exhibit CX-HARBORLIGHT', 'client_cobalt'),
+    owned('contract exhibit CX-CANOPY', 'client_evergreen'),
+    owned('AsterWorks renewal notice window 120 days', 'client_aster'),
+    owned('change-control threshold 15000 EUR', 'client_aster'),
   ],
 };
 
@@ -278,15 +296,15 @@ const sensitivityBySecretClass: Record<
 
 function makeSecretSamples(
   className: SecretFixtureClass,
-  values: readonly string[],
+  values: readonly SecretValueFixture[],
 ): readonly TestSecretSample[] {
-  return values.map((value, index) => ({
+  return values.map((entry, index) => ({
     id: `${className}_${String(index + 1).padStart(2, '0')}`,
     className,
     label: `${className} sample ${index + 1}`,
-    value,
+    value: entry.value,
     sensitivity: sensitivityBySecretClass[className],
-    clientOrgId: testClientOrgs[index % testClientOrgs.length].id,
+    clientOrgId: entry.clientOrgId,
   }));
 }
 
@@ -518,6 +536,13 @@ export function requireTestClientOrg(id: string): TestClientOrg {
 }
 
 export function trustedCoworkerConfidentialYaml(): string {
+  const clientRuleTerms = new Set(
+    testClientOrgs.flatMap((clientOrg) => [
+      clientOrg.name,
+      clientOrg.legalEntity,
+      ...clientOrg.aliases,
+    ]),
+  );
   return stringifyYaml({
     version: 1,
     clients: testClientOrgs.map((clientOrg) => ({
@@ -529,9 +554,14 @@ export function trustedCoworkerConfidentialYaml(): string {
       name: clientOrg.launchCodename,
       sensitivity: clientOrg.ndaSensitivity,
     })),
-    keywords: testSecretSamples.map((sample) => ({
-      term: sample.value,
-      sensitivity: sample.sensitivity,
-    })),
+    keywords: testSecretSamples
+      .filter(
+        (sample) =>
+          sample.className !== 'client' || !clientRuleTerms.has(sample.value),
+      )
+      .map((sample) => ({
+        term: sample.value,
+        sensitivity: sample.sensitivity,
+      })),
   });
 }
