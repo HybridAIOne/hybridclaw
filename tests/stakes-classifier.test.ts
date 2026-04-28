@@ -34,6 +34,17 @@ function makeInput(
   };
 }
 
+function makeNestedArgs(
+  wrappers: number,
+  leaf: Record<string, unknown>,
+): Record<string, unknown> {
+  let value = leaf;
+  for (let index = 0; index < wrappers; index += 1) {
+    value = { nested: value };
+  }
+  return value;
+}
+
 const lowTools = [
   'read',
   'glob',
@@ -246,6 +257,27 @@ describe('stakes classifier', () => {
     expect(result.classifier).toBe('rules:v1');
     expect(result.signals.map((signal) => signal.name)).toContain('cost:high');
     expect(result.reasons).toContain('detected cost exposure >= EUR 500');
+  });
+
+  test('cost extraction stops at the configured recursion depth', () => {
+    const withinLimit = classifyStakes(
+      makeInput({
+        args: makeNestedArgs(9, { amount: '€900' }),
+      }),
+    );
+    expect(withinLimit.signals.map((signal) => signal.name)).toContain(
+      'cost:high',
+    );
+
+    const beyondLimit = classifyStakes(
+      makeInput({
+        args: makeNestedArgs(10, { amount: '€900' }),
+      }),
+    );
+    expect(beyondLimit.level).toBe('low');
+    expect(beyondLimit.signals.map((signal) => signal.name)).not.toContain(
+      'cost:high',
+    );
   });
 
   test('rule classifier rejects invalid cost thresholds', () => {

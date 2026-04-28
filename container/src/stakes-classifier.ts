@@ -41,6 +41,7 @@ const STAKES_ORDER: Record<StakesLevel, number> = {
 const DEFAULT_MEDIUM_COST_EUR = 50;
 const DEFAULT_HIGH_COST_EUR = 500;
 const DEFAULT_ML_MIN_CONFIDENCE = 0.55;
+const MAX_COST_AMOUNT_DEPTH = 10;
 const COST_KEY_RE =
   /\b(cost|price|amount|budget|spend|charge|payment|refund|invoice|revenue|expense|salary|fee|subscription|order[_ -]?value)\b/i;
 const CUSTOMER_FACING_RE =
@@ -131,7 +132,8 @@ function extractCurrencyAmounts(text: string): number[] {
   return amounts;
 }
 
-function collectCostAmounts(value: unknown, keyHint = ''): number[] {
+function collectCostAmounts(value: unknown, keyHint = '', depth = 0): number[] {
+  if (depth > MAX_COST_AMOUNT_DEPTH) return [];
   const amounts: number[] = [];
   const keyLooksCostly = COST_KEY_RE.test(keyHint);
 
@@ -151,14 +153,14 @@ function collectCostAmounts(value: unknown, keyHint = ''): number[] {
 
   if (Array.isArray(value)) {
     for (const entry of value) {
-      amounts.push(...collectCostAmounts(entry, keyHint));
+      amounts.push(...collectCostAmounts(entry, keyHint, depth + 1));
     }
     return amounts;
   }
 
   if (value && typeof value === 'object') {
     for (const [key, entry] of Object.entries(value)) {
-      amounts.push(...collectCostAmounts(entry, key));
+      amounts.push(...collectCostAmounts(entry, key, depth + 1));
     }
   }
 
