@@ -123,6 +123,7 @@ import {
 } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import { firstNumber } from './gateway-utils.js';
+import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
@@ -142,7 +143,10 @@ function formatEscalationRouteNotice(
 
 async function routeEscalationApproval(params: {
   approval: PendingApproval | undefined;
+  agentId: string;
   currentChannelId: string;
+  sessionId: string;
+  runId: string;
   onProactiveMessage: GatewayChatRequest['onProactiveMessage'];
 }): Promise<void> {
   if (!params.approval) return;
@@ -150,14 +154,52 @@ async function routeEscalationApproval(params: {
   if (!target) return;
   const targetChannel = target.channel;
   if (targetChannel === params.currentChannelId) return;
+  const auditBase = {
+    type: 'escalation.route',
+    approvalId: params.approval.approvalId,
+    agentId: params.agentId,
+    currentChannelId: params.currentChannelId,
+    targetChannel,
+    targetRecipient: target.recipient,
+  };
+  if (!isSupportedProactiveChannelId(targetChannel)) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Blocked escalation approval route to unsupported proactive target',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'blocked',
+        reason: 'unsupported_proactive_target',
+      },
+    });
+    return;
+  }
   if (!params.onProactiveMessage) {
     logger.warn(
       {
         approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
         targetChannel,
       },
       'Unable to route escalation approval notification because onProactiveMessage is unavailable',
     );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'not_sent',
+        reason: 'missing_proactive_callback',
+      },
+    });
     return;
   }
   try {
@@ -165,15 +207,41 @@ async function routeEscalationApproval(params: {
       channelId: targetChannel,
       text: formatEscalationRouteNotice(params.approval, target),
     });
+    logger.info(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Routed escalation approval notification',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'sent',
+      },
+    });
   } catch (error) {
     logger.warn(
       {
         approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
         targetChannel,
         error,
       },
       'Failed to route escalation approval notification',
     );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    });
   }
 }
 
@@ -1073,7 +1141,10 @@ async function handleGatewayMessageInner(
     const toolExecutions = output.toolExecutions || [];
     await routeEscalationApproval({
       approval: output.pendingApproval,
+      agentId: resolvedAgent.id,
       currentChannelId: req.channelId,
+      sessionId: req.sessionId,
+      runId,
       onProactiveMessage: req.onProactiveMessage,
     });
     const observedSkillName = resolveObservedSkillName({
