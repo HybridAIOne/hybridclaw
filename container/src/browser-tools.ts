@@ -428,20 +428,13 @@ function resolveHeadedBrowserExecutable(): string | undefined {
   if (chromeBin) return chromeBin;
 
   if (process.platform === 'darwin') {
-    const candidates = [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    ];
-    return candidates.find((candidate) => fs.existsSync(candidate));
+    const googleChrome =
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    return fs.existsSync(googleChrome) ? googleChrome : undefined;
   }
 
   if (process.platform === 'linux') {
-    for (const name of [
-      'google-chrome',
-      'google-chrome-stable',
-      'chromium-browser',
-      'chromium',
-    ]) {
+    for (const name of ['google-chrome', 'google-chrome-stable']) {
       const result = spawnSync('which', [name], { encoding: 'utf-8' });
       if (result.status === 0 && result.stdout.trim()) {
         return result.stdout.trim();
@@ -1445,7 +1438,7 @@ async function runAgentBrowser(
       return {
         success: false,
         error:
-          'Headful browser control requires a system Chrome/Chromium executable. Install Google Chrome or Chromium, or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
+          'Headful browser control requires Google Chrome. Install Google Chrome or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH to a Chrome executable. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
       };
     }
     browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;

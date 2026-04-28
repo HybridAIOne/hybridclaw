@@ -439,8 +439,7 @@ test('browser_navigate refuses headed mode without a system browser', async () =
     const normalized = String(target);
     if (
       normalized ===
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' ||
-      normalized === '/Applications/Chromium.app/Contents/MacOS/Chromium'
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     ) {
       return false;
     }
@@ -460,7 +459,7 @@ test('browser_navigate refuses headed mode without a system browser', async () =
 
   expect(parsed.success).toBe(false);
   expect(parsed.error).toContain(
-    'Headful browser control requires a system Chrome/Chromium executable',
+    'Headful browser control requires Google Chrome',
   );
   expect(fs.existsSync(logPath)).toBe(false);
 });
