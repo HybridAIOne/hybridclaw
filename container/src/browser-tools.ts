@@ -1441,9 +1441,14 @@ async function runAgentBrowser(
   }
   if (session.headed && !cdpUrl) {
     const executablePath = resolveHeadedBrowserExecutable();
-    if (executablePath) {
-      browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
+    if (!executablePath) {
+      return {
+        success: false,
+        error:
+          'Headful browser control requires a system Chrome/Chromium executable. Install Google Chrome or Chromium, or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
+      };
     }
+    browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
   }
 
   try {

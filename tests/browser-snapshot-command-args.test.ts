@@ -333,6 +333,7 @@ test('browser_navigate relaunches when headed mode changes', async () => {
     path.join(os.tmpdir(), 'hybridclaw-browser-headed-switch-'),
   );
   const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  vi.stubEnv('CHROME_BIN', path.join(tempRoot, 'Google Chrome'));
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv(
     'AGENT_BROWSER_BIN',
@@ -383,6 +384,7 @@ test('browser_navigate preserves configured browser args in headed mode', async 
   );
   const logPath = path.join(tempRoot, 'browser-env.jsonl');
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('CHROME_BIN', path.join(tempRoot, 'Google Chrome'));
   vi.stubEnv('AGENT_BROWSER_ARGS', '--start-maximized');
   vi.stubEnv(
     'AGENT_BROWSER_BIN',
@@ -420,4 +422,45 @@ test('browser_navigate preserves configured browser args in headed mode', async 
       '--password-store=basic',
     ]),
   );
+});
+
+test('browser_navigate refuses headed mode without a system browser', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-headed-no-system-'),
+  );
+  const logPath = path.join(tempRoot, 'browser-env.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv(
+    'AGENT_BROWSER_BIN',
+    createAgentBrowserHeadedEnvStub(tempRoot, logPath),
+  );
+  const originalExistsSync = fs.existsSync;
+  vi.spyOn(fs, 'existsSync').mockImplementation((target) => {
+    const normalized = String(target);
+    if (
+      normalized ===
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' ||
+      normalized === '/Applications/Chromium.app/Contents/MacOS/Chromium'
+    ) {
+      return false;
+    }
+    return originalExistsSync(target);
+  });
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_navigate',
+    { url: 'https://example.com/', headed: true },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as { success: boolean; error: string };
+
+  expect(parsed.success).toBe(false);
+  expect(parsed.error).toContain(
+    'Headful browser control requires a system Chrome/Chromium executable',
+  );
+  expect(fs.existsSync(logPath)).toBe(false);
 });
