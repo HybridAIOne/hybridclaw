@@ -369,15 +369,36 @@ function normalizeCaptureResponseFields(
   return rules;
 }
 
+function extractBindingDomainFromResponse(
+  responseJson: Record<string, unknown>,
+  requestUrl: URL,
+): string {
+  const instanceUrl = responseJson.instance_url;
+  if (typeof instanceUrl !== 'string' || !instanceUrl.trim()) {
+    return extractBaseDomain(requestUrl.hostname);
+  }
+  try {
+    const parsed = new URL(instanceUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return extractBaseDomain(requestUrl.hostname);
+    }
+    return extractBaseDomain(parsed.hostname);
+  } catch {
+    return extractBaseDomain(requestUrl.hostname);
+  }
+}
+
 /**
  * Auto-detect an OAuth2 token response (RFC 6749 S5.1) by checking for
  * `access_token` in the JSON body.  When detected, capture all matching
  * fields into the secret store and return the mapping.  The original
  * response body is **never** forwarded to the caller.
  *
- * For every captured secret that looks like a token (contains "token" in
- * the jsonPath), a domain binding is stored so that `bearerSecretName`
- * only works against the same domain the token was issued from.
+ * For every captured secret that looks like a token (contains "token" in the
+ * jsonPath), a domain binding is stored so that `bearerSecretName` only works
+ * against the resource host. OAuth APIs such as Salesforce issue tokens from a
+ * login host but return an `instance_url` resource host; bind to that resource
+ * host when present and fall back to the OAuth endpoint hostname otherwise.
  */
 function captureOAuthResponse(
   responseJson: unknown,
@@ -390,7 +411,7 @@ function captureOAuthResponse(
     return null;
   }
 
-  const baseDomain = extractBaseDomain(requestUrl.hostname);
+  const baseDomain = extractBindingDomainFromResponse(obj, requestUrl);
   const secrets: Record<string, string> = {};
   const captured: Record<string, string> = {};
 

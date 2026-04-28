@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa: INP001
-"""Read-only Salesforce schema and query helper.
+"""Salesforce CRM schema, query, and operation helper.
 
 All HTTP traffic is routed through the HybridClaw gateway proxy at
 ``/api/http/request`` so that stored secrets (``<secret:NAME>`` placeholders)
@@ -12,8 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
@@ -22,11 +25,69 @@ DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT * 1000
 DEFAULT_MAX_RECORDS = 200
 DEFAULT_FIELD_LIMIT = 80
 DEFAULT_OBJECT_LIMIT = 200
+DEFAULT_SEARCH_LIMIT = 10
+DEFAULT_MEETING_MINUTES = 30
 
 SF_ACCESS_TOKEN_SECRET = "SF_ACCESS_TOKEN"
 SF_INSTANCE_URL_SECRET = "SF_INSTANCE_URL"
 
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:9090"
+EVAL_SCENARIOS_PATH = (
+    Path(__file__).resolve().parent.parent / "evals" / "scenarios.json"
+)
+SALESFORCE_ID_RE = re.compile(r"^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$")
+
+ACTIVITY_OBJECT_ALIASES = {
+    "account": "Account",
+    "accounts": "Account",
+    "contact": "Contact",
+    "contacts": "Contact",
+    "lead": "Lead",
+    "leads": "Lead",
+    "opportunity": "Opportunity",
+    "opportunities": "Opportunity",
+    "deal": "Opportunity",
+    "deals": "Opportunity",
+}
+
+ACTIVITY_ID_PREFIXES = {
+    "001": "Account",
+    "003": "Contact",
+    "006": "Opportunity",
+    "00Q": "Lead",
+}
+
+SEARCH_CONFIG = {
+    "leads": {
+        "sobject": "Lead",
+        "fields": ["Id", "Name", "Company", "Status", "Owner.Name"],
+        "search_fields": ["Name", "Company", "Email"],
+    },
+    "contacts": {
+        "sobject": "Contact",
+        "fields": ["Id", "Name", "Email", "Account.Name", "Title"],
+        "search_fields": ["Name", "Email", "Account.Name"],
+    },
+    "opportunities": {
+        "sobject": "Opportunity",
+        "fields": [
+            "Id",
+            "Name",
+            "StageName",
+            "Probability",
+            "Amount",
+            "CloseDate",
+            "Account.Name",
+            "IsClosed",
+        ],
+        "search_fields": ["Name", "Account.Name"],
+    },
+}
+
+DEFAULT_STAGE_PROBABILITIES = {
+    "closed won": 100,
+    "closed lost": 0,
+}
 
 
 class ConfigError(RuntimeError):
@@ -56,7 +117,13 @@ class SalesforceSession:
     def data_path(self, suffix: str) -> str:
         return f"/services/data/v{self.api_version}{suffix}"
 
-    def get_json(self, path_or_url: str) -> Any:
+    def request_json(
+        self,
+        method: str,
+        path_or_url: str,
+        *,
+        json_payload: dict[str, Any] | None = None,
+    ) -> Any:
         url = (
             path_or_url
             if path_or_url.startswith("http://") or path_or_url.startswith("https://")
@@ -65,14 +132,40 @@ class SalesforceSession:
         return gateway_request(
             self.gateway,
             url=url,
-            method="GET",
+            method=method,
             bearer_secret=SF_ACCESS_TOKEN_SECRET,
+            json_payload=json_payload,
             replace_placeholders=True,
         )
+
+    def get_json(self, path_or_url: str) -> Any:
+        return self.request_json("GET", path_or_url)
+
+    def patch_json(self, path_or_url: str, payload: dict[str, Any]) -> Any:
+        return self.request_json("PATCH", path_or_url, json_payload=payload)
+
+    def post_json(self, path_or_url: str, payload: dict[str, Any]) -> Any:
+        return self.request_json("POST", path_or_url, json_payload=payload)
 
 
 def is_mapping(value: Any) -> bool:
     return isinstance(value, dict)
+
+
+def usage_totals_measurement() -> dict[str, Any]:
+    return {
+        "system": "UsageTotals",
+        "source": "HybridClaw usage_events",
+        "scope": "per assistant run/session",
+        "fields": [
+            "total_input_tokens",
+            "total_output_tokens",
+            "total_tokens",
+            "total_cost_usd",
+            "call_count",
+            "total_tool_calls",
+        ],
+    }
 
 
 def resolve_gateway_url() -> str:
@@ -291,8 +384,213 @@ def resolve_latest_api_version(gw: GatewayConfig) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Salesforce operations (unchanged logic, now using gateway proxy)
+# Salesforce operation helpers
 # ---------------------------------------------------------------------------
+
+
+def command_payload(command: str, **fields: Any) -> dict[str, Any]:
+    return {
+        "status": "success",
+        "command": command,
+        "costMeasurement": usage_totals_measurement(),
+        **fields,
+    }
+
+
+def ensure_positive_limit(value: int, default: int) -> int:
+    return value if isinstance(value, int) and value >= 0 else default
+
+
+def escape_soql_literal(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def is_salesforce_id(value: str) -> bool:
+    return bool(SALESFORCE_ID_RE.fullmatch(value.strip()))
+
+
+def normalize_stage_name(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", value.strip())
+    if not normalized:
+        raise ConfigError("Opportunity stage is required.")
+    known = {
+        "prospecting": "Prospecting",
+        "qualification": "Qualification",
+        "needs analysis": "Needs Analysis",
+        "value proposition": "Value Proposition",
+        "id. decision makers": "Id. Decision Makers",
+        "perception analysis": "Perception Analysis",
+        "proposal/price quote": "Proposal/Price Quote",
+        "negotiation/review": "Negotiation/Review",
+        "closed won": "Closed Won",
+        "closed lost": "Closed Lost",
+    }
+    return known.get(normalized.lower(), normalized.title())
+
+
+def normalize_probability(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if value < 0 or value > 100:
+        raise ConfigError("Opportunity probability must be between 0 and 100.")
+    return value
+
+
+def default_probability_for_stage(stage_name: str) -> int | None:
+    return DEFAULT_STAGE_PROBABILITIES.get(stage_name.lower())
+
+
+def normalize_activity_type(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"call", "email", "meeting"}:
+        raise ConfigError("Activity type must be call, email, or meeting.")
+    return normalized
+
+
+def normalize_record_type(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_")
+    if normalized in {"opportunity", "deal", "deals"}:
+        normalized = "opportunities"
+    elif normalized == "contact":
+        normalized = "contacts"
+    elif normalized == "lead":
+        normalized = "leads"
+    if normalized not in SEARCH_CONFIG:
+        raise ConfigError("Record type must be leads, contacts, or opportunities.")
+    return normalized
+
+
+def normalize_target_object(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized:
+        raise ConfigError("Target object is required.")
+    resolved = ACTIVITY_OBJECT_ALIASES.get(normalized)
+    if not resolved:
+        raise ConfigError(
+            "Target object must be account, contact, lead, or opportunity."
+        )
+    return resolved
+
+
+def infer_object_from_salesforce_id(value: str) -> str | None:
+    if not is_salesforce_id(value):
+        return None
+    return ACTIVITY_ID_PREFIXES.get(value[:3])
+
+
+def clean_phrase(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip(" .,'\"")).strip()
+
+
+def parse_activity_date(value: str | None) -> str:
+    if value is None or not value.strip() or value.strip().lower() == "today":
+        return date.today().isoformat()
+    normalized = value.strip().lower()
+    if normalized == "tomorrow":
+        return (date.today() + timedelta(days=1)).isoformat()
+    try:
+        return date.fromisoformat(normalized).isoformat()
+    except ValueError as exc:
+        raise ConfigError(
+            "Activity date must be today, tomorrow, or YYYY-MM-DD."
+        ) from exc
+
+
+def meeting_times(activity_date: str, duration_minutes: int) -> tuple[str, str]:
+    duration = max(1, duration_minutes)
+    start_date = date.fromisoformat(activity_date)
+    start = datetime.combine(start_date, time(hour=9), tzinfo=timezone.utc)
+    end = start + timedelta(minutes=duration)
+    return (
+        start.isoformat().replace("+00:00", "Z"),
+        end.isoformat().replace("+00:00", "Z"),
+    )
+
+
+def record_identity(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": record.get("Id"),
+        "name": record.get("Name"),
+    }
+
+
+def record_link_field(sobject: str) -> str:
+    if sobject in {"Lead", "Contact"}:
+        return "WhoId"
+    return "WhatId"
+
+
+def find_single_record(
+    session: SalesforceSession,
+    *,
+    sobject: str,
+    identifier: str,
+    fields: list[str],
+) -> dict[str, Any]:
+    cleaned = identifier.strip()
+    if not cleaned:
+        raise ConfigError("A record id or name is required.")
+    select_fields = [
+        "Id",
+        "Name",
+        *[field for field in fields if field not in {"Id", "Name"}],
+    ]
+    if is_salesforce_id(cleaned):
+        where = f"Id = '{escape_soql_literal(cleaned)}'"
+        limit = 1
+    else:
+        exact = escape_soql_literal(cleaned)
+        where = f"Name = '{exact}'"
+        limit = 2
+
+    soql = (
+        f"SELECT {', '.join(select_fields)} FROM {sobject} "
+        f"WHERE {where} LIMIT {limit}"
+    )
+    payload = run_query(
+        session,
+        soql=soql,
+        tooling=False,
+        max_records=limit,
+        keep_attributes=False,
+    )
+    records = payload.get("records", [])
+    if isinstance(records, list) and len(records) == 1 and is_mapping(records[0]):
+        return records[0]
+    if isinstance(records, list) and len(records) > 1:
+        names = ", ".join(
+            str(record.get("Name", record.get("Id")))
+            for record in records
+            if is_mapping(record)
+        )
+        raise SalesforceError(f"Ambiguous {sobject} target {cleaned!r}: {names}")
+
+    if is_salesforce_id(cleaned):
+        raise SalesforceError(f"No {sobject} found for id {cleaned!r}")
+
+    like = escape_soql_literal(cleaned)
+    soql = (
+        f"SELECT {', '.join(select_fields)} FROM {sobject} "
+        f"WHERE Name LIKE '%{like}%' ORDER BY LastModifiedDate DESC LIMIT 6"
+    )
+    payload = run_query(
+        session,
+        soql=soql,
+        tooling=False,
+        max_records=6,
+        keep_attributes=False,
+    )
+    records = payload.get("records", [])
+    if isinstance(records, list) and len(records) == 1 and is_mapping(records[0]):
+        return records[0]
+    if not records:
+        raise SalesforceError(f"No {sobject} found matching {cleaned!r}")
+    names = ", ".join(
+        str(record.get("Name", record.get("Id")))
+        for record in records
+        if is_mapping(record)
+    )
+    raise SalesforceError(f"Ambiguous {sobject} target {cleaned!r}: {names}")
 
 
 def strip_attributes(value: Any) -> Any:
@@ -343,15 +641,14 @@ def list_objects(
     filtered.sort(key=lambda item: (item["name"] or "", item["label"] or ""))
     total = len(filtered)
     shown = filtered[:limit] if limit > 0 else filtered
-    return {
-        "status": "success",
-        "command": "objects",
-        "apiVersion": session.api_version,
-        "count": len(shown),
-        "totalMatched": total,
-        "truncated": limit > 0 and total > len(shown),
-        "objects": shown,
-    }
+    return command_payload(
+        "objects",
+        apiVersion=session.api_version,
+        count=len(shown),
+        totalMatched=total,
+        truncated=limit > 0 and total > len(shown),
+        objects=shown,
+    )
 
 
 def describe_object(
@@ -408,11 +705,10 @@ def describe_object(
     )
 
     shown_fields = fields[:field_limit] if field_limit > 0 else fields
-    return {
-        "status": "success",
-        "command": "describe",
-        "apiVersion": session.api_version,
-        "object": {
+    return command_payload(
+        "describe",
+        apiVersion=session.api_version,
+        object={
             "name": str(payload.get("name", "")).strip(),
             "label": str(payload.get("label", "")).strip(),
             "labelPlural": str(payload.get("labelPlural", "")).strip(),
@@ -426,13 +722,13 @@ def describe_object(
             "replicateable": bool(payload.get("replicateable")),
             "retrieveable": bool(payload.get("retrieveable")),
         },
-        "fieldCount": len(fields),
-        "fieldsShown": len(shown_fields),
-        "fieldsTruncated": field_limit > 0 and len(fields) > len(shown_fields),
-        "fields": shown_fields,
-        "childRelationshipCount": len(child_relationships),
-        "childRelationships": child_relationships,
-    }
+        fieldCount=len(fields),
+        fieldsShown=len(shown_fields),
+        fieldsTruncated=field_limit > 0 and len(fields) > len(shown_fields),
+        fields=shown_fields,
+        childRelationshipCount=len(child_relationships),
+        childRelationships=child_relationships,
+    )
 
 
 def relations_object(session: SalesforceSession, *, sobject: str) -> dict[str, Any]:
@@ -451,14 +747,13 @@ def relations_object(session: SalesforceSession, *, sobject: str) -> dict[str, A
         if isinstance(field, dict) and field.get("referenceTo")
     ]
 
-    return {
-        "status": "success",
-        "command": "relations",
-        "apiVersion": session.api_version,
-        "object": described.get("object"),
-        "parentRelations": parent_relations,
-        "childRelationships": child_relationships,
-    }
+    return command_payload(
+        "relations",
+        apiVersion=session.api_version,
+        object=described.get("object"),
+        parentRelations=parent_relations,
+        childRelationships=child_relationships,
+    )
 
 
 def run_query(
@@ -487,17 +782,16 @@ def run_query(
             clean = record if keep_attributes else strip_attributes(record)
             records.append(clean)
             if max_records > 0 and len(records) >= max_records:
-                return {
-                    "status": "success",
-                    "command": "tooling-query" if tooling else "query",
-                    "apiVersion": session.api_version,
-                    "soql": soql,
-                    "count": len(records),
-                    "totalSize": total_size,
-                    "done": False,
-                    "truncated": True,
-                    "records": records,
-                }
+                return command_payload(
+                    "tooling-query" if tooling else "query",
+                    apiVersion=session.api_version,
+                    soql=soql,
+                    count=len(records),
+                    totalSize=total_size,
+                    done=False,
+                    truncated=True,
+                    records=records,
+                )
 
         done = bool(current_payload.get("done", False))
         next_url = current_payload.get("nextRecordsUrl")
@@ -507,17 +801,463 @@ def run_query(
         if not is_mapping(current_payload):
             raise SalesforceError("Unexpected paginated query response")
 
-    return {
-        "status": "success",
-        "command": "tooling-query" if tooling else "query",
-        "apiVersion": session.api_version,
-        "soql": soql,
-        "count": len(records),
-        "totalSize": total_size,
-        "done": done,
-        "truncated": False,
-        "records": records,
+    return command_payload(
+        "tooling-query" if tooling else "query",
+        apiVersion=session.api_version,
+        soql=soql,
+        count=len(records),
+        totalSize=total_size,
+        done=done,
+        truncated=False,
+        records=records,
+    )
+
+
+def find_records(
+    session: SalesforceSession,
+    *,
+    record_type: str,
+    search: str,
+    limit: int,
+    open_only: bool,
+) -> dict[str, Any]:
+    normalized_type = normalize_record_type(record_type)
+    config = SEARCH_CONFIG[normalized_type]
+    sobject = str(config["sobject"])
+    fields = list(config["fields"])
+    search_fields = list(config["search_fields"])
+    bounded_limit = ensure_positive_limit(limit, DEFAULT_SEARCH_LIMIT)
+    where_parts: list[str] = []
+    cleaned_search = search.strip()
+    if cleaned_search:
+        needle = escape_soql_literal(cleaned_search)
+        where_parts.append(
+            "("
+            + " OR ".join(
+                f"{field} LIKE '%{needle}%'" for field in search_fields
+            )
+            + ")"
+        )
+    if normalized_type == "opportunities" and open_only:
+        where_parts.append("IsClosed = false")
+    where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    limit_clause = f" LIMIT {bounded_limit}" if bounded_limit > 0 else ""
+    soql = (
+        f"SELECT {', '.join(fields)} FROM {sobject}{where_clause} "
+        f"ORDER BY LastModifiedDate DESC{limit_clause}"
+    )
+    query_payload = run_query(
+        session,
+        soql=soql,
+        tooling=False,
+        max_records=bounded_limit,
+        keep_attributes=False,
+    )
+    return command_payload(
+        "find",
+        apiVersion=session.api_version,
+        recordType=normalized_type,
+        sobject=sobject,
+        search=cleaned_search,
+        openOnly=open_only,
+        soql=soql,
+        count=query_payload.get("count", 0),
+        totalSize=query_payload.get("totalSize", 0),
+        truncated=query_payload.get("truncated", False),
+        records=query_payload.get("records", []),
+    )
+
+
+def update_opportunity(
+    session: SalesforceSession,
+    *,
+    identifier: str,
+    stage: str | None,
+    probability: int | None,
+    dry_run: bool,
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    stage_name = normalize_stage_name(stage) if stage else None
+    if stage_name:
+        updates["StageName"] = stage_name
+        default_probability = default_probability_for_stage(stage_name)
+        if probability is None and default_probability is not None:
+            probability = default_probability
+    normalized_probability = normalize_probability(probability)
+    if normalized_probability is not None:
+        updates["Probability"] = normalized_probability
+    if not updates:
+        raise ConfigError("Provide --stage, --probability, or both.")
+
+    target = find_single_record(
+        session,
+        sobject="Opportunity",
+        identifier=identifier,
+        fields=["Id", "Name", "StageName", "Probability"],
+    )
+    target_id = str(target.get("Id") or "").strip()
+    if not target_id:
+        raise SalesforceError("Resolved Opportunity target did not include Id.")
+    if not dry_run:
+        session.patch_json(
+            session.data_path(f"/sobjects/Opportunity/{parse.quote(target_id)}"),
+            updates,
+        )
+
+    return command_payload(
+        "update-opportunity",
+        apiVersion=session.api_version,
+        dryRun=dry_run,
+        target=record_identity(target),
+        previous={
+            "StageName": target.get("StageName"),
+            "Probability": target.get("Probability"),
+        },
+        update=updates,
+    )
+
+
+def resolve_activity_target(
+    session: SalesforceSession,
+    *,
+    target: str,
+    target_object: str | None,
+) -> tuple[str, dict[str, Any]]:
+    inferred_object = infer_object_from_salesforce_id(target)
+    sobject = (
+        normalize_target_object(target_object) if target_object else inferred_object
+    )
+    if not sobject:
+        sobject = "Opportunity"
+    fields = ["Id", "Name"]
+    if sobject == "Opportunity":
+        fields.extend(["StageName", "Probability"])
+    if sobject == "Contact":
+        fields.extend(["Email", "Account.Name"])
+    if sobject == "Lead":
+        fields.extend(["Company", "Status"])
+    record = find_single_record(
+        session,
+        sobject=sobject,
+        identifier=target,
+        fields=fields,
+    )
+    return sobject, record
+
+
+def build_activity_payload(
+    *,
+    activity_type: str,
+    target_sobject: str,
+    target_id: str,
+    subject: str,
+    activity_date: str,
+    notes: str,
+    duration_minutes: int,
+) -> tuple[str, dict[str, Any]]:
+    normalized_type = normalize_activity_type(activity_type)
+    link_field = record_link_field(target_sobject)
+    clean_subject = clean_phrase(subject)
+    if not clean_subject:
+        clean_subject = normalized_type.title()
+    if normalized_type in {"call", "email"}:
+        prefix = "Call" if normalized_type == "call" else "Email"
+        task_subject = (
+            clean_subject
+            if clean_subject.lower().startswith(prefix.lower())
+            else f"{prefix}: {clean_subject}"
+        )
+        payload: dict[str, Any] = {
+            "Subject": task_subject,
+            "Status": "Completed",
+            "Priority": "Normal",
+            "ActivityDate": activity_date,
+            link_field: target_id,
+        }
+        if notes.strip():
+            payload["Description"] = notes.strip()
+        return "Task", payload
+
+    start, end = meeting_times(activity_date, duration_minutes)
+    event_subject = (
+        clean_subject
+        if clean_subject.lower().startswith("meeting")
+        else f"Meeting: {clean_subject}"
+    )
+    payload = {
+        "Subject": event_subject,
+        "StartDateTime": start,
+        "EndDateTime": end,
+        link_field: target_id,
     }
+    if notes.strip():
+        payload["Description"] = notes.strip()
+    return "Event", payload
+
+
+def log_activity(
+    session: SalesforceSession,
+    *,
+    activity_type: str,
+    target: str,
+    target_object: str | None,
+    subject: str,
+    activity_date: str | None,
+    notes: str,
+    duration_minutes: int,
+    dry_run: bool,
+) -> dict[str, Any]:
+    resolved_date = parse_activity_date(activity_date)
+    target_sobject, record = resolve_activity_target(
+        session,
+        target=target,
+        target_object=target_object,
+    )
+    target_id = str(record.get("Id") or "").strip()
+    if not target_id:
+        raise SalesforceError("Resolved activity target did not include Id.")
+    activity_sobject, fields = build_activity_payload(
+        activity_type=activity_type,
+        target_sobject=target_sobject,
+        target_id=target_id,
+        subject=subject,
+        activity_date=resolved_date,
+        notes=notes,
+        duration_minutes=duration_minutes,
+    )
+    created: Any = {}
+    if not dry_run:
+        created = session.post_json(
+            session.data_path(f"/sobjects/{activity_sobject}"),
+            fields,
+        )
+    return command_payload(
+        "log-activity",
+        apiVersion=session.api_version,
+        dryRun=dry_run,
+        activityType=normalize_activity_type(activity_type),
+        activityObject=activity_sobject,
+        targetObject=target_sobject,
+        target=record_identity(record),
+        fields=fields,
+        created=created if is_mapping(created) else {},
+    )
+
+
+def _extract_probability(text: str) -> int | None:
+    match = re.search(r"\bprob(?:ability)?(?:\s+to)?\s+(\d{1,3})%?", text, re.I)
+    if not match:
+        return None
+    return normalize_probability(int(match.group(1)))
+
+
+def _strip_probability_phrase(value: str) -> str:
+    return re.sub(
+        r"\s+(?:with\s+)?prob(?:ability)?(?:\s+to)?\s+\d{1,3}%?",
+        "",
+        value,
+        flags=re.I,
+    ).strip()
+
+
+def plan_natural_language(statement: str) -> dict[str, Any]:
+    text = clean_phrase(statement)
+    if not text:
+        raise ConfigError("Natural-language command is required.")
+    lower = text.lower()
+    actions: list[dict[str, Any]] = []
+
+    read_match = re.search(
+        r"\b(?:find|show|list|read)\s+(open\s+)?"
+        r"(leads?|contacts?|opportunit(?:y|ies)|deals?)"
+        r"(?:\s+(?:matching|for|named|at|about)\s+(.+))?$",
+        text,
+        re.I,
+    )
+    if read_match:
+        record_type = normalize_record_type(read_match.group(2))
+        actions.append(
+            {
+                "action": "find-records",
+                "recordType": record_type,
+                "search": clean_phrase(read_match.group(3) or ""),
+                "openOnly": bool(read_match.group(1)),
+                "limit": DEFAULT_SEARCH_LIMIT,
+            }
+        )
+
+    move_match = re.search(
+        r"\bmove\s+(?:the\s+)?(.+?)\s+(?:deal|opportunity)\s+to\s+"
+        r"(.+?)(?=(?:\s+and\s+log|\s+with\s+prob|\s*,|$))",
+        text,
+        re.I,
+    )
+    moved_opportunity = ""
+    if move_match:
+        moved_opportunity = clean_phrase(move_match.group(1))
+        stage = normalize_stage_name(_strip_probability_phrase(move_match.group(2)))
+        probability = _extract_probability(text)
+        if probability is None:
+            probability = default_probability_for_stage(stage)
+        actions.append(
+            {
+                "action": "update-opportunity",
+                "opportunity": moved_opportunity,
+                "stage": stage,
+                "probability": probability,
+            }
+        )
+
+    activity_match = re.search(
+        r"\blog\s+(?:an?\s+)?(call|email|meeting)"
+        r"(?:\s+(?:from|for|on)\s+(today|tomorrow|\d{4}-\d{2}-\d{2}))?"
+        r"(?:\s+(?:on|to|for)\s+(?:the\s+)?(.+?)\s+"
+        r"(account|contact|lead|deal|opportunity))?(?:$|[,.])",
+        text,
+        re.I,
+    )
+    if activity_match:
+        target = clean_phrase(activity_match.group(3) or moved_opportunity)
+        target_object = activity_match.group(4) or (
+            "opportunity" if moved_opportunity else None
+        )
+        if not target:
+            raise ConfigError("Activity command needs a target record.")
+        activity_type = normalize_activity_type(activity_match.group(1))
+        actions.append(
+            {
+                "action": "log-activity",
+                "activityType": activity_type,
+                "target": target,
+                "targetObject": normalize_target_object(target_object)
+                if target_object
+                else "Opportunity",
+                "date": activity_match.group(2) or "today",
+                "subject": f"{activity_type.title()} for {target}",
+                "notes": text,
+            }
+        )
+
+    if not actions:
+        raise ConfigError(
+            "Could not map the request to a supported Salesforce operation."
+        )
+
+    return command_payload(
+        "plan",
+        statement=text,
+        actions=actions,
+        actionCount=len(actions),
+    )
+
+
+def run_planned_actions(
+    session: SalesforceSession,
+    *,
+    statement: str,
+    dry_run: bool,
+) -> dict[str, Any]:
+    plan = plan_natural_language(statement)
+    if dry_run:
+        return command_payload(
+            "run",
+            dryRun=True,
+            statement=plan["statement"],
+            actions=plan["actions"],
+            results=[],
+        )
+    results: list[dict[str, Any]] = []
+    resolved_records: dict[str, dict[str, Any]] = {}
+    for action in plan["actions"]:
+        if action["action"] == "find-records":
+            results.append(
+                find_records(
+                    session,
+                    record_type=action["recordType"],
+                    search=action["search"],
+                    limit=action["limit"],
+                    open_only=action["openOnly"],
+                )
+            )
+        elif action["action"] == "update-opportunity":
+            result = update_opportunity(
+                session,
+                identifier=action["opportunity"],
+                stage=action["stage"],
+                probability=action["probability"],
+                dry_run=False,
+            )
+            results.append(result)
+            target = result.get("target")
+            if is_mapping(target):
+                resolved_records[action["opportunity"]] = target
+        elif action["action"] == "log-activity":
+            target = action["target"]
+            target_object = action["targetObject"]
+            if target in resolved_records and target_object == "Opportunity":
+                target = str(resolved_records[target].get("id") or target)
+            results.append(
+                log_activity(
+                    session,
+                    activity_type=action["activityType"],
+                    target=target,
+                    target_object=target_object,
+                    subject=action["subject"],
+                    activity_date=action["date"],
+                    notes=action["notes"],
+                    duration_minutes=DEFAULT_MEETING_MINUTES,
+                    dry_run=False,
+                )
+            )
+    return command_payload(
+        "run",
+        dryRun=False,
+        statement=plan["statement"],
+        actions=plan["actions"],
+        results=results,
+    )
+
+
+def evaluate_scenarios() -> dict[str, Any]:
+    raw = json.loads(EVAL_SCENARIOS_PATH.read_text("utf-8"))
+    if not isinstance(raw, list):
+        raise ConfigError("Salesforce eval scenarios must be a JSON array.")
+    failures: list[dict[str, Any]] = []
+    categories: dict[str, int] = {}
+    for scenario in raw:
+        if not is_mapping(scenario):
+            failures.append({"id": None, "error": "Scenario is not an object"})
+            continue
+        scenario_id = str(scenario.get("id") or "")
+        prompt = str(scenario.get("prompt") or "")
+        expected = scenario.get("expected") if is_mapping(scenario.get("expected")) else {}
+        category = str(scenario.get("category") or "uncategorized")
+        categories[category] = categories.get(category, 0) + 1
+        try:
+            plan = plan_natural_language(prompt)
+            actions = plan.get("actions", [])
+            first_action = actions[0] if isinstance(actions, list) and actions else {}
+            expected_action = expected.get("firstAction") if is_mapping(expected) else None
+            if expected_action and first_action.get("action") != expected_action:
+                failures.append(
+                    {
+                        "id": scenario_id,
+                        "error": (
+                            f"Expected {expected_action}, got "
+                            f"{first_action.get('action')}"
+                        ),
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001 - CLI eval reports all failures
+            failures.append({"id": scenario_id, "error": str(exc)})
+    return command_payload(
+        "eval-scenarios",
+        scenarioCount=len(raw),
+        passed=len(raw) - len(failures),
+        failed=len(failures),
+        categories=categories,
+        failures=failures,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +1445,61 @@ def render_text(payload: dict[str, Any]) -> str:
         )
         return "\n".join(lines)
 
+    if command == "find":
+        records = payload.get("records", [])
+        columns: list[str] = []
+        if isinstance(records, list):
+            seen: set[str] = set()
+            for record in records:
+                if not is_mapping(record):
+                    continue
+                for key in record.keys():
+                    if key not in seen:
+                        seen.add(key)
+                        columns.append(key)
+        rows = [
+            [record.get(column) if is_mapping(record) else record for column in columns]
+            for record in records
+        ]
+        return "\n".join(
+            [
+                f"Record type: {payload.get('recordType')}",
+                f"Rows returned: {payload.get('count')} of {payload.get('totalSize')}",
+                f"SOQL: {payload.get('soql')}",
+                "",
+                format_table(columns, rows) if columns else "No rows returned.",
+            ]
+        )
+
+    if command == "update-opportunity":
+        target = payload.get("target", {})
+        return "\n".join(
+            [
+                "Opportunity update prepared." if payload.get("dryRun") else "Opportunity updated.",
+                f"Target: {target.get('name')} ({target.get('id')})"
+                if is_mapping(target)
+                else "Target: unknown",
+                f"Update: {json.dumps(payload.get('update', {}), ensure_ascii=True)}",
+                "Dry run: yes" if payload.get("dryRun") else "Dry run: no",
+            ]
+        )
+
+    if command == "log-activity":
+        target = payload.get("target", {})
+        return "\n".join(
+            [
+                "Activity prepared." if payload.get("dryRun") else "Activity logged.",
+                f"Activity object: {payload.get('activityObject')}",
+                f"Target: {target.get('name')} ({target.get('id')})"
+                if is_mapping(target)
+                else "Target: unknown",
+                "Dry run: yes" if payload.get("dryRun") else "Dry run: no",
+            ]
+        )
+
+    if command in {"plan", "run", "eval-scenarios"}:
+        return json.dumps(payload, ensure_ascii=True, indent=2)
+
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
@@ -769,11 +1564,31 @@ def _add_common_args(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only Salesforce schema and query helper"
+        description="Salesforce CRM schema, query, and operation helper"
     )
     _add_common_args(parser, with_defaults=True)
 
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    plan_parser = subparsers.add_parser(
+        "plan", help="Map a natural-language Salesforce request to API actions"
+    )
+    _add_common_args(plan_parser, with_defaults=False)
+    plan_parser.add_argument("statement", help="Natural-language request to plan")
+
+    run_parser = subparsers.add_parser(
+        "run", help="Execute an opinionated natural-language Salesforce request"
+    )
+    _add_common_args(run_parser, with_defaults=False)
+    run_parser.add_argument("statement", help="Natural-language request to execute")
+    run_parser.add_argument(
+        "--dry-run", action="store_true", help="Plan without calling Salesforce"
+    )
+
+    eval_parser = subparsers.add_parser(
+        "eval-scenarios", help="Run the offline Salesforce NL planner eval suite"
+    )
+    _add_common_args(eval_parser, with_defaults=False)
 
     objects_parser = subparsers.add_parser("objects", help="List available sObjects")
     _add_common_args(objects_parser, with_defaults=False)
@@ -806,6 +1621,75 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_args(relations_parser, with_defaults=False)
     relations_parser.add_argument("sobject", help="Salesforce object API name")
 
+    find_parser = subparsers.add_parser(
+        "find", help="Find leads, contacts, or opportunities by name or account"
+    )
+    _add_common_args(find_parser, with_defaults=False)
+    find_parser.add_argument(
+        "record_type",
+        choices=("leads", "contacts", "opportunities"),
+        help="CRM record collection to search",
+    )
+    find_parser.add_argument("--search", default="", help="Search text")
+    find_parser.add_argument(
+        "--open-only",
+        action="store_true",
+        help="Only return open opportunities",
+    )
+    find_parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_SEARCH_LIMIT,
+        help=f"Maximum records to return (default: {DEFAULT_SEARCH_LIMIT}, 0 for all)",
+    )
+
+    update_parser = subparsers.add_parser(
+        "update-opportunity",
+        help="Update an Opportunity stage and/or probability",
+    )
+    _add_common_args(update_parser, with_defaults=False)
+    update_parser.add_argument("identifier", help="Opportunity id or exact name")
+    update_parser.add_argument("--stage", default=None, help="New StageName")
+    update_parser.add_argument(
+        "--probability",
+        type=int,
+        default=None,
+        help="New Probability percentage, 0-100",
+    )
+    update_parser.add_argument(
+        "--dry-run", action="store_true", help="Resolve the target but skip PATCH"
+    )
+
+    activity_parser = subparsers.add_parser(
+        "log-activity", help="Log a call, email, or meeting on a CRM record"
+    )
+    _add_common_args(activity_parser, with_defaults=False)
+    activity_parser.add_argument(
+        "activity_type", choices=("call", "email", "meeting")
+    )
+    activity_parser.add_argument("target", help="Target record id or name")
+    activity_parser.add_argument(
+        "--object",
+        dest="target_object",
+        default=None,
+        choices=("account", "contact", "lead", "opportunity"),
+        help="Target object type; defaults to Opportunity unless id prefix is known",
+    )
+    activity_parser.add_argument("--subject", default="", help="Activity subject")
+    activity_parser.add_argument(
+        "--date", default="today", help="Activity date: today, tomorrow, or YYYY-MM-DD"
+    )
+    activity_parser.add_argument("--notes", default="", help="Activity notes")
+    activity_parser.add_argument(
+        "--duration-minutes",
+        type=int,
+        default=DEFAULT_MEETING_MINUTES,
+        help=f"Meeting duration in minutes (default: {DEFAULT_MEETING_MINUTES})",
+    )
+    activity_parser.add_argument(
+        "--dry-run", action="store_true", help="Resolve the target but skip create"
+    )
+
     query_parser = subparsers.add_parser("query", help="Run a SOQL row query")
     _add_common_args(query_parser, with_defaults=False)
     query_parser.add_argument("soql", help="SOQL statement to execute")
@@ -836,6 +1720,24 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        if args.command == "plan":
+            emit(plan_natural_language(args.statement), args.format)
+            return 0
+        if args.command == "eval-scenarios":
+            payload = evaluate_scenarios()
+            emit(payload, args.format)
+            return 0 if payload.get("failed") == 0 else 1
+        if args.command == "run" and args.dry_run:
+            emit(
+                run_planned_actions(
+                    SalesforceSession(api_version="dry-run", gateway=GatewayConfig("", "", 0)),
+                    statement=args.statement,
+                    dry_run=True,
+                ),
+                args.format,
+            )
+            return 0
+
         gw = GatewayConfig(
             base_url=args.gateway_url,
             api_token=args.gateway_token,
@@ -860,6 +1762,34 @@ def main() -> int:
             )
         elif args.command == "relations":
             payload = relations_object(session, sobject=args.sobject)
+        elif args.command == "find":
+            payload = find_records(
+                session,
+                record_type=args.record_type,
+                search=args.search,
+                limit=args.limit,
+                open_only=args.open_only,
+            )
+        elif args.command == "update-opportunity":
+            payload = update_opportunity(
+                session,
+                identifier=args.identifier,
+                stage=args.stage,
+                probability=args.probability,
+                dry_run=args.dry_run,
+            )
+        elif args.command == "log-activity":
+            payload = log_activity(
+                session,
+                activity_type=args.activity_type,
+                target=args.target,
+                target_object=args.target_object,
+                subject=args.subject,
+                activity_date=args.date,
+                notes=args.notes,
+                duration_minutes=args.duration_minutes,
+                dry_run=args.dry_run,
+            )
         elif args.command == "query":
             payload = run_query(
                 session,
@@ -867,6 +1797,12 @@ def main() -> int:
                 tooling=False,
                 max_records=args.max_records,
                 keep_attributes=args.keep_attributes,
+            )
+        elif args.command == "run":
+            payload = run_planned_actions(
+                session,
+                statement=args.statement,
+                dry_run=False,
             )
         else:
             payload = run_query(

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from 'vitest';
@@ -10,6 +11,13 @@ const helperPath = path.join(
   'scripts',
   'salesforce_query.py',
 );
+const scenariosPath = path.join(
+  process.cwd(),
+  'skills',
+  'salesforce',
+  'evals',
+  'scenarios.json',
+);
 
 test('salesforce helper --help exits cleanly', () => {
   const result = spawnSync('python3', [helperPath, '--help'], {
@@ -17,11 +25,172 @@ test('salesforce helper --help exits cleanly', () => {
   });
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain(
-    'Read-only Salesforce schema and query helper',
-  );
+  expect(result.stdout).toContain('Salesforce CRM schema');
   expect(result.stdout).toContain('--gateway-url');
   expect(result.stdout).toContain('--gateway-token');
+  expect(result.stdout).toContain('update-opportunity');
+  expect(result.stdout).toContain('log-activity');
+  expect(result.stdout).toContain('eval-scenarios');
+});
+
+test('salesforce helper plans compound natural-language workflows offline', () => {
+  const result = spawnSync(
+    'python3',
+    [
+      helperPath,
+      '--format',
+      'json',
+      'plan',
+      'Move the Acme deal to Closed Won and log a call from today',
+    ],
+    { encoding: 'utf-8' },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.command).toBe('plan');
+  expect(payload.costMeasurement.system).toBe('UsageTotals');
+  expect(payload.actions).toEqual([
+    expect.objectContaining({
+      action: 'update-opportunity',
+      opportunity: 'Acme',
+      stage: 'Closed Won',
+      probability: 100,
+    }),
+    expect.objectContaining({
+      action: 'log-activity',
+      activityType: 'call',
+      target: 'Acme',
+      targetObject: 'Opportunity',
+      date: 'today',
+    }),
+  ]);
+});
+
+test('salesforce helper eval suite covers 30 read and write scenarios', () => {
+  const scenarios = JSON.parse(
+    fs.readFileSync(scenariosPath, 'utf-8'),
+  ) as Array<{
+    category?: string;
+    costMeasurement?: { system?: string };
+  }>;
+  const categories = new Set(scenarios.map((scenario) => scenario.category));
+
+  expect(scenarios).toHaveLength(30);
+  expect(categories).toEqual(
+    new Set(['read', 'write-update', 'write-activity', 'compound']),
+  );
+  expect(
+    scenarios.every(
+      (scenario) => scenario.costMeasurement?.system === 'UsageTotals',
+    ),
+  ).toBe(true);
+
+  const result = spawnSync(
+    'python3',
+    [helperPath, '--format', 'json', 'eval-scenarios'],
+    { encoding: 'utf-8' },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.scenarioCount).toBe(30);
+  expect(payload.failed).toBe(0);
+  expect(payload.categories).toMatchObject({
+    read: 10,
+    'write-update': 10,
+    'write-activity': 5,
+    compound: 5,
+  });
+});
+
+test('salesforce helper builds gateway-backed opportunity update and activity writes', () => {
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      [
+        'import importlib.util, json, pathlib, sys',
+        'helper_path = pathlib.Path(sys.argv[1])',
+        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
+        'module = importlib.util.module_from_spec(spec)',
+        'sys.modules[spec.name] = module',
+        'spec.loader.exec_module(module)',
+        'class FakeSession:',
+        '    api_version = "61.0"',
+        '    def __init__(self):',
+        '        self.calls = []',
+        '    def data_path(self, suffix):',
+        '        return "/services/data/v61.0" + suffix',
+        '    def get_json(self, path):',
+        '        assert path.startswith("/services/data/v61.0/query?")',
+        '        return {',
+        '            "totalSize": 1,',
+        '            "done": True,',
+        '            "records": [{',
+        '                "Id": "006000000000001AAA",',
+        '                "Name": "Acme Renewal",',
+        '                "StageName": "Proposal/Price Quote",',
+        '                "Probability": 60,',
+        '            }],',
+        '        }',
+        '    def patch_json(self, path, payload):',
+        '        self.calls.append({"method": "PATCH", "path": path, "payload": payload})',
+        '        return {}',
+        '    def post_json(self, path, payload):',
+        '        self.calls.append({"method": "POST", "path": path, "payload": payload})',
+        '        return {"id": "00T000000000001AAA", "success": True}',
+        'session = FakeSession()',
+        'update = module.update_opportunity(',
+        '    session,',
+        '    identifier="Acme Renewal",',
+        '    stage="Closed Won",',
+        '    probability=None,',
+        '    dry_run=False,',
+        ')',
+        'activity = module.log_activity(',
+        '    session,',
+        '    activity_type="call",',
+        '    target="006000000000001AAA",',
+        '    target_object="opportunity",',
+        '    subject="Discovery follow-up",',
+        '    activity_date="today",',
+        '    notes="Spoke with the champion.",',
+        '    duration_minutes=30,',
+        '    dry_run=False,',
+        ')',
+        'print(json.dumps({"update": update, "activity": activity, "calls": session.calls}))',
+      ].join('\n'),
+      helperPath,
+    ],
+    { encoding: 'utf-8' },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.update.update).toEqual({
+    StageName: 'Closed Won',
+    Probability: 100,
+  });
+  expect(payload.activity.activityObject).toBe('Task');
+  expect(payload.activity.fields).toEqual(
+    expect.objectContaining({
+      Subject: 'Call: Discovery follow-up',
+      Status: 'Completed',
+      Priority: 'Normal',
+      WhatId: '006000000000001AAA',
+    }),
+  );
+  expect(payload.calls).toEqual([
+    expect.objectContaining({
+      method: 'PATCH',
+      path: '/services/data/v61.0/sobjects/Opportunity/006000000000001AAA',
+    }),
+    expect.objectContaining({
+      method: 'POST',
+      path: '/services/data/v61.0/sobjects/Task',
+    }),
+  ]);
 });
 
 test('salesforce helper routes all requests through gateway proxy', () => {
