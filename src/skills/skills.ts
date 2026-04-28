@@ -21,6 +21,11 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { withSpanSync } from '../observability/otel.js';
+import {
+  evaluateSkillPolicyAccess,
+  readWorkspaceSkillPolicyState,
+  type SkillPolicyState,
+} from '../policy/skill-policy.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
@@ -1696,6 +1701,49 @@ function getDisabledSkillNames(
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
 }
 
+function readSkillPolicyStateForWorkspace(
+  workspaceDir: string,
+): SkillPolicyState {
+  try {
+    return readWorkspaceSkillPolicyState(workspaceDir);
+  } catch (err) {
+    logger.warn(
+      { err, workspaceDir },
+      'Failed to read workspace skill policy; continuing with default skill policy',
+    );
+    return { rules: [] };
+  }
+}
+
+function isAllowedBySkillPolicy(params: {
+  policy: SkillPolicyState;
+  skill: SkillCandidate;
+  agentId: string;
+  channelKind?: SkillConfigChannelKind;
+}): boolean {
+  const evaluation = evaluateSkillPolicyAccess({
+    rules: params.policy.rules,
+    agentId: params.agentId,
+    skillName: params.skill.name,
+    skillId: params.skill.manifest.id,
+    source: params.skill.source,
+    category: params.skill.category,
+    channel: params.channelKind,
+    capabilities: params.skill.manifest.capabilities,
+  });
+  if (evaluation.decision !== 'deny') return true;
+  logger.info(
+    {
+      agentId: params.agentId,
+      skill: params.skill.name,
+      ruleId: evaluation.matchedRule?.id,
+      reason: evaluation.action.reason,
+    },
+    'Skill blocked by workspace policy',
+  );
+  return false;
+}
+
 export function resolveManagedCommunitySkillsDir(
   homeDir = DEFAULT_RUNTIME_HOME_DIR,
 ): string {
@@ -1931,6 +1979,7 @@ function loadSkillsInner(
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
   const disabled = getDisabledSkillNames(channelKind);
+  const skillPolicy = readSkillPolicyStateForWorkspace(workspaceDir);
   const configuredSkills = resolveAgentConfig(agentId).skills;
   const allowedSkills =
     configuredSkills === undefined
@@ -1943,6 +1992,12 @@ function loadSkillsInner(
       checkEligibility(skill).available &&
       !disabled.has(skill.name) &&
       isSkillSupportedOnChannel(skill.manifest, channelKind) &&
+      isAllowedBySkillPolicy({
+        policy: skillPolicy,
+        skill,
+        agentId,
+        channelKind,
+      }) &&
       (allowedSkills === null || allowedSkills.has(skill.name)),
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);

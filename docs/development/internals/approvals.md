@@ -221,6 +221,28 @@ may also use domain-specific actions such as the network consumer's existing
 first match wins unless a consumer explicitly asks the engine to collect all
 matches.
 
+Skill availability is also a policy-engine consumer. Static
+`skills.disabled` and `skills.channelDisabled.*` entries are applied first,
+then workspace `.hybridclaw/policy.yaml` `skill.rules` can deny individual
+skills by agent, channel, source, category, capability, role, tenant, or skill
+quality score:
+
+```yaml
+skill:
+  rules:
+    - id: deny-sap-outside-finance
+      when:
+        all:
+          - predicate: skill.name
+            equals: sap
+          - not:
+              predicate: actor.role
+              equals: finance
+      action:
+        type: deny
+        reason: SAP is finance-only.
+```
+
 ## Approval Scopes
 
 | Reply or command | Internal scope | Persistence | Stored in | Notes |
