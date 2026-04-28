@@ -8,6 +8,7 @@ import type {
   AgentModelConfig,
   AgentsConfig,
 } from './agent-types.js';
+import { agentCvEquals } from './agent-types.js';
 
 function sameStringArray(a?: string[], b?: string[]): boolean {
   if (a === b) return true;
@@ -32,7 +33,10 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     sameStringArray(a.skills, b.skills) &&
     a.workspace === b.workspace &&
     a.chatbotId === b.chatbotId &&
-    a.enableRag === b.enableRag
+    a.enableRag === b.enableRag &&
+    a.owner === b.owner &&
+    a.role === b.role &&
+    agentCvEquals(a.cv, b.cv)
   );
 }
 

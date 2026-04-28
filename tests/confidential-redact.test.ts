@@ -7,6 +7,10 @@ import {
   scanForLeaks,
 } from '../src/security/confidential-redact.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
+import {
+  TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+  testSecretSamplesByClass,
+} from './fixtures/trusted-agents.ts';
 
 const RULES_YAML = `
 version: 1
@@ -120,9 +124,52 @@ describe('dehydrate / rehydrate', () => {
     );
     expect(out).toBe('See «CONF:UNKNOWN_001» here.');
   });
+
+  test('roadmap 4.x masks and rehydrates business-secret fixture classes', () => {
+    const fixtureRuleSet = parseConfidentialYaml(
+      TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+      'fixtures:trusted-agents',
+    );
+    const secrets = [
+      testSecretSamplesByClass.client[0],
+      testSecretSamplesByClass.nda[0],
+      testSecretSamplesByClass.price[0],
+      testSecretSamplesByClass.contract[0],
+    ];
+    const text = `Review ${secrets.map((secret) => secret.value).join(' and ')}.`;
+
+    const {
+      text: dehydrated,
+      mappings,
+      hits,
+    } = dehydrateConfidential(text, fixtureRuleSet);
+
+    expect(hits).toBeGreaterThanOrEqual(secrets.length);
+    for (const secret of secrets) {
+      expect(dehydrated).not.toContain(secret.value);
+    }
+    expect(rehydrateConfidential(dehydrated, mappings)).toBe(text);
+  });
 });
 
 describe('scanForLeaks', () => {
+  test('trusted-agents YAML does not double-count client identities as keywords', () => {
+    const fixtureRuleSet = parseConfidentialYaml(
+      TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+      'fixtures:trusted-agents',
+    );
+
+    const result = scanForLeaks('AsterWorks Labs', fixtureRuleSet);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        kind: 'client',
+        label: 'AsterWorks Labs',
+      }),
+    ]);
+  });
+
   test('flags multiple sensitivities and produces a non-zero score', () => {
     const text =
       'Serviceplan brief: Project Falcon launches Q4 2026 budget review with INT-654321.';

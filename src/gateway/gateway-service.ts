@@ -155,6 +155,7 @@ import {
   getMemoryValue,
   getQueuedProactiveMessageCount,
   getRecentMessages,
+  getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -164,14 +165,20 @@ import {
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
+  getStatisticsTotals,
   getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
+  listMessageTrendByDay,
   listSemanticMemoriesForSession,
+  listSessionTrendByDay,
+  listStatsByChannel,
   listStructuredAuditEntries,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageBySession,
+  listUsageDailyBreakdown,
   pauseTask,
   recordRequestLog,
   recordUsageEvent,
@@ -202,8 +209,6 @@ import {
 } from '../policy/policy-store.js';
 import {
   discoverCodexModels,
-  getDiscoveredCodexModelContextWindow,
-  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
 } from '../providers/codex-discovery.js';
 import {
@@ -212,7 +217,6 @@ import {
 } from '../providers/factory.js';
 import {
   discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
 import {
@@ -220,32 +224,25 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import {
-  getDiscoveredHybridAIModelContextWindow,
-  getDiscoveredHybridAIModelMaxTokens,
-  getDiscoveredHybridAIModelNames,
-} from '../providers/hybridai-discovery.js';
+import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import {
   type HybridAIHealthResult,
   hybridAIProbe,
 } from '../providers/hybridai-health.js';
-import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  getLocalModelInfo,
-  resolveLocalModelContextWindow,
-} from '../providers/local-discovery.js';
+import { getLocalModelInfo } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelContextWindow,
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
   getAvailableModelList,
+  getModelCatalogMetadata,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
+  refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
@@ -257,8 +254,6 @@ import {
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelContextWindow,
-  getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -298,6 +293,11 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import {
+  formatAgentAssignmentHints,
+  getAgentScoreboard,
+  getObservedAgentSkillCount,
+} from '../skills/agent-scoreboard.js';
+import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
 } from '../skills/skills.js';
@@ -324,6 +324,7 @@ import type {
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
+import { formatDurationMs } from '../utils/text-format.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -385,6 +386,7 @@ import {
   type GatewayAdminAgentMarkdownFileResponse,
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
+  type GatewayAdminAgentScoreboardResponse,
   type GatewayAdminAgentsResponse,
   type GatewayAdminApprovalAgent,
   type GatewayAdminApprovalsResponse,
@@ -408,6 +410,9 @@ import {
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
+  type GatewayAdminStatisticsChannelRow,
+  type GatewayAdminStatisticsResponse,
+  type GatewayAdminStatisticsTrendDay,
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
@@ -452,10 +457,14 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...WORKSPACE_BOOTSTRAP_FILES,
+  'CV.md',
+] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
-  WORKSPACE_BOOTSTRAP_FILES,
+  ADMIN_AGENT_MARKDOWN_FILES,
 );
-type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -921,6 +930,7 @@ export type {
   GatewayAdminDeleteSessionResult,
   GatewayAdminOverview,
   GatewayAdminSession,
+  GatewayAdminStatisticsResponse,
   GatewayChatResult,
   GatewayCommandRequest,
   GatewayCommandResult,
@@ -977,7 +987,7 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   const normalized = value.trim();
   if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${WORKSPACE_BOOTSTRAP_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
@@ -1066,7 +1076,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1109,7 +1119,7 @@ function mapGatewayAdminAgent(
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -1714,15 +1724,7 @@ function mapModelUsageRow(
 }
 
 function resolveKnownModelContextWindow(model: string): number | null {
-  return (
-    resolveLocalModelContextWindow(model) ??
-    getDiscoveredCodexModelContextWindow(model) ??
-    getDiscoveredHuggingFaceModelContextWindow(model) ??
-    getDiscoveredHybridAIModelContextWindow(model) ??
-    getDiscoveredMistralModelContextWindow(model) ??
-    getDiscoveredOpenRouterModelContextWindow(model) ??
-    resolveModelContextWindowFallback(model)
-  );
+  return getModelCatalogMetadata(model).contextWindow;
 }
 
 function resolveDisplayedModelName(model: string): string {
@@ -2286,6 +2288,20 @@ function formatUsd(value: number | null): string {
   if (value >= 1) return `$${value.toFixed(2)}`;
   if (value >= 0.01) return `$${value.toFixed(4)}`;
   return `$${value.toFixed(6)}`;
+}
+
+function resolveModelCostLabel(params: {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+}): string | null {
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
+  if (pricing.input == null && pricing.output == null) return null;
+  const inputCost =
+    pricing.input == null ? 0 : params.promptTokens * pricing.input;
+  const outputCost =
+    pricing.output == null ? 0 : params.completionTokens * pricing.output;
+  return formatUsd(inputCost + outputCost);
 }
 
 function resolveSessionAgentId(session: { agent_id: string }): string {
@@ -3151,6 +3167,7 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   resultText: string;
+  artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
   startedAt: number;
   replaceBuiltInMemory?: boolean;
@@ -3175,6 +3192,7 @@ export function recordSuccessfulTurn(opts: {
             role: 'assistant',
             content: opts.resultText,
             agentId: opts.agentId,
+            artifacts: opts.artifacts,
           }),
         }
       : memoryService.storeTurn({
@@ -3189,6 +3207,7 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: opts.resultText,
+            artifacts: opts.artifacts,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -3854,6 +3873,155 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   };
 }
 
+const STATISTICS_MIN_DAYS = 1;
+const STATISTICS_MAX_DAYS = 90;
+const STATISTICS_DEFAULT_DAYS = 30;
+
+function normalizeStatisticsDays(raw: number | string | undefined): number {
+  const parsed =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim()
+        ? Number.parseInt(raw, 10)
+        : STATISTICS_DEFAULT_DAYS;
+  if (!Number.isFinite(parsed)) {
+    return STATISTICS_DEFAULT_DAYS;
+  }
+  return Math.max(
+    STATISTICS_MIN_DAYS,
+    Math.min(STATISTICS_MAX_DAYS, Math.floor(parsed)),
+  );
+}
+
+function toIsoDate(daysOffsetFromToday: number): string {
+  const now = new Date();
+  now.setUTCHours(0, 0, 0, 0);
+  now.setUTCDate(now.getUTCDate() + daysOffsetFromToday);
+  return now.toISOString().slice(0, 10);
+}
+
+export function getGatewayAdminStatistics(params?: {
+  days?: number | string;
+}): GatewayAdminStatisticsResponse {
+  const days = normalizeStatisticsDays(params?.days);
+  const startDate = toIsoDate(-(days - 1));
+  const endDate = toIsoDate(0);
+
+  const messageTrend = listMessageTrendByDay({ days });
+  const sessionTrend = listSessionTrendByDay({ days });
+  const usageTrend = listUsageDailyBreakdown({ days });
+  const channelRows = listStatsByChannel({ days });
+  const totals = getStatisticsTotals({ days });
+
+  const trendByDay = new Map<string, GatewayAdminStatisticsTrendDay>();
+  // Seed every UTC calendar day in [startDate, endDate] with zeros so the
+  // response always covers `rangeDays` contiguous days, even when no
+  // activity was recorded.
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = toIsoDate(-(days - 1 - offset));
+    trendByDay.set(date, {
+      date,
+      newSessions: 0,
+      activeSessions: 0,
+      userMessages: 0,
+      assistantMessages: 0,
+      totalMessages: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      callCount: 0,
+      toolCalls: 0,
+      costUsd: 0,
+    });
+  }
+
+  // SQLite may emit timestamps from the rolling-window helpers that fall
+  // just before startDate (when a query window is wider than the response
+  // window). Drop those; they're outside the documented range.
+  const upsertDay = (
+    day: string,
+    apply: (target: GatewayAdminStatisticsTrendDay) => void,
+  ): void => {
+    if (!day || day < startDate || day > endDate) return;
+    const target = trendByDay.get(day);
+    if (target) apply(target);
+  };
+
+  for (const row of messageTrend) {
+    upsertDay(row.day, (day) => {
+      day.userMessages = row.user_messages;
+      day.assistantMessages = row.assistant_messages;
+      day.totalMessages = row.total_messages;
+    });
+  }
+  for (const row of sessionTrend) {
+    upsertDay(row.day, (day) => {
+      day.newSessions = row.new_sessions;
+      day.activeSessions = row.active_sessions;
+    });
+  }
+  for (const row of usageTrend) {
+    upsertDay(row.day, (day) => {
+      day.inputTokens = row.total_input_tokens;
+      day.outputTokens = row.total_output_tokens;
+      day.totalTokens = row.total_tokens;
+      day.callCount = row.call_count;
+      day.toolCalls = row.total_tool_calls;
+      day.costUsd = row.total_cost_usd;
+    });
+  }
+
+  const trend = Array.from(trendByDay.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+
+  const usageTotals = trend.reduce(
+    (acc, day) => {
+      acc.totalInputTokens += day.inputTokens;
+      acc.totalOutputTokens += day.outputTokens;
+      acc.totalTokens += day.totalTokens;
+      acc.totalCostUsd += day.costUsd;
+      acc.callCount += day.callCount;
+      acc.totalToolCalls += day.toolCalls;
+      return acc;
+    },
+    {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
+      totalCostUsd: 0,
+      callCount: 0,
+      totalToolCalls: 0,
+    },
+  );
+
+  const channels: GatewayAdminStatisticsChannelRow[] = channelRows.map(
+    (row) => ({
+      channelId: row.channel_id || '(unknown)',
+      sessionCount: row.session_count,
+      userMessages: row.user_messages,
+      assistantMessages: row.assistant_messages,
+      totalMessages: row.total_messages,
+    }),
+  );
+
+  return {
+    rangeDays: days,
+    startDate,
+    endDate,
+    totals: {
+      newSessions: totals.new_sessions,
+      activeSessions: totals.active_sessions,
+      totalMessages: totals.total_messages,
+      userMessages: totals.user_messages,
+      assistantMessages: totals.assistant_messages,
+      ...usageTotals,
+    },
+    trend,
+    channels,
+  };
+}
+
 export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   return {
     agents: listAgents().map((agent) => {
@@ -4087,9 +4255,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const usageByAgent = new Map(
-    listUsageByAgent({ window: 'all' }).map(
-      (row) => [row.agent_id, row] as const,
-    ),
+    listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),
   );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
@@ -4127,13 +4293,15 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
     sessionsByAgent.set(session.agentId, existing);
   }
   const agents = agentIds
-    .map((agentId) =>
-      mapLogicalAgentCard({
+    .map((agentId) => {
+      const usage = usageByAgent.get(agentId);
+      return mapLogicalAgentCard({
         agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
         sessions: sessionsByAgent.get(agentId) ?? [],
-        usage: usageByAgent.get(agentId),
-      }),
-    )
+        usage,
+        monthlySpendUsd: usage?.monthly_cost_usd,
+      });
+    })
     .sort((left, right) => {
       const rank = { active: 0, idle: 1, stopped: 2, unused: 3 } as const;
       const byStatus = rank[left.status] - rank[right.status];
@@ -4834,25 +5002,20 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
-        const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
         const info = getLocalModelInfo(modelId);
-        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
-        const openRouterMaxTokens =
-          getDiscoveredOpenRouterModelMaxTokens(modelId);
+        const metadata = getModelCatalogMetadata(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: resolveKnownModelContextWindow(modelId),
-          maxTokens:
-            info?.maxTokens ??
-            codexMaxTokens ??
-            hybridaiMaxTokens ??
-            openRouterMaxTokens ??
-            null,
-          isReasoning: info?.isReasoning ?? false,
+          contextWindow: metadata.contextWindow,
+          maxTokens: metadata.maxTokens,
+          pricingUsdPerToken: metadata.pricingUsdPerToken,
+          capabilities: metadata.capabilities,
+          metadataSources: metadata.sources,
+          isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
@@ -5163,6 +5326,16 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
       always: skill.always,
       tags: skill.metadata.hybridclaw.tags,
       relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    })),
+  };
+}
+
+export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
+  return {
+    observed_skill_count: getObservedAgentSkillCount(),
+    agents: getAgentScoreboard().map(({ cv_path, ...entry }) => ({
+      ...entry,
+      best_skills: entry.best_skills.map((score) => ({ ...score })),
     })),
   };
 }
@@ -6054,13 +6227,31 @@ export function getGatewayRecentChatSessions(params: {
   channelId?: string | null;
   limit?: number;
   query?: string | null;
+  fallbackToChannelRecent?: boolean;
 }): GatewayRecentChatSession[] {
-  return getRecentSessionsForUser({
+  const sessions = getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
     query: params.query,
   });
+  if (!params.fallbackToChannelRecent) {
+    return sessions;
+  }
+  const channelSessions = getRecentSessionsForChannel({
+    channelId: params.channelId || 'web',
+    limit: params.limit,
+    query: params.query,
+  });
+  const merged = new Map<string, GatewayRecentChatSession>();
+  for (const session of [...channelSessions, ...sessions]) {
+    merged.set(session.sessionId, session);
+  }
+  return [...merged.values()]
+    .sort(
+      (a, b) => Date.parse(b.lastActive || '') - Date.parse(a.lastActive || ''),
+    )
+    .slice(0, params.limit ?? 20);
 }
 
 function resolveHistorySummarySinceMs(
@@ -6179,6 +6370,7 @@ function buildSubagentUserPrompt(params: {
   taskPrompt: string;
 }): string {
   const { depth, mode, canDelegate, taskPrompt } = params;
+  const assignmentHints = formatAgentAssignmentHints(taskPrompt);
   return [
     '# Delegated Task',
     `Delegation mode: ${mode}.`,
@@ -6187,14 +6379,10 @@ function buildSubagentUserPrompt(params: {
       ? 'Delegation capability: You may delegate further only if absolutely necessary and still within depth/turn limits.'
       : 'Delegation capability: You are a leaf subagent. Do not delegate further work.',
     '',
+    ...(assignmentHints ? [assignmentHints, ''] : []),
     'Task handoff from parent:',
     taskPrompt,
   ].join('\n');
-}
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(1)}s`;
 }
 
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
@@ -8011,10 +8199,7 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' ||
-          sub === 'info' ||
-          sub === 'default' ||
-          sub === 'set';
+          sub === 'list' || sub === 'default' || sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -8034,6 +8219,9 @@ export async function handleGatewayCommand(
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
+        if (sub === 'info') {
+          await refreshModelCatalogMetadata(runtime.model);
+        }
         if (sub === 'list') {
           if (providerFilterArg && !providerFilter) {
             return badCommand(
@@ -8173,19 +8361,33 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
-          const currentModel = resolveRequestedCatalogModelName(
-            runtime.model,
-            availableModels,
-          );
-          const modelCatalog = availableModels.map((model) => ({
-            value: model,
-            label:
-              model === currentModel
-                ? `${formatModelForDisplay(model)} (current)`
-                : formatModelForDisplay(model),
-            isFree: isAvailableModelFree(model),
-            ...(isRecommendedModel(model) ? { recommended: true } : {}),
-          }));
+          const metadata = getModelCatalogMetadata(runtime.model);
+          const normalizedRuntimeModel = runtime.model.trim().toLowerCase();
+          const pricing = metadata.pricingUsdPerToken;
+          const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
+            ? 'Pricing: subscription included (0 EUR)'
+            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+              ? 'Pricing: local model (0 EUR)'
+              : pricing.input != null || pricing.output != null
+                ? `Pricing: ${
+                    pricing.input == null
+                      ? 'unknown'
+                      : formatUsd(pricing.input * 1_000_000)
+                  } input / ${
+                    pricing.output == null
+                      ? 'unknown'
+                      : formatUsd(pricing.output * 1_000_000)
+                  } output per 1M tokens`
+                : 'Pricing: dynamic pricing unavailable';
+          const capabilities =
+            [
+              metadata.capabilities.vision ? 'vision' : null,
+              metadata.capabilities.tools ? 'tools' : null,
+              metadata.capabilities.jsonMode ? 'JSON mode' : null,
+              metadata.capabilities.reasoning ? 'reasoning' : null,
+            ]
+              .filter((capability) => capability != null)
+              .join(', ') || 'unknown';
           return infoCommand(
             'Model Info',
             [
@@ -8193,14 +8395,13 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
-              '',
-              'Available now:',
-              modelCatalog.length > 0
-                ? modelCatalog.map((entry) => entry.label).join('\n')
-                : '(none)',
+              `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
+              `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
+              `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
+              `Capabilities: ${capabilities}`,
+              pricingLine,
+              `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
-            undefined,
-            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 
@@ -9383,6 +9584,7 @@ export async function handleGatewayCommand(
         if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
           await discoverMistralModels();
         }
+        await refreshModelCatalogMetadata(sessionModel);
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
@@ -9423,6 +9625,22 @@ export async function handleGatewayCommand(
         const localTokenLabel = ` · ${formatPercent(
           totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
         )} local`;
+        const mainCostLabel = resolveModelCostLabel({
+          model: sessionModel,
+          promptTokens: mainPromptTokens,
+          completionTokens: mainCompletionTokens,
+        });
+        const delegateCostLabel = showDelegateSetup
+          ? resolveModelCostLabel({
+              model: delegateModel,
+              promptTokens: delegatePromptTokens,
+              completionTokens: delegateCompletionTokens,
+            })
+          : null;
+        const costLabel =
+          mainCostLabel || delegateCostLabel
+            ? ` · Cost: ${mainCostLabel ?? 'n/a'}${showDelegateSetup ? ` (delegate: ${delegateCostLabel ?? 'n/a'})` : ''}`
+            : '';
         const performanceLabel =
           metrics.tokensPerSecond != null ||
           metrics.inputTokensPerSecond != null ||
@@ -9453,7 +9671,7 @@ export async function handleGatewayCommand(
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${costLabel}`,
           ...(performanceLabel ? [performanceLabel] : []),
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`

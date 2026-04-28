@@ -1068,6 +1068,15 @@ async function handleGatewayMessageInner(
             toolExecutions,
           }),
           durationMs: Date.now() - startedAt,
+          model,
+          tokenUsage: output.tokenUsage,
+          costUsd: extractUsageCostUsd(output.tokenUsage),
+          agentId,
+          input: storedUserContent,
+          output: {
+            status: output.status,
+            result: output.result,
+          },
           errorDetail: output.error,
         });
       } catch (error) {
@@ -1277,6 +1286,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       resultText,
+      artifacts: output.artifacts,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,

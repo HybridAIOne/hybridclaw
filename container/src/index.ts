@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import {
   type ToolApprovalEvaluation,
-  TrustedCoworkerApprovalRuntime,
+  TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cleanupAllBrowserSessions } from './browser-tools.js';
@@ -48,6 +48,7 @@ import {
 import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
+  shouldRetryEmptyFinalResponse,
 } from './stalled-turns.js';
 import {
   collapseSystemMessages,
@@ -145,7 +146,7 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   }
 }
 
-const approvalRuntime = new TrustedCoworkerApprovalRuntime();
+const approvalRuntime = new TrustedAgentApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
@@ -673,6 +674,12 @@ async function executePreparedToolCall(
   const isError = runtimeResult.isError;
   const executionBlockedReason =
     blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+  const approvalDecision = executionBlockedReason
+    ? 'denied'
+    : approval.decision;
+  const escalationRoute = executionBlockedReason
+    ? 'policy_denial'
+    : approval.escalationRoute;
   const succeeded = !isError;
 
   if (succeeded) {
@@ -703,7 +710,11 @@ async function executePreparedToolCall(
       blockedReason: executionBlockedReason || undefined,
       approvalTier: approval.tier,
       approvalBaseTier: approval.baseTier,
-      approvalDecision: executionBlockedReason ? 'denied' : approval.decision,
+      autonomyLevel: approval.autonomyLevel,
+      stakes: approval.stakes,
+      stakesScore: approval.stakesScore,
+      escalationRoute,
+      approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
       approvalRequestId: approval.requestId,
@@ -1278,6 +1289,27 @@ async function processRequest(
         artifactPaths,
         startedAtMs: processStartedAt,
       });
+      if (
+        shouldRetryEmptyFinalResponse({
+          visibleAssistantText: latestVisibleAssistantText,
+          toolExecutionCount: toolExecutions.length,
+          artifactCount: artifacts.length,
+        })
+      ) {
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        history.push({
+          role: 'user',
+          content:
+            'Your last response had no visible answer and did not produce an artifact. Continue from the tool result and either finish the requested task or explain what blocked it.',
+        });
+        console.error('[model] retrying empty final response after tool use');
+        continue;
+      }
+
       const completed: ContainerOutput = {
         status: 'success',
         result: latestVisibleAssistantText,
@@ -1464,6 +1496,10 @@ async function processRequest(
           blockedReason: approval.reason,
           approvalTier: approval.tier,
           approvalBaseTier: approval.baseTier,
+          autonomyLevel: approval.autonomyLevel,
+          stakes: approval.stakes,
+          stakesScore: approval.stakesScore,
+          escalationRoute: approval.escalationRoute,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
@@ -1505,6 +1541,10 @@ async function processRequest(
           blockedReason: approval.reason,
           approvalTier: approval.tier,
           approvalBaseTier: approval.baseTier,
+          autonomyLevel: approval.autonomyLevel,
+          stakes: approval.stakes,
+          stakesScore: approval.stakesScore,
+          escalationRoute: approval.escalationRoute,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,

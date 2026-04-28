@@ -6,6 +6,7 @@ import type {
   SessionExpiryEvaluation,
   SessionResetPolicy,
 } from '../session/session-reset.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import type {
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
@@ -172,6 +173,7 @@ export interface MemoryBackend {
     role: string,
     content: string,
     agentId?: string | null,
+    artifacts?: ArtifactMetadata[] | null,
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -244,6 +246,7 @@ export interface StoreTurnParams {
     username?: string | null;
     agentId?: string | null;
     content: string;
+    artifacts?: ArtifactMetadata[] | null;
   };
 }
 
@@ -724,6 +727,7 @@ export class MemoryService {
     role: string;
     content: string;
     agentId?: string | null;
+    artifacts?: ArtifactMetadata[] | null;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -732,6 +736,7 @@ export class MemoryService {
       params.role,
       params.content,
       params.agentId,
+      params.artifacts,
     );
   }
 
@@ -780,6 +785,7 @@ export class MemoryService {
       role: 'assistant',
       content: params.assistant.content,
       agentId: params.assistant.agentId,
+      artifacts: params.assistant.artifacts,
     });
 
     const interactionText = this.normalizeSemanticContent(

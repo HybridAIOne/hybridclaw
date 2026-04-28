@@ -1,10 +1,17 @@
 {
-  "version": 21,
+  "version": 23,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
     "trustModelVersion": "",
     "trustModelAcceptedBy": ""
+  },
+  "deployment": {
+    "mode": "local",
+    "public_url": "",
+    "tunnel": {
+      "provider": "manual"
+    }
   },
   "skills": {
     "extraDirs": [],
@@ -18,7 +25,8 @@
       "voice": [],
       "whatsapp": [],
       "email": []
-    }
+    },
+    "installed": []
   },
   "tools": {
     "disabled": []
@@ -37,6 +45,10 @@
   "adaptiveSkills": {
     "enabled": false,
     "observationEnabled": true,
+    "trajectoryCapture": {
+      "enabledAgentIds": [],
+      "storeDir": ""
+    },
     "inspectionIntervalMs": 3600000,
     "observationRetentionDays": 30,
     "trailingWindowHours": 168,

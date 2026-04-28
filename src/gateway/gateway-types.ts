@@ -8,10 +8,12 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
@@ -66,35 +68,7 @@ export interface GatewayChatResult {
     filename: string;
     mimeType: string;
   }>;
-  toolExecutions?: Array<{
-    name: string;
-    arguments: string;
-    result: string;
-    durationMs: number;
-    isError?: boolean;
-    blocked?: boolean;
-    blockedReason?: string;
-    approvalTier?: 'green' | 'yellow' | 'red';
-    approvalBaseTier?: 'green' | 'yellow' | 'red';
-    approvalDecision?:
-      | 'auto'
-      | 'implicit'
-      | 'approved_once'
-      | 'approved_session'
-      | 'approved_agent'
-      | 'approved_all'
-      | 'approved_fullauto'
-      | 'promoted'
-      | 'required'
-      | 'denied';
-    approvalActionKey?: string;
-    approvalIntent?: string;
-    approvalReason?: string;
-    approvalRequestId?: string;
-    approvalExpiresAt?: number;
-    approvalAllowSession?: boolean;
-    approvalAllowAgent?: boolean;
-  }>;
+  toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
@@ -234,6 +208,11 @@ export interface GatewayHistoryMessage {
   role: string;
   agent_id?: string | null;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
 }
@@ -612,6 +591,50 @@ export interface GatewayAdminOverview {
   };
 }
 
+export interface GatewayAdminStatisticsTrendDay {
+  date: string;
+  newSessions: number;
+  activeSessions: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  callCount: number;
+  toolCalls: number;
+  costUsd: number;
+}
+
+export interface GatewayAdminStatisticsChannelRow {
+  channelId: string;
+  sessionCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+}
+
+export interface GatewayAdminStatisticsResponse {
+  rangeDays: number;
+  startDate: string;
+  endDate: string;
+  totals: {
+    newSessions: number;
+    activeSessions: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    callCount: number;
+    totalToolCalls: number;
+  };
+  trend: GatewayAdminStatisticsTrendDay[];
+  channels: GatewayAdminStatisticsChannelRow[];
+}
+
 export interface GatewaySessionCard {
   id: string;
   name: string;
@@ -656,6 +679,7 @@ export interface GatewayLogicalAgentCard {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  monthlySpendUsd: number;
   messageCount: number;
   toolCalls: number;
   recentSessionId: string | null;
@@ -856,6 +880,17 @@ export interface GatewayAdminModelCatalogEntry {
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+  capabilities: {
+    vision: boolean;
+    tools: boolean;
+    jsonMode: boolean;
+    reasoning: boolean;
+  };
+  metadataSources: string[];
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;
@@ -1003,6 +1038,22 @@ export interface GatewayAdminSkillsResponse {
   disabled: string[];
   channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>>;
   skills: GatewayAdminSkill[];
+}
+
+export interface GatewayAdminAgentSkillScore
+  extends Omit<AgentScoreboardEntry['best_skills'][number], 'agent_id'> {
+  agent_id: string;
+}
+
+export interface GatewayAdminAgentScoreboardEntry
+  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills' | 'cv_path'> {
+  agent_id: string;
+  best_skills: GatewayAdminAgentSkillScore[];
+}
+
+export interface GatewayAdminAgentScoreboardResponse {
+  observed_skill_count: number;
+  agents: GatewayAdminAgentScoreboardEntry[];
 }
 
 export interface GatewayAdminPlugin {

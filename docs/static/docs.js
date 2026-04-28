@@ -36,7 +36,10 @@ const LEGACY_DOC_PREFIX_REWRITES = [
 export const DEVELOPMENT_DOCS_SECTIONS = [
   {
     title: 'Overview',
-    pages: [{ title: 'HybridClaw Docs', path: 'README.md' }],
+    pages: [
+      { title: 'HybridClaw Docs', path: 'README.md' },
+      { title: 'The Trusted Coworker Manifesto', path: 'manifesto.md' },
+    ],
   },
   {
     title: 'Getting Started',

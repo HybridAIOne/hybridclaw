@@ -169,6 +169,83 @@ Examples:
 - `hybridclaw policy preset add github`
 - `hybridclaw policy default allow`
 
+## General Policy Engine
+
+The network policy runtime is implemented as a consumer of the shared policy
+engine. The engine evaluates rules as `when` predicate expressions that return
+an action. Consumers register their own predicates and decide how actions map to
+runtime behavior.
+
+Canonical rule shape:
+
+```yaml
+policies:
+  - id: nda-leak-block
+    description: Block confidential material before it leaves the workspace.
+    when:
+      all:
+        - predicate: leak.label
+          equals: confidential
+        - predicate: agent
+          equals: finance
+    action:
+      type: block
+      reason: NDA material cannot be sent externally.
+  - id: budget-soft-limit
+    when:
+      any:
+        - predicate: budget.percent_used
+          gte: 80
+        - predicate: budget.remaining_usd
+          lt: 10
+    action:
+      type: warn
+      reason: Monthly model budget is close to exhaustion.
+  - id: redact-token
+    when:
+      predicate: text.matches
+      pattern: "(?i)api[_-]?key"
+    action:
+      type: transform
+      transformer: redact-secrets
+```
+
+Expression operators:
+
+- `predicate`: invokes a consumer-registered predicate with the remaining YAML
+  keys as parameters.
+- `all`: every nested expression must match.
+- `any`: at least one nested expression must match.
+- `not`: the nested expression must not match.
+
+Standard action types are `block`, `warn`, `log`, and `transform`. Consumers
+may also use domain-specific actions such as the network consumer's existing
+`allow` and `deny` actions. Rules are evaluated in order by default, and the
+first match wins unless a consumer explicitly asks the engine to collect all
+matches.
+
+Skill availability is also a policy-engine consumer. Static
+`skills.disabled` and `skills.channelDisabled.*` entries are applied first,
+then workspace `.hybridclaw/policy.yaml` `skill.rules` can deny individual
+skills by agent, channel, source, category, capability, role, tenant, or skill
+quality score:
+
+```yaml
+skill:
+  rules:
+    - id: deny-sap-outside-finance
+      when:
+        all:
+          - predicate: skill.name
+            equals: sap
+          - not:
+              predicate: actor.role
+              equals: finance
+      action:
+        type: deny
+        reason: SAP is finance-only.
+```
+
 ## Approval Scopes
 
 | Reply or command | Internal scope | Persistence | Stored in | Notes |

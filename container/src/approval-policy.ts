@@ -12,15 +12,21 @@ import {
   asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
-  doesNetworkHostPatternExpandToSubdomains,
-  normalizeNetworkAgent,
+  evaluateNetworkPolicyAccess,
   normalizeNetworkHostScope,
-  normalizeNetworkPathPattern,
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
+import {
+  classifyStakes,
+  createStakesClassifier,
+  type StakesClassifier,
+  type StakesLevel,
+  type StakesScore,
+} from './stakes-classifier.js';
+import { normalizeText } from './text-normalization.js';
 import type { ChatMessage } from './types.js';
 
 export type {
@@ -32,8 +38,24 @@ export {
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '../shared/network-policy.js';
+export type {
+  StakesClassificationInput,
+  StakesClassifier,
+  StakesLevel,
+  StakesScore,
+  StakesSignal,
+} from './stakes-classifier.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
+export type AutonomyLevel =
+  | 'full-autonomous'
+  | 'low-stakes-autonomous'
+  | 'confirm-each';
+export type EscalationRoute =
+  | 'none'
+  | 'implicit_notice'
+  | 'approval_request'
+  | 'policy_denial';
 
 export type ApprovalDecision =
   | 'auto'
@@ -55,6 +77,11 @@ export interface ApprovalPolicyRule {
 
 export interface ApprovalPolicyConfig {
   pinnedRed: ApprovalPolicyRule[];
+  autonomy: {
+    defaultLevel: AutonomyLevel;
+    tools: Record<string, AutonomyLevel>;
+    actions: Record<string, AutonomyLevel>;
+  };
   networkDefault: NetworkPolicyAction;
   networkRules: NetworkRule[];
   networkPresets: string[];
@@ -107,6 +134,10 @@ export interface ApprovalPrelude {
 export interface ToolApprovalEvaluation {
   baseTier: ApprovalTier;
   tier: ApprovalTier;
+  autonomyLevel: AutonomyLevel;
+  stakes: StakesLevel;
+  stakesScore: StakesScore;
+  escalationRoute: EscalationRoute;
   decision: ApprovalDecision;
   actionKey: string;
   fingerprint: string;
@@ -171,6 +202,11 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
     { paths: ['~/.ssh/**', '/etc/**', '.env*'] },
     { tools: ['force_push'] },
   ],
+  autonomy: {
+    defaultLevel: 'full-autonomous',
+    tools: {},
+    actions: {},
+  },
   networkDefault: DEFAULT_NETWORK_DEFAULT,
   networkRules: DEFAULT_NETWORK_RULES,
   networkPresets: [],
@@ -215,12 +251,6 @@ function isVoiceChannelId(value: string | undefined): boolean {
     .startsWith('voice:');
 }
 
-function normalizeText(value: unknown): string {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function normalizePrompt(value: string): string {
   return normalizeText(value).slice(0, MAX_PROMPT_CHARS);
 }
@@ -235,6 +265,16 @@ function normalizePreview(value: string): string {
 
 function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
+}
+
+function escalationRouteForDecision(
+  decision: ApprovalDecision,
+  tier: ApprovalTier,
+): EscalationRoute {
+  if (decision === 'denied') return 'policy_denial';
+  if (decision === 'required') return 'approval_request';
+  if (tier === 'yellow' && decision === 'implicit') return 'implicit_notice';
+  return 'none';
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -278,6 +318,32 @@ function normalizeStringList(raw: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (
+    value === 'full-autonomous' ||
+    value === 'low-stakes-autonomous' ||
+    value === 'confirm-each'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
+  const record = asRecord(raw);
+  const out: Record<string, AutonomyLevel> = {};
+  for (const [rawKey, rawValue] of Object.entries(record)) {
+    const key = rawKey.trim().toLowerCase();
+    const level = normalizeAutonomyLevel(rawValue);
+    if (!key || !level) continue;
+    out[key] = level;
+  }
+  return out;
 }
 
 function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
@@ -337,6 +403,7 @@ function matchesPathPattern(candidatePath: string, pattern: string): boolean {
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   const document = asRecord(YAML.parse(raw) as unknown);
   const approval = asRecord(document.approval);
+  const autonomy = asRecord(document.autonomy);
   const audit = asRecord(document.audit);
   const pinnedRed = Array.isArray(approval.pinned_red)
     ? approval.pinned_red
@@ -347,6 +414,13 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
 
   return {
     ...(pinnedRed.length > 0 ? { pinnedRed } : {}),
+    autonomy: {
+      defaultLevel:
+        normalizeAutonomyLevel(autonomy.default) ||
+        DEFAULT_POLICY.autonomy.defaultLevel,
+      tools: normalizeAutonomyMap(autonomy.tools),
+      actions: normalizeAutonomyMap(autonomy.actions),
+    },
     networkDefault: networkState.defaultAction,
     networkRules: networkState.rules.map((rule) => ({
       ...rule,
@@ -405,6 +479,21 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
       Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
         ? filePolicy.pinnedRed
         : DEFAULT_POLICY.pinnedRed,
+    autonomy: {
+      defaultLevel:
+        normalizeAutonomyLevel(filePolicy.autonomy?.defaultLevel) ||
+        DEFAULT_POLICY.autonomy.defaultLevel,
+      tools:
+        filePolicy.autonomy?.tools &&
+        typeof filePolicy.autonomy.tools === 'object'
+          ? { ...filePolicy.autonomy.tools }
+          : {},
+      actions:
+        filePolicy.autonomy?.actions &&
+        typeof filePolicy.autonomy.actions === 'object'
+          ? { ...filePolicy.autonomy.actions }
+          : {},
+    },
     networkDefault:
       filePolicy.networkDefault === 'allow' ||
       filePolicy.networkDefault === 'deny'
@@ -502,65 +591,6 @@ function defaultPortForProtocol(protocol: string): number {
   return 443;
 }
 
-function globHostPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function matchesHostPattern(pattern: string, candidateHost: string): boolean {
-  const normalizedPattern = pattern.trim().toLowerCase().replace(/\.$/, '');
-  const normalizedCandidate = candidateHost
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, '');
-  if (!normalizedPattern || !normalizedCandidate) return false;
-  if (normalizedPattern === normalizedCandidate) return true;
-  if (normalizedPattern.includes('*')) {
-    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
-  }
-  if (
-    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedPattern) ||
-    normalizedPattern.includes(':')
-  ) {
-    return false;
-  }
-  if (doesNetworkHostPatternExpandToSubdomains(normalizedPattern)) {
-    return normalizeHostScope(normalizedCandidate) === normalizedPattern;
-  }
-  return false;
-}
-
-function matchesMethodPattern(
-  allowedMethods: string[],
-  candidateMethod: string,
-): boolean {
-  if (allowedMethods.includes('*')) return true;
-  const normalizedCandidate = candidateMethod.trim().toUpperCase() || 'GET';
-  return allowedMethods.includes(normalizedCandidate);
-}
-
-function matchesNetworkPathPattern(
-  allowedPaths: string[],
-  candidatePath: string,
-): boolean {
-  const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
-  return allowedPaths.some((pattern) =>
-    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
-      normalizedCandidate,
-    ),
-  );
-}
-
-function matchesAgentPattern(
-  ruleAgent: string,
-  candidateAgent: string,
-): boolean {
-  if (ruleAgent === '*') return true;
-  return ruleAgent === normalizeNetworkAgent(candidateAgent);
-}
-
 function parseUrlNetworkTarget(rawUrl: string): {
   host: string;
   port: number;
@@ -600,11 +630,7 @@ function extractAbsolutePaths(input: string): string[] {
   for (const match of input.matchAll(ABS_PATH_RE)) {
     const candidate = String(match[2] || '').trim();
     if (!candidate || candidate === '/' || candidate === '//') continue;
-    try {
-      paths.add(fs.realpathSync(candidate));
-    } catch {
-      paths.add(path.resolve(candidate));
-    }
+    paths.add(path.resolve(candidate));
   }
   return [...paths];
 }
@@ -975,7 +1001,7 @@ function parsePersistedTrustStore(
   }
 }
 
-export class TrustedCoworkerApprovalRuntime {
+export class TrustedAgentApprovalRuntime {
   private readonly policyPath: string;
   private readonly agentTrustStorePath: string;
   private readonly legacyAgentTrustStorePath: string;
@@ -992,6 +1018,8 @@ export class TrustedCoworkerApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  private readonly invalidPinnedRedPatternWarnings = new Set<string>();
+  private readonly stakesClassifier: StakesClassifier;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
 
@@ -1000,11 +1028,13 @@ export class TrustedCoworkerApprovalRuntime {
     agentTrustStorePath = AGENT_TRUST_STORE_PATH,
     trustStorePath = TRUST_STORE_PATH,
     legacyAgentTrustStorePath = LEGACY_AGENT_TRUST_STORE_PATH,
+    stakesClassifier: StakesClassifier = createStakesClassifier(),
   ) {
     this.policyPath = policyPath;
     this.agentTrustStorePath = agentTrustStorePath;
     this.trustStorePath = trustStorePath;
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
+    this.stakesClassifier = stakesClassifier;
     this.reloadPolicyIfNeeded(true);
     this.loadPersistedTrustStore({
       trustStorePath: this.agentTrustStorePath,
@@ -1057,32 +1087,15 @@ export class TrustedCoworkerApprovalRuntime {
     path: string;
     agentId?: string;
   }): { decision: NetworkPolicyAction | 'prompt'; matchedRule?: NetworkRule } {
-    const normalizedHost = String(params.host || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\.$/, '');
-    const normalizedMethod =
-      String(params.method || '')
-        .trim()
-        .toUpperCase() || 'GET';
-    const normalizedPath = params.path || '/';
-    const normalizedAgent = normalizeNetworkAgent(
-      params.agentId || this.getCurrentAgentId(),
-    );
-
-    for (const rule of this.loadedPolicy.networkRules) {
-      if (!matchesHostPattern(rule.host, normalizedHost)) continue;
-      if (rule.port !== '*' && rule.port !== params.port) continue;
-      if (!matchesMethodPattern(rule.methods, normalizedMethod)) continue;
-      if (!matchesNetworkPathPattern(rule.paths, normalizedPath)) continue;
-      if (!matchesAgentPattern(rule.agent, normalizedAgent)) continue;
-      return { decision: rule.action, matchedRule: rule };
-    }
-
-    return {
-      decision:
-        this.loadedPolicy.networkDefault === 'allow' ? 'allow' : 'prompt',
-    };
+    return evaluateNetworkPolicyAccess({
+      rules: this.loadedPolicy.networkRules,
+      defaultAction: this.loadedPolicy.networkDefault,
+      host: params.host,
+      port: params.port,
+      method: params.method,
+      path: params.path,
+      agentId: params.agentId || this.getCurrentAgentId(),
+    });
   }
 
   reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {
@@ -1283,8 +1296,40 @@ export class TrustedCoworkerApprovalRuntime {
       pathHints: classified.pathHints,
       args,
     });
-    const baseTier: ApprovalTier =
+    const autonomyLevel = this.resolveAutonomyLevel({
+      toolName: params.toolName,
+      actionKey: classified.actionKey,
+    });
+    const safetyTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
+    const stakesScore = classifyStakes(
+      {
+        toolName: params.toolName,
+        args,
+        actionKey: classified.actionKey,
+        intent: classified.intent,
+        reason: classified.reason,
+        target: classified.commandPreview,
+        approvalTier: safetyTier,
+        pathHints: classified.pathHints,
+        hostHints: classified.hostHints,
+        writeIntent: classified.writeIntent,
+        pinned: pinnedByPolicy,
+      },
+      this.stakesClassifier,
+    );
+    const stakes = stakesScore.level;
+
+    let baseTier: ApprovalTier = safetyTier;
+    if (autonomyLevel === 'confirm-each' && baseTier !== 'red') {
+      baseTier = 'red';
+    } else if (autonomyLevel === 'low-stakes-autonomous') {
+      if (stakes === 'high' && baseTier !== 'red') {
+        baseTier = 'red';
+      } else if (stakes === 'medium' && baseTier === 'green') {
+        baseTier = 'yellow';
+      }
+    }
 
     let tier: ApprovalTier = baseTier;
     let decision: ApprovalDecision = 'auto';
@@ -1294,6 +1339,10 @@ export class TrustedCoworkerApprovalRuntime {
         return {
           baseTier,
           tier: 'red',
+          autonomyLevel,
+          stakes,
+          stakesScore,
+          escalationRoute: 'policy_denial',
           decision: 'denied',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1351,6 +1400,10 @@ export class TrustedCoworkerApprovalRuntime {
           return {
             baseTier,
             tier: 'red',
+            autonomyLevel,
+            stakes,
+            stakesScore,
+            escalationRoute: 'policy_denial',
             decision: 'denied',
             actionKey: classified.actionKey,
             fingerprint,
@@ -1377,6 +1430,10 @@ export class TrustedCoworkerApprovalRuntime {
         return {
           baseTier,
           tier: 'red',
+          autonomyLevel,
+          stakes,
+          stakesScore,
+          escalationRoute: 'approval_request',
           decision: 'required',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1419,6 +1476,10 @@ export class TrustedCoworkerApprovalRuntime {
     return {
       baseTier,
       tier,
+      autonomyLevel,
+      stakes,
+      stakesScore,
+      escalationRoute: escalationRouteForDecision(decision, tier),
       decision,
       actionKey: classified.actionKey,
       fingerprint,
@@ -1540,6 +1601,19 @@ export class TrustedCoworkerApprovalRuntime {
 
   private bumpCount(map: Map<string, number>, key: string): void {
     map.set(key, (map.get(key) || 0) + 1);
+  }
+
+  private resolveAutonomyLevel(params: {
+    toolName: string;
+    actionKey: string;
+  }): AutonomyLevel {
+    const toolName = params.toolName.trim().toLowerCase();
+    const actionKey = params.actionKey.trim().toLowerCase();
+    return (
+      this.loadedPolicy.autonomy.actions[actionKey] ||
+      this.loadedPolicy.autonomy.tools[toolName] ||
+      this.loadedPolicy.autonomy.defaultLevel
+    );
   }
 
   private classifyNetworkTargets(params: {
@@ -2259,8 +2333,8 @@ export class TrustedCoworkerApprovalRuntime {
         try {
           const re = new RegExp(rule.pattern, 'i');
           if (re.test(fullText)) return true;
-        } catch {
-          // ignore invalid policy regex
+        } catch (error) {
+          this.warnInvalidPinnedRedPattern(rule.pattern, error);
         }
       }
       if (Array.isArray(rule.paths) && rule.paths.length > 0) {
@@ -2274,5 +2348,14 @@ export class TrustedCoworkerApprovalRuntime {
       }
     }
     return false;
+  }
+
+  private warnInvalidPinnedRedPattern(pattern: string, error: unknown): void {
+    if (this.invalidPinnedRedPatternWarnings.has(pattern)) return;
+    this.invalidPinnedRedPatternWarnings.add(pattern);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[approval-policy] invalid pinned_red regex in ${this.policyPath}; rule will not match: ${pattern} (${message})`,
+    );
   }
 }
