@@ -1022,6 +1022,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
@@ -2336,8 +2337,8 @@ export class TrustedAgentApprovalRuntime {
         try {
           const re = new RegExp(rule.pattern, 'i');
           if (re.test(fullText)) return true;
-        } catch {
-          // ignore invalid policy regex
+        } catch (error) {
+          this.warnInvalidPinnedRedPattern(rule.pattern, error);
         }
       }
       if (Array.isArray(rule.paths) && rule.paths.length > 0) {
@@ -2351,5 +2352,14 @@ export class TrustedAgentApprovalRuntime {
       }
     }
     return false;
+  }
+
+  private warnInvalidPinnedRedPattern(pattern: string, error: unknown): void {
+    if (this.invalidPinnedRedPatternWarnings.has(pattern)) return;
+    this.invalidPinnedRedPatternWarnings.add(pattern);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[approval-policy] invalid pinned_red regex in ${this.policyPath}; rule will not match: ${pattern} (${message})`,
+    );
   }
 }

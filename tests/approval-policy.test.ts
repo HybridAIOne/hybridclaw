@@ -28,6 +28,7 @@ function writeTempPolicy(raw: string): string {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('TrustedAgentApprovalRuntime', () => {
@@ -52,6 +53,34 @@ network:
         action: 'allow',
       }),
     ]);
+  });
+
+  test('invalid pinned_red regex patterns warn once instead of failing open silently', () => {
+    const policyPath = writeTempPolicy(`
+approval:
+  pinned_red:
+    - pattern: "[unterminated"
+`);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'AGENTS.md' }),
+      latestUserPrompt: 'Read the agent instructions',
+    });
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `[approval-policy] invalid pinned_red regex in ${policyPath}; rule will not match: [unterminated`,
+      ),
+    );
   });
 
   test('parsePolicyYaml preserves quoted hash characters inside YAML strings', () => {
