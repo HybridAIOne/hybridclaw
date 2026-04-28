@@ -320,7 +320,7 @@ describe('stakes classifier', () => {
   test('cost extraction stops at the configured recursion depth', () => {
     const withinLimit = classifyWithTestDefaults(
       makeInput({
-        args: makeNestedArgs(9, { amount: '€900' }),
+        args: makeNestedArgs(9, { amount: 900 }),
       }),
     );
     expect(withinLimit.signals.map((signal) => signal.name)).toContain(
@@ -329,7 +329,7 @@ describe('stakes classifier', () => {
 
     const beyondLimit = classifyWithTestDefaults(
       makeInput({
-        args: makeNestedArgs(10, { amount: '€900' }),
+        args: makeNestedArgs(10, { amount: 900 }),
       }),
     );
     expect(beyondLimit.level).toBe('low');

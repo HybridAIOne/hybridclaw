@@ -85,8 +85,14 @@ function normalizeStakesLevel(value: unknown): StakesLevel | null {
   return null;
 }
 
-function stringifyArgsForInspection(value: unknown): string {
+interface ArgsInspection {
+  text: string;
+  costAmounts: number[];
+}
+
+function inspectArgs(value: unknown): ArgsInspection {
   const chunks: string[] = [];
+  const costAmounts: number[] = [];
   const seen = new WeakSet<object>();
   const state = { remaining: MAX_ARGS_INSPECTION_CHARS };
 
@@ -99,19 +105,36 @@ function stringifyArgsForInspection(value: unknown): string {
     state.remaining -= chunk.length;
   };
 
-  const visit = (entry: unknown, depth: number): void => {
-    if (state.remaining <= 0 || depth > MAX_ARGS_INSPECTION_DEPTH) return;
+  const visit = (
+    entry: unknown,
+    keyHint: string,
+    depth: number,
+    includeText: boolean,
+  ): void => {
+    if (depth > MAX_COST_AMOUNT_DEPTH) return;
+    const keyLooksCostly = COST_KEY_RE.test(keyHint);
+    const includeCurrentText =
+      includeText && depth <= MAX_ARGS_INSPECTION_DEPTH && state.remaining > 0;
 
     if (typeof entry === 'string') {
-      append(entry.slice(0, MAX_ARGS_INSPECTION_STRING_CHARS));
+      if (includeCurrentText) {
+        append(entry.slice(0, MAX_ARGS_INSPECTION_STRING_CHARS));
+      }
+      if (keyLooksCostly) {
+        const plainAmount = parseAmount(entry);
+        if (plainAmount != null) costAmounts.push(plainAmount);
+      }
       return;
     }
-    if (
-      typeof entry === 'number' ||
-      typeof entry === 'boolean' ||
-      typeof entry === 'bigint'
-    ) {
-      append(String(entry));
+    if (typeof entry === 'number') {
+      if (includeCurrentText) append(String(entry));
+      if (keyLooksCostly && Number.isFinite(entry)) {
+        costAmounts.push(Math.abs(entry));
+      }
+      return;
+    }
+    if (typeof entry === 'boolean' || typeof entry === 'bigint') {
+      if (includeCurrentText) append(String(entry));
       return;
     }
     if (!entry || typeof entry !== 'object') return;
@@ -119,33 +142,42 @@ function stringifyArgsForInspection(value: unknown): string {
     seen.add(entry);
 
     if (Array.isArray(entry)) {
-      for (const item of entry.slice(0, MAX_ARGS_INSPECTION_ENTRIES)) {
-        visit(item, depth + 1);
+      for (let index = 0; index < entry.length; index += 1) {
+        visit(
+          entry[index],
+          keyHint,
+          depth + 1,
+          includeCurrentText && index < MAX_ARGS_INSPECTION_ENTRIES,
+        );
       }
       return;
     }
 
-    for (const [key, item] of Object.entries(entry).slice(
-      0,
-      MAX_ARGS_INSPECTION_ENTRIES,
-    )) {
-      append(key);
-      visit(item, depth + 1);
+    const entries = Object.entries(entry);
+    for (let index = 0; index < entries.length; index += 1) {
+      const [key, item] = entries[index];
+      const includeChildText =
+        includeCurrentText && index < MAX_ARGS_INSPECTION_ENTRIES;
+      if (includeChildText) append(key);
+      visit(item, key, depth + 1, includeChildText);
     }
   };
 
-  visit(value, 0);
-  return chunks.join(' ');
+  visit(value, '', 0, true);
+  return { text: chunks.join(' '), costAmounts };
 }
 
-function stringifyForInspection(input: StakesClassificationInput): string {
+function stringifyForInspection(
+  input: StakesClassificationInput,
+  argsText: string,
+): string {
   return [
     input.toolName,
     input.actionKey,
     input.intent,
     input.reason,
     input.target,
-    stringifyArgsForInspection(input.args),
+    argsText,
     input.pathHints.join(' '),
     input.hostHints.join(' '),
   ]
@@ -186,41 +218,6 @@ function extractCurrencyAmounts(text: string): number[] {
     const amount = parseAmount(match[1] || match[2] || '');
     if (amount != null) amounts.push(amount);
   }
-  return amounts;
-}
-
-function collectCostAmounts(value: unknown, keyHint = '', depth = 0): number[] {
-  if (depth > MAX_COST_AMOUNT_DEPTH) return [];
-  const amounts: number[] = [];
-  const keyLooksCostly = COST_KEY_RE.test(keyHint);
-
-  if (typeof value === 'number') {
-    if (keyLooksCostly && Number.isFinite(value)) amounts.push(Math.abs(value));
-    return amounts;
-  }
-
-  if (typeof value === 'string') {
-    amounts.push(...extractCurrencyAmounts(value));
-    if (keyLooksCostly) {
-      const plainAmount = parseAmount(value);
-      if (plainAmount != null) amounts.push(plainAmount);
-    }
-    return amounts;
-  }
-
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      amounts.push(...collectCostAmounts(entry, keyHint, depth + 1));
-    }
-    return amounts;
-  }
-
-  if (value && typeof value === 'object') {
-    for (const [key, entry] of Object.entries(value)) {
-      amounts.push(...collectCostAmounts(entry, key, depth + 1));
-    }
-  }
-
   return amounts;
 }
 
@@ -292,7 +289,8 @@ export class RuleBasedStakesClassifier implements StakesClassifier {
   }
 
   classify(input: StakesClassificationInput): StakesScore {
-    const text = stringifyForInspection(input);
+    const argsInspection = inspectArgs(input.args);
+    const text = stringifyForInspection(input, argsInspection.text);
     const signals: StakesSignal[] = [];
     const addSignal = (
       name: string,
@@ -332,7 +330,11 @@ export class RuleBasedStakesClassifier implements StakesClassifier {
       addSignal('write-intent', 'medium', 0.15, 'the action can modify state');
     }
 
-    const maxCost = Math.max(0, ...collectCostAmounts(input.args));
+    const maxCost = Math.max(
+      0,
+      ...argsInspection.costAmounts,
+      ...extractCurrencyAmounts(text),
+    );
     if (maxCost >= this.highCostEur) {
       addSignal(
         'cost:high',
