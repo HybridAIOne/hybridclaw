@@ -5548,6 +5548,7 @@ export function getConversationHistoryPage(
 
   if (rows.length === 0) {
     return {
+      sessionId: resolvedSessionId,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -5581,6 +5582,7 @@ export function getConversationHistoryPage(
   }
 
   return {
+    sessionId: resolvedSessionId,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,

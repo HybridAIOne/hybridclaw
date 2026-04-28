@@ -336,6 +336,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
+import { buildContextUsageSnapshot } from './context-usage.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -374,6 +375,7 @@ import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import {
   readDelegateSessionStatusSnapshot,
   readSessionStatusSnapshot,
+  type SessionStatusSnapshot,
 } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -6206,6 +6208,7 @@ export function getGatewayHistory(
     .filter((message) => message.content.trim().length > 0)
     .reverse();
   return {
+    sessionId: page.sessionId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
@@ -7566,6 +7569,39 @@ export async function prepareSessionAutoReset(params: {
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
   return expiryEvaluation;
+}
+
+function buildGatewaySessionContextUsageSnapshot(
+  session: Session,
+  statusSnapshot?: SessionStatusSnapshot,
+): ReturnType<typeof buildContextUsageSnapshot> {
+  const runtime = resolveSessionRuntimeTarget(session);
+  const sessionModel = runtime.model;
+  const modelContextWindowTokens = resolveKnownModelContextWindow(sessionModel);
+  return buildContextUsageSnapshot({
+    sessionId: session.id,
+    model: sessionModel,
+    messageCount: session.message_count,
+    compactionCount: session.compaction_count,
+    modelContextWindowTokens,
+    ...(statusSnapshot ? { statusSnapshot } : {}),
+  });
+}
+
+export function getGatewaySessionContextUsage(sessionId: string): {
+  status: 'ok' | 'not_found';
+  sessionId: string;
+  snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+} {
+  const session = memoryService.getSessionById(sessionId);
+  if (!session) {
+    return { status: 'not_found', sessionId, snapshot: null };
+  }
+  return {
+    status: 'ok',
+    sessionId: session.id,
+    snapshot: buildGatewaySessionContextUsageSnapshot(session),
+  };
 }
 
 export async function handleGatewayCommand(
@@ -9404,6 +9440,49 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'context': {
+        const { snapshot } = getGatewaySessionContextUsage(session.id);
+        if (!snapshot) {
+          return badCommand(
+            'Context Usage',
+            'Session not found or has no context usage recorded yet.',
+          );
+        }
+        const usedLabel =
+          snapshot.contextUsedTokens != null
+            ? formatCompactNumber(snapshot.contextUsedTokens)
+            : 'n/a';
+        const budgetLabel =
+          snapshot.contextBudgetTokens != null
+            ? formatCompactNumber(snapshot.contextBudgetTokens)
+            : 'unknown';
+        const percentLabel =
+          snapshot.contextUsagePercent == null ||
+          !Number.isFinite(snapshot.contextUsagePercent)
+            ? 'n/a'
+            : snapshot.contextUsagePercent > 100
+              ? `${Math.round(snapshot.contextUsagePercent)}%`
+              : formatPercent(snapshot.contextUsagePercent);
+        const remainingLabel =
+          snapshot.contextRemainingTokens != null
+            ? formatCompactNumber(snapshot.contextRemainingTokens)
+            : 'n/a';
+        const lines = [
+          `🧠 Model: ${formatModelForDisplay(snapshot.model)}`,
+          `📚 Context: ${usedLabel}/${budgetLabel} tokens (${percentLabel})`,
+          `🪽 Headroom: ${remainingLabel} tokens until the window fills`,
+          `🧹 Compaction: triggers at ${formatCompactNumber(snapshot.compactionMessageThreshold)} msgs or ${formatCompactNumber(snapshot.compactionTokenBudget)} tokens, keeping ${snapshot.compactionKeepRecent} recent · ran ${snapshot.compactionCount}×`,
+          `💬 Messages in session: ${formatCompactNumber(snapshot.messageCount)}`,
+        ];
+        if (snapshot.contextBudgetTokens == null) {
+          lines.push(
+            '',
+            'Tip: context window for this model is unknown, so the ring shows usage without a budget. Set a known model with `/model set <name>` to see headroom.',
+          );
+        }
+        return infoCommand('Context Usage', lines.join('\n'));
+      }
+
       case 'compact': {
         try {
           const result = await memoryService.compactSession(session.id);
@@ -9591,6 +9670,10 @@ export async function handleGatewayCommand(
           currentModel: sessionModel,
           modelContextWindowTokens,
         });
+        const contextSnapshot = buildGatewaySessionContextUsageSnapshot(
+          session,
+          metrics,
+        );
         const delegateModel = PROACTIVE_DELEGATION_MODEL.trim();
         const showDelegateSetup =
           delegateModel.length > 0 &&
@@ -9655,11 +9738,11 @@ export async function handleGatewayCommand(
           cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
         );
         const contextLabel =
-          metrics.contextUsedTokens != null &&
-          metrics.contextBudgetTokens != null
-            ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
-            : metrics.contextUsedTokens != null
-              ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
+          contextSnapshot.contextUsedTokens != null &&
+          contextSnapshot.contextBudgetTokens != null
+            ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/${formatCompactNumber(contextSnapshot.contextBudgetTokens)} (${formatPercent(contextSnapshot.contextUsagePercent)})`
+            : contextSnapshot.contextUsedTokens != null
+              ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
@@ -9676,7 +9759,7 @@ export async function handleGatewayCommand(
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
             : '🗄️ Cache: n/a (provider did not report cache stats)',
-          `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
+          `📚 Context: ${contextLabel} · 🧹 Compactions: ${contextSnapshot.compactionCount}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
           ...(activeSandboxSessionIds.length > 0
             ? [

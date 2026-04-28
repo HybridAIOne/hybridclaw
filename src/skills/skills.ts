@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
@@ -204,11 +205,7 @@ function parseFrontmatter(raw: string): FrontmatterParseResult {
 }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {
-  if (!raw) return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-  if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  return fallback;
+  return parseBooleanWithDefault(raw, fallback);
 }
 
 function normalizeSkillCategory(raw: string | undefined): string {

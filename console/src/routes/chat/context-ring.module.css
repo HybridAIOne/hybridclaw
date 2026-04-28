@@ -1,0 +1,169 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.trigger {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: background 0.12s;
+}
+
+.trigger:hover,
+.trigger:focus-visible {
+  background: var(--muted);
+  outline: none;
+}
+
+.ring {
+  transform: rotate(-90deg);
+}
+
+.ringTrack {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 3.5;
+}
+
+.ringFill {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 0.4s ease,
+    stroke 0.2s ease;
+}
+
+.ringFillNominal {
+  stroke: var(--primary);
+}
+
+.ringFillWarn {
+  stroke: var(--accent, #d97706);
+}
+
+.ringFillDanger {
+  stroke: var(--danger, #dc2626);
+}
+
+.ringLabel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--muted-foreground);
+  pointer-events: none;
+  letter-spacing: 0;
+}
+
+.ringLabelUnknown {
+  font-size: 0.7rem;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 240px;
+  padding: 10px 12px;
+  background: var(--popover);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  font-size: 0.8rem;
+  color: var(--text);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.wrap:hover .popover,
+.wrap:focus-within .popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.popoverTitle {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.popoverTitleValue {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.popoverRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted-foreground);
+}
+
+.popoverRowValue {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.popoverProgress {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  background: var(--muted);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.popoverProgressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--primary);
+  transition:
+    width 0.4s ease,
+    background 0.2s ease;
+}
+
+.popoverProgressFillWarn {
+  background: var(--accent, #d97706);
+}
+
+.popoverProgressFillDanger {
+  background: var(--danger, #dc2626);
+}
+
+.popoverFoot {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}

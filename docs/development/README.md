@@ -17,19 +17,23 @@ If you want a raw-markdown entrypoint that links every docs page directly, use
 
 ## Latest Highlights
 
-- `hybridclaw auth login anthropic` configures direct Anthropic API access or
-  the official Claude CLI transport, and `/model list anthropic` participates
-  in the same provider catalog as the other remote providers.
-- `hybridclaw agent config` imports platform-generated JSON agent definitions,
-  bootstrap markdown, and optional profile images without requiring a `.claw`
-  archive.
-- Google Workspace API access is available through the bundled `gog` and `gws`
-  skills with host-minted short-lived tokens from encrypted Google OAuth
-  material.
-- The bundled skills catalog includes `gh-issues` for issue-queue automation
-  and `excalidraw` for editable diagrams.
-- The browser chat route uses the console SPA shell and the gateway root opens
-  the same chat surface.
+- Signal joins the channel catalog with a `signal-cli` daemon setup flow,
+  private-by-default DM policy, group controls, and admin QR linking.
+- `.confidential.yml` rules can redact NDA-class business data before model
+  calls, while `hybridclaw audit scan-leaks` scans historical audit logs for
+  possible leaks.
+- Web chat shows live context-window usage, supports `/context`, searches
+  recent sessions, and can switch the active agent from the composer.
+- The admin console includes statistics and agent-scoreboard pages for
+  sessions, messages, tokens, cost trends, skill scores, reliability, timing,
+  and CV links.
+- Packaged business skills can declare manifests, capabilities, required
+  credentials, supported channels, lifecycle snapshots, and rollback history.
+- Deployment config can describe cloud/local mode and tunnel provider intent;
+  the built-in ngrok provider reads `NGROK_AUTHTOKEN` from encrypted secrets.
+- Model info, usage summaries, and the admin Models page surface discovered
+  context windows, output limits, capabilities, pricing, and monthly spend
+  where providers expose the metadata.
 
 ## Browse By Section
 

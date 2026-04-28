@@ -26,6 +26,8 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/credentials.json` for encrypted runtime secrets
 - `~/.hybridclaw/credentials.master.key` for the local owner-only fallback
   master key when no external key source is configured
+- `./.confidential.yml` or `~/.hybridclaw/.confidential.yml` for optional
+  confidential-info rules used before model calls and by audit leak scans
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
 - `~/.hybridclaw/data/hybridclaw.db` for persistent runtime data
 - `~/.hybridclaw/data/config-revisions.db` for tracked runtime config history
@@ -38,8 +40,10 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/data/agents/` for agent workspaces, session files, and related
   runtime state
 
-HybridClaw does not keep runtime state in the current working directory. If
-`./.env` exists, supported secrets are imported once for compatibility.
+HybridClaw does not keep runtime state in the current working directory.
+Project-local `.confidential.yml` is an opt-in rule file rather than runtime
+state. If `./.env` exists, supported secrets are imported once for
+compatibility.
 Headless or containerized deployments should prefer `HYBRIDCLAW_MASTER_KEY` or
 `/run/secrets/hybridclaw_master_key` instead of the local fallback key file.
 Set `HYBRIDCLAW_DATA_DIR` to an absolute path when you want to relocate the
@@ -144,6 +148,9 @@ leak into the saved revision metadata.
   tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or
   `tailscale`. The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from
   the encrypted runtime secret store
+- `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` disables confidential-info redaction for
+  local debugging. Leave it unset in normal operation so `.confidential.yml`
+  rules can redact NDA-class matches before prompts are sent to models
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
@@ -203,8 +210,9 @@ Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
 `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
 `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`,
-`VLLM_API_KEY`, `BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`,
-`SLACK_APP_TOKEN`, `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
+`VLLM_API_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `TAVILY_API_KEY`,
+`NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+`TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
 `IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
 `WEB_API_TOKEN`, and `GATEWAY_API_TOKEN`.
 
@@ -232,6 +240,9 @@ credential checks run.
   encrypted secret store instead of plaintext `imessage.password`
 - prefer storing email passwords as `EMAIL_PASSWORD` or a SecretRef-backed
   `email.password` value instead of plaintext config
+- keep `.confidential.yml` rules narrow and review them like policy: broad
+  regexes can redact useful prompt context, while missing client/project labels
+  reduce leak-scanner coverage
 - keep `~/.hybridclaw/` permissions tight (`0700` on the directory, `0600` on
   secret-bearing files)
 - prefer low-privilege tokens
