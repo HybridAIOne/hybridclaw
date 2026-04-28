@@ -32,7 +32,10 @@ export {
 } from '../shared/network-policy.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
-export type AutonomyLevel = 'autonomous' | 'supervised' | 'manual';
+export type AutonomyLevel =
+  | 'full-autonomous'
+  | 'low-stakes-autonomous'
+  | 'confirm-each';
 export type StakesLevel = 'low' | 'medium' | 'high';
 export type EscalationRoute =
   | 'none'
@@ -186,7 +189,7 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
     { tools: ['force_push'] },
   ],
   autonomy: {
-    defaultLevel: 'autonomous',
+    defaultLevel: 'full-autonomous',
     tools: {},
     actions: {},
   },
@@ -319,7 +322,11 @@ function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
   const value = String(raw || '')
     .trim()
     .toLowerCase();
-  if (value === 'autonomous' || value === 'supervised' || value === 'manual') {
+  if (
+    value === 'full-autonomous' ||
+    value === 'low-stakes-autonomous' ||
+    value === 'confirm-each'
+  ) {
     return value;
   }
   return null;
@@ -1293,9 +1300,12 @@ export class TrustedAgentApprovalRuntime {
     });
     let baseTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
-    if (autonomyLevel === 'manual' && baseTier !== 'red') {
+    if (autonomyLevel === 'confirm-each' && baseTier !== 'red') {
       baseTier = 'red';
-    } else if (autonomyLevel === 'supervised' && baseTier === 'green') {
+    } else if (
+      autonomyLevel === 'low-stakes-autonomous' &&
+      baseTier === 'green'
+    ) {
       baseTier = 'yellow';
     }
     const stakes = classified.stakes || stakesForTier(baseTier);

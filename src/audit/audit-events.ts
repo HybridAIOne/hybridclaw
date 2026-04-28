@@ -145,7 +145,7 @@ export function emitToolExecutionAuditEvents(input: {
         type: 'autonomy.decision',
         toolCallId,
         action: execution.approvalActionKey || `tool:${execution.name}`,
-        autonomyLevel: execution.autonomyLevel || 'autonomous',
+        autonomyLevel: execution.autonomyLevel || 'full-autonomous',
         stakes: execution.stakes || 'low',
         escalationRoute: effectiveEscalationRoute,
         approvalTier: effectiveTier,

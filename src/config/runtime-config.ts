@@ -187,6 +187,12 @@ export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
 export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
+export const SKILL_AUTONOMY_LEVELS = [
+  'full-autonomous',
+  'low-stakes-autonomous',
+  'confirm-each',
+] as const;
+export type SkillAutonomyLevel = (typeof SKILL_AUTONOMY_LEVELS)[number];
 export const SCHEDULER_BOARD_STATUSES = [
   'backlog',
   'in_progress',
@@ -551,6 +557,27 @@ export interface RuntimeHttpRequestToolConfig {
   authRules: RuntimeHttpRequestAuthRule[];
 }
 
+export interface RuntimeSkillAutonomyRule {
+  agentId: string;
+  skillName: string;
+  level: SkillAutonomyLevel;
+}
+
+export interface RuntimeSkillAutonomyConfig {
+  defaultLevel: SkillAutonomyLevel;
+  rules: RuntimeSkillAutonomyRule[];
+}
+
+type RuntimeSkillAutonomyRuleIndex = Map<
+  string,
+  Map<string, SkillAutonomyLevel>
+>;
+
+const skillAutonomyRuleIndexes = new WeakMap<
+  RuntimeSkillAutonomyConfig,
+  RuntimeSkillAutonomyRuleIndex
+>();
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
@@ -559,6 +586,7 @@ export interface RuntimeConfig {
     extraDirs: string[];
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+    autonomy: RuntimeSkillAutonomyConfig;
   };
   tools: {
     disabled: string[];
@@ -931,6 +959,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+    autonomy: {
+      defaultLevel: 'confirm-each',
+      rules: [],
+    },
   },
   tools: {
     disabled: [],
@@ -1628,6 +1660,93 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   }
 
   return fallback;
+}
+
+function normalizeSkillAutonomyLevel(
+  value: unknown,
+  fallback: SkillAutonomyLevel,
+): SkillAutonomyLevel {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
+  return SKILL_AUTONOMY_LEVELS.includes(normalized as SkillAutonomyLevel)
+    ? (normalized as SkillAutonomyLevel)
+    : fallback;
+}
+
+function normalizeSkillAutonomyConfig(
+  value: unknown,
+  fallback: RuntimeSkillAutonomyConfig,
+): RuntimeSkillAutonomyConfig {
+  const raw = isRecord(value) ? value : {};
+  const defaultLevel = normalizeSkillAutonomyLevel(
+    raw.defaultLevel,
+    fallback.defaultLevel,
+  );
+  const rulesByKey = new Map<string, RuntimeSkillAutonomyRule>();
+  const rawRules = Array.isArray(raw.rules) ? raw.rules : [];
+  for (const item of rawRules) {
+    if (!isRecord(item)) {
+      console.warn(
+        '[runtime-config] skipping skills.autonomy rule: expected an object',
+      );
+      continue;
+    }
+    const agentId = normalizeString(item.agentId, '', {
+      allowEmpty: false,
+    });
+    const skillName = normalizeString(item.skillName, '', {
+      allowEmpty: false,
+    });
+    if (!agentId || !skillName) {
+      console.warn(
+        '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
+      );
+      continue;
+    }
+    const level = normalizeSkillAutonomyLevel(item.level, defaultLevel);
+    if (
+      typeof item.level === 'string' &&
+      item.level.trim() &&
+      level !== item.level.trim().toLowerCase()
+    ) {
+      console.warn(
+        `[runtime-config] invalid skills.autonomy level "${item.level.trim()}" for agentId "${agentId}" and skillName "${skillName}"; using default "${defaultLevel}"`,
+      );
+    }
+    rulesByKey.set(JSON.stringify([agentId, skillName]), {
+      agentId,
+      skillName,
+      level,
+    });
+  }
+
+  return {
+    defaultLevel,
+    rules: [...rulesByKey.values()].sort((a, b) => {
+      const byAgent = a.agentId.localeCompare(b.agentId);
+      return byAgent || a.skillName.localeCompare(b.skillName);
+    }),
+  };
+}
+
+function getSkillAutonomyRuleIndex(
+  autonomy: RuntimeSkillAutonomyConfig,
+): RuntimeSkillAutonomyRuleIndex {
+  const cached = skillAutonomyRuleIndexes.get(autonomy);
+  if (cached) return cached;
+
+  const index: RuntimeSkillAutonomyRuleIndex = new Map();
+  for (const rule of autonomy.rules) {
+    let skillRules = index.get(rule.agentId);
+    if (!skillRules) {
+      skillRules = new Map<string, SkillAutonomyLevel>();
+      index.set(rule.agentId, skillRules);
+    }
+    skillRules.set(rule.skillName, rule.level);
+  }
+  skillAutonomyRuleIndexes.set(autonomy, index);
+  return index;
 }
 
 function normalizeSkillChannelDisabled(
@@ -4397,6 +4516,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
+      autonomy: normalizeSkillAutonomyConfig(
+        rawSkills.autonomy,
+        DEFAULT_RUNTIME_CONFIG.skills.autonomy,
+      ),
     },
     tools: {
       disabled: normalizeStringArray(
@@ -5824,6 +5947,25 @@ export function resolveDefaultAgentId(
       }) === configured,
   );
   return hasConfiguredAgent ? configured : DEFAULT_AGENT_ID;
+}
+
+export function resolveSkillAutonomyLevel(
+  config: Pick<RuntimeConfig, 'skills'> = currentConfig,
+  agentId: string,
+  skillName: string,
+): SkillAutonomyLevel {
+  const defaultLevel = config.skills.autonomy.defaultLevel;
+  if (!agentId || !skillName) {
+    throw new Error(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+  }
+
+  return (
+    getSkillAutonomyRuleIndex(config.skills.autonomy)
+      .get(agentId)
+      ?.get(skillName) ?? defaultLevel
+  );
 }
 
 export function isContainerSandboxModeExplicit(): boolean {
