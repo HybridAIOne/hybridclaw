@@ -28,6 +28,7 @@ import {
   listUsageByAgentRollups,
   listUsageByModel,
   listUsageDailyBreakdown,
+  monthlySpendEur,
   monthlySpendUsd,
   queryKnowledgeGraph,
   recallSemanticMemories,
@@ -41,6 +42,7 @@ import {
   type MemoryBackend,
   MemoryService,
 } from '../src/memory/memory-service.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../src/providers/model-metadata.js';
 import { normalizeRecentChatSearchQuery } from '../src/session/recent-chat-search.js';
 import {
   KnowledgeEntityType,
@@ -2147,6 +2149,10 @@ describe.sequential('usage aggregation DB', () => {
     expect(agentDaily.total_tokens).toBe(800);
     expect(agentDaily.total_cost_usd).toBeCloseTo(0.0049, 6);
     expect(monthlySpendUsd(' agent-a ')).toBeCloseTo(0.0049, 6);
+    expect(monthlySpendEur(' agent-a ')).toBeCloseTo(
+      0.0049 / MODEL_METADATA_USD_TO_EUR.usdPerEur,
+      6,
+    );
     expect(monthlySpendUsd('agent-b')).toBeCloseTo(0.0013, 6);
     expect(() => monthlySpendUsd('')).toThrow('Agent id is required.');
 

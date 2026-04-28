@@ -19,6 +19,12 @@ const MODEL_METADATA_SOURCES = {
   anthropicModels: 'https://docs.claude.com/claude/docs/models-overview',
 };
 
+export const MODEL_METADATA_USD_TO_EUR = {
+  rateDate: '2026-04-24',
+  usdPerEur: 1.1712,
+  source: 'https://www.ecb.europa.eu/stats/eurofxref',
+} as const;
+
 const STATIC_MODEL_METADATA_ALIASES: Record<string, string> = {
   'claude-haiku-4.5': 'claude-haiku-4-5',
   'claude-opus-4.1': 'claude-opus-4-1',

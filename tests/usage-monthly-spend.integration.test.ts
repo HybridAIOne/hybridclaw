@@ -7,9 +7,11 @@ import {
   getUsageTotals,
   initDatabase,
   listUsageByAgentRollups,
+  monthlySpendEur,
   monthlySpendUsd,
   recordUsageEvent,
 } from '../src/memory/db.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../src/providers/model-metadata.js';
 
 function createTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-usage-'));
@@ -70,6 +72,10 @@ test('monthlySpendUsd matches the monthly UsageTotals rollup per agent', () => {
 
   expect(alphaTotals.total_cost_usd).toBeCloseTo(0.35, 6);
   expect(monthlySpendUsd('alpha')).toBeCloseTo(alphaTotals.total_cost_usd, 6);
+  expect(monthlySpendEur('alpha')).toBeCloseTo(
+    alphaTotals.total_cost_usd / MODEL_METADATA_USD_TO_EUR.usdPerEur,
+    6,
+  );
   expect(rollups.get('alpha')?.total_cost_usd).toBeCloseTo(10.35, 6);
   expect(rollups.get('alpha')?.monthly_cost_usd).toBeCloseTo(0.35, 6);
   expect(rollups.get('beta')?.monthly_cost_usd).toBeCloseTo(0.04, 6);

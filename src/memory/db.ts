@@ -15,6 +15,7 @@ import {
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import {
   buildRecentChatSearchMatchQuery,
   MAX_RECENT_CHAT_SESSION_LIMIT,
@@ -2991,6 +2992,10 @@ export function monthlySpendUsd(agentId: string): number {
     throw new Error('Agent id is required.');
   }
   return getUsageTotals({ agentId, window: 'monthly' }).total_cost_usd;
+}
+
+export function monthlySpendEur(agentId: string): number {
+  return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
