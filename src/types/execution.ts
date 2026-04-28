@@ -1,3 +1,8 @@
+import type {
+  StakesScore as CanonicalStakesScore,
+  StakesSignal as CanonicalStakesSignal,
+} from '../../container/shared/stakes-classifier.js';
+
 export interface RuntimeToolSchemaProperty {
   type: string | string[];
   description?: string;
@@ -21,6 +26,9 @@ export interface PluginRuntimeToolDefinition {
   parameters: RuntimeToolSchema;
 }
 
+export type ToolExecutionStakesSignal = CanonicalStakesSignal;
+export type ToolExecutionStakesScore = CanonicalStakesScore;
+
 export interface ToolExecution {
   name: string;
   arguments: string;
@@ -33,6 +41,7 @@ export interface ToolExecution {
   approvalBaseTier?: 'green' | 'yellow' | 'red';
   autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
   stakes?: 'low' | 'medium' | 'high';
+  stakesScore?: ToolExecutionStakesScore;
   escalationRoute?:
     | 'none'
     | 'implicit_notice'

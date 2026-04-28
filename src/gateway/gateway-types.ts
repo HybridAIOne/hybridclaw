@@ -13,6 +13,7 @@ import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
@@ -67,45 +68,7 @@ export interface GatewayChatResult {
     filename: string;
     mimeType: string;
   }>;
-  toolExecutions?: Array<{
-    name: string;
-    arguments: string;
-    result: string;
-    durationMs: number;
-    isError?: boolean;
-    blocked?: boolean;
-    blockedReason?: string;
-    approvalTier?: 'green' | 'yellow' | 'red';
-    approvalBaseTier?: 'green' | 'yellow' | 'red';
-    autonomyLevel?:
-      | 'full-autonomous'
-      | 'low-stakes-autonomous'
-      | 'confirm-each';
-    stakes?: 'low' | 'medium' | 'high';
-    escalationRoute?:
-      | 'none'
-      | 'implicit_notice'
-      | 'approval_request'
-      | 'policy_denial';
-    approvalDecision?:
-      | 'auto'
-      | 'implicit'
-      | 'approved_once'
-      | 'approved_session'
-      | 'approved_agent'
-      | 'approved_all'
-      | 'approved_fullauto'
-      | 'promoted'
-      | 'required'
-      | 'denied';
-    approvalActionKey?: string;
-    approvalIntent?: string;
-    approvalReason?: string;
-    approvalRequestId?: string;
-    approvalExpiresAt?: number;
-    approvalAllowSession?: boolean;
-    approvalAllowAgent?: boolean;
-  }>;
+  toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
