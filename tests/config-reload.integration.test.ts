@@ -158,6 +158,42 @@ describe('config reload integration', () => {
     expect(cfg.container.persistBashState).toBe(false);
   });
 
+  it('normalizes per-agent escalation targets', () => {
+    writeConfig({
+      agents: {
+        defaultAgentId: 'writer',
+        list: [
+          {
+            id: 'writer',
+            escalationTarget: {
+              channel: ' slack:COPS ',
+              recipient: ' ops-lead ',
+            },
+          },
+          {
+            id: 'ignored-target',
+            escalationTarget: {
+              channel: 'slack:COPS',
+              recipient: '',
+            },
+          },
+        ],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    const writer = cfg.agents.list?.find((agent) => agent.id === 'writer');
+    const ignoredTarget = cfg.agents.list?.find(
+      (agent) => agent.id === 'ignored-target',
+    );
+    expect(writer?.escalationTarget).toEqual({
+      channel: 'slack:COPS',
+      recipient: 'ops-lead',
+    });
+    expect(ignoredTarget?.escalationTarget).toBeUndefined();
+  });
+
   it('normalizes per-agent skill autonomy rules', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     writeConfig({

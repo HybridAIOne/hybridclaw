@@ -1,7 +1,14 @@
+import type { EscalationTarget } from '../types/execution.js';
 import {
   normalizeTrimmedString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
+
+export type { EscalationTarget as AgentEscalationTarget } from '../types/execution.js';
+export {
+  escalationTargetEquals as agentEscalationTargetEquals,
+  normalizeEscalationTarget as normalizeAgentEscalationTarget,
+} from '../types/execution.js';
 
 export const DEFAULT_AGENT_ID = 'main';
 
@@ -32,6 +39,7 @@ export interface AgentConfig {
   owner?: string;
   role?: string;
   cv?: AgentCv;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface AgentDefaultsConfig {
