@@ -5943,6 +5943,12 @@ function migrateConfigSchemaOnStartup(): void {
     return;
   }
 
+  if (migrated.deployment.mode === 'cloud' && !migrated.deployment.public_url) {
+    console.warn(
+      '[runtime-config] deployment.mode is "cloud" but deployment.public_url is empty; inbound webhooks and public callbacks may fail until a public URL is configured',
+    );
+  }
+
   try {
     const parsedRecord = parsed as Record<string, unknown>;
     const rawContainer = isRecord(parsedRecord.container)
