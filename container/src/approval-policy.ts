@@ -19,6 +19,13 @@ import {
 } from '../shared/network-policy.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
+import {
+  classifyStakes,
+  createStakesClassifier,
+  type StakesClassifier,
+  type StakesLevel,
+  type StakesScore,
+} from './stakes-classifier.js';
 import type { ChatMessage } from './types.js';
 
 export type {
@@ -30,13 +37,19 @@ export {
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '../shared/network-policy.js';
+export type {
+  StakesClassificationInput,
+  StakesClassifier,
+  StakesLevel,
+  StakesScore,
+  StakesSignal,
+} from './stakes-classifier.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
 export type AutonomyLevel =
   | 'full-autonomous'
   | 'low-stakes-autonomous'
   | 'confirm-each';
-export type StakesLevel = 'low' | 'medium' | 'high';
 export type EscalationRoute =
   | 'none'
   | 'implicit_notice'
@@ -123,6 +136,7 @@ export interface ToolApprovalEvaluation {
   tier: ApprovalTier;
   autonomyLevel: AutonomyLevel;
   stakes: StakesLevel;
+  stakesScore: StakesScore;
   escalationRoute: EscalationRoute;
   decision: ApprovalDecision;
   actionKey: string;
@@ -257,12 +271,6 @@ function normalizePreview(value: string): string {
 
 function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
-}
-
-function stakesForTier(tier: ApprovalTier): StakesLevel {
-  if (tier === 'red') return 'high';
-  if (tier === 'yellow') return 'medium';
-  return 'low';
 }
 
 function escalationRouteForDecision(
@@ -1020,6 +1028,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  private readonly stakesClassifier: StakesClassifier;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
 
@@ -1028,11 +1037,13 @@ export class TrustedAgentApprovalRuntime {
     agentTrustStorePath = AGENT_TRUST_STORE_PATH,
     trustStorePath = TRUST_STORE_PATH,
     legacyAgentTrustStorePath = LEGACY_AGENT_TRUST_STORE_PATH,
+    stakesClassifier: StakesClassifier = createStakesClassifier(),
   ) {
     this.policyPath = policyPath;
     this.agentTrustStorePath = agentTrustStorePath;
     this.trustStorePath = trustStorePath;
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
+    this.stakesClassifier = stakesClassifier;
     this.reloadPolicyIfNeeded(true);
     this.loadPersistedTrustStore({
       trustStorePath: this.agentTrustStorePath,
@@ -1298,17 +1309,46 @@ export class TrustedAgentApprovalRuntime {
       toolName: params.toolName,
       actionKey: classified.actionKey,
     });
-    let baseTier: ApprovalTier =
+    const safetyTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
+    let stakesScore = classifyStakes(
+      {
+        toolName: params.toolName,
+        args,
+        actionKey: classified.actionKey,
+        intent: classified.intent,
+        reason: classified.reason,
+        target: classified.commandPreview,
+        approvalTier: safetyTier,
+        pathHints: classified.pathHints,
+        hostHints: classified.hostHints,
+        writeIntent: classified.writeIntent,
+        pinned: pinnedByPolicy,
+      },
+      this.stakesClassifier,
+    );
+    if (classified.stakes && classified.stakes !== stakesScore.level) {
+      stakesScore = {
+        ...stakesScore,
+        level: classified.stakes,
+        reasons: [
+          `approval classifier explicitly set ${classified.stakes} stakes`,
+          ...stakesScore.reasons,
+        ],
+      };
+    }
+    const stakes = stakesScore.level;
+
+    let baseTier: ApprovalTier = safetyTier;
     if (autonomyLevel === 'confirm-each' && baseTier !== 'red') {
       baseTier = 'red';
-    } else if (
-      autonomyLevel === 'low-stakes-autonomous' &&
-      baseTier === 'green'
-    ) {
-      baseTier = 'yellow';
+    } else if (autonomyLevel === 'low-stakes-autonomous') {
+      if (stakes === 'high' && baseTier !== 'red') {
+        baseTier = 'red';
+      } else if (stakes === 'medium' && baseTier === 'green') {
+        baseTier = 'yellow';
+      }
     }
-    const stakes = classified.stakes || stakesForTier(baseTier);
 
     let tier: ApprovalTier = baseTier;
     let decision: ApprovalDecision = 'auto';
@@ -1319,7 +1359,8 @@ export class TrustedAgentApprovalRuntime {
           baseTier,
           tier: 'red',
           autonomyLevel,
-          stakes: 'high',
+          stakes,
+          stakesScore,
           escalationRoute: 'policy_denial',
           decision: 'denied',
           actionKey: classified.actionKey,
@@ -1380,6 +1421,7 @@ export class TrustedAgentApprovalRuntime {
             tier: 'red',
             autonomyLevel,
             stakes,
+            stakesScore,
             escalationRoute: 'policy_denial',
             decision: 'denied',
             actionKey: classified.actionKey,
@@ -1409,6 +1451,7 @@ export class TrustedAgentApprovalRuntime {
           tier: 'red',
           autonomyLevel,
           stakes,
+          stakesScore,
           escalationRoute: 'approval_request',
           decision: 'required',
           actionKey: classified.actionKey,
@@ -1454,6 +1497,7 @@ export class TrustedAgentApprovalRuntime {
       tier,
       autonomyLevel,
       stakes,
+      stakesScore,
       escalationRoute: escalationRouteForDecision(decision, tier),
       decision,
       actionKey: classified.actionKey,

@@ -253,6 +253,22 @@ export interface MediaContextItem {
   filename: string;
 }
 
+export interface ToolExecutionStakesSignal {
+  name: string;
+  level: 'low' | 'medium' | 'high';
+  score: number;
+  reason: string;
+}
+
+export interface ToolExecutionStakesScore {
+  level: 'low' | 'medium' | 'high';
+  score: number;
+  confidence: number;
+  classifier: string;
+  signals: ToolExecutionStakesSignal[];
+  reasons: string[];
+}
+
 export interface ToolExecution {
   name: string;
   arguments: string;
@@ -265,6 +281,7 @@ export interface ToolExecution {
   approvalBaseTier?: 'green' | 'yellow' | 'red';
   autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
   stakes?: 'low' | 'medium' | 'high';
+  stakesScore?: ToolExecutionStakesScore;
   escalationRoute?:
     | 'none'
     | 'implicit_notice'

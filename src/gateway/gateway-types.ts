@@ -82,6 +82,19 @@ export interface GatewayChatResult {
       | 'low-stakes-autonomous'
       | 'confirm-each';
     stakes?: 'low' | 'medium' | 'high';
+    stakesScore?: {
+      level: 'low' | 'medium' | 'high';
+      score: number;
+      confidence: number;
+      classifier: string;
+      signals: Array<{
+        name: string;
+        level: 'low' | 'medium' | 'high';
+        score: number;
+        reason: string;
+      }>;
+      reasons: string[];
+    };
     escalationRoute?:
       | 'none'
       | 'implicit_notice'

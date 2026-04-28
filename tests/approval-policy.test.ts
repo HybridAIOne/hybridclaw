@@ -144,10 +144,54 @@ autonomy:
 
     expect(evaluation.autonomyLevel).toBe('confirm-each');
     expect(evaluation.baseTier).toBe('red');
-    expect(evaluation.stakes).toBe('high');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.stakesScore.level).toBe('low');
     expect(evaluation.decision).toBe('required');
     expect(evaluation.escalationRoute).toBe('approval_request');
     expect(evaluation.requestId).toBeTruthy();
+  });
+
+  test('low-stakes autonomy keeps low-stakes reads autonomous', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.baseTier).toBe('green');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.decision).toBe('auto');
+  });
+
+  test('low-stakes autonomy escalates high-stakes customer-facing sends', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({
+        action: 'send',
+        channel: 'customer-success',
+        text: 'Tell the customer their invoice was refunded.',
+      }),
+      latestUserPrompt: 'Send a refund update to the customer',
+    });
+
+    expect(evaluation.stakes).toBe('high');
+    expect(evaluation.stakesScore.reasons).toContain(
+      'target appears customer-facing or externally visible',
+    );
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
   });
 
   test('pip install is classified as dependency installation', () => {
