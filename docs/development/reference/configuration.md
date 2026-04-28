@@ -125,7 +125,9 @@ leak into the saved revision metadata.
   `adaptiveSkills.trajectoryCapture.enabledAgentIds`; when
   `adaptiveSkills.trajectoryCapture.storeDir` is empty, trajectories are stored
   beside the runtime database, absolute paths are used as-is, and relative paths
-  resolve under the runtime home directory
+  resolve under the runtime home directory; trajectory retention defaults to
+  `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden
+  per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config

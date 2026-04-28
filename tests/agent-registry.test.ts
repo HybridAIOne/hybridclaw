@@ -242,6 +242,10 @@ test('agent owner, role, and CV persist through runtime config and registry', as
           capabilities: [' research ', 'writing', 'research'],
           asset: 'agents/charly/CV.md',
         },
+        escalationTarget: {
+          channel: ' slack:COPS ',
+          recipient: ' ops-lead ',
+        },
       },
     ];
   });
@@ -256,6 +260,10 @@ test('agent owner, role, and CV persist through runtime config and registry', as
     summary: 'Senior coworker',
     capabilities: ['research', 'writing'],
     asset: 'agents/charly/CV.md',
+  });
+  expect(persistedConfig?.escalationTarget).toEqual({
+    channel: 'slack:COPS',
+    recipient: 'ops-lead',
   });
 
   initAgentRegistry({
@@ -274,6 +282,10 @@ test('agent owner, role, and CV persist through runtime config and registry', as
           capabilities: ['research', 'writing'],
           asset: 'agents/charly/CV.md',
         },
+        escalationTarget: {
+          channel: 'slack:COPS',
+          recipient: 'ops-lead',
+        },
       },
     ],
   });
@@ -286,6 +298,10 @@ test('agent owner, role, and CV persist through runtime config and registry', as
     capabilities: ['research', 'writing'],
     asset: 'agents/charly/CV.md',
   });
+  expect(resolved.escalationTarget).toEqual({
+    channel: 'slack:COPS',
+    recipient: 'ops-lead',
+  });
 
   // Round-trip through SQLite confirms persistence.
   const stored = getAgentById('charly');
@@ -296,9 +312,13 @@ test('agent owner, role, and CV persist through runtime config and registry', as
     capabilities: ['research', 'writing'],
     asset: 'agents/charly/CV.md',
   });
+  expect(stored?.escalationTarget).toEqual({
+    channel: 'slack:COPS',
+    recipient: 'ops-lead',
+  });
 });
 
-test('legacy agents without owner/role/cv load cleanly after migration v21', async () => {
+test('legacy agents without owner/role/cv/escalation target load cleanly after migration v25', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -341,18 +361,24 @@ test('legacy agents without owner/role/cv load cleanly after migration v21', asy
   expect(columns.some((column) => column.name === 'owner')).toBe(true);
   expect(columns.some((column) => column.name === 'role')).toBe(true);
   expect(columns.some((column) => column.name === 'cv')).toBe(true);
+  expect(columns.some((column) => column.name === 'escalation_target')).toBe(
+    true,
+  );
 
   const userVersion = migratedDb.pragma('user_version', { simple: true });
-  expect(userVersion).toBeGreaterThanOrEqual(21);
+  expect(userVersion).toBeGreaterThanOrEqual(25);
 
   const charly = migratedDb
-    .prepare('SELECT id, name, owner, role, cv FROM agents WHERE id = ?')
+    .prepare(
+      'SELECT id, name, owner, role, cv, escalation_target FROM agents WHERE id = ?',
+    )
     .get('charly') as {
     id: string;
     name: string;
     owner: string | null;
     role: string | null;
     cv: string | null;
+    escalation_target: string | null;
   };
   expect(charly).toMatchObject({
     id: 'charly',
@@ -360,6 +386,7 @@ test('legacy agents without owner/role/cv load cleanly after migration v21', asy
     owner: null,
     role: null,
     cv: null,
+    escalation_target: null,
   });
   migratedDb.close();
 

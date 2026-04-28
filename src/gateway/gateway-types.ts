@@ -166,6 +166,7 @@ export interface GatewayChatRequest {
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {
+    channelId?: string;
     text: string;
     artifacts?: ArtifactMetadata[];
   }) => void | Promise<void>;

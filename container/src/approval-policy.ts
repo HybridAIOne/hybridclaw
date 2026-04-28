@@ -27,7 +27,11 @@ import {
   type StakesScore,
 } from './stakes-classifier.js';
 import { normalizeText } from './text-normalization.js';
-import type { ChatMessage } from './types.js';
+import {
+  type ChatMessage,
+  type EscalationTarget,
+  normalizeEscalationTarget,
+} from './types.js';
 
 export type {
   NetworkPolicyAction,
@@ -138,6 +142,7 @@ export interface ToolApprovalEvaluation {
   stakes: StakesLevel;
   stakesScore: StakesScore;
   escalationRoute: EscalationRoute;
+  escalationTarget?: EscalationTarget;
   decision: ApprovalDecision;
   actionKey: string;
   fingerprint: string;
@@ -275,6 +280,14 @@ function escalationRouteForDecision(
   if (decision === 'required') return 'approval_request';
   if (tier === 'yellow' && decision === 'implicit') return 'implicit_notice';
   return 'none';
+}
+
+function formatStakesReasoning(score: StakesScore): string {
+  const reasons =
+    score.reasons.length > 0
+      ? score.reasons.join('; ')
+      : 'no classifier reasons reported';
+  return `${score.level} stakes via ${score.classifier} (score ${score.score}, confidence ${score.confidence}): ${reasons}`;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -1275,6 +1288,7 @@ export class TrustedAgentApprovalRuntime {
     argsJson: string;
     latestUserPrompt: string;
     channelId?: string;
+    escalationTarget?: EscalationTarget;
   }): ToolApprovalEvaluation {
     this.reloadPolicyIfNeeded();
     this.cleanupExpiredPending();
@@ -1319,15 +1333,20 @@ export class TrustedAgentApprovalRuntime {
       this.stakesClassifier,
     );
     const stakes = stakesScore.level;
+    const escalationTarget = normalizeEscalationTarget(params.escalationTarget);
 
     let baseTier: ApprovalTier = safetyTier;
-    if (autonomyLevel === 'confirm-each' && baseTier !== 'red') {
+    let outOfBoundByAutonomy = false;
+    if (autonomyLevel === 'confirm-each') {
+      outOfBoundByAutonomy = true;
       baseTier = 'red';
     } else if (autonomyLevel === 'low-stakes-autonomous') {
-      if (stakes === 'high' && baseTier !== 'red') {
+      // Low-stakes autonomy permits only low-stakes actions to proceed without
+      // escalation. Medium and high stakes are out-of-bound and require a
+      // paused explicit approval path, rather than a yellow implicit notice.
+      if (stakes !== 'low') {
+        outOfBoundByAutonomy = true;
         baseTier = 'red';
-      } else if (stakes === 'medium' && baseTier === 'green') {
-        baseTier = 'yellow';
       }
     }
 
@@ -1343,6 +1362,7 @@ export class TrustedAgentApprovalRuntime {
           stakes,
           stakesScore,
           escalationRoute: 'policy_denial',
+          ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'denied',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1391,6 +1411,7 @@ export class TrustedAgentApprovalRuntime {
         decision = 'promoted';
       } else if (
         this.fullAutoEnabled &&
+        !outOfBoundByAutonomy &&
         !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
       ) {
         tier = 'yellow';
@@ -1404,6 +1425,7 @@ export class TrustedAgentApprovalRuntime {
             stakes,
             stakesScore,
             escalationRoute: 'policy_denial',
+            ...(escalationTarget ? { escalationTarget } : {}),
             decision: 'denied',
             actionKey: classified.actionKey,
             fingerprint,
@@ -1434,6 +1456,7 @@ export class TrustedAgentApprovalRuntime {
           stakes,
           stakesScore,
           escalationRoute: 'approval_request',
+          ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'required',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1453,6 +1476,7 @@ export class TrustedAgentApprovalRuntime {
       tier === 'yellow' &&
       decision === 'auto' &&
       this.fullAutoEnabled &&
+      !outOfBoundByAutonomy &&
       !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
     ) {
       decision = 'approved_fullauto';
@@ -1480,6 +1504,7 @@ export class TrustedAgentApprovalRuntime {
       stakes,
       stakesScore,
       escalationRoute: escalationRouteForDecision(decision, tier),
+      ...(escalationTarget ? { escalationTarget } : {}),
       decision,
       actionKey: classified.actionKey,
       fingerprint,
@@ -1550,6 +1575,13 @@ export class TrustedAgentApprovalRuntime {
         ];
     return [
       `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
+      `Proposed action: ${evaluation.commandPreview || evaluation.intent}`,
+      `Classifier reasoning: ${formatStakesReasoning(evaluation.stakesScore)}`,
+      ...(evaluation.escalationTarget
+        ? [
+            `Escalation target: ${evaluation.escalationTarget.channel} / ${evaluation.escalationTarget.recipient}`,
+          ]
+        : []),
       `Why: ${evaluation.reason}`,
       `If you skip this, ${evaluation.consequenceIfDenied.charAt(0).toLowerCase()}${evaluation.consequenceIfDenied.slice(1)}`,
       requestLabel,

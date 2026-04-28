@@ -29,6 +29,33 @@ export interface PluginRuntimeToolDefinition {
 export type ToolExecutionStakesSignal = CanonicalStakesSignal;
 export type ToolExecutionStakesScore = CanonicalStakesScore;
 
+export interface EscalationTarget {
+  channel: string;
+  recipient: string;
+}
+
+export function normalizeEscalationTarget(
+  value: unknown,
+): EscalationTarget | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as { channel?: unknown; recipient?: unknown };
+  const channel = typeof raw.channel === 'string' ? raw.channel.trim() : '';
+  const recipient =
+    typeof raw.recipient === 'string' ? raw.recipient.trim() : '';
+  return channel && recipient ? { channel, recipient } : undefined;
+}
+
+export function escalationTargetEquals(
+  a?: EscalationTarget,
+  b?: EscalationTarget,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.channel === b.channel && a.recipient === b.recipient;
+}
+
 export interface ToolExecution {
   name: string;
   arguments: string;
@@ -47,6 +74,7 @@ export interface ToolExecution {
     | 'implicit_notice'
     | 'approval_request'
     | 'policy_denial';
+  escalationTarget?: EscalationTarget;
   approvalDecision?:
     | 'auto'
     | 'implicit'
@@ -77,6 +105,7 @@ export interface PendingApproval {
   allowAgent: boolean;
   allowAll: boolean;
   expiresAt: number | null;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface ToolProgressEvent {

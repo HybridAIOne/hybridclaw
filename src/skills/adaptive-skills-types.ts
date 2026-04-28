@@ -139,6 +139,8 @@ export interface AdaptiveSkillsConfig {
   trajectoryCapture: {
     enabledAgentIds: string[];
     storeDir: string;
+    retentionDays: number;
+    retentionDaysByTenant: Record<string, number>;
   };
   inspectionIntervalMs: number;
   observationRetentionDays: number;
