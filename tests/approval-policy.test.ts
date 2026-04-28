@@ -28,6 +28,7 @@ function writeTempPolicy(raw: string): string {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('TrustedAgentApprovalRuntime', () => {
@@ -52,6 +53,34 @@ network:
         action: 'allow',
       }),
     ]);
+  });
+
+  test('invalid pinned_red regex patterns warn once instead of failing open silently', () => {
+    const policyPath = writeTempPolicy(`
+approval:
+  pinned_red:
+    - pattern: "[unterminated"
+`);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'AGENTS.md' }),
+      latestUserPrompt: 'Read the agent instructions',
+    });
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `[approval-policy] invalid pinned_red regex in ${policyPath}; rule will not match: [unterminated`,
+      ),
+    );
   });
 
   test('parsePolicyYaml preserves quoted hash characters inside YAML strings', () => {
@@ -144,10 +173,54 @@ autonomy:
 
     expect(evaluation.autonomyLevel).toBe('confirm-each');
     expect(evaluation.baseTier).toBe('red');
-    expect(evaluation.stakes).toBe('high');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.stakesScore.level).toBe('low');
     expect(evaluation.decision).toBe('required');
     expect(evaluation.escalationRoute).toBe('approval_request');
     expect(evaluation.requestId).toBeTruthy();
+  });
+
+  test('low-stakes autonomy keeps low-stakes reads autonomous', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.baseTier).toBe('green');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.decision).toBe('auto');
+  });
+
+  test('low-stakes autonomy escalates high-stakes customer-facing sends', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({
+        action: 'send',
+        channel: 'customer-success',
+        text: 'Tell the customer their invoice was refunded.',
+      }),
+      latestUserPrompt: 'Send a refund update to the customer',
+    });
+
+    expect(evaluation.stakes).toBe('high');
+    expect(evaluation.stakesScore.reasons).toContain(
+      'target appears customer-facing or externally visible',
+    );
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
   });
 
   test('pip install is classified as dependency installation', () => {
@@ -360,6 +433,25 @@ autonomy:
     expect(evaluation.decision).toBe('required');
     expect(evaluation.pinned).toBe(true);
     expect(evaluation.requestId).toBeTruthy();
+  });
+
+  test('bash absolute path classification does not realpath path tokens', () => {
+    const realpathSpy = vi.spyOn(fs, 'realpathSync');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: 'ls /etc/hybridclaw-generated-policy-path',
+      }),
+      latestUserPrompt: 'Check generated policy path',
+    });
+
+    expect(realpathSpy).not.toHaveBeenCalled();
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.pinned).toBe(true);
   });
 
   test('full-auto mode auto-approves red actions without creating a pending prompt', () => {

@@ -55,6 +55,10 @@ export interface UsageAgentAggregate {
   total_tool_calls: number;
 }
 
+export interface UsageAgentRollup extends UsageAgentAggregate {
+  monthly_cost_usd: number;
+}
+
 export interface UsageSessionAggregate {
   session_id: string;
   total_input_tokens: number;

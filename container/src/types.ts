@@ -1,3 +1,7 @@
+import type {
+  StakesScore as CanonicalStakesScore,
+  StakesSignal as CanonicalStakesSignal,
+} from '../shared/stakes-classifier.js';
 import type { McpServerConfig } from './mcp/types.js';
 
 export interface ChatContentTextPart {
@@ -253,6 +257,9 @@ export interface MediaContextItem {
   filename: string;
 }
 
+export type ToolExecutionStakesSignal = CanonicalStakesSignal;
+export type ToolExecutionStakesScore = CanonicalStakesScore;
+
 export interface ToolExecution {
   name: string;
   arguments: string;
@@ -265,6 +272,7 @@ export interface ToolExecution {
   approvalBaseTier?: 'green' | 'yellow' | 'red';
   autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
   stakes?: 'low' | 'medium' | 'high';
+  stakesScore?: ToolExecutionStakesScore;
   escalationRoute?:
     | 'none'
     | 'implicit_notice'

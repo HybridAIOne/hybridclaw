@@ -25,8 +25,11 @@ import {
   initDatabase,
   listMemoryValues,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageDailyBreakdown,
+  monthlySpendEur,
+  monthlySpendUsd,
   queryKnowledgeGraph,
   recallSemanticMemories,
   recordUsageEvent,
@@ -39,6 +42,7 @@ import {
   type MemoryBackend,
   MemoryService,
 } from '../src/memory/memory-service.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../src/providers/model-metadata.js';
 import { normalizeRecentChatSearchQuery } from '../src/session/recent-chat-search.js';
 import {
   KnowledgeEntityType,
@@ -2091,6 +2095,10 @@ describe.sequential('usage aggregation DB', () => {
   test('records usage events and returns daily/monthly + by-model aggregates', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
+    const now = new Date();
+    const previousMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12),
+    );
 
     recordUsageEvent({
       sessionId: 's-a',
@@ -2122,6 +2130,16 @@ describe.sequential('usage aggregation DB', () => {
       toolCalls: 0,
       costUsd: 0.0013,
     });
+    recordUsageEvent({
+      sessionId: 's-old',
+      agentId: 'agent-a',
+      model: 'gpt-5-nano',
+      inputTokens: 1_000,
+      outputTokens: 1_000,
+      totalTokens: 2_000,
+      costUsd: 9,
+      timestamp: previousMonth.toISOString(),
+    });
 
     const agentDaily = getUsageTotals({
       agentId: 'agent-a',
@@ -2130,6 +2148,13 @@ describe.sequential('usage aggregation DB', () => {
     expect(agentDaily.call_count).toBe(2);
     expect(agentDaily.total_tokens).toBe(800);
     expect(agentDaily.total_cost_usd).toBeCloseTo(0.0049, 6);
+    expect(monthlySpendUsd(' agent-a ')).toBeCloseTo(0.0049, 6);
+    expect(monthlySpendEur(' agent-a ')).toBeCloseTo(
+      0.0049 / MODEL_METADATA_USD_TO_EUR.usdPerEur,
+      6,
+    );
+    expect(monthlySpendUsd('agent-b')).toBeCloseTo(0.0013, 6);
+    expect(() => monthlySpendUsd('')).toThrow('Agent id is required.');
 
     const monthlyByModel = listUsageByModel({
       window: 'monthly',
@@ -2144,6 +2169,12 @@ describe.sequential('usage aggregation DB', () => {
     expect(dailyByAgent.length).toBe(2);
     expect(dailyByAgent[0]?.agent_id).toBe('agent-a');
     expect(dailyByAgent[0]?.total_tokens).toBe(800);
+
+    const agentRollups = listUsageByAgentRollups();
+    expect(agentRollups.length).toBe(2);
+    expect(agentRollups[0]?.agent_id).toBe('agent-a');
+    expect(agentRollups[0]?.total_cost_usd).toBeCloseTo(9.0049, 6);
+    expect(agentRollups[0]?.monthly_cost_usd).toBeCloseTo(0.0049, 6);
 
     const dailyBreakdown = listUsageDailyBreakdown({ days: 7 });
     expect(dailyBreakdown.length).toBe(1);
