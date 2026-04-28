@@ -258,8 +258,23 @@ function getDeploymentConfigIssues(
 } {
   const missingFields: string[] = [];
   const invalidFields: string[] = [];
-  const publicUrl = config.deployment.public_url.trim();
-  const tunnelProvider = config.deployment.tunnel.provider.trim();
+  const deployment = (
+    config as {
+      deployment?: Partial<RuntimeConfig['deployment']>;
+    }
+  ).deployment;
+  const deploymentMode =
+    deployment?.mode === 'cloud' || deployment?.mode === 'local'
+      ? deployment.mode
+      : 'local';
+  const publicUrl =
+    typeof deployment?.public_url === 'string'
+      ? deployment.public_url.trim()
+      : '';
+  const tunnelProvider =
+    typeof deployment?.tunnel?.provider === 'string'
+      ? deployment.tunnel.provider.trim()
+      : 'manual';
   const rawMode = getRawDeploymentField(rawConfig, 'mode');
   const normalizedRawMode =
     typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
@@ -272,10 +287,10 @@ function getDeploymentConfigIssues(
     invalidFields.push('deployment.mode must be "cloud" or "local"');
   }
 
-  if (config.deployment.mode === 'cloud' && !publicUrl) {
+  if (deploymentMode === 'cloud' && !publicUrl) {
     missingFields.push('deployment.public_url');
   }
-  if (config.deployment.mode === 'local' && !tunnelProvider) {
+  if (deploymentMode === 'local' && !tunnelProvider) {
     missingFields.push('deployment.tunnel.provider');
   }
   if (publicUrl && !isHttpUrl(publicUrl)) {
