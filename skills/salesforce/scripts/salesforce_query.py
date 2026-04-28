@@ -958,7 +958,7 @@ def build_activity_payload(
     activity_date: str,
     notes: str,
     duration_minutes: int,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str, str, dict[str, Any]]:
     normalized_type = normalize_activity_type(activity_type)
     link_field = record_link_field(target_sobject)
     clean_subject = clean_phrase(subject)
@@ -980,7 +980,7 @@ def build_activity_payload(
         }
         if notes.strip():
             payload["Description"] = notes.strip()
-        return "Task", payload
+        return "Task", normalized_type, payload
 
     start, end = meeting_times(activity_date, duration_minutes)
     event_subject = (
@@ -996,7 +996,7 @@ def build_activity_payload(
     }
     if notes.strip():
         payload["Description"] = notes.strip()
-    return "Event", payload
+    return "Event", normalized_type, payload
 
 
 def log_activity(
@@ -1020,7 +1020,7 @@ def log_activity(
     target_id = str(record.get("Id") or "").strip()
     if not target_id:
         raise SalesforceError("Resolved activity target did not include Id.")
-    activity_sobject, fields = build_activity_payload(
+    activity_sobject, normalized_activity_type, fields = build_activity_payload(
         activity_type=activity_type,
         target_sobject=target_sobject,
         target_id=target_id,
@@ -1039,7 +1039,7 @@ def log_activity(
         "log-activity",
         apiVersion=session.api_version,
         dryRun=dry_run,
-        activityType=normalize_activity_type(activity_type),
+        activityType=normalized_activity_type,
         activityObject=activity_sobject,
         targetObject=target_sobject,
         target=record_identity(record),
@@ -1300,6 +1300,33 @@ def format_table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(lines)
 
 
+def _child_relationship_rows(payload: dict[str, Any]) -> list[list[Any]]:
+    return [
+        [
+            rel.get("childSObject"),
+            rel.get("field"),
+            rel.get("relationshipName"),
+            rel.get("cascadeDelete"),
+        ]
+        for rel in payload.get("childRelationships", [])
+    ]
+
+
+def _columns_from_records(records: Any) -> list[str]:
+    columns: list[str] = []
+    if not isinstance(records, list):
+        return columns
+    seen: set[str] = set()
+    for record in records:
+        if not is_mapping(record):
+            continue
+        for key in record.keys():
+            if key not in seen:
+                seen.add(key)
+                columns.append(key)
+    return columns
+
+
 def render_text(payload: dict[str, Any]) -> str:
     command = payload.get("command")
     if command == "objects":
@@ -1338,15 +1365,7 @@ def render_text(payload: dict[str, Any]) -> str:
             ]
             for field in payload.get("fields", [])
         ]
-        child_rows = [
-            [
-                rel.get("childSObject"),
-                rel.get("field"),
-                rel.get("relationshipName"),
-                rel.get("cascadeDelete"),
-            ]
-            for rel in payload.get("childRelationships", [])
-        ]
+        child_rows = _child_relationship_rows(payload)
         lines = [
             f"Object: {obj.get('name')} ({obj.get('label')})",
             f"API version: {payload.get('apiVersion')}",
@@ -1385,15 +1404,7 @@ def render_text(payload: dict[str, Any]) -> str:
             ]
             for rel in payload.get("parentRelations", [])
         ]
-        child_rows = [
-            [
-                rel.get("childSObject"),
-                rel.get("field"),
-                rel.get("relationshipName"),
-                rel.get("cascadeDelete"),
-            ]
-            for rel in payload.get("childRelationships", [])
-        ]
+        child_rows = _child_relationship_rows(payload)
         return "\n".join(
             [
                 f"Object: {obj.get('name')} ({obj.get('label')})",
@@ -1418,16 +1429,7 @@ def render_text(payload: dict[str, Any]) -> str:
 
     if command in {"query", "tooling-query"}:
         records = payload.get("records", [])
-        columns: list[str] = []
-        if isinstance(records, list):
-            seen: set[str] = set()
-            for record in records:
-                if not is_mapping(record):
-                    continue
-                for key in record.keys():
-                    if key not in seen:
-                        seen.add(key)
-                        columns.append(key)
+        columns = _columns_from_records(records)
         rows = [
             [record.get(column) if is_mapping(record) else record for column in columns]
             for record in records
@@ -1451,16 +1453,7 @@ def render_text(payload: dict[str, Any]) -> str:
 
     if command == "find":
         records = payload.get("records", [])
-        columns: list[str] = []
-        if isinstance(records, list):
-            seen: set[str] = set()
-            for record in records:
-                if not is_mapping(record):
-                    continue
-                for key in record.keys():
-                    if key not in seen:
-                        seen.add(key)
-                        columns.append(key)
+        columns = _columns_from_records(records)
         rows = [
             [record.get(column) if is_mapping(record) else record for column in columns]
             for record in records
