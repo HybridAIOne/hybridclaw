@@ -62,9 +62,8 @@ function safeFilePart(raw: string): string {
 
 export function resolveSkillRunTrajectoryStoreDir(
   config: RuntimeConfig,
-  adaptiveSkills: AdaptiveSkillsConfig = config.adaptiveSkills,
 ): string {
-  const configured = adaptiveSkills.trajectoryCapture.storeDir.trim();
+  const configured = config.adaptiveSkills.trajectoryCapture.storeDir.trim();
   if (!configured) {
     return path.join(path.dirname(config.ops.dbPath), 'trajectories');
   }
@@ -343,17 +342,13 @@ function removeDateDirIfEmpty(dateDir: string): void {
 
 export function pruneExpiredSkillRunTrajectories(input?: {
   config?: RuntimeConfig;
-  adaptiveSkills?: AdaptiveSkillsConfig;
   now?: Date;
 }): number {
   const runtimeConfig = input?.config ?? getRuntimeConfig();
-  const adaptiveSkills = input?.adaptiveSkills ?? runtimeConfig.adaptiveSkills;
+  const adaptiveSkills = runtimeConfig.adaptiveSkills;
   if (adaptiveSkills.trajectoryCapture.retentionDays <= 0) return 0;
 
-  const storeDir = resolveSkillRunTrajectoryStoreDir(
-    runtimeConfig,
-    adaptiveSkills,
-  );
+  const storeDir = resolveSkillRunTrajectoryStoreDir(runtimeConfig);
   if (!fs.existsSync(storeDir)) return 0;
 
   let prunedFiles = 0;

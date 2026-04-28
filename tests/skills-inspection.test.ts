@@ -263,8 +263,14 @@ test('runPeriodicSkillInspection prunes expired trajectory files by tenant polic
 
     const staleDefaultPath = writeTrajectory(dateDaysAgo(400), 'agent-default');
     const staleShortPath = writeTrajectory(dateDaysAgo(5), 'agent-short');
-    const retainedOverridePath = writeTrajectory(dateDaysAgo(400), 'agent-keep');
-    const retainedDefaultPath = writeTrajectory(dateDaysAgo(2), 'agent-default');
+    const retainedOverridePath = writeTrajectory(
+      dateDaysAgo(400),
+      'agent-keep',
+    );
+    const retainedDefaultPath = writeTrajectory(
+      dateDaysAgo(2),
+      'agent-default',
+    );
 
     const { runPeriodicSkillInspection } = await import(
       '../src/skills/skills-inspection.ts'
@@ -282,4 +288,67 @@ test('runPeriodicSkillInspection prunes expired trajectory files by tenant polic
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('pruneExpiredSkillRunTrajectories resolves empty store dir from provided runtime config', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const runtimeConfig = context.runtimeConfigModule.getRuntimeConfig();
+  const configuredDbPath = path.join(
+    context.homeDir,
+    'configured-data',
+    'test.db',
+  );
+  const configuredStoreDir = path.join(
+    path.dirname(configuredDbPath),
+    'trajectories',
+  );
+  const runtimeStoreDir = path.join(
+    path.dirname(context.dbPath),
+    'trajectories',
+  );
+
+  const writeTrajectory = (storeDir: string) => {
+    const filePath = path.join(storeDir, '2024-01-01', 'agent-default.jsonl');
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      `${JSON.stringify({
+        schema_version: 2,
+        tenant_id: 'agent-default',
+        agent_id: 'agent-default',
+      })}\n`,
+      'utf-8',
+    );
+    return filePath;
+  };
+
+  const configuredPath = writeTrajectory(configuredStoreDir);
+  const runtimePath = writeTrajectory(runtimeStoreDir);
+  const { pruneExpiredSkillRunTrajectories } = await import(
+    '../src/skills/skill-run-trajectories.ts'
+  );
+
+  const pruned = pruneExpiredSkillRunTrajectories({
+    config: {
+      ...runtimeConfig,
+      ops: {
+        ...runtimeConfig.ops,
+        dbPath: configuredDbPath,
+      },
+      adaptiveSkills: {
+        ...runtimeConfig.adaptiveSkills,
+        trajectoryCapture: {
+          ...runtimeConfig.adaptiveSkills.trajectoryCapture,
+          storeDir: '',
+          retentionDays: 1,
+          retentionDaysByTenant: {},
+        },
+      },
+    },
+    now: new Date('2024-01-15T12:00:00.000Z'),
+  });
+
+  expect(pruned).toBe(1);
+  expect(fs.existsSync(configuredPath)).toBe(false);
+  expect(fs.existsSync(runtimePath)).toBe(true);
 });
