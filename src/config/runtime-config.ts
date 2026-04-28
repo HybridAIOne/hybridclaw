@@ -67,6 +67,7 @@ import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
+import { expandHomePath } from '../utils/path.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -95,7 +96,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 22;
+export const CONFIG_VERSION = 23;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -1010,6 +1011,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
+    trajectoryCapture: {
+      enabledAgentIds: [],
+      storeDir: '',
+    },
     inspectionIntervalMs: 3_600_000,
     observationRetentionDays: 30,
     trailingWindowHours: 168,
@@ -2227,15 +2232,6 @@ function normalizeCodexModelArray(
 
 function normalizePathForCompare(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
-}
-
-function expandHomePath(value: string): string {
-  const normalized = value.trim();
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/') || normalized.startsWith('~\\')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  return normalized;
 }
 
 function isLegacyDefaultDbPath(value: string): boolean {
@@ -4262,6 +4258,9 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
+    ? rawAdaptiveSkills.trajectoryCapture
+    : {};
   const rawChannelInstructions = isRecord(raw.channelInstructions)
     ? raw.channelInstructions
     : {};
@@ -4646,6 +4645,18 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.observationEnabled,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
+      trajectoryCapture: {
+        enabledAgentIds: normalizeStringArray(
+          rawTrajectoryCapture.enabledAgentIds,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .enabledAgentIds,
+        ),
+        storeDir: normalizeString(
+          rawTrajectoryCapture.storeDir,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.storeDir,
+          { allowEmpty: true },
+        ),
+      },
       inspectionIntervalMs: normalizeInteger(
         rawAdaptiveSkills.inspectionIntervalMs,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,

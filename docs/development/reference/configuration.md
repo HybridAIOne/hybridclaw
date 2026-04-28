@@ -116,7 +116,12 @@ leak into the saved revision metadata.
 - `plugins.list[]` for plugin overrides and config; use
   `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
   edits
-- `adaptiveSkills.*` for skill observation, amendment staging, and rollback
+- `adaptiveSkills.*` for skill observation, amendment staging, rollback, and
+  opt-in trajectory capture via
+  `adaptiveSkills.trajectoryCapture.enabledAgentIds`; when
+  `adaptiveSkills.trajectoryCapture.storeDir` is empty, trajectories are stored
+  beside the runtime database, absolute paths are used as-is, and relative paths
+  resolve under the runtime home directory
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config

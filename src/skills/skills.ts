@@ -24,6 +24,7 @@ import { withSpanSync } from '../observability/otel.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
@@ -826,13 +827,8 @@ function asPromptLocation(
 }
 
 function resolveUserPath(raw: string): string {
-  const value = raw.trim();
-  if (!value) return '';
-  if (value === '~') return os.homedir();
-  if (value.startsWith('~/') || value.startsWith('~\\')) {
-    return path.join(os.homedir(), value.slice(2));
-  }
-  return path.resolve(value);
+  const expanded = expandHomePath(raw);
+  return expanded ? path.resolve(expanded) : '';
 }
 
 function resolveBundledSkillsDir(): string | null {
