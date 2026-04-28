@@ -125,6 +125,25 @@ function resolveSkillSnapshotAssetPath(skillDir: string): string {
   return path.join(skillDir, SKILL_PACKAGE_SNAPSHOT_FILE);
 }
 
+function readSkillPackageSnapshotFile(fullPath: string): {
+  content: Buffer;
+  mode: number;
+} {
+  const fd = fs.openSync(fullPath, 'r');
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Unsupported skill package entry: ${fullPath}`);
+    }
+    return {
+      content: fs.readFileSync(fd),
+      mode: stat.mode & 0o777,
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function buildSkillPackageSnapshot(
   skillDir: string,
   manifest: SkillManifest,
@@ -154,11 +173,11 @@ function buildSkillPackageSnapshot(
         throw new Error(`Unsupported skill package entry: ${relativePath}`);
       }
 
-      const content = fs.readFileSync(fullPath);
+      const { content, mode } = readSkillPackageSnapshotFile(fullPath);
       recordImportedFile(state, content.byteLength);
       files.push({
         path: relativePath,
-        mode: fs.statSync(fullPath).mode & 0o777,
+        mode,
         contentBase64: content.toString('base64'),
       });
     }
