@@ -13,6 +13,7 @@ import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
@@ -82,19 +83,7 @@ export interface GatewayChatResult {
       | 'low-stakes-autonomous'
       | 'confirm-each';
     stakes?: 'low' | 'medium' | 'high';
-    stakesScore?: {
-      level: 'low' | 'medium' | 'high';
-      score: number;
-      confidence: number;
-      classifier: string;
-      signals: Array<{
-        name: string;
-        level: 'low' | 'medium' | 'high';
-        score: number;
-        reason: string;
-      }>;
-      reasons: string[];
-    };
+    stakesScore?: ToolExecution['stakesScore'];
     escalationRoute?:
       | 'none'
       | 'implicit_notice'
