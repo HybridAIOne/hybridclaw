@@ -6,7 +6,6 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
-  type RuntimeConfig,
   runtimeConfigPath,
   setRuntimeToolEnabled,
   updateRuntimeConfig,
@@ -34,6 +33,8 @@ type UnusedEntry = {
 type UsageEntry = UnusedEntry & {
   toolNames: string[];
 };
+
+const DEPLOYMENT_CONFIG_VERSION = 22;
 
 function formatUnusedEntries(entries: readonly UnusedEntry[]): string {
   return entries
@@ -233,51 +234,67 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function getRawDeploymentField(
+function getRawDeployment(
   rawConfig: Record<string, unknown>,
-  key: string,
-): unknown {
+): Record<string, unknown> | null {
   const rawDeployment = rawConfig.deployment;
   if (
     !rawDeployment ||
     typeof rawDeployment !== 'object' ||
     Array.isArray(rawDeployment)
   ) {
-    return undefined;
+    return null;
   }
-  if (!Object.hasOwn(rawDeployment, key)) return undefined;
-  return (rawDeployment as Record<string, unknown>)[key];
+  return rawDeployment as Record<string, unknown>;
 }
 
-function getDeploymentConfigIssues(
-  config: RuntimeConfig,
+function getRawDeploymentField(
   rawConfig: Record<string, unknown>,
-): {
+  key: string,
+): unknown {
+  const rawDeployment = getRawDeployment(rawConfig);
+  if (!rawDeployment) return undefined;
+  if (!Object.hasOwn(rawDeployment, key)) return undefined;
+  return rawDeployment[key];
+}
+
+function getRawDeploymentTunnelProvider(
+  rawConfig: Record<string, unknown>,
+  fallback: string,
+): string {
+  const rawDeployment = getRawDeployment(rawConfig);
+  const rawTunnel = rawDeployment?.tunnel;
+  if (!rawTunnel || typeof rawTunnel !== 'object' || Array.isArray(rawTunnel)) {
+    return fallback;
+  }
+  const rawProvider = (rawTunnel as Record<string, unknown>).provider;
+  return typeof rawProvider === 'string' ? rawProvider.trim() : fallback;
+}
+
+function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   missingFields: string[];
   invalidFields: string[];
 } {
   const missingFields: string[] = [];
   const invalidFields: string[] = [];
-  const deployment = (
-    config as {
-      deployment?: Partial<RuntimeConfig['deployment']>;
-    }
-  ).deployment;
-  const deploymentMode =
-    deployment?.mode === 'cloud' || deployment?.mode === 'local'
-      ? deployment.mode
-      : 'local';
-  const publicUrl =
-    typeof deployment?.public_url === 'string'
-      ? deployment.public_url.trim()
-      : '';
-  const tunnelProvider =
-    typeof deployment?.tunnel?.provider === 'string'
-      ? deployment.tunnel.provider.trim()
-      : 'manual';
+  const rawDeployment = getRawDeployment(rawConfig);
+  const hasCurrentDeploymentSchema =
+    rawDeployment !== null ||
+    (typeof rawConfig.version === 'number' &&
+      rawConfig.version >= DEPLOYMENT_CONFIG_VERSION);
   const rawMode = getRawDeploymentField(rawConfig, 'mode');
   const normalizedRawMode =
     typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
+  const deploymentMode =
+    normalizedRawMode === 'cloud' || normalizedRawMode === 'local'
+      ? normalizedRawMode
+      : 'local';
+  const rawPublicUrl = getRawDeploymentField(rawConfig, 'public_url');
+  const publicUrl = typeof rawPublicUrl === 'string' ? rawPublicUrl.trim() : '';
+  const tunnelProvider = getRawDeploymentTunnelProvider(
+    rawConfig,
+    hasCurrentDeploymentSchema ? '' : 'manual',
+  );
 
   if (
     rawMode !== undefined &&
@@ -349,7 +366,7 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     config.ops.dbPath.trim() ? null : 'ops.dbPath',
     config.container.image.trim() ? null : 'container.image',
   ].filter(Boolean) as string[];
-  const deploymentIssues = getDeploymentConfigIssues(config, rawConfig);
+  const deploymentIssues = getDeploymentConfigIssues(rawConfig);
   missingFields.push(...deploymentIssues.missingFields);
 
   if (missingFields.length > 0 || deploymentIssues.invalidFields.length > 0) {

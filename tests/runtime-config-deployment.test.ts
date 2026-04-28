@@ -34,6 +34,10 @@ function readDiskConfig(): Record<string, unknown> {
   >;
 }
 
+function writeDiskConfig(config: Record<string, unknown>): void {
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-deployment-config-'));
   configPath = path.join(tmpDir, 'config.json');
@@ -78,11 +82,16 @@ describe('runtime deployment config', () => {
   });
 
   it('validates cloud mode requires deployment.public_url', async () => {
-    const { runtimeConfig, checkConfigFile } = await importFreshRuntimeConfig();
-    runtimeConfig.updateRuntimeConfig((draft) => {
-      draft.deployment.mode = 'cloud';
-      draft.deployment.public_url = '';
-    });
+    const { checkConfigFile } = await importFreshRuntimeConfig();
+    const config = readDiskConfig();
+    config.deployment = {
+      mode: 'cloud',
+      public_url: '',
+      tunnel: {
+        provider: 'manual',
+      },
+    };
+    writeDiskConfig(config);
 
     const results = await checkConfigFile();
 
@@ -115,13 +124,34 @@ describe('runtime deployment config', () => {
         provider: 'manual',
       },
     };
-    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeDiskConfig(config);
 
     const results = await checkConfigFile();
 
     expect(results).toHaveLength(1);
     expect(results[0]?.severity).toBe('error');
     expect(results[0]?.message).toContain('deployment.mode');
+  });
+
+  it('validates deployment.public_url protocols from disk', async () => {
+    const { checkConfigFile } = await importFreshRuntimeConfig();
+    const config = readDiskConfig();
+    config.deployment = {
+      mode: 'cloud',
+      public_url: 'ftp://bot.example.com',
+      tunnel: {
+        provider: 'manual',
+      },
+    };
+    writeDiskConfig(config);
+
+    const results = await checkConfigFile();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.severity).toBe('error');
+    expect(results[0]?.message).toContain(
+      'deployment.public_url must be an HTTP(S) URL',
+    );
   });
 
   it('persists deployment updates through runtime config revisions', async () => {
