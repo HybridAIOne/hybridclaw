@@ -143,7 +143,7 @@ describe('mapLogicalAgentCard', () => {
       inputTokens: 200,
       outputTokens: 50,
       costUsd: 1.25,
-      monthlySpend: 0.42,
+      monthlySpendUsd: 0.42,
       messageCount: 10,
       toolCalls: 7,
       recentSessionId: 'dm:1',

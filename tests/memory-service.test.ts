@@ -27,7 +27,7 @@ import {
   listUsageByAgent,
   listUsageByModel,
   listUsageDailyBreakdown,
-  monthlySpend,
+  monthlySpendUsd,
   queryKnowledgeGraph,
   recallSemanticMemories,
   recordUsageEvent,
@@ -2145,9 +2145,9 @@ describe.sequential('usage aggregation DB', () => {
     expect(agentDaily.call_count).toBe(2);
     expect(agentDaily.total_tokens).toBe(800);
     expect(agentDaily.total_cost_usd).toBeCloseTo(0.0049, 6);
-    expect(monthlySpend(' agent-a ')).toBeCloseTo(0.0049, 6);
-    expect(monthlySpend('agent-b')).toBeCloseTo(0.0013, 6);
-    expect(() => monthlySpend('')).toThrow('Coworker id is required.');
+    expect(monthlySpendUsd(' agent-a ')).toBeCloseTo(0.0049, 6);
+    expect(monthlySpendUsd('agent-b')).toBeCloseTo(0.0013, 6);
+    expect(() => monthlySpendUsd('')).toThrow('Agent id is required.');
 
     const monthlyByModel = listUsageByModel({
       window: 'monthly',

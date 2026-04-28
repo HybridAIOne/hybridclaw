@@ -7,7 +7,7 @@ import {
   getUsageTotals,
   initDatabase,
   listUsageByAgent,
-  monthlySpend,
+  monthlySpendUsd,
   recordUsageEvent,
 } from '../src/memory/db.js';
 
@@ -23,7 +23,7 @@ function previousMonthIso(): string {
   ).toISOString();
 }
 
-test('monthlySpend matches the monthly UsageTotals rollup per coworker', () => {
+test('monthlySpendUsd matches the monthly UsageTotals rollup per agent', () => {
   initDatabase({ quiet: true, dbPath: createTempDbPath() });
 
   recordUsageEvent({
@@ -71,7 +71,7 @@ test('monthlySpend matches the monthly UsageTotals rollup per coworker', () => {
   );
 
   expect(alphaTotals.total_cost_usd).toBeCloseTo(0.35, 6);
-  expect(monthlySpend('alpha')).toBeCloseTo(alphaTotals.total_cost_usd, 6);
+  expect(monthlySpendUsd('alpha')).toBeCloseTo(alphaTotals.total_cost_usd, 6);
   expect(monthlyRows.get('alpha')?.total_cost_usd).toBeCloseTo(0.35, 6);
   expect(monthlyRows.get('beta')?.total_cost_usd).toBeCloseTo(0.04, 6);
 });

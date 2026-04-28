@@ -2984,10 +2984,10 @@ export function getUsageTotals(params?: {
   };
 }
 
-export function monthlySpend(coworkerId: string): number {
-  const agentId = coworkerId.trim();
+export function monthlySpendUsd(agentId: string): number {
+  agentId = agentId.trim();
   if (!agentId) {
-    throw new Error('Coworker id is required.');
+    throw new Error('Agent id is required.');
   }
   return getUsageTotals({ agentId, window: 'monthly' }).total_cost_usd;
 }
