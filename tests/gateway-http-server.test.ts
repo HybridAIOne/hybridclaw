@@ -452,7 +452,8 @@ async function importFreshHealth(options?: {
   const loggerError = vi.fn();
   const loggerInfo = vi.fn();
   const loggerWarn = vi.fn();
-  const getGatewayHistory = vi.fn(() => ({
+  const getGatewayHistory = vi.fn((sessionId: string) => ({
+    sessionId,
     sessionKey: null,
     mainSessionKey: null,
     branchFamilies: [],
