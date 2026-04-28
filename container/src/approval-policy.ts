@@ -630,11 +630,7 @@ function extractAbsolutePaths(input: string): string[] {
   for (const match of input.matchAll(ABS_PATH_RE)) {
     const candidate = String(match[2] || '').trim();
     if (!candidate || candidate === '/' || candidate === '//') continue;
-    try {
-      paths.add(fs.realpathSync(candidate));
-    } catch {
-      paths.add(path.resolve(candidate));
-    }
+    paths.add(path.resolve(candidate));
   }
   return [...paths];
 }

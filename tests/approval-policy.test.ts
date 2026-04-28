@@ -435,6 +435,25 @@ autonomy:
     expect(evaluation.requestId).toBeTruthy();
   });
 
+  test('bash absolute path classification does not realpath path tokens', () => {
+    const realpathSpy = vi.spyOn(fs, 'realpathSync');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: 'ls /etc/hybridclaw-generated-policy-path',
+      }),
+      latestUserPrompt: 'Check generated policy path',
+    });
+
+    expect(realpathSpy).not.toHaveBeenCalled();
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.pinned).toBe(true);
+  });
+
   test('full-auto mode auto-approves red actions without creating a pending prompt', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
