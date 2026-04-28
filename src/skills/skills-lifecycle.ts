@@ -195,7 +195,7 @@ function serializeSkillPackageSnapshot(
   skillDir: string,
   manifest: SkillManifest,
 ): string {
-  return JSON.stringify(buildSkillPackageSnapshot(skillDir, manifest), null, 2);
+  return JSON.stringify(buildSkillPackageSnapshot(skillDir, manifest));
 }
 
 function parseSkillPackageSnapshot(content: string): SkillPackageSnapshot {
