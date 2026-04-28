@@ -130,9 +130,10 @@ import {
 
 const MAX_HISTORY_MESSAGES = 40;
 
-function formatEscalationRouteNotice(approval: PendingApproval): string {
-  const target = normalizeEscalationTarget(approval.escalationTarget);
-  if (!target) return approval.prompt;
+function formatEscalationRouteNotice(
+  approval: PendingApproval,
+  target: NonNullable<PendingApproval['escalationTarget']>,
+): string {
   return [
     `Escalation for ${target.recipient} on ${target.channel}.`,
     approval.prompt,
@@ -162,7 +163,7 @@ async function routeEscalationApproval(params: {
   try {
     await params.onProactiveMessage({
       channelId: targetChannel,
-      text: formatEscalationRouteNotice(params.approval),
+      text: formatEscalationRouteNotice(params.approval, target),
     });
   } catch (error) {
     logger.warn(

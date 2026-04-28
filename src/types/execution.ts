@@ -47,12 +47,6 @@ export function normalizeEscalationTarget(
   return channel && recipient ? { channel, recipient } : undefined;
 }
 
-export function cloneEscalationTarget(
-  value: EscalationTarget | undefined,
-): EscalationTarget | undefined {
-  return value ? { ...value } : undefined;
-}
-
 export function escalationTargetEquals(
   a?: EscalationTarget,
   b?: EscalationTarget,

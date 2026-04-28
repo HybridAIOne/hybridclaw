@@ -28,7 +28,6 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentCv,
-  cloneAgentEscalationTarget,
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
@@ -299,7 +298,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.role ? { role: agent.role } : {}),
     ...(agent.cv ? { cv: agent.cv } : {}),
     ...(agent.escalationTarget
-      ? { escalationTarget: cloneAgentEscalationTarget(agent.escalationTarget) }
+      ? { escalationTarget: { ...agent.escalationTarget } }
       : {}),
   };
 }

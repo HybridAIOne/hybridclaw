@@ -6,7 +6,6 @@ import {
 
 export type { EscalationTarget as AgentEscalationTarget } from '../types/execution.js';
 export {
-  cloneEscalationTarget as cloneAgentEscalationTarget,
   escalationTargetEquals as agentEscalationTargetEquals,
   normalizeEscalationTarget as normalizeAgentEscalationTarget,
 } from '../types/execution.js';

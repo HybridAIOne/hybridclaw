@@ -12,7 +12,6 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentCv,
-  cloneAgentEscalationTarget,
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
@@ -2194,7 +2193,9 @@ function normalizeAgentConfig(
     : cloneAgentCv(fallback?.cv);
   const escalationTarget = Object.hasOwn(value, 'escalationTarget')
     ? normalizeAgentEscalationTarget(value.escalationTarget)
-    : cloneAgentEscalationTarget(fallback?.escalationTarget);
+    : fallback?.escalationTarget
+      ? { ...fallback.escalationTarget }
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),

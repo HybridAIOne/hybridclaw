@@ -302,31 +302,10 @@ const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
-function getApprovalRecipientUserId(
-  approval: { escalationTarget?: EscalationTarget },
-  fallbackUserId: string,
+function formatRoutedApprovalNotice(
+  approval: { approvalId: string },
+  target: EscalationTarget,
 ): string {
-  return (
-    normalizeEscalationTarget(approval.escalationTarget)?.recipient ||
-    fallbackUserId
-  );
-}
-
-function approvalRoutesAwayFromChannel(
-  approval: { escalationTarget?: EscalationTarget },
-  channelId: string,
-): EscalationTarget | null {
-  const target = normalizeEscalationTarget(approval.escalationTarget);
-  if (!target || target.channel === channelId) return null;
-  return target;
-}
-
-function formatRoutedApprovalNotice(approval: {
-  approvalId: string;
-  escalationTarget?: EscalationTarget;
-}): string {
-  const target = normalizeEscalationTarget(approval.escalationTarget);
-  if (!target) return `Escalation pending. Approval ID: ${approval.approvalId}`;
   return `Escalation routed to ${target.recipient} on ${target.channel}. Approval ID: ${approval.approvalId}`;
 }
 
@@ -352,14 +331,14 @@ async function handlePendingApprovalRouting(params: {
     storedPrompt: string;
   }) => string;
 }): Promise<{ cleanup: { disableButtons: () => Promise<void> } | null }> {
-  const approvalUserId = getApprovalRecipientUserId(
-    params.pendingApproval,
-    params.userId,
+  const escalationTarget = normalizeEscalationTarget(
+    params.pendingApproval.escalationTarget,
   );
-  const routedTarget = approvalRoutesAwayFromChannel(
-    params.pendingApproval,
-    params.channelId,
-  );
+  const approvalUserId = escalationTarget?.recipient || params.userId;
+  const routedTarget =
+    escalationTarget && escalationTarget.channel !== params.channelId
+      ? escalationTarget
+      : null;
   const storedPrompt = getApprovalPromptText(
     params.pendingApproval,
     params.responseText,
@@ -377,7 +356,9 @@ async function handlePendingApprovalRouting(params: {
       userId: approvalUserId,
     });
   } else if (routedTarget) {
-    await params.sendText(formatRoutedApprovalNotice(params.pendingApproval));
+    await params.sendText(
+      formatRoutedApprovalNotice(params.pendingApproval, routedTarget),
+    );
   } else {
     await params.sendText(
       params.formatTextPrompt?.({
