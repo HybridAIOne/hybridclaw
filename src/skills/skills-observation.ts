@@ -6,6 +6,7 @@ import {
   getSkillObservations,
   incrementAmendmentRunCount,
   recordSkillObservation as insertSkillObservation,
+  recomputeAgentSkillScore,
 } from '../memory/db.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageStats } from '../types/usage.js';
@@ -16,6 +17,10 @@ import type {
   SkillFeedbackSentiment,
   SkillObservation,
 } from './adaptive-skills-types.js';
+import {
+  refreshAgentCvForSkillRun,
+  scheduleAgentCvRefresh,
+} from './agent-scoreboard.js';
 import {
   buildSkillRunBoundedPayload,
   buildSkillRunTokens,
@@ -89,13 +94,6 @@ export function deriveSkillExecutionOutcome(params: {
   toolExecutions: ToolExecution[];
 }): SkillExecutionOutcome {
   if (params.outputStatus === 'error') return 'failure';
-  if (
-    params.toolExecutions.some(
-      (execution) => execution.isError || execution.blocked,
-    )
-  ) {
-    return 'partial';
-  }
   return 'success';
 }
 
@@ -133,6 +131,7 @@ function recordSkillExecutionObservation(
 
   const observation = insertSkillObservation({
     skillName: event.skill_id,
+    agentId: event.agent_id,
     sessionId: event.session_id,
     runId: event.run_id,
     outcome: event.outcome,
@@ -144,6 +143,25 @@ function recordSkillExecutionObservation(
     ).length,
     durationMs: event.latency_ms,
   });
+
+  if (event.agent_id) {
+    try {
+      recomputeAgentSkillScore({
+        agentId: event.agent_id,
+        skillId: event.skill_id,
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          agentId: event.agent_id,
+          skillId: event.skill_id,
+          runId: event.run_id,
+          error,
+        },
+        'Failed to recompute agent skill score after skill observation',
+      );
+    }
+  }
 
   recordAuditEvent({
     sessionId: event.session_id,
@@ -173,6 +191,7 @@ export async function waitForQueuedSkillEvaluations(): Promise<void> {
 }
 
 subscribeSkillRunEvents(recordSkillExecutionObservation);
+subscribeSkillRunEvents(refreshAgentCvForSkillRun);
 
 function collectSkillRunErrors(input: {
   errorDetail?: string | null;
@@ -209,7 +228,7 @@ export function recordSkillExecution(input: {
   model?: string | null;
   tokenUsage?: TokenUsageStats;
   costUsd?: number | null;
-  coworkerId?: string | null;
+  agentId?: string | null;
   input?: unknown;
   output?: unknown;
   errorCategory?: SkillErrorCategory | null;
@@ -226,7 +245,7 @@ export function recordSkillExecution(input: {
   const event: SkillRunEvent = {
     type: 'skill_run',
     skill_id: skillName,
-    coworker_id: input.coworkerId?.trim() || null,
+    agent_id: input.agentId?.trim() || null,
     session_id: input.sessionId,
     run_id: input.runId,
     input: buildSkillRunBoundedPayload(input.input),
@@ -263,9 +282,29 @@ export function recordSkillFeedback(input: {
 }): SkillObservation | null {
   const config = getRuntimeConfig().adaptiveSkills;
   if (!config.observationEnabled) return null;
-  return attachFeedbackToObservation({
+  const observation = attachFeedbackToObservation({
     sessionId: input.sessionId,
     feedback: input.feedback,
     sentiment: input.sentiment,
   });
+  if (observation?.agent_id) {
+    try {
+      recomputeAgentSkillScore({
+        agentId: observation.agent_id,
+        skillId: observation.skill_name,
+      });
+      scheduleAgentCvRefresh(observation.agent_id);
+    } catch (error) {
+      logger.warn(
+        {
+          agentId: observation.agent_id,
+          sessionId: observation.session_id,
+          runId: observation.run_id,
+          error,
+        },
+        'Failed to refresh agent CV after skill feedback',
+      );
+    }
+  }
+  return observation;
 }

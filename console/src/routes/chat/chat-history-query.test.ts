@@ -75,6 +75,36 @@ describe('buildChatHistoryUiData', () => {
     expect(ui.messages[0]?.sessionId).toBe('session-fallback');
   });
 
+  it('preserves persisted artifacts from history messages', () => {
+    const raw: ChatHistoryResponse = {
+      sessionId: 'session-a',
+      history: [
+        {
+          id: 1,
+          role: 'assistant',
+          content: 'Created haiku.pdf',
+          artifacts: [
+            {
+              path: '/tmp/haiku.pdf',
+              filename: 'haiku.pdf',
+              mimeType: 'application/pdf',
+            },
+          ],
+        },
+      ],
+    };
+
+    const ui = buildChatHistoryUiData(raw, 'session-a');
+
+    expect(ui.messages[0]?.artifacts).toEqual([
+      {
+        path: '/tmp/haiku.pdf',
+        filename: 'haiku.pdf',
+        mimeType: 'application/pdf',
+      },
+    ]);
+  });
+
   it('returns resolvedSessionId from the response when present, even if it differs from the request', () => {
     const raw: ChatHistoryResponse = {
       sessionId: 'session-canonical',

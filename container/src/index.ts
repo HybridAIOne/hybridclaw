@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import {
   type ToolApprovalEvaluation,
-  TrustedCoworkerApprovalRuntime,
+  TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cleanupAllBrowserSessions } from './browser-tools.js';
@@ -48,6 +48,7 @@ import {
 import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
+  shouldRetryEmptyFinalResponse,
 } from './stalled-turns.js';
 import {
   collapseSystemMessages,
@@ -145,7 +146,7 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   }
 }
 
-const approvalRuntime = new TrustedCoworkerApprovalRuntime();
+const approvalRuntime = new TrustedAgentApprovalRuntime();
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
@@ -1287,6 +1288,27 @@ async function processRequest(
         artifactPaths,
         startedAtMs: processStartedAt,
       });
+      if (
+        shouldRetryEmptyFinalResponse({
+          visibleAssistantText: latestVisibleAssistantText,
+          toolExecutionCount: toolExecutions.length,
+          artifactCount: artifacts.length,
+        })
+      ) {
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        history.push({
+          role: 'user',
+          content:
+            'Your last response had no visible answer and did not produce an artifact. Continue from the tool result and either finish the requested task or explain what blocked it.',
+        });
+        console.error('[model] retrying empty final response after tool use');
+        continue;
+      }
+
       const completed: ContainerOutput = {
         status: 'success',
         result: latestVisibleAssistantText,

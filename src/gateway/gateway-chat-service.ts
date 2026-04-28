@@ -1071,7 +1071,7 @@ async function handleGatewayMessageInner(
           model,
           tokenUsage: output.tokenUsage,
           costUsd: extractUsageCostUsd(output.tokenUsage),
-          coworkerId: agentId,
+          agentId,
           input: storedUserContent,
           output: {
             status: output.status,
@@ -1286,6 +1286,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       resultText,
+      artifacts: output.artifacts,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,

@@ -292,6 +292,11 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import {
+  formatAgentAssignmentHints,
+  getAgentScoreboard,
+  getObservedAgentSkillCount,
+} from '../skills/agent-scoreboard.js';
+import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
 } from '../skills/skills.js';
@@ -318,6 +323,7 @@ import type {
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
+import { formatDurationMs } from '../utils/text-format.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -379,6 +385,7 @@ import {
   type GatewayAdminAgentMarkdownFileResponse,
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
+  type GatewayAdminAgentScoreboardResponse,
   type GatewayAdminAgentsResponse,
   type GatewayAdminApprovalAgent,
   type GatewayAdminApprovalsResponse,
@@ -449,10 +456,14 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...WORKSPACE_BOOTSTRAP_FILES,
+  'CV.md',
+] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
-  WORKSPACE_BOOTSTRAP_FILES,
+  ADMIN_AGENT_MARKDOWN_FILES,
 );
-type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -975,7 +986,7 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   const normalized = value.trim();
   if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${WORKSPACE_BOOTSTRAP_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
@@ -1064,7 +1075,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1107,7 +1118,7 @@ function mapGatewayAdminAgent(
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -3155,6 +3166,7 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   resultText: string;
+  artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
   startedAt: number;
   replaceBuiltInMemory?: boolean;
@@ -3179,6 +3191,7 @@ export function recordSuccessfulTurn(opts: {
             role: 'assistant',
             content: opts.resultText,
             agentId: opts.agentId,
+            artifacts: opts.artifacts,
           }),
         }
       : memoryService.storeTurn({
@@ -3193,6 +3206,7 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: opts.resultText,
+            artifacts: opts.artifacts,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -5315,6 +5329,16 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   };
 }
 
+export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
+  return {
+    observed_skill_count: getObservedAgentSkillCount(),
+    agents: getAgentScoreboard().map(({ cv_path, ...entry }) => ({
+      ...entry,
+      best_skills: entry.best_skills.map((score) => ({ ...score })),
+    })),
+  };
+}
+
 export function setGatewayAdminSkillEnabled(input: {
   name: string;
   enabled: boolean;
@@ -6345,6 +6369,7 @@ function buildSubagentUserPrompt(params: {
   taskPrompt: string;
 }): string {
   const { depth, mode, canDelegate, taskPrompt } = params;
+  const assignmentHints = formatAgentAssignmentHints(taskPrompt);
   return [
     '# Delegated Task',
     `Delegation mode: ${mode}.`,
@@ -6353,14 +6378,10 @@ function buildSubagentUserPrompt(params: {
       ? 'Delegation capability: You may delegate further only if absolutely necessary and still within depth/turn limits.'
       : 'Delegation capability: You are a leaf subagent. Do not delegate further work.',
     '',
+    ...(assignmentHints ? [assignmentHints, ''] : []),
     'Task handoff from parent:',
     taskPrompt,
   ].join('\n');
-}
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(1)}s`;
 }
 
 function inferDelegationStatus(errorText: string): DelegationRunStatus {

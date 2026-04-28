@@ -8,6 +8,7 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -241,6 +242,11 @@ export interface GatewayHistoryMessage {
   role: string;
   agent_id?: string | null;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
 }
@@ -1065,6 +1071,22 @@ export interface GatewayAdminSkillsResponse {
   disabled: string[];
   channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>>;
   skills: GatewayAdminSkill[];
+}
+
+export interface GatewayAdminAgentSkillScore
+  extends Omit<AgentScoreboardEntry['best_skills'][number], 'agent_id'> {
+  agent_id: string;
+}
+
+export interface GatewayAdminAgentScoreboardEntry
+  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills' | 'cv_path'> {
+  agent_id: string;
+  best_skills: GatewayAdminAgentSkillScore[];
+}
+
+export interface GatewayAdminAgentScoreboardResponse {
+  observed_skill_count: number;
+  agents: GatewayAdminAgentScoreboardEntry[];
 }
 
 export interface GatewayAdminPlugin {

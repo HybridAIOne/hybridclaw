@@ -180,7 +180,7 @@ export function emitToolExecutionAuditEvents(input: {
             toolCallId,
             action: execution.approvalActionKey || `tool:${execution.name}`,
             description,
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
           },
         });
       }
@@ -218,7 +218,7 @@ export function emitToolExecutionAuditEvents(input: {
                 : pending || approved
                   ? 'prompt'
                   : 'policy',
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
           },
         });
       }

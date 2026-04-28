@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   loadPolicyFromDisk,
   parsePolicyYaml,
-  TrustedCoworkerApprovalRuntime,
+  TrustedAgentApprovalRuntime,
 } from '../container/src/approval-policy.js';
 import type { ChatMessage } from '../container/src/types.js';
 
@@ -30,7 +30,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe('TrustedCoworkerApprovalRuntime', () => {
+describe('TrustedAgentApprovalRuntime', () => {
   test('loadPolicyFromDisk logs malformed policy files before falling back to defaults', () => {
     const policyPath = writeTempPolicy(`
 network:
@@ -90,7 +90,7 @@ autonomy:
   });
 
   test('yellow actions promote to green after successful repeat', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -113,7 +113,7 @@ autonomy:
   });
 
   test('autonomy metadata is emitted for default low-stakes read actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -134,7 +134,7 @@ autonomy:
   tools:
     read: manual
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'read',
@@ -151,7 +151,7 @@ autonomy:
   });
 
   test('pip install is classified as dependency installation', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -167,7 +167,7 @@ autonomy:
   });
 
   test('message read-only actions are green', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -193,7 +193,7 @@ autonomy:
   });
 
   test('vision analysis tools are green and do not wait for interruption', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -223,7 +223,7 @@ autonomy:
   });
 
   test('delegate tool is green by default', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -243,7 +243,7 @@ autonomy:
   });
 
   test('non-input browser tools skip the implicit interruption delay', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -260,7 +260,7 @@ autonomy:
   });
 
   test('input-like browser tools keep the implicit interruption delay', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -279,7 +279,7 @@ autonomy:
   });
 
   test('voice channel skips the implicit interruption delay for yellow actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -297,7 +297,7 @@ autonomy:
   });
 
   test('read-like MCP tools are green', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -312,7 +312,7 @@ autonomy:
   });
 
   test('execute-like MCP tools are red', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -328,7 +328,7 @@ autonomy:
   });
 
   test('read-only bundled PDF extraction commands are green', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -346,7 +346,7 @@ autonomy:
   });
 
   test('sensitive paths stay pinned red and require explicit approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -363,7 +363,7 @@ autonomy:
   });
 
   test('full-auto mode auto-approves red actions without creating a pending prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     runtime.setFullAutoOptions({ enabled: true });
@@ -381,7 +381,7 @@ autonomy:
   });
 
   test('full-auto mode auto-approves yellow mutating actions without interruption delay', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     runtime.setFullAutoOptions({ enabled: true });
@@ -398,7 +398,7 @@ autonomy:
   });
 
   test('full-auto mode still requires approval for tools on the never-approve list', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     runtime.setFullAutoOptions({
@@ -418,7 +418,7 @@ autonomy:
   });
 
   test('host app control commands require explicit approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -457,7 +457,7 @@ autonomy:
   });
 
   test('yes response approves once and replays original prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Delete dist and rebuild cleanly';
@@ -485,7 +485,7 @@ autonomy:
   });
 
   test('bare yes without a pending approval is treated as a normal prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -495,7 +495,7 @@ autonomy:
   });
 
   test('yes for session persists trust for repeated action key', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Write the report to a host file';
@@ -525,7 +525,7 @@ autonomy:
   });
 
   test('"/approve always" is no longer treated as an approval alias', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const prelude = runtime.handleApprovalResponse([
@@ -535,7 +535,7 @@ autonomy:
   });
 
   test('unlisted network access is implicit yellow by default', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const evaluation = runtime.evaluateToolCall({
@@ -553,7 +553,7 @@ autonomy:
   });
 
   test('network approvals reuse site scope across subdomains after a successful run', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Open Google Images';
@@ -577,7 +577,7 @@ autonomy:
   });
 
   test('http_request uses the same host-scoped network approval classification', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -596,7 +596,7 @@ autonomy:
   });
 
   test('approval prompt lists text approval options in order for non-pinned actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -629,7 +629,7 @@ autonomy:
   });
 
   test('approval prompt marks session/agent/all trust unavailable for pinned actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -654,7 +654,7 @@ autonomy:
   });
 
   test('approval parser accepts wrapped Discord batch reply "Message 1: yes for agent"', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Write the output to a host file';
@@ -689,7 +689,7 @@ autonomy:
   });
 
   test('pinned red cannot be session-trusted across runs', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const prompt = 'Append token to .env';
@@ -723,7 +723,7 @@ autonomy:
   });
 
   test('scratch outputs under /tmp do not trigger workspace-fence approvals', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -741,7 +741,7 @@ autonomy:
   });
 
   test('node heredocs are not treated as workspace writes based on JS arrow functions or comments', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -777,7 +777,7 @@ autonomy:
   });
 
   test('outer-shell redirections in heredoc commands still trigger workspace-fence approvals', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -806,10 +806,7 @@ autonomy:
       command: 'touch /Users/example/report.txt',
     });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
-      policyPath,
-      trustStorePath,
-    );
+    const runtime = new TrustedAgentApprovalRuntime(policyPath, trustStorePath);
     const first = runtime.evaluateToolCall({
       toolName: 'bash',
       argsJson,
@@ -829,7 +826,7 @@ autonomy:
     });
     expect(second.decision).toBe('approved_agent');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       trustStorePath,
     );
@@ -850,7 +847,7 @@ autonomy:
       command: 'touch /Users/example/report.txt',
     });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -874,7 +871,7 @@ autonomy:
     });
     expect(second.decision).toBe('approved_all');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -893,10 +890,7 @@ autonomy:
     const prompt = 'Write .env';
     const argsJson = JSON.stringify({ path: '.env', contents: 'TOKEN=abc' });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
-      policyPath,
-      trustStorePath,
-    );
+    const runtime = new TrustedAgentApprovalRuntime(policyPath, trustStorePath);
     const first = runtime.evaluateToolCall({
       toolName: 'write',
       argsJson,
@@ -917,7 +911,7 @@ autonomy:
     });
     expect(second.decision).toBe('approved_once');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       trustStorePath,
     );
@@ -936,7 +930,7 @@ autonomy:
     const prompt = 'Write .env';
     const argsJson = JSON.stringify({ path: '.env', contents: 'TOKEN=abc' });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -961,7 +955,7 @@ autonomy:
     });
     expect(second.decision).toBe('approved_once');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -989,7 +983,7 @@ autonomy:
     });
     const trustStorePath = path.join(workspaceRoot, 'approval-trust.json');
 
-    const { TrustedCoworkerApprovalRuntime: HostModeApprovalRuntime } =
+    const { TrustedAgentApprovalRuntime: HostModeApprovalRuntime } =
       await import('../container/src/approval-policy.js');
 
     const runtime = new HostModeApprovalRuntime();
@@ -1028,7 +1022,7 @@ autonomy:
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
     vi.resetModules();
 
-    const { TrustedCoworkerApprovalRuntime: DisplayRootApprovalRuntime } =
+    const { TrustedAgentApprovalRuntime: DisplayRootApprovalRuntime } =
       await import('../container/src/approval-policy.js');
 
     const runtime = new DisplayRootApprovalRuntime();
@@ -1056,7 +1050,7 @@ network:
       paths: ["/repos/**"]
       agent: "*"
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1084,7 +1078,7 @@ network:
       agent: "research"
 `);
     vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'research');
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const allowed = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1129,7 +1123,7 @@ network:
     - action: allow
       host: "github.com"
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1152,7 +1146,7 @@ network:
 approval:
   trusted_network_hosts: ["api.github.com"]
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'web_fetch',
@@ -1177,7 +1171,7 @@ network:
     - action: allow
       host: "api.github.com"
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const httpsEvaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1203,7 +1197,7 @@ network:
   });
 
   test('hybridclaw.io is allowlisted by default and does not require approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 

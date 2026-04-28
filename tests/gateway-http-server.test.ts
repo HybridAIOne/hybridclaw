@@ -1237,6 +1237,23 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const getGatewayAdminAgentScoreboard = vi.fn(() => ({
+    observed_skill_count: 2,
+    agents: [
+      {
+        agent_id: 'charly',
+        display_name: 'Charly',
+        total_executions: 3,
+        success_rate: 1,
+        avg_score: 90,
+        avg_quality_score: 95,
+        avg_reliability_score: 88,
+        avg_timing_score: 70,
+        best_skills: [],
+        last_observed_at: '2026-04-27T10:00:00.000Z',
+      },
+    ],
+  }));
   const createGatewayAdminSkill = vi.fn(() => ({
     extraDirs: [],
     disabled: [],
@@ -1528,6 +1545,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminModels,
     getGatewayAdminOverview,
     getGatewayAdminSessions,
+    getGatewayAdminAgentScoreboard,
     getGatewayAdminSkills,
     getGatewayAdminStatistics,
     getGatewayAdminTools,
@@ -1654,6 +1672,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
+    getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getGatewayAdminTools,
     startTerminalSession,
@@ -4956,6 +4975,35 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       defaultModel: 'gpt-5',
+    });
+  });
+
+  test('returns admin agent scoreboard for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agent-scoreboard' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentScoreboard).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      observed_skill_count: 2,
+      agents: [
+        {
+          agent_id: 'charly',
+          display_name: 'Charly',
+          total_executions: 3,
+          success_rate: 1,
+          avg_score: 90,
+          avg_quality_score: 95,
+          avg_reliability_score: 88,
+          avg_timing_score: 70,
+          best_skills: [],
+          last_observed_at: '2026-04-27T10:00:00.000Z',
+        },
+      ],
     });
   });
 
