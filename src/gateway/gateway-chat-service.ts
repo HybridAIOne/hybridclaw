@@ -135,10 +135,7 @@ function formatEscalationRouteNotice(
   approval: PendingApproval,
   target: NonNullable<PendingApproval['escalationTarget']>,
 ): string {
-  return [
-    `Escalation for ${target.recipient} on ${target.channel}.`,
-    approval.prompt,
-  ].join('\n\n');
+  return `Escalation for ${target.recipient} on ${target.channel}.\n\n${approval.prompt}`;
 }
 
 async function routeEscalationApproval(params: {
