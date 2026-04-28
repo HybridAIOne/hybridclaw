@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { NgrokTunnelProvider } from '../src/tunnel/ngrok-tunnel-provider.js';
+import type { TunnelStatus } from '../src/tunnel/tunnel-provider.js';
+
+const DOWN_STATUS: TunnelStatus = {
+  running: false,
+  public_url: null,
+  state: 'down',
+  last_error: null,
+  last_checked_at: null,
+  next_reconnect_at: null,
+  reconnect_attempt: 0,
+};
 
 describe('NgrokTunnelProvider', () => {
   it('opens an ngrok tunnel with the encrypted runtime secret token', async () => {
@@ -9,17 +20,16 @@ describe('NgrokTunnelProvider', () => {
       close,
       url: () => 'https://abc123.ngrok.app/',
     }));
+    const recordAuditEvent = vi.fn();
     const provider = new NgrokTunnelProvider({
       addr: 9090,
       loadNgrok: async () => ({ forward }),
+      recordAuditEvent,
       readSecret: (secretName) =>
         secretName === 'NGROK_AUTHTOKEN' ? ' test-token ' : null,
     });
 
-    expect(provider.status()).toEqual({
-      running: false,
-      public_url: null,
-    });
+    expect(provider.status()).toEqual(DOWN_STATUS);
 
     await expect(provider.start()).resolves.toEqual({
       public_url: 'https://abc123.ngrok.app',
@@ -32,25 +42,56 @@ describe('NgrokTunnelProvider', () => {
     expect(provider.status()).toEqual({
       running: true,
       public_url: 'https://abc123.ngrok.app',
+      state: 'up',
+      last_error: null,
+      last_checked_at: null,
+      next_reconnect_at: null,
+      reconnect_attempt: 0,
     });
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'system:tunnel',
+        event: {
+          type: 'tunnel.up',
+          provider: 'ngrok',
+          public_url: 'https://abc123.ngrok.app',
+          reason: 'started',
+        },
+      }),
+    );
 
     await provider.stop();
     expect(close).toHaveBeenCalledTimes(1);
-    expect(provider.status()).toEqual({
-      running: false,
-      public_url: null,
-    });
+    expect(provider.status()).toEqual(DOWN_STATUS);
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'system:tunnel',
+        event: {
+          type: 'tunnel.down',
+          provider: 'ngrok',
+          public_url: 'https://abc123.ngrok.app',
+          reason: 'stopped',
+        },
+      }),
+    );
   });
 
   it('does not load ngrok when the auth token is missing', async () => {
     const loadNgrok = vi.fn();
     const provider = new NgrokTunnelProvider({
       loadNgrok,
+      recordAuditEvent: vi.fn(),
       readSecret: () => null,
     });
 
     await expect(provider.start()).rejects.toThrow('NGROK_AUTHTOKEN');
     expect(loadNgrok).not.toHaveBeenCalled();
+    expect(provider.status()).toMatchObject({
+      running: false,
+      public_url: null,
+      state: 'down',
+    });
+    expect(provider.status().last_error).toContain('NGROK_AUTHTOKEN');
   });
 
   it('returns the existing tunnel when start is called while running', async () => {
@@ -61,6 +102,7 @@ describe('NgrokTunnelProvider', () => {
     }));
     const provider = new NgrokTunnelProvider({
       loadNgrok: async () => ({ forward }),
+      recordAuditEvent: vi.fn(),
       readSecret: () => 'test-token',
     });
 
@@ -86,6 +128,7 @@ describe('NgrokTunnelProvider', () => {
     }));
     const provider = new NgrokTunnelProvider({
       loadNgrok: async () => ({ forward }),
+      recordAuditEvent: vi.fn(),
       readSecret: () => 'test-token',
     });
 
@@ -97,10 +140,7 @@ describe('NgrokTunnelProvider', () => {
       expect(warn).toHaveBeenCalledWith(
         '[tunnel] failed to stop ngrok tunnel cleanly; local tunnel state was cleared.',
       );
-      expect(provider.status()).toEqual({
-        running: false,
-        public_url: null,
-      });
+      expect(provider.status()).toEqual(DOWN_STATUS);
     } finally {
       warn.mockRestore();
     }
@@ -114,6 +154,7 @@ describe('NgrokTunnelProvider', () => {
     }));
     const provider = new NgrokTunnelProvider({
       loadNgrok: async () => ({ forward }),
+      recordAuditEvent: vi.fn(),
       readSecret: () => 'secret-token',
     });
 
@@ -128,9 +169,130 @@ describe('NgrokTunnelProvider', () => {
     expect(thrown?.message).toContain('Failed to start ngrok tunnel');
     expect(thrown?.message).not.toContain('secret-token');
     expect(close).toHaveBeenCalledTimes(1);
-    expect(provider.status()).toEqual({
+    expect(provider.status()).toMatchObject({
       running: false,
       public_url: null,
+      state: 'down',
     });
+    expect(provider.status().last_error).toContain(
+      'Failed to start ngrok tunnel',
+    );
+  });
+
+  it('health-checks the active tunnel at the configured interval', async () => {
+    vi.useFakeTimers();
+    try {
+      const close = vi.fn(async () => {});
+      const forward = vi.fn(async () => ({
+        close,
+        url: () => 'https://health.ngrok.app',
+      }));
+      const fetch = vi.fn(async () => ({ ok: true, status: 200 }));
+      const statusChanges: TunnelStatus[] = [];
+      const provider = new NgrokTunnelProvider({
+        fetch,
+        healthCheckIntervalMs: 250,
+        loadNgrok: async () => ({ forward }),
+        onStatusChange: (status) => statusChanges.push(status),
+        recordAuditEvent: vi.fn(),
+        readSecret: () => 'test-token',
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(fetch).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetch).toHaveBeenCalledWith('https://health.ngrok.app/health', {
+        method: 'GET',
+        signal: expect.any(AbortSignal),
+      });
+      expect(provider.status()).toMatchObject({
+        running: true,
+        public_url: 'https://health.ngrok.app',
+        state: 'up',
+        last_error: null,
+      });
+      expect(provider.status().last_checked_at).toEqual(expect.any(String));
+      expect(statusChanges.map((status) => status.state)).toContain('up');
+
+      await provider.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reconnects with capped backoff when a health check fails', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstClose = vi.fn(async () => {});
+      const secondClose = vi.fn(async () => {});
+      const forward = vi
+        .fn()
+        .mockResolvedValueOnce({
+          close: firstClose,
+          url: () => 'https://first.ngrok.app',
+        })
+        .mockRejectedValueOnce(new Error('temporary ngrok failure'))
+        .mockResolvedValueOnce({
+          close: secondClose,
+          url: () => 'https://second.ngrok.app',
+        });
+      const fetch = vi.fn(async () => ({ ok: false, status: 503 }));
+      const recordAuditEvent = vi.fn();
+      const provider = new NgrokTunnelProvider({
+        fetch,
+        healthCheckIntervalMs: 100,
+        loadNgrok: async () => ({ forward }),
+        reconnectInitialBackoffMs: 50,
+        reconnectMaxBackoffMs: 75,
+        recordAuditEvent,
+        readSecret: () => 'test-token',
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(firstClose).toHaveBeenCalledTimes(1);
+      expect(provider.status()).toMatchObject({
+        running: false,
+        public_url: null,
+        state: 'reconnecting',
+        last_error: 'tunnel health check returned HTTP 503',
+        reconnect_attempt: 1,
+      });
+      expect(provider.status().next_reconnect_at).toEqual(expect.any(String));
+      expect(
+        recordAuditEvent.mock.calls.map((call) => call[0].event.type),
+      ).toEqual(['tunnel.up', 'tunnel.down']);
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(forward).toHaveBeenCalledTimes(2);
+      expect(provider.status()).toMatchObject({
+        running: false,
+        state: 'reconnecting',
+        reconnect_attempt: 2,
+      });
+
+      await vi.advanceTimersByTimeAsync(74);
+      expect(forward).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(forward).toHaveBeenCalledTimes(3);
+      expect(provider.status()).toMatchObject({
+        running: true,
+        public_url: 'https://second.ngrok.app',
+        state: 'up',
+        last_error: null,
+        reconnect_attempt: 0,
+      });
+      expect(
+        recordAuditEvent.mock.calls.map((call) => call[0].event.type),
+      ).toEqual(['tunnel.up', 'tunnel.down', 'tunnel.up']);
+
+      await provider.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

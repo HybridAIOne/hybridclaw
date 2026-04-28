@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- **Tunnel health checks**: The built-in ngrok tunnel provider health-checks
+  active tunnels on a configurable interval, records tunnel up/down audit
+  events, and reconnects failed tunnels with capped exponential backoff.
+
 ## [0.14.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.14.0) - 2026-04-28
 
 ### Added
