@@ -206,6 +206,63 @@ describe('skill package lifecycle', () => {
     });
   });
 
+  test('upgrade rejects skills that are not currently installed', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'deal-desk',
+      version: '1.0.0',
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    await expect(
+      lifecycle.upgradeSkillPackage(skillV1, {
+        actor: 'test',
+        homeDir: tempHome,
+      }),
+    ).rejects.toThrow(
+      'Cannot upgrade skill package "deal-desk" because it is not installed. Run skill install <source> first.',
+    );
+    expect(fs.existsSync(path.join(tempHome, 'skills', 'deal-desk'))).toBe(
+      false,
+    );
+    expect(config.getRuntimeConfig().skills.installed).toHaveLength(0);
+
+    await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    lifecycle.uninstallSkillPackage('deal-desk', {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    const skillV2 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'deal-desk',
+      version: '2.0.0',
+    });
+
+    await expect(
+      lifecycle.upgradeSkillPackage(skillV2, {
+        actor: 'test',
+        homeDir: tempHome,
+      }),
+    ).rejects.toThrow(
+      'Cannot upgrade skill package "deal-desk" because it is not installed. Run skill install <source> first.',
+    );
+    expect(
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'deal-desk',
+      ),
+    ).toMatchObject({
+      status: 'uninstalled',
+    });
+    expect(
+      fs.existsSync(path.join(tempHome, 'skills', 'deal-desk')),
+    ).toBe(false);
+  });
+
   test('install rejects packaged skills without a valid version', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillDir = path.join(sourceRoot, 'versionless');

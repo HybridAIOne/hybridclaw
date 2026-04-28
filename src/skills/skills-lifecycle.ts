@@ -361,6 +361,24 @@ function findInstalledSkillByNameOrId(
   );
 }
 
+function findInstalledSkillByManifest(
+  manifest: Pick<SkillManifest, 'id' | 'name'>,
+): RuntimeInstalledSkillManifest | null {
+  return (
+    findInstalledSkillByNameOrId(manifest.id) ||
+    findInstalledSkillByNameOrId(manifest.name)
+  );
+}
+
+function assertInstalledSkillForUpgrade(manifest: SkillManifest): void {
+  const installed = findInstalledSkillByManifest(manifest);
+  if (!installed || installed.status === 'uninstalled') {
+    throw new Error(
+      `Cannot upgrade skill package "${manifest.name}" because it is not installed. Run skill install <source> first.`,
+    );
+  }
+}
+
 function resolveSkillPackageTarget(nameOrId: string): {
   name: string;
   skillDir: string;
@@ -397,6 +415,8 @@ function resolveSkillPackageTarget(nameOrId: string): {
   throw new Error(`Unknown skill package: ${nameOrId}`);
 }
 
+type SkillPackageInstallCommand = 'install' | 'upgrade';
+
 function assertManagedSkillPackage(skillDir: string, homeDir: string): void {
   const managedDir = resolveManagedCommunitySkillsDir(homeDir);
   if (!pathWithin(managedDir, skillDir)) {
@@ -410,29 +430,49 @@ export async function installSkillPackage(
   source: string,
   options: SkillPackageLifecycleOptions = {},
 ): Promise<SkillPackageInstallResult> {
+  return installSkillPackageForCommand(source, options, 'install');
+}
+
+async function installSkillPackageForCommand(
+  source: string,
+  options: SkillPackageLifecycleOptions,
+  command: SkillPackageInstallCommand,
+): Promise<SkillPackageInstallResult> {
+  let sourceManifest: SkillManifest | null = null;
   const importResult = await importSkill(source, {
     force: options.force,
     homeDir: options.homeDir,
     skipGuard: options.skipGuard,
     validateSkillFile: (skillFilePath, skillName) => {
-      parseSkillManifestFile(
+      sourceManifest = parseSkillManifestFile(
         skillFilePath,
         { name: skillName },
         { requireVersion: true },
       );
+      if (command === 'upgrade') {
+        assertInstalledSkillForUpgrade(sourceManifest);
+      }
     },
   });
   const manifestPath = path.join(importResult.skillDir, 'SKILL.md');
-  const manifest = parseSkillManifestFile(
-    manifestPath,
-    {
-      name: importResult.skillName,
-    },
-    { requireVersion: true },
-  );
-  const previous = findInstalledSkillByNameOrId(manifest.id);
+  const manifest =
+    sourceManifest ||
+    parseSkillManifestFile(
+      manifestPath,
+      {
+        name: importResult.skillName,
+      },
+      { requireVersion: true },
+    );
+  const previous = findInstalledSkillByManifest(manifest);
+  const action =
+    command === 'upgrade'
+      ? 'upgrade'
+      : importResult.replacedExisting
+        ? 'upgrade'
+        : 'install';
   const meta = buildLifecycleMeta({
-    action: importResult.replacedExisting ? 'upgrade' : 'install',
+    action,
     actor: options.actor,
     source: importResult.resolvedSource,
   });
@@ -455,7 +495,7 @@ export async function installSkillPackage(
     );
   }, meta);
   recordSkillLifecycleAudit({
-    action: importResult.replacedExisting ? 'upgrade' : 'install',
+    action,
     manifest,
     skillName: manifest.name,
     skillDir: importResult.skillDir,
@@ -465,7 +505,7 @@ export async function installSkillPackage(
 
   return {
     ...importResult,
-    action: importResult.replacedExisting ? 'upgrade' : 'install',
+    action,
     manifest,
     revisionAssetPath,
   };
@@ -475,10 +515,14 @@ export async function upgradeSkillPackage(
   source: string,
   options: SkillPackageLifecycleOptions = {},
 ): Promise<SkillPackageInstallResult> {
-  return installSkillPackage(source, {
-    ...options,
-    force: true,
-  });
+  return installSkillPackageForCommand(
+    source,
+    {
+      ...options,
+      force: true,
+    },
+    'upgrade',
+  );
 }
 
 export function setSkillPackageEnabled(params: {
