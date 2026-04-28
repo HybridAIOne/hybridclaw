@@ -25,6 +25,7 @@ import {
   initDatabase,
   listMemoryValues,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageDailyBreakdown,
   monthlySpendUsd,
@@ -2162,6 +2163,12 @@ describe.sequential('usage aggregation DB', () => {
     expect(dailyByAgent.length).toBe(2);
     expect(dailyByAgent[0]?.agent_id).toBe('agent-a');
     expect(dailyByAgent[0]?.total_tokens).toBe(800);
+
+    const agentRollups = listUsageByAgentRollups();
+    expect(agentRollups.length).toBe(2);
+    expect(agentRollups[0]?.agent_id).toBe('agent-a');
+    expect(agentRollups[0]?.total_cost_usd).toBeCloseTo(9.0049, 6);
+    expect(agentRollups[0]?.monthly_cost_usd).toBeCloseTo(0.0049, 6);
 
     const dailyBreakdown = listUsageDailyBreakdown({ days: 7 });
     expect(dailyBreakdown.length).toBe(1);

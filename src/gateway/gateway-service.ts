@@ -175,6 +175,7 @@ import {
   listStatsByChannel,
   listStructuredAuditEntries,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageBySession,
   listUsageDailyBreakdown,
@@ -4254,14 +4255,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const usageByAgent = new Map(
-    listUsageByAgent({ window: 'all' }).map(
-      (row) => [row.agent_id, row] as const,
-    ),
-  );
-  const monthlyUsageByAgent = new Map(
-    listUsageByAgent({ window: 'monthly' }).map(
-      (row) => [row.agent_id, row] as const,
-    ),
+    listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),
   );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
@@ -4299,14 +4293,15 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
     sessionsByAgent.set(session.agentId, existing);
   }
   const agents = agentIds
-    .map((agentId) =>
-      mapLogicalAgentCard({
+    .map((agentId) => {
+      const usage = usageByAgent.get(agentId);
+      return mapLogicalAgentCard({
         agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
         sessions: sessionsByAgent.get(agentId) ?? [],
-        usage: usageByAgent.get(agentId),
-        monthlyUsage: monthlyUsageByAgent.get(agentId),
-      }),
-    )
+        usage,
+        monthlySpendUsd: usage?.monthly_cost_usd,
+      });
+    })
     .sort((left, right) => {
       const rank = { active: 0, idle: 1, stopped: 2, unused: 3 } as const;
       const byStatus = rank[left.status] - rank[right.status];

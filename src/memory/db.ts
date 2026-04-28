@@ -88,6 +88,7 @@ import type {
 } from '../types/session.js';
 import type {
   UsageAgentAggregate,
+  UsageAgentRollup,
   UsageDailyAggregate,
   UsageModelAggregate,
   UsageSessionAggregate,
@@ -3354,6 +3355,40 @@ export function listUsageByAgent(params?: {
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    call_count: normalizeUsageNumber(row.call_count),
+    total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+  }));
+}
+
+export function listUsageByAgentRollups(): UsageAgentRollup[] {
+  const rows = queryAll<UsageAgentRollup>(
+    db,
+    `SELECT
+       agent_id,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COALESCE(SUM(
+         CASE
+           WHEN timestamp >= datetime('now', 'start of month') THEN cost_usd
+           ELSE 0
+         END
+       ), 0.0) AS monthly_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     GROUP BY agent_id
+     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+  );
+
+  return rows.map((row) => ({
+    agent_id: row.agent_id,
+    total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
+    total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_tokens: normalizeUsageNumber(row.total_tokens),
+    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    monthly_cost_usd: normalizeUsageCost(row.monthly_cost_usd),
     call_count: normalizeUsageNumber(row.call_count),
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   }));

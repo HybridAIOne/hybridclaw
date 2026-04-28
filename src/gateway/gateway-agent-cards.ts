@@ -414,7 +414,7 @@ export function mapLogicalAgentCard(params: {
   agent: AgentConfig;
   sessions: GatewaySessionCard[];
   usage?: GatewaySessionUsageSummary;
-  monthlyUsage?: Pick<GatewaySessionUsageSummary, 'total_cost_usd'>;
+  monthlySpendUsd?: number;
 }): GatewayLogicalAgentCard {
   const resolved = resolveAgentConfig(params.agent.id);
   const sessions = [...params.sessions].sort((left, right) => {
@@ -446,7 +446,7 @@ export function mapLogicalAgentCard(params: {
     inputTokens: usage?.total_input_tokens || 0,
     outputTokens: usage?.total_output_tokens || 0,
     costUsd: usage?.total_cost_usd || 0,
-    monthlySpendUsd: params.monthlyUsage?.total_cost_usd || 0,
+    monthlySpendUsd: params.monthlySpendUsd || 0,
     messageCount: sessions.reduce(
       (sum, session) => sum + Number(session.messageCount || 0),
       0,

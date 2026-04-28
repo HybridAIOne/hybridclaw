@@ -6,7 +6,7 @@ import { expect, test } from 'vitest';
 import {
   getUsageTotals,
   initDatabase,
-  listUsageByAgent,
+  listUsageByAgentRollups,
   monthlySpendUsd,
   recordUsageEvent,
 } from '../src/memory/db.js';
@@ -64,14 +64,13 @@ test('monthlySpendUsd matches the monthly UsageTotals rollup per agent', () => {
     agentId: 'alpha',
     window: 'monthly',
   });
-  const monthlyRows = new Map(
-    listUsageByAgent({ window: 'monthly' }).map(
-      (row) => [row.agent_id, row] as const,
-    ),
+  const rollups = new Map(
+    listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),
   );
 
   expect(alphaTotals.total_cost_usd).toBeCloseTo(0.35, 6);
   expect(monthlySpendUsd('alpha')).toBeCloseTo(alphaTotals.total_cost_usd, 6);
-  expect(monthlyRows.get('alpha')?.total_cost_usd).toBeCloseTo(0.35, 6);
-  expect(monthlyRows.get('beta')?.total_cost_usd).toBeCloseTo(0.04, 6);
+  expect(rollups.get('alpha')?.total_cost_usd).toBeCloseTo(10.35, 6);
+  expect(rollups.get('alpha')?.monthly_cost_usd).toBeCloseTo(0.35, 6);
+  expect(rollups.get('beta')?.monthly_cost_usd).toBeCloseTo(0.04, 6);
 });
