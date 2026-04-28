@@ -732,13 +732,7 @@ test('captures opt-in skill_run trajectories in append-only files keyed by date 
     outcome: 'success',
     score: {
       run: 1,
-      agent_skill: {
-        score: expect.any(Number),
-        quality_score: expect.any(Number),
-        reliability_score: expect.any(Number),
-        timing_score: expect.any(Number),
-        total_executions: 1,
-      },
+      agent_skill: null,
     },
     event: {
       type: 'skill_run',

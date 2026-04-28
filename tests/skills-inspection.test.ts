@@ -225,54 +225,61 @@ test('runPeriodicSkillInspection prunes observations older than the retention wi
 });
 
 test('runPeriodicSkillInspection prunes expired trajectory files by tenant policy', async () => {
-  context = await createAdaptiveSkillsTestContext();
-  const storeDir = path.join(context.homeDir, 'trajectory-store');
-  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
-    draft.adaptiveSkills.enabled = false;
-    draft.adaptiveSkills.inspectionIntervalMs = 0;
-    draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
-    draft.adaptiveSkills.trajectoryCapture.retentionDays = 365;
-    draft.adaptiveSkills.trajectoryCapture.retentionDaysByTenant = {
-      'agent-short': 1,
-      'agent-keep': 999,
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
+
+  try {
+    context = await createAdaptiveSkillsTestContext();
+    const storeDir = path.join(context.homeDir, 'trajectory-store');
+    context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+      draft.adaptiveSkills.enabled = false;
+      draft.adaptiveSkills.inspectionIntervalMs = 0;
+      draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
+      draft.adaptiveSkills.trajectoryCapture.retentionDays = 365;
+      draft.adaptiveSkills.trajectoryCapture.retentionDaysByTenant = {
+        'agent-short': 1,
+        'agent-keep': 999,
+      };
+    });
+
+    const dateDaysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+    const writeTrajectory = (date: string, agentId: string) => {
+      const filePath = path.join(storeDir, date, `${agentId}.jsonl`);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(
+        filePath,
+        `${JSON.stringify({
+          schema_version: 2,
+          tenant_id: agentId,
+          agent_id: agentId,
+        })}\n`,
+        'utf-8',
+      );
+      return filePath;
     };
-  });
 
-  const dateDaysAgo = (days: number) =>
-    new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-  const writeTrajectory = (date: string, agentId: string) => {
-    const filePath = path.join(storeDir, date, `${agentId}.jsonl`);
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      `${JSON.stringify({
-        schema_version: 2,
-        tenant_id: agentId,
-        agent_id: agentId,
-      })}\n`,
-      'utf-8',
+    const staleDefaultPath = writeTrajectory(dateDaysAgo(400), 'agent-default');
+    const staleShortPath = writeTrajectory(dateDaysAgo(5), 'agent-short');
+    const retainedOverridePath = writeTrajectory(dateDaysAgo(400), 'agent-keep');
+    const retainedDefaultPath = writeTrajectory(dateDaysAgo(2), 'agent-default');
+
+    const { runPeriodicSkillInspection } = await import(
+      '../src/skills/skills-inspection.ts'
     );
-    return filePath;
-  };
+    const result = await runPeriodicSkillInspection({
+      agentId: 'trajectory-cleanup',
+    });
+    expect(result).toEqual([]);
 
-  const staleDefaultPath = writeTrajectory(dateDaysAgo(400), 'agent-default');
-  const staleShortPath = writeTrajectory(dateDaysAgo(5), 'agent-short');
-  const retainedOverridePath = writeTrajectory(dateDaysAgo(400), 'agent-keep');
-  const retainedDefaultPath = writeTrajectory(dateDaysAgo(2), 'agent-default');
-
-  const { runPeriodicSkillInspection } = await import(
-    '../src/skills/skills-inspection.ts'
-  );
-  const result = await runPeriodicSkillInspection({
-    agentId: 'trajectory-cleanup',
-  });
-  expect(result).toEqual([]);
-
-  expect(fs.existsSync(staleDefaultPath)).toBe(false);
-  expect(fs.existsSync(staleShortPath)).toBe(false);
-  expect(fs.existsSync(retainedOverridePath)).toBe(true);
-  expect(fs.existsSync(retainedDefaultPath)).toBe(true);
-  expect(fs.existsSync(path.dirname(staleShortPath))).toBe(false);
+    expect(fs.existsSync(staleDefaultPath)).toBe(false);
+    expect(fs.existsSync(staleShortPath)).toBe(false);
+    expect(fs.existsSync(retainedOverridePath)).toBe(true);
+    expect(fs.existsSync(retainedDefaultPath)).toBe(true);
+    expect(fs.existsSync(path.dirname(staleShortPath))).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
 });

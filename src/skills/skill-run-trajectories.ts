@@ -6,12 +6,8 @@ import {
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
-import { getAgentSkillScores } from '../memory/db.js';
 import { expandHomePath } from '../utils/path.js';
-import type {
-  AdaptiveSkillsConfig,
-  AgentSkillScore,
-} from './adaptive-skills-types.js';
+import type { AdaptiveSkillsConfig } from './adaptive-skills-types.js';
 import type {
   SkillRunBoundedPayload,
   SkillRunEvent,
@@ -199,38 +195,11 @@ function scoreSkillRunOutcome(outcome: SkillRunEvent['outcome']): number {
 }
 
 function buildTrajectoryScore(
-  event: SkillRunEvent & { agent_id: string },
+  outcome: SkillRunEvent['outcome'],
 ): SkillRunTrajectoryScore {
-  let agentSkillScore: AgentSkillScore | null = null;
-  try {
-    const [score] = getAgentSkillScores({
-      agentId: event.agent_id,
-      skillName: event.skill_id,
-      limit: 1,
-    });
-    agentSkillScore = score ?? null;
-  } catch (error) {
-    logger.warn(
-      {
-        agentId: event.agent_id,
-        skillId: event.skill_id,
-        runId: event.run_id,
-        error,
-      },
-      'Failed to read agent skill score for trajectory',
-    );
-  }
   return {
-    run: scoreSkillRunOutcome(event.outcome),
-    agent_skill: agentSkillScore
-      ? {
-          score: agentSkillScore.score,
-          quality_score: agentSkillScore.quality_score,
-          reliability_score: agentSkillScore.reliability_score,
-          timing_score: agentSkillScore.timing_score,
-          total_executions: agentSkillScore.total_executions,
-        }
-      : null,
+    run: scoreSkillRunOutcome(outcome),
+    agent_skill: null,
   };
 }
 
@@ -255,7 +224,7 @@ export function buildSkillRunTrajectoryRecord(
       buildTrajectoryToolUse(summary, event, index),
     ),
     outcome: event.outcome,
-    score: buildTrajectoryScore(event),
+    score: buildTrajectoryScore(event.outcome),
     event,
   };
 }
