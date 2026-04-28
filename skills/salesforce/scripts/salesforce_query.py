@@ -124,11 +124,15 @@ class SalesforceSession:
         *,
         json_payload: dict[str, Any] | None = None,
     ) -> Any:
-        url = (
-            path_or_url
-            if path_or_url.startswith("http://") or path_or_url.startswith("https://")
-            else f"<secret:{SF_INSTANCE_URL_SECRET}>{path_or_url}"
-        )
+        parsed = parse.urlparse(path_or_url)
+        if parsed.scheme or parsed.netloc:
+            if parsed.scheme != "https" or not parsed.hostname:
+                raise ConfigError("Salesforce API URL must be an absolute HTTPS URL.")
+            url = path_or_url
+        else:
+            if not path_or_url.startswith("/"):
+                raise ConfigError("Salesforce API path must start with '/'.")
+            url = f"<secret:{SF_INSTANCE_URL_SECRET}>{path_or_url}"
         return gateway_request(
             self.gateway,
             url=url,
@@ -503,6 +507,8 @@ def parse_activity_date(value: str | None) -> str:
 def meeting_times(activity_date: str, duration_minutes: int) -> tuple[str, str]:
     duration = max(1, duration_minutes)
     start_date = date.fromisoformat(activity_date)
+    # Salesforce Event requires a timestamp; NL activity logging only captures a date,
+    # so default date-only meetings to 09:00 UTC until the command accepts a time zone.
     start = datetime.combine(start_date, time(hour=9), tzinfo=timezone.utc)
     end = start + timedelta(minutes=duration)
     return (
@@ -1171,7 +1177,7 @@ def run_planned_actions(
             results=[],
         )
     results: list[dict[str, Any]] = []
-    resolved_records: dict[str, dict[str, Any]] = {}
+    last_updated_opportunity_id = ""
     for action in plan["actions"]:
         if action["action"] == "find-records":
             results.append(
@@ -1194,12 +1200,12 @@ def run_planned_actions(
             results.append(result)
             target = result.get("target")
             if is_mapping(target):
-                resolved_records[action["opportunity"]] = target
+                last_updated_opportunity_id = str(target.get("id") or "").strip()
         elif action["action"] == "log-activity":
             target = action["target"]
             target_object = action["targetObject"]
-            if target in resolved_records and target_object == "Opportunity":
-                target = str(resolved_records[target].get("id") or target)
+            if last_updated_opportunity_id and target_object == "Opportunity":
+                target = last_updated_opportunity_id
             results.append(
                 log_activity(
                     session,
@@ -1517,10 +1523,11 @@ def _add_common_args(
 ) -> None:
     """Register shared flags on *parser*.
 
+    Shared flags are registered once on the root parser and again on each
+    subparser so commands accept them before or after the subcommand.
     When *with_defaults* is ``False`` the arguments use
     ``argparse.SUPPRESS`` so the subparser does not override a value
-    already set by the main parser.  This lets flags like ``--format``
-    work in any position on the command line.
+    already set by the main parser.
     """
     _sup = argparse.SUPPRESS
 

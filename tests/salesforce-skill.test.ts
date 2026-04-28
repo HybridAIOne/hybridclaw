@@ -101,6 +101,73 @@ test('salesforce helper preserves custom stage names and escapes SOQL LIKE wildc
   });
 });
 
+test('salesforce helper validates Salesforce request URLs and reuses resolved opportunity ids', () => {
+  const result = spawnSync(
+    'python3',
+    [
+      '-c',
+      [
+        'import importlib.util, json, pathlib, sys',
+        'helper_path = pathlib.Path(sys.argv[1])',
+        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
+        'module = importlib.util.module_from_spec(spec)',
+        'sys.modules[spec.name] = module',
+        'spec.loader.exec_module(module)',
+        'gateway_calls = []',
+        'def fake_gateway_request(gateway, **kwargs):',
+        '    gateway_calls.append(kwargs)',
+        '    return {"ok": True}',
+        'module.gateway_request = fake_gateway_request',
+        'gateway = module.GatewayConfig(base_url="http://127.0.0.1:9090", api_token="test-token", timeout_ms=1000)',
+        'session = module.SalesforceSession(api_version="61.0", gateway=gateway)',
+        'session.request_json("GET", "/services/data/v61.0/query")',
+        'session.request_json("GET", "https://example.my.salesforce.com/services/data/v61.0/query")',
+        'errors = []',
+        'for bad in ["http://stubs", "services/data/v61.0/query"]:',
+        '    try:',
+        '        session.request_json("GET", bad)',
+        '    except module.ConfigError:',
+        '        errors.append(bad)',
+        'captured_targets = []',
+        'class DummySession:',
+        '    api_version = "61.0"',
+        'module.plan_natural_language = lambda statement: {',
+        '    "statement": statement,',
+        '    "actions": [',
+        '        {"action": "update-opportunity", "opportunity": "Acme", "stage": "Closed Won", "probability": 100},',
+        '        {"action": "log-activity", "activityType": "call", "target": " acme ", "targetObject": "Opportunity", "subject": "Call for Acme", "date": "today", "notes": statement},',
+        '    ],',
+        '}',
+        'module.update_opportunity = lambda *args, **kwargs: {"target": {"id": "006000000000001AAA", "name": "Acme"}}',
+        'def fake_log_activity(*args, **kwargs):',
+        '    captured_targets.append(kwargs["target"])',
+        '    return {"target": kwargs["target"]}',
+        'module.log_activity = fake_log_activity',
+        'module.run_planned_actions(DummySession(), statement="move and log", dry_run=False)',
+        'print(json.dumps({',
+        '    "urls": [call["url"] for call in gateway_calls],',
+        '    "errors": errors,',
+        '    "capturedTargets": captured_targets,',
+        '}))',
+      ].join('\n'),
+      helperPath,
+    ],
+    { encoding: 'utf-8' },
+  );
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.urls).toEqual([
+    '<secret:SF_INSTANCE_URL>/services/data/v61.0/query',
+    'https://example.my.salesforce.com/services/data/v61.0/query',
+  ]);
+  expect(payload.errors).toEqual([
+    'http://stubs',
+    'services/data/v61.0/query',
+  ]);
+  expect(payload.capturedTargets).toEqual(['006000000000001AAA']);
+});
+
 test('salesforce helper eval suite covers 30 read and write scenarios', () => {
   const scenarios = JSON.parse(
     fs.readFileSync(scenariosPath, 'utf-8'),
