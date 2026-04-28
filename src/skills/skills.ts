@@ -21,10 +21,21 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { withSpanSync } from '../observability/otel.js';
+import {
+  evaluateSkillPolicyAccess,
+  readWorkspaceSkillPolicyState,
+  type SkillPolicyState,
+} from '../policy/skill-policy.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
+import {
+  DEFAULT_SKILL_SUPPORTED_CHANNELS,
+  isSkillSupportedOnChannel,
+  parseSkillManifestFromFrontmatterBlock,
+  type SkillManifest,
+} from './skill-manifest.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
 type SkillSource =
@@ -62,6 +73,7 @@ interface SkillCandidate {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -86,6 +98,7 @@ export interface Skill {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -946,12 +959,17 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
+        const manifest = parseSkillManifestFromFrontmatterBlock(
+          frontmatter.block,
+          { name },
+        );
         const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
         skills.push({
           name,
           description: (meta.description || '').trim(),
           category: parseSkillCategory(frontmatter),
+          manifest,
           userInvocable: parseBool(meta['user-invocable'], true),
           disableModelInvocation: parseBool(
             meta['disable-model-invocation'],
@@ -1636,10 +1654,24 @@ export function expandResolvedSkillInvocation(
   return lines.join('\n');
 }
 
+function resolveSkillManifest(skill: Skill): SkillManifest {
+  return (
+    skill.manifest || {
+      id: sanitizeSkillDirName(skill.name),
+      name: skill.name,
+      version: '0.0.0',
+      capabilities: [],
+      requiredCredentials: [],
+      supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+    }
+  );
+}
+
 export interface SkillCatalogEntry {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -1667,6 +1699,49 @@ function getDisabledSkillNames(
   channelKind?: SkillConfigChannelKind,
 ): Set<string> {
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
+}
+
+function readSkillPolicyStateForWorkspace(
+  workspaceDir: string,
+): SkillPolicyState {
+  try {
+    return readWorkspaceSkillPolicyState(workspaceDir);
+  } catch (err) {
+    logger.warn(
+      { err, workspaceDir },
+      'Failed to read workspace skill policy; continuing with default skill policy',
+    );
+    return { rules: [] };
+  }
+}
+
+function isAllowedBySkillPolicy(params: {
+  policy: SkillPolicyState;
+  skill: SkillCandidate;
+  agentId: string;
+  channelKind?: SkillConfigChannelKind;
+}): boolean {
+  const evaluation = evaluateSkillPolicyAccess({
+    rules: params.policy.rules,
+    agentId: params.agentId,
+    skillName: params.skill.name,
+    skillId: params.skill.manifest.id,
+    source: params.skill.source,
+    category: params.skill.category,
+    channel: params.channelKind,
+    capabilities: params.skill.manifest.capabilities,
+  });
+  if (evaluation.decision !== 'deny') return true;
+  logger.info(
+    {
+      agentId: params.agentId,
+      skill: params.skill.name,
+      ruleId: evaluation.matchedRule?.id,
+      reason: evaluation.action.reason,
+    },
+    'Skill blocked by workspace policy',
+  );
+  return false;
 }
 
 export function resolveManagedCommunitySkillsDir(
@@ -1904,6 +1979,7 @@ function loadSkillsInner(
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
   const disabled = getDisabledSkillNames(channelKind);
+  const skillPolicy = readSkillPolicyStateForWorkspace(workspaceDir);
   const configuredSkills = resolveAgentConfig(agentId).skills;
   const allowedSkills =
     configuredSkills === undefined
@@ -1915,6 +1991,13 @@ function loadSkillsInner(
     (skill) =>
       checkEligibility(skill).available &&
       !disabled.has(skill.name) &&
+      isSkillSupportedOnChannel(skill.manifest, channelKind) &&
+      isAllowedBySkillPolicy({
+        policy: skillPolicy,
+        skill,
+        agentId,
+        channelKind,
+      }) &&
       (allowedSkills === null || allowedSkills.has(skill.name)),
   );
   const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
@@ -2014,11 +2097,17 @@ export function buildSkillsPrompt(skills: Skill[]): string {
 
     let chars = 0;
     for (const skill of summaryCandidates) {
+      const manifest = resolveSkillManifest(skill);
       const block = [
         '  <skill>',
+        `    <id>${escapeXml(manifest.id)}</id>`,
         `    <name>${escapeXml(skill.name)}</name>`,
+        `    <version>${escapeXml(manifest.version)}</version>`,
         `    <category>${escapeXml(skill.category)}</category>`,
         `    <description>${escapeXml(skill.description || skill.name)}</description>`,
+        `    <capabilities>${escapeXml(manifest.capabilities.join(', '))}</capabilities>`,
+        `    <required_credentials>${escapeXml(manifest.requiredCredentials.map((credential) => credential.id).join(', '))}</required_credentials>`,
+        `    <supported_channels>${escapeXml(manifest.supportedChannels.join(', '))}</supported_channels>`,
         `    <location>${escapeXml(skill.location)}</location>`,
         '  </skill>',
       ];

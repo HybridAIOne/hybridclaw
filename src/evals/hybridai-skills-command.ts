@@ -7,6 +7,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { deleteSessionData, isDatabaseInitialized } from '../memory/db.js';
 import { parseSessionKey } from '../session/session-key.js';
+import { DEFAULT_SKILL_SUPPORTED_CHANNELS } from '../skills/skill-manifest.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
@@ -414,6 +415,14 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
       name: entry.name,
       description: '',
       category: 'bundled',
+      manifest: {
+        id: entry.name,
+        name: entry.name,
+        version: '0.0.0',
+        capabilities: [],
+        requiredCredentials: [],
+        supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+      },
       userInvocable: false,
       disableModelInvocation: false,
       always: false,

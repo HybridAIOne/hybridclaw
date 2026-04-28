@@ -13,6 +13,8 @@ tips & tricks, ready-to-try example prompts, and troubleshooting.
 For CLI management commands see [Bundled Skills](../bundled-skills.md); for
 resolution rules and runtime internals see
 [Skills Internals](../../extensibility/skills.md).
+For production package requirements see
+[How to Ship a Business Skill](./business-skills.md).
 
 > **Quick install pattern** — most skills work out of the box. When a skill
 > needs a host-side dependency, install it with:
