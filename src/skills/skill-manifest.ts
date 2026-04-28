@@ -104,13 +104,9 @@ function normalizeCapability(value: string): string {
 }
 
 function normalizeCapabilities(value: unknown): string[] {
-  return [
-    ...new Set(
-      normalizeStringList(value)
-        .map((entry) => normalizeCapability(entry))
-        .filter(Boolean),
-    ),
-  ];
+  return normalizeStringList(value)
+    .map((entry) => normalizeCapability(entry))
+    .filter(Boolean);
 }
 
 function normalizeRequiredCredentials(
