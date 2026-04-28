@@ -232,13 +232,19 @@ export type RuntimeAudioTranscriptionProvider =
   | 'deepgram'
   | 'google';
 export type RuntimeDeploymentMode = 'cloud' | 'local';
+export const RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS = [
+  'cloudflare',
+  'manual',
+  'ngrok',
+  'ssh',
+  'tailscale',
+] as const;
+export type RuntimeDeploymentKnownTunnelProvider =
+  (typeof RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS)[number];
 export type RuntimeDeploymentTunnelProvider =
   | ''
-  | 'cloudflare'
-  | 'manual'
-  | 'ngrok'
-  | 'ssh'
-  | 'tailscale';
+  | RuntimeDeploymentKnownTunnelProvider
+  | (string & {});
 
 export interface RuntimeDeploymentTunnelConfig {
   provider: RuntimeDeploymentTunnelProvider;
@@ -1711,13 +1717,11 @@ function normalizeDeploymentTunnelProvider(
   const normalized = value.trim().toLowerCase();
   if (!normalized) return '';
   if (
-    normalized === 'cloudflare' ||
-    normalized === 'manual' ||
-    normalized === 'ngrok' ||
-    normalized === 'ssh' ||
-    normalized === 'tailscale'
+    (RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+      normalized,
+    )
   ) {
-    return normalized;
+    return normalized as RuntimeDeploymentKnownTunnelProvider;
   }
   if (normalized === 'cloudflared' || normalized === 'cloudflare-tunnel') {
     return 'cloudflare';
@@ -1728,7 +1732,7 @@ function normalizeDeploymentTunnelProvider(
   if (normalized === 'reverse-proxy' || normalized === 'proxy') {
     return 'manual';
   }
-  return '';
+  return normalized;
 }
 
 export function normalizeDeploymentConfig(

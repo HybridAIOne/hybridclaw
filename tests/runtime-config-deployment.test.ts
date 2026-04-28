@@ -155,6 +155,34 @@ describe('runtime deployment config', () => {
     );
   });
 
+  it('preserves unknown tunnel providers so validation can report them', async () => {
+    const { runtimeConfig, checkConfigFile } = await importFreshRuntimeConfig();
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.deployment.mode = 'local';
+      draft.deployment.tunnel.provider = 'WireGuard';
+    });
+
+    expect(runtimeConfig.getRuntimeConfig().deployment.tunnel.provider).toBe(
+      'wireguard',
+    );
+    expect(readDiskConfig().deployment).toMatchObject({
+      tunnel: {
+        provider: 'wireguard',
+      },
+    });
+
+    const results = await checkConfigFile();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.severity).toBe('error');
+    expect(results[0]?.message).toContain(
+      'deployment.tunnel.provider must be one of cloudflare, manual, ngrok, ssh, tailscale',
+    );
+    expect(results[0]?.message).not.toContain(
+      'missing required field: deployment.tunnel.provider',
+    );
+  });
+
   it('persists deployment updates through runtime config revisions', async () => {
     const { runtimeConfig } = await importFreshRuntimeConfig();
 

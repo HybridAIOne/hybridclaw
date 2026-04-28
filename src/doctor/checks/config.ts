@@ -8,6 +8,7 @@ import {
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
   normalizeDeploymentConfig,
+  RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS,
   runtimeConfigPath,
   setRuntimeToolEnabled,
   updateRuntimeConfig,
@@ -273,6 +274,23 @@ function hasInvalidDeploymentMode(
   return localFallback.mode !== cloudFallback.mode;
 }
 
+function hasInvalidDeploymentTunnelProvider(
+  rawDeployment: Record<string, unknown> | null,
+  provider: string,
+): boolean {
+  const rawTunnel = rawDeployment?.tunnel;
+  if (!rawTunnel || typeof rawTunnel !== 'object' || Array.isArray(rawTunnel)) {
+    return false;
+  }
+  if (!Object.hasOwn(rawTunnel, 'provider')) return false;
+  return (
+    provider !== '' &&
+    !(RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+      provider,
+    )
+  );
+}
+
 function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   missingFields: string[];
   invalidFields: string[];
@@ -289,6 +307,16 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   const invalidDeploymentMode = hasInvalidDeploymentMode(rawDeployment);
   if (invalidDeploymentMode) {
     invalidFields.push('deployment.mode must be "cloud" or "local"');
+  }
+  if (
+    hasInvalidDeploymentTunnelProvider(
+      rawDeployment,
+      deployment.tunnel.provider,
+    )
+  ) {
+    invalidFields.push(
+      `deployment.tunnel.provider must be one of ${RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS.join(', ')}`,
+    );
   }
 
   if (!invalidDeploymentMode) {
