@@ -61,10 +61,11 @@ import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type {
-  ArtifactMetadata,
-  PendingApproval,
-  ToolProgressEvent,
+import {
+  type ArtifactMetadata,
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
@@ -318,9 +319,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     ) {
       return null;
     }
-    const escalationTarget = normalizeParsedEscalationTarget(
-      parsed.escalationTarget,
-    );
+    const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
     return {
       approvalId: parsed.approvalId,
       prompt: redactCredentialSecrets(parsed.prompt),
@@ -339,19 +338,6 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   } catch {
     return null;
   }
-}
-
-function normalizeParsedEscalationTarget(
-  value: unknown,
-): PendingApproval['escalationTarget'] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return undefined;
-  }
-  const raw = value as { channel?: unknown; recipient?: unknown };
-  const channel = typeof raw.channel === 'string' ? raw.channel.trim() : '';
-  const recipient =
-    typeof raw.recipient === 'string' ? raw.recipient.trim() : '';
-  return channel && recipient ? { channel, recipient } : undefined;
 }
 
 function emitApprovalProgress(entry: PoolEntry, line: string): boolean {

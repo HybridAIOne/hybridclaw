@@ -63,7 +63,11 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import {
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
+} from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
@@ -126,14 +130,8 @@ import {
 
 const MAX_HISTORY_MESSAGES = 40;
 
-function getPendingApprovalEscalationChannel(
-  approval: PendingApproval | undefined,
-): string {
-  return approval?.escalationTarget?.channel?.trim() || '';
-}
-
 function formatEscalationRouteNotice(approval: PendingApproval): string {
-  const target = approval.escalationTarget;
+  const target = normalizeEscalationTarget(approval.escalationTarget);
   if (!target) return approval.prompt;
   return [
     `Escalation for ${target.recipient} on ${target.channel}.`,
@@ -146,8 +144,10 @@ async function routeEscalationApproval(params: {
   currentChannelId: string;
   onProactiveMessage: GatewayChatRequest['onProactiveMessage'];
 }): Promise<void> {
-  const targetChannel = getPendingApprovalEscalationChannel(params.approval);
-  if (!params.approval || !targetChannel) return;
+  if (!params.approval) return;
+  const target = normalizeEscalationTarget(params.approval.escalationTarget);
+  if (!target) return;
+  const targetChannel = target.channel;
   if (targetChannel === params.currentChannelId) return;
   if (!params.onProactiveMessage) {
     logger.warn(

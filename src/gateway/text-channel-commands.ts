@@ -10,7 +10,10 @@ import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import {
+  type ArtifactMetadata,
+  normalizeEscalationTarget,
+} from '../types/execution.js';
 import { formatError, formatInfo } from '../utils/text-format.js';
 import { getApprovalPromptText } from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
@@ -357,11 +360,14 @@ export async function handleTextChannelApprovalCommand(params: {
   );
   const pendingApproval = extractGatewayChatApprovalEvent(approvalResult);
   if (pendingApproval) {
+    const escalationTarget = normalizeEscalationTarget(
+      pendingApproval.escalationTarget,
+    );
     await rememberPendingApproval({
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
       prompt: getApprovalPromptText(pendingApproval, resultText),
-      userId: pendingApproval.escalationTarget?.recipient || userId,
+      userId: escalationTarget?.recipient || userId,
       expiresAt: pendingApproval.expiresAt,
     });
     return {

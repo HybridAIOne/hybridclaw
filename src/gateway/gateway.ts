@@ -127,10 +127,15 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
-import type { ArtifactMetadata, EscalationTarget } from '../types/execution.js';
+import {
+  type ArtifactMetadata,
+  type EscalationTarget,
+  normalizeEscalationTarget,
+} from '../types/execution.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
+  type ApprovalPresentation,
   createApprovalPresentation,
   getApprovalPromptText,
   getApprovalVisibleText,
@@ -159,7 +164,11 @@ import {
   handleGatewayCommand,
   resumeEnabledFullAutoSessions,
 } from './gateway-service.js';
-import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
+import type {
+  GatewayChatApprovalEvent,
+  GatewayChatRequest,
+  GatewayChatResult,
+} from './gateway-types.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   getDreamTimezone,
@@ -293,14 +302,6 @@ const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
-function normalizeEscalationTarget(
-  target: EscalationTarget | undefined,
-): EscalationTarget | null {
-  const channel = target?.channel?.trim() || '';
-  const recipient = target?.recipient?.trim() || '';
-  return channel && recipient ? { channel, recipient } : null;
-}
-
 function getApprovalRecipientUserId(
   approval: { escalationTarget?: EscalationTarget },
   fallbackUserId: string,
@@ -327,6 +328,78 @@ function formatRoutedApprovalNotice(approval: {
   const target = normalizeEscalationTarget(approval.escalationTarget);
   if (!target) return `Escalation pending. Approval ID: ${approval.approvalId}`;
   return `Escalation routed to ${target.recipient} on ${target.channel}. Approval ID: ${approval.approvalId}`;
+}
+
+type ApprovalNotificationSender = (params: {
+  approval: Pick<GatewayChatApprovalEvent, 'approvalId' | 'prompt' | 'summary'>;
+  presentation: ApprovalPresentation;
+  userId: string;
+}) => Promise<{ disableButtons: () => Promise<void> } | null>;
+
+async function handlePendingApprovalRouting(params: {
+  pendingApproval: GatewayChatApprovalEvent;
+  responseText: string;
+  sessionId: string;
+  userId: string;
+  channelId: string;
+  buttonPresentation: ApprovalPresentation;
+  sendApprovalNotification?: ApprovalNotificationSender;
+  sendText: (text: string) => Promise<void>;
+  formatTextPrompt?: (input: {
+    approval: GatewayChatApprovalEvent;
+    approvalUserId: string;
+    responseText: string;
+    storedPrompt: string;
+  }) => string;
+}): Promise<{ cleanup: { disableButtons: () => Promise<void> } | null }> {
+  const approvalUserId = getApprovalRecipientUserId(
+    params.pendingApproval,
+    params.userId,
+  );
+  const routedTarget = approvalRoutesAwayFromChannel(
+    params.pendingApproval,
+    params.channelId,
+  );
+  const storedPrompt = getApprovalPromptText(
+    params.pendingApproval,
+    params.responseText,
+  );
+  const presentation =
+    params.sendApprovalNotification && !routedTarget
+      ? params.buttonPresentation
+      : createApprovalPresentation('text');
+  let cleanup: { disableButtons: () => Promise<void> } | null = null;
+
+  if (params.sendApprovalNotification && !routedTarget) {
+    cleanup = await params.sendApprovalNotification({
+      approval: params.pendingApproval,
+      presentation,
+      userId: approvalUserId,
+    });
+  } else if (routedTarget) {
+    await params.sendText(formatRoutedApprovalNotice(params.pendingApproval));
+  } else {
+    await params.sendText(
+      params.formatTextPrompt?.({
+        approval: params.pendingApproval,
+        approvalUserId,
+        responseText: params.responseText,
+        storedPrompt,
+      }) ?? storedPrompt,
+    );
+  }
+
+  await rememberPendingApproval({
+    sessionId: params.sessionId,
+    approvalId: params.pendingApproval.approvalId,
+    prompt: storedPrompt,
+    userId: approvalUserId,
+    expiresAt: params.pendingApproval.expiresAt,
+    presentation,
+    disableButtons: cleanup?.disableButtons ?? null,
+  });
+
+  return { cleanup };
 }
 
 function scheduleNextMemoryConsolidationRun(): void {
@@ -1184,46 +1257,17 @@ async function startDiscordIntegration(): Promise<boolean> {
             result.memoryCitations,
           );
           if (pendingApproval) {
-            const approvalUserId = getApprovalRecipientUserId(
-              pendingApproval,
-              userId,
-            );
-            const routedTarget = approvalRoutesAwayFromChannel(
-              pendingApproval,
-              channelId,
-            );
-            const storedPrompt = getApprovalPromptText(
+            const { cleanup } = await handlePendingApprovalRouting({
               pendingApproval,
               responseText,
-            );
-            const approvalPresentation =
-              context.sendApprovalNotification && !routedTarget
-                ? DISCORD_APPROVAL_PRESENTATION
-                : createApprovalPresentation('text');
-            let cleanup: { disableButtons: () => Promise<void> } | null = null;
-            if (context.sendApprovalNotification && !routedTarget) {
-              cleanup = await context.sendApprovalNotification({
-                approval: pendingApproval,
-                presentation: approvalPresentation,
-                userId: approvalUserId,
-              });
-            } else if (routedTarget) {
-              await context.stream.finalize(
-                formatRoutedApprovalNotice(pendingApproval),
-              );
-            } else {
-              await context.stream.finalize(
-                `<@${approvalUserId}> ${storedPrompt}`,
-              );
-            }
-            await rememberPendingApproval({
               sessionId: effectiveSessionId,
-              approvalId: pendingApproval.approvalId,
-              prompt: storedPrompt,
-              userId: approvalUserId,
-              expiresAt: pendingApproval.expiresAt,
-              presentation: approvalPresentation,
-              disableButtons: cleanup?.disableButtons ?? null,
+              userId,
+              channelId,
+              buttonPresentation: DISCORD_APPROVAL_PRESENTATION,
+              sendApprovalNotification: context.sendApprovalNotification,
+              sendText: (text) => context.stream.finalize(text),
+              formatTextPrompt: ({ approvalUserId, storedPrompt }) =>
+                `<@${approvalUserId}> ${storedPrompt}`,
             });
             if (cleanup) {
               await context.stream.discard();
@@ -1442,40 +1486,23 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
-          const approvalUserId = getApprovalRecipientUserId(
-            pendingApproval,
-            userId,
-          );
-          const routedTarget = approvalRoutesAwayFromChannel(
-            pendingApproval,
-            channelId,
-          );
-          const storedPrompt = getApprovalPromptText(
+          await handlePendingApprovalRouting({
             pendingApproval,
             responseText,
-          );
-          const visiblePrompt = getApprovalVisibleText(
-            pendingApproval,
-            TEAMS_APPROVAL_PRESENTATION,
-            responseText,
-          );
-          await rememberPendingApproval({
             sessionId: effectiveSessionId,
-            approvalId: pendingApproval.approvalId,
-            prompt: storedPrompt,
-            userId: approvalUserId,
-            expiresAt: pendingApproval.expiresAt,
-            presentation: TEAMS_APPROVAL_PRESENTATION,
+            userId,
+            channelId,
+            buttonPresentation: TEAMS_APPROVAL_PRESENTATION,
+            sendText: (text) => context.stream.finalize(text),
+            formatTextPrompt: ({ approval, responseText }) => {
+              const visiblePrompt = getApprovalVisibleText(
+                approval,
+                TEAMS_APPROVAL_PRESENTATION,
+                responseText,
+              );
+              return `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`;
+            },
           });
-          if (routedTarget) {
-            await context.stream.finalize(
-              formatRoutedApprovalNotice(pendingApproval),
-            );
-            return;
-          }
-          await context.stream.finalize(
-            `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
-          );
           return;
         }
 
@@ -2257,42 +2284,15 @@ async function startSlackIntegration(): Promise<boolean> {
               )
             : '';
           if (pendingApproval) {
-            const approvalUserId = getApprovalRecipientUserId(
-              pendingApproval,
-              userId,
-            );
-            const routedTarget = approvalRoutesAwayFromChannel(
-              pendingApproval,
-              channelId,
-            );
-            const storedPrompt = getApprovalPromptText(
+            await handlePendingApprovalRouting({
               pendingApproval,
               responseText,
-            );
-            const approvalPresentation =
-              context.sendApprovalNotification && !routedTarget
-                ? SLACK_APPROVAL_PRESENTATION
-                : createApprovalPresentation('text');
-            let cleanup: { disableButtons: () => Promise<void> } | null = null;
-            if (context.sendApprovalNotification && !routedTarget) {
-              cleanup = await context.sendApprovalNotification({
-                approval: pendingApproval,
-                presentation: approvalPresentation,
-                userId: approvalUserId,
-              });
-            } else if (routedTarget) {
-              await reply(formatRoutedApprovalNotice(pendingApproval));
-            } else {
-              await reply(storedPrompt);
-            }
-            await rememberPendingApproval({
               sessionId: effectiveSessionId,
-              approvalId: pendingApproval.approvalId,
-              prompt: storedPrompt,
-              userId: approvalUserId,
-              expiresAt: pendingApproval.expiresAt,
-              presentation: approvalPresentation,
-              disableButtons: cleanup?.disableButtons ?? null,
+              userId,
+              channelId,
+              buttonPresentation: SLACK_APPROVAL_PRESENTATION,
+              sendApprovalNotification: context.sendApprovalNotification,
+              sendText: reply,
             });
             return;
           }

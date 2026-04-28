@@ -27,7 +27,11 @@ import {
   type StakesScore,
 } from './stakes-classifier.js';
 import { normalizeText } from './text-normalization.js';
-import type { ChatMessage, EscalationTarget } from './types.js';
+import {
+  type ChatMessage,
+  type EscalationTarget,
+  normalizeEscalationTarget,
+} from './types.js';
 
 export type {
   NetworkPolicyAction,
@@ -276,14 +280,6 @@ function escalationRouteForDecision(
   if (decision === 'required') return 'approval_request';
   if (tier === 'yellow' && decision === 'implicit') return 'implicit_notice';
   return 'none';
-}
-
-function normalizeEscalationTarget(
-  value: EscalationTarget | undefined,
-): EscalationTarget | undefined {
-  const channel = normalizeText(value?.channel);
-  const recipient = normalizeText(value?.recipient);
-  return channel && recipient ? { channel, recipient } : undefined;
 }
 
 function formatStakesReasoning(score: StakesScore): string {
