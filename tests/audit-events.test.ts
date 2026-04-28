@@ -67,7 +67,7 @@ test('does not emit approval events for auto-approved read-only tools', async ()
   expect(JSON.parse(events[1].payload)).toEqual(
     expect.objectContaining({
       type: 'autonomy.decision',
-      autonomyLevel: 'autonomous',
+      autonomyLevel: 'full-autonomous',
       stakes: 'low',
       escalationRoute: 'none',
       approvalDecision: 'auto',
@@ -103,7 +103,7 @@ test('emits approval request and response events for pending red actions', async
         blockedReason: 'this command may change local state',
         approvalTier: 'red',
         approvalBaseTier: 'red',
-        autonomyLevel: 'autonomous',
+        autonomyLevel: 'full-autonomous',
         stakes: 'high',
         escalationRoute: 'approval_request',
         approvalDecision: 'required',

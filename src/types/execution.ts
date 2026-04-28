@@ -31,7 +31,7 @@ export interface ToolExecution {
   blockedReason?: string;
   approvalTier?: 'green' | 'yellow' | 'red';
   approvalBaseTier?: 'green' | 'yellow' | 'red';
-  autonomyLevel?: 'autonomous' | 'supervised' | 'manual';
+  autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
   stakes?: 'low' | 'medium' | 'high';
   escalationRoute?:
     | 'none'

@@ -75,17 +75,17 @@ network:
   test('parsePolicyYaml reads autonomy defaults and scoped overrides', () => {
     const parsed = parsePolicyYaml(`
 autonomy:
-  default: supervised
+  default: low-stakes-autonomous
   tools:
-    read: manual
+    read: confirm-each
   actions:
-    bash:install-deps: autonomous
+    bash:install-deps: full-autonomous
 `);
 
     expect(parsed.autonomy).toEqual({
-      defaultLevel: 'supervised',
-      tools: { read: 'manual' },
-      actions: { 'bash:install-deps': 'autonomous' },
+      defaultLevel: 'low-stakes-autonomous',
+      tools: { read: 'confirm-each' },
+      actions: { 'bash:install-deps': 'full-autonomous' },
     });
   });
 
@@ -123,16 +123,16 @@ autonomy:
       latestUserPrompt: 'Read the README',
     });
 
-    expect(evaluation.autonomyLevel).toBe('autonomous');
+    expect(evaluation.autonomyLevel).toBe('full-autonomous');
     expect(evaluation.stakes).toBe('low');
     expect(evaluation.escalationRoute).toBe('none');
   });
 
-  test('manual autonomy override escalates an otherwise read-only tool', () => {
+  test('confirm-each autonomy override escalates an otherwise read-only tool', () => {
     const policyPath = writeTempPolicy(`
 autonomy:
   tools:
-    read: manual
+    read: confirm-each
 `);
     const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
 
@@ -142,7 +142,7 @@ autonomy:
       latestUserPrompt: 'Read the README',
     });
 
-    expect(evaluation.autonomyLevel).toBe('manual');
+    expect(evaluation.autonomyLevel).toBe('confirm-each');
     expect(evaluation.baseTier).toBe('red');
     expect(evaluation.stakes).toBe('high');
     expect(evaluation.decision).toBe('required');
