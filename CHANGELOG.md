@@ -1,6 +1,22 @@
 # Changelog
 
+## Entry Template
+
+Use this shape for shipped feature entries so release, sales, and marketing
+notes can be filtered by manifesto principle:
+
+- **Feature name**: User-facing outcome and why it matters.
+  Manifesto: Principle <Roman numeral> - <principle title>.
+
 ## Unreleased
+
+### Added
+
+- **Manifesto-principle changelog tags**: Feature changelog entries now include
+  a stable manifesto-principle line so release notes, sales briefs, and
+  marketing copy can be traced back to the product principle each feature
+  serves.
+  Manifesto: Principle VII - A coworker you can trust with real responsibility.
 
 ## [0.13.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.1) - 2026-04-24
 
