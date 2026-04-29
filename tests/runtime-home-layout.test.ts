@@ -21,6 +21,8 @@ const ORIGINAL_PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const ORIGINAL_TAVILY_API_KEY = process.env.TAVILY_API_KEY;
 const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
+const ORIGINAL_WEB_API_TOKEN = process.env.WEB_API_TOKEN;
+const ORIGINAL_GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN;
 const ORIGINAL_HYBRIDCLAW_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = path.resolve(TEST_DIR, '..');
@@ -88,6 +90,8 @@ afterEach(() => {
   restoreEnvVar('TAVILY_API_KEY', ORIGINAL_TAVILY_API_KEY);
   restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
   restoreEnvVar('EMAIL_PASSWORD', ORIGINAL_EMAIL_PASSWORD);
+  restoreEnvVar('WEB_API_TOKEN', ORIGINAL_WEB_API_TOKEN);
+  restoreEnvVar('GATEWAY_API_TOKEN', ORIGINAL_GATEWAY_API_TOKEN);
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_HYBRIDCLAW_MASTER_KEY);
 });
 
@@ -258,6 +262,30 @@ describe('runtime secrets', () => {
     expect(config.BRAVE_API_KEY).toBe('stored-brave-key');
     expect(config.PERPLEXITY_API_KEY).toBe('stored-perplexity-key');
     expect(config.TAVILY_API_KEY).toBe('stored-tavily-key');
+  });
+
+  it('persists a generated gateway API token for local CLI clients', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    delete process.env.WEB_API_TOKEN;
+    delete process.env.GATEWAY_API_TOKEN;
+
+    const firstConfig = await importFreshConfigGlobals(homeDir);
+    const generatedToken = firstConfig.GATEWAY_API_TOKEN;
+
+    expect(generatedToken).toMatch(/^[a-f0-9]{48}$/);
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('GATEWAY_API_TOKEN'),
+    ).toBeNull();
+
+    expect(firstConfig.ensureGatewayApiTokenPersisted()).toBe(generatedToken);
+
+    expect(runtimeSecrets.readStoredRuntimeSecret('GATEWAY_API_TOKEN')).toBe(
+      generatedToken,
+    );
+
+    const secondConfig = await importFreshConfigGlobals(homeDir);
+    expect(secondConfig.GATEWAY_API_TOKEN).toBe(generatedToken);
   });
 
   it('saves credentials under ~/.hybridclaw/credentials.json', async () => {

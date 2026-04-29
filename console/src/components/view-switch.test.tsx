@@ -49,7 +49,7 @@ describe('ViewSwitchNav', () => {
     expect(agentsLink.dataset.routerLink).toBeUndefined();
 
     const docsLink = screen.getByRole('link', { name: 'Docs' });
-    expect(docsLink.getAttribute('href')).toBe('/development');
+    expect(docsLink.getAttribute('href')).toBe('/docs');
     expect(docsLink.dataset.routerLink).toBeUndefined();
   });
 

@@ -106,7 +106,7 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 - managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
   `hybridai-skills`
 - `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
-  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  `docs/content/guides/skills/*.md` into a fixture set, then grades
   whether each prompt activates its documented skill. `setup` writes the
   fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
   without calling the model, and `run` (default `--live`, `--max 3`) posts
@@ -165,8 +165,9 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 
 - `/v1/models` and `/v1/chat/completions` use the same local gateway process;
   they are not a separate service
-- if `WEB_API_TOKEN` is unset, loopback requests from the same host can omit
-  the `Authorization` header; otherwise send `Bearer <WEB_API_TOKEN>`
+- requests must include `Authorization: Bearer <WEB_API_TOKEN>` or
+  `Authorization: Bearer <GATEWAY_API_TOKEN>`; loopback address alone does not
+  authenticate API requests
 - these endpoints are intended for local tooling and eval harnesses rather than
   public exposure
 

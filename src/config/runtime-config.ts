@@ -778,6 +778,7 @@ export interface RuntimeConfig {
     web_extract: RuntimeAuxiliaryModelPolicyConfig;
     session_search: RuntimeAuxiliaryModelPolicyConfig;
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
+    eval_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
   };
@@ -1394,6 +1395,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     skills_hub: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    eval_judge: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -4493,6 +4499,9 @@ function normalizeRuntimeConfig(
   const rawSkillsHubAuxiliaryModel = isRecord(rawAuxiliaryModels.skills_hub)
     ? rawAuxiliaryModels.skills_hub
     : {};
+  const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
+    ? rawAuxiliaryModels.eval_judge
+    : {};
   const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
     ? rawAuxiliaryModels.mcp
     : {};
@@ -5372,6 +5381,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawSkillsHubAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.skills_hub.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      eval_judge: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawEvalJudgeAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.provider,
+        ),
+        model: normalizeString(
+          rawEvalJudgeAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawEvalJudgeAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },
