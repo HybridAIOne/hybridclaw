@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -196,6 +196,7 @@ const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
 );
 let hostMemorySample: MemorySample | null = null;
+let hostMemoryRefreshInFlight = false;
 
 function formatHostAgentTerminalError(
   entry: PoolEntry,
@@ -477,15 +478,42 @@ function stopWarmEntries(entries: PoolEntry[]): void {
   });
 }
 
-function readProcessRssBytes(pid: number | undefined): number {
+async function readProcessRssBytes(pid: number | undefined): Promise<number> {
   if (!pid) return 0;
-  const result = spawnSync('ps', ['-o', 'rss=', '-p', String(pid)], {
-    encoding: 'utf-8',
-    timeout: 2_000,
+  if (process.platform === 'linux') {
+    const status = await fs.promises
+      .readFile(`/proc/${pid}/status`, 'utf-8')
+      .catch(() => '');
+    const match = status.match(/^VmRSS:\s+(\d+)\s+kB$/m);
+    const rssKb = match ? Number(match[1]) : 0;
+    return Number.isFinite(rssKb) ? Math.max(0, Math.floor(rssKb * 1024)) : 0;
+  }
+
+  return new Promise((resolve) => {
+    const proc = spawn('ps', ['-o', 'rss=', '-p', String(pid)], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let stdout = '';
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const rssKb = Number(stdout.trim());
+      resolve(
+        Number.isFinite(rssKb) ? Math.max(0, Math.floor(rssKb * 1024)) : 0,
+      );
+    };
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      finish();
+    }, 2_000);
+    proc.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString('utf-8');
+    });
+    proc.on('error', finish);
+    proc.on('close', finish);
   });
-  if (result.status !== 0) return 0;
-  const rssKb = Number(String(result.stdout || '').trim());
-  return Number.isFinite(rssKb) ? Math.max(0, Math.floor(rssKb * 1024)) : 0;
 }
 
 function getObservedHostProcessMemoryBytes(): number {
@@ -494,13 +522,21 @@ function getObservedHostProcessMemoryBytes(): number {
     setCache: (sample) => {
       hostMemorySample = sample;
     },
+    isRefreshInFlight: () => hostMemoryRefreshInFlight,
+    setRefreshInFlight: (value) => {
+      hostMemoryRefreshInFlight = value;
+    },
     activeEntries: Array.from(pool.values()),
     warmEntries: warmPool.values(),
     memoryPressureEnabled: warmPool.memoryPressureEnabled,
     keyForEntry: (entry) =>
       typeof entry.process.pid === 'number' ? String(entry.process.pid) : null,
-    readTotalBytes: (pids) =>
-      pids.reduce((sum, pid) => sum + readProcessRssBytes(Number(pid)), 0),
+    refreshTotalBytes: async (pids) => {
+      const rssValues = await Promise.all(
+        pids.map((pid) => readProcessRssBytes(Number(pid))),
+      );
+      return rssValues.reduce((sum, rssBytes) => sum + rssBytes, 0);
+    },
   });
 }
 
@@ -527,7 +563,6 @@ function claimWarmHostProcess(params: {
     sessionId: params.sessionId,
     agentId: params.agentId,
     eligibility: params,
-    enforcePressure: enforceWarmHostPressure,
     logClaim: (entry) =>
       logger.info(
         {
@@ -552,7 +587,6 @@ function maintainWarmHostPool(params: {
     maxProcessCount: MAX_CONCURRENT_CONTAINERS,
     agentId: params.agentId,
     eligibility: params,
-    enforcePressure: enforceWarmHostPressure,
     stopEntries: stopWarmEntries,
     spawnWarm: (sessionId, agentId) => {
       getOrSpawnHostProcess({ sessionId, agentId, warm: true });

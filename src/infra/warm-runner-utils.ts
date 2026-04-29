@@ -170,11 +170,13 @@ export function getCachedObservedMemoryBytes<
 >(params: {
   cache: MemorySample | null;
   setCache: (sample: MemorySample) => void;
+  isRefreshInFlight: () => boolean;
+  setRefreshInFlight: (value: boolean) => void;
   activeEntries: T[];
   warmEntries: T[];
   memoryPressureEnabled: boolean;
   keyForEntry: (entry: T) => string | null;
-  readTotalBytes: (keys: string[]) => number;
+  refreshTotalBytes: (keys: string[]) => Promise<number>;
 }): number {
   if (params.warmEntries.length === 0 || !params.memoryPressureEnabled)
     return 0;
@@ -183,17 +185,26 @@ export function getCachedObservedMemoryBytes<
     .filter((key): key is string => Boolean(key));
   const sampleKey = Array.from(new Set(keys)).sort().join('\n');
   const now = Date.now();
-  if (
-    params.cache &&
-    params.cache.key === sampleKey &&
-    now - params.cache.at < MEMORY_SAMPLE_TTL_MS
-  ) {
-    return params.cache.totalBytes;
+  const currentCache = params.cache?.key === sampleKey ? params.cache : null;
+  if (currentCache && now - currentCache.at < MEMORY_SAMPLE_TTL_MS) {
+    return currentCache.totalBytes;
   }
 
-  const totalBytes = params.readTotalBytes(keys);
-  params.setCache({ at: now, key: sampleKey, totalBytes });
-  return totalBytes;
+  if (!params.isRefreshInFlight()) {
+    params.setRefreshInFlight(true);
+    params
+      .refreshTotalBytes(keys)
+      .then((totalBytes) => {
+        params.setCache({ at: Date.now(), key: sampleKey, totalBytes });
+      })
+      .catch(() => {
+        // Sampling is best-effort; over-capacity eviction does not depend on it.
+      })
+      .finally(() => {
+        params.setRefreshInFlight(false);
+      });
+  }
+  return currentCache ? currentCache.totalBytes : 0;
 }
 
 export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
@@ -202,11 +213,9 @@ export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
   sessionId: string;
   agentId: string;
   eligibility: WarmPoolEligibilityParams;
-  enforcePressure: () => void;
   logClaim: (entry: T) => void;
 }): T | null {
   if (!canUseWarmPool(params.warmPool, params.eligibility)) return null;
-  params.enforcePressure();
   const entry = params.warmPool.claim(params.agentId);
   if (!entry) return null;
   entry.sessionId = params.sessionId;
@@ -223,12 +232,10 @@ export function maintainWarmPool<T extends WarmRunnerEntry>(params: {
   maxProcessCount: number;
   agentId: string;
   eligibility: WarmPoolEligibilityParams;
-  enforcePressure: () => void;
   stopEntries: (entries: T[]) => void;
   spawnWarm: (sessionId: string, agentId: string) => void;
 }): void {
   if (!canUseWarmPool(params.warmPool, params.eligibility)) return;
-  params.enforcePressure();
   const targetSize = params.warmPool.targetIdleForAgent(params.agentId);
   params.stopEntries(params.warmPool.trimAgent(params.agentId, targetSize));
   while (

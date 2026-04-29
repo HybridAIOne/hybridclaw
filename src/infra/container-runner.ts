@@ -2,7 +2,7 @@
  * Container Runner — manages a pool of persistent containers.
  * Containers stay alive between requests and exit after an idle timeout.
  */
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ExecutorRequest } from '../agent/executor-types.js';
@@ -156,6 +156,7 @@ const warmPool = new WarmProcessPool<PoolEntry>(
   normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
 );
 let containerMemorySample: MemorySample | null = null;
+let containerMemoryRefreshInFlight = false;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
@@ -442,36 +443,53 @@ function parseMemoryBytes(raw: string): number | null {
 
 function readContainerMemoryBytes(
   containerNames: string[],
-): Map<string, number> {
+): Promise<Map<string, number>> {
   const memoryByContainer = new Map<string, number>();
   const uniqueContainerNames = Array.from(new Set(containerNames)).filter(
     (name) => name.length > 0,
   );
-  if (uniqueContainerNames.length === 0) return memoryByContainer;
+  if (uniqueContainerNames.length === 0)
+    return Promise.resolve(memoryByContainer);
 
-  const result = spawnSync(
-    'docker',
-    [
-      'stats',
-      '--no-stream',
-      '--format',
-      '{{.Name}}\t{{.MemUsage}}',
-      ...uniqueContainerNames,
-    ],
-    { encoding: 'utf-8', timeout: 2_000 },
-  );
-  if (result.status !== 0) return memoryByContainer;
-
-  for (const line of String(result.stdout || '').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const separatorIndex = trimmed.indexOf('\t');
-    if (separatorIndex === -1) continue;
-    const containerName = trimmed.slice(0, separatorIndex).trim();
-    const usage = trimmed.slice(separatorIndex + 1).split('/')[0] || '';
-    memoryByContainer.set(containerName, parseMemoryBytes(usage) || 0);
-  }
-  return memoryByContainer;
+  return new Promise((resolve) => {
+    const proc = spawn(
+      'docker',
+      [
+        'stats',
+        '--no-stream',
+        '--format',
+        '{{.Name}}\t{{.MemUsage}}',
+        ...uniqueContainerNames,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    let stdout = '';
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const separatorIndex = trimmed.indexOf('\t');
+        if (separatorIndex === -1) continue;
+        const containerName = trimmed.slice(0, separatorIndex).trim();
+        const usage = trimmed.slice(separatorIndex + 1).split('/')[0] || '';
+        memoryByContainer.set(containerName, parseMemoryBytes(usage) || 0);
+      }
+      resolve(memoryByContainer);
+    };
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      finish();
+    }, 2_000);
+    proc.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString('utf-8');
+    });
+    proc.on('error', finish);
+    proc.on('close', finish);
+  });
 }
 
 function getObservedContainerMemoryBytes(): number {
@@ -480,12 +498,16 @@ function getObservedContainerMemoryBytes(): number {
     setCache: (sample) => {
       containerMemorySample = sample;
     },
+    isRefreshInFlight: () => containerMemoryRefreshInFlight,
+    setRefreshInFlight: (value) => {
+      containerMemoryRefreshInFlight = value;
+    },
     activeEntries: Array.from(pool.values()),
     warmEntries: warmPool.values(),
     memoryPressureEnabled: warmPool.memoryPressureEnabled,
     keyForEntry: (entry) => entry.containerName,
-    readTotalBytes: (containerNames) => {
-      const memoryByContainer = readContainerMemoryBytes(containerNames);
+    refreshTotalBytes: async (containerNames) => {
+      const memoryByContainer = await readContainerMemoryBytes(containerNames);
       let total = 0;
       for (const containerName of containerNames) {
         total += memoryByContainer.get(containerName) || 0;
@@ -518,7 +540,6 @@ function claimWarmContainer(params: {
     sessionId: params.sessionId,
     agentId: params.agentId,
     eligibility: params,
-    enforcePressure: enforceWarmContainerPressure,
     logClaim: (entry) =>
       logger.info(
         {
@@ -544,7 +565,6 @@ function maintainWarmContainerPool(params: {
     maxProcessCount: MAX_CONCURRENT_CONTAINERS,
     agentId: params.agentId,
     eligibility: params,
-    enforcePressure: enforceWarmContainerPressure,
     stopEntries: stopWarmEntries,
     spawnWarm: (sessionId, agentId) => {
       getOrSpawnContainer({ sessionId, agentId, warm: true });

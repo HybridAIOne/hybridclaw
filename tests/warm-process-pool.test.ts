@@ -91,3 +91,17 @@ test('reports synthetic p95 cold-start budget compliance', () => {
 
   expect(pool.isWithinColdStartBudget()).toBe(false);
 });
+
+test('keeps cold-start p95 cached while rolling old samples out', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({ coldStartBudgetMs: 200 }),
+  );
+
+  pool.recordColdStart(10_000);
+  for (let index = 0; index < 500; index += 1) {
+    pool.recordColdStart(100);
+  }
+
+  expect(pool.coldStartP95Ms()).toBe(100);
+  expect(pool.isWithinColdStartBudget()).toBe(true);
+});

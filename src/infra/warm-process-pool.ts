@@ -61,6 +61,8 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   private readonly entries = new Map<string, T>();
   private readonly traffic = new Map<string, TrafficSample[]>();
   private readonly coldStartSamples: number[] = [];
+  private readonly sortedColdStartSamples: number[] = [];
+  private cachedColdStartP95Ms: number | null = null;
 
   constructor(private readonly config: WarmProcessPoolConfig) {}
 
@@ -114,15 +116,25 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
 
   recordColdStart(durationMs: number): void {
     if (!Number.isFinite(durationMs) || durationMs < 0) return;
-    this.coldStartSamples.push(Math.floor(durationMs));
+    const sample = Math.floor(durationMs);
+    this.coldStartSamples.push(sample);
+    insertSorted(this.sortedColdStartSamples, sample);
     if (this.coldStartSamples.length > 500) {
-      this.coldStartSamples.splice(0, this.coldStartSamples.length - 500);
+      const dropped = this.coldStartSamples.splice(
+        0,
+        this.coldStartSamples.length - 500,
+      );
+      for (const value of dropped)
+        removeSortedValue(this.sortedColdStartSamples, value);
     }
+    this.cachedColdStartP95Ms = percentileSorted(
+      this.sortedColdStartSamples,
+      0.95,
+    );
   }
 
   coldStartP95Ms(): number | null {
-    if (this.coldStartSamples.length === 0) return null;
-    return percentile(this.coldStartSamples, 0.95);
+    return this.cachedColdStartP95Ms;
   }
 
   isWithinColdStartBudget(): boolean {
@@ -211,8 +223,24 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   }
 }
 
-function percentile(values: number[], ratio: number): number {
-  const sorted = [...values].sort((left, right) => left - right);
+function insertSorted(values: number[], value: number): void {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((values[mid] ?? 0) <= value) low = mid + 1;
+    else high = mid;
+  }
+  values.splice(low, 0, value);
+}
+
+function removeSortedValue(values: number[], value: number): void {
+  const index = values.indexOf(value);
+  if (index !== -1) values.splice(index, 1);
+}
+
+function percentileSorted(sorted: number[], ratio: number): number | null {
+  if (sorted.length === 0) return null;
   const index = Math.max(0, Math.ceil(sorted.length * ratio) - 1);
   return sorted[index] ?? 0;
 }
