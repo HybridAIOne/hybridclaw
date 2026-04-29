@@ -14,6 +14,7 @@ import type { RuntimeConfigChangeMeta } from '../config/runtime-config-revisions
 import {
   parseWorkflowDefinitionYaml,
   validateWorkflowDefinition,
+  WORKFLOW_STAKES_ORDER,
   type WorkflowDefinition,
   type WorkflowStep,
 } from './schema.js';
@@ -62,12 +63,6 @@ export interface ResumeWorkflowInput {
   actor?: string;
   meta?: RuntimeConfigChangeMeta;
 }
-
-const STAKES_ORDER: Record<StakesLevel, number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -204,7 +199,7 @@ function classifyStep(
 }
 
 function exceedsThreshold(score: StakesScore, threshold: StakesLevel): boolean {
-  return STAKES_ORDER[score.level] > STAKES_ORDER[threshold];
+  return WORKFLOW_STAKES_ORDER[score.level] > WORKFLOW_STAKES_ORDER[threshold];
 }
 
 async function defaultDispatchStep(

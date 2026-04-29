@@ -5,12 +5,7 @@ import type {
   StakesScore,
   StakesSignal,
 } from '../../container/shared/stakes-classifier.js';
-
-const LEVEL_ORDER: Record<StakesLevel, number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-};
+import { WORKFLOW_STAKES_ORDER } from './schema.js';
 
 const CUSTOMER_FACING_RE =
   /\b(customer|client|external|public|publish|recipient|subscriber|prospect|lead|buyer)\b/i;
@@ -21,7 +16,8 @@ const IRREVERSIBLE_RE =
 
 function maxLevel(...levels: StakesLevel[]): StakesLevel {
   return levels.reduce<StakesLevel>(
-    (max, level) => (LEVEL_ORDER[level] > LEVEL_ORDER[max] ? level : max),
+    (max, level) =>
+      WORKFLOW_STAKES_ORDER[level] > WORKFLOW_STAKES_ORDER[max] ? level : max,
     'low',
   );
 }

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { StakesLevel } from '../../container/shared/stakes-classifier.js';
 import { isRecord } from '../a2a/utils.js';
 import {
   getRuntimeAssetRevisionState,
@@ -39,8 +40,8 @@ export interface WorkflowRevisionRequest {
 
 export interface WorkflowStepEscalation {
   route: 'none' | 'approval_request';
-  threshold?: 'low' | 'medium' | 'high';
-  stakes?: 'low' | 'medium' | 'high';
+  threshold?: StakesLevel;
+  stakes?: StakesLevel;
   classifier?: string;
   reasons: string[];
   requested_at?: string;

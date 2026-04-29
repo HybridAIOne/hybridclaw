@@ -3323,6 +3323,12 @@ function sendApiAdminWorkflows(res: ServerResponse): void {
   sendJson(res, 200, getWorkflowAdminSummary());
 }
 
+function sendApiAdminWorkflowError(res: ServerResponse, error: unknown): void {
+  sendJson(res, 400, {
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
 async function handleApiAdminWorkflowStart(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3346,9 +3352,7 @@ async function handleApiAdminWorkflowStart(
       text: renderWorkflowRunState(run),
     });
   } catch (error) {
-    sendJson(res, 400, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    sendApiAdminWorkflowError(res, error);
   }
 }
 
@@ -3371,9 +3375,7 @@ async function handleApiAdminWorkflowApprove(
       text: renderWorkflowRunState(run),
     });
   } catch (error) {
-    sendJson(res, 400, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    sendApiAdminWorkflowError(res, error);
   }
 }
 
@@ -3406,9 +3408,7 @@ async function handleApiAdminWorkflowReturn(
       text: renderWorkflowRunState(run),
     });
   } catch (error) {
-    sendJson(res, 400, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    sendApiAdminWorkflowError(res, error);
   }
 }
 

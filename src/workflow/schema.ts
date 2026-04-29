@@ -4,6 +4,11 @@ import type { StakesLevel } from '../../container/shared/stakes-classifier.js';
 import { isRecord } from '../a2a/utils.js';
 
 export const WORKFLOW_STAKES_LEVELS = ['low', 'medium', 'high'] as const;
+export const WORKFLOW_STAKES_ORDER: Record<StakesLevel, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
 
 export interface WorkflowTransition {
   from: string;
