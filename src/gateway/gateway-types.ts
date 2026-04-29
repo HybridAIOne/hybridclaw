@@ -590,12 +590,10 @@ export interface GatewayAdminTunnelStatus {
   publicUrl: string | null;
   state: TunnelState;
   health: GatewayAdminTunnelHealth;
-  running: boolean;
   reconnectSupported: boolean;
   lastError: string | null;
   lastCheckedAt: string | null;
   nextReconnectAt: string | null;
-  reconnectAttempt: number;
 }
 
 export interface GatewayAdminOverview {

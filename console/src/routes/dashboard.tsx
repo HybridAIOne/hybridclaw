@@ -61,12 +61,6 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   lastActive: 'desc',
 } as const;
 
-const TUNNEL_HEALTH_LABELS: Record<AdminTunnelStatus['health'], string> = {
-  healthy: 'healthy',
-  reconnecting: 'reconnecting',
-  down: 'down',
-};
-
 function tunnelStatusClass(health: AdminTunnelStatus['health']): string {
   if (health === 'healthy') return 'list-status list-status-success';
   if (health === 'reconnecting') return 'list-status list-status-warning';
@@ -126,7 +120,7 @@ function TunnelStatusPanel(props: {
           <span>Status</span>
           <strong className={tunnelStatusClass(tunnel.health)}>
             <span className={tunnelStatusDotClass(tunnel.health)} />
-            {TUNNEL_HEALTH_LABELS[tunnel.health]}
+            {tunnel.health}
           </strong>
         </div>
         <div className="tunnel-detail">

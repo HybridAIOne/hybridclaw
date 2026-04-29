@@ -94,12 +94,10 @@ function mapTunnelStatus(params: {
     publicUrl,
     state,
     health: tunnelHealthForState(state),
-    running: params.managedStatus?.running ?? Boolean(publicUrl),
     reconnectSupported: params.provider === 'ngrok',
     lastError: params.managedStatus?.last_error ?? null,
     lastCheckedAt: params.managedStatus?.last_checked_at ?? null,
     nextReconnectAt: params.managedStatus?.next_reconnect_at ?? null,
-    reconnectAttempt: params.managedStatus?.reconnect_attempt ?? 0,
   };
 }
 

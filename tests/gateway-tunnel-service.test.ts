@@ -90,12 +90,10 @@ test('admin tunnel status reports configured manual public URL as healthy', asyn
     publicUrl: 'https://bot.example.test',
     state: 'up',
     health: 'healthy',
-    running: true,
     reconnectSupported: false,
     lastError: null,
     lastCheckedAt: null,
     nextReconnectAt: null,
-    reconnectAttempt: 0,
   });
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
 });

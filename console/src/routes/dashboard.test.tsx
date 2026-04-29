@@ -41,12 +41,10 @@ function makeTunnelStatus(
     publicUrl: 'https://public.example.test',
     state: 'up',
     health: 'healthy',
-    running: true,
     reconnectSupported: true,
     lastError: null,
     lastCheckedAt: '2026-04-29T10:00:00.000Z',
     nextReconnectAt: null,
-    reconnectAttempt: 0,
     ...overrides,
   };
 }

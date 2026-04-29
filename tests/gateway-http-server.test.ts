@@ -627,12 +627,10 @@ async function importFreshHealth(options?: {
       publicUrl: 'https://public.example.test',
       state: 'up' as const,
       health: 'healthy' as const,
-      running: true,
       reconnectSupported: true,
       lastError: null,
       lastCheckedAt: '2026-04-29T10:00:00.000Z',
       nextReconnectAt: null,
-      reconnectAttempt: 0,
     },
     recentSessions: [],
     usage: {
@@ -660,12 +658,10 @@ async function importFreshHealth(options?: {
     publicUrl: 'https://next-public.example.test',
     state: 'up' as const,
     health: 'healthy' as const,
-    running: true,
     reconnectSupported: true,
     lastError: null,
     lastCheckedAt: null,
     nextReconnectAt: null,
-    reconnectAttempt: 0,
   };
   const reconnectGatewayAdminTunnel = vi.fn(async () => reconnectTunnelStatus);
   const getGatewayAdminStatistics = vi.fn(
