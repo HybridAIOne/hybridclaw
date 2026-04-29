@@ -415,7 +415,6 @@ async function continueRun(
     }
     run.current_step_id = next;
     markRunUpdated(run);
-    saveWorkflowRunState(run, options.meta);
   }
 
   run.status = 'completed';
@@ -435,7 +434,6 @@ export async function executeWorkflow(
     initiatorCoworkerId: input.initiatorCoworkerId,
   });
   saveWorkflowDefinition(workflow, input.meta);
-  saveWorkflowRunState(run, input.meta);
   return continueRun(run, input);
 }
 

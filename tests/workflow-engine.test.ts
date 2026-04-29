@@ -190,6 +190,37 @@ transitions:
     ]);
   });
 
+  test('default workflow stakes classifier caches repeated action classifications', async () => {
+    const { createWorkflowStakesClassifier } = await import(
+      '../src/workflow/stakes-classifier.js'
+    );
+
+    const classifier = createWorkflowStakesClassifier();
+    const input: StakesClassificationInput = {
+      toolName: 'workflow_step',
+      args: {
+        workflow_id: 'cache_test',
+        step_id: 'review',
+        action: 'Review customer-facing copy.',
+        owner_coworker_id: 'reviewer',
+      },
+      actionKey: 'workflow:cache_test:review',
+      intent: 'Review customer-facing copy.',
+      reason: 'workflow step dispatch',
+      target: 'Review customer-facing copy.',
+      approvalTier: 'green',
+      pathHints: [],
+      hostHints: [],
+      writeIntent: true,
+      pinned: false,
+    };
+
+    const first = classifier.classify(input);
+    const second = classifier.classify(input);
+
+    expect(second).toBe(first);
+  });
+
   test('rejects workflows without a root step', async () => {
     await initRuntimeDatabase();
     const { executeWorkflow } = await import('../src/workflow/executor.js');

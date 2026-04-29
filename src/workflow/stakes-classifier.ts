@@ -13,6 +13,7 @@ const SENSITIVE_RE =
   /\b(secret|token|password|credential|api[_ -]?key|private|nda|contract|legal|billing|payment|refund|charge|production|live)\b/i;
 const IRREVERSIBLE_RE =
   /\b(delete|destroy|drop|truncate|erase|wipe|terminate|cancel|publish|send|charge|refund|transfer)\b/i;
+const MAX_CLASSIFICATION_CACHE_ENTRIES = 256;
 
 function maxLevel(...levels: StakesLevel[]): StakesLevel {
   return levels.reduce<StakesLevel>(
@@ -39,7 +40,23 @@ function signal(
 }
 
 export class WorkflowStakesClassifier implements StakesClassifier {
+  private readonly cache = new Map<string, StakesScore>();
+
   classify(input: StakesClassificationInput): StakesScore {
+    const cacheKey = [
+      input.actionKey,
+      input.toolName,
+      String(input.args.workflow_id || ''),
+      String(input.args.step_id || ''),
+      String(input.args.owner_coworker_id || ''),
+      input.intent,
+      input.reason,
+      input.target,
+      input.writeIntent ? 'write' : 'read',
+    ].join('\0');
+    const cached = this.cache.get(cacheKey);
+    if (cached) return cached;
+
     const text = [
       input.toolName,
       input.actionKey,
@@ -105,7 +122,7 @@ export class WorkflowStakesClassifier implements StakesClassifier {
         ? [...new Set(signals.map((entry) => entry.reason))]
         : ['no elevated-stakes workflow signals detected'];
 
-    return {
+    const result: StakesScore = {
       level,
       score,
       confidence: clamp01(0.65 + Math.min(signals.length, 3) * 0.08),
@@ -113,6 +130,12 @@ export class WorkflowStakesClassifier implements StakesClassifier {
       signals,
       reasons,
     };
+    this.cache.set(cacheKey, result);
+    if (this.cache.size > MAX_CLASSIFICATION_CACHE_ENTRIES) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
+    return result;
   }
 }
 

@@ -105,6 +105,8 @@ export class WorkflowRunStateError extends Error {
   }
 }
 
+let workflowRunStateListCache: WorkflowRunState[] | null = null;
+
 function normalizeOpaqueId(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized || /\s/u.test(normalized)) {
@@ -436,6 +438,12 @@ export function saveWorkflowRunState(
       content: serializeState(run),
     },
   );
+  if (workflowRunStateListCache) {
+    workflowRunStateListCache = [
+      run,
+      ...workflowRunStateListCache.filter((entry) => entry.id !== run.id),
+    ].sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  }
   return run;
 }
 
@@ -450,7 +458,8 @@ export function getWorkflowRunState(runId: string): WorkflowRunState | null {
 }
 
 export function listWorkflowRunStates(): WorkflowRunState[] {
-  return listRuntimeAssetRevisionStates(
+  if (workflowRunStateListCache) return [...workflowRunStateListCache];
+  workflowRunStateListCache = listRuntimeAssetRevisionStates(
     'workflow',
     path.join(DEFAULT_RUNTIME_HOME_DIR, 'workflows', 'runs'),
   )
@@ -470,4 +479,5 @@ export function listWorkflowRunStates(): WorkflowRunState[] {
       }
     })
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+  return [...workflowRunStateListCache];
 }
