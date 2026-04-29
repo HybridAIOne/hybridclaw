@@ -71,6 +71,7 @@ describe('NgrokTunnelProvider', () => {
         },
       }),
     );
+    const upRunId = recordAuditEvent.mock.calls[0]?.[0].runId;
 
     await provider.stop();
     expect(close).toHaveBeenCalledTimes(1);
@@ -86,6 +87,7 @@ describe('NgrokTunnelProvider', () => {
         },
       }),
     );
+    expect(recordAuditEvent.mock.calls[1]?.[0].runId).toBe(upRunId);
   });
 
   it('does not load ngrok when the auth token is missing', async () => {
@@ -303,6 +305,9 @@ describe('NgrokTunnelProvider', () => {
       expect(
         recordAuditEvent.mock.calls.map((call) => call[0].event.type),
       ).toEqual(['tunnel.up', 'tunnel.down']);
+      expect(recordAuditEvent.mock.calls[1]?.[0].runId).toBe(
+        recordAuditEvent.mock.calls[0]?.[0].runId,
+      );
 
       await vi.advanceTimersByTimeAsync(50);
       expect(forward).toHaveBeenCalledTimes(2);
@@ -327,6 +332,9 @@ describe('NgrokTunnelProvider', () => {
       expect(
         recordAuditEvent.mock.calls.map((call) => call[0].event.type),
       ).toEqual(['tunnel.up', 'tunnel.down', 'tunnel.up']);
+      expect(recordAuditEvent.mock.calls[2]?.[0].runId).not.toBe(
+        recordAuditEvent.mock.calls[0]?.[0].runId,
+      );
 
       await provider.stop();
     } finally {

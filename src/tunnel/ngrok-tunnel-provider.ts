@@ -158,6 +158,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private reconnectTimer: TunnelTimer | null = null;
   private state: TunnelState = 'down';
   private statusVersion = 0;
+  private tunnelRunId: string | null = null;
 
   constructor(options: NgrokTunnelProviderOptions = {}) {
     this.addr = options.addr ?? DEFAULT_NGROK_TUNNEL_ADDR;
@@ -281,7 +282,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
   async stop(): Promise<void> {
     this.clearTimer('healthTimer');
     this.clearTimer('reconnectTimer');
-    const { listener, publicUrl } = this.clearActiveTunnel({
+    const { listener, publicUrl, tunnelRunId } = this.clearActiveTunnel({
       lastCheckedAt: null,
       lastError: null,
       nextReconnectAt: null,
@@ -292,6 +293,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
       await this.recordTunnelAudit('tunnel.down', {
         publicUrl,
         reason: 'stopped',
+        runId: tunnelRunId,
       });
     }
     if (listener) {
@@ -374,8 +376,10 @@ export class NgrokTunnelProvider implements TunnelProvider {
     reason: string,
   ): Promise<void> {
     const wasRunning = Boolean(this.listener && this.publicUrl);
+    const tunnelRunId = this.tunnelRunId ?? makeTunnelAuditRunId();
     this.listener = listener;
     this.publicUrl = publicUrl;
+    this.tunnelRunId = tunnelRunId;
     this.updateStatus({
       lastError: null,
       nextReconnectAt: null,
@@ -383,7 +387,11 @@ export class NgrokTunnelProvider implements TunnelProvider {
       state: 'up',
     });
     if (!wasRunning) {
-      await this.recordTunnelAudit('tunnel.up', { publicUrl, reason });
+      await this.recordTunnelAudit('tunnel.up', {
+        publicUrl,
+        reason,
+        runId: tunnelRunId,
+      });
     }
   }
 
@@ -393,7 +401,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     publicUrl: string;
     reason: string;
   }): Promise<void> {
-    this.clearActiveTunnel({
+    const { tunnelRunId } = this.clearActiveTunnel({
       lastCheckedAt: params.lastCheckedAt ?? null,
       lastError: params.message,
       state: 'reconnecting',
@@ -402,6 +410,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
       error: params.message,
       publicUrl: params.publicUrl,
       reason: params.reason,
+      runId: tunnelRunId,
     });
   }
 
@@ -411,12 +420,13 @@ export class NgrokTunnelProvider implements TunnelProvider {
       error?: string;
       publicUrl?: string;
       reason: string;
+      runId?: string | null;
     },
   ): Promise<void> {
     try {
       await this.recordAuditEvent({
         sessionId: this.auditSessionId,
-        runId: makeTunnelAuditRunId(),
+        runId: details.runId ?? makeTunnelAuditRunId(),
         event: {
           type,
           provider: 'ngrok',
@@ -436,13 +446,16 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private clearActiveTunnel(update: TunnelStatusUpdate): {
     listener: NgrokListener | null;
     publicUrl: string | null;
+    tunnelRunId: string | null;
   } {
     const listener = this.listener;
     const publicUrl = this.publicUrl;
+    const tunnelRunId = this.tunnelRunId;
     this.listener = null;
     this.publicUrl = null;
+    this.tunnelRunId = null;
     this.updateStatus(update);
-    return { listener, publicUrl };
+    return { listener, publicUrl, tunnelRunId };
   }
 
   private clearTimer(name: 'healthTimer' | 'reconnectTimer'): void {
