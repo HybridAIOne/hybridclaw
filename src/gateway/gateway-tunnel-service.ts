@@ -5,6 +5,7 @@ import {
 } from '../config/runtime-config.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { createNgrokTunnelProvider } from '../tunnel/ngrok-tunnel-provider.js';
+import { createTailscaleTunnelProvider } from '../tunnel/tailscale-tunnel-provider.js';
 import type {
   TunnelProvider,
   TunnelState,
@@ -32,10 +33,11 @@ function tunnelHealthForState(state: TunnelState): GatewayAdminTunnelHealth {
 }
 
 function managedProviderKeyFor(params: {
+  addr: string;
   provider: RuntimeDeploymentTunnelProvider | undefined;
   healthCheckIntervalMs: number;
 }): string {
-  return `${params.provider || 'none'}:${params.healthCheckIntervalMs}`;
+  return `${params.provider || 'none'}:${params.addr}:${params.healthCheckIntervalMs}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -54,7 +56,7 @@ function stopStaleManagedProvider(provider: TunnelProvider): void {
 function getManagedTunnelProvider(): TunnelProvider | null {
   const config = getRuntimeConfig();
   const provider = config.deployment.tunnel.provider;
-  if (provider !== 'ngrok') {
+  if (provider !== 'ngrok' && provider !== 'tailscale') {
     if (managedProvider) {
       stopStaleManagedProvider(managedProvider);
     }
@@ -64,6 +66,7 @@ function getManagedTunnelProvider(): TunnelProvider | null {
   }
 
   const key = managedProviderKeyFor({
+    addr: `localhost:${config.ops.healthPort}`,
     provider,
     healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
   });
@@ -71,9 +74,14 @@ function getManagedTunnelProvider(): TunnelProvider | null {
     if (managedProvider) {
       stopStaleManagedProvider(managedProvider);
     }
-    managedProvider = createNgrokTunnelProvider({
+    const options = {
+      addr: `localhost:${config.ops.healthPort}`,
       healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
-    });
+    };
+    managedProvider =
+      provider === 'ngrok'
+        ? createNgrokTunnelProvider(options)
+        : createTailscaleTunnelProvider(options);
     managedProviderKey = key;
   }
   return managedProvider;
@@ -94,7 +102,8 @@ function mapTunnelStatus(params: {
     publicUrl,
     state,
     health: tunnelHealthForState(state),
-    reconnectSupported: params.provider === 'ngrok',
+    reconnectSupported:
+      params.provider === 'ngrok' || params.provider === 'tailscale',
     lastError: params.managedStatus?.last_error ?? null,
     lastCheckedAt: params.managedStatus?.last_checked_at ?? null,
     nextReconnectAt: params.managedStatus?.next_reconnect_at ?? null,
@@ -130,7 +139,7 @@ export async function reconnectGatewayAdminTunnel(): Promise<GatewayAdminTunnelS
   if (!provider) {
     throw new GatewayRequestError(
       409,
-      'Manual reconnect is only supported for ngrok tunnels.',
+      'Manual reconnect is only supported for managed tunnel providers.',
     );
   }
 

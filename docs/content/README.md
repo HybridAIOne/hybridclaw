@@ -39,7 +39,8 @@ doc at once, start from [For Agents](./agents.md).
 - Packaged business skills can declare manifests, capabilities, required
   credentials, supported channels, lifecycle snapshots, and rollback history.
 - Deployment config can describe cloud/local mode and tunnel provider intent;
-  the built-in ngrok provider reads `NGROK_AUTHTOKEN` from encrypted secrets.
+  the built-in ngrok and Tailscale providers read runtime auth secrets from
+  encrypted storage.
 - Model info, usage summaries, and the admin Models page surface discovered
   context windows, output limits, capabilities, pricing, and monthly spend
   where providers expose the metadata.
