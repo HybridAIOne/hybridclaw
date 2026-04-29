@@ -571,9 +571,8 @@ describe.sequential('token usage buffer', () => {
       });
     }
 
-    // Wait for the opportunistic flush microtask.
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
+    // Wait for the opportunistic flush promise callback.
+    await Promise.resolve();
 
     const stats = getTokenUsageBufferStats();
     expect(stats.queueSize).toBe(0);

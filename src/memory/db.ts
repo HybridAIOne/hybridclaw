@@ -128,6 +128,7 @@ import {
 
 let db: Database.Database;
 let databaseInitialized = false;
+let usageEventBatchInsertStatement: Database.Statement | null = null;
 
 export const DATABASE_SCHEMA_VERSION = 27;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
@@ -2208,6 +2209,7 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   const dbPath = path.resolve(opts?.dbPath || DB_PATH);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new Database(dbPath);
+  usageEventBatchInsertStatement = null;
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
@@ -3247,6 +3249,17 @@ function normalizeUsageEntry(
   };
 }
 
+function getUsageEventBatchInsertStatement(): Database.Statement {
+  if (!usageEventBatchInsertStatement) {
+    usageEventBatchInsertStatement = db.prepare(
+      `INSERT INTO usage_events
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+  }
+  return usageEventBatchInsertStatement;
+}
+
 export function recordUsageEvent(params: RecordUsageEventEntry): void {
   const row = normalizeUsageEntry(params);
   if (!row) return;
@@ -3303,11 +3316,7 @@ export function recordUsageEventBatch(
   }
   if (normalized.length === 0) return;
 
-  const insert = db.prepare(
-    `INSERT INTO usage_events
-      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  const insert = getUsageEventBatchInsertStatement();
   const transaction = db.transaction((rows: NormalizedUsageEventRow[]) => {
     for (const row of rows) {
       insert.run(

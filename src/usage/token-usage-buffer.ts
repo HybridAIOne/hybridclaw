@@ -368,7 +368,7 @@ export async function flushTokenUsageBuffer(): Promise<void> {
       Math.max(0, state.maxQueueSize - state.queue.length),
     );
     if (requeueCount > 0) {
-      state.queue.unshift(...batch.slice(0, requeueCount));
+      state.queue = batch.slice(0, requeueCount).concat(state.queue);
     }
     const dropped = batch.length - requeueCount;
     if (dropped > 0) state.totalDropped += dropped;
