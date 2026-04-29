@@ -451,6 +451,67 @@ Markdown file names must be top-level `.md` names. Nested paths such as
 `docs/IDENTITY.md`, absolute paths, and traversal segments are rejected. Each
 markdown value must be a string and is limited to 200 KB.
 
+## Org-Chart Fields
+
+Agent config JSON supports first-class org-chart fields on each registered
+agent:
+
+- `role`: the agent's job title or functional responsibility
+- `reportsTo` or `reports_to`: the direct manager agent id
+- `delegatesTo` or `delegates_to`: agent ids this agent commonly delegates to
+- `peers`: sibling or frequent collaborator agent ids
+
+`reportsTo` is validated as a tree-shaped reporting line. It must reference an
+existing registered agent, it cannot point back to the same agent, and cycles
+are rejected before the agent is persisted. `delegatesTo` and `peers` are
+stored as first-class arrays for routing and presentation; they do not imply
+managerial reporting. Delegation and peer relationships are graph edges, not a
+tree: cycles are allowed, and any code that traverses those relationships must
+maintain its own visited set.
+
+HQ with per-client agencies:
+
+```json
+{
+  "agents": {
+    "list": [
+      { "id": "main", "role": "HQ Chief of Staff" },
+      {
+        "id": "client-acme-lead",
+        "role": "Client Agency Lead",
+        "reportsTo": "main",
+        "delegatesTo": ["client-acme-research", "client-acme-support"],
+        "peers": ["client-zenith-lead"]
+      },
+      {
+        "id": "client-acme-research",
+        "role": "Research Specialist",
+        "reportsTo": "client-acme-lead",
+        "peers": ["client-acme-support"]
+      },
+      {
+        "id": "client-acme-support",
+        "role": "Support Specialist",
+        "reportsTo": "client-acme-lead",
+        "peers": ["client-acme-research"]
+      }
+    ]
+  }
+}
+```
+
+Support hierarchy:
+
+```json
+{
+  "id": "support-tier-1",
+  "role": "Support Specialist",
+  "reports_to": "support-lead",
+  "delegates_to": ["support-tier-2"],
+  "peers": ["support-triage"]
+}
+```
+
 ## What `activate` Does
 
 `hybridclaw agent activate <agent-id>`:

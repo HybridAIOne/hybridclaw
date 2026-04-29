@@ -4,7 +4,10 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  resolveSnakeCamelAlias,
+} from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   type DiscordToolActionRequest,
@@ -2341,6 +2344,12 @@ type ApiAdminAgentPayloadBody = {
   skills?: unknown;
   chatbotId?: unknown;
   enableRag?: unknown;
+  role?: unknown;
+  reportsTo?: unknown;
+  reports_to?: unknown;
+  delegatesTo?: unknown;
+  delegates_to?: unknown;
+  peers?: unknown;
   workspace?: unknown;
 };
 
@@ -2351,6 +2360,10 @@ type ApiAdminAgentPayload = {
   skills?: string[] | null;
   chatbotId?: string;
   enableRag?: boolean;
+  role?: string;
+  reportsTo?: string | null;
+  delegatesTo?: string[] | null;
+  peers?: string[] | null;
   workspace?: string;
 };
 
@@ -2475,11 +2488,41 @@ function normalizeApiAdminAgentSkills(
   return normalizeTrimmedUniqueStringArray(skills);
 }
 
+function normalizeApiAdminAgentStringArray(
+  fieldName: string,
+  value: unknown,
+): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      `Expected \`${fieldName}\` to be an array or null.`,
+    );
+  }
+  return normalizeTrimmedUniqueStringArray(value);
+}
+
+function normalizeApiAdminNullableStringAlias(
+  value: object,
+  camelKey: string,
+  snakeKey: string,
+): string | null | undefined {
+  const input = resolveSnakeCamelAlias(value, camelKey, snakeKey);
+  if (typeof input === 'string') return input;
+  return input === null ? null : undefined;
+}
+
 async function readApiAdminAgentPayload(
   req: IncomingMessage,
   options?: { requireId?: boolean },
 ): Promise<ApiAdminAgentPayload> {
   const body = (await readJsonBody(req)) as ApiAdminAgentPayloadBody;
+  const delegatesToInput = resolveSnakeCamelAlias(
+    body,
+    'delegatesTo',
+    'delegates_to',
+  );
   const payload: ApiAdminAgentPayload = {
     id: String(body.id || '').trim() || undefined,
     name: typeof body.name === 'string' ? body.name : undefined,
@@ -2487,6 +2530,17 @@ async function readApiAdminAgentPayload(
     skills: normalizeApiAdminAgentSkills(body.skills),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
+    role: typeof body.role === 'string' ? body.role : undefined,
+    reportsTo: normalizeApiAdminNullableStringAlias(
+      body,
+      'reportsTo',
+      'reports_to',
+    ),
+    delegatesTo: normalizeApiAdminAgentStringArray(
+      'delegatesTo',
+      delegatesToInput,
+    ),
+    peers: normalizeApiAdminAgentStringArray('peers', body.peers),
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
   };
   if (options?.requireId && !payload.id) {
@@ -2520,6 +2574,10 @@ async function handleApiAdminAgentCollectionResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          role: payload.role,
+          reportsTo: payload.reportsTo,
+          delegatesTo: payload.delegatesTo,
+          peers: payload.peers,
           workspace: payload.workspace,
         }),
       );
@@ -2554,6 +2612,10 @@ async function handleApiAdminAgentResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          role: payload.role,
+          reportsTo: payload.reportsTo,
+          delegatesTo: payload.delegatesTo,
+          peers: payload.peers,
           workspace: payload.workspace,
         }),
       );

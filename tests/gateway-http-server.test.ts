@@ -4766,6 +4766,10 @@ describe('gateway HTTP server', () => {
       skills: ['draft-outline', 'copy-edit'],
       chatbotId: undefined,
       enableRag: undefined,
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
       workspace: undefined,
     });
     expect(res.statusCode).toBe(200);
@@ -4847,6 +4851,10 @@ describe('gateway HTTP server', () => {
       skills: null,
       chatbotId: undefined,
       enableRag: undefined,
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
       workspace: undefined,
     });
     expect(res.statusCode).toBe(200);

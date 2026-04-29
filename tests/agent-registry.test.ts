@@ -233,10 +233,21 @@ test('agent owner, role, and CV persist through runtime config and registry', as
         name: 'Main Agent',
       },
       {
+        id: 'analyst',
+        reportsTo: 'main',
+      },
+      {
+        id: 'writer',
+        reportsTo: 'main',
+      },
+      {
         id: 'charly',
         name: 'Charly',
         owner: '  benedikt  ',
         role: ' Researcher ',
+        reportsTo: ' main ',
+        delegatesTo: [' analyst ', 'analyst', ''],
+        peers: ['writer', ' writer '],
         cv: {
           summary: '  Senior coworker  ',
           capabilities: [' research ', 'writing', 'research'],
@@ -256,6 +267,9 @@ test('agent owner, role, and CV persist through runtime config and registry', as
   );
   expect(persistedConfig?.owner).toBe('benedikt');
   expect(persistedConfig?.role).toBe('Researcher');
+  expect(persistedConfig?.reportsTo).toBe('main');
+  expect(persistedConfig?.delegatesTo).toEqual(['analyst']);
+  expect(persistedConfig?.peers).toEqual(['writer']);
   expect(persistedConfig?.cv).toEqual({
     summary: 'Senior coworker',
     capabilities: ['research', 'writing'],
@@ -273,10 +287,21 @@ test('agent owner, role, and CV persist through runtime config and registry', as
         name: 'Main Agent',
       },
       {
+        id: 'analyst',
+        reportsTo: 'main',
+      },
+      {
+        id: 'writer',
+        reportsTo: 'main',
+      },
+      {
         id: 'charly',
         name: 'Charly',
         owner: 'benedikt',
         role: 'Researcher',
+        reportsTo: 'main',
+        delegatesTo: ['analyst'],
+        peers: ['writer'],
         cv: {
           summary: 'Senior coworker',
           capabilities: ['research', 'writing'],
@@ -293,6 +318,9 @@ test('agent owner, role, and CV persist through runtime config and registry', as
   const resolved = resolveAgentConfig('charly');
   expect(resolved.owner).toBe('benedikt');
   expect(resolved.role).toBe('Researcher');
+  expect(resolved.reportsTo).toBe('main');
+  expect(resolved.delegatesTo).toEqual(['analyst']);
+  expect(resolved.peers).toEqual(['writer']);
   expect(resolved.cv).toEqual({
     summary: 'Senior coworker',
     capabilities: ['research', 'writing'],
@@ -307,6 +335,9 @@ test('agent owner, role, and CV persist through runtime config and registry', as
   const stored = getAgentById('charly');
   expect(stored?.owner).toBe('benedikt');
   expect(stored?.role).toBe('Researcher');
+  expect(stored?.reportsTo).toBe('main');
+  expect(stored?.delegatesTo).toEqual(['analyst']);
+  expect(stored?.peers).toEqual(['writer']);
   expect(stored?.cv).toEqual({
     summary: 'Senior coworker',
     capabilities: ['research', 'writing'],
@@ -318,7 +349,62 @@ test('agent owner, role, and CV persist through runtime config and registry', as
   });
 });
 
-test('legacy agents without owner/role/cv/escalation target load cleanly after migration v25', async () => {
+test('agent registry rejects cyclic reports_to relationships', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { initAgentRegistry } = await import('../src/agents/agent-registry.ts');
+
+  initDatabase({ quiet: true });
+  expect(() =>
+    initAgentRegistry({
+      list: [
+        { id: 'main', name: 'Main Agent' },
+        { id: 'design', reportsTo: 'ops' },
+        { id: 'ops', reportsTo: 'design' },
+      ],
+    }),
+  ).toThrow('Agent reports_to cycle detected: design -> ops -> design.');
+});
+
+test('agent registry rejects deleting agents still referenced by org-chart fields', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { deleteRegisteredAgent, getAgentById, initAgentRegistry } =
+    await import('../src/agents/agent-registry.ts');
+
+  const agents = [
+    { id: 'main', name: 'Main Agent' },
+    { id: 'lead', name: 'Lead Agent', reportsTo: 'main' },
+    { id: 'worker', reportsTo: 'lead' },
+    { id: 'support', delegatesTo: ['lead'] },
+    { id: 'reviewer', peers: ['lead'] },
+  ];
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = agents;
+  });
+  initAgentRegistry({ list: agents });
+
+  expect(() => deleteRegisteredAgent('lead')).toThrow(
+    'Cannot delete agent "lead" because it is still referenced by: reviewer.peers, support.delegates_to, worker.reports_to.',
+  );
+  expect(getAgentById('lead')).toMatchObject({
+    id: 'lead',
+    name: 'Lead Agent',
+  });
+});
+
+test('legacy agents without org-chart fields load cleanly after migration v26', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -364,19 +450,25 @@ test('legacy agents without owner/role/cv/escalation target load cleanly after m
   expect(columns.some((column) => column.name === 'escalation_target')).toBe(
     true,
   );
+  expect(columns.some((column) => column.name === 'reports_to')).toBe(true);
+  expect(columns.some((column) => column.name === 'delegates_to')).toBe(true);
+  expect(columns.some((column) => column.name === 'peers')).toBe(true);
 
   const userVersion = migratedDb.pragma('user_version', { simple: true });
-  expect(userVersion).toBeGreaterThanOrEqual(25);
+  expect(userVersion).toBeGreaterThanOrEqual(26);
 
   const charly = migratedDb
     .prepare(
-      'SELECT id, name, owner, role, cv, escalation_target FROM agents WHERE id = ?',
+      'SELECT id, name, owner, role, reports_to, delegates_to, peers, cv, escalation_target FROM agents WHERE id = ?',
     )
     .get('charly') as {
     id: string;
     name: string;
     owner: string | null;
     role: string | null;
+    reports_to: string | null;
+    delegates_to: string | null;
+    peers: string | null;
     cv: string | null;
     escalation_target: string | null;
   };
@@ -385,6 +477,9 @@ test('legacy agents without owner/role/cv/escalation target load cleanly after m
     name: 'Charly',
     owner: null,
     role: null,
+    reports_to: null,
+    delegates_to: null,
+    peers: null,
     cv: null,
     escalation_target: null,
   });

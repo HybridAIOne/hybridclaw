@@ -31,6 +31,8 @@ import {
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
+  validateAgentOrgChart,
 } from './agent-types.js';
 
 const LEGACY_WORKSPACE_DIRS = [
@@ -160,6 +162,15 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   );
   const owner = normalizeString((value as { owner?: unknown }).owner);
   const role = normalizeString((value as { role?: unknown }).role);
+  const reportsTo = normalizeString(
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
+  );
+  const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
+    resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
+  );
+  const peers = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { peers?: unknown }).peers,
+  );
   const cv = normalizeAgentCv((value as { cv?: unknown }).cv);
   const escalationTarget = normalizeAgentEscalationTarget(
     (value as { escalationTarget?: unknown }).escalationTarget,
@@ -175,6 +186,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
   };
@@ -223,6 +237,9 @@ function fingerprintAgent(agent: AgentConfig): string {
     typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
     fingerprintString(agent.owner),
     fingerprintString(agent.role),
+    fingerprintString(agent.reportsTo),
+    fingerprintStringArray(agent.delegatesTo),
+    fingerprintStringArray(agent.peers),
     fingerprintCv(agent.cv),
     fingerprintString(agent.escalationTarget?.channel),
     fingerprintString(agent.escalationTarget?.recipient),
@@ -264,6 +281,7 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
     list.unshift({ id: DEFAULT_AGENT_ID, name: 'Main Agent' });
     seen.add(DEFAULT_AGENT_ID);
   }
+  validateAgentOrgChart(list);
   const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
   const fingerprint = fingerprintAgentsConfig({
     defaultAgentId,
@@ -296,6 +314,9 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(agent.owner ? { owner: agent.owner } : {}),
     ...(agent.role ? { role: agent.role } : {}),
+    ...(agent.reportsTo ? { reportsTo: agent.reportsTo } : {}),
+    ...(agent.delegatesTo ? { delegatesTo: [...agent.delegatesTo] } : {}),
+    ...(agent.peers ? { peers: [...agent.peers] } : {}),
     ...(agent.cv ? { cv: agent.cv } : {}),
     ...(agent.escalationTarget
       ? { escalationTarget: { ...agent.escalationTarget } }
@@ -316,7 +337,7 @@ function rebuildFallbackRegistry(): void {
   }
 }
 
-function rebuildRegistryFromDatabase(): void {
+function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   registry = new Map<string, AgentConfig>();
   for (const agent of dbListAgents()) {
     registry.set(agent.id, agent);
@@ -326,6 +347,9 @@ function rebuildRegistryFromDatabase(): void {
       id: DEFAULT_AGENT_ID,
       name: 'Main Agent',
     });
+  }
+  if (options?.validate !== false) {
+    validateAgentOrgChart(Array.from(registry.values()));
   }
 }
 
@@ -353,6 +377,9 @@ function syncConfiguredAgentsToDatabase(): void {
       enableRag: agent.enableRag,
       owner: agent.owner,
       role: agent.role,
+      reportsTo: agent.reportsTo,
+      delegatesTo: agent.delegatesTo,
+      peers: agent.peers,
       cv: cloneAgentCv(agent.cv),
       escalationTarget: agent.escalationTarget,
     });
@@ -519,6 +546,31 @@ export function getStoredAgentConfig(
   return registry.get(normalizedId) || null;
 }
 
+function hasAgentReference(
+  values: readonly string[] | undefined,
+  agentId: string,
+): boolean {
+  return values?.some((value) => normalizeString(value) === agentId) ?? false;
+}
+
+function collectAgentDeletionBlockers(agentId: string): string[] {
+  const blockers: string[] = [];
+  for (const agent of registry.values()) {
+    const sourceAgentId = normalizeString(agent.id);
+    if (!sourceAgentId || sourceAgentId === agentId) continue;
+    if (normalizeString(agent.reportsTo) === agentId) {
+      blockers.push(`${sourceAgentId}.reports_to`);
+    }
+    if (hasAgentReference(agent.delegatesTo, agentId)) {
+      blockers.push(`${sourceAgentId}.delegates_to`);
+    }
+    if (hasAgentReference(agent.peers, agentId)) {
+      blockers.push(`${sourceAgentId}.peers`);
+    }
+  }
+  return blockers.sort();
+}
+
 export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
@@ -527,8 +579,18 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!normalized) {
     throw new Error('Agent id is required.');
   }
+  ensureRegistryCurrent();
+  const nextAgentsById = new Map<string, AgentConfig>(registry);
+  nextAgentsById.set(normalized.id, normalized);
+  if (!nextAgentsById.has(DEFAULT_AGENT_ID)) {
+    nextAgentsById.set(DEFAULT_AGENT_ID, {
+      id: DEFAULT_AGENT_ID,
+      name: 'Main Agent',
+    });
+  }
+  validateAgentOrgChart(Array.from(nextAgentsById.values()));
   dbUpsertAgent(normalized);
-  rebuildRegistryFromDatabase();
+  rebuildRegistryFromDatabase({ validate: false });
   registryInitialized = true;
   registryDbBacked = true;
   return resolveAgentConfig(normalized.id);
@@ -539,6 +601,14 @@ export function deleteRegisteredAgent(agentId: string): boolean {
   if (!normalizedId) return false;
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
+  }
+  ensureRegistryCurrent();
+  if (!registry.has(normalizedId)) return false;
+  const blockers = collectAgentDeletionBlockers(normalizedId);
+  if (blockers.length > 0) {
+    throw new Error(
+      `Cannot delete agent "${normalizedId}" because it is still referenced by: ${blockers.join(', ')}.`,
+    );
   }
   const deleted = dbDeleteAgent(normalizedId);
   rebuildRegistryFromDatabase();

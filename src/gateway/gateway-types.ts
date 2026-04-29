@@ -866,6 +866,10 @@ export interface GatewayAdminAgent {
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  role: string | null;
+  reportsTo: string | null;
+  delegatesTo: string[] | null;
+  peers: string[] | null;
   workspace: string | null;
   workspacePath: string;
   markdownFiles: GatewayAdminAgentMarkdownFile[];

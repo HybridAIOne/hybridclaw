@@ -13,8 +13,11 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentCv,
   DEFAULT_AGENT_ID,
+  hasSnakeCamelAlias,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
+  validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import type {
   ChannelKind,
@@ -104,7 +107,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 24;
+export const CONFIG_VERSION = 25;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -2225,6 +2228,25 @@ function normalizeAgentConfig(
   const role = normalizeString(value.role, fallback?.role ?? '', {
     allowEmpty: true,
   });
+  const reportsTo = normalizeString(
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
+    fallback?.reportsTo ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const delegatesTo = hasSnakeCamelAlias(value, 'delegatesTo', 'delegates_to')
+    ? normalizeOptionalTrimmedUniqueStringArray(
+        resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
+      )
+    : fallback?.delegatesTo
+      ? [...fallback.delegatesTo]
+      : undefined;
+  const peers = Object.hasOwn(value, 'peers')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.peers)
+    : fallback?.peers
+      ? [...fallback.peers]
+      : undefined;
   const cv = Object.hasOwn(value, 'cv')
     ? normalizeAgentCv(value.cv)
     : cloneAgentCv(fallback?.cv);
@@ -2244,6 +2266,9 @@ function normalizeAgentConfig(
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
   };
@@ -2271,6 +2296,7 @@ function normalizeAgentsConfig(
     list.unshift({ id: DEFAULT_AGENT_ID });
     seen.add(DEFAULT_AGENT_ID);
   }
+  validateAgentOrgChart(list);
   const defaultAgentId = normalizeString(
     raw.defaultAgentId,
     fallback.defaultAgentId ?? DEFAULT_AGENT_ID,
