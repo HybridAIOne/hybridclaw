@@ -1820,6 +1820,23 @@ describe('gateway HTTP server', () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       url: '/api/status',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects forwarded loopback headers from unauthenticated external sockets', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/status',
       headers: { 'x-forwarded-for': '127.0.0.1' },
       remoteAddress: '203.0.113.10',
       noAuth: true,
