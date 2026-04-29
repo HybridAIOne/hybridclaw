@@ -13,6 +13,7 @@ import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
   readStoredRuntimeSecrets,
+  runtimeSecretsPath,
   saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
@@ -552,6 +553,9 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
+const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
+const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
+const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
 let internalGatewayApiToken = '';
 let internalGatewayApiTokenPersisted = false;
 function getInternalGatewayApiToken(): string {
@@ -561,19 +565,116 @@ function getInternalGatewayApiToken(): string {
   return internalGatewayApiToken;
 }
 
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function readStoredGatewayApiToken(): string {
+  return readStoredRuntimeSecrets().GATEWAY_API_TOKEN?.trim() || '';
+}
+
+function acquireGatewayApiTokenLock(): () => void {
+  const lockPath = `${runtimeSecretsPath()}.gateway-token.lock`;
+  const deadline = Date.now() + GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      try {
+        fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`);
+      } catch (err) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best effort
+        }
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // best effort
+        }
+        throw err;
+      }
+      return () => {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best effort
+        }
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // best effort
+        }
+      };
+    } catch (err) {
+      if (
+        !(err instanceof Error) ||
+        (err as NodeJS.ErrnoException).code !== 'EEXIST'
+      ) {
+        throw err;
+      }
+
+      try {
+        const stats = fs.statSync(lockPath);
+        if (Date.now() - stats.mtimeMs > GATEWAY_API_TOKEN_LOCK_STALE_MS) {
+          fs.rmSync(lockPath, { force: true });
+          continue;
+        }
+      } catch (statErr) {
+        if (
+          statErr instanceof Error &&
+          (statErr as NodeJS.ErrnoException).code === 'ENOENT'
+        ) {
+          continue;
+        }
+        throw statErr;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for gateway API token lock at ${lockPath}.`,
+        );
+      }
+      sleepSync(GATEWAY_API_TOKEN_LOCK_RETRY_MS);
+    }
+  }
+}
+
 function getOrPersistGatewayApiToken(): string {
-  const token = getInternalGatewayApiToken();
-  if (internalGatewayApiTokenPersisted) return token;
+  if (internalGatewayApiTokenPersisted) return getInternalGatewayApiToken();
+
+  const existing = readStoredGatewayApiToken();
+  if (existing) {
+    internalGatewayApiToken = existing;
+    internalGatewayApiTokenPersisted = true;
+    return existing;
+  }
+
+  let releaseLock: (() => void) | null = null;
   try {
+    releaseLock = acquireGatewayApiTokenLock();
+    const lockedExisting = readStoredGatewayApiToken();
+    if (lockedExisting) {
+      internalGatewayApiToken = lockedExisting;
+      internalGatewayApiTokenPersisted = true;
+      return lockedExisting;
+    }
+
+    const token = getInternalGatewayApiToken();
     saveRuntimeSecrets({ GATEWAY_API_TOKEN: token });
+    internalGatewayApiToken = readStoredGatewayApiToken() || token;
     internalGatewayApiTokenPersisted = true;
   } catch (err) {
     logger.warn(
       { err },
       'Failed to persist generated gateway API token; local gateway clients in other processes may need an explicit GATEWAY_API_TOKEN.',
     );
+  } finally {
+    releaseLock?.();
   }
-  return token;
+  return getInternalGatewayApiToken();
 }
 export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = path.join(
