@@ -16,10 +16,18 @@
  *   - hybridai chargeback consumes the populated `usage_events` table.
  */
 
-import { createHash } from 'node:crypto';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  makeAuditRunId,
+  recordAuditEventStrict,
+} from '../audit/audit-events.js';
 import { logger } from '../logger.js';
-import { recordUsageEventBatch } from '../memory/db.js';
+import {
+  normalizeUsageCost,
+  normalizeUsageNumber,
+  recordUsageEventBatch,
+  resolveSessionIdCompat,
+} from '../memory/db.js';
 
 export interface TokenUsageEvent {
   sessionId: string;
@@ -76,6 +84,35 @@ interface BufferState {
   lastFlushAt: string | null;
   lastError: string | null;
   started: boolean;
+}
+
+export interface TokenUsageBatchHashRow {
+  sessionId: string;
+  agentId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  toolCalls: number;
+  costUsd: number;
+  timestamp: string;
+  batchId: string;
+}
+
+interface PreparedUsageEvent extends TokenUsageBatchHashRow {
+  id: string;
+  auditRunId?: string;
+  auditParentRunId?: string;
+  batchHash: string;
+}
+
+interface PreparedUsageBatchGroup {
+  sessionId: string;
+  batchId: string;
+  batchHash: string;
+  events: PreparedUsageEvent[];
+  auditRunId?: string;
+  auditParentRunId?: string;
 }
 
 const state: BufferState = {
@@ -259,12 +296,30 @@ export async function flushTokenUsageBuffer(opts?: {
   const flushPromise = (async () => {
     const batch = state.queue.splice(0, state.queue.length);
     try {
-      recordUsageEventBatch(batch);
+      const groups = prepareUsageBatchGroups(batch);
+      emitBatchAuditEvents(groups);
+      recordUsageEventBatch(
+        groups.flatMap((group) =>
+          group.events.map((event) => ({
+            id: event.id,
+            sessionId: event.sessionId,
+            agentId: event.agentId,
+            model: event.model,
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            totalTokens: event.totalTokens,
+            toolCalls: event.toolCalls,
+            costUsd: event.costUsd,
+            timestamp: event.timestamp,
+            batchId: event.batchId,
+            batchHash: event.batchHash,
+          })),
+        ),
+      );
       state.totalFlushed += batch.length;
       state.flushCount += 1;
       state.lastFlushAt = new Date().toISOString();
       state.lastError = null;
-      emitBatchAuditEvents(batch);
     } catch (err) {
       // Re-queue the events at the head so we don't lose them. Bound the
       // re-queue to maxQueueSize so a persistently failing DB doesn't
@@ -300,58 +355,110 @@ export async function flushTokenUsageBuffer(opts?: {
   }
 }
 
-function emitBatchAuditEvents(batch: TokenUsageEvent[]): void {
-  // Group by session so each affected session's hash chain gets its own
-  // batch attestation.
-  const bySession = new Map<string, TokenUsageEvent[]>();
+function usageBatchGroupKey(event: PreparedUsageEvent): string {
+  return JSON.stringify([
+    event.sessionId,
+    event.auditRunId || '',
+    event.auditParentRunId || '',
+  ]);
+}
+
+function prepareUsageBatchGroups(
+  batch: TokenUsageEvent[],
+): PreparedUsageBatchGroup[] {
+  const grouped = new Map<string, PreparedUsageEvent[]>();
   for (const event of batch) {
-    const key = event.sessionId;
-    const list = bySession.get(key);
+    const sessionId = resolveSessionIdCompat(event.sessionId.trim());
+    const agentId = event.agentId.trim();
+    if (!sessionId || !agentId) continue;
+    const inputTokens = normalizeUsageNumber(event.inputTokens);
+    const outputTokens = normalizeUsageNumber(event.outputTokens);
+    const totalTokens = normalizeUsageNumber(
+      event.totalTokens ?? inputTokens + outputTokens,
+    );
+    const prepared: PreparedUsageEvent = {
+      id: randomUUID(),
+      sessionId,
+      agentId,
+      model: event.model.trim() || 'unknown',
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      toolCalls: normalizeUsageNumber(event.toolCalls),
+      costUsd: normalizeUsageCost(event.costUsd),
+      timestamp:
+        typeof event.timestamp === 'string' && event.timestamp.trim()
+          ? event.timestamp.trim()
+          : new Date().toISOString(),
+      batchId: '',
+      batchHash: '',
+      auditRunId: event.auditRunId,
+      auditParentRunId: event.auditParentRunId,
+    };
+    const groupKey = usageBatchGroupKey(prepared);
+    const list = grouped.get(groupKey);
     if (list) {
-      list.push(event);
+      list.push(prepared);
     } else {
-      bySession.set(key, [event]);
+      grouped.set(groupKey, [prepared]);
     }
   }
 
-  for (const [sessionId, events] of bySession) {
+  const groups: PreparedUsageBatchGroup[] = [];
+  for (const events of grouped.values()) {
+    const batchId = makeUsageBatchId();
+    for (const event of events) {
+      event.batchId = batchId;
+    }
+    const batchHash = computeTokenUsageBatchHash(events);
+    for (const event of events) {
+      event.batchHash = batchHash;
+    }
+    groups.push({
+      sessionId: events[0]?.sessionId || '',
+      batchId,
+      batchHash,
+      events,
+      auditRunId: events[0]?.auditRunId,
+      auditParentRunId: events[0]?.auditParentRunId,
+    });
+  }
+  return groups;
+}
+
+function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
+  // Group by session so each affected session's hash chain gets its own
+  // batch attestation.
+  for (const group of groups) {
+    const { batchHash, batchId, events, sessionId } = group;
     const inputTokens = sumInt(events, (e) => e.inputTokens);
     const outputTokens = sumInt(events, (e) => e.outputTokens);
-    const declaredTotal = sumInt(events, (e) => e.totalTokens ?? 0);
-    const totalTokens = declaredTotal || inputTokens + outputTokens;
+    const totalTokens = sumInt(events, (e) => e.totalTokens);
     const toolCalls = sumInt(events, (e) => e.toolCalls ?? 0);
     const costUsd = events.reduce((acc, e) => acc + (e.costUsd ?? 0), 0);
-    const batchHash = computeBatchHash(events);
     const models = Array.from(new Set(events.map((e) => e.model))).sort();
     const agents = Array.from(new Set(events.map((e) => e.agentId))).sort();
-    const runId = events[0]?.auditRunId || makeAuditRunId('usage-batch');
-    const parentRunId = events[0]?.auditParentRunId;
+    const runId = group.auditRunId || makeAuditRunId('usage-batch');
+    const parentRunId = group.auditParentRunId;
 
-    try {
-      recordAuditEvent({
-        sessionId,
-        runId,
-        parentRunId,
-        event: {
-          type: 'usage.batch_flushed',
-          eventCount: events.length,
-          inputTokens,
-          outputTokens,
-          totalTokens,
-          toolCalls,
-          costUsd,
-          batchHash,
-          models,
-          agents,
-        },
-      });
-    } catch (err) {
-      // Audit-trail failures must never break the chargeback path.
-      logger.warn(
-        { err, sessionId, batchSize: events.length },
-        'token_usage: failed to append batch audit event',
-      );
-    }
+    recordAuditEventStrict({
+      sessionId,
+      runId,
+      parentRunId,
+      event: {
+        type: 'usage.batch_flushed',
+        batchId,
+        eventCount: events.length,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        toolCalls,
+        costUsd,
+        batchHash,
+        models,
+        agents,
+      },
+    });
   }
 }
 
@@ -369,23 +476,56 @@ function sumInt(
   return total;
 }
 
-function computeBatchHash(events: TokenUsageEvent[]): string {
-  // Deterministic, order-sensitive hash of the batch payload — enough to
-  // detect tampering between the buffer flush and the SQLite write.
-  const lines = events.map((e) =>
-    [
-      e.sessionId,
-      e.agentId,
-      e.model,
-      e.inputTokens ?? 0,
-      e.outputTokens ?? 0,
-      e.totalTokens ?? 0,
-      e.toolCalls ?? 0,
-      e.costUsd ?? 0,
-      e.timestamp ?? '',
-    ].join('|'),
+function makeUsageBatchId(): string {
+  return `usage_${Date.now()}_${randomUUID().slice(0, 8)}`;
+}
+
+export function computeTokenUsageBatchHash(
+  rows: TokenUsageBatchHashRow[],
+): string {
+  const canonicalRows = rows
+    .map((row) => ({
+      agentId: row.agentId,
+      batchId: row.batchId,
+      costUsd: row.costUsd,
+      inputTokens: row.inputTokens,
+      model: row.model,
+      outputTokens: row.outputTokens,
+      sessionId: row.sessionId,
+      timestamp: row.timestamp,
+      toolCalls: row.toolCalls,
+      totalTokens: row.totalTokens,
+    }))
+    .sort(
+      (a, b) =>
+        [
+          a.sessionId.localeCompare(b.sessionId),
+          a.agentId.localeCompare(b.agentId),
+          a.model.localeCompare(b.model),
+          a.timestamp.localeCompare(b.timestamp),
+          a.inputTokens - b.inputTokens,
+          a.outputTokens - b.outputTokens,
+          a.totalTokens - b.totalTokens,
+          a.toolCalls - b.toolCalls,
+          a.costUsd - b.costUsd,
+          a.batchId.localeCompare(b.batchId),
+        ].find((result) => result !== 0) ?? 0,
+    );
+  const payload = JSON.stringify(
+    canonicalRows.map((row) => [
+      row.sessionId,
+      row.agentId,
+      row.model,
+      row.inputTokens,
+      row.outputTokens,
+      row.totalTokens,
+      row.toolCalls,
+      row.costUsd,
+      row.timestamp,
+      row.batchId,
+    ]),
   );
-  return createHash('sha256').update(lines.join('\n')).digest('hex');
+  return createHash('sha256').update(payload).digest('hex');
 }
 
 export function getTokenUsageBufferStats(): TokenUsageBufferStats {

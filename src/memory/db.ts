@@ -129,7 +129,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 26;
+export const DATABASE_SCHEMA_VERSION = 27;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -945,12 +945,15 @@ function migrateV4(database: Database.Database): void {
       output_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0.0,
-      tool_calls INTEGER NOT NULL DEFAULT 0
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      batch_id TEXT,
+      batch_hash TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_usage_events_agent_time ON usage_events(agent_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_time ON usage_events(timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_model_time ON usage_events(model, timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_session_time ON usage_events(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
   `);
 
   recordMigration(
@@ -2102,6 +2105,36 @@ function migrateV26(
   recordMigration(database, 26, 'Persist agent org-chart relationships');
 }
 
+function migrateV27(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'batch_id',
+    ddl: 'batch_id TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'batch_hash',
+    ddl: 'batch_hash TEXT',
+    quiet,
+  });
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
+  `);
+
+  recordMigration(
+    database,
+    27,
+    'Persist token usage batch identifiers and hashes',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2159,6 +2192,7 @@ function runMigrations(
   }
   if (currentVersion < 25) migrateV25(database, opts);
   if (currentVersion < 26) migrateV26(database, opts);
+  if (currentVersion < 27) migrateV27(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -3111,14 +3145,14 @@ function usageWindowWhereClause(window: UsageWindow): string | null {
   return null;
 }
 
-function normalizeUsageNumber(value: unknown): number {
+export function normalizeUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value));
   }
   return 0;
 }
 
-function normalizeUsageCost(value: unknown): number {
+export function normalizeUsageCost(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, value);
   }
@@ -3187,6 +3221,7 @@ export function recordUsageEvent(params: {
 }
 
 export interface RecordUsageEventBatchEntry {
+  id?: string;
   sessionId: string;
   agentId: string;
   model: string;
@@ -3196,6 +3231,8 @@ export interface RecordUsageEventBatchEntry {
   toolCalls?: number;
   costUsd?: number;
   timestamp?: string;
+  batchId?: string;
+  batchHash?: string;
 }
 
 /**
@@ -3222,6 +3259,8 @@ export function recordUsageEventBatch(
     totalTokens: number;
     costUsd: number;
     toolCalls: number;
+    batchId: string | null;
+    batchHash: string | null;
   };
 
   const normalized: NormalizedRow[] = [];
@@ -3235,7 +3274,10 @@ export function recordUsageEventBatch(
       entry.totalTokens ?? inputTokens + outputTokens,
     );
     normalized.push({
-      id: randomUUID(),
+      id:
+        typeof entry.id === 'string' && entry.id.trim()
+          ? entry.id.trim()
+          : randomUUID(),
       sessionId,
       agentId,
       timestamp:
@@ -3248,14 +3290,22 @@ export function recordUsageEventBatch(
       totalTokens,
       costUsd: normalizeUsageCost(entry.costUsd),
       toolCalls: normalizeUsageNumber(entry.toolCalls),
+      batchId:
+        typeof entry.batchId === 'string' && entry.batchId.trim()
+          ? entry.batchId.trim()
+          : null,
+      batchHash:
+        typeof entry.batchHash === 'string' && entry.batchHash.trim()
+          ? entry.batchHash.trim()
+          : null,
     });
   }
   if (normalized.length === 0) return;
 
   const insert = db.prepare(
     `INSERT INTO usage_events
-      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const transaction = db.transaction((rows: NormalizedRow[]) => {
     for (const row of rows) {
@@ -3270,6 +3320,8 @@ export function recordUsageEventBatch(
         row.totalTokens,
         row.costUsd,
         row.toolCalls,
+        row.batchId,
+        row.batchHash,
       );
     }
   });
