@@ -45,6 +45,8 @@ test('resolveModelContextWindowFallback resolves known defaults', () => {
   expect(resolveModelContextWindowFallback('anthropic/claude-opus-4.1')).toBe(
     200_000,
   );
+  expect(resolveModelContextWindowFallback('gpt-5.5')).toBe(1_000_000);
+  expect(resolveModelContextWindowFallback('gpt-5.5-pro')).toBe(1_000_000);
   expect(resolveModelContextWindowFallback('anthropic/claude-opus-4-6')).toBe(
     200_000,
   );
@@ -75,6 +77,8 @@ test('isStaticModelVisionCapable returns true for known vision models', () => {
   expect(isStaticModelVisionCapable('gpt-4.1-mini')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5.4-mini')).toBe(true);
   expect(isStaticModelVisionCapable('gpt-5.3-codex')).toBe(true);
+  expect(isStaticModelVisionCapable('gpt-5.5')).toBe(true);
+  expect(isStaticModelVisionCapable('gpt-5.5-pro')).toBe(true);
   expect(isStaticModelVisionCapable('claude-opus-4-1')).toBe(true);
   expect(isStaticModelVisionCapable('claude-opus-4.1')).toBe(true);
   expect(isStaticModelVisionCapable('claude-opus-4-6')).toBe(true);
