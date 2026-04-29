@@ -37,9 +37,11 @@ import {
   handleHybridaiSkillsCommand,
   harvestHybridaiSkillsFixtures,
   readHybridaiSkillsFixtures,
+  resolveHybridaiSkillsDocsRoot,
   syncHybridaiSkillsFixturesWithDocs,
   writeHybridaiSkillsFixtures,
 } from '../src/evals/hybridai-skills-command.js';
+import { resolveInstallPath } from '../src/infra/install-root.js';
 import { useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-hybridai-skills-');
@@ -142,6 +144,14 @@ const SAMPLE_DOC = [
   'Body only. No Try it yourself block.',
   '',
 ].join('\n');
+
+describe('resolveHybridaiSkillsDocsRoot', () => {
+  test('uses the canonical docs content tree', () => {
+    expect(resolveHybridaiSkillsDocsRoot()).toBe(
+      resolveInstallPath('docs', 'content', 'guides', 'skills'),
+    );
+  });
+});
 
 describe('harvestHybridaiSkillsFixtures', () => {
   test('extracts try-it-yourself prompts and attaches them to the right skill', () => {

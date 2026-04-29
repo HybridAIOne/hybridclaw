@@ -106,7 +106,7 @@ hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals
 - managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
   `hybridai-skills`
 - `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
-  `docs/development/guides/skills/*.md` into a fixture set, then grades
+  `docs/content/guides/skills/*.md` into a fixture set, then grades
   whether each prompt activates its documented skill. `setup` writes the
   fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
   without calling the model, and `run` (default `--live`, `--max 3`) posts
