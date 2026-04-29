@@ -1,5 +1,5 @@
 {
-  "version": 23,
+  "version": 24,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -10,7 +10,8 @@
     "mode": "local",
     "public_url": "",
     "tunnel": {
-      "provider": "manual"
+      "provider": "manual",
+      "health_check_interval_ms": 30000
     }
   },
   "skills": {

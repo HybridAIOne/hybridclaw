@@ -14,6 +14,7 @@ import {
   cloneAgentCv,
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
+  normalizeAgentEscalationTarget,
 } from '../agents/agent-types.js';
 import type {
   ChannelKind,
@@ -68,6 +69,7 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
+import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
@@ -102,7 +104,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 23;
+export const CONFIG_VERSION = 24;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -254,6 +256,7 @@ export type RuntimeDeploymentTunnelProvider =
 
 export interface RuntimeDeploymentTunnelConfig {
   provider?: RuntimeDeploymentTunnelProvider;
+  health_check_interval_ms: number;
 }
 
 export interface RuntimeDeploymentConfig {
@@ -1014,6 +1017,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     public_url: '',
     tunnel: {
       provider: 'manual',
+      health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
     },
   },
   agents: {
@@ -1049,6 +1053,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trajectoryCapture: {
       enabledAgentIds: [],
       storeDir: '',
+      retentionDays: 365,
+      retentionDaysByTenant: {},
     },
     inspectionIntervalMs: 3_600_000,
     observationRetentionDays: 30,
@@ -1733,6 +1739,25 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
+function normalizeRetentionDaysByTenant(
+  value: unknown,
+  fallback: Record<string, number>,
+  defaultRetentionDays: number,
+): Record<string, number> {
+  if (!isRecord(value)) return { ...fallback };
+  const normalized: Record<string, number> = {};
+  for (const [tenantId, rawDays] of Object.entries(value)) {
+    const normalizedTenantId = tenantId.trim();
+    if (!normalizedTenantId) continue;
+    normalized[normalizedTenantId] = normalizeInteger(
+      rawDays,
+      fallback[normalizedTenantId] ?? defaultRetentionDays,
+      { min: 0 },
+    );
+  }
+  return normalized;
+}
+
 function normalizeOptionalBaseUrl(value: unknown, fallback: string): string {
   const candidate = normalizeString(value, fallback, { allowEmpty: true });
   return candidate ? candidate.replace(/\/+$/, '') : '';
@@ -1787,7 +1812,14 @@ export function normalizeDeploymentConfig(
   return {
     mode: normalizeDeploymentMode(raw.mode, fallback.mode),
     public_url: normalizeOptionalBaseUrl(raw.public_url, fallback.public_url),
-    tunnel: tunnelProvider ? { provider: tunnelProvider } : {},
+    tunnel: {
+      ...(tunnelProvider ? { provider: tunnelProvider } : {}),
+      health_check_interval_ms: normalizeInteger(
+        rawTunnel.health_check_interval_ms,
+        fallback.tunnel.health_check_interval_ms,
+        { min: 1 },
+      ),
+    },
   };
 }
 
@@ -2190,6 +2222,11 @@ function normalizeAgentConfig(
   const cv = Object.hasOwn(value, 'cv')
     ? normalizeAgentCv(value.cv)
     : cloneAgentCv(fallback?.cv);
+  const escalationTarget = Object.hasOwn(value, 'escalationTarget')
+    ? normalizeAgentEscalationTarget(value.escalationTarget)
+    : fallback?.escalationTarget
+      ? { ...fallback.escalationTarget }
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),
@@ -2202,6 +2239,7 @@ function normalizeAgentConfig(
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
@@ -4716,6 +4754,11 @@ function normalizeRuntimeConfig(
     rawDiscord.commandMode,
     legacyCommandModeFallback,
   );
+  const normalizedTrajectoryRetentionDays = normalizeInteger(
+    rawTrajectoryCapture.retentionDays,
+    DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.retentionDays,
+    { min: 0 },
+  );
 
   return {
     version: CONFIG_VERSION,
@@ -4802,6 +4845,13 @@ function normalizeRuntimeConfig(
           rawTrajectoryCapture.storeDir,
           DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.storeDir,
           { allowEmpty: true },
+        ),
+        retentionDays: normalizedTrajectoryRetentionDays,
+        retentionDaysByTenant: normalizeRetentionDaysByTenant(
+          rawTrajectoryCapture.retentionDaysByTenant,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .retentionDaysByTenant,
+          normalizedTrajectoryRetentionDays,
         ),
       },
       inspectionIntervalMs: normalizeInteger(

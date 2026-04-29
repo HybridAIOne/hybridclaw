@@ -138,8 +138,9 @@ Once the gateway is running, open HybridClaw locally:
 - `proactive.delegation.model` can pin delegated work to a different model
   from the parent turn; `/status` shows delegate token totals and local-token
   share when that split is configured.
-- `deployment.mode`, `deployment.public_url`, and `deployment.tunnel.provider`
-  describe local/cloud exposure. The built-in ngrok tunnel provider reads
+- `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and
+  `deployment.tunnel.health_check_interval_ms` describe local/cloud exposure
+  and tunnel health cadence. The built-in ngrok tunnel provider reads
   `NGROK_AUTHTOKEN` from the encrypted runtime secret store.
 - `container.persistBashState` controls whether bash tool calls share shell
   state (`cd`, exported env vars, aliases) across turns in the same active

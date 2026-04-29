@@ -1,6 +1,7 @@
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
+  EscalationTarget,
   PendingApproval,
   PluginRuntimeToolDefinition,
   ToolExecution,
@@ -87,6 +88,7 @@ export interface ContainerInput {
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface ContainerOutput {

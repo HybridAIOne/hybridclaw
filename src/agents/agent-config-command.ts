@@ -11,7 +11,11 @@ import {
   upsertRegisteredAgent,
 } from './agent-registry.js';
 import { activateAgentInRuntimeConfig } from './agent-runtime-config.js';
-import type { AgentConfig, AgentModelConfig } from './agent-types.js';
+import {
+  type AgentConfig,
+  type AgentModelConfig,
+  normalizeAgentEscalationTarget,
+} from './agent-types.js';
 
 const MARKDOWN_MAX_BYTES = 200_000;
 const IMAGE_ASSET_MAX_BYTES = 5_000_000;
@@ -212,6 +216,21 @@ function applyAgentConfigFieldUpdates(
       delete next.enableRag;
     } else {
       throw new Error('`enableRag` must be a boolean or null.');
+    }
+  }
+  if (Object.hasOwn(updates, 'escalationTarget')) {
+    if (updates.escalationTarget === null) {
+      delete next.escalationTarget;
+    } else {
+      const escalationTarget = normalizeAgentEscalationTarget(
+        updates.escalationTarget,
+      );
+      if (!escalationTarget) {
+        throw new Error(
+          '`escalationTarget` must include non-empty string `channel` and `recipient` fields, or null.',
+        );
+      }
+      next.escalationTarget = escalationTarget;
     }
   }
   return next;
