@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,7 @@ import {
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
+  CONTAINER_WARM_POOL,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
   CONTEXT_GUARD_MAX_RETRIES,
@@ -83,6 +84,11 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import {
+  normalizeWarmProcessPoolConfig,
+  WarmProcessPool,
+  type WarmProcessPoolEntry,
+} from './warm-process-pool.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 const IDLE_TIMEOUT_MS = 300_000;
@@ -93,6 +99,8 @@ const TOOL_RESULT_RE =
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
+const AGENT_READY_FOR_INPUT_LINE = '[hybridclaw-agent] ready for input';
+const AGENT_REQUEST_START_LINE = '[hybridclaw-agent] agent request start';
 
 function resolveExecutorMaxTokens(params: {
   model: string;
@@ -151,10 +159,16 @@ function resolveHostAgentBrowserBinary(): string | undefined {
   return undefined;
 }
 
-interface PoolEntry {
+interface PoolEntry extends WarmProcessPoolEntry {
   process: ChildProcess;
   sessionId: string;
+  ipcSessionId: string;
+  agentId: string;
   startedAt: number;
+  lastUsedAt: number;
+  warm: boolean;
+  readyForInputAt: number | null;
+  pendingColdStartProbeStartedAt: number | null;
   stderrBuffer: string;
   stderrHistory: string[];
   streamDebug: StreamDebugState;
@@ -169,6 +183,13 @@ interface PoolEntry {
 }
 
 const pool = new Map<string, PoolEntry>();
+const warmPool = new WarmProcessPool<PoolEntry>(
+  normalizeWarmProcessPoolConfig({
+    ...CONTAINER_WARM_POOL,
+    memoryPressureRssBytes:
+      CONTAINER_WARM_POOL.memoryPressureRssMb * 1024 * 1024,
+  }),
+);
 const STDERR_HISTORY_LIMIT = 20;
 
 function rememberStderrLine(entry: PoolEntry, line: string): void {
@@ -238,7 +259,18 @@ async function waitForHostCapacity(
   abortSignal?: AbortSignal,
 ): Promise<'available' | 'aborted' | 'timed_out'> {
   const deadline = Date.now() + HOST_CAPACITY_WAIT_MS;
-  while (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
+  while (
+    getTotalHostProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
+    !pool.has(sessionId)
+  ) {
+    stopWarmEntries(
+      warmPool.evictForPressure({
+        totalProcessCount: getTotalHostProcessCount() + 1,
+        maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+        rssBytes: getObservedHostProcessMemoryBytes(),
+      }),
+    );
+    if (getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS) break;
     if (abortSignal?.aborted) return 'aborted';
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) return 'timed_out';
@@ -269,6 +301,14 @@ export function getActiveHostSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+export function getWarmHostColdStartP95Ms(): number | null {
+  return warmPool.coldStartP95Ms();
+}
+
+export function isWarmHostColdStartWithinBudget(): boolean {
+  return warmPool.isWithinColdStartBudget();
 }
 
 function emitTextDelta(entry: PoolEntry, line: string): void {
@@ -433,6 +473,147 @@ function stopHostProcess(entry: PoolEntry): void {
   }
 }
 
+function getTotalHostProcessCount(): number {
+  return pool.size + warmPool.size;
+}
+
+function removePoolEntry(entry: PoolEntry): void {
+  warmPool.delete(entry.id);
+  for (const [sessionId, active] of pool) {
+    if (active === entry) pool.delete(sessionId);
+  }
+}
+
+function stopWarmEntries(entries: PoolEntry[]): void {
+  for (const entry of entries) {
+    logger.info({ agentId: entry.agentId }, 'Evicting warm host agent process');
+    stopHostProcess(entry);
+  }
+}
+
+function readProcessRssBytes(pid: number | undefined): number {
+  if (!pid) return 0;
+  const result = spawnSync('ps', ['-o', 'rss=', '-p', String(pid)], {
+    encoding: 'utf-8',
+    timeout: 2_000,
+  });
+  if (result.status !== 0) return 0;
+  const rssKb = Number(String(result.stdout || '').trim());
+  return Number.isFinite(rssKb) ? Math.max(0, Math.floor(rssKb * 1024)) : 0;
+}
+
+function getObservedHostProcessMemoryBytes(): number {
+  let total = 0;
+  for (const entry of pool.values()) {
+    total += readProcessRssBytes(entry.process.pid);
+  }
+  for (const entry of warmPool.values()) {
+    total += readProcessRssBytes(entry.process.pid);
+  }
+  return total;
+}
+
+function enforceWarmHostPressure(): void {
+  stopWarmEntries(
+    warmPool.evictForPressure({
+      totalProcessCount: getTotalHostProcessCount(),
+      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+      rssBytes: getObservedHostProcessMemoryBytes(),
+    }),
+  );
+}
+
+function markWorkerReadyForInput(entry: PoolEntry): void {
+  entry.readyForInputAt = Date.now();
+}
+
+function markAgentRequestStart(entry: PoolEntry): void {
+  const startedAt = entry.pendingColdStartProbeStartedAt;
+  if (startedAt == null) return;
+  warmPool.recordColdStart(Date.now() - startedAt);
+  entry.pendingColdStartProbeStartedAt = null;
+}
+
+function observeAgentLifecycleLine(entry: PoolEntry, line: string): boolean {
+  if (line === AGENT_READY_FOR_INPUT_LINE) {
+    markWorkerReadyForInput(entry);
+    entry.activity?.notify();
+    return true;
+  }
+  if (line === AGENT_REQUEST_START_LINE) {
+    markAgentRequestStart(entry);
+    entry.activity?.notify();
+    return true;
+  }
+  return false;
+}
+
+function canUseWarmHostPool(params: {
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  bashProxy?: ExecutorRequest['bashProxy'];
+}): boolean {
+  return (
+    warmPool.enabled &&
+    !params.workspacePathOverride?.trim() &&
+    !params.workspaceDisplayRootOverride?.trim() &&
+    !params.bashProxy
+  );
+}
+
+function createWarmSessionId(agentId: string): string {
+  const safeAgent = agentId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `warm_${safeAgent}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function claimWarmHostProcess(params: {
+  sessionId: string;
+  agentId: string;
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  bashProxy?: ExecutorRequest['bashProxy'];
+}): PoolEntry | null {
+  if (!canUseWarmHostPool(params)) return null;
+  enforceWarmHostPressure();
+  const entry = warmPool.claim(params.agentId);
+  if (!entry) return null;
+  entry.sessionId = params.sessionId;
+  entry.warm = false;
+  entry.lastUsedAt = Date.now();
+  pool.set(params.sessionId, entry);
+  logger.info(
+    {
+      sessionId: params.sessionId,
+      ipcSessionId: entry.ipcSessionId,
+      agentId: params.agentId,
+    },
+    'Claimed warm host agent process',
+  );
+  return entry;
+}
+
+function maintainWarmHostPool(params: {
+  agentId: string;
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  bashProxy?: ExecutorRequest['bashProxy'];
+}): void {
+  if (!canUseWarmHostPool(params)) return;
+  enforceWarmHostPressure();
+  const targetSize = warmPool.targetIdleForAgent(params.agentId);
+  stopWarmEntries(warmPool.trimAgent(params.agentId, targetSize));
+  while (
+    warmPool.idleCountForAgent(params.agentId) < targetSize &&
+    getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS
+  ) {
+    getOrSpawnHostProcess({
+      sessionId: createWarmSessionId(params.agentId),
+      agentId: params.agentId,
+      warm: true,
+    });
+  }
+}
+
 function isTimedOutAgentOutput(output: ContainerOutput): boolean {
   return (
     output.status === 'error' &&
@@ -449,11 +630,12 @@ function getOrSpawnHostProcess(
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
     | 'bashProxy'
-  >,
+  > & { ipcSessionId?: string; warm?: boolean },
 ): PoolEntry {
   const sessionId = params.sessionId;
+  const ipcSessionId = params.ipcSessionId || sessionId;
   const agentId = params.agentId || DEFAULT_AGENT_ID;
-  const existing = pool.get(sessionId);
+  const existing = params.warm ? null : pool.get(sessionId);
   if (
     existing &&
     !existing.process.killed &&
@@ -465,9 +647,9 @@ function getOrSpawnHostProcess(
 
   if (existing) pool.delete(sessionId);
 
-  ensureSessionDirs(sessionId);
+  ensureSessionDirs(ipcSessionId);
   ensureAgentDirs(agentId);
-  const { ipcPath } = getSessionPaths(sessionId, agentId);
+  const { ipcPath } = getSessionPaths(ipcSessionId, agentId);
   const workspacePath = getHostWorkspacePath({
     sessionId,
     agentId,
@@ -527,7 +709,14 @@ function getOrSpawnHostProcess(
   }
 
   logger.info(
-    { sessionId, command: runtime.command, args: runtime.args },
+    {
+      sessionId,
+      ipcSessionId,
+      agentId,
+      command: runtime.command,
+      args: runtime.args,
+      warm: params.warm,
+    },
     'Spawning host agent process',
   );
 
@@ -538,14 +727,27 @@ function getOrSpawnHostProcess(
   });
 
   const entry: PoolEntry = {
+    id: ipcSessionId,
     process: proc,
     sessionId,
+    ipcSessionId,
+    agentId,
     startedAt: Date.now(),
+    lastUsedAt: Date.now(),
+    warm: params.warm === true,
+    readyForInputAt: null,
+    pendingColdStartProbeStartedAt: null,
     stderrBuffer: '',
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
     terminalError: null,
+    isReady() {
+      return entry.readyForInputAt != null;
+    },
+    stop() {
+      stopHostProcess(entry);
+    },
   };
 
   proc.stderr.on('data', (data) => {
@@ -555,6 +757,7 @@ function getOrSpawnHostProcess(
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (observeAgentLifecycleLine(entry, line)) continue;
       if (consumeModelResponseDebugFileLine(line)) {
         entry.activity?.notify();
         continue;
@@ -594,7 +797,9 @@ function getOrSpawnHostProcess(
   proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
-      if (consumeModelResponseDebugFileLine(tail)) {
+      if (observeAgentLifecycleLine(entry, tail)) {
+        entry.stderrBuffer = '';
+      } else if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
         entry.stderrBuffer = '';
       } else {
@@ -626,13 +831,13 @@ function getOrSpawnHostProcess(
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);
     });
-    pool.delete(sessionId);
+    removePoolEntry(entry);
     logger.info({ sessionId, code, signal }, 'Host agent process exited');
   });
 
   proc.on('error', (err) => {
     entry.terminalError = `Host agent process failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
-    pool.delete(sessionId);
+    removePoolEntry(entry);
     logger.error({ sessionId, error: err }, 'Host agent process error');
   });
 
@@ -647,7 +852,11 @@ function getOrSpawnHostProcess(
     logger.error({ sessionId, error: err }, 'Host agent stdin error');
   });
 
-  pool.set(sessionId, entry);
+  if (entry.warm) {
+    warmPool.add(entry);
+  } else {
+    pool.set(sessionId, entry);
+  }
   return entry;
 }
 
@@ -659,7 +868,7 @@ export function stopSessionHostProcess(sessionId: string): boolean {
   const entry = pool.get(sessionId);
   if (!entry) return false;
   stopHostProcess(entry);
-  pool.delete(sessionId);
+  removePoolEntry(entry);
   return true;
 }
 
@@ -732,7 +941,11 @@ async function runHostProcessInner(
     return {};
   });
 
-  if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
+  enforceWarmHostPressure();
+  if (
+    getTotalHostProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
+    !pool.has(sessionId)
+  ) {
     const capacityState = await waitForHostCapacity(sessionId, abortSignal);
     if (capacityState === 'aborted') {
       return interruptedHostOutput();
@@ -742,13 +955,12 @@ async function runHostProcessInner(
         status: 'error',
         result: null,
         toolsUsed: [],
-        error: `Too many active host agent processes (${pool.size}/${MAX_CONCURRENT_CONTAINERS}) after waiting ${HOST_CAPACITY_WAIT_MS}ms. Try again later.`,
+        error: `Too many active host agent processes (${getTotalHostProcessCount()}/${MAX_CONCURRENT_CONTAINERS}) after waiting ${HOST_CAPACITY_WAIT_MS}ms. Try again later.`,
       };
     }
   }
 
-  cleanupIpc(sessionId);
-  ensureSessionDirs(sessionId);
+  const startTime = Date.now();
 
   const input: ContainerInput = {
     sessionId,
@@ -840,7 +1052,7 @@ async function runHostProcessInner(
       'Worker routing changed; restarting host agent process',
     );
     stopHostProcess(existingEntry);
-    pool.delete(sessionId);
+    removePoolEntry(existingEntry);
   }
 
   const isNewProcess =
@@ -850,13 +1062,23 @@ async function runHostProcessInner(
 
   let entry: PoolEntry;
   try {
-    entry = getOrSpawnHostProcess({
-      sessionId,
-      agentId,
-      workspacePathOverride: params.workspacePathOverride,
-      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-      bashProxy: params.bashProxy,
-    });
+    entry =
+      (isNewProcess
+        ? claimWarmHostProcess({
+            sessionId,
+            agentId,
+            workspacePathOverride: params.workspacePathOverride,
+            workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+            bashProxy: params.bashProxy,
+          })
+        : null) ||
+      getOrSpawnHostProcess({
+        sessionId,
+        agentId,
+        workspacePathOverride: params.workspacePathOverride,
+        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+        bashProxy: params.bashProxy,
+      });
   } catch (err) {
     return {
       status: 'error',
@@ -865,6 +1087,8 @@ async function runHostProcessInner(
       error: `Host agent spawn error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  cleanupIpc(entry.ipcSessionId);
+  ensureSessionDirs(entry.ipcSessionId);
   entry.workerSignature = workerSignature;
 
   const activity = createActivityTracker();
@@ -891,6 +1115,7 @@ async function runHostProcessInner(
       return interruptedHostOutput();
     }
     if (isNewProcess) {
+      entry.pendingColdStartProbeStartedAt = Date.now();
       try {
         entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
       } catch (err) {
@@ -904,11 +1129,11 @@ async function runHostProcessInner(
         throw err;
       }
     } else {
-      writeInput(sessionId, input, { omitApiKey: true });
+      writeInput(entry.ipcSessionId, input, { omitApiKey: true });
     }
 
     const output = await readOutput(
-      sessionId,
+      entry.ipcSessionId,
       inactivityTimeoutMs === undefined
         ? CONTAINER_TIMEOUT
         : inactivityTimeoutMs,
@@ -919,7 +1144,8 @@ async function runHostProcessInner(
         terminalError: () => entry.terminalError,
       },
     );
-    if (isTimedOutAgentOutput(output)) {
+    const timedOut = isTimedOutAgentOutput(output);
+    if (timedOut) {
       logger.warn(
         { sessionId },
         'Agent output timed out; stopping stuck host agent process',
@@ -945,6 +1171,17 @@ async function runHostProcessInner(
         reason: redactCredentialSecrets(output.pendingApproval.reason),
       };
     }
+    const duration = Date.now() - startTime;
+    if (!timedOut) {
+      entry.lastUsedAt = Date.now();
+      warmPool.recordRequest(agentId, duration);
+      maintainWarmHostPool({
+        agentId,
+        workspacePathOverride: params.workspacePathOverride,
+        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+        bashProxy: params.bashProxy,
+      });
+    }
     return output;
   } finally {
     abortSignal?.removeEventListener('abort', onAbort);
@@ -968,6 +1205,10 @@ export function stopAllHostProcesses(): void {
     stopHostProcess(entry);
   }
   pool.clear();
+  for (const entry of warmPool.clear()) {
+    logger.info({ agentId: entry.agentId }, 'Stopping warm host process');
+    stopHostProcess(entry);
+  }
 }
 
 export class HostExecutor {

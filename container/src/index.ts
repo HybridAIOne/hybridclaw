@@ -963,6 +963,7 @@ async function processRequest(
     escalationTarget,
   } = params;
   const processStartedAt = Date.now();
+  console.error('[hybridclaw-agent] agent request start');
   await emitRuntimeEvent({
     event: 'before_agent_start',
     messageCount: messages.length,
@@ -1693,6 +1694,7 @@ async function main(): Promise<void> {
   console.error(
     `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
   );
+  console.error('[hybridclaw-agent] ready for input');
   process.once('SIGINT', () => {
     void shutdownAgentProcess(0, 'SIGINT');
   });

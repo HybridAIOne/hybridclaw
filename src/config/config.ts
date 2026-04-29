@@ -532,6 +532,14 @@ export let ADDITIONAL_MOUNTS = '';
 export let CONTAINER_MAX_OUTPUT_SIZE = 10_485_760;
 export let MAX_CONCURRENT_CONTAINERS = 5;
 export let CONTAINER_PERSIST_BASH_STATE = true;
+export let CONTAINER_WARM_POOL: RuntimeConfig['container']['warmPool'] = {
+  enabled: true,
+  coldStartBudgetMs: 200,
+  trafficWindowMs: 3_600_000,
+  minIdlePerActiveAgent: 1,
+  maxIdlePerAgent: 2,
+  memoryPressureRssMb: 2_048,
+};
 export let MCP_SERVERS: RuntimeConfig['mcpServers'] = {};
 export let WEB_SEARCH_PROVIDER: RuntimeConfig['web']['search']['provider'] =
   'auto';
@@ -1051,6 +1059,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
   CONTAINER_PERSIST_BASH_STATE = config.container.persistBashState;
+  CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   MCP_SERVERS = structuredClone(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];

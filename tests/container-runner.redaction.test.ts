@@ -443,10 +443,20 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
   const runCalls = spawn.mock.calls.filter(
     (call) => Array.isArray(call[1]) && call[1][0] !== 'stop',
   );
+  const activeRunCalls = runCalls.filter((call) => {
+    const args = call[1];
+    if (!Array.isArray(args)) return false;
+    const nameIndex = args.indexOf('--name');
+    const containerName =
+      nameIndex >= 0 && typeof args[nameIndex + 1] === 'string'
+        ? args[nameIndex + 1]
+        : '';
+    return !containerName.includes('warm-');
+  });
   const stopCalls = spawn.mock.calls.filter(
     (call) => Array.isArray(call[1]) && call[1][0] === 'stop',
   );
-  expect(runCalls).toHaveLength(2);
+  expect(activeRunCalls).toHaveLength(2);
   expect(stopCalls).toHaveLength(1);
 });
 
