@@ -1,4 +1,3 @@
-import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import {
   type HybridAIHealthResult,
@@ -48,9 +47,7 @@ function fallbackHybridAIHealth(): HybridAIHealthResult {
   if (cached) return cached;
   return {
     reachable: false,
-    error: getHybridAIAuthStatus().authenticated
-      ? 'probe pending'
-      : 'API key missing',
+    error: 'unavailable',
     latencyMs: 0,
   };
 }
