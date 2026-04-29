@@ -58,3 +58,7 @@ The admin console also exposes a Workflows page backed by
 `GET /api/admin/workflows`, with per-run approve and return actions. The
 visualizer shows the active step, owner, status, stakes score, and pending
 escalation state.
+
+Workflow approval prompts expire after 24 hours by default. Operators can tune
+that window with `HYBRIDCLAW_WORKFLOW_APPROVAL_TTL_MS`, expressed in
+milliseconds.

@@ -7913,7 +7913,7 @@ export async function handleGatewayCommand(
               workflowId,
               runId: parseIdArg(req.args, 3) || undefined,
               sessionId: req.sessionId,
-              userId: req.userId || undefined,
+              userId: req.userId || req.sessionId,
             });
             return workflowCommandResponse(
               'Workflow Started',
@@ -7940,7 +7940,7 @@ export async function handleGatewayCommand(
             const run = await approveWorkflowRunStep({
               runId,
               stepId: parseIdArg(req.args, 3) || undefined,
-              actor: req.userId || 'local-user',
+              actor: req.userId || req.sessionId,
               sessionId: req.sessionId,
             });
             return workflowCommandResponse(
@@ -7971,7 +7971,7 @@ export async function handleGatewayCommand(
               runId,
               stepId,
               notes,
-              actor: req.userId || 'local-user',
+              actor: req.userId || req.sessionId,
               sessionId: req.sessionId,
             });
             return workflowCommandResponse(

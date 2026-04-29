@@ -3323,6 +3323,23 @@ function sendApiAdminWorkflows(res: ServerResponse): void {
   sendJson(res, 200, getWorkflowAdminSummary());
 }
 
+function resolveApiAdminActor(req: IncomingMessage): string {
+  const sessionUserId = resolveSessionAuthenticatedUserId(req);
+  if (sessionUserId) return sessionUserId;
+
+  const authHeader = req.headers.authorization || '';
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) {
+    return 'web-api-token';
+  }
+  if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
+    return 'gateway-api-token';
+  }
+  if (hasLocalWebSessionAuth(req)) {
+    return 'local-web-session';
+  }
+  return 'authenticated-admin-api';
+}
+
 function sendApiAdminWorkflowError(res: ServerResponse, error: unknown): void {
   sendJson(res, 400, {
     error: error instanceof Error ? error.message : String(error),
@@ -3344,7 +3361,7 @@ async function handleApiAdminWorkflowStart(
       workflowId,
       runId: normalizeOptionalString(body.runId),
       sessionId: `admin:workflow:${workflowId}`,
-      userId: 'admin',
+      userId: resolveApiAdminActor(req),
     });
     sendJson(res, 201, {
       run,
@@ -3366,7 +3383,7 @@ async function handleApiAdminWorkflowApprove(
     const run = await approveWorkflowRunStep({
       runId,
       stepId: normalizeOptionalString(body.stepId),
-      actor: 'admin',
+      actor: resolveApiAdminActor(req),
       sessionId: `admin:workflow:${runId}`,
     });
     sendJson(res, 200, {
@@ -3399,7 +3416,7 @@ async function handleApiAdminWorkflowReturn(
       stepId,
       notes,
       fromStepId: normalizeOptionalString(body.fromStepId),
-      actor: 'admin',
+      actor: resolveApiAdminActor(req),
       sessionId: `admin:workflow:${runId}`,
     });
     sendJson(res, 200, {

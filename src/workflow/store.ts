@@ -70,8 +70,15 @@ export interface WorkflowRunEvent {
   type: string;
   step_id?: string;
   message?: string;
+  owner_coworker_id?: string;
+  stakes?: StakesLevel;
+  threshold?: StakesLevel;
+  classifier?: string;
+  reasons?: string[];
+  actor?: string;
+  from_step_id?: string;
+  notes?: string;
   created_at: string;
-  [key: string]: unknown;
 }
 
 export interface WorkflowRunState {
@@ -314,16 +321,44 @@ function parseRunEvent(value: unknown): WorkflowRunEvent {
       created_at: new Date(0).toISOString(),
     };
   }
-  return {
-    ...value,
+  const event: WorkflowRunEvent = {
     type: String(value.type || 'workflow.event'),
-    ...(typeof value.step_id === 'string' ? { step_id: value.step_id } : {}),
-    ...(typeof value.message === 'string' ? { message: value.message } : {}),
     created_at:
       typeof value.created_at === 'string'
         ? value.created_at
         : new Date(0).toISOString(),
   };
+  if (typeof value.step_id === 'string') event.step_id = value.step_id;
+  if (typeof value.message === 'string') event.message = value.message;
+  if (typeof value.owner_coworker_id === 'string') {
+    event.owner_coworker_id = value.owner_coworker_id;
+  }
+  if (
+    value.stakes === 'low' ||
+    value.stakes === 'medium' ||
+    value.stakes === 'high'
+  ) {
+    event.stakes = value.stakes;
+  }
+  if (
+    value.threshold === 'low' ||
+    value.threshold === 'medium' ||
+    value.threshold === 'high'
+  ) {
+    event.threshold = value.threshold;
+  }
+  if (typeof value.classifier === 'string') event.classifier = value.classifier;
+  if (Array.isArray(value.reasons)) {
+    event.reasons = value.reasons
+      .map((entry) => String(entry || ''))
+      .filter(Boolean);
+  }
+  if (typeof value.actor === 'string') event.actor = value.actor;
+  if (typeof value.from_step_id === 'string') {
+    event.from_step_id = value.from_step_id;
+  }
+  if (typeof value.notes === 'string') event.notes = value.notes;
+  return event;
 }
 
 function serializeState(value: unknown): string {

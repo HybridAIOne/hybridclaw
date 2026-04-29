@@ -50,6 +50,7 @@ describe('workflow engine', () => {
 
   afterEach(() => {
     delete process.env.HYBRIDCLAW_DATA_DIR;
+    delete process.env.HYBRIDCLAW_WORKFLOW_APPROVAL_TTL_MS;
     fs.rmSync(runtimeHome, { recursive: true, force: true });
     vi.resetModules();
   });
@@ -286,14 +287,48 @@ transitions:
         )}\n`,
       },
     );
+    syncRuntimeAssetRevisionState(
+      'workflow',
+      workflowRunAssetPath('injected_event_run'),
+      { route: 'test', source: 'workflow-engine.test' },
+      {
+        exists: true,
+        content: `${JSON.stringify(
+          {
+            ...completed,
+            id: 'injected_event_run',
+            events: [
+              {
+                type: 'workflow.custom',
+                actor: 'operator',
+                injected: 'untrusted',
+                created_at: completed.created_at,
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+      },
+    );
 
     expect(() => getWorkflowRunState('bad_status_run')).toThrow(
       'workflow run status is invalid',
     );
+    const sanitizedRun = getWorkflowRunState('injected_event_run');
+    expect(sanitizedRun?.events[0]).toMatchObject({
+      type: 'workflow.custom',
+      actor: 'operator',
+    });
+    expect(Object.hasOwn(sanitizedRun?.events[0] || {}, 'injected')).toBe(
+      false,
+    );
     expect(listWorkflowDefinitions().map((definition) => definition.id)).toEqual(
       ['valid_definition', 'valid_run_definition'],
     );
-    expect(listWorkflowRunStates().map((run) => run.id)).toEqual(['valid_run']);
+    const runIds = listWorkflowRunStates().map((run) => run.id);
+    expect(runIds).toEqual(expect.arrayContaining(['valid_run']));
+    expect(runIds).not.toContain('bad_status_run');
   });
 
   test('service entrypoint registers pending approvals for escalated steps', async () => {
@@ -304,6 +339,7 @@ transitions:
     const { saveWorkflowDefinition } = await import('../src/workflow/store.js');
     const { startWorkflowRun } = await import('../src/workflow/service.js');
 
+    process.env.HYBRIDCLAW_WORKFLOW_APPROVAL_TTL_MS = '7200000';
     saveWorkflowDefinition({
       id: 'approval_service_test',
       name: 'Approval service test',
@@ -323,7 +359,16 @@ transitions:
       ],
       transitions: [{ from: 'brief', to: 'review' }],
     });
+    await expect(
+      startWorkflowRun({
+        workflowId: 'approval_service_test',
+        runId: 'run_missing_actor',
+        sessionId: 'session-workflow',
+        userId: '',
+      }),
+    ).rejects.toThrow('requires an explicit user id');
 
+    const beforeStart = Date.now();
     const run = await startWorkflowRun({
       workflowId: 'approval_service_test',
       runId: 'run_pending_approval',
@@ -333,7 +378,8 @@ transitions:
 
     expect(run.status).toBe('paused');
     expect(run.current_step_id).toBe('review');
-    expect(getPendingApproval('session-workflow')).toMatchObject({
+    const pending = getPendingApproval('session-workflow');
+    expect(pending).toMatchObject({
       approvalId: 'workflow:run_pending_approval:review',
       userId: 'operator',
       commandAction: {
@@ -345,6 +391,7 @@ transitions:
         ],
       },
     });
+    expect((pending?.expiresAt || 0) - beforeStart).toBeGreaterThan(7_100_000);
 
     await clearPendingApproval('session-workflow');
   });

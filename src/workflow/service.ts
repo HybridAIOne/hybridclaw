@@ -20,6 +20,8 @@ const WORKFLOW_PRESETS_DIR = path.resolve(
   'presets',
   'workflows',
 );
+const DEFAULT_WORKFLOW_APPROVAL_TTL_MS = 24 * 60 * 60_000;
+const WORKFLOW_APPROVAL_TTL_ENV = 'HYBRIDCLAW_WORKFLOW_APPROVAL_TTL_MS';
 
 export interface WorkflowRuntimeInitResult {
   loadedDefinitions: string[];
@@ -32,6 +34,26 @@ export interface WorkflowAdminSummary {
 
 function workflowApprovalId(run: WorkflowRunState): string {
   return `workflow:${run.id}:${run.current_step_id || 'step'}`;
+}
+
+function workflowApprovalTtlMs(): number {
+  const raw = String(process.env[WORKFLOW_APPROVAL_TTL_ENV] || '').trim();
+  if (!raw) return DEFAULT_WORKFLOW_APPROVAL_TTL_MS;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : DEFAULT_WORKFLOW_APPROVAL_TTL_MS;
+}
+
+function requireWorkflowUserId(
+  value: string | undefined,
+  field: string,
+): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    throw new Error(`Workflow ${field} requires an explicit user id`);
+  }
+  return normalized;
 }
 
 function workflowPendingApprovalPrompt(run: WorkflowRunState): string {
@@ -58,15 +80,16 @@ function workflowPendingApprovalPrompt(run: WorkflowRunState): string {
 async function rememberWorkflowApproval(params: {
   run: WorkflowRunState;
   sessionId?: string;
-  userId?: string;
+  userId: string;
 }): Promise<void> {
   if (params.run.status !== 'paused' || !params.run.current_step_id) return;
+  const userId = requireWorkflowUserId(params.userId, 'approval');
   await rememberPendingApproval({
     sessionId: params.sessionId || `workflow:${params.run.id}`,
     approvalId: workflowApprovalId(params.run),
     prompt: workflowPendingApprovalPrompt(params.run),
-    userId: params.userId || 'local-user',
-    expiresAt: Date.now() + 10 * 60_000,
+    userId,
+    expiresAt: Date.now() + workflowApprovalTtlMs(),
     commandAction: {
       approveArgs: [
         'workflow',
@@ -115,8 +138,9 @@ export async function startWorkflowRun(params: {
   workflowId: string;
   runId?: string;
   sessionId?: string;
-  userId?: string;
+  userId: string;
 }): Promise<WorkflowRunState> {
+  const userId = requireWorkflowUserId(params.userId, 'start');
   const workflow = getWorkflowDefinition(params.workflowId);
   if (!workflow) {
     throw new Error(`Unknown workflow definition: ${params.workflowId}`);
@@ -125,9 +149,9 @@ export async function startWorkflowRun(params: {
     workflow,
     runId: params.runId,
     sessionId: params.sessionId,
-    actor: params.userId,
+    actor: userId,
     meta: {
-      actor: params.userId,
+      actor: userId,
       route: 'workflow.start',
       source: params.workflowId,
     },
@@ -135,7 +159,7 @@ export async function startWorkflowRun(params: {
   await rememberWorkflowApproval({
     run,
     sessionId: params.sessionId,
-    userId: params.userId,
+    userId,
   });
   return run;
 }
