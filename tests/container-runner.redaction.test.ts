@@ -460,6 +460,127 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
   expect(stopCalls).toHaveLength(1);
 });
 
+test('ContainerExecutor claims a warm container for a later session', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const spawnedRuns: Array<{
+    args: string[];
+    proc: ReturnType<typeof makeFakeChildProcess>;
+  }> = [];
+  const spawn = vi.fn((command: string, args?: string[]) => {
+    const proc = makeFakeChildProcess();
+    if (command === 'docker' && Array.isArray(args) && args[0] === 'run') {
+      spawnedRuns.push({ args: [...args], proc });
+    }
+    return proc as never;
+  });
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+  const loggerInfo = vi.fn();
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: loggerInfo,
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-before-warm',
+    messages: [{ role: 'user', content: 'prime warm pool' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+  executor.stopSession('session-before-warm');
+
+  const initialWarmRun = spawnedRuns.find(({ args }) => {
+    const nameIndex = args.indexOf('--name');
+    const containerName =
+      nameIndex >= 0 && typeof args[nameIndex + 1] === 'string'
+        ? args[nameIndex + 1]
+        : '';
+    return containerName.startsWith('hybridclaw-warm-');
+  });
+  expect(initialWarmRun).toBeDefined();
+  expect(initialWarmRun?.proc.stdin.write).not.toHaveBeenCalled();
+
+  await executor.exec({
+    sessionId: 'session-claims-warm',
+    messages: [{ role: 'user', content: 'claim warm pool' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+
+  expect(loggerInfo).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: 'session-claims-warm',
+      agentId: 'default',
+      containerName: expect.stringContaining('warm-'),
+    }),
+    'Claimed warm container',
+  );
+  expect(initialWarmRun?.proc.stdin.write).toHaveBeenCalledTimes(1);
+});
+
 test('ContainerExecutor stages the container node_modules symlink before docker launch', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
