@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
@@ -86,6 +87,12 @@ const agentFilesRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/agents',
   component: AgentFilesPage,
+});
+
+const agentScoreboardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/agent-scoreboard',
+  component: AgentsPage,
 });
 
 const terminalRoute = createRoute({
@@ -190,6 +197,7 @@ const routeTree = rootRoute.addChildren([
     statisticsRoute,
     approvalsRoute,
     agentFilesRoute,
+    agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
     sessionsRoute,

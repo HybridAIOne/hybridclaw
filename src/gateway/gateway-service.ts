@@ -175,6 +175,7 @@ import {
   listStatsByChannel,
   listStructuredAuditEntries,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageBySession,
   listUsageDailyBreakdown,
@@ -208,8 +209,6 @@ import {
 } from '../policy/policy-store.js';
 import {
   discoverCodexModels,
-  getDiscoveredCodexModelContextWindow,
-  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
 } from '../providers/codex-discovery.js';
 import {
@@ -218,7 +217,6 @@ import {
 } from '../providers/factory.js';
 import {
   discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
 import {
@@ -226,32 +224,25 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import {
-  getDiscoveredHybridAIModelContextWindow,
-  getDiscoveredHybridAIModelMaxTokens,
-  getDiscoveredHybridAIModelNames,
-} from '../providers/hybridai-discovery.js';
+import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import {
   type HybridAIHealthResult,
   hybridAIProbe,
 } from '../providers/hybridai-health.js';
-import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  getLocalModelInfo,
-  resolveLocalModelContextWindow,
-} from '../providers/local-discovery.js';
+import { getLocalModelInfo } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelContextWindow,
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
   getAvailableModelList,
+  getModelCatalogMetadata,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
+  refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
@@ -263,8 +254,6 @@ import {
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelContextWindow,
-  getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -304,6 +293,11 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import {
+  formatAgentAssignmentHints,
+  getAgentScoreboard,
+  getObservedAgentSkillCount,
+} from '../skills/agent-scoreboard.js';
+import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
 } from '../skills/skills.js';
@@ -330,6 +324,7 @@ import type {
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
+import { formatDurationMs } from '../utils/text-format.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -341,6 +336,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
+import { buildContextUsageSnapshot } from './context-usage.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -379,6 +375,7 @@ import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import {
   readDelegateSessionStatusSnapshot,
   readSessionStatusSnapshot,
+  type SessionStatusSnapshot,
 } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
@@ -391,6 +388,7 @@ import {
   type GatewayAdminAgentMarkdownFileResponse,
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
+  type GatewayAdminAgentScoreboardResponse,
   type GatewayAdminAgentsResponse,
   type GatewayAdminApprovalAgent,
   type GatewayAdminApprovalsResponse,
@@ -461,10 +459,14 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...WORKSPACE_BOOTSTRAP_FILES,
+  'CV.md',
+] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
-  WORKSPACE_BOOTSTRAP_FILES,
+  ADMIN_AGENT_MARKDOWN_FILES,
 );
-type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -987,7 +989,7 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   const normalized = value.trim();
   if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${WORKSPACE_BOOTSTRAP_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
@@ -1076,7 +1078,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1119,7 +1121,7 @@ function mapGatewayAdminAgent(
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -1724,15 +1726,7 @@ function mapModelUsageRow(
 }
 
 function resolveKnownModelContextWindow(model: string): number | null {
-  return (
-    resolveLocalModelContextWindow(model) ??
-    getDiscoveredCodexModelContextWindow(model) ??
-    getDiscoveredHuggingFaceModelContextWindow(model) ??
-    getDiscoveredHybridAIModelContextWindow(model) ??
-    getDiscoveredMistralModelContextWindow(model) ??
-    getDiscoveredOpenRouterModelContextWindow(model) ??
-    resolveModelContextWindowFallback(model)
-  );
+  return getModelCatalogMetadata(model).contextWindow;
 }
 
 function resolveDisplayedModelName(model: string): string {
@@ -2296,6 +2290,20 @@ function formatUsd(value: number | null): string {
   if (value >= 1) return `$${value.toFixed(2)}`;
   if (value >= 0.01) return `$${value.toFixed(4)}`;
   return `$${value.toFixed(6)}`;
+}
+
+function resolveModelCostLabel(params: {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+}): string | null {
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
+  if (pricing.input == null && pricing.output == null) return null;
+  const inputCost =
+    pricing.input == null ? 0 : params.promptTokens * pricing.input;
+  const outputCost =
+    pricing.output == null ? 0 : params.completionTokens * pricing.output;
+  return formatUsd(inputCost + outputCost);
 }
 
 function resolveSessionAgentId(session: { agent_id: string }): string {
@@ -3161,6 +3169,7 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   resultText: string;
+  artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
   startedAt: number;
   replaceBuiltInMemory?: boolean;
@@ -3185,6 +3194,7 @@ export function recordSuccessfulTurn(opts: {
             role: 'assistant',
             content: opts.resultText,
             agentId: opts.agentId,
+            artifacts: opts.artifacts,
           }),
         }
       : memoryService.storeTurn({
@@ -3199,6 +3209,7 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             agentId: opts.agentId,
             content: opts.resultText,
+            artifacts: opts.artifacts,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -4246,9 +4257,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const usageByAgent = new Map(
-    listUsageByAgent({ window: 'all' }).map(
-      (row) => [row.agent_id, row] as const,
-    ),
+    listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),
   );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
@@ -4286,13 +4295,15 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
     sessionsByAgent.set(session.agentId, existing);
   }
   const agents = agentIds
-    .map((agentId) =>
-      mapLogicalAgentCard({
+    .map((agentId) => {
+      const usage = usageByAgent.get(agentId);
+      return mapLogicalAgentCard({
         agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
         sessions: sessionsByAgent.get(agentId) ?? [],
-        usage: usageByAgent.get(agentId),
-      }),
-    )
+        usage,
+        monthlySpendUsd: usage?.monthly_cost_usd,
+      });
+    })
     .sort((left, right) => {
       const rank = { active: 0, idle: 1, stopped: 2, unused: 3 } as const;
       const byStatus = rank[left.status] - rank[right.status];
@@ -4993,25 +5004,20 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
-        const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
         const info = getLocalModelInfo(modelId);
-        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
-        const openRouterMaxTokens =
-          getDiscoveredOpenRouterModelMaxTokens(modelId);
+        const metadata = getModelCatalogMetadata(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: resolveKnownModelContextWindow(modelId),
-          maxTokens:
-            info?.maxTokens ??
-            codexMaxTokens ??
-            hybridaiMaxTokens ??
-            openRouterMaxTokens ??
-            null,
-          isReasoning: info?.isReasoning ?? false,
+          contextWindow: metadata.contextWindow,
+          maxTokens: metadata.maxTokens,
+          pricingUsdPerToken: metadata.pricingUsdPerToken,
+          capabilities: metadata.capabilities,
+          metadataSources: metadata.sources,
+          isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
@@ -5322,6 +5328,16 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
       always: skill.always,
       tags: skill.metadata.hybridclaw.tags,
       relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    })),
+  };
+}
+
+export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
+  return {
+    observed_skill_count: getObservedAgentSkillCount(),
+    agents: getAgentScoreboard().map(({ cv_path, ...entry }) => ({
+      ...entry,
+      best_skills: entry.best_skills.map((score) => ({ ...score })),
     })),
   };
 }
@@ -6192,6 +6208,7 @@ export function getGatewayHistory(
     .filter((message) => message.content.trim().length > 0)
     .reverse();
   return {
+    sessionId: page.sessionId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
@@ -6356,6 +6373,7 @@ function buildSubagentUserPrompt(params: {
   taskPrompt: string;
 }): string {
   const { depth, mode, canDelegate, taskPrompt } = params;
+  const assignmentHints = formatAgentAssignmentHints(taskPrompt);
   return [
     '# Delegated Task',
     `Delegation mode: ${mode}.`,
@@ -6364,14 +6382,10 @@ function buildSubagentUserPrompt(params: {
       ? 'Delegation capability: You may delegate further only if absolutely necessary and still within depth/turn limits.'
       : 'Delegation capability: You are a leaf subagent. Do not delegate further work.',
     '',
+    ...(assignmentHints ? [assignmentHints, ''] : []),
     'Task handoff from parent:',
     taskPrompt,
   ].join('\n');
-}
-
-function formatDurationMs(ms: number): string {
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(1)}s`;
 }
 
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
@@ -7557,6 +7571,39 @@ export async function prepareSessionAutoReset(params: {
   return expiryEvaluation;
 }
 
+function buildGatewaySessionContextUsageSnapshot(
+  session: Session,
+  statusSnapshot?: SessionStatusSnapshot,
+): ReturnType<typeof buildContextUsageSnapshot> {
+  const runtime = resolveSessionRuntimeTarget(session);
+  const sessionModel = runtime.model;
+  const modelContextWindowTokens = resolveKnownModelContextWindow(sessionModel);
+  return buildContextUsageSnapshot({
+    sessionId: session.id,
+    model: sessionModel,
+    messageCount: session.message_count,
+    compactionCount: session.compaction_count,
+    modelContextWindowTokens,
+    ...(statusSnapshot ? { statusSnapshot } : {}),
+  });
+}
+
+export function getGatewaySessionContextUsage(sessionId: string): {
+  status: 'ok' | 'not_found';
+  sessionId: string;
+  snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+} {
+  const session = memoryService.getSessionById(sessionId);
+  if (!session) {
+    return { status: 'not_found', sessionId, snapshot: null };
+  }
+  return {
+    status: 'ok',
+    sessionId: session.id,
+    snapshot: buildGatewaySessionContextUsageSnapshot(session),
+  };
+}
+
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
@@ -8188,10 +8235,7 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' ||
-          sub === 'info' ||
-          sub === 'default' ||
-          sub === 'set';
+          sub === 'list' || sub === 'default' || sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -8211,6 +8255,9 @@ export async function handleGatewayCommand(
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
+        if (sub === 'info') {
+          await refreshModelCatalogMetadata(runtime.model);
+        }
         if (sub === 'list') {
           if (providerFilterArg && !providerFilter) {
             return badCommand(
@@ -8350,19 +8397,33 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
-          const currentModel = resolveRequestedCatalogModelName(
-            runtime.model,
-            availableModels,
-          );
-          const modelCatalog = availableModels.map((model) => ({
-            value: model,
-            label:
-              model === currentModel
-                ? `${formatModelForDisplay(model)} (current)`
-                : formatModelForDisplay(model),
-            isFree: isAvailableModelFree(model),
-            ...(isRecommendedModel(model) ? { recommended: true } : {}),
-          }));
+          const metadata = getModelCatalogMetadata(runtime.model);
+          const normalizedRuntimeModel = runtime.model.trim().toLowerCase();
+          const pricing = metadata.pricingUsdPerToken;
+          const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
+            ? 'Pricing: subscription included (0 EUR)'
+            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+              ? 'Pricing: local model (0 EUR)'
+              : pricing.input != null || pricing.output != null
+                ? `Pricing: ${
+                    pricing.input == null
+                      ? 'unknown'
+                      : formatUsd(pricing.input * 1_000_000)
+                  } input / ${
+                    pricing.output == null
+                      ? 'unknown'
+                      : formatUsd(pricing.output * 1_000_000)
+                  } output per 1M tokens`
+                : 'Pricing: dynamic pricing unavailable';
+          const capabilities =
+            [
+              metadata.capabilities.vision ? 'vision' : null,
+              metadata.capabilities.tools ? 'tools' : null,
+              metadata.capabilities.jsonMode ? 'JSON mode' : null,
+              metadata.capabilities.reasoning ? 'reasoning' : null,
+            ]
+              .filter((capability) => capability != null)
+              .join(', ') || 'unknown';
           return infoCommand(
             'Model Info',
             [
@@ -8370,14 +8431,13 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
-              '',
-              'Available now:',
-              modelCatalog.length > 0
-                ? modelCatalog.map((entry) => entry.label).join('\n')
-                : '(none)',
+              `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
+              `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
+              `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
+              `Capabilities: ${capabilities}`,
+              pricingLine,
+              `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
-            undefined,
-            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 
@@ -9380,6 +9440,49 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'context': {
+        const { snapshot } = getGatewaySessionContextUsage(session.id);
+        if (!snapshot) {
+          return badCommand(
+            'Context Usage',
+            'Session not found or has no context usage recorded yet.',
+          );
+        }
+        const usedLabel =
+          snapshot.contextUsedTokens != null
+            ? formatCompactNumber(snapshot.contextUsedTokens)
+            : 'n/a';
+        const budgetLabel =
+          snapshot.contextBudgetTokens != null
+            ? formatCompactNumber(snapshot.contextBudgetTokens)
+            : 'unknown';
+        const percentLabel =
+          snapshot.contextUsagePercent == null ||
+          !Number.isFinite(snapshot.contextUsagePercent)
+            ? 'n/a'
+            : snapshot.contextUsagePercent > 100
+              ? `${Math.round(snapshot.contextUsagePercent)}%`
+              : formatPercent(snapshot.contextUsagePercent);
+        const remainingLabel =
+          snapshot.contextRemainingTokens != null
+            ? formatCompactNumber(snapshot.contextRemainingTokens)
+            : 'n/a';
+        const lines = [
+          `🧠 Model: ${formatModelForDisplay(snapshot.model)}`,
+          `📚 Context: ${usedLabel}/${budgetLabel} tokens (${percentLabel})`,
+          `🪽 Headroom: ${remainingLabel} tokens until the window fills`,
+          `🧹 Compaction: triggers at ${formatCompactNumber(snapshot.compactionMessageThreshold)} msgs or ${formatCompactNumber(snapshot.compactionTokenBudget)} tokens, keeping ${snapshot.compactionKeepRecent} recent · ran ${snapshot.compactionCount}×`,
+          `💬 Messages in session: ${formatCompactNumber(snapshot.messageCount)}`,
+        ];
+        if (snapshot.contextBudgetTokens == null) {
+          lines.push(
+            '',
+            'Tip: context window for this model is unknown, so the ring shows usage without a budget. Set a known model with `/model set <name>` to see headroom.',
+          );
+        }
+        return infoCommand('Context Usage', lines.join('\n'));
+      }
+
       case 'compact': {
         try {
           const result = await memoryService.compactSession(session.id);
@@ -9560,12 +9663,17 @@ export async function handleGatewayCommand(
         if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
           await discoverMistralModels();
         }
+        await refreshModelCatalogMetadata(sessionModel);
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
           currentModel: sessionModel,
           modelContextWindowTokens,
         });
+        const contextSnapshot = buildGatewaySessionContextUsageSnapshot(
+          session,
+          metrics,
+        );
         const delegateModel = PROACTIVE_DELEGATION_MODEL.trim();
         const showDelegateSetup =
           delegateModel.length > 0 &&
@@ -9600,6 +9708,22 @@ export async function handleGatewayCommand(
         const localTokenLabel = ` · ${formatPercent(
           totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
         )} local`;
+        const mainCostLabel = resolveModelCostLabel({
+          model: sessionModel,
+          promptTokens: mainPromptTokens,
+          completionTokens: mainCompletionTokens,
+        });
+        const delegateCostLabel = showDelegateSetup
+          ? resolveModelCostLabel({
+              model: delegateModel,
+              promptTokens: delegatePromptTokens,
+              completionTokens: delegateCompletionTokens,
+            })
+          : null;
+        const costLabel =
+          mainCostLabel || delegateCostLabel
+            ? ` · Cost: ${mainCostLabel ?? 'n/a'}${showDelegateSetup ? ` (delegate: ${delegateCostLabel ?? 'n/a'})` : ''}`
+            : '';
         const performanceLabel =
           metrics.tokensPerSecond != null ||
           metrics.inputTokensPerSecond != null ||
@@ -9614,11 +9738,11 @@ export async function handleGatewayCommand(
           cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
         );
         const contextLabel =
-          metrics.contextUsedTokens != null &&
-          metrics.contextBudgetTokens != null
-            ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
-            : metrics.contextUsedTokens != null
-              ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
+          contextSnapshot.contextUsedTokens != null &&
+          contextSnapshot.contextBudgetTokens != null
+            ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/${formatCompactNumber(contextSnapshot.contextBudgetTokens)} (${formatPercent(contextSnapshot.contextUsagePercent)})`
+            : contextSnapshot.contextUsedTokens != null
+              ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
@@ -9630,12 +9754,12 @@ export async function handleGatewayCommand(
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${costLabel}`,
           ...(performanceLabel ? [performanceLabel] : []),
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
             : '🗄️ Cache: n/a (provider did not report cache stats)',
-          `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
+          `📚 Context: ${contextLabel} · 🧹 Compactions: ${contextSnapshot.compactionCount}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
           ...(activeSandboxSessionIds.length > 0
             ? [

@@ -4,6 +4,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
@@ -788,6 +789,15 @@ export function fetchAdaptiveSkillHealth(
   return requestJson<AdminAdaptiveSkillHealthResponse>('/api/skills/health', {
     token,
   });
+}
+
+export function fetchAgentScoreboard(
+  token: string,
+): Promise<AdminAgentScoreboardResponse> {
+  return requestJson<AdminAgentScoreboardResponse>(
+    '/api/admin/agent-scoreboard',
+    { token },
+  );
 }
 
 export function fetchAdaptiveSkillAmendments(

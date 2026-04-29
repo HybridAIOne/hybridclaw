@@ -7,7 +7,11 @@ import type {
   AgentCv,
   AgentModelConfig,
 } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID, normalizeAgentCv } from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+} from '../agents/agent-types.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
@@ -15,6 +19,7 @@ import {
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import {
   buildRecentChatSearchMatchQuery,
   MAX_RECENT_CHAT_SESSION_LIMIT,
@@ -43,6 +48,7 @@ import {
 } from '../session/session-reset.js';
 import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
+  AgentSkillScore,
   SkillAmendment,
   SkillAmendmentStatus,
   SkillErrorCategory,
@@ -58,6 +64,7 @@ import type {
   AuditEntry,
   StructuredAuditEntry,
 } from '../types/audit.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import {
   type KnowledgeEntity,
   KnowledgeEntityType,
@@ -86,6 +93,7 @@ import type {
 } from '../types/session.js';
 import type {
   UsageAgentAggregate,
+  UsageAgentRollup,
   UsageDailyAggregate,
   UsageModelAggregate,
   UsageSessionAggregate,
@@ -110,7 +118,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 22;
+export const DATABASE_SCHEMA_VERSION = 25;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -155,6 +163,7 @@ type AgentRow = {
   owner: string | null;
   role: string | null;
   cv: string | null;
+  escalation_target: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -169,6 +178,7 @@ interface ConversationHistoryPageRow {
   role: string | null;
   agent_id: string | null;
   content: string | null;
+  artifacts_json: string | null;
   created_at: string | null;
 }
 
@@ -264,6 +274,15 @@ function tableExists(database: Database.Database, table: string): boolean {
     database,
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
     table,
+  );
+  return Boolean(row?.name);
+}
+
+function indexExists(database: Database.Database, index: string): boolean {
+  const row = queryOne<{ name: string }, [string]>(
+    database,
+    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+    index,
   );
   return Boolean(row?.name);
 }
@@ -408,6 +427,111 @@ function skillObservationsNeedConstraintMigration(
   );
 }
 
+function skillObservationsNeedAgentMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'skill_observations') &&
+    !columnExists(database, 'skill_observations', 'agent_id')
+  );
+}
+
+function agentSkillScoresNeedMigration(database: Database.Database): boolean {
+  return !tableExists(database, 'agent_skill_scores');
+}
+
+function adminStatisticsIndexesNeedMigration(
+  database: Database.Database,
+): boolean {
+  const messagesHasCreatedAt =
+    tableExists(database, 'messages') &&
+    columnExists(database, 'messages', 'created_at');
+  if (
+    messagesHasCreatedAt &&
+    !indexExists(database, 'idx_messages_created_at')
+  ) {
+    return true;
+  }
+  if (
+    messagesHasCreatedAt &&
+    columnExists(database, 'messages', 'session_id') &&
+    !indexExists(database, 'idx_messages_session_created_at')
+  ) {
+    return true;
+  }
+
+  const sessionsExists = tableExists(database, 'sessions');
+  if (
+    sessionsExists &&
+    columnExists(database, 'sessions', 'created_at') &&
+    !indexExists(database, 'idx_sessions_created_at')
+  ) {
+    return true;
+  }
+  if (
+    sessionsExists &&
+    columnExists(database, 'sessions', 'last_active') &&
+    !indexExists(database, 'idx_sessions_last_active')
+  ) {
+    return true;
+  }
+  if (
+    sessionsExists &&
+    columnExists(database, 'sessions', 'channel_id') &&
+    columnExists(database, 'sessions', 'last_active') &&
+    !indexExists(database, 'idx_sessions_channel_last_active')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function messageArtifactsNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'messages') &&
+    !columnExists(database, 'messages', 'artifacts_json')
+  );
+}
+
+function backfillAgentSkillScoreQuality(database: Database.Database): void {
+  if (!tableExists(database, 'skill_observations')) return;
+  if (!tableExists(database, 'agent_skill_scores')) return;
+
+  const aggregates = queryAll<AgentSkillScoreAggregate>(
+    database,
+    `SELECT
+       agent_id,
+       skill_name AS skill_id,
+       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+       MAX(created_at) AS last_run_at,
+       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+       COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
+       COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed
+     FROM skill_observations
+     WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+     GROUP BY agent_id, skill_name`,
+  );
+  const updateScore = database.prepare(
+    `UPDATE agent_skill_scores
+     SET quality_score = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE agent_id = ? AND skill_id = ?`,
+  );
+  const updateScores = database.transaction(
+    (rows: AgentSkillScoreAggregate[]) => {
+      for (const row of rows) {
+        const score = mapAgentSkillScoreRow(row);
+        updateScore.run(score.quality_score, score.agent_id, score.skill_id);
+      }
+    },
+  );
+  updateScores(aggregates);
+}
+
 function addColumnIfMissing(params: {
   database: Database.Database;
   table: string;
@@ -483,6 +607,7 @@ function migrateV1(database: Database.Database): void {
       role TEXT NOT NULL,
       agent_id TEXT,
       content TEXT NOT NULL,
+      artifacts_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -1765,7 +1890,7 @@ function migrateV21(
   recordMigration(
     database,
     21,
-    'Persist agent owner, role, and CV profile for stable coworker identity',
+    'Persist agent owner, role, and CV profile for stable agent identity',
   );
 }
 
@@ -1782,10 +1907,14 @@ function migrateV22(database: Database.Database): void {
   if (messagesHasCreatedAt) {
     database.exec(
       `CREATE INDEX IF NOT EXISTS idx_messages_created_at
-         ON messages(created_at);
-       CREATE INDEX IF NOT EXISTS idx_messages_session_created_at
-         ON messages(session_id, created_at);`,
+         ON messages(created_at);`,
     );
+    if (columnExists(database, 'messages', 'session_id')) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_messages_session_created_at
+           ON messages(session_id, created_at);`,
+      );
+    }
   }
   if (tableExists(database, 'sessions')) {
     if (columnExists(database, 'sessions', 'created_at')) {
@@ -1811,6 +1940,122 @@ function migrateV22(database: Database.Database): void {
     database,
     22,
     'Index timestamp columns for admin statistics aggregations',
+  );
+}
+
+function migrateV23(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'skill_observations',
+    column: 'agent_id',
+    ddl: 'agent_id TEXT',
+    quiet,
+  });
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_skill_scores (
+      agent_id TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      partial_count INTEGER NOT NULL DEFAULT 0,
+      avg_duration_ms REAL NOT NULL DEFAULT 0,
+      last_run_at TEXT,
+      quality_score REAL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (agent_id, skill_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_skill_scores_skill_quality
+      ON agent_skill_scores(skill_id, quality_score DESC, last_run_at DESC);
+  `);
+
+  if (!tableExists(database, 'skill_observations')) {
+    recordMigration(
+      database,
+      23,
+      'Persist agent identity and per-skill score aggregates',
+    );
+    return;
+  }
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_agent_skill_created
+      ON skill_observations(agent_id, skill_name, created_at);
+  `);
+  database.exec(`
+    INSERT INTO agent_skill_scores (
+      agent_id,
+      skill_id,
+      success_count,
+      failure_count,
+      partial_count,
+      avg_duration_ms,
+      last_run_at,
+      quality_score,
+      updated_at
+    )
+    SELECT
+      agent_id,
+      skill_name,
+      SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END),
+      COALESCE(AVG(duration_ms), 0),
+      MAX(created_at),
+      0,
+      strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM skill_observations
+    WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+    GROUP BY agent_id, skill_name
+    ON CONFLICT(agent_id, skill_id) DO UPDATE SET
+      success_count = excluded.success_count,
+      failure_count = excluded.failure_count,
+      partial_count = excluded.partial_count,
+      avg_duration_ms = excluded.avg_duration_ms,
+      last_run_at = excluded.last_run_at,
+      quality_score = excluded.quality_score,
+      updated_at = excluded.updated_at;
+  `);
+  backfillAgentSkillScoreQuality(database);
+  recordMigration(
+    database,
+    23,
+    'Persist agent identity and per-skill score aggregates',
+  );
+}
+
+function migrateV24(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'artifacts_json',
+    ddl: 'artifacts_json TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 24, 'Persist assistant message artifacts');
+}
+
+function migrateV25(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'escalation_target',
+    ddl: 'escalation_target TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    25,
+    'Persist per-agent escalation targets for approval routing',
   );
 }
 
@@ -1856,7 +2101,20 @@ function runMigrations(
   if (currentVersion < 19) migrateV19(database);
   if (currentVersion < 20) migrateV20(database, opts);
   if (currentVersion < 21) migrateV21(database, opts);
-  if (currentVersion < 22) migrateV22(database);
+  if (currentVersion < 22 || adminStatisticsIndexesNeedMigration(database)) {
+    migrateV22(database);
+  }
+  if (
+    currentVersion < 23 ||
+    skillObservationsNeedAgentMigration(database) ||
+    agentSkillScoresNeedMigration(database)
+  ) {
+    migrateV23(database, opts);
+  }
+  if (currentVersion < 24 || messageArtifactsNeedMigration(database)) {
+    migrateV24(database, opts);
+  }
+  if (currentVersion < 25) migrateV25(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1995,6 +2253,29 @@ function parseAgentCv(rawCv: string | null): AgentCv | undefined {
   }
 }
 
+function serializeAgentEscalationTarget(
+  target: AgentConfig['escalationTarget'],
+): string | null {
+  return target ? JSON.stringify(target) : null;
+}
+
+function parseAgentEscalationTarget(
+  rawTarget: string | null,
+): AgentConfig['escalationTarget'] {
+  const normalized = rawTarget?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentEscalationTarget(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { targetLength: normalized.length },
+      'Failed to parse persisted agent escalation target',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -2006,6 +2287,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const owner = row.owner?.trim() || '';
   const role = row.role?.trim() || '';
   const cv = parseAgentCv(row.cv);
+  const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -2021,11 +2303,12 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, created_at, updated_at';
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, escalation_target, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2066,6 +2349,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedOwner = agent.owner?.trim() || null;
   const normalizedRole = agent.role?.trim() || null;
   const normalizedCv = serializeAgentCv(agent.cv);
+  const normalizedEscalationTarget = serializeAgentEscalationTarget(
+    agent.escalationTarget,
+  );
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -2082,9 +2368,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        owner,
        role,
        cv,
+       escalation_target,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -2097,6 +2384,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        owner = excluded.owner,
        role = excluded.role,
        cv = excluded.cv,
+       escalation_target = excluded.escalation_target,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -2111,6 +2399,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedOwner,
     normalizedRole,
     normalizedCv,
+    normalizedEscalationTarget,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {
@@ -2752,6 +3041,18 @@ export function getUsageTotals(params?: {
   };
 }
 
+export function monthlySpendUsd(agentId: string): number {
+  agentId = agentId.trim();
+  if (!agentId) {
+    throw new Error('Agent id is required.');
+  }
+  return getUsageTotals({ agentId, window: 'monthly' }).total_cost_usd;
+}
+
+export function monthlySpendEur(agentId: string): number {
+  return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
+}
+
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
   return getSessionUsageTotalsSince(sessionId, null);
 }
@@ -3114,6 +3415,40 @@ export function listUsageByAgent(params?: {
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    call_count: normalizeUsageNumber(row.call_count),
+    total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+  }));
+}
+
+export function listUsageByAgentRollups(): UsageAgentRollup[] {
+  const rows = queryAll<UsageAgentRollup>(
+    db,
+    `SELECT
+       agent_id,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COALESCE(SUM(
+         CASE
+           WHEN timestamp >= datetime('now', 'start of month') THEN cost_usd
+           ELSE 0
+         END
+       ), 0.0) AS monthly_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     GROUP BY agent_id
+     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+  );
+
+  return rows.map((row) => ({
+    agent_id: row.agent_id,
+    total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
+    total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_tokens: normalizeUsageNumber(row.total_tokens),
+    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    monthly_cost_usd: normalizeUsageCost(row.monthly_cost_usd),
     call_count: normalizeUsageNumber(row.call_count),
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   }));
@@ -4315,8 +4650,8 @@ export function forkSessionBranch(
     ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
-      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, created_at)
-       SELECT ?, user_id, username, role, agent_id, content, created_at
+      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, created_at)
+       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, created_at
        FROM messages
        WHERE session_id = ?
          AND id < ?
@@ -4561,10 +4896,12 @@ export interface RecentUserSessionSummary {
   searchSnippet?: string | null;
 }
 
-type RecentUserSessionRow = Pick<
-  Session,
-  'id' | 'last_active' | 'message_count'
->;
+interface RecentUserSessionRow {
+  id: string;
+  last_active: string;
+  last_message_at: string | null;
+  message_count: number;
+}
 
 interface RecentSessionBoundaryRow {
   session_id: string;
@@ -4680,6 +5017,11 @@ function getRecentSessionContentMatches(
   );
 }
 
+function normalizeRecentSessionTimestamp(raw: string): string {
+  const timestamp = parseTimestamp(raw);
+  return timestamp > 0 ? new Date(timestamp).toISOString() : raw;
+}
+
 function buildRecentSessionSummaries(params: {
   rows: RecentUserSessionRow[];
   boundaryUserId: string | null;
@@ -4687,8 +5029,12 @@ function buildRecentSessionSummaries(params: {
   limit: number;
 }): RecentUserSessionSummary[] {
   const sortedRows = [...params.rows].sort((left, right) => {
-    const rightTimestamp = parseTimestamp(right.last_active);
-    const leftTimestamp = parseTimestamp(left.last_active);
+    const rightTimestamp = parseTimestamp(
+      right.last_message_at || right.last_active,
+    );
+    const leftTimestamp = parseTimestamp(
+      left.last_message_at || left.last_active,
+    );
     if (rightTimestamp !== leftTimestamp) {
       return rightTimestamp - leftTimestamp;
     }
@@ -4740,7 +5086,9 @@ function buildRecentSessionSummaries(params: {
 
     return {
       sessionId: row.id,
-      lastActive: row.last_active,
+      lastActive: normalizeRecentSessionTimestamp(
+        row.last_message_at || row.last_active,
+      ),
       messageCount: normalizeUsageNumber(row.message_count),
       title,
       ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
@@ -4777,22 +5125,40 @@ export function getRecentSessionsForUser(params: {
   const rows = channelId
     ? queryAll<RecentUserSessionRow, [string, string]>(
         db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
            FROM sessions s
            INNER JOIN messages m
              ON m.session_id = s.id
            WHERE m.user_id = ?
-             AND s.channel_id = ?`,
+             AND s.channel_id = ?
+           GROUP BY s.id`,
         userId,
         channelId,
       )
     : queryAll<RecentUserSessionRow, [string]>(
         db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
            FROM sessions s
            INNER JOIN messages m
              ON m.session_id = s.id
-           WHERE m.user_id = ?`,
+           WHERE m.user_id = ?
+           GROUP BY s.id`,
         userId,
       );
 
@@ -4819,15 +5185,17 @@ export function getRecentSessionsForChannel(params: {
 
   const rows = queryAll<RecentUserSessionRow, [string, number]>(
     db,
-    `SELECT s.id, s.last_active, s.message_count
+    `SELECT
+       s.id,
+       s.last_active,
+       s.message_count,
+       MAX(m.created_at) AS last_message_at
        FROM sessions s
+       INNER JOIN messages m
+          ON m.session_id = s.id
       WHERE s.channel_id = ?
-        AND EXISTS (
-          SELECT 1
-            FROM messages m
-           WHERE m.session_id = s.id
-        )
-      ORDER BY s.last_active DESC
+      GROUP BY s.id
+      ORDER BY last_message_at DESC
       LIMIT ?`,
     channelId,
     sqlLimit,
@@ -4950,6 +5318,43 @@ export function deleteSessionData(sessionId: string): {
   return transaction(resolvedSessionId);
 }
 
+function normalizeMessageArtifacts(
+  artifacts?: ArtifactMetadata[] | null,
+): ArtifactMetadata[] {
+  if (!Array.isArray(artifacts)) return [];
+  return artifacts
+    .map((artifact) => ({
+      path: String(artifact?.path || '').trim(),
+      filename: String(artifact?.filename || '').trim(),
+      mimeType: String(artifact?.mimeType || '').trim(),
+    }))
+    .filter(
+      (artifact) =>
+        artifact.path.length > 0 &&
+        artifact.filename.length > 0 &&
+        artifact.mimeType.length > 0,
+    );
+}
+
+function serializeMessageArtifacts(
+  artifacts?: ArtifactMetadata[] | null,
+): string | null {
+  const normalized = normalizeMessageArtifacts(artifacts);
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
+function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return normalizeMessageArtifacts(
+      Array.isArray(parsed) ? (parsed as ArtifactMetadata[]) : null,
+    );
+  } catch {
+    return [];
+  }
+}
+
 export function storeMessage(
   sessionId: string,
   userId: string,
@@ -4957,14 +5362,24 @@ export function storeMessage(
   role: string,
   content: string,
   agentId?: string | null,
+  artifacts?: ArtifactMetadata[] | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   const normalizedAgentId = agentId?.trim() || null;
+  const artifactsJson = serializeMessageArtifacts(artifacts);
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(resolvedSessionId, userId, username, role, normalizedAgentId, content);
+    .run(
+      resolvedSessionId,
+      userId,
+      username,
+      role,
+      normalizedAgentId,
+      content,
+      artifactsJson,
+    );
 
   db.prepare(
     "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
@@ -5112,6 +5527,7 @@ export function getConversationHistoryPage(
          m.role,
          m.agent_id,
          m.content,
+         m.artifacts_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -5132,6 +5548,7 @@ export function getConversationHistoryPage(
 
   if (rows.length === 0) {
     return {
+      sessionId: resolvedSessionId,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -5159,11 +5576,13 @@ export function getConversationHistoryPage(
       role: row.role,
       agent_id: row.agent_id,
       content: row.content,
+      artifacts: parseMessageArtifacts(row.artifacts_json),
       created_at: row.created_at,
     });
   }
 
   return {
+    sessionId: resolvedSessionId,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,
@@ -6496,6 +6915,7 @@ function mapSkillObservationRow(row: SkillObservationRow): SkillObservation {
   return {
     id: Math.floor(row.id),
     skill_name: row.skill_name,
+    agent_id: row.agent_id,
     session_id: row.session_id,
     run_id: row.run_id,
     outcome: normalizeSkillOutcome(row.outcome),
@@ -6605,6 +7025,7 @@ export function recordSkillObservation(input: {
   skillName: string;
   sessionId: string;
   runId: string;
+  agentId?: string | null;
   outcome: SkillExecutionOutcome;
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
@@ -6616,6 +7037,7 @@ export function recordSkillObservation(input: {
     .prepare(
       `INSERT INTO skill_observations (
          skill_name,
+         agent_id,
          session_id,
          run_id,
          outcome,
@@ -6624,10 +7046,11 @@ export function recordSkillObservation(input: {
          tool_calls_attempted,
          tool_calls_failed,
          duration_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.skillName.trim(),
+      input.agentId?.trim() || null,
       input.sessionId.trim(),
       input.runId.trim(),
       input.outcome,
@@ -6651,6 +7074,7 @@ export function recordSkillObservation(input: {
 
 export function getSkillObservations(params?: {
   skillName?: string;
+  agentId?: string;
   sessionId?: string;
   runId?: string;
   createdAfter?: string | null;
@@ -6660,6 +7084,7 @@ export function getSkillObservations(params?: {
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
   const sessionId = params?.sessionId?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const runId = params?.runId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
@@ -6669,6 +7094,10 @@ export function getSkillObservations(params?: {
   if (sessionId) {
     clauses.push('session_id = ?');
     args.push(sessionId);
+  }
+  if (agentId) {
+    clauses.push('agent_id = ?');
+    args.push(agentId);
   }
   if (runId) {
     clauses.push('run_id = ?');
@@ -6731,12 +7160,14 @@ export function pruneSkillObservations(params: {
 
 export function getSkillObservationSummary(params?: {
   skillName?: string;
+  agentId?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
   ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
     clauses.push('skill_name = ?');
@@ -6745,6 +7176,10 @@ export function getSkillObservationSummary(params?: {
   if (createdAfter) {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
+  }
+  if (agentId) {
+    clauses.push('agent_id = ?');
+    args.push(agentId);
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -6798,6 +7233,327 @@ export function getSkillObservationSummary(params?: {
     summaryRows,
     clusterRows,
   });
+}
+
+interface AgentSkillScoreAggregate {
+  agent_id: string;
+  skill_id: string;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  avg_duration_ms: number;
+  last_run_at: string | null;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+}
+
+const AGENT_SKILL_SUCCESS_POINTS = 100;
+const AGENT_SKILL_PARTIAL_POINTS = 75;
+const AGENT_SKILL_FAILURE_POINTS = 10;
+const AGENT_SKILL_FEEDBACK_POINT_STEP = 5;
+const AGENT_SKILL_MAX_FEEDBACK_POINTS = 15;
+const AGENT_SKILL_MAX_SCORE = 100;
+const AGENT_SKILL_RELIABILITY_ERROR_WEIGHT = 70;
+const AGENT_SKILL_RELIABILITY_RETRY_WEIGHT = 10;
+const AGENT_SKILL_MAX_RETRY_PENALTY = 30;
+const AGENT_SKILL_TIMING_BASELINE_MS = 30_000;
+const AGENT_SKILL_TIMING_PENALTY_STEP = 20;
+const AGENT_SKILL_QUALITY_WEIGHT = 0.6;
+const AGENT_SKILL_RELIABILITY_WEIGHT = 0.25;
+const AGENT_SKILL_TIMING_WEIGHT = 0.15;
+
+function clampAgentSkillScore(value: number): number {
+  return Math.max(0, Math.min(AGENT_SKILL_MAX_SCORE, Math.round(value)));
+}
+
+function scoreAgentSkillQuality(row: {
+  total_executions: number;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+}): number {
+  const resultPoints =
+    row.total_executions > 0
+      ? (row.success_count * AGENT_SKILL_SUCCESS_POINTS +
+          row.partial_count * AGENT_SKILL_PARTIAL_POINTS +
+          row.failure_count * AGENT_SKILL_FAILURE_POINTS) /
+        row.total_executions
+      : 0;
+  const feedbackBalance =
+    row.positive_feedback_count - row.negative_feedback_count;
+  const feedbackPoints = Math.max(
+    -AGENT_SKILL_MAX_FEEDBACK_POINTS,
+    Math.min(
+      AGENT_SKILL_MAX_FEEDBACK_POINTS,
+      feedbackBalance * AGENT_SKILL_FEEDBACK_POINT_STEP,
+    ),
+  );
+  return clampAgentSkillScore(resultPoints + feedbackPoints);
+}
+
+function scoreAgentSkillReliability(row: {
+  total_executions: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+}): number {
+  const failureRate =
+    row.tool_calls_attempted > 0
+      ? row.tool_calls_failed / row.tool_calls_attempted
+      : 0;
+  const avgToolCalls =
+    row.total_executions > 0
+      ? row.tool_calls_attempted / row.total_executions
+      : 0;
+  const retryPenalty = Math.min(
+    AGENT_SKILL_MAX_RETRY_PENALTY,
+    Math.max(0, avgToolCalls - 1) * AGENT_SKILL_RELIABILITY_RETRY_WEIGHT,
+  );
+  return clampAgentSkillScore(
+    AGENT_SKILL_MAX_SCORE -
+      failureRate * AGENT_SKILL_RELIABILITY_ERROR_WEIGHT -
+      retryPenalty,
+  );
+}
+
+function scoreAgentSkillTiming(avgDurationMs: number): number {
+  if (avgDurationMs <= 0) return AGENT_SKILL_MAX_SCORE;
+  const penalty =
+    Math.log2(avgDurationMs / AGENT_SKILL_TIMING_BASELINE_MS + 1) *
+    AGENT_SKILL_TIMING_PENALTY_STEP;
+  return clampAgentSkillScore(AGENT_SKILL_MAX_SCORE - penalty);
+}
+
+function scoreAgentSkillOverall(row: {
+  quality_score: number;
+  reliability_score: number;
+  timing_score: number;
+}): number {
+  return clampAgentSkillScore(
+    row.quality_score * AGENT_SKILL_QUALITY_WEIGHT +
+      row.reliability_score * AGENT_SKILL_RELIABILITY_WEIGHT +
+      row.timing_score * AGENT_SKILL_TIMING_WEIGHT,
+  );
+}
+
+function mapAgentSkillScoreRow(row: AgentSkillScoreAggregate): AgentSkillScore {
+  const successCount = Math.max(0, Math.floor(row.success_count || 0));
+  const failureCount = Math.max(0, Math.floor(row.failure_count || 0));
+  const partialCount = Math.max(0, Math.floor(row.partial_count || 0));
+  const totalExecutions = successCount + failureCount + partialCount;
+  const toolCallsAttempted = Math.max(
+    0,
+    Math.floor(row.tool_calls_attempted || 0),
+  );
+  const toolCallsFailed = Math.max(0, Math.floor(row.tool_calls_failed || 0));
+  const normalized = {
+    agent_id: row.agent_id,
+    skill_id: row.skill_id,
+    skill_name: row.skill_id,
+    total_executions: totalExecutions,
+    success_count: successCount,
+    failure_count: failureCount,
+    partial_count: partialCount,
+    success_rate: totalExecutions > 0 ? successCount / totalExecutions : 0,
+    avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
+    tool_breakage_rate:
+      toolCallsAttempted > 0 ? toolCallsFailed / toolCallsAttempted : 0,
+    positive_feedback_count: Math.max(
+      0,
+      Math.floor(row.positive_feedback_count || 0),
+    ),
+    negative_feedback_count: Math.max(
+      0,
+      Math.floor(row.negative_feedback_count || 0),
+    ),
+    last_run_at: row.last_run_at,
+    last_observed_at: row.last_run_at,
+  };
+  const qualityScore = scoreAgentSkillQuality({
+    total_executions: normalized.total_executions,
+    success_count: normalized.success_count,
+    failure_count: normalized.failure_count,
+    partial_count: normalized.partial_count,
+    positive_feedback_count: normalized.positive_feedback_count,
+    negative_feedback_count: normalized.negative_feedback_count,
+  });
+  const reliabilityScore = scoreAgentSkillReliability({
+    total_executions: normalized.total_executions,
+    tool_calls_attempted: toolCallsAttempted,
+    tool_calls_failed: toolCallsFailed,
+  });
+  const timingScore = scoreAgentSkillTiming(normalized.avg_duration_ms);
+  const score = scoreAgentSkillOverall({
+    quality_score: qualityScore,
+    reliability_score: reliabilityScore,
+    timing_score: timingScore,
+  });
+  return {
+    ...normalized,
+    quality_score: qualityScore,
+    reliability_score: reliabilityScore,
+    timing_score: timingScore,
+    score,
+  };
+}
+
+export function recomputeAgentSkillScore(input: {
+  agentId: string;
+  skillId: string;
+}): AgentSkillScore | null {
+  ensureDatabaseReady();
+  const agentId = input.agentId.trim();
+  const skillId = input.skillId.trim();
+  if (!agentId || !skillId) return null;
+
+  const recompute = db.transaction((): AgentSkillScore | null => {
+    const aggregate = queryOne<AgentSkillScoreAggregate, [string, string]>(
+      db,
+      `SELECT
+         agent_id,
+         skill_name AS skill_id,
+         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+         SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+         COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+         MAX(created_at) AS last_run_at,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         SUM(tool_calls_attempted) AS tool_calls_attempted,
+         SUM(tool_calls_failed) AS tool_calls_failed
+       FROM skill_observations
+       WHERE agent_id = ? AND skill_name = ?
+       GROUP BY agent_id, skill_name`,
+      agentId,
+      skillId,
+    );
+
+    if (!aggregate) {
+      db.prepare(
+        `DELETE FROM agent_skill_scores
+         WHERE agent_id = ? AND skill_id = ?`,
+      ).run(agentId, skillId);
+      return null;
+    }
+
+    const score = mapAgentSkillScoreRow(aggregate);
+    db.prepare(
+      `INSERT INTO agent_skill_scores (
+         agent_id,
+         skill_id,
+         success_count,
+         failure_count,
+         partial_count,
+         avg_duration_ms,
+         last_run_at,
+         quality_score,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+       ON CONFLICT(agent_id, skill_id) DO UPDATE SET
+         success_count = excluded.success_count,
+         failure_count = excluded.failure_count,
+         partial_count = excluded.partial_count,
+         avg_duration_ms = excluded.avg_duration_ms,
+         last_run_at = excluded.last_run_at,
+         quality_score = excluded.quality_score,
+         updated_at = excluded.updated_at`,
+    ).run(
+      score.agent_id,
+      score.skill_id,
+      score.success_count,
+      score.failure_count,
+      score.partial_count,
+      score.avg_duration_ms,
+      score.last_run_at,
+      score.quality_score,
+    );
+    return score;
+  });
+
+  return recompute();
+}
+
+export function getAgentSkillScores(params?: {
+  agentId?: string;
+  skillName?: string;
+  skillNames?: string[];
+  createdAfter?: string | null;
+  limit?: number;
+}): AgentSkillScore[] {
+  ensureDatabaseReady();
+  const clauses = ['score.agent_id IS NOT NULL', "TRIM(score.agent_id) != ''"];
+  const args: Array<string | number> = [];
+  const agentId = params?.agentId?.trim() || '';
+  const skillName = params?.skillName?.trim() || '';
+  const skillNames = [
+    ...new Set(
+      (params?.skillNames || []).map((value) => value.trim()).filter(Boolean),
+    ),
+  ].sort();
+  const createdAfter = params?.createdAfter?.trim() || '';
+  if (agentId) {
+    clauses.push('score.agent_id = ?');
+    args.push(agentId);
+  }
+  if (skillName) {
+    clauses.push('score.skill_id = ?');
+    args.push(skillName);
+  } else if (skillNames.length > 0) {
+    clauses.push(`score.skill_id IN (${skillNames.map(() => '?').join(', ')})`);
+    args.push(...skillNames);
+  }
+  if (createdAfter) {
+    clauses.push('score.last_run_at >= ?');
+    args.push(createdAfter);
+  }
+  const limit =
+    params?.limit == null ? null : Math.max(1, Math.min(params.limit, 2_000));
+  const rows = queryAll<AgentSkillScoreAggregate, Array<string | number>>(
+    db,
+    `SELECT
+       score.agent_id,
+       score.skill_id,
+       score.success_count,
+       score.failure_count,
+       score.partial_count,
+       score.avg_duration_ms,
+       score.last_run_at,
+       COALESCE(feedback.positive_feedback_count, 0) AS positive_feedback_count,
+       COALESCE(feedback.negative_feedback_count, 0) AS negative_feedback_count,
+       COALESCE(feedback.tool_calls_attempted, 0) AS tool_calls_attempted,
+       COALESCE(feedback.tool_calls_failed, 0) AS tool_calls_failed
+     FROM agent_skill_scores score
+     LEFT JOIN (
+       SELECT
+         agent_id,
+         skill_name,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         SUM(tool_calls_attempted) AS tool_calls_attempted,
+         SUM(tool_calls_failed) AS tool_calls_failed
+       FROM skill_observations
+       GROUP BY agent_id, skill_name
+     ) feedback
+       ON feedback.agent_id = score.agent_id
+      AND feedback.skill_name = score.skill_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY score.last_run_at DESC, score.agent_id ASC, score.skill_id ASC`,
+    ...args,
+  );
+
+  const sorted = rows
+    .map(mapAgentSkillScoreRow)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.total_executions - left.total_executions ||
+        left.agent_id.localeCompare(right.agent_id) ||
+        left.skill_id.localeCompare(right.skill_id),
+    );
+  return limit == null ? sorted : sorted.slice(0, limit);
 }
 
 export function attachFeedbackToObservation(input: {

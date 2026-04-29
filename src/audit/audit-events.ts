@@ -145,7 +145,7 @@ export function emitToolExecutionAuditEvents(input: {
         type: 'autonomy.decision',
         toolCallId,
         action: execution.approvalActionKey || `tool:${execution.name}`,
-        autonomyLevel: execution.autonomyLevel || 'autonomous',
+        autonomyLevel: execution.autonomyLevel || 'full-autonomous',
         stakes: execution.stakes || 'low',
         escalationRoute: effectiveEscalationRoute,
         approvalTier: effectiveTier,
@@ -154,6 +154,29 @@ export function emitToolExecutionAuditEvents(input: {
         reason: effectiveReason,
       },
     });
+
+    if (effectiveEscalationRoute !== 'none') {
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'escalation.decision',
+          toolCallId,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          proposedAction:
+            execution.approvalIntent ||
+            execution.approvalActionKey ||
+            `tool:${execution.name}`,
+          escalationRoute: effectiveEscalationRoute,
+          target: execution.escalationTarget || null,
+          stakes: execution.stakes || 'low',
+          classifier: execution.stakesScore?.classifier || null,
+          classifierReasoning: execution.stakesScore?.reasons || [],
+          approvalDecision: effectiveDecision,
+          reason: effectiveReason,
+        },
+      });
+    }
 
     const isRedApprovalAction =
       execution.approvalTier === 'red' || execution.approvalBaseTier === 'red';
@@ -180,7 +203,7 @@ export function emitToolExecutionAuditEvents(input: {
             toolCallId,
             action: execution.approvalActionKey || `tool:${execution.name}`,
             description,
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
           },
         });
       }
@@ -218,7 +241,7 @@ export function emitToolExecutionAuditEvents(input: {
                 : pending || approved
                   ? 'prompt'
                   : 'policy',
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
           },
         });
       }

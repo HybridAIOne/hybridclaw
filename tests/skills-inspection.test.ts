@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
@@ -220,4 +222,133 @@ test('runPeriodicSkillInspection prunes observations older than the retention wi
   expect(observations.map((entry) => entry.session_id)).toEqual([
     'session-new',
   ]);
+});
+
+test('runPeriodicSkillInspection prunes expired trajectory files by tenant policy', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2024-01-15T12:00:00.000Z'));
+
+  try {
+    context = await createAdaptiveSkillsTestContext();
+    const storeDir = path.join(context.homeDir, 'trajectory-store');
+    context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+      draft.adaptiveSkills.enabled = false;
+      draft.adaptiveSkills.inspectionIntervalMs = 0;
+      draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
+      draft.adaptiveSkills.trajectoryCapture.retentionDays = 365;
+      draft.adaptiveSkills.trajectoryCapture.retentionDaysByTenant = {
+        'agent-short': 1,
+        'agent-keep': 999,
+      };
+    });
+
+    const dateDaysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+    const writeTrajectory = (date: string, agentId: string) => {
+      const filePath = path.join(storeDir, date, `${agentId}.jsonl`);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(
+        filePath,
+        `${JSON.stringify({
+          schema_version: 2,
+          tenant_id: agentId,
+          agent_id: agentId,
+        })}\n`,
+        'utf-8',
+      );
+      return filePath;
+    };
+
+    const staleDefaultPath = writeTrajectory(dateDaysAgo(400), 'agent-default');
+    const staleShortPath = writeTrajectory(dateDaysAgo(5), 'agent-short');
+    const retainedOverridePath = writeTrajectory(
+      dateDaysAgo(400),
+      'agent-keep',
+    );
+    const retainedDefaultPath = writeTrajectory(
+      dateDaysAgo(2),
+      'agent-default',
+    );
+
+    const { runPeriodicSkillInspection } = await import(
+      '../src/skills/skills-inspection.ts'
+    );
+    const result = await runPeriodicSkillInspection({
+      agentId: 'trajectory-cleanup',
+    });
+    expect(result).toEqual([]);
+
+    expect(fs.existsSync(staleDefaultPath)).toBe(false);
+    expect(fs.existsSync(staleShortPath)).toBe(false);
+    expect(fs.existsSync(retainedOverridePath)).toBe(true);
+    expect(fs.existsSync(retainedDefaultPath)).toBe(true);
+    expect(fs.existsSync(path.dirname(staleShortPath))).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('pruneExpiredSkillRunTrajectories resolves empty store dir from provided runtime config', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const runtimeConfig = context.runtimeConfigModule.getRuntimeConfig();
+  const configuredDbPath = path.join(
+    context.homeDir,
+    'configured-data',
+    'test.db',
+  );
+  const configuredStoreDir = path.join(
+    path.dirname(configuredDbPath),
+    'trajectories',
+  );
+  const runtimeStoreDir = path.join(
+    path.dirname(context.dbPath),
+    'trajectories',
+  );
+
+  const writeTrajectory = (storeDir: string) => {
+    const filePath = path.join(storeDir, '2024-01-01', 'agent-default.jsonl');
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      `${JSON.stringify({
+        schema_version: 2,
+        tenant_id: 'agent-default',
+        agent_id: 'agent-default',
+      })}\n`,
+      'utf-8',
+    );
+    return filePath;
+  };
+
+  const configuredPath = writeTrajectory(configuredStoreDir);
+  const runtimePath = writeTrajectory(runtimeStoreDir);
+  const { pruneExpiredSkillRunTrajectories } = await import(
+    '../src/skills/skill-run-trajectories.ts'
+  );
+
+  const pruned = pruneExpiredSkillRunTrajectories({
+    config: {
+      ...runtimeConfig,
+      ops: {
+        ...runtimeConfig.ops,
+        dbPath: configuredDbPath,
+      },
+      adaptiveSkills: {
+        ...runtimeConfig.adaptiveSkills,
+        trajectoryCapture: {
+          ...runtimeConfig.adaptiveSkills.trajectoryCapture,
+          storeDir: '',
+          retentionDays: 1,
+          retentionDaysByTenant: {},
+        },
+      },
+    },
+    now: new Date('2024-01-15T12:00:00.000Z'),
+  });
+
+  expect(pruned).toBe(1);
+  expect(fs.existsSync(configuredPath)).toBe(false);
+  expect(fs.existsSync(runtimePath)).toBe(true);
 });

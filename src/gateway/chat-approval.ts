@@ -48,5 +48,8 @@ export function extractGatewayChatApprovalEvent(
       Number.isFinite(approval.expiresAt)
         ? approval.expiresAt
         : null,
+    ...(approval.escalationTarget
+      ? { escalationTarget: approval.escalationTarget }
+      : {}),
   };
 }

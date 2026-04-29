@@ -6,7 +6,7 @@ export interface ParsedSkillImportArgs {
 
 export interface SkillImportArgsParserOptions {
   commandPrefix: string;
-  commandName: 'import' | 'sync';
+  commandName: 'import' | 'install' | 'sync' | 'upgrade';
   allowForce?: boolean;
 }
 

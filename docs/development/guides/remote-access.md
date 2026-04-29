@@ -115,6 +115,24 @@ hybridclaw config set ops.gatewayBaseUrl https://gateway-host.tailnet.ts.net
 hybridclaw config set ops.gatewayApiToken "replace-with-the-remote-token"
 ```
 
+## Deployment Config And ngrok
+
+Runtime config can record the intended exposure mode and tunnel provider:
+
+```bash
+hybridclaw config set deployment.mode local
+hybridclaw config set deployment.tunnel.provider ngrok
+hybridclaw config set deployment.tunnel.health_check_interval_ms 30000
+hybridclaw secret set NGROK_AUTHTOKEN "replace-with-your-ngrok-token"
+```
+
+The deployment keys make local, cloud, and tunnel-backed setups explicit in
+operator state. Manual SSH and Tailscale setups can use `manual`, `ssh`, or
+`tailscale` as the provider value. The built-in ngrok provider reads
+`NGROK_AUTHTOKEN` from encrypted runtime secrets when it is used by a gateway
+deployment flow, checks active tunnels every 30 seconds by default, and
+reconnects failed tunnels with capped backoff.
+
 ## macOS: Persistent SSH Tunnel Via LaunchAgent
 
 If your client machine is a Mac, you can make the SSH tunnel persistent across

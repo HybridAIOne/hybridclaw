@@ -184,6 +184,58 @@ describe('runtime config revisions integration', () => {
     expect(fs.existsSync(configMod.runtimeConfigRevisionPath())).toBe(true);
   });
 
+  it('restores versioned skill autonomy changes through config revisions', () => {
+    configMod.ensureRuntimeConfigFile();
+
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.autonomy = {
+        defaultLevel: 'confirm-each',
+        rules: [
+          {
+            agentId: 'writer',
+            skillName: 'docs',
+            level: 'full-autonomous',
+          },
+        ],
+      };
+    });
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.autonomy = {
+        defaultLevel: 'low-stakes-autonomous',
+        rules: [],
+      };
+    });
+
+    const revisions = configMod.listRuntimeConfigRevisions();
+    const autonomyRevision = revisions.find((revision) =>
+      configMod
+        .getRuntimeConfigRevision(revision.id)
+        ?.content.includes('"skillName": "docs"'),
+    );
+    expect(autonomyRevision).toBeTruthy();
+    if (!autonomyRevision) {
+      throw new Error('Expected a revision containing the autonomy rule.');
+    }
+
+    const restored = configMod.restoreRuntimeConfigRevision(
+      autonomyRevision.id,
+    );
+
+    expect(restored.skills.autonomy).toEqual({
+      defaultLevel: 'confirm-each',
+      rules: [
+        {
+          agentId: 'writer',
+          skillName: 'docs',
+          level: 'full-autonomous',
+        },
+      ],
+    });
+    expect(
+      configMod.resolveSkillAutonomyLevel(restored, 'writer', 'docs'),
+    ).toBe('full-autonomous');
+  });
+
   it('migrates the revision store for typed runtime assets', () => {
     const database = new Database(configMod.runtimeConfigRevisionPath(), {
       readonly: true,

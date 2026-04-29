@@ -306,6 +306,7 @@ function replaceSecretPlaceholders(value: unknown): unknown {
 }
 
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
+const UNBOUND_OAUTH_CAPTURE_JSON_PATHS = new Set(['instance_url']);
 
 /**
  * Return the exact lowercase hostname for domain binding.
@@ -369,15 +370,36 @@ function normalizeCaptureResponseFields(
   return rules;
 }
 
+function extractBindingDomainFromResponse(
+  responseJson: Record<string, unknown>,
+  requestUrl: URL,
+): string {
+  const instanceUrl = responseJson.instance_url;
+  if (typeof instanceUrl !== 'string' || !instanceUrl.trim()) {
+    return extractBaseDomain(requestUrl.hostname);
+  }
+  try {
+    const parsed = new URL(instanceUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return extractBaseDomain(requestUrl.hostname);
+    }
+    return extractBaseDomain(parsed.hostname);
+  } catch {
+    return extractBaseDomain(requestUrl.hostname);
+  }
+}
+
 /**
  * Auto-detect an OAuth2 token response (RFC 6749 S5.1) by checking for
  * `access_token` in the JSON body.  When detected, capture all matching
  * fields into the secret store and return the mapping.  The original
  * response body is **never** forwarded to the caller.
  *
- * For every captured secret that looks like a token (contains "token" in
- * the jsonPath), a domain binding is stored so that `bearerSecretName`
- * only works against the same domain the token was issued from.
+ * Captured OAuth secrets are bound by default so that `bearerSecretName` only
+ * works against the resource host. OAuth APIs such as Salesforce issue tokens
+ * from a login host but return an `instance_url` resource host; bind to that
+ * resource host when present and fall back to the OAuth endpoint hostname
+ * otherwise. Non-token metadata captures must be explicitly exempted.
  */
 function captureOAuthResponse(
   responseJson: unknown,
@@ -390,7 +412,7 @@ function captureOAuthResponse(
     return null;
   }
 
-  const baseDomain = extractBaseDomain(requestUrl.hostname);
+  const baseDomain = extractBindingDomainFromResponse(obj, requestUrl);
   const secrets: Record<string, string> = {};
   const captured: Record<string, string> = {};
 
@@ -400,9 +422,9 @@ function captureOAuthResponse(
       secrets[rule.secretName] = value.trim();
       captured[rule.jsonPath] = rule.secretName;
 
-      // Bind token secrets to the OAuth endpoint's domain so they
-      // cannot be exfiltrated to an attacker-controlled URL.
-      if (rule.jsonPath.includes('token')) {
+      // Bind captured OAuth secrets by default so future token field names such
+      // as "access" or "bearer" cannot silently become cross-host credentials.
+      if (!UNBOUND_OAUTH_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
         secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
       }
     }

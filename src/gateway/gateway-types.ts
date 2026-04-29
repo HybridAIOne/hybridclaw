@@ -8,10 +8,12 @@ import type {
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
@@ -66,42 +68,7 @@ export interface GatewayChatResult {
     filename: string;
     mimeType: string;
   }>;
-  toolExecutions?: Array<{
-    name: string;
-    arguments: string;
-    result: string;
-    durationMs: number;
-    isError?: boolean;
-    blocked?: boolean;
-    blockedReason?: string;
-    approvalTier?: 'green' | 'yellow' | 'red';
-    approvalBaseTier?: 'green' | 'yellow' | 'red';
-    autonomyLevel?: 'autonomous' | 'supervised' | 'manual';
-    stakes?: 'low' | 'medium' | 'high';
-    escalationRoute?:
-      | 'none'
-      | 'implicit_notice'
-      | 'approval_request'
-      | 'policy_denial';
-    approvalDecision?:
-      | 'auto'
-      | 'implicit'
-      | 'approved_once'
-      | 'approved_session'
-      | 'approved_agent'
-      | 'approved_all'
-      | 'approved_fullauto'
-      | 'promoted'
-      | 'required'
-      | 'denied';
-    approvalActionKey?: string;
-    approvalIntent?: string;
-    approvalReason?: string;
-    approvalRequestId?: string;
-    approvalExpiresAt?: number;
-    approvalAllowSession?: boolean;
-    approvalAllowAgent?: boolean;
-  }>;
+  toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
@@ -199,6 +166,7 @@ export interface GatewayChatRequest {
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {
+    channelId?: string;
     text: string;
     artifacts?: ArtifactMetadata[];
   }) => void | Promise<void>;
@@ -241,6 +209,11 @@ export interface GatewayHistoryMessage {
   role: string;
   agent_id?: string | null;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
   assistantPresentation?: GatewayAssistantPresentation;
 }
@@ -707,6 +680,7 @@ export interface GatewayLogicalAgentCard {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  monthlySpendUsd: number;
   messageCount: number;
   toolCalls: number;
   recentSessionId: string | null;
@@ -907,6 +881,17 @@ export interface GatewayAdminModelCatalogEntry {
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+  capabilities: {
+    vision: boolean;
+    tools: boolean;
+    jsonMode: boolean;
+    reasoning: boolean;
+  };
+  metadataSources: string[];
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;
@@ -1054,6 +1039,22 @@ export interface GatewayAdminSkillsResponse {
   disabled: string[];
   channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>>;
   skills: GatewayAdminSkill[];
+}
+
+export interface GatewayAdminAgentSkillScore
+  extends Omit<AgentScoreboardEntry['best_skills'][number], 'agent_id'> {
+  agent_id: string;
+}
+
+export interface GatewayAdminAgentScoreboardEntry
+  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills' | 'cv_path'> {
+  agent_id: string;
+  best_skills: GatewayAdminAgentSkillScore[];
+}
+
+export interface GatewayAdminAgentScoreboardResponse {
+  observed_skill_count: number;
+  agents: GatewayAdminAgentScoreboardEntry[];
 }
 
 export interface GatewayAdminPlugin {

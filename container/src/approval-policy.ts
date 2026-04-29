@@ -19,7 +19,19 @@ import {
 } from '../shared/network-policy.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
-import type { ChatMessage } from './types.js';
+import {
+  classifyStakes,
+  createStakesClassifier,
+  type StakesClassifier,
+  type StakesLevel,
+  type StakesScore,
+} from './stakes-classifier.js';
+import { normalizeText } from './text-normalization.js';
+import {
+  type ChatMessage,
+  type EscalationTarget,
+  normalizeEscalationTarget,
+} from './types.js';
 
 export type {
   NetworkPolicyAction,
@@ -30,10 +42,19 @@ export {
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '../shared/network-policy.js';
+export type {
+  StakesClassificationInput,
+  StakesClassifier,
+  StakesLevel,
+  StakesScore,
+  StakesSignal,
+} from './stakes-classifier.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
-export type AutonomyLevel = 'autonomous' | 'supervised' | 'manual';
-export type StakesLevel = 'low' | 'medium' | 'high';
+export type AutonomyLevel =
+  | 'full-autonomous'
+  | 'low-stakes-autonomous'
+  | 'confirm-each';
 export type EscalationRoute =
   | 'none'
   | 'implicit_notice'
@@ -79,7 +100,6 @@ export interface ApprovalPolicyConfig {
 
 interface ClassifiedAction {
   tier: ApprovalTier;
-  stakes?: StakesLevel;
   actionKey: string;
   intent: string;
   consequenceIfDenied: string;
@@ -120,7 +140,9 @@ export interface ToolApprovalEvaluation {
   tier: ApprovalTier;
   autonomyLevel: AutonomyLevel;
   stakes: StakesLevel;
+  stakesScore: StakesScore;
   escalationRoute: EscalationRoute;
+  escalationTarget?: EscalationTarget;
   decision: ApprovalDecision;
   actionKey: string;
   fingerprint: string;
@@ -186,7 +208,7 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
     { tools: ['force_push'] },
   ],
   autonomy: {
-    defaultLevel: 'autonomous',
+    defaultLevel: 'full-autonomous',
     tools: {},
     actions: {},
   },
@@ -234,12 +256,6 @@ function isVoiceChannelId(value: string | undefined): boolean {
     .startsWith('voice:');
 }
 
-function normalizeText(value: unknown): string {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function normalizePrompt(value: string): string {
   return normalizeText(value).slice(0, MAX_PROMPT_CHARS);
 }
@@ -256,12 +272,6 @@ function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
-function stakesForTier(tier: ApprovalTier): StakesLevel {
-  if (tier === 'red') return 'high';
-  if (tier === 'yellow') return 'medium';
-  return 'low';
-}
-
 function escalationRouteForDecision(
   decision: ApprovalDecision,
   tier: ApprovalTier,
@@ -270,6 +280,14 @@ function escalationRouteForDecision(
   if (decision === 'required') return 'approval_request';
   if (tier === 'yellow' && decision === 'implicit') return 'implicit_notice';
   return 'none';
+}
+
+function formatStakesReasoning(score: StakesScore): string {
+  const reasons =
+    score.reasons.length > 0
+      ? score.reasons.join('; ')
+      : 'no classifier reasons reported';
+  return `${score.level} stakes via ${score.classifier} (score ${score.score}, confidence ${score.confidence}): ${reasons}`;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -319,7 +337,11 @@ function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
   const value = String(raw || '')
     .trim()
     .toLowerCase();
-  if (value === 'autonomous' || value === 'supervised' || value === 'manual') {
+  if (
+    value === 'full-autonomous' ||
+    value === 'low-stakes-autonomous' ||
+    value === 'confirm-each'
+  ) {
     return value;
   }
   return null;
@@ -621,11 +643,7 @@ function extractAbsolutePaths(input: string): string[] {
   for (const match of input.matchAll(ABS_PATH_RE)) {
     const candidate = String(match[2] || '').trim();
     if (!candidate || candidate === '/' || candidate === '//') continue;
-    try {
-      paths.add(fs.realpathSync(candidate));
-    } catch {
-      paths.add(path.resolve(candidate));
-    }
+    paths.add(path.resolve(candidate));
   }
   return [...paths];
 }
@@ -996,7 +1014,7 @@ function parsePersistedTrustStore(
   }
 }
 
-export class TrustedCoworkerApprovalRuntime {
+export class TrustedAgentApprovalRuntime {
   private readonly policyPath: string;
   private readonly agentTrustStorePath: string;
   private readonly legacyAgentTrustStorePath: string;
@@ -1013,6 +1031,8 @@ export class TrustedCoworkerApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  private readonly invalidPinnedRedPatternWarnings = new Set<string>();
+  private readonly stakesClassifier: StakesClassifier;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
 
@@ -1021,11 +1041,13 @@ export class TrustedCoworkerApprovalRuntime {
     agentTrustStorePath = AGENT_TRUST_STORE_PATH,
     trustStorePath = TRUST_STORE_PATH,
     legacyAgentTrustStorePath = LEGACY_AGENT_TRUST_STORE_PATH,
+    stakesClassifier: StakesClassifier = createStakesClassifier(),
   ) {
     this.policyPath = policyPath;
     this.agentTrustStorePath = agentTrustStorePath;
     this.trustStorePath = trustStorePath;
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
+    this.stakesClassifier = stakesClassifier;
     this.reloadPolicyIfNeeded(true);
     this.loadPersistedTrustStore({
       trustStorePath: this.agentTrustStorePath,
@@ -1266,6 +1288,7 @@ export class TrustedCoworkerApprovalRuntime {
     argsJson: string;
     latestUserPrompt: string;
     channelId?: string;
+    escalationTarget?: EscalationTarget;
   }): ToolApprovalEvaluation {
     this.reloadPolicyIfNeeded();
     this.cleanupExpiredPending();
@@ -1291,14 +1314,41 @@ export class TrustedCoworkerApprovalRuntime {
       toolName: params.toolName,
       actionKey: classified.actionKey,
     });
-    let baseTier: ApprovalTier =
+    const safetyTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
-    if (autonomyLevel === 'manual' && baseTier !== 'red') {
+    const stakesScore = classifyStakes(
+      {
+        toolName: params.toolName,
+        args,
+        actionKey: classified.actionKey,
+        intent: classified.intent,
+        reason: classified.reason,
+        target: classified.commandPreview,
+        approvalTier: safetyTier,
+        pathHints: classified.pathHints,
+        hostHints: classified.hostHints,
+        writeIntent: classified.writeIntent,
+        pinned: pinnedByPolicy,
+      },
+      this.stakesClassifier,
+    );
+    const stakes = stakesScore.level;
+    const escalationTarget = normalizeEscalationTarget(params.escalationTarget);
+
+    let baseTier: ApprovalTier = safetyTier;
+    let outOfBoundByAutonomy = false;
+    if (autonomyLevel === 'confirm-each') {
+      outOfBoundByAutonomy = true;
       baseTier = 'red';
-    } else if (autonomyLevel === 'supervised' && baseTier === 'green') {
-      baseTier = 'yellow';
+    } else if (autonomyLevel === 'low-stakes-autonomous') {
+      // Low-stakes autonomy permits only low-stakes actions to proceed without
+      // escalation. Medium and high stakes are out-of-bound and require a
+      // paused explicit approval path, rather than a yellow implicit notice.
+      if (stakes !== 'low') {
+        outOfBoundByAutonomy = true;
+        baseTier = 'red';
+      }
     }
-    const stakes = classified.stakes || stakesForTier(baseTier);
 
     let tier: ApprovalTier = baseTier;
     let decision: ApprovalDecision = 'auto';
@@ -1309,8 +1359,10 @@ export class TrustedCoworkerApprovalRuntime {
           baseTier,
           tier: 'red',
           autonomyLevel,
-          stakes: 'high',
+          stakes,
+          stakesScore,
           escalationRoute: 'policy_denial',
+          ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'denied',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1359,6 +1411,7 @@ export class TrustedCoworkerApprovalRuntime {
         decision = 'promoted';
       } else if (
         this.fullAutoEnabled &&
+        !outOfBoundByAutonomy &&
         !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
       ) {
         tier = 'yellow';
@@ -1370,7 +1423,9 @@ export class TrustedCoworkerApprovalRuntime {
             tier: 'red',
             autonomyLevel,
             stakes,
+            stakesScore,
             escalationRoute: 'policy_denial',
+            ...(escalationTarget ? { escalationTarget } : {}),
             decision: 'denied',
             actionKey: classified.actionKey,
             fingerprint,
@@ -1399,7 +1454,9 @@ export class TrustedCoworkerApprovalRuntime {
           tier: 'red',
           autonomyLevel,
           stakes,
+          stakesScore,
           escalationRoute: 'approval_request',
+          ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'required',
           actionKey: classified.actionKey,
           fingerprint,
@@ -1419,6 +1476,7 @@ export class TrustedCoworkerApprovalRuntime {
       tier === 'yellow' &&
       decision === 'auto' &&
       this.fullAutoEnabled &&
+      !outOfBoundByAutonomy &&
       !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
     ) {
       decision = 'approved_fullauto';
@@ -1444,7 +1502,9 @@ export class TrustedCoworkerApprovalRuntime {
       tier,
       autonomyLevel,
       stakes,
+      stakesScore,
       escalationRoute: escalationRouteForDecision(decision, tier),
+      ...(escalationTarget ? { escalationTarget } : {}),
       decision,
       actionKey: classified.actionKey,
       fingerprint,
@@ -1515,6 +1575,13 @@ export class TrustedCoworkerApprovalRuntime {
         ];
     return [
       `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
+      `Proposed action: ${evaluation.commandPreview || evaluation.intent}`,
+      `Classifier reasoning: ${formatStakesReasoning(evaluation.stakesScore)}`,
+      ...(evaluation.escalationTarget
+        ? [
+            `Escalation target: ${evaluation.escalationTarget.channel} / ${evaluation.escalationTarget.recipient}`,
+          ]
+        : []),
       `Why: ${evaluation.reason}`,
       `If you skip this, ${evaluation.consequenceIfDenied.charAt(0).toLowerCase()}${evaluation.consequenceIfDenied.slice(1)}`,
       requestLabel,
@@ -2298,8 +2365,8 @@ export class TrustedCoworkerApprovalRuntime {
         try {
           const re = new RegExp(rule.pattern, 'i');
           if (re.test(fullText)) return true;
-        } catch {
-          // ignore invalid policy regex
+        } catch (error) {
+          this.warnInvalidPinnedRedPattern(rule.pattern, error);
         }
       }
       if (Array.isArray(rule.paths) && rule.paths.length > 0) {
@@ -2313,5 +2380,14 @@ export class TrustedCoworkerApprovalRuntime {
       }
     }
     return false;
+  }
+
+  private warnInvalidPinnedRedPattern(pattern: string, error: unknown): void {
+    if (this.invalidPinnedRedPatternWarnings.has(pattern)) return;
+    this.invalidPinnedRedPatternWarnings.add(pattern);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[approval-policy] invalid pinned_red regex in ${this.policyPath}; rule will not match: ${pattern} (${message})`,
+    );
   }
 }
