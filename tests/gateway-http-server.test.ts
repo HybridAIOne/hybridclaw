@@ -1869,6 +1869,9 @@ describe('gateway HTTP server', () => {
     await vi.waitFor(() => expect(res.statusCode).toBe(200));
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
+    expect(state.getGatewayStatus).toHaveBeenCalledWith({
+      refreshProviderHealth: false,
+    });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
   });
 

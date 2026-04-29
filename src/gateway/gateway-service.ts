@@ -229,13 +229,7 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
-import {
-  type HybridAIHealthResult,
-  hybridAIProbe,
-} from '../providers/hybridai-health.js';
 import { getLocalModelInfo } from '../providers/local-discovery.js';
-import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
   getDiscoveredMistralModelNames,
@@ -328,7 +322,10 @@ import type {
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
-import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import {
+  dedupeStrings,
+  normalizeOptionalTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import {
@@ -368,6 +365,13 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
+import {
+  buildGatewayHybridAIProviderEntry,
+  type GatewayHealthOptions,
+  invalidateGatewayProviderHealth,
+  resolveGatewayHybridAIHealth,
+  resolveGatewayLocalBackendsHealth,
+} from './gateway-health-service.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
@@ -1569,18 +1573,6 @@ function getGatewayAdminAgentMarkdownRevisionRecord(params: {
   return record;
 }
 
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const rawValue of values) {
-    const value = String(rawValue || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
-}
-
 function getAdminChannelDisabledSkills(
   value: RuntimeConfig['skills']['channelDisabled'],
 ): GatewayAdminSkillsResponse['channelDisabled'] {
@@ -1599,29 +1591,10 @@ function getAdminChannelDisabledSkills(
   );
 }
 
-function buildHybridAIProviderEntry(
-  probe: HybridAIHealthResult,
-): GatewayProviderHealthEntry {
-  const discoveredModelCount = dedupeStrings(
-    getDiscoveredHybridAIModelNames(),
-  ).length;
-
-  return {
-    kind: 'remote',
-    reachable: probe.reachable,
-    ...(probe.error ? { error: probe.error } : {}),
-    latencyMs: probe.latencyMs,
-    modelCount: probe.modelCount ?? discoveredModelCount,
-    detail: probe.reachable
-      ? `${probe.latencyMs}ms`
-      : probe.error || 'unreachable',
-  };
-}
-
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: HybridAIHealthResult;
+  hybridaiHealth: GatewayProviderHealthEntry;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const anthropicStatus = getAnthropicAuthStatus();
@@ -1630,7 +1603,7 @@ function buildGatewayProviderHealth(params: {
     runtimeConfig.anthropic.method,
   );
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth),
+    hybridai: params.hybridaiHealth,
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
@@ -1726,8 +1699,7 @@ async function getGatewayStatusForModelSubcommand(
   if (subcommand === 'list' || subcommand === 'info') {
     // These commands are expected to reflect the current live provider state,
     // not a recently cached health snapshot.
-    localBackendsProbe.invalidate();
-    hybridAIProbe.invalidate();
+    invalidateGatewayProviderHealth();
   }
   return await getGatewayStatus();
 }
@@ -3710,28 +3682,48 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
-export async function getGatewayStatus(): Promise<GatewayStatus> {
+export async function getGatewayStatus(
+  options: GatewayHealthOptions = {},
+): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
   const hybridai = getHybridAIAuthStatus();
-  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
-    await Promise.allSettled([
-      localBackendsProbe.get(),
-      hybridAIProbe.get(),
-      getWhatsAppAuthStatus(),
-      codex.authenticated && !codex.reloginRequired
-        ? discoverCodexModels()
-        : Promise.resolve([]),
-    ]);
+  const refreshProviderHealth = options.refreshProviderHealth ?? true;
+  const [
+    localBackendsResult,
+    hybridaiResult,
+    whatsappAuthResult,
+    codexDiscoveryResult,
+  ] = await Promise.allSettled([
+    resolveGatewayLocalBackendsHealth(options),
+    resolveGatewayHybridAIHealth(options),
+    getWhatsAppAuthStatus(),
+    // Warm the Codex model cache for provider counts; the status payload
+    // reads discovered names after all probes settle.
+    refreshProviderHealth && codex.authenticated && !codex.reloginRequired
+      ? discoverCodexModels()
+      : Promise.resolve([]),
+  ]);
+  if (codexDiscoveryResult.status === 'rejected') {
+    logger.debug(
+      { err: codexDiscoveryResult.reason },
+      'Codex model cache warmup failed during gateway status',
+    );
+  }
   const runtimeConfig = getRuntimeConfig();
   const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
       : new Map();
-  const hybridaiHealth: HybridAIHealthResult =
+  const hybridaiHealth = buildGatewayHybridAIProviderEntry(
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
-      : { reachable: false, error: 'probe failed', latencyMs: 0 };
+      : {
+          reachable: false,
+          error: 'probe failed',
+          latencyMs: 0,
+        },
+  );
   const whatsappAuth =
     whatsappAuthResult.status === 'fulfilled'
       ? whatsappAuthResult.value
