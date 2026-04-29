@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import type { HandleEvalCommandParams } from '../src/evals/eval-command.js';
 
 const spawnMock = vi.fn();
 const spawnSyncMock = vi.fn(() => ({ status: 0 }));
@@ -19,6 +20,21 @@ const harnessVersion = (
   ) as { version: string }
 ).version;
 const harnessLabel = `Harness          HybridClaw v${harnessVersion}`;
+
+function defaultEvalParams(
+  overrides: Partial<HandleEvalCommandParams> &
+    Pick<HandleEvalCommandParams, 'args'>,
+): HandleEvalCommandParams {
+  return {
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
+    gatewayBaseUrl: 'http://127.0.0.1:9090',
+    webApiToken: '',
+    gatewayApiToken: 'gateway-token',
+    effectiveAgentId: 'main',
+    effectiveModel: 'hybridai/gpt-4.1-mini',
+    ...overrides,
+  };
+}
 
 function stripAnsi(value: string): string {
   let output = '';
@@ -611,15 +627,14 @@ function writeTerminalBenchAgentResult(
 test('returns suite stub info without exposing tokens', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
-  const result = await handleEvalCommand({
-    args: ['gaia'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: 'secret-token',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'charly',
-    effectiveModel: 'openai-codex/gpt-5.4',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['gaia'],
+      webApiToken: 'secret-token',
+      effectiveAgentId: 'charly',
+      effectiveModel: 'openai-codex/gpt-5.4',
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -652,15 +667,12 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['python', '-m', 'swebench.harness.run_evaluation'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['python', '-m', 'swebench.harness.run_evaluation'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -710,15 +722,11 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
 test('shows managed tau2 usage', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
-  const result = await handleEvalCommand({
-    args: ['tau2'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2'],
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -734,15 +742,11 @@ test('shows managed tau2 usage', async () => {
 test('shows managed locomo usage', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
-  const result = await handleEvalCommand({
-    args: ['locomo'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo'],
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -771,15 +775,12 @@ test('starts detached tau2 setup', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'setup'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'setup'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -806,15 +807,12 @@ test('starts detached tau2 setup', async () => {
 test('reports non-terminal suites as not implemented yet', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
-  const result = await handleEvalCommand({
-    args: ['swebench-verified', 'setup'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['swebench-verified', 'setup'],
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('SWE-bench Verified');
@@ -836,15 +834,12 @@ test('starts detached locomo setup', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'setup'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'setup'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -885,15 +880,12 @@ test('runs managed locomo with question cap flag', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'run', '--budget', '4000', '--max-questions', '20'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'run', '--budget', '4000', '--max-questions', '20'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -938,15 +930,13 @@ test('runs managed locomo with current agent override', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: ['--current-agent', 'locomo', 'run', '--max-questions', '20'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'charly',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: ['--current-agent', 'locomo', 'run', '--max-questions', '20'],
+      dataDir,
+      effectiveAgentId: 'charly',
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--agent-mode');
@@ -960,15 +950,13 @@ test('rejects fresh-agent override for managed locomo', async () => {
   installLocomoLayout(dataDir);
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['--fresh-agent', 'locomo', 'run', '--max-questions', '20'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'charly',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['--fresh-agent', 'locomo', 'run', '--max-questions', '20'],
+      dataDir,
+      effectiveAgentId: 'charly',
+    }),
+  );
 
   expect(result.kind).toBe('error');
   if (result.kind !== 'error') {
@@ -994,32 +982,29 @@ test('runs managed locomo with retrieval mode', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: [
-      'locomo',
-      'run',
-      '--mode',
-      'retrieval',
-      '--retrieval-query',
-      'no-stopwords',
-      '--retrieval-backend',
-      'full-text',
-      '--retrieval-rerank',
-      'bm25',
-      '--retrieval-tokenizer',
-      'trigram',
-      '--retrieval-embedding',
-      'transformers',
-      '--max-questions',
-      '20',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'locomo',
+        'run',
+        '--mode',
+        'retrieval',
+        '--retrieval-query',
+        'no-stopwords',
+        '--retrieval-backend',
+        'full-text',
+        '--retrieval-rerank',
+        'bm25',
+        '--retrieval-tokenizer',
+        'trigram',
+        '--retrieval-embedding',
+        'transformers',
+        '--max-questions',
+        '20',
+      ],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--mode');
@@ -1049,23 +1034,20 @@ test('runs managed locomo retrieval matrix sweep', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: [
-      'locomo',
-      'run',
-      '--mode',
-      'retrieval',
-      '--matrix',
-      '--budget',
-      '4000',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'locomo',
+        'run',
+        '--mode',
+        'retrieval',
+        '--matrix',
+        '--budget',
+        '4000',
+      ],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--mode');
@@ -1089,24 +1071,21 @@ test('runs managed locomo retrieval rerank matrix sweep', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: [
-      'locomo',
-      'run',
-      '--mode',
-      'retrieval',
-      '--matrix',
-      'rerank',
-      '--budget',
-      '4000',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'locomo',
+        'run',
+        '--mode',
+        'retrieval',
+        '--matrix',
+        'rerank',
+        '--budget',
+        '4000',
+      ],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--matrix');
@@ -1129,24 +1108,21 @@ test('runs managed locomo retrieval embedding matrix sweep', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: [
-      'locomo',
-      'run',
-      '--mode',
-      'retrieval',
-      '--matrix',
-      'embedding',
-      '--budget',
-      '4000',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'locomo',
+        'run',
+        '--mode',
+        'retrieval',
+        '--matrix',
+        'embedding',
+        '--budget',
+        '4000',
+      ],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--matrix');
@@ -1193,15 +1169,12 @@ test('does not apply memory config defaults to locomo retrieval flags', async ()
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'run', '--mode', 'retrieval', '--max-questions', '20'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'run', '--mode', 'retrieval', '--max-questions', '20'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -1234,15 +1207,12 @@ test('starts detached terminal-bench setup', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'setup'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'setup'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -1284,15 +1254,12 @@ test('runs managed terminal-bench with native HybridClaw runner defaults', async
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -1352,15 +1319,12 @@ test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent
   isContainerMaxConcurrentExplicitMock.mockReturnValue(true);
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--n-concurrent 4');
@@ -1385,15 +1349,12 @@ test('reserves one slot from configured terminal-bench concurrency defaults', as
   maxConcurrentContainersState.value = 3;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'run', '--num-tasks', '10'],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--n-concurrent 2');
@@ -1417,22 +1378,19 @@ test('preserves explicit terminal-bench concurrency override', async () => {
   isContainerMaxConcurrentExplicitMock.mockReturnValue(true);
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  await handleEvalCommand({
-    args: [
-      'terminal-bench-2.0',
-      'run',
-      '--num-tasks',
-      '10',
-      '--n-concurrent',
-      '2',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'terminal-bench-2.0',
+        'run',
+        '--num-tasks',
+        '10',
+        '--n-concurrent',
+        '2',
+      ],
+      dataDir,
+    }),
+  );
 
   const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
   expect(shellArgs[1]).toContain('--n-concurrent 2');
@@ -1463,15 +1421,12 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'setup'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'setup'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('tau2 Setup Failed');
@@ -1480,15 +1435,12 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
 
 test('reports gaia subcommands as not implemented yet', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['gaia', 'status'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['gaia', 'status'],
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('GAIA');
@@ -1497,15 +1449,12 @@ test('reports gaia subcommands as not implemented yet', async () => {
 
 test('rejects unknown suite prefixes instead of launching a raw eval command', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['termin'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['termin'],
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('Unknown Eval');
@@ -1587,15 +1536,12 @@ test('reports managed suite latest run in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain(
@@ -1657,15 +1603,12 @@ test('reports locomo latest run in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Latest run: eval-locomo-run (completed)');
@@ -1737,15 +1680,12 @@ test('reports locomo retrieval latest run in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Mode: retrieval');
@@ -1806,15 +1746,12 @@ test('reports locomo in-flight progress in status output', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Latest run: eval-locomo-run (running)');
@@ -1869,15 +1806,12 @@ test('shows generic managed suite setup logs in results', async () => {
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toMatch(/Run ID\s+eval-terminal-bench-setup/);
@@ -1931,15 +1865,12 @@ test('shows locomo run summary in results when a run exists', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2014,15 +1945,12 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2098,15 +2026,12 @@ test('shows locomo retrieval matrix summary table in results', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2175,15 +2100,12 @@ test('logs debug when locomo result json is malformed', async () => {
   const { logger } = await import('../src/logger.ts');
   const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => logger);
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2239,15 +2161,12 @@ test('shows locomo run progress in results while a run is active', async () => {
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2320,15 +2239,12 @@ test('shows locomo retrieval matrix progress in results while a run is active', 
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2421,15 +2337,12 @@ test('prefers locomo progress over completed summary while the run is still acti
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['locomo', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['locomo', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('LOCOMO Results');
@@ -2537,15 +2450,12 @@ test('shows managed suite run summary in results when a run exists', async () =>
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
@@ -2655,15 +2565,12 @@ test('does not count recovered terminal-bench task warnings as errors', async ()
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
@@ -2763,15 +2670,12 @@ test('shows partial terminal-bench progress in results while a run is still acti
   process.kill = vi.fn(() => true) as typeof process.kill;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
@@ -2844,15 +2748,12 @@ test('shows managed suite log tails in logs view', async () => {
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'logs'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'logs'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('Terminal-Bench 2.0 Logs');
@@ -2908,15 +2809,12 @@ test('stops managed suite runs and marks the run metadata as terminated', async 
   process.kill = vi.fn(() => true) as typeof process.kill;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['terminal-bench-2.0', 'stop'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['terminal-bench-2.0', 'stop'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.title).toBe('Terminal-Bench 2.0 Stop');
@@ -2940,24 +2838,21 @@ test('requires tau2 setup before tau2 run', async () => {
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.text).toContain('Run `/eval tau2 setup` first.');
@@ -3004,24 +2899,21 @@ test('reports tau2 setup as still running before install completes', async () =>
   }) as typeof process.kill;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.title).toBe('tau2 Setup Running');
@@ -3044,24 +2936,21 @@ test('runs managed tau2 with default llms when installed', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -3104,25 +2993,22 @@ test('queues an initial tau2 progress bar for tui sessions', async () => {
 
   initDatabase({ quiet: true });
 
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    channelId: 'tui',
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      channelId: 'tui',
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain(
@@ -3166,16 +3052,13 @@ test('queues a tau2 setup completion notification for tui sessions', async () =>
 
   initDatabase({ quiet: true });
 
-  const result = await handleEvalCommand({
-    args: ['tau2', 'setup'],
-    channelId: 'tui',
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'setup'],
+      channelId: 'tui',
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(exitHandlers.length).toBeGreaterThan(0);
@@ -3230,16 +3113,13 @@ test('queues a tau2 setup failure notification for tui sessions', async () => {
 
   initDatabase({ quiet: true });
 
-  const result = await handleEvalCommand({
-    args: ['tau2', 'setup'],
-    channelId: 'tui',
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'setup'],
+      channelId: 'tui',
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(exitHandlers.length).toBeGreaterThan(0);
@@ -3301,25 +3181,22 @@ test('queues a tau2 run completion notification without a duplicate generic fini
 
   initDatabase({ quiet: true });
 
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    channelId: 'tui',
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      channelId: 'tui',
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(exitHandlers.length).toBeGreaterThan(0);
@@ -3388,25 +3265,22 @@ test('queues a tau2 run failure notification with the reason', async () => {
 
   initDatabase({ quiet: true });
 
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    channelId: 'tui',
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      channelId: 'tui',
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(exitHandlers.length).toBeGreaterThan(0);
@@ -3443,27 +3317,24 @@ test('preserves explicit tau2 llm flags', async () => {
   });
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: [
-      'tau2',
-      'run',
-      '--domain',
-      'telecom',
-      '--agent-llm',
-      'custom-agent',
-      '--user-llm=custom-user',
-      '--num-trials',
-      '1',
-      '--num-tasks',
-      '10',
-    ],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'tau2',
+        'run',
+        '--domain',
+        'telecom',
+        '--agent-llm',
+        'custom-agent',
+        '--user-llm=custom-user',
+        '--num-trials',
+        '1',
+        '--num-tasks',
+        '10',
+      ],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
@@ -3525,15 +3396,12 @@ test('reports tau2 install and latest run status', async () => {
   }) as typeof process.kill;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Installed: yes');
@@ -3595,15 +3463,12 @@ test('reports tau2 success metric in status output for completed runs', async ()
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Latest run: eval-status-summary (exited)');
@@ -3660,15 +3525,12 @@ test('reports tau2 setup failure reason in status output', async () => {
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'status'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'status'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Latest setup: eval-setup-failed (exited)');
@@ -3717,15 +3579,12 @@ test('stops the latest running tau2 process', async () => {
   }) as typeof process.kill;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'stop'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'stop'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Sent SIGTERM to tau2 run eval-stop-run');
@@ -3804,15 +3663,12 @@ test('shows latest tau2 results from log tails', async () => {
   );
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
@@ -3877,15 +3733,12 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
   }) as typeof process.kill;
 
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand({
-    args: ['tau2', 'results'],
-    dataDir,
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['tau2', 'results'],
+      dataDir,
+    }),
+  );
 
   expect(result.kind).toBe('info');
   expect(result.text).toContain('Evaluated model  hybridai/gpt-4.1-mini');
@@ -3902,15 +3755,12 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
 test('rejects the removed eval run syntax', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
-  const result = await handleEvalCommand({
-    args: ['run', 'python', '-m', 'swebench.harness.run_evaluation'],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'hybridai/gpt-4.1-mini',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['run', 'python', '-m', 'swebench.harness.run_evaluation'],
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
+    }),
+  );
 
   expect(result.kind).toBe('error');
   expect(result.text).toContain(
@@ -3921,21 +3771,18 @@ test('rejects the removed eval run syntax', async () => {
 test('encodes fresh-agent ablation options into the eval model', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 
-  const result = await handleEvalCommand({
-    args: [
-      'env',
-      '--fresh-agent',
-      '--ablate-system',
-      '--omit-prompt=bootstrap,soul',
-      '--include-prompt=memory',
-    ],
-    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
-    gatewayBaseUrl: 'http://127.0.0.1:9090',
-    webApiToken: '',
-    gatewayApiToken: 'gateway-token',
-    effectiveAgentId: 'main',
-    effectiveModel: 'openai-codex/gpt-5.4',
-  });
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: [
+        'env',
+        '--fresh-agent',
+        '--ablate-system',
+        '--omit-prompt=bootstrap,soul',
+        '--include-prompt=memory',
+      ],
+      effectiveModel: 'openai-codex/gpt-5.4',
+    }),
+  );
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
