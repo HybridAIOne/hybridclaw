@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getAgentById } from '../agents/agent-registry.js';
+import { displayNameForAgent, getAgentById } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
@@ -73,11 +73,6 @@ function cvStatePathForAgent(agentId: string): string {
   return path.join(agentWorkspaceDir(agentId), CV_STATE_FILE);
 }
 
-function displayNameForAgent(agentId: string): string {
-  const agent = getAgentById(agentId);
-  return agent?.displayName || agent?.name || agentId;
-}
-
 function emptyCvState(agentId: string): AgentCvState {
   return {
     schema_version: AGENT_CV_STATE_SCHEMA_VERSION,
@@ -91,17 +86,15 @@ function emptyCvState(agentId: string): AgentCvState {
 
 function normalizeCvEntry(value: unknown): AgentCvEntry | null {
   if (!isRecord(value)) return null;
-  const runId = typeof value.run_id === 'string' ? value.run_id.trim() : '';
-  const sessionId =
-    typeof value.session_id === 'string' ? value.session_id.trim() : '';
-  const skillId =
-    typeof value.skill_id === 'string' ? value.skill_id.trim() : '';
-  const date = typeof value.date === 'string' ? value.date.trim() : '';
-  const createdAt =
-    typeof value.created_at === 'string' ? value.created_at.trim() : '';
-  const title = typeof value.title === 'string' ? value.title.trim() : '';
-  const description =
-    typeof value.description === 'string' ? value.description.trim() : '';
+  const str = (key: string) =>
+    typeof value[key] === 'string' ? value[key].trim() : '';
+  const runId = str('run_id');
+  const sessionId = str('session_id');
+  const skillId = str('skill_id');
+  const date = str('date');
+  const createdAt = str('created_at');
+  const title = str('title');
+  const description = str('description');
   const outcome =
     value.outcome === 'success' ||
     value.outcome === 'partial' ||

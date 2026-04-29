@@ -1,4 +1,4 @@
-import { getAgentById, listAgents } from '../agents/agent-registry.js';
+import { displayNameForAgent, listAgents } from '../agents/agent-registry.js';
 import { getAgentSkillScores } from '../memory/db.js';
 import type {
   AgentScoreboardEntry,
@@ -24,11 +24,6 @@ let cachedRecommendationScores: {
   cacheKey: string;
   scores: AgentSkillScore[];
 } | null = null;
-
-function displayNameForAgent(agentId: string): string {
-  const agent = getAgentById(agentId);
-  return agent?.displayName || agent?.name || agentId;
-}
 
 function displayNamesByAgentId(): Map<string, string> {
   return new Map(
