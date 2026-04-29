@@ -84,23 +84,32 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import { WarmProcessPool } from './warm-process-pool.js';
 import {
-  normalizeWarmProcessPoolConfig,
-  WarmProcessPool,
-  type WarmProcessPoolEntry,
-} from './warm-process-pool.js';
+  claimWarmEntry,
+  enforceWarmPoolPressure,
+  getCachedObservedMemoryBytes,
+  getTotalWarmProcessCount,
+  IDLE_TIMEOUT_MS,
+  isTimedOutAgentOutput,
+  type MemorySample,
+  maintainWarmPool,
+  normalizeWarmProcessPoolRuntimeConfig,
+  observeAgentLifecycleLine,
+  rememberStderrLine,
+  removeWarmPoolEntry,
+  stopWarmEntries as stopWarmPoolEntries,
+  summarizeExit,
+  type WarmRunnerEntry,
+} from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
-const IDLE_TIMEOUT_MS = 300_000;
 const HOST_CAPACITY_WAIT_MS = 15_000;
 const HOST_CAPACITY_POLL_MS = 100;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
 const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
-const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
-const AGENT_READY_FOR_INPUT_LINE = '[hybridclaw-agent] ready for input';
-const AGENT_REQUEST_START_LINE = '[hybridclaw-agent] agent request start';
 
 function resolveExecutorMaxTokens(params: {
   model: string;
@@ -159,7 +168,7 @@ function resolveHostAgentBrowserBinary(): string | undefined {
   return undefined;
 }
 
-interface PoolEntry extends WarmProcessPoolEntry {
+interface PoolEntry extends WarmRunnerEntry {
   process: ChildProcess;
   sessionId: string;
   ipcSessionId: string;
@@ -184,38 +193,9 @@ interface PoolEntry extends WarmProcessPoolEntry {
 
 const pool = new Map<string, PoolEntry>();
 const warmPool = new WarmProcessPool<PoolEntry>(
-  normalizeWarmProcessPoolConfig({
-    ...CONTAINER_WARM_POOL,
-    memoryPressureRssBytes:
-      CONTAINER_WARM_POOL.memoryPressureRssMb * 1024 * 1024,
-  }),
+  normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
 );
-const STDERR_HISTORY_LIMIT = 20;
-const MEMORY_SAMPLE_TTL_MS = 5_000;
-let hostMemorySample: {
-  at: number;
-  processKey: string;
-  totalBytes: number;
-} | null = null;
-
-function rememberStderrLine(entry: PoolEntry, line: string): void {
-  entry.stderrHistory.push(line);
-  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
-    entry.stderrHistory.splice(
-      0,
-      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
-    );
-  }
-}
-
-function summarizeExit(
-  code: number | null,
-  signal: NodeJS.Signals | null,
-): string {
-  if (typeof code === 'number') return `exit code ${code}`;
-  if (signal) return `signal ${signal}`;
-  return 'unknown exit status';
-}
+let hostMemorySample: MemorySample | null = null;
 
 function formatHostAgentTerminalError(
   entry: PoolEntry,
@@ -479,21 +459,22 @@ function stopHostProcess(entry: PoolEntry): void {
 }
 
 function getTotalHostProcessCount(): number {
-  return pool.size + warmPool.size;
+  return getTotalWarmProcessCount(pool, warmPool);
 }
 
 function removePoolEntry(entry: PoolEntry): void {
-  warmPool.delete(entry.id);
-  for (const [sessionId, active] of pool) {
-    if (active === entry) pool.delete(sessionId);
-  }
+  removeWarmPoolEntry(pool, warmPool, entry);
 }
 
 function stopWarmEntries(entries: PoolEntry[]): void {
-  for (const entry of entries) {
-    logger.info({ agentId: entry.agentId }, 'Evicting warm host agent process');
-    stopHostProcess(entry);
-  }
+  stopWarmPoolEntries(entries, {
+    log: (entry) =>
+      logger.info(
+        { agentId: entry.agentId },
+        'Evicting warm host agent process',
+      ),
+    stop: stopHostProcess,
+  });
 }
 
 function readProcessRssBytes(pid: number | undefined): number {
@@ -508,85 +489,29 @@ function readProcessRssBytes(pid: number | undefined): number {
 }
 
 function getObservedHostProcessMemoryBytes(): number {
-  const warmEntries = warmPool.values();
-  if (warmEntries.length === 0 || !warmPool.memoryPressureEnabled) return 0;
-  const pids = [
-    ...Array.from(pool.values()).map((entry) => entry.process.pid),
-    ...warmEntries.map((entry) => entry.process.pid),
-  ].filter((pid): pid is number => typeof pid === 'number');
-  const processKey = Array.from(new Set(pids)).sort().join('\n');
-  const now = Date.now();
-  if (
-    hostMemorySample &&
-    hostMemorySample.processKey === processKey &&
-    now - hostMemorySample.at < MEMORY_SAMPLE_TTL_MS
-  ) {
-    return hostMemorySample.totalBytes;
-  }
-
-  let total = 0;
-  for (const pid of pids) {
-    total += readProcessRssBytes(pid);
-  }
-  hostMemorySample = { at: now, processKey, totalBytes: total };
-  return total;
+  return getCachedObservedMemoryBytes({
+    cache: hostMemorySample,
+    setCache: (sample) => {
+      hostMemorySample = sample;
+    },
+    activeEntries: Array.from(pool.values()),
+    warmEntries: warmPool.values(),
+    memoryPressureEnabled: warmPool.memoryPressureEnabled,
+    keyForEntry: (entry) =>
+      typeof entry.process.pid === 'number' ? String(entry.process.pid) : null,
+    readTotalBytes: (pids) =>
+      pids.reduce((sum, pid) => sum + readProcessRssBytes(Number(pid)), 0),
+  });
 }
 
 function enforceWarmHostPressure(): void {
-  if (warmPool.size === 0) return;
-  const totalProcessCount = getTotalHostProcessCount();
-  const overCapacity = totalProcessCount > MAX_CONCURRENT_CONTAINERS;
-  if (!overCapacity && !warmPool.memoryPressureEnabled) return;
-  stopWarmEntries(
-    warmPool.evictForPressure({
-      totalProcessCount,
-      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-      rssBytes: overCapacity ? undefined : getObservedHostProcessMemoryBytes(),
-    }),
-  );
-}
-
-function markWorkerReadyForInput(entry: PoolEntry): void {
-  entry.readyForInputAt = Date.now();
-}
-
-function markAgentRequestStart(entry: PoolEntry): void {
-  const startedAt = entry.pendingColdStartProbeStartedAt;
-  if (startedAt == null) return;
-  warmPool.recordColdStart(Date.now() - startedAt);
-  entry.pendingColdStartProbeStartedAt = null;
-}
-
-function observeAgentLifecycleLine(entry: PoolEntry, line: string): boolean {
-  if (line === AGENT_READY_FOR_INPUT_LINE) {
-    markWorkerReadyForInput(entry);
-    entry.activity?.notify();
-    return true;
-  }
-  if (line === AGENT_REQUEST_START_LINE) {
-    markAgentRequestStart(entry);
-    entry.activity?.notify();
-    return true;
-  }
-  return false;
-}
-
-function canUseWarmHostPool(params: {
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
-}): boolean {
-  return (
-    warmPool.enabled &&
-    !params.workspacePathOverride?.trim() &&
-    !params.workspaceDisplayRootOverride?.trim() &&
-    !params.bashProxy
-  );
-}
-
-function createWarmSessionId(agentId: string): string {
-  const safeAgent = agentId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `warm_${safeAgent}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  enforceWarmPoolPressure({
+    pool,
+    warmPool,
+    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    getObservedMemoryBytes: getObservedHostProcessMemoryBytes,
+    stopEntries: stopWarmEntries,
+  });
 }
 
 function claimWarmHostProcess(params: {
@@ -596,23 +521,23 @@ function claimWarmHostProcess(params: {
   workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): PoolEntry | null {
-  if (!canUseWarmHostPool(params)) return null;
-  enforceWarmHostPressure();
-  const entry = warmPool.claim(params.agentId);
-  if (!entry) return null;
-  entry.sessionId = params.sessionId;
-  entry.warm = false;
-  entry.lastUsedAt = Date.now();
-  pool.set(params.sessionId, entry);
-  logger.info(
-    {
-      sessionId: params.sessionId,
-      ipcSessionId: entry.ipcSessionId,
-      agentId: params.agentId,
-    },
-    'Claimed warm host agent process',
-  );
-  return entry;
+  return claimWarmEntry({
+    pool,
+    warmPool,
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    eligibility: params,
+    enforcePressure: enforceWarmHostPressure,
+    logClaim: (entry) =>
+      logger.info(
+        {
+          sessionId: params.sessionId,
+          ipcSessionId: entry.ipcSessionId,
+          agentId: params.agentId,
+        },
+        'Claimed warm host agent process',
+      ),
+  });
 }
 
 function maintainWarmHostPool(params: {
@@ -621,28 +546,18 @@ function maintainWarmHostPool(params: {
   workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): void {
-  if (!canUseWarmHostPool(params)) return;
-  enforceWarmHostPressure();
-  const targetSize = warmPool.targetIdleForAgent(params.agentId);
-  stopWarmEntries(warmPool.trimAgent(params.agentId, targetSize));
-  while (
-    warmPool.idleCountForAgent(params.agentId) < targetSize &&
-    getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS
-  ) {
-    getOrSpawnHostProcess({
-      sessionId: createWarmSessionId(params.agentId),
-      agentId: params.agentId,
-      warm: true,
-    });
-  }
-}
-
-function isTimedOutAgentOutput(output: ContainerOutput): boolean {
-  return (
-    output.status === 'error' &&
-    typeof output.error === 'string' &&
-    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
-  );
+  maintainWarmPool({
+    pool,
+    warmPool,
+    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    agentId: params.agentId,
+    eligibility: params,
+    enforcePressure: enforceWarmHostPressure,
+    stopEntries: stopWarmEntries,
+    spawnWarm: (sessionId, agentId) => {
+      getOrSpawnHostProcess({ sessionId, agentId, warm: true });
+    },
+  });
 }
 
 function getOrSpawnHostProcess(
@@ -780,7 +695,7 @@ function getOrSpawnHostProcess(
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
-      if (observeAgentLifecycleLine(entry, line)) continue;
+      if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
       if (consumeModelResponseDebugFileLine(line)) {
         entry.activity?.notify();
         continue;
@@ -820,7 +735,7 @@ function getOrSpawnHostProcess(
   proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
-      if (observeAgentLifecycleLine(entry, tail)) {
+      if (observeAgentLifecycleLine(entry, tail, warmPool)) {
         entry.stderrBuffer = '';
       } else if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();

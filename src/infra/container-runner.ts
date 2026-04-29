@@ -92,14 +92,25 @@ import {
   isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import { WarmProcessPool } from './warm-process-pool.js';
 import {
-  normalizeWarmProcessPoolConfig,
-  WarmProcessPool,
-  type WarmProcessPoolEntry,
-} from './warm-process-pool.js';
+  claimWarmEntry,
+  enforceWarmPoolPressure,
+  getCachedObservedMemoryBytes,
+  getTotalWarmProcessCount,
+  IDLE_TIMEOUT_MS,
+  isTimedOutAgentOutput,
+  type MemorySample,
+  maintainWarmPool,
+  normalizeWarmProcessPoolRuntimeConfig,
+  observeAgentLifecycleLine,
+  rememberStderrLine,
+  removeWarmPoolEntry,
+  stopWarmEntries as stopWarmPoolEntries,
+  summarizeExit,
+  type WarmRunnerEntry,
+} from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
-
-const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
 function resolveExecutorMaxTokens(params: {
   model: string;
@@ -111,7 +122,7 @@ function resolveExecutorMaxTokens(params: {
   });
 }
 
-interface PoolEntry extends WarmProcessPoolEntry {
+interface PoolEntry extends WarmRunnerEntry {
   process: ChildProcess;
   containerName: string;
   sessionId: string;
@@ -142,18 +153,9 @@ interface ContainerPathAliasMount {
 
 const pool = new Map<string, PoolEntry>();
 const warmPool = new WarmProcessPool<PoolEntry>(
-  normalizeWarmProcessPoolConfig({
-    ...CONTAINER_WARM_POOL,
-    memoryPressureRssBytes:
-      CONTAINER_WARM_POOL.memoryPressureRssMb * 1024 * 1024,
-  }),
+  normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
 );
-const MEMORY_SAMPLE_TTL_MS = 5_000;
-let containerMemorySample: {
-  at: number;
-  containerKey: string;
-  totalBytes: number;
-} | null = null;
+let containerMemorySample: MemorySample | null = null;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
@@ -162,9 +164,6 @@ const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
-const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
-const AGENT_READY_FOR_INPUT_LINE = '[hybridclaw-agent] ready for input';
-const AGENT_REQUEST_START_LINE = '[hybridclaw-agent] agent request start';
 
 export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
@@ -194,26 +193,6 @@ export function resolveDiscordMediaCacheHostDir(): string {
 }
 
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
-const STDERR_HISTORY_LIMIT = 20;
-
-function rememberStderrLine(entry: PoolEntry, line: string): void {
-  entry.stderrHistory.push(line);
-  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
-    entry.stderrHistory.splice(
-      0,
-      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
-    );
-  }
-}
-
-function summarizeExit(
-  code: number | null,
-  signal: NodeJS.Signals | null,
-): string {
-  if (typeof code === 'number') return `exit code ${code}`;
-  if (signal) return `signal ${signal}`;
-  return 'unknown exit status';
-}
 
 function formatContainerTerminalError(
   entry: PoolEntry,
@@ -401,14 +380,11 @@ export function isWarmContainerColdStartWithinBudget(): boolean {
 }
 
 function getTotalContainerProcessCount(): number {
-  return pool.size + warmPool.size;
+  return getTotalWarmProcessCount(pool, warmPool);
 }
 
 function removePoolEntry(entry: PoolEntry): void {
-  warmPool.delete(entry.id);
-  for (const [sessionId, active] of pool) {
-    if (active === entry) pool.delete(sessionId);
-  }
+  removeWarmPoolEntry(pool, warmPool, entry);
 }
 
 export function stopSessionContainer(sessionId: string): boolean {
@@ -435,13 +411,14 @@ function stopPoolEntry(entry: PoolEntry): void {
 }
 
 function stopWarmEntries(entries: PoolEntry[]): void {
-  for (const entry of entries) {
-    logger.info(
-      { agentId: entry.agentId, containerName: entry.containerName },
-      'Evicting warm container',
-    );
-    stopPoolEntry(entry);
-  }
+  stopWarmPoolEntries(entries, {
+    log: (entry) =>
+      logger.info(
+        { agentId: entry.agentId, containerName: entry.containerName },
+        'Evicting warm container',
+      ),
+    stop: stopPoolEntry,
+  });
 }
 
 function parseMemoryBytes(raw: string): number | null {
@@ -498,86 +475,34 @@ function readContainerMemoryBytes(
 }
 
 function getObservedContainerMemoryBytes(): number {
-  const warmEntries = warmPool.values();
-  if (warmEntries.length === 0 || !warmPool.memoryPressureEnabled) return 0;
-  const containerNames = [
-    ...Array.from(pool.values()).map((entry) => entry.containerName),
-    ...warmEntries.map((entry) => entry.containerName),
-  ];
-  const containerKey = Array.from(new Set(containerNames)).sort().join('\n');
-  const now = Date.now();
-  if (
-    containerMemorySample &&
-    containerMemorySample.containerKey === containerKey &&
-    now - containerMemorySample.at < MEMORY_SAMPLE_TTL_MS
-  ) {
-    return containerMemorySample.totalBytes;
-  }
-
-  const memoryByContainer = readContainerMemoryBytes(containerNames);
-  let total = 0;
-  for (const containerName of containerNames) {
-    total += memoryByContainer.get(containerName) || 0;
-  }
-  containerMemorySample = { at: now, containerKey, totalBytes: total };
-  return total;
+  return getCachedObservedMemoryBytes({
+    cache: containerMemorySample,
+    setCache: (sample) => {
+      containerMemorySample = sample;
+    },
+    activeEntries: Array.from(pool.values()),
+    warmEntries: warmPool.values(),
+    memoryPressureEnabled: warmPool.memoryPressureEnabled,
+    keyForEntry: (entry) => entry.containerName,
+    readTotalBytes: (containerNames) => {
+      const memoryByContainer = readContainerMemoryBytes(containerNames);
+      let total = 0;
+      for (const containerName of containerNames) {
+        total += memoryByContainer.get(containerName) || 0;
+      }
+      return total;
+    },
+  });
 }
 
 function enforceWarmContainerPressure(): void {
-  if (warmPool.size === 0) return;
-  const totalProcessCount = getTotalContainerProcessCount();
-  const overCapacity = totalProcessCount > MAX_CONCURRENT_CONTAINERS;
-  if (!overCapacity && !warmPool.memoryPressureEnabled) return;
-  stopWarmEntries(
-    warmPool.evictForPressure({
-      totalProcessCount,
-      maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-      rssBytes: overCapacity ? undefined : getObservedContainerMemoryBytes(),
-    }),
-  );
-}
-
-function markWorkerReadyForInput(entry: PoolEntry): void {
-  entry.readyForInputAt = Date.now();
-}
-
-function markAgentRequestStart(entry: PoolEntry): void {
-  const startedAt = entry.pendingColdStartProbeStartedAt;
-  if (startedAt == null) return;
-  warmPool.recordColdStart(Date.now() - startedAt);
-  entry.pendingColdStartProbeStartedAt = null;
-}
-
-function observeAgentLifecycleLine(entry: PoolEntry, line: string): boolean {
-  if (line === AGENT_READY_FOR_INPUT_LINE) {
-    markWorkerReadyForInput(entry);
-    entry.activity?.notify();
-    return true;
-  }
-  if (line === AGENT_REQUEST_START_LINE) {
-    markAgentRequestStart(entry);
-    entry.activity?.notify();
-    return true;
-  }
-  return false;
-}
-
-function canUseWarmContainerPool(params: {
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
-}): boolean {
-  return (
-    warmPool.enabled &&
-    !params.workspacePathOverride?.trim() &&
-    !params.workspaceDisplayRootOverride?.trim() &&
-    !params.bashProxy
-  );
-}
-
-function createWarmSessionId(agentId: string): string {
-  const safeAgent = agentId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `warm_${safeAgent}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  enforceWarmPoolPressure({
+    pool,
+    warmPool,
+    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    getObservedMemoryBytes: getObservedContainerMemoryBytes,
+    stopEntries: stopWarmEntries,
+  });
 }
 
 function claimWarmContainer(params: {
@@ -587,24 +512,24 @@ function claimWarmContainer(params: {
   workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): PoolEntry | null {
-  if (!canUseWarmContainerPool(params)) return null;
-  enforceWarmContainerPressure();
-  const entry = warmPool.claim(params.agentId);
-  if (!entry) return null;
-  entry.sessionId = params.sessionId;
-  entry.warm = false;
-  entry.lastUsedAt = Date.now();
-  pool.set(params.sessionId, entry);
-  logger.info(
-    {
-      sessionId: params.sessionId,
-      ipcSessionId: entry.ipcSessionId,
-      agentId: params.agentId,
-      containerName: entry.containerName,
-    },
-    'Claimed warm container',
-  );
-  return entry;
+  return claimWarmEntry({
+    pool,
+    warmPool,
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    eligibility: params,
+    enforcePressure: enforceWarmContainerPressure,
+    logClaim: (entry) =>
+      logger.info(
+        {
+          sessionId: params.sessionId,
+          ipcSessionId: entry.ipcSessionId,
+          agentId: params.agentId,
+          containerName: entry.containerName,
+        },
+        'Claimed warm container',
+      ),
+  });
 }
 
 function maintainWarmContainerPool(params: {
@@ -613,28 +538,18 @@ function maintainWarmContainerPool(params: {
   workspaceDisplayRootOverride?: string;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): void {
-  if (!canUseWarmContainerPool(params)) return;
-  enforceWarmContainerPressure();
-  const targetSize = warmPool.targetIdleForAgent(params.agentId);
-  stopWarmEntries(warmPool.trimAgent(params.agentId, targetSize));
-  while (
-    warmPool.idleCountForAgent(params.agentId) < targetSize &&
-    getTotalContainerProcessCount() < MAX_CONCURRENT_CONTAINERS
-  ) {
-    getOrSpawnContainer({
-      sessionId: createWarmSessionId(params.agentId),
-      agentId: params.agentId,
-      warm: true,
-    });
-  }
-}
-
-function isTimedOutAgentOutput(output: ContainerOutput): boolean {
-  return (
-    output.status === 'error' &&
-    typeof output.error === 'string' &&
-    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
-  );
+  maintainWarmPool({
+    pool,
+    warmPool,
+    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    agentId: params.agentId,
+    eligibility: params,
+    enforcePressure: enforceWarmContainerPressure,
+    stopEntries: stopWarmEntries,
+    spawnWarm: (sessionId, agentId) => {
+      getOrSpawnContainer({ sessionId, agentId, warm: true });
+    },
+  });
 }
 
 function isWithinResolvedRoot(candidate: string, root: string): boolean {
@@ -953,7 +868,7 @@ function getOrSpawnContainer(
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
-      if (observeAgentLifecycleLine(entry, line)) continue;
+      if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
       if (consumeModelResponseDebugFileLine(line)) {
         entry.activity?.notify();
         continue;
@@ -990,7 +905,7 @@ function getOrSpawnContainer(
   proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
-      if (observeAgentLifecycleLine(entry, tail)) {
+      if (observeAgentLifecycleLine(entry, tail, warmPool)) {
         entry.stderrBuffer = '';
       } else if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
