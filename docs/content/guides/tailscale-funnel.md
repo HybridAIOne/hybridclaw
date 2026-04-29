@@ -70,8 +70,8 @@ hybridclaw secret set TS_AUTHKEY "tskey-auth-..."
 ```
 
 When `TS_AUTHKEY` is present and the local daemon is logged out, HybridClaw runs
-`tailscale up --auth-key <authkey>` before starting Funnel. Error messages and
-audit entries redact the auth key.
+`tailscale up` with the auth key passed through the child process environment
+before starting Funnel. Error messages and audit entries redact the auth key.
 
 ## Configure HybridClaw
 
@@ -90,6 +90,10 @@ hybridclaw config set deployment.mode local
 hybridclaw config set deployment.tunnel.provider tailscale
 hybridclaw config set deployment.tunnel.health_check_interval_ms 30000
 ```
+
+Each health check invokes `tailscale funnel status --json`, so very short
+intervals increase host process-spawn overhead. Keep the default unless you need
+faster tunnel failure detection.
 
 Start the gateway normally:
 
