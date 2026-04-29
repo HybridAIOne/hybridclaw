@@ -1,0 +1,20 @@
+id: draft_legal_publish
+name: Draft legal publish
+steps:
+  - id: draft
+    owner_coworker_id: drafter@workflow@starter
+    action: Draft the contract update from the approved source brief.
+    stakes_threshold: medium
+  - id: legal
+    owner_coworker_id: legal@workflow@starter
+    action: Review contract language, liability, and customer commitments.
+    stakes_threshold: medium
+  - id: publish
+    owner_coworker_id: publisher@workflow@starter
+    action: Publish the approved contract update to the customer-facing workspace.
+    stakes_threshold: low
+transitions:
+  - from: draft
+    to: legal
+  - from: legal
+    to: publish

@@ -99,6 +99,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'mcp',
   'plugin',
   'voice',
+  'workflow',
   'clear',
   'reset',
   'compact',
@@ -225,6 +226,11 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   config: {
     command: '/config [check|reload|set <key> <value>]',
     description: 'Show or update local runtime config',
+  },
+  workflow: {
+    command:
+      '/workflow [list|start <workflow_id>|approve <run_id>|return <run_id> <step_id> <notes>]',
+    description: 'Run and inspect declarative workflows',
   },
   context: {
     command: '/context',

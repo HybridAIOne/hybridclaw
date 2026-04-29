@@ -1282,6 +1282,78 @@ export interface AdminToolsResponse {
   recentExecutions: AdminToolExecution[];
 }
 
+export interface AdminWorkflowDefinition {
+  id: string;
+  name: string;
+  steps: Array<{
+    id: string;
+    owner_coworker_id: string;
+    action: string;
+    stakes_threshold?: 'low' | 'medium' | 'high';
+  }>;
+  transitions: Array<{ from: string; to: string }>;
+}
+
+export interface AdminWorkflowStepRun {
+  step_id: string;
+  owner_coworker_id: string;
+  action: string;
+  status: string;
+  attempts: number;
+  artifacts: unknown[];
+  revisions: unknown[];
+  escalation?: {
+    route: 'none' | 'approval_request';
+    threshold?: 'low' | 'medium' | 'high';
+    stakes?: 'low' | 'medium' | 'high';
+    reasons: string[];
+    approved_at?: string;
+  };
+}
+
+export interface AdminWorkflowRun {
+  id: string;
+  workflow: AdminWorkflowDefinition;
+  status: string;
+  current_step_id?: string;
+  updated_at: string;
+  steps: AdminWorkflowStepRun[];
+}
+
+export interface AdminWorkflowStepView {
+  id: string;
+  ownerCoworkerId: string;
+  action: string;
+  status: string;
+  attempts: number;
+  active: boolean;
+  pendingApproval: boolean;
+  stakes?: string;
+  threshold?: string;
+  revisionCount: number;
+  artifactCount: number;
+}
+
+export interface AdminWorkflowRunView {
+  id: string;
+  workflowId: string;
+  name: string;
+  status: string;
+  currentStepId?: string;
+  steps: AdminWorkflowStepView[];
+}
+
+export interface AdminWorkflowsResponse {
+  definitions: AdminWorkflowDefinition[];
+  runs: AdminWorkflowRun[];
+}
+
+export interface AdminWorkflowRunResponse {
+  run: AdminWorkflowRun;
+  view: AdminWorkflowRunView;
+  text: string;
+}
+
 export interface DeleteSessionResult {
   deleted: boolean;
   sessionId: string;

@@ -571,6 +571,47 @@ code {
   white-space: nowrap;
 }
 
+.stack-list {
+  display: grid;
+  gap: 10px;
+}
+
+button.list-row {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.timeline-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+}
+
+.timeline-item.active {
+  border-color: var(--accent);
+}
+
 .list-status {
   display: inline-flex;
   align-items: center;

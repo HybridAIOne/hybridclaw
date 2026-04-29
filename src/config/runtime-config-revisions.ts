@@ -23,6 +23,7 @@ export const RUNTIME_REVISION_ASSET_TYPES = [
   'template',
   'a2a',
   'team',
+  'workflow',
 ] as const;
 
 export type RuntimeRevisionAssetType =
@@ -76,6 +77,11 @@ export interface RuntimeConfigRevisionStateMetadata {
   updatedAt: string;
 }
 
+export interface RuntimeConfigRevisionStateEntry
+  extends RuntimeConfigRevisionState {
+  assetPath: string;
+}
+
 export interface RuntimeConfigObservedFile {
   exists: boolean;
   content: string | null;
@@ -125,6 +131,10 @@ interface ConfigRevisionStateMetadataRow {
   route: string;
   source: string;
   updated_at: string;
+}
+
+interface ConfigRevisionStateEntryRow extends ConfigRevisionStateRow {
+  config_path: string;
 }
 
 function resolveActor(actor?: string | null): string {
@@ -685,6 +695,37 @@ export function getRuntimeAssetRevisionState(
       )
       .get(normalizedAssetType, assetPath);
     return row ? mapRevisionStateRow(row) : null;
+  });
+}
+
+export function listRuntimeAssetRevisionStates(
+  assetType: RuntimeRevisionAssetType,
+  pathPrefix?: string,
+): RuntimeConfigRevisionStateEntry[] {
+  const normalizedAssetType = normalizeRevisionAssetType(assetType);
+  const normalizedPrefix = String(pathPrefix || '').trim();
+  return withRevisionDatabase((database) => {
+    const rows = normalizedPrefix
+      ? database
+          .prepare<[string, string], ConfigRevisionStateEntryRow>(
+            `SELECT config_path, current_content, actor, route, source, updated_at
+             FROM config_revision_state
+             WHERE asset_type = ? AND config_path LIKE ?
+             ORDER BY updated_at DESC, config_path ASC`,
+          )
+          .all(normalizedAssetType, `${normalizedPrefix}%`)
+      : database
+          .prepare<[string], ConfigRevisionStateEntryRow>(
+            `SELECT config_path, current_content, actor, route, source, updated_at
+             FROM config_revision_state
+             WHERE asset_type = ?
+             ORDER BY updated_at DESC, config_path ASC`,
+          )
+          .all(normalizedAssetType);
+    return rows.map((row) => ({
+      assetPath: row.config_path,
+      ...mapRevisionStateRow(row),
+    }));
   });
 }
 

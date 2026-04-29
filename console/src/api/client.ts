@@ -39,6 +39,8 @@ import type {
   AdminTerminalStopResponse,
   AdminToolsResponse,
   AdminTunnelStatus,
+  AdminWorkflowRunResponse,
+  AdminWorkflowsResponse,
   AgentListItem,
   AgentListResponse,
   AgentsOverview,
@@ -898,6 +900,52 @@ export function rejectAdaptiveSkillAmendment(
 
 export function fetchTools(token: string): Promise<AdminToolsResponse> {
   return requestJson<AdminToolsResponse>('/api/admin/tools', { token });
+}
+
+export function fetchWorkflows(token: string): Promise<AdminWorkflowsResponse> {
+  return requestJson<AdminWorkflowsResponse>('/api/admin/workflows', { token });
+}
+
+export function startWorkflow(
+  token: string,
+  workflowId: string,
+): Promise<AdminWorkflowRunResponse> {
+  return requestJson<AdminWorkflowRunResponse>('/api/admin/workflows', {
+    token,
+    method: 'POST',
+    body: { workflowId },
+  });
+}
+
+export function approveWorkflow(
+  token: string,
+  runId: string,
+  stepId?: string,
+): Promise<AdminWorkflowRunResponse> {
+  return requestJson<AdminWorkflowRunResponse>(
+    `/api/admin/workflows/runs/${encodeURIComponent(runId)}/approve`,
+    {
+      token,
+      method: 'POST',
+      body: { stepId },
+    },
+  );
+}
+
+export function returnWorkflow(
+  token: string,
+  runId: string,
+  stepId: string,
+  notes: string,
+): Promise<AdminWorkflowRunResponse> {
+  return requestJson<AdminWorkflowRunResponse>(
+    `/api/admin/workflows/runs/${encodeURIComponent(runId)}/return`,
+    {
+      token,
+      method: 'POST',
+      body: { stepId, notes },
+    },
+  );
 }
 
 export function saveSkillEnabled(

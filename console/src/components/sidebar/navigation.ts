@@ -42,6 +42,7 @@ export const SIDEBAR_NAV_GROUPS: ReadonlyArray<SidebarNavGroup> = [
       { to: '/admin/approvals', label: 'Approvals', icon: Policy },
       { to: '/admin/audit', label: 'Audit', icon: Audit },
       { to: '/admin/jobs', label: 'Jobs', icon: Jobs },
+      { to: '/admin/workflows', label: 'Workflows', icon: Scheduler },
     ],
   },
   {

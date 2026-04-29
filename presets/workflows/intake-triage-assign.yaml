@@ -1,0 +1,20 @@
+id: intake_triage_assign
+name: Intake triage assign
+steps:
+  - id: intake
+    owner_coworker_id: intake@workflow@starter
+    action: Summarize the support ticket and extract the customer need.
+    stakes_threshold: medium
+  - id: triage
+    owner_coworker_id: triage@workflow@starter
+    action: Classify priority, product area, and any customer-facing risk.
+    stakes_threshold: medium
+  - id: assign
+    owner_coworker_id: support-lead@workflow@starter
+    action: Assign the ticket to the right owner with handoff notes.
+    stakes_threshold: medium
+transitions:
+  - from: intake
+    to: triage
+  - from: triage
+    to: assign

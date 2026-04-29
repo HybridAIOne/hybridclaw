@@ -1,0 +1,20 @@
+id: brief_build_review
+name: Brief build review
+steps:
+  - id: brief
+    owner_coworker_id: briefing@workflow@starter
+    action: Write a concise marketing copy brief from the source context.
+    stakes_threshold: medium
+  - id: build
+    owner_coworker_id: builder@workflow@starter
+    action: Build the first marketing copy draft from the approved brief.
+    stakes_threshold: medium
+  - id: review
+    owner_coworker_id: reviewer@workflow@starter
+    action: Review the client-facing marketing copy before publication.
+    stakes_threshold: medium
+transitions:
+  - from: brief
+    to: build
+  - from: build
+    to: review

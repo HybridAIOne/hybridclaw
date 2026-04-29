@@ -329,6 +329,13 @@ import {
 import { sleep } from '../utils/sleep.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import {
+  approveWorkflowRunStep,
+  getWorkflowAdminSummary,
+  returnWorkflowRunStep,
+  startWorkflowRun,
+} from '../workflow/service.js';
+import { renderWorkflowRunState } from '../workflow/visualizer.js';
+import {
   ensureBootstrapFiles,
   resetWorkspace,
   resolveStartupBootstrapFile,
@@ -456,7 +463,10 @@ import {
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
 import { runMemoryConsolidation } from './memory-consolidation-runner.js';
-import { listPendingApprovals } from './pending-approvals.js';
+import {
+  getPendingApproval,
+  listPendingApprovals,
+} from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
 import {
@@ -7846,6 +7856,140 @@ export async function handleGatewayCommand(
           ({ command, description }) => `\`${command}\`: ${description}`,
         );
         return infoCommand('HybridClaw Commands', help.join('\n'));
+      }
+
+      case 'workflow': {
+        const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
+        const workflowCommandResponse = (
+          title: string,
+          runText: string,
+          runId: string,
+        ): GatewayCommandResult => {
+          const pending = getPendingApproval(req.sessionId);
+          if (
+            !pending ||
+            !pending.approvalId.startsWith(`workflow:${runId}:`)
+          ) {
+            return infoCommand(title, runText);
+          }
+          return infoCommand(title, `${runText}\n${pending.prompt}`);
+        };
+
+        if (sub === 'list' || sub === 'status') {
+          const summary = getWorkflowAdminSummary();
+          const lines = [
+            'Definitions:',
+            ...(summary.definitions.length > 0
+              ? summary.definitions.map(
+                  (workflow) =>
+                    `- ${workflow.id} - ${workflow.name} (${workflow.steps.length} steps)`,
+                )
+              : ['- none']),
+            '',
+            'Runs:',
+            ...(summary.runs.length > 0
+              ? summary.runs.slice(0, 10).map((run) => {
+                  const active = run.current_step_id
+                    ? `, active: ${run.current_step_id}`
+                    : '';
+                  return `- ${run.id} - ${run.workflow.name}: ${run.status}${active}`;
+                })
+              : ['- none']),
+          ];
+          return infoCommand('Workflows', lines.join('\n'));
+        }
+
+        if (sub === 'start') {
+          const workflowId = parseIdArg(req.args, 2);
+          if (!workflowId) {
+            return badCommand(
+              'Usage',
+              'Usage: `workflow start <workflow_id> [run_id]`',
+            );
+          }
+          try {
+            const run = await startWorkflowRun({
+              workflowId,
+              runId: parseIdArg(req.args, 3) || undefined,
+              sessionId: req.sessionId,
+              userId: req.userId || undefined,
+            });
+            return workflowCommandResponse(
+              'Workflow Started',
+              renderWorkflowRunState(run),
+              run.id,
+            );
+          } catch (error) {
+            return badCommand(
+              'Workflow Error',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'approve') {
+          const runId = parseIdArg(req.args, 2);
+          if (!runId) {
+            return badCommand(
+              'Usage',
+              'Usage: `workflow approve <run_id> [step_id]`',
+            );
+          }
+          try {
+            const run = await approveWorkflowRunStep({
+              runId,
+              stepId: parseIdArg(req.args, 3) || undefined,
+              actor: req.userId || 'local-user',
+              sessionId: req.sessionId,
+            });
+            return workflowCommandResponse(
+              'Workflow Approved',
+              renderWorkflowRunState(run),
+              run.id,
+            );
+          } catch (error) {
+            return badCommand(
+              'Workflow Error',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        if (sub === 'return') {
+          const runId = parseIdArg(req.args, 2);
+          const stepId = parseIdArg(req.args, 3);
+          const notes = req.args.slice(4).join(' ').trim();
+          if (!runId || !stepId || !notes) {
+            return badCommand(
+              'Usage',
+              'Usage: `workflow return <run_id> <step_id> <notes>`',
+            );
+          }
+          try {
+            const run = await returnWorkflowRunStep({
+              runId,
+              stepId,
+              notes,
+              actor: req.userId || 'local-user',
+              sessionId: req.sessionId,
+            });
+            return workflowCommandResponse(
+              'Workflow Returned For Revision',
+              renderWorkflowRunState(run),
+              run.id,
+            );
+          } catch (error) {
+            return badCommand(
+              'Workflow Error',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
+        return badCommand(
+          'Usage',
+          'Usage: `workflow list`, `workflow start <workflow_id> [run_id]`, `workflow approve <run_id> [step_id]`, or `workflow return <run_id> <step_id> <notes>`',
+        );
       }
 
       case 'agent': {

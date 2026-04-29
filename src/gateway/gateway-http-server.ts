@@ -84,6 +84,17 @@ import {
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
 import {
+  approveWorkflowRunStep,
+  getWorkflowAdminSummary,
+  returnWorkflowRunStep,
+  startWorkflowRun,
+} from '../workflow/service.js';
+import { getWorkflowRunState } from '../workflow/store.js';
+import {
+  buildWorkflowRunView,
+  renderWorkflowRunState,
+} from '../workflow/visualizer.js';
+import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
   createAdminTerminalManager,
@@ -272,6 +283,13 @@ type ApiAdminPolicyRequestBody = {
   defaultAction?: unknown;
   presetName?: unknown;
   rule?: unknown;
+};
+type ApiAdminWorkflowRequestBody = {
+  workflowId?: unknown;
+  runId?: unknown;
+  stepId?: unknown;
+  notes?: unknown;
+  fromStepId?: unknown;
 };
 
 function normalizeStringListInput(value: unknown): string[] | undefined {
@@ -3266,6 +3284,129 @@ function handleApiAdminApprovals(res: ServerResponse, url: URL): void {
   );
 }
 
+function handleApiAdminWorkflowRun(res: ServerResponse, url: URL): void {
+  const segments = url.pathname.split('/').filter(Boolean);
+  const runId = segments[4] ? decodeURIComponent(segments[4]) : '';
+  if (!runId) {
+    sendJson(res, 400, { error: 'Expected workflow run id.' });
+    return;
+  }
+  const run = getWorkflowRunState(runId);
+  if (!run) {
+    sendJson(res, 404, { error: `Unknown workflow run: ${runId}` });
+    return;
+  }
+  sendJson(res, 200, {
+    run,
+    view: buildWorkflowRunView(run),
+    text: renderWorkflowRunState(run),
+  });
+}
+
+async function handleApiAdminWorkflows(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  const segments = url.pathname.split('/').filter(Boolean);
+  if (segments.length === 3 && method === 'GET') {
+    sendJson(res, 200, getWorkflowAdminSummary());
+    return;
+  }
+  if (segments.length === 3 && method === 'POST') {
+    const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
+    const workflowId = normalizeOptionalString(body.workflowId);
+    if (!workflowId) {
+      sendJson(res, 400, { error: 'Expected non-empty `workflowId`.' });
+      return;
+    }
+    try {
+      const run = await startWorkflowRun({
+        workflowId,
+        runId: normalizeOptionalString(body.runId),
+        sessionId: `admin:workflow:${workflowId}`,
+        userId: 'admin',
+      });
+      sendJson(res, 201, {
+        run,
+        view: buildWorkflowRunView(run),
+        text: renderWorkflowRunState(run),
+      });
+    } catch (error) {
+      sendJson(res, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return;
+  }
+  if (
+    segments.length >= 5 &&
+    segments[2] === 'workflows' &&
+    segments[3] === 'runs'
+  ) {
+    const runId = decodeURIComponent(segments[4] || '');
+    const action = segments[5] || '';
+    if (method === 'GET' && segments.length === 5) {
+      handleApiAdminWorkflowRun(res, url);
+      return;
+    }
+    if (method === 'POST' && action === 'approve') {
+      const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
+      try {
+        const run = await approveWorkflowRunStep({
+          runId,
+          stepId: normalizeOptionalString(body.stepId),
+          actor: 'admin',
+          sessionId: `admin:workflow:${runId}`,
+        });
+        sendJson(res, 200, {
+          run,
+          view: buildWorkflowRunView(run),
+          text: renderWorkflowRunState(run),
+        });
+      } catch (error) {
+        sendJson(res, 400, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+    if (method === 'POST' && action === 'return') {
+      const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
+      const stepId = normalizeOptionalString(body.stepId);
+      const notes = normalizeOptionalString(body.notes);
+      if (!stepId || !notes) {
+        sendJson(res, 400, {
+          error: 'Expected non-empty `stepId` and `notes`.',
+        });
+        return;
+      }
+      try {
+        const run = await returnWorkflowRunStep({
+          runId,
+          stepId,
+          notes,
+          fromStepId: normalizeOptionalString(body.fromStepId),
+          actor: 'admin',
+          sessionId: `admin:workflow:${runId}`,
+        });
+        sendJson(res, 200, {
+          run,
+          view: buildWorkflowRunView(run),
+          text: renderWorkflowRunState(run),
+        });
+      } catch (error) {
+        sendJson(res, 400, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+  }
+  sendJson(res, 404, { error: 'Not Found' });
+}
+
 function sendApiAdminPolicyError(res: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   sendJson(res, error instanceof GatewayRequestError ? error.statusCode : 400, {
@@ -4083,6 +4224,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/approvals' && method === 'GET') {
             handleApiAdminApprovals(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/workflows' ||
+            pathname.startsWith('/api/admin/workflows/')
+          ) {
+            await handleApiAdminWorkflows(req, res, url);
             return;
           }
           if (

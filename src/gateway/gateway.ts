@@ -133,6 +133,7 @@ import {
   normalizeEscalationTarget,
 } from '../types/execution.js';
 import { formatError } from '../utils/text-format.js';
+import { initializeWorkflowRuntime } from '../workflow/service.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
   type ApprovalPresentation,
@@ -3052,6 +3053,7 @@ async function main(): Promise<void> {
   validateGatewayPromptEnvDefaults();
   initDatabase();
   listAgents();
+  initializeWorkflowRuntime();
   await initGatewayService();
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {

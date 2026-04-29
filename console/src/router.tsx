@@ -24,6 +24,7 @@ import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
 import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
+import { WorkflowsPage } from './routes/workflows';
 
 const LazyTerminalPage = lazy(async () => {
   const mod = await import('./routes/terminal');
@@ -149,6 +150,12 @@ const jobsRoute = createRoute({
   component: JobsPage,
 });
 
+const workflowsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/workflows',
+  component: WorkflowsPage,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/mcp',
@@ -207,6 +214,7 @@ const routeTree = rootRoute.addChildren([
     modelsRoute,
     schedulerRoute,
     jobsRoute,
+    workflowsRoute,
     mcpRoute,
     auditRoute,
     skillsRoute,
