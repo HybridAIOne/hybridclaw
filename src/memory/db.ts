@@ -2315,7 +2315,7 @@ function syncAttachedTeamRevisionState(
     meta,
     {
       exists: true,
-      content: serializeAgentTeamStructure(agents),
+      content: serializeAgentTeamStructure(agents, { validate: false }),
     },
     new Date().toISOString(),
     {

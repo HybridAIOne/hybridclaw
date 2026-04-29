@@ -41,6 +41,10 @@ export interface AgentTeamStructureDiff {
   changed: AgentTeamStructureAgentDiff[];
 }
 
+export interface AgentTeamStructureSnapshotOptions {
+  validate?: boolean;
+}
+
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -92,6 +96,7 @@ function snapshotEntry(agent: AgentConfig): AgentTeamStructureEntry {
 
 export function buildAgentTeamStructureSnapshot(
   agents: AgentConfig[],
+  options?: AgentTeamStructureSnapshotOptions,
 ): AgentTeamStructureSnapshot {
   const seen = new Set<string>();
   const entries: AgentTeamStructureEntry[] = [];
@@ -102,7 +107,9 @@ export function buildAgentTeamStructureSnapshot(
     entries.push(snapshotEntry(agent));
   }
   entries.sort((left, right) => left.id.localeCompare(right.id));
-  validateAgentOrgChart(entries.map(toAgentConfig));
+  if (options?.validate !== false) {
+    validateAgentOrgChart(entries.map(toAgentConfig));
+  }
   return {
     version: AGENT_TEAM_STRUCTURE_VERSION,
     agents: entries,
@@ -163,9 +170,12 @@ export function serializeAgentTeamStructureSnapshot(
   return `${JSON.stringify(snapshot, null, 2)}\n`;
 }
 
-export function serializeAgentTeamStructure(agents: AgentConfig[]): string {
+export function serializeAgentTeamStructure(
+  agents: AgentConfig[],
+  options?: AgentTeamStructureSnapshotOptions,
+): string {
   return serializeAgentTeamStructureSnapshot(
-    buildAgentTeamStructureSnapshot(agents),
+    buildAgentTeamStructureSnapshot(agents, options),
   );
 }
 

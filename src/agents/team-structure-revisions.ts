@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import {
+  getRuntimeAssetRevisionDetailHistory,
   listRuntimeAssetRevisionHistory,
   type RuntimeConfigChangeMeta,
   type RuntimeConfigRevision,
@@ -78,7 +79,7 @@ export function syncAgentTeamStructureRevisionState(
   agents: AgentConfig[],
   meta?: RuntimeConfigChangeMeta,
 ): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
-  const content = serializeAgentTeamStructure(agents);
+  const content = serializeAgentTeamStructure(agents, { validate: false });
   return syncRuntimeAssetRevisionState(
     'team',
     AGENT_TEAM_STRUCTURE_ASSET_PATH,
@@ -98,7 +99,8 @@ export function listAgentTeamStructureRevisions(
     AGENT_TEAM_STRUCTURE_ASSET_PATH,
   );
   const currentContent =
-    history.state?.content ?? serializeAgentTeamStructure(currentAgents);
+    history.state?.content ??
+    serializeAgentTeamStructure(currentAgents, { validate: false });
   return history.revisions.map((revision) =>
     summarizeRevision({
       revision,
@@ -112,23 +114,22 @@ export function getAgentTeamStructureRevision(
   revisionId: number,
   currentAgents: AgentConfig[],
 ): AgentTeamStructureRevision {
-  const history = listRuntimeAssetRevisionHistory(
+  const history = getRuntimeAssetRevisionDetailHistory(
     'team',
     AGENT_TEAM_STRUCTURE_ASSET_PATH,
+    revisionId,
   );
-  const revision = history.revisions.find(
-    (candidate) => candidate.id === revisionId,
-  );
+  const revision = history.revision;
   if (!revision) {
     throw new Error(`Team structure revision ${revisionId} was not found.`);
   }
   const currentContent =
-    history.state?.content ?? serializeAgentTeamStructure(currentAgents);
-  const nextContent = revisionNextContent({
-    revision,
-    revisions: history.revisions,
-    currentContent,
-  });
+    history.state?.content ??
+    serializeAgentTeamStructure(currentAgents, { validate: false });
+  const nextContent =
+    revision.replacedByMd5 && md5Hex(currentContent) === revision.replacedByMd5
+      ? currentContent
+      : history.nextRevision?.content;
   const snapshot = parseAgentTeamStructureSnapshot(revision.content);
   const nextSnapshot = nextContent
     ? parseAgentTeamStructureSnapshot(nextContent)

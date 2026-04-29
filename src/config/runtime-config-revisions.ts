@@ -54,6 +54,12 @@ export interface RuntimeConfigRevisionHistory {
   state: RuntimeConfigRevisionState | null;
 }
 
+export interface RuntimeConfigRevisionDetailHistory {
+  revision: RuntimeConfigRevision | null;
+  nextRevision: RuntimeConfigRevision | null;
+  state: RuntimeConfigRevisionState | null;
+}
+
 export interface RuntimeConfigRevisionState {
   actor: string;
   route: string;
@@ -590,6 +596,45 @@ export function listRuntimeAssetRevisionHistory(
     return {
       revisions,
       state: state ? mapRevisionStateRow(state) : null,
+    };
+  });
+}
+
+export function getRuntimeAssetRevisionDetailHistory(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+): RuntimeConfigRevisionDetailHistory {
+  const normalizedAssetType = normalizeRevisionAssetType(assetType);
+  return withRevisionDatabase((database) => {
+    const revisionRow = database
+      .prepare<[string, string, number], ConfigRevisionRow>(
+        `SELECT id, asset_type, actor, route, source, md5, byte_length, content, created_at, replaced_by_md5
+         FROM config_revisions
+         WHERE asset_type = ? AND config_path = ? AND id = ?`,
+      )
+      .get(normalizedAssetType, assetPath, revisionId);
+    const revision = revisionRow ? mapRevisionRow(revisionRow) : null;
+    const stateRow = database
+      .prepare<[string, string], ConfigRevisionStateRow>(
+        `SELECT current_content, actor, route, source, updated_at
+         FROM config_revision_state
+         WHERE asset_type = ? AND config_path = ?`,
+      )
+      .get(normalizedAssetType, assetPath);
+    const nextRevisionRow = revision?.replacedByMd5
+      ? database
+          .prepare<[string, string, string], ConfigRevisionRow>(
+            `SELECT id, asset_type, actor, route, source, md5, byte_length, content, created_at, replaced_by_md5
+             FROM config_revisions
+             WHERE asset_type = ? AND config_path = ? AND md5 = ?`,
+          )
+          .get(normalizedAssetType, assetPath, revision.replacedByMd5)
+      : null;
+    return {
+      revision,
+      nextRevision: nextRevisionRow ? mapRevisionRow(nextRevisionRow) : null,
+      state: stateRow ? mapRevisionStateRow(stateRow) : null,
     };
   });
 }
