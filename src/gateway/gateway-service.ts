@@ -135,6 +135,8 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
+  formatRuntimeConfigValue,
+  getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from '../config/runtime-config-edit.js';
@@ -247,6 +249,8 @@ import {
   formatHybridAIModelForCatalog,
   formatModelCountSuffix,
   formatModelForDisplay,
+  HYBRIDAI_MODEL_PREFIX,
+  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
@@ -4989,25 +4993,22 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
   };
 }
 
+function resolveKnownNonHybridProviderKey(
+  prefix: string,
+): GatewayModelProviderKey {
+  const normalized = prefix.replace(/\/+$/g, '');
+  if (normalized === 'openai-codex') return 'codex';
+  return normalized as GatewayModelProviderKey;
+}
+
 const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
-  ['openai-codex/', 'codex'],
-  ['anthropic/', 'anthropic'],
-  ['openrouter/', 'openrouter'],
-  ['mistral/', 'mistral'],
-  ['huggingface/', 'huggingface'],
-  ['gemini/', 'gemini'],
-  ['deepseek/', 'deepseek'],
-  ['xai/', 'xai'],
-  ['zai/', 'zai'],
-  ['kimi/', 'kimi'],
-  ['minimax/', 'minimax'],
-  ['dashscope/', 'dashscope'],
-  ['xiaomi/', 'xiaomi'],
-  ['kilo/', 'kilo'],
-  ['ollama/', 'ollama'],
-  ['lmstudio/', 'lmstudio'],
-  ['llamacpp/', 'llamacpp'],
-  ['vllm/', 'vllm'],
+  [HYBRIDAI_MODEL_PREFIX, 'hybridai'],
+  ...NON_HYBRID_PROVIDER_PREFIXES.map(
+    (prefix): [string, GatewayModelProviderKey] => [
+      prefix,
+      resolveKnownNonHybridProviderKey(prefix),
+    ],
+  ),
 ];
 
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
@@ -9376,13 +9377,37 @@ export async function handleGatewayCommand(
           }
         }
 
+        if (sub === 'get') {
+          const key = parseIdArg(req.args, 2);
+          if (!key || req.args.length > 3) {
+            return badCommand('Usage', 'Usage: `config get <key>`');
+          }
+          try {
+            const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
+            return infoCommand(
+              'Runtime Config Value',
+              [
+                `Path: ${runtimeConfigPath()}`,
+                `Key: ${key}`,
+                'Value:',
+                formatRuntimeConfigValue(value),
+              ].join('\n'),
+            );
+          } catch (error) {
+            return badCommand(
+              'Config Read Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
         if (sub === 'set') {
           const key = parseIdArg(req.args, 2);
           const rawValue = req.args.slice(3).join(' ').trim();
           if (!key || !rawValue) {
             return badCommand(
               'Usage',
-              'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+              'Usage: `config`, `config check`, `config reload`, `config get <key>`, or `config set <key> <value>`',
             );
           }
           try {
@@ -9419,7 +9444,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+          'Usage: `config`, `config check`, `config reload`, `config get <key>`, or `config set <key> <value>`',
         );
       }
 

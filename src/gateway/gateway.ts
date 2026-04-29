@@ -103,6 +103,7 @@ import {
   SLACK_BOT_TOKEN,
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
+import type { RuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   deleteQueuedProactiveMessage,
@@ -3047,9 +3048,34 @@ function startOrRestartMemoryConsolidationScheduler(): void {
   scheduleNextMemoryConsolidationRun();
 }
 
+function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
+  const warmPool = config.warmPool;
+  if (!warmPool.enabled || warmPool.maxIdlePerAgent <= 0) return;
+  logger.warn(
+    {
+      sandboxMode: config.sandboxMode,
+      minIdlePerActiveAgent: warmPool.minIdlePerActiveAgent,
+      maxIdlePerAgent: warmPool.maxIdlePerAgent,
+      effectiveMinIdlePerActiveAgent: Math.min(
+        warmPool.minIdlePerActiveAgent,
+        warmPool.maxIdlePerAgent,
+      ),
+      memoryPressureRssMb: warmPool.memoryPressureRssMb,
+      coldStartBudgetMs: warmPool.coldStartBudgetMs,
+      warmScope:
+        'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
+      warmFill:
+        'filled after recent traffic for an agent; gateway startup does not pre-spawn workers',
+      disableConfig: 'container.warmPool.enabled=false',
+    },
+    'Warm process pool enabled; idle workers prewarm runtime process startup only',
+  );
+}
+
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  logWarmProcessPoolStartup(getConfigSnapshot().container);
   validateGatewayPromptEnvDefaults();
   initDatabase();
   listAgents();

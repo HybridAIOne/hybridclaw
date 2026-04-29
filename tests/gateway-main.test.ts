@@ -36,6 +36,7 @@ function createGatewayMainTestState(options?: {
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
   initGatewayServiceImpl?: () => Promise<void>;
+  warmPoolEnabled?: boolean;
 }) {
   return {
     commandHandler: null as null | ((...args: unknown[]) => Promise<void>),
@@ -147,6 +148,17 @@ function createGatewayMainTestState(options?: {
         groupPolicy: 'disabled',
       },
       local: { enabled: false },
+      container: {
+        sandboxMode: 'container',
+        warmPool: {
+          enabled: options?.warmPoolEnabled ?? false,
+          coldStartBudgetMs: 200,
+          trafficWindowMs: 3_600_000,
+          minIdlePerActiveAgent: 1,
+          maxIdlePerAgent: 2,
+          memoryPressureRssMb: 2_048,
+        },
+      },
       memory: {
         consolidationIntervalHours: 0,
         decayRate: 0.25,
@@ -296,6 +308,7 @@ async function importFreshGatewayMain(options?: {
   initGatewayServiceImpl?: () => Promise<void>;
   skipBootstrapHandlerCheck?: boolean;
   dataDir?: string;
+  warmPoolEnabled?: boolean;
   onState?: (state: ReturnType<typeof createGatewayMainTestState>) => void;
 }) {
   vi.resetModules();
@@ -688,6 +701,27 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('warns on startup when the warm process pool is enabled', async () => {
+    const state = await importFreshGatewayMain({ warmPoolEnabled: true });
+
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        sandboxMode: 'container',
+        minIdlePerActiveAgent: 1,
+        maxIdlePerAgent: 2,
+        effectiveMinIdlePerActiveAgent: 1,
+        memoryPressureRssMb: 2_048,
+        coldStartBudgetMs: 200,
+        warmScope:
+          'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
+        warmFill:
+          'filled after recent traffic for an agent; gateway startup does not pre-spawn workers',
+        disableConfig: 'container.warmPool.enabled=false',
+      },
+      'Warm process pool enabled; idle workers prewarm runtime process startup only',
+    );
   });
 
   test('runs a missed dream consolidation on startup when nightly scheduling is enabled', async () => {

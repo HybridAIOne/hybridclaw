@@ -671,6 +671,47 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['ollama/llama-3.1']).toBe('ollama');
 });
 
+test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without warning', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const warnMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: { warn: warnMock },
+  }));
+  vi.doMock('../src/providers/model-catalog.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/model-catalog.js')
+    >('../src/providers/model-catalog.js');
+    return {
+      ...actual,
+      refreshAvailableModelCatalogs: vi.fn(async () => {}),
+      getAvailableModelList: vi.fn(() => [
+        'hybridai/o1-preview',
+        'hybridai/o3-mini',
+      ]),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await getGatewayAdminModels();
+
+  const byId = Object.fromEntries(result.models.map((m) => [m.id, m.provider]));
+  expect(byId['hybridai/o1-preview']).toBe('hybridai');
+  expect(byId['hybridai/o3-mini']).toBe('hybridai');
+  expect(warnMock).not.toHaveBeenCalledWith(
+    expect.anything(),
+    'Unknown provider prefix in model id; defaulting to hybridai',
+  );
+});
+
 test('getGatewayAdminModels populates context windows from provider discovery', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -1479,6 +1520,38 @@ test('config check validates the local runtime config', async () => {
   expect(result.title).toBe('Config Check');
   expect(result.text).toContain('✓ Config');
   expect(result.text).toContain('0 errors');
+});
+
+test('config get shows one local runtime config value', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 4096;
+  });
+
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-get',
+    guildId: null,
+    channelId: 'web',
+    args: ['config', 'get', 'hybridai.maxTokens'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Runtime Config Value');
+  expect(result.text).toContain(`Path: ${configPath}`);
+  expect(result.text).toContain('Key: hybridai.maxTokens');
+  expect(result.text).toContain('Value:\n4096');
 });
 
 test('config reload hot-reloads the local runtime config from disk', async () => {

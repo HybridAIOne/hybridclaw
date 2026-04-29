@@ -136,7 +136,7 @@ Interactive slash commands inside TUI:
   /compact
   /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
   /eval [list|env|<suite>|<command...>]
-  /config   /config check   /config reload   /config set <key> <value>   /config revisions
+  /config   /config check   /config reload   /config get <key>   /config set <key> <value>   /config revisions
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
@@ -683,12 +683,13 @@ Notes:
 }
 
 export function printConfigUsage(): void {
-  console.log(`Usage: hybridclaw config [check|reload|set <key> <value>]
+  console.log(`Usage: hybridclaw config [check|reload|get <key>|set <key> <value>]
 
 Commands:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
+  hybridclaw config get <key>
   hybridclaw config set <key> <value>
   hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 
@@ -696,6 +697,7 @@ Examples:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
+  hybridclaw config get hybridai.maxTokens
   hybridclaw config set hybridai.maxTokens 8192
   hybridclaw config revisions
   hybridclaw config revisions rollback 12
@@ -706,6 +708,7 @@ Notes:
   - \`config\` prints the current runtime config from ${runtimeConfigPath()}.
   - \`check\` validates only the runtime config file itself.
   - \`reload\` forces an immediate in-process hot reload from disk, then runs a config check.
+  - \`get\` prints one existing dotted key path from the current runtime config.
   - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
   - \`revisions\` lists saved config snapshots, including the actor and route that caused each tracked change.
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);

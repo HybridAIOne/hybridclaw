@@ -45,6 +45,8 @@ import {
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import {
+  formatRuntimeConfigValue,
+  getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from './config/runtime-config-edit.js';
@@ -1333,9 +1335,20 @@ async function handleConfigCommand(args: string[]): Promise<void> {
     await runRuntimeConfigFileCheck();
     return;
   }
+  if (sub === 'get') {
+    const key = (normalized[1] || '').trim();
+    if (!key || normalized.length > 2) {
+      throw new Error('Usage: `hybridclaw config get <key>`');
+    }
+    const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
+    console.log(`Active config: ${runtimeConfigPath()}`);
+    console.log(`Key: ${key}`);
+    console.log(formatRuntimeConfigValue(value));
+    return;
+  }
   if (sub !== 'set') {
     throw new Error(
-      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
     );
   }
 
@@ -1343,7 +1356,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   const rawValue = normalized.slice(2).join(' ').trim();
   if (!key || !rawValue) {
     throw new Error(
-      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
+      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
     );
   }
 
