@@ -21,7 +21,7 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 
 **Cross-cutting:** A2 + A3 done (2 of 5) · A1, A4, A5 not started.
 
-**P1/P2:** **R10 now 2/7** (R10.1 trajectory capture ✅ + R10.2 store schema + retention ✅) · R10.3 PII scrub has PR #655 in flight · R8 brand voice + R9 peer-delegation + R23 backup CLI also have PRs in flight.
+**P1/P2:** **R10 now 2/7** (R10.1 trajectory capture ✅ + R10.2 store schema + retention ✅) · R10.3 PII scrub has PR #655 in flight · R8 brand voice (PR #408) + R9 peer-delegation (PR #409) + R23 backup CLI (PR #428) + **R27 async usage buffer (PR #467)** + **R28 provider fallback chain (PR #413)** also have PRs in flight (~5 PRs queued for merge).
 
 **EU positioning bundle filed:**
 - *Connectivity:* F6.6 Tailscale · F6.7 Cloudflare · R18.7 SIP outbound · R24 SMS channel · **R26 Fax gateway** (new — DACH B2B / Steuerberater workflows)
@@ -62,6 +62,8 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 | 24 | **SMS channel via European operator APIs** | Pluggable SMS provider via the existing channel layer — Telekom MMS API, Vodafone Messaging, 1&1 SMS gateway. For transactional B2B messaging (OTPs, alerts) where WhatsApp/Telegram aren't the right modality. *Principle V.* | P2 | ⬜ |
 | 25 | **EU deployment recipes (Hetzner / IONOS / Open Telekom Cloud)** | Operator guides for deploying HybridClaw on each EU cloud provider — Docker Compose, Terraform, secret-store setup, F6-tunnel vs cloud-native ingress, backup wiring (R23). DSGVO talking points for sales. *Principle X.* | P1 (Hetzner) / P2 (IONOS, OTC) | ⬜ |
 | 26 | **Fax gateway + outbound skill** | Inbound fax-to-email → existing email channel; outbound fax-send skill with pluggable EU-resident provider (Telekom Cloud Fax / Sinch / Vodafone Fax2Mail / T.38 over R18.7 SIP). *Principle V — DACH B2B Steuerberater + healthcare + legal workflows.* | P2 | ⬜ |
+| 27 | **Async tamper-evident token-usage buffer** | Producer-consumer queue decouples model invocations from synchronous chargeback DB writes; periodic batch flush emits SHA-256-hashed `usage.batch_flushed` audit events. Substrate for R5.x at scale. *Principle VII.* | P1 | 🔄 PR #467 |
+| 28 | **Provider fallback chain (resilience)** | Auth (401/403) → immediate switch; rate-limit (429) → switch + cooldown on primary-leave only; streaming-safe; configured via `HYBRIDAI_FALLBACK_CHAIN`. *Principle VIII — doesn't break overnight when a provider has an outage.* | P1 | 🔄 PR #413 |
 
 ---
 

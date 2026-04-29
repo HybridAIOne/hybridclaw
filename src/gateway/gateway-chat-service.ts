@@ -1375,9 +1375,42 @@ async function handleGatewayMessageInner(
       toolsUsed: output.toolsUsed || [],
       toolExecutions,
     });
-    const resultText = String(
-      normalizedResult.result || unnormalizedResultText,
-    );
+    let resultText = String(normalizedResult.result || unnormalizedResultText);
+    if (pluginManager?.hasOutputGuards()) {
+      try {
+        const guardOutcome = await pluginManager.applyOutputGuards({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          model: model || undefined,
+          userContent: storedUserContent,
+          resultText,
+        });
+        if (guardOutcome.events.length > 0) {
+          for (const event of guardOutcome.events) {
+            if (event.action === 'allow') continue;
+            logger.info(
+              {
+                sessionId: req.sessionId,
+                agentId,
+                pluginId: event.pluginId,
+                guardId: event.guardId,
+                action: event.action,
+                reason: event.reason,
+              },
+              'Plugin output guard adjusted response',
+            );
+          }
+          resultText = guardOutcome.resultText || resultText;
+        }
+      } catch (error) {
+        logger.warn(
+          { sessionId: req.sessionId, agentId, error },
+          'Plugin output guard pipeline failed; allowing original output',
+        );
+      }
+    }
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,

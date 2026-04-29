@@ -343,6 +343,23 @@ Use these commands to import compatible state from `~/.openclaw` or
 `~/.hermes` into a HybridClaw agent workspace. `--dry-run` previews the
 workspace, config, model, and secret changes before writing anything.
 
+## Backup And Restore
+
+```bash
+hybridclaw backup [--output <path>]
+hybridclaw backup restore <archive.zip> [--force]
+```
+
+`backup` creates a timestamped zip archive of the HybridClaw runtime home
+(`~/.hybridclaw` by default, or `$HYBRIDCLAW_DATA_DIR` when set). SQLite
+databases are copied through the SQLite backup API so WAL-mode databases
+produce consistent snapshots. Ephemeral state — WAL/SHM sidecars, cache
+directories, container image state, evals, migration backups, and PID
+files — is excluded. `backup restore` validates the archive manifest and
+marker files (`config.json`, `credentials.json`) before replacing any data
+and prompts when the target runtime home already exists; pass `--force` to
+skip the prompt for scripted disaster-recovery restores.
+
 ## Skills, Tools, Plugins, Audit
 
 ```bash
