@@ -149,6 +149,18 @@ test('prepareTraceJudgePrompt tail-windows long traces without tool arrays', asy
   expect(prepared.traceText).not.toContain('start-');
 });
 
+test('prepareTraceJudgePrompt rejects empty traces before template I/O', async () => {
+  const { DEFAULT_TRACE_JUDGE_TEMPLATE_PATH, prepareTraceJudgePrompt } =
+    await import('../src/evals/trace-preparation.js');
+
+  expect(() =>
+    prepareTraceJudgePrompt('', 'Pass.', {
+      confidentialRuleSet: null,
+    }),
+  ).toThrow('Judge trace is required.');
+  expect(fs.existsSync(DEFAULT_TRACE_JUDGE_TEMPLATE_PATH)).toBe(false);
+});
+
 test('serializeTracePreparationInput normalizes non-serializable values', async () => {
   const { serializeTracePreparationInput } = await import(
     '../src/evals/trace-preparation.js'
