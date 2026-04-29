@@ -3284,9 +3284,25 @@ function handleApiAdminApprovals(res: ServerResponse, url: URL): void {
   );
 }
 
-function handleApiAdminWorkflowRun(res: ServerResponse, url: URL): void {
-  const segments = url.pathname.split('/').filter(Boolean);
-  const runId = segments[4] ? decodeURIComponent(segments[4]) : '';
+function parseApiAdminWorkflowRunPath(pathname: string): {
+  runId: string;
+  action?: 'approve' | 'return';
+} | null {
+  const prefix = '/api/admin/workflows/runs/';
+  if (!pathname.startsWith(prefix)) return null;
+  const segments = pathname.slice(prefix.length).split('/');
+  if (segments.length < 1 || segments.length > 2) return null;
+  const rawAction = segments[1] || '';
+  const action =
+    rawAction === 'approve' || rawAction === 'return' ? rawAction : undefined;
+  if (rawAction && !action) return null;
+  return {
+    runId: decodeURIComponent(segments[0] || ''),
+    ...(action ? { action } : {}),
+  };
+}
+
+function sendApiAdminWorkflowRun(res: ServerResponse, runId: string): void {
   if (!runId) {
     sendJson(res, 400, { error: 'Expected workflow run id.' });
     return;
@@ -3303,108 +3319,97 @@ function handleApiAdminWorkflowRun(res: ServerResponse, url: URL): void {
   });
 }
 
-async function handleApiAdminWorkflows(
+function sendApiAdminWorkflows(res: ServerResponse): void {
+  sendJson(res, 200, getWorkflowAdminSummary());
+}
+
+async function handleApiAdminWorkflowStart(
   req: IncomingMessage,
   res: ServerResponse,
-  url: URL,
 ): Promise<void> {
-  const method = req.method || 'GET';
-  const segments = url.pathname.split('/').filter(Boolean);
-  if (segments.length === 3 && method === 'GET') {
-    sendJson(res, 200, getWorkflowAdminSummary());
+  const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
+  const workflowId = normalizeOptionalString(body.workflowId);
+  if (!workflowId) {
+    sendJson(res, 400, { error: 'Expected non-empty `workflowId`.' });
     return;
   }
-  if (segments.length === 3 && method === 'POST') {
-    const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
-    const workflowId = normalizeOptionalString(body.workflowId);
-    if (!workflowId) {
-      sendJson(res, 400, { error: 'Expected non-empty `workflowId`.' });
-      return;
-    }
-    try {
-      const run = await startWorkflowRun({
-        workflowId,
-        runId: normalizeOptionalString(body.runId),
-        sessionId: `admin:workflow:${workflowId}`,
-        userId: 'admin',
-      });
-      sendJson(res, 201, {
-        run,
-        view: buildWorkflowRunView(run),
-        text: renderWorkflowRunState(run),
-      });
-    } catch (error) {
-      sendJson(res, 400, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  try {
+    const run = await startWorkflowRun({
+      workflowId,
+      runId: normalizeOptionalString(body.runId),
+      sessionId: `admin:workflow:${workflowId}`,
+      userId: 'admin',
+    });
+    sendJson(res, 201, {
+      run,
+      view: buildWorkflowRunView(run),
+      text: renderWorkflowRunState(run),
+    });
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleApiAdminWorkflowApprove(
+  req: IncomingMessage,
+  res: ServerResponse,
+  runId: string,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
+  try {
+    const run = await approveWorkflowRunStep({
+      runId,
+      stepId: normalizeOptionalString(body.stepId),
+      actor: 'admin',
+      sessionId: `admin:workflow:${runId}`,
+    });
+    sendJson(res, 200, {
+      run,
+      view: buildWorkflowRunView(run),
+      text: renderWorkflowRunState(run),
+    });
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleApiAdminWorkflowReturn(
+  req: IncomingMessage,
+  res: ServerResponse,
+  runId: string,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
+  const stepId = normalizeOptionalString(body.stepId);
+  const notes = normalizeOptionalString(body.notes);
+  if (!stepId || !notes) {
+    sendJson(res, 400, {
+      error: 'Expected non-empty `stepId` and `notes`.',
+    });
     return;
   }
-  if (
-    segments.length >= 5 &&
-    segments[2] === 'workflows' &&
-    segments[3] === 'runs'
-  ) {
-    const runId = decodeURIComponent(segments[4] || '');
-    const action = segments[5] || '';
-    if (method === 'GET' && segments.length === 5) {
-      handleApiAdminWorkflowRun(res, url);
-      return;
-    }
-    if (method === 'POST' && action === 'approve') {
-      const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
-      try {
-        const run = await approveWorkflowRunStep({
-          runId,
-          stepId: normalizeOptionalString(body.stepId),
-          actor: 'admin',
-          sessionId: `admin:workflow:${runId}`,
-        });
-        sendJson(res, 200, {
-          run,
-          view: buildWorkflowRunView(run),
-          text: renderWorkflowRunState(run),
-        });
-      } catch (error) {
-        sendJson(res, 400, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return;
-    }
-    if (method === 'POST' && action === 'return') {
-      const body = (await readJsonBody(req)) as ApiAdminWorkflowRequestBody;
-      const stepId = normalizeOptionalString(body.stepId);
-      const notes = normalizeOptionalString(body.notes);
-      if (!stepId || !notes) {
-        sendJson(res, 400, {
-          error: 'Expected non-empty `stepId` and `notes`.',
-        });
-        return;
-      }
-      try {
-        const run = await returnWorkflowRunStep({
-          runId,
-          stepId,
-          notes,
-          fromStepId: normalizeOptionalString(body.fromStepId),
-          actor: 'admin',
-          sessionId: `admin:workflow:${runId}`,
-        });
-        sendJson(res, 200, {
-          run,
-          view: buildWorkflowRunView(run),
-          text: renderWorkflowRunState(run),
-        });
-      } catch (error) {
-        sendJson(res, 400, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return;
-    }
+  try {
+    const run = await returnWorkflowRunStep({
+      runId,
+      stepId,
+      notes,
+      fromStepId: normalizeOptionalString(body.fromStepId),
+      actor: 'admin',
+      sessionId: `admin:workflow:${runId}`,
+    });
+    sendJson(res, 200, {
+      run,
+      view: buildWorkflowRunView(run),
+      text: renderWorkflowRunState(run),
+    });
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
-  sendJson(res, 404, { error: 'Not Found' });
 }
 
 function sendApiAdminPolicyError(res: ServerResponse, error: unknown): void {
@@ -4226,11 +4231,37 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminApprovals(res, url);
             return;
           }
+          if (pathname === '/api/admin/workflows' && method === 'GET') {
+            sendApiAdminWorkflows(res);
+            return;
+          }
+          if (pathname === '/api/admin/workflows' && method === 'POST') {
+            await handleApiAdminWorkflowStart(req, res);
+            return;
+          }
+          const workflowRunRoute = parseApiAdminWorkflowRunPath(pathname);
           if (
-            pathname === '/api/admin/workflows' ||
-            pathname.startsWith('/api/admin/workflows/')
+            workflowRunRoute &&
+            method === 'GET' &&
+            !workflowRunRoute.action
           ) {
-            await handleApiAdminWorkflows(req, res, url);
+            sendApiAdminWorkflowRun(res, workflowRunRoute.runId);
+            return;
+          }
+          if (workflowRunRoute?.action === 'approve' && method === 'POST') {
+            await handleApiAdminWorkflowApprove(
+              req,
+              res,
+              workflowRunRoute.runId,
+            );
+            return;
+          }
+          if (workflowRunRoute?.action === 'return' && method === 'POST') {
+            await handleApiAdminWorkflowReturn(
+              req,
+              res,
+              workflowRunRoute.runId,
+            );
             return;
           }
           if (

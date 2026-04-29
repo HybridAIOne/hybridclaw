@@ -220,5 +220,5 @@ export function parseWorkflowDefinitionYaml(raw: string): WorkflowDefinition {
 export function serializeWorkflowDefinitionYaml(
   definition: WorkflowDefinition,
 ): string {
-  return stringifyYaml(validateWorkflowDefinition(definition));
+  return stringifyYaml(definition);
 }

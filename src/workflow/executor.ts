@@ -165,21 +165,14 @@ function findStepState(
   return state;
 }
 
-function workflowAuditContext(run: WorkflowRunState, sessionId?: string) {
-  return {
-    sessionId: sessionId || run.id,
-    runId: makeAuditRunId(`workflow-${run.id}`),
-  };
-}
-
 function recordWorkflowAudit(
   run: WorkflowRunState,
   sessionId: string | undefined,
   payload: AuditEventPayload,
 ): void {
-  const context = workflowAuditContext(run, sessionId);
   recordAuditEvent({
-    ...context,
+    sessionId: sessionId || run.id,
+    runId: makeAuditRunId(`workflow-${run.id}`),
     event: payload,
   });
 }
@@ -249,6 +242,142 @@ function markRunUpdated(run: WorkflowRunState): void {
   run.updated_at = nowIso();
 }
 
+function evaluateStepStakes(
+  run: WorkflowRunState,
+  step: WorkflowStep,
+  classifier: StakesClassifier,
+  sessionId?: string,
+): 'continue' | 'paused' {
+  const stepState = findStepState(run, step.id);
+  if (!step.stakes_threshold || stepState.escalation?.approved_at) {
+    return 'continue';
+  }
+
+  const score = classifyStep(classifier, run.workflow, step);
+  if (exceedsThreshold(score, step.stakes_threshold)) {
+    stepState.status = 'paused';
+    stepState.paused_at = nowIso();
+    stepState.escalation = {
+      route: 'approval_request',
+      threshold: step.stakes_threshold,
+      stakes: score.level,
+      classifier: score.classifier,
+      reasons: score.reasons,
+      requested_at: stepState.paused_at,
+    };
+    run.status = 'paused';
+    run.events.push(
+      event('workflow.step.escalated', {
+        step_id: step.id,
+        stakes: score.level,
+        threshold: step.stakes_threshold,
+        classifier: score.classifier,
+        reasons: score.reasons,
+        message: `Paused ${step.id} for stakes escalation`,
+      }),
+    );
+    recordWorkflowAudit(run, sessionId, {
+      type: 'workflow.escalation',
+      workflowId: run.workflow.id,
+      runId: run.id,
+      stepId: step.id,
+      stakes: score.level,
+      threshold: step.stakes_threshold,
+      route: 'approval_request',
+      classifier: score.classifier,
+      reasons: score.reasons,
+    });
+    markRunUpdated(run);
+    return 'paused';
+  }
+
+  stepState.escalation = {
+    route: 'none',
+    threshold: step.stakes_threshold,
+    stakes: score.level,
+    classifier: score.classifier,
+    reasons: score.reasons,
+  };
+  run.events.push(
+    event('workflow.step.auto_execute', {
+      step_id: step.id,
+      stakes: score.level,
+      threshold: step.stakes_threshold,
+      classifier: score.classifier,
+      reasons: score.reasons,
+    }),
+  );
+  recordWorkflowAudit(run, sessionId, {
+    type: 'workflow.auto_execute',
+    workflowId: run.workflow.id,
+    runId: run.id,
+    stepId: step.id,
+    stakes: score.level,
+    threshold: step.stakes_threshold,
+    classifier: score.classifier,
+    reasons: score.reasons,
+  });
+  return 'continue';
+}
+
+async function dispatchAndRecord(
+  run: WorkflowRunState,
+  step: WorkflowStep,
+  dispatchStep: WorkflowStepDispatcher,
+): Promise<'completed' | 'failed'> {
+  const stepState = findStepState(run, step.id);
+  const startedAt = nowIso();
+  stepState.status = 'running';
+  stepState.started_at = startedAt;
+  stepState.attempts += 1;
+  run.events.push(
+    event('workflow.step.started', {
+      step_id: step.id,
+      owner_coworker_id: step.owner_coworker_id,
+    }),
+  );
+
+  try {
+    const result = await dispatchStep({
+      run,
+      step,
+      sender_coworker_id: senderForStep(run, step.id),
+    });
+    const completedAt = nowIso();
+    stepState.status = 'completed';
+    stepState.completed_at = completedAt;
+    stepState.artifacts.push({
+      revision: stepState.artifacts.length + 1,
+      created_at: completedAt,
+      value: result.artifact ?? result.envelope ?? null,
+    });
+    run.events.push(
+      event('workflow.step.completed', {
+        step_id: step.id,
+        owner_coworker_id: step.owner_coworker_id,
+      }),
+    );
+    markRunUpdated(run);
+    return 'completed';
+  } catch (error) {
+    const failedAt = nowIso();
+    stepState.status = 'failed';
+    stepState.failed_at = failedAt;
+    stepState.error = error instanceof Error ? error.message : String(error);
+    run.status = 'failed';
+    run.failed_at = failedAt;
+    run.error = stepState.error;
+    run.events.push(
+      event('workflow.step.failed', {
+        step_id: step.id,
+        message: stepState.error,
+      }),
+    );
+    markRunUpdated(run);
+    return 'failed';
+  }
+}
+
 async function continueRun(
   run: WorkflowRunState,
   options: {
@@ -265,138 +394,33 @@ async function continueRun(
 
   while (run.current_step_id) {
     const step = findStep(run.workflow, run.current_step_id);
-    const stepState = findStepState(run, step.id);
-
-    if (step.stakes_threshold && !stepState.escalation?.approved_at) {
-      const score = classifyStep(stakesClassifier, run.workflow, step);
-      if (exceedsThreshold(score, step.stakes_threshold)) {
-        stepState.status = 'paused';
-        stepState.paused_at = nowIso();
-        stepState.escalation = {
-          route: 'approval_request',
-          threshold: step.stakes_threshold,
-          stakes: score.level,
-          classifier: score.classifier,
-          reasons: score.reasons,
-          requested_at: stepState.paused_at,
-        };
-        run.status = 'paused';
-        run.events.push(
-          event('workflow.step.escalated', {
-            step_id: step.id,
-            stakes: score.level,
-            threshold: step.stakes_threshold,
-            classifier: score.classifier,
-            reasons: score.reasons,
-            message: `Paused ${step.id} for stakes escalation`,
-          }),
-        );
-        recordWorkflowAudit(run, options.sessionId, {
-          type: 'workflow.escalation',
-          workflowId: run.workflow.id,
-          runId: run.id,
-          stepId: step.id,
-          stakes: score.level,
-          threshold: step.stakes_threshold,
-          route: 'approval_request',
-          classifier: score.classifier,
-          reasons: score.reasons,
-        });
-        markRunUpdated(run);
-        return saveWorkflowRunState(run, options.meta);
-      }
-      stepState.escalation = {
-        route: 'none',
-        threshold: step.stakes_threshold,
-        stakes: score.level,
-        classifier: score.classifier,
-        reasons: score.reasons,
-      };
-      run.events.push(
-        event('workflow.step.auto_execute', {
-          step_id: step.id,
-          stakes: score.level,
-          threshold: step.stakes_threshold,
-          classifier: score.classifier,
-          reasons: score.reasons,
-        }),
-      );
-      recordWorkflowAudit(run, options.sessionId, {
-        type: 'workflow.auto_execute',
-        workflowId: run.workflow.id,
-        runId: run.id,
-        stepId: step.id,
-        stakes: score.level,
-        threshold: step.stakes_threshold,
-        classifier: score.classifier,
-        reasons: score.reasons,
-      });
+    if (
+      evaluateStepStakes(run, step, stakesClassifier, options.sessionId) ===
+      'paused'
+    ) {
+      return saveWorkflowRunState(run, options.meta);
     }
 
-    const startedAt = nowIso();
-    stepState.status = 'running';
-    stepState.started_at = startedAt;
-    stepState.attempts += 1;
-    run.events.push(
-      event('workflow.step.started', {
-        step_id: step.id,
-        owner_coworker_id: step.owner_coworker_id,
-      }),
-    );
+    if ((await dispatchAndRecord(run, step, dispatchStep)) === 'failed') {
+      return saveWorkflowRunState(run, options.meta);
+    }
 
-    try {
-      const result = await dispatchStep({
-        run,
-        step,
-        sender_coworker_id: senderForStep(run, step.id),
-      });
-      const completedAt = nowIso();
-      stepState.status = 'completed';
-      stepState.completed_at = completedAt;
-      stepState.artifacts.push({
-        revision: stepState.artifacts.length + 1,
-        created_at: completedAt,
-        value: result.artifact ?? result.envelope ?? null,
-      });
+    const next = nextStepId(run.workflow, step.id);
+    if (!next) {
+      run.status = 'completed';
+      run.completed_at = nowIso();
+      run.current_step_id = undefined;
       run.events.push(
-        event('workflow.step.completed', {
-          step_id: step.id,
-          owner_coworker_id: step.owner_coworker_id,
-        }),
-      );
-      const next = nextStepId(run.workflow, step.id);
-      if (!next) {
-        run.status = 'completed';
-        run.completed_at = completedAt;
-        run.current_step_id = undefined;
-        run.events.push(
-          event('workflow.run.completed', {
-            message: `Completed workflow ${run.workflow.id}`,
-          }),
-        );
-        markRunUpdated(run);
-        return saveWorkflowRunState(run, options.meta);
-      }
-      run.current_step_id = next;
-      markRunUpdated(run);
-      saveWorkflowRunState(run, options.meta);
-    } catch (error) {
-      const failedAt = nowIso();
-      stepState.status = 'failed';
-      stepState.failed_at = failedAt;
-      stepState.error = error instanceof Error ? error.message : String(error);
-      run.status = 'failed';
-      run.failed_at = failedAt;
-      run.error = stepState.error;
-      run.events.push(
-        event('workflow.step.failed', {
-          step_id: step.id,
-          message: stepState.error,
+        event('workflow.run.completed', {
+          message: `Completed workflow ${run.workflow.id}`,
         }),
       );
       markRunUpdated(run);
       return saveWorkflowRunState(run, options.meta);
     }
+    run.current_step_id = next;
+    markRunUpdated(run);
+    saveWorkflowRunState(run, options.meta);
   }
 
   run.status = 'completed';
