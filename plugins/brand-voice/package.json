@@ -1,0 +1,10 @@
+{
+  "name": "hybridclaw-plugin-brand-voice",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HybridClaw plugin: brand-voice + output classifier guard",
+  "engines": {
+    "node": "22.x"
+  }
+}

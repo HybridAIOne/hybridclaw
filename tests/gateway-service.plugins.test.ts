@@ -53,6 +53,12 @@ const {
     handleInboundWebhook: vi.fn(async () => false),
     notifySessionStart: vi.fn(async () => {}),
     listPluginSummary: vi.fn(() => []),
+    hasOutputGuards: vi.fn(() => false),
+    applyOutputGuards: vi.fn(async (context: { resultText: string }) => ({
+      resultText: context.resultText,
+      blocked: false,
+      events: [],
+    })),
   };
   return {
     runAgentMock: vi.fn(),
