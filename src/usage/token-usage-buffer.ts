@@ -23,6 +23,7 @@ import {
 } from '../audit/audit-events.js';
 import { logger } from '../logger.js';
 import {
+  listUsageEventsByBatchId,
   normalizeUsageCost,
   normalizeUsageNumber,
   recordUsageEventBatch,
@@ -40,9 +41,8 @@ export interface TokenUsageEvent {
   costUsd?: number;
   /** ISO-8601 timestamp; auto-generated if omitted. */
   timestamp?: string;
-  /** Optional run/parent context to thread the batch audit event. */
+  /** Optional run context to thread the batch audit event. */
   auditRunId?: string;
-  auditParentRunId?: string;
 }
 
 export interface StartTokenUsageBufferOptions {
@@ -54,14 +54,7 @@ export interface StartTokenUsageBufferOptions {
 export interface TokenUsageBufferStats {
   started: boolean;
   queueSize: number;
-  flushIntervalMs: number;
-  maxBatchSize: number;
-  maxQueueSize: number;
-  totalEnqueued: number;
-  totalFlushed: number;
   totalDropped: number;
-  flushCount: number;
-  lastFlushAt: string | null;
   lastError: string | null;
 }
 
@@ -76,11 +69,7 @@ interface BufferState {
   flushIntervalMs: number;
   maxBatchSize: number;
   maxQueueSize: number;
-  totalEnqueued: number;
-  totalFlushed: number;
   totalDropped: number;
-  flushCount: number;
-  lastFlushAt: string | null;
   lastError: string | null;
   started: boolean;
 }
@@ -101,7 +90,6 @@ export interface TokenUsageBatchHashRow {
 interface PreparedUsageEvent extends TokenUsageBatchHashRow {
   id: string;
   auditRunId?: string;
-  auditParentRunId?: string;
   batchHash: string;
 }
 
@@ -111,7 +99,15 @@ interface PreparedUsageBatchGroup {
   batchHash: string;
   events: PreparedUsageEvent[];
   auditRunId?: string;
-  auditParentRunId?: string;
+}
+
+export interface TokenUsageBatchVerificationResult {
+  ok: boolean;
+  batchId: string;
+  rowCount: number;
+  expectedHash: string | null;
+  actualHash: string | null;
+  errors: string[];
 }
 
 const state: BufferState = {
@@ -120,11 +116,7 @@ const state: BufferState = {
   flushIntervalMs: DEFAULT_FLUSH_INTERVAL_MS,
   maxBatchSize: DEFAULT_MAX_BATCH_SIZE,
   maxQueueSize: DEFAULT_MAX_QUEUE_SIZE,
-  totalEnqueued: 0,
-  totalFlushed: 0,
   totalDropped: 0,
-  flushCount: 0,
-  lastFlushAt: null,
   lastError: null,
   started: false,
 };
@@ -191,8 +183,7 @@ export async function stopTokenUsageBuffer(): Promise<void> {
   }
   logger.info(
     {
-      totalEnqueued: state.totalEnqueued,
-      totalFlushed: state.totalFlushed,
+      queueSize: state.queue.length,
       totalDropped: state.totalDropped,
     },
     'Token usage buffer stopped',
@@ -208,11 +199,7 @@ export function _resetTokenUsageBufferForTests(): void {
     state.flushTimer = null;
   }
   state.queue = [];
-  state.totalEnqueued = 0;
-  state.totalFlushed = 0;
   state.totalDropped = 0;
-  state.flushCount = 0;
-  state.lastFlushAt = null;
   state.lastError = null;
   state.started = false;
   state.flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS;
@@ -251,7 +238,6 @@ export function enqueueTokenUsage(event: TokenUsageEvent): void {
     ...event,
     timestamp: event.timestamp || new Date().toISOString(),
   });
-  state.totalEnqueued += 1;
 
   if (state.queue.length >= state.maxBatchSize) {
     void flushTokenUsageBuffer().catch((err) => {
@@ -290,9 +276,6 @@ export async function flushTokenUsageBuffer(): Promise<void> {
         })),
       ),
     );
-    state.totalFlushed += batch.length;
-    state.flushCount += 1;
-    state.lastFlushAt = new Date().toISOString();
     state.lastError = null;
   } catch (err) {
     // Re-queue the events at the head so we don't lose them. Bound the
@@ -322,11 +305,7 @@ export async function flushTokenUsageBuffer(): Promise<void> {
 }
 
 function usageBatchGroupKey(event: PreparedUsageEvent): string {
-  return JSON.stringify([
-    event.sessionId,
-    event.auditRunId || '',
-    event.auditParentRunId || '',
-  ]);
+  return JSON.stringify([event.sessionId, event.auditRunId || '']);
 }
 
 function prepareUsageBatchGroups(
@@ -359,7 +338,6 @@ function prepareUsageBatchGroups(
       batchId: '',
       batchHash: '',
       auditRunId: event.auditRunId,
-      auditParentRunId: event.auditParentRunId,
     };
     const groupKey = usageBatchGroupKey(prepared);
     const list = grouped.get(groupKey);
@@ -386,7 +364,6 @@ function prepareUsageBatchGroups(
       batchHash,
       events,
       auditRunId: events[0]?.auditRunId,
-      auditParentRunId: events[0]?.auditParentRunId,
     });
   }
   return groups;
@@ -405,12 +382,10 @@ function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
     const models = Array.from(new Set(events.map((e) => e.model))).sort();
     const agents = Array.from(new Set(events.map((e) => e.agentId))).sort();
     const runId = group.auditRunId || makeAuditRunId('usage-batch');
-    const parentRunId = group.auditParentRunId;
 
     recordAuditEventStrict({
       sessionId,
       runId,
-      parentRunId,
       event: {
         type: 'usage.batch_flushed',
         batchId,
@@ -494,18 +469,78 @@ export function computeTokenUsageBatchHash(
   return createHash('sha256').update(payload).digest('hex');
 }
 
+export function verifyTokenUsageBatchHash(
+  batchId: string,
+): TokenUsageBatchVerificationResult {
+  const normalizedBatchId = batchId.trim();
+  if (!normalizedBatchId) {
+    return {
+      ok: false,
+      batchId: normalizedBatchId,
+      rowCount: 0,
+      expectedHash: null,
+      actualHash: null,
+      errors: ['Batch id is required.'],
+    };
+  }
+
+  const rows = listUsageEventsByBatchId(normalizedBatchId);
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      batchId: normalizedBatchId,
+      rowCount: 0,
+      expectedHash: null,
+      actualHash: null,
+      errors: [`No usage events found for batch ${normalizedBatchId}.`],
+    };
+  }
+
+  const hashes = Array.from(
+    new Set(
+      rows
+        .map((row) => row.batchHash?.trim() || '')
+        .filter((hash) => hash.length > 0),
+    ),
+  );
+  const actualHash = computeTokenUsageBatchHash(
+    rows.map((row) => ({
+      sessionId: row.sessionId,
+      agentId: row.agentId,
+      model: row.model,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      totalTokens: row.totalTokens,
+      toolCalls: row.toolCalls,
+      costUsd: row.costUsd,
+      timestamp: row.timestamp,
+      batchId: row.batchId,
+    })),
+  );
+  const errors: string[] = [];
+  if (hashes.length === 0) {
+    errors.push(`Batch ${normalizedBatchId} has no persisted batch hash.`);
+  } else if (hashes.length > 1) {
+    errors.push(`Batch ${normalizedBatchId} has multiple persisted hashes.`);
+  } else if (hashes[0] !== actualHash) {
+    errors.push(`Batch ${normalizedBatchId} hash does not match usage rows.`);
+  }
+
+  return {
+    ok: errors.length === 0,
+    batchId: normalizedBatchId,
+    rowCount: rows.length,
+    expectedHash: hashes.length === 1 ? hashes[0] : null,
+    actualHash,
+    errors,
+  };
+}
+
 export function getTokenUsageBufferStats(): TokenUsageBufferStats {
   return {
     started: state.started,
     queueSize: state.queue.length,
-    flushIntervalMs: state.flushIntervalMs,
-    maxBatchSize: state.maxBatchSize,
-    maxQueueSize: state.maxQueueSize,
-    totalEnqueued: state.totalEnqueued,
-    totalFlushed: state.totalFlushed,
     totalDropped: state.totalDropped,
-    flushCount: state.flushCount,
-    lastFlushAt: state.lastFlushAt,
     lastError: state.lastError,
   };
 }

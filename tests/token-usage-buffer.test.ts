@@ -55,7 +55,6 @@ describe.sequential('token usage buffer', () => {
     });
 
     expect(getTokenUsageBufferStats().queueSize).toBe(0);
-    expect(getTokenUsageBufferStats().totalEnqueued).toBe(0);
   });
 
   test('flushTokenUsageBuffer writes batched events into usage_events and emits batch audit', async () => {
@@ -105,15 +104,11 @@ describe.sequential('token usage buffer', () => {
     });
 
     expect(getTokenUsageBufferStats().queueSize).toBe(3);
-    expect(getTokenUsageBufferStats().totalEnqueued).toBe(3);
 
     await flushTokenUsageBuffer();
 
     const stats = getTokenUsageBufferStats();
     expect(stats.queueSize).toBe(0);
-    expect(stats.totalFlushed).toBe(3);
-    expect(stats.flushCount).toBe(1);
-    expect(stats.lastFlushAt).not.toBeNull();
     expect(stats.lastError).toBeNull();
 
     // Verify rows landed in usage_events.
@@ -202,6 +197,7 @@ describe.sequential('token usage buffer', () => {
       computeTokenUsageBatchHash,
       enqueueTokenUsage,
       flushTokenUsageBuffer,
+      verifyTokenUsageBatchHash,
     } = await import('../src/usage/token-usage-buffer.ts');
     _resetTokenUsageBufferForTests();
 
@@ -292,12 +288,20 @@ describe.sequential('token usage buffer', () => {
       );
       expect(recomputed).toBe(payload.batchHash);
       expect(reversed).toBe(payload.batchHash);
+      expect(verifyTokenUsageBatchHash(payload.batchId)).toMatchObject({
+        ok: true,
+        batchId: payload.batchId,
+        rowCount: 2,
+        expectedHash: payload.batchHash,
+        actualHash: payload.batchHash,
+        errors: [],
+      });
     } finally {
       probe.close();
     }
   });
 
-  test('batch audit grouping preserves distinct run parentage', async () => {
+  test('batch audit grouping preserves distinct run ids', async () => {
     const dbPath = createTempDbPath();
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
@@ -318,7 +322,6 @@ describe.sequential('token usage buffer', () => {
       outputTokens: 6,
       totalTokens: 10,
       auditRunId: 'run-a',
-      auditParentRunId: 'parent-a',
     });
     enqueueTokenUsage({
       sessionId: 'sess-runs',
@@ -328,7 +331,6 @@ describe.sequential('token usage buffer', () => {
       outputTokens: 8,
       totalTokens: 15,
       auditRunId: 'run-b',
-      auditParentRunId: 'parent-b',
     });
 
     await flushTokenUsageBuffer();
@@ -342,9 +344,9 @@ describe.sequential('token usage buffer', () => {
       'run-a',
       'run-b',
     ]);
-    expect(batchEvents.map((event) => event.parent_run_id).sort()).toEqual([
-      'parent-a',
-      'parent-b',
+    expect(batchEvents.map((event) => event.parent_run_id)).toEqual([
+      null,
+      null,
     ]);
   });
 
@@ -415,7 +417,6 @@ describe.sequential('token usage buffer', () => {
     await expect(flushTokenUsageBuffer()).rejects.toThrow();
     expect(getTokenUsageBufferStats()).toMatchObject({
       queueSize: 1,
-      totalFlushed: 0,
     });
     expect(getTokenUsageBufferStats().lastError).toEqual(expect.any(String));
 
@@ -426,7 +427,6 @@ describe.sequential('token usage buffer', () => {
     await flushTokenUsageBuffer();
     expect(getTokenUsageBufferStats()).toMatchObject({
       queueSize: 0,
-      totalFlushed: 1,
       lastError: null,
     });
 
@@ -495,9 +495,18 @@ describe.sequential('token usage buffer', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     const stats = getTokenUsageBufferStats();
-    expect(stats.totalEnqueued).toBe(3);
-    expect(stats.totalFlushed).toBeGreaterThanOrEqual(3);
     expect(stats.queueSize).toBe(0);
+
+    const Database = (await import('better-sqlite3')).default;
+    const probe = new Database(dbPath, { readonly: true });
+    try {
+      const row = probe
+        .prepare(`SELECT COUNT(*) AS count FROM usage_events`)
+        .get() as { count: number };
+      expect(row.count).toBe(3);
+    } finally {
+      probe.close();
+    }
 
     await stopTokenUsageBuffer();
   });
@@ -532,7 +541,6 @@ describe.sequential('token usage buffer', () => {
     }
 
     const stats = getTokenUsageBufferStats();
-    expect(stats.totalEnqueued).toBe(2);
     expect(stats.totalDropped).toBe(3);
     expect(stats.queueSize).toBe(2);
 
@@ -571,7 +579,6 @@ describe.sequential('token usage buffer', () => {
 
     const stats = getTokenUsageBufferStats();
     expect(stats.queueSize).toBe(0);
-    expect(stats.totalFlushed).toBe(1);
     expect(stats.started).toBe(false);
 
     const Database = (await import('better-sqlite3')).default;
@@ -595,6 +602,7 @@ describe.sequential('token usage buffer', () => {
     const {
       _resetTokenUsageBufferForTests,
       getTokenUsageBufferStats,
+      enqueueTokenUsage,
       startTokenUsageBuffer,
       stopTokenUsageBuffer,
     } = await import('../src/usage/token-usage-buffer.ts');
@@ -611,10 +619,22 @@ describe.sequential('token usage buffer', () => {
       maxQueueSize: 1,
     });
 
-    const stats = getTokenUsageBufferStats();
-    expect(stats.maxBatchSize).toBe(7);
-    expect(stats.maxQueueSize).toBe(99);
-    expect(stats.flushIntervalMs).toBe(60_000);
+    enqueueTokenUsage({
+      sessionId: 'sess-idempotent',
+      agentId: 'agent-idempotent',
+      model: 'gpt-5-nano',
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    enqueueTokenUsage({
+      sessionId: 'sess-idempotent',
+      agentId: 'agent-idempotent',
+      model: 'gpt-5-nano',
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    expect(getTokenUsageBufferStats().queueSize).toBe(2);
 
     await stopTokenUsageBuffer();
   });

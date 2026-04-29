@@ -540,6 +540,7 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
+  verify-usage-batch <batchId>       Verify a token-usage batch hash
   scan-leaks [sessionId] [--quiet|--all] [--level <sev>] [--type <list>] [--json]
                                      Scan audit logs for confidential-info leaks. Verbosity: --quiet | (default) | --all.
                                      Filters: --level critical|high|medium|low (≥ floor),

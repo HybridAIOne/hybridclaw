@@ -3235,6 +3235,20 @@ export interface RecordUsageEventBatchEntry {
   batchHash?: string;
 }
 
+export interface UsageBatchHashRecord {
+  sessionId: string;
+  agentId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  toolCalls: number;
+  costUsd: number;
+  timestamp: string;
+  batchId: string;
+  batchHash: string | null;
+}
+
 /**
  * Bulk-insert usage events inside a single SQLite transaction.
  *
@@ -3326,6 +3340,34 @@ export function recordUsageEventBatch(
     }
   });
   transaction(normalized);
+}
+
+export function listUsageEventsByBatchId(
+  batchId: string,
+): UsageBatchHashRecord[] {
+  ensureDatabaseReady();
+  const normalizedBatchId = batchId.trim();
+  if (!normalizedBatchId) return [];
+  const rows = db
+    .prepare(
+      `SELECT
+         session_id AS sessionId,
+         agent_id AS agentId,
+         model,
+         input_tokens AS inputTokens,
+         output_tokens AS outputTokens,
+         total_tokens AS totalTokens,
+         tool_calls AS toolCalls,
+         cost_usd AS costUsd,
+         timestamp,
+         batch_id AS batchId,
+         batch_hash AS batchHash
+       FROM usage_events
+       WHERE batch_id = ?
+       ORDER BY id ASC`,
+    )
+    .all(normalizedBatchId) as UsageBatchHashRecord[];
+  return rows;
 }
 
 function serializeRequestLogJson(value: unknown): string | null {
