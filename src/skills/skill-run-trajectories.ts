@@ -1,11 +1,24 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { logger } from '../logger.js';
+import {
+  type ConfidentialPlaceholderMap,
+  createPlaceholderMap,
+  dehydrateConfidential,
+} from '../security/confidential-redact.js';
+import type { ConfidentialRuleSet } from '../security/confidential-rules.js';
+import {
+  getConfidentialRuleSet,
+  isConfidentialRedactionEnabled,
+} from '../security/confidential-runtime.js';
+import { redactSecrets } from '../security/redact.js';
 import { expandHomePath } from '../utils/path.js';
 import type { AdaptiveSkillsConfig } from './adaptive-skills-types.js';
 import type {
@@ -20,6 +33,11 @@ const SKILL_RUN_TRAJECTORY_DIR_MODE = 0o700;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const TRAJECTORY_DATE_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 let loggedTrajectoryCaptureConfigKey: string | null = null;
+
+interface TrajectoryScrubStats {
+  hits: number;
+  redactedStrings: number;
+}
 
 export interface SkillRunTrajectoryPayload {
   content: string;
@@ -60,6 +78,22 @@ function safeFilePart(raw: string): string {
   return normalized || 'unknown';
 }
 
+function hashedTenantId(raw: string): string {
+  return `agent_${createHash('sha256').update(raw).digest('hex').slice(0, 16)}`;
+}
+
+function trajectoryStorageTenantId(
+  rawAgentId: string,
+  ruleSet: ConfidentialRuleSet | null,
+): string {
+  const confidentialScrubbed = ruleSet
+    ? dehydrateConfidential(rawAgentId, ruleSet, createPlaceholderMap()).text
+    : rawAgentId;
+  const scrubbed = redactSecrets(confidentialScrubbed);
+  if (scrubbed !== rawAgentId) return hashedTenantId(rawAgentId);
+  return safeFilePart(rawAgentId);
+}
+
 export function resolveSkillRunTrajectoryStoreDir(
   config: RuntimeConfig,
 ): string {
@@ -88,12 +122,15 @@ function logTrajectoryCaptureEnabledOnce(input: {
   const configKey = `${input.storeDir}\0${input.agentIds.join('\0')}`;
   if (loggedTrajectoryCaptureConfigKey === configKey) return;
   loggedTrajectoryCaptureConfigKey = configKey;
+  const loggedAgentIds = input.agentIds.map((agentId) =>
+    redactSecrets(agentId),
+  );
   logger.info(
     {
-      agentIds: input.agentIds,
+      agentIds: loggedAgentIds,
       storeDir: input.storeDir,
     },
-    `Trajectory capture enabled for agents: [${input.agentIds.join(', ')}] -> ${
+    `Trajectory capture enabled for agents: [${loggedAgentIds.join(', ')}] -> ${
       input.storeDir
     }`,
   );
@@ -225,6 +262,104 @@ export function buildSkillRunTrajectoryRecord(
   };
 }
 
+function scrubTrajectoryValue(
+  value: unknown,
+  mappings: ConfidentialPlaceholderMap,
+  stats: TrajectoryScrubStats,
+  ruleSet: ConfidentialRuleSet | null,
+): unknown {
+  if (typeof value === 'string') {
+    const scrubbed = ruleSet
+      ? dehydrateConfidential(value, ruleSet, mappings)
+      : { text: value, hits: 0 };
+    stats.hits += scrubbed.hits;
+    const redacted = redactSecrets(scrubbed.text);
+    if (redacted !== value) stats.redactedStrings += 1;
+    return redacted;
+  }
+
+  if (Array.isArray(value)) {
+    let mutated = false;
+    const next = value.map((entry) => {
+      const scrubbed = scrubTrajectoryValue(entry, mappings, stats, ruleSet);
+      if (scrubbed !== entry) mutated = true;
+      return scrubbed;
+    });
+    return mutated ? next : value;
+  }
+
+  if (!value || typeof value !== 'object') return value;
+
+  let mutated = false;
+  const source = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    const scrubbed = scrubTrajectoryValue(entry, mappings, stats, ruleSet);
+    if (scrubbed !== entry) mutated = true;
+    next[key] = scrubbed;
+  }
+  return mutated ? next : value;
+}
+
+function getTrajectoryConfidentialRuleSet(): ConfidentialRuleSet | null {
+  if (!isConfidentialRedactionEnabled()) return null;
+  return getConfidentialRuleSet();
+}
+
+function scrubSkillRunTrajectoryRecord(record: SkillRunTrajectoryRecord): {
+  record: SkillRunTrajectoryRecord;
+  hits: number;
+  placeholderCount: number;
+  redactedStringCount: number;
+  rulesSource: string | null;
+} {
+  const ruleSet = getTrajectoryConfidentialRuleSet();
+  const mappings = createPlaceholderMap();
+  const stats: TrajectoryScrubStats = { hits: 0, redactedStrings: 0 };
+  const scrubbed = scrubTrajectoryValue(record, mappings, stats, ruleSet);
+  const scrubbedRecord = scrubbed as SkillRunTrajectoryRecord;
+  return {
+    record: {
+      ...scrubbedRecord,
+      tenant_id: trajectoryStorageTenantId(record.tenant_id, ruleSet),
+    },
+    hits: stats.hits,
+    placeholderCount: mappings.byPlaceholder.size,
+    redactedStringCount: stats.redactedStrings,
+    rulesSource: ruleSet?.sourcePath ?? null,
+  };
+}
+
+function recordTrajectoryScrubAudit(input: {
+  record: SkillRunTrajectoryRecord;
+  filePath: string;
+  hits: number;
+  placeholderCount: number;
+  redactedStringCount: number;
+  rulesSource: string | null;
+}): void {
+  recordAuditEvent({
+    sessionId: input.record.session_id,
+    runId: makeAuditRunId('trajectory_scrub'),
+    parentRunId: input.record.run_id,
+    event: {
+      type: 'skill.trajectory.scrub',
+      skillName: input.record.skill_id,
+      agentId: input.record.agent_id,
+      tenantId: input.record.tenant_id,
+      trajectoryDate: input.record.date,
+      trajectoryFile: path.basename(input.filePath),
+      schemaVersion: input.record.schema_version,
+      redactor: 'confidential-redact',
+      placeholderFormat: '«CONF:<RULE_ID>»',
+      matches: input.hits,
+      placeholderCount: input.placeholderCount,
+      redactedStringCount: input.redactedStringCount,
+      rulesSource: input.rulesSource,
+    },
+  });
+}
+
 export function recordSkillRunTrajectory(event: SkillRunEvent): void {
   const config = getRuntimeConfig();
   const enabledAgentIds = normalizedTrajectoryCaptureAgentIds(
@@ -243,11 +378,13 @@ export function recordSkillRunTrajectory(event: SkillRunEvent): void {
   if (!isTrajectoryCaptureEnabledForAgent(event, enabledAgentIds)) return;
 
   try {
-    const record = buildSkillRunTrajectoryRecord(event);
+    const builtRecord = buildSkillRunTrajectoryRecord(event);
+    const scrubbed = scrubSkillRunTrajectoryRecord(builtRecord);
+    const record = scrubbed.record;
     const filePath = skillRunTrajectoryFilePath({
       storeDir,
       date: record.date,
-      agentId: record.agent_id,
+      agentId: record.tenant_id,
     });
     ensurePrivateTrajectoryDirectories({
       storeDir,
@@ -256,6 +393,14 @@ export function recordSkillRunTrajectory(event: SkillRunEvent): void {
     fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`, {
       encoding: 'utf-8',
       mode: 0o600,
+    });
+    recordTrajectoryScrubAudit({
+      record,
+      filePath,
+      hits: scrubbed.hits,
+      placeholderCount: scrubbed.placeholderCount,
+      redactedStringCount: scrubbed.redactedStringCount,
+      rulesSource: scrubbed.rulesSource,
     });
   } catch (error) {
     logger.warn(

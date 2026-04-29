@@ -148,10 +148,13 @@ saved revision history directly.
   leave it empty to use the parent model
 - `adaptiveSkills.*` for skill observation, amendment staging, rollback, and
   opt-in trajectory capture via
-  `adaptiveSkills.trajectoryCapture.enabledAgentIds`; when
-  `adaptiveSkills.trajectoryCapture.storeDir` is empty, trajectories are stored
-  beside the runtime database, absolute paths are used as-is, and relative paths
-  resolve under the runtime home directory; trajectory retention defaults to
+  `adaptiveSkills.trajectoryCapture.enabledAgentIds`; captured trajectories run
+  through PII/secret redaction, and configured confidential-info rules preserve
+  the documented `«CONF:<RULE_ID>»` placeholder format before the trajectories
+  are written; when `adaptiveSkills.trajectoryCapture.storeDir` is empty,
+  trajectories are stored beside the runtime database, absolute paths are
+  used as-is, and relative paths resolve under the runtime home directory;
+  trajectory retention defaults to
   `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden
   per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;

@@ -65,6 +65,10 @@ Key settings:
   guard verdict is `safe` with zero findings
 - `trajectoryCapture.enabledAgentIds`: opt-in agent IDs whose full redacted
   skill-run trajectories are appended to JSONL files
+- Captured trajectories run through PII/secret redaction plus the
+  confidential-info redactor before they are written. Confidential placeholders
+  keep the documented `«CONF:<RULE_ID>»` format so downstream training data
+  preserves the masking convention.
 - `trajectoryCapture.storeDir`: optional trajectory store location; empty uses
   a `trajectories/` directory beside the runtime database, absolute paths are
   used as-is, and relative paths resolve under the runtime home directory

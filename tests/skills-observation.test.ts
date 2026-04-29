@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -6,6 +7,10 @@ import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-s
 import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
 let context: AdaptiveSkillsTestContext | null = null;
+
+function hashedTrajectoryTenantId(raw: string): string {
+  return `agent_${createHash('sha256').update(raw).digest('hex').slice(0, 16)}`;
+}
 
 afterEach(() => {
   context?.cleanup();
@@ -810,6 +815,191 @@ test('captures opt-in skill_run trajectories in append-only files keyed by date 
     expect(fs.statSync(trajectoryDateDir).mode & 0o777).toBe(0o700);
   }
   expect(fs.existsSync(path.join(storeDir, date, 'agent-2.jsonl'))).toBe(false);
+});
+
+test('scrubs confidential trajectory batches and records audit metadata', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const storeDir = path.join(context.homeDir, 'trajectory-scrub-store');
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.adaptiveSkills.trajectoryCapture.enabledAgentIds = ['agent-scrub'];
+    draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
+  });
+
+  const { parseConfidentialYaml } = await import(
+    '../src/security/confidential-rules.ts'
+  );
+  const { setConfidentialRuleSetForTesting } = await import(
+    '../src/security/confidential-runtime.ts'
+  );
+  setConfidentialRuleSetForTesting(
+    parseConfidentialYaml(
+      `
+version: 1
+clients:
+  - name: Serviceplan
+    sensitivity: high
+projects:
+  - name: Project Falcon
+    sensitivity: critical
+people:
+  - name: Jane Doe
+    sensitivity: medium
+`,
+      'memory:test-confidential',
+    ),
+  );
+
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-trajectory-scrub',
+    runId: 'run-trajectory-scrub',
+    agentId: 'agent-scrub',
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: JSON.stringify({
+          cmd: 'printf Serviceplan',
+          note: 'Existing placeholder «CONF:CLIENT_999» is preserved',
+        }),
+        result: 'Jane Doe reviewed Project Falcon',
+        durationMs: 8,
+      },
+    ],
+    outcome: 'success',
+    durationMs: 18,
+    input: 'Serviceplan asked about Project Falcon and «CONF:CLIENT_999».',
+    output: 'Jane Doe approved the next Serviceplan draft.',
+    errorDetail:
+      'Project Falcon follow-up stayed nonblocking for jane@company.com.',
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  const trajectoryPath = path.join(storeDir, date, 'agent-scrub.jsonl');
+  const row = JSON.parse(
+    fs.readFileSync(trajectoryPath, 'utf-8').trim(),
+  ) as Record<string, unknown>;
+  const serialized = JSON.stringify(row);
+
+  expect(serialized).toContain('«CONF:CLIENT_001»');
+  expect(serialized).toContain('«CONF:PROJECT_001»');
+  expect(serialized).toContain('«CONF:PERSON_001»');
+  expect(serialized).toContain('«CONF:CLIENT_999»');
+  expect(serialized).toContain('***EMAIL_REDACTED***');
+  expect(serialized).not.toContain('Serviceplan');
+  expect(serialized).not.toContain('Project Falcon');
+  expect(serialized).not.toContain('Jane Doe');
+  expect(serialized).not.toContain('jane@company.com');
+
+  const auditRows = context.dbModule.getStructuredAuditForSession(
+    'session-trajectory-scrub',
+  );
+  const scrubAudit = auditRows.find(
+    (entry) => entry.event_type === 'skill.trajectory.scrub',
+  );
+  expect(scrubAudit).toBeTruthy();
+  const payload = JSON.parse(scrubAudit?.payload || '{}') as Record<
+    string,
+    unknown
+  >;
+  expect(payload).toMatchObject({
+    type: 'skill.trajectory.scrub',
+    skillName: context.skillName,
+    agentId: 'agent-scrub',
+    tenantId: 'agent-scrub',
+    trajectoryDate: date,
+    trajectoryFile: 'agent-scrub.jsonl',
+    schemaVersion: 2,
+    redactor: 'confidential-redact',
+    placeholderFormat: '«CONF:<RULE_ID>»',
+    rulesSource: 'memory:test-confidential',
+  });
+  expect(payload.matches).toEqual(expect.any(Number));
+  expect(payload.placeholderCount).toEqual(expect.any(Number));
+  expect(payload.redactedStringCount).toEqual(expect.any(Number));
+  expect(payload.matches as number).toBeGreaterThanOrEqual(3);
+  expect(payload.placeholderCount as number).toBeGreaterThanOrEqual(3);
+  expect(payload.redactedStringCount as number).toBeGreaterThanOrEqual(3);
+  expect(JSON.stringify(payload)).not.toContain('Serviceplan');
+  expect(JSON.stringify(payload)).not.toContain('Project Falcon');
+  expect(JSON.stringify(payload)).not.toContain('Jane Doe');
+});
+
+test('uses non-PII tenant storage keys for PII-like trajectory agent ids', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const storeDir = path.join(context.homeDir, 'trajectory-tenant-store');
+  const aliceAgentId = 'alice@example.com';
+  const bobAgentId = 'bob@example.com';
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.adaptiveSkills.trajectoryCapture.enabledAgentIds = [
+      aliceAgentId,
+      bobAgentId,
+    ];
+    draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
+  });
+
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-trajectory-alice',
+    runId: 'run-trajectory-alice',
+    agentId: aliceAgentId,
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 10,
+    input: 'alice trajectory',
+    output: 'done',
+  });
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-trajectory-bob',
+    runId: 'run-trajectory-bob',
+    agentId: bobAgentId,
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 10,
+    input: 'bob trajectory',
+    output: 'done',
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  const aliceTenantId = hashedTrajectoryTenantId(aliceAgentId);
+  const bobTenantId = hashedTrajectoryTenantId(bobAgentId);
+  const files = fs.readdirSync(path.join(storeDir, date)).sort();
+
+  expect(files).toEqual(
+    [`${aliceTenantId}.jsonl`, `${bobTenantId}.jsonl`].sort(),
+  );
+  expect(files.join('\n')).not.toContain(aliceAgentId);
+  expect(files.join('\n')).not.toContain(bobAgentId);
+  expect(files.join('\n')).not.toContain('***EMAIL_REDACTED***');
+
+  const aliceRow = JSON.parse(
+    fs.readFileSync(
+      path.join(storeDir, date, `${aliceTenantId}.jsonl`),
+      'utf-8',
+    ),
+  ) as Record<string, unknown>;
+  const bobRow = JSON.parse(
+    fs.readFileSync(path.join(storeDir, date, `${bobTenantId}.jsonl`), 'utf-8'),
+  ) as Record<string, unknown>;
+
+  expect(aliceRow).toMatchObject({
+    tenant_id: aliceTenantId,
+    agent_id: '***EMAIL_REDACTED***',
+  });
+  expect(bobRow).toMatchObject({
+    tenant_id: bobTenantId,
+    agent_id: '***EMAIL_REDACTED***',
+  });
+  expect(JSON.stringify(aliceRow)).not.toContain(aliceAgentId);
+  expect(JSON.stringify(bobRow)).not.toContain(bobAgentId);
 });
 
 test('skill_run subscriber failures do not block observation persistence', async () => {
