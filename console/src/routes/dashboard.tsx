@@ -83,6 +83,10 @@ function TunnelStatusPanel(props: {
   const publicUrl = tunnel.publicUrl || 'not configured';
   const reconnectDisabled =
     props.reconnectPending || !tunnel.reconnectSupported;
+  const distinctReconnectError =
+    props.reconnectError && props.reconnectError !== tunnel.lastError
+      ? props.reconnectError
+      : null;
 
   return (
     <Panel title="Public tunnel">
@@ -135,8 +139,8 @@ function TunnelStatusPanel(props: {
       {tunnel.lastError ? (
         <p className="supporting-text tunnel-error">{tunnel.lastError}</p>
       ) : null}
-      {props.reconnectError ? (
-        <p className="supporting-text tunnel-error">{props.reconnectError}</p>
+      {distinctReconnectError ? (
+        <p className="supporting-text tunnel-error">{distinctReconnectError}</p>
       ) : null}
     </Panel>
   );

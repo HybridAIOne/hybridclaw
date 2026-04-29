@@ -178,4 +178,30 @@ describe('DashboardPage', () => {
       ).getAttribute('href'),
     ).toBe('https://next.example.test');
   });
+
+  it('does not repeat the same tunnel and reconnect error', async () => {
+    const message =
+      'ngrok auth token is not configured in encrypted runtime secrets. Store it with `hybridclaw secret set NGROK_AUTHTOKEN <token>`.';
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          publicUrl: null,
+          state: 'down',
+          health: 'down',
+          lastError: message,
+          lastCheckedAt: null,
+        }),
+      ),
+    );
+    reconnectTunnelMock.mockRejectedValue(new Error(message));
+
+    renderDashboardPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+    await waitFor(() => {
+      expect(reconnectTunnelMock).toHaveBeenCalledWith('test-token');
+      expect(screen.getAllByText(message)).toHaveLength(1);
+    });
+  });
 });
