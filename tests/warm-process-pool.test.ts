@@ -25,6 +25,15 @@ test('normalizes runtime memory pressure from MB to bytes', () => {
   ).toBe(2 * 1024 * 1024);
 });
 
+test('normalizes min idle workers to the configured max idle workers', () => {
+  expect(
+    normalizeWarmProcessPoolConfig({
+      minIdlePerActiveAgent: 5,
+      maxIdlePerAgent: 2,
+    }).minIdlePerActiveAgent,
+  ).toBe(2);
+});
+
 test('sizes per-agent warm pools from recent traffic', () => {
   const pool = new WarmProcessPool(
     normalizeWarmProcessPoolConfig({

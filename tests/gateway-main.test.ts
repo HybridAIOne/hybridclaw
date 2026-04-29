@@ -711,6 +711,7 @@ describe('gateway bootstrap', () => {
         sandboxMode: 'container',
         minIdlePerActiveAgent: 1,
         maxIdlePerAgent: 2,
+        effectiveMinIdlePerActiveAgent: 1,
         memoryPressureRssMb: 2_048,
         coldStartBudgetMs: 200,
         warmScope:

@@ -3055,6 +3055,10 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
       sandboxMode: config.sandboxMode,
       minIdlePerActiveAgent: warmPool.minIdlePerActiveAgent,
       maxIdlePerAgent: warmPool.maxIdlePerAgent,
+      effectiveMinIdlePerActiveAgent: Math.min(
+        warmPool.minIdlePerActiveAgent,
+        warmPool.maxIdlePerAgent,
+      ),
       memoryPressureRssMb: warmPool.memoryPressureRssMb,
       coldStartBudgetMs: warmPool.coldStartBudgetMs,
       warmScope:

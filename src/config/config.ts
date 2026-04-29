@@ -767,6 +767,7 @@ export const FULLAUTO_STALL_RECOVERY_DELAY_MS = 5_000;
 
 const DOCKER_ENV_PATH = '/.dockerenv';
 let sandboxAutoDetectLogged = '';
+let warmPoolClampWarningSignature = '';
 let sandboxModeOverride: RuntimeConfig['container']['sandboxMode'] | null =
   (() => {
     const raw = String(process.env.HYBRIDCLAW_SANDBOX_MODE_OVERRIDE || '')
@@ -813,6 +814,28 @@ function normalizeConfiguredBaseUrl(
     .trim()
     .replace(/\/+$/, '');
   return trimmed || fallback;
+}
+
+function warnIfWarmPoolMinIdleIsClamped(
+  config: RuntimeConfig['container']['warmPool'],
+): void {
+  if (!config.enabled) return;
+  if (config.minIdlePerActiveAgent <= config.maxIdlePerAgent) {
+    warmPoolClampWarningSignature = '';
+    return;
+  }
+
+  const signature = `${config.minIdlePerActiveAgent}:${config.maxIdlePerAgent}`;
+  if (warmPoolClampWarningSignature === signature) return;
+  warmPoolClampWarningSignature = signature;
+  logger.warn(
+    {
+      requestedMinIdlePerActiveAgent: config.minIdlePerActiveAgent,
+      maxIdlePerAgent: config.maxIdlePerAgent,
+      effectiveMinIdlePerActiveAgent: config.maxIdlePerAgent,
+    },
+    'Warm process pool minIdlePerActiveAgent exceeds maxIdlePerAgent; clamping effective minimum idle workers',
+  );
 }
 
 function applyRuntimeConfig(config: RuntimeConfig): void {
@@ -1059,6 +1082,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
   CONTAINER_PERSIST_BASH_STATE = config.container.persistBashState;
+  warnIfWarmPoolMinIdleIsClamped(config.container.warmPool);
   CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   MCP_SERVERS = structuredClone(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
