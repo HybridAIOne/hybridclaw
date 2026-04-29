@@ -239,13 +239,33 @@ async function defaultJudgeModelCaller(
 async function buildJudgeModelChain(
   options: JudgeTraceOptions,
 ): Promise<string[]> {
-  if (options.refreshCatalog === true) {
-    await refreshAvailableModelCatalogs({ includeHybridAI: true });
-  }
   const explicitModels = dedupeExplicitModelNames([
     options.model,
     ...(options.fallbackModels || []),
   ]);
+  if (options.refreshCatalog === true) {
+    const refreshResult = await refreshAvailableModelCatalogs({
+      includeHybridAI: true,
+    });
+    if (
+      explicitModels.length === 0 &&
+      refreshResult.discoveredModelCount === 0
+    ) {
+      const failedProviders = refreshResult.failures
+        .map((failure) => `${failure.provider} (${failure.error})`)
+        .join(', ');
+      throw new Error(
+        [
+          'No judge model is available after catalog refresh.',
+          'The refresh returned no discovered models.',
+          failedProviders ? `Failed providers: ${failedProviders}.` : '',
+          'Pass an explicit judge model or configure a model catalog provider.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
+    }
+  }
   const catalogModels = selectModelsByCapabilityAndCost(
     options.capabilities || DEFAULT_JUDGE_CAPABILITIES,
     {

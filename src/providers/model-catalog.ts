@@ -1,5 +1,6 @@
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   discoverAnthropicModels,
   getDiscoveredAnthropicModelContextWindow,
@@ -96,6 +97,19 @@ export interface ModelCatalogSelectionOptions {
   provider?: string;
 }
 
+export interface ModelCatalogRefreshFailure {
+  provider: string;
+  error: string;
+}
+
+export interface ModelCatalogRefreshResult {
+  attempted: number;
+  fulfilled: number;
+  rejected: number;
+  discoveredModelCount: number;
+  failures: ModelCatalogRefreshFailure[];
+}
+
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
 const LLAMACPP_MODEL_PREFIX = 'llamacpp/';
@@ -180,6 +194,10 @@ function estimateModelUnitCostUsd(
   const input = pricing.input ?? pricing.output ?? 0;
   const output = pricing.output ?? pricing.input ?? 0;
   return input + output;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function hasModelPrefix(model: string, prefix: string): boolean {
@@ -363,17 +381,68 @@ export function getAvailableModelList(provider?: string): string[] {
 
 export async function refreshAvailableModelCatalogs(opts?: {
   includeHybridAI?: boolean;
-}): Promise<void> {
-  await Promise.allSettled([
-    discoverCodexModels(),
-    discoverAnthropicModels(),
-    discoverAllLocalModels(),
-    discoverHuggingFaceModels(),
-    discoverMistralModels(),
-    discoverOpenRouterModels(),
-    discoverOpenAICompatRemoteModels(),
-    ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
-  ]);
+}): Promise<ModelCatalogRefreshResult> {
+  const tasks: Array<{
+    provider: string;
+    refresh: () => Promise<readonly unknown[]>;
+  }> = [
+    { provider: 'openai-codex', refresh: discoverCodexModels },
+    { provider: 'anthropic', refresh: discoverAnthropicModels },
+    { provider: 'local', refresh: discoverAllLocalModels },
+    { provider: 'huggingface', refresh: discoverHuggingFaceModels },
+    { provider: 'mistral', refresh: discoverMistralModels },
+    { provider: 'openrouter', refresh: discoverOpenRouterModels },
+    {
+      provider: 'openai-compatible',
+      refresh: async () => {
+        await discoverOpenAICompatRemoteModels();
+        return getDiscoveredOpenAICompatRemoteModelNames();
+      },
+    },
+    ...(opts?.includeHybridAI
+      ? [{ provider: 'hybridai', refresh: discoverHybridAIModels }]
+      : []),
+  ];
+  const results = await Promise.allSettled(
+    tasks.map(async (task) => ({
+      provider: task.provider,
+      models: await task.refresh(),
+    })),
+  );
+
+  let discoveredModelCount = 0;
+  const failures: ModelCatalogRefreshFailure[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    if (result.status === 'fulfilled') {
+      discoveredModelCount += result.value.models.length;
+      continue;
+    }
+    failures.push({
+      provider: tasks[index]?.provider ?? 'unknown',
+      error: errorMessage(result.reason),
+    });
+  }
+
+  if (failures.length > 0) {
+    logger.warn(
+      {
+        failures,
+        attempted: tasks.length,
+        fulfilled: tasks.length - failures.length,
+        discoveredModelCount,
+      },
+      'Model catalog refresh completed with provider failures',
+    );
+  }
+
+  return {
+    attempted: tasks.length,
+    fulfilled: tasks.length - failures.length,
+    rejected: failures.length,
+    discoveredModelCount,
+    failures,
+  };
 }
 
 export async function refreshModelCatalogMetadata(
