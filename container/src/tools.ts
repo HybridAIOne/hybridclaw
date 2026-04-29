@@ -7,6 +7,7 @@ import {
   formatMessageToolChannelList,
   normalizeMessageToolChannelKinds,
 } from '../shared/message-tool-channels.js';
+import { buildSanitizedEnv } from '../shared/sensitive-env.js';
 import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
@@ -397,14 +398,12 @@ function runHostBash(
   args: string[],
   timeoutMs: number,
 ): SpawnSyncReturns<string> {
-  const cleanEnv = { ...process.env };
-  delete cleanEnv.HYBRIDAI_API_KEY;
   return spawnSync('bash', args, {
     timeout: timeoutMs,
     encoding: 'utf-8',
     cwd: WORKSPACE_ROOT,
     maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-    env: cleanEnv,
+    env: buildSanitizedEnv(process.env),
   });
 }
 
@@ -771,13 +770,33 @@ export function setMediaContext(media?: MediaContextItem[]): void {
   currentMediaContext = Array.isArray(media) ? media : [];
 }
 
+function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
+  return Boolean(
+    config?.braveApiKey || config?.perplexityApiKey || config?.tavilyApiKey,
+  );
+}
+
 export function setWebSearchConfig(config?: WebSearchRuntimeConfig): void {
-  currentWebSearchConfig = config
-    ? {
-        ...config,
-        fallbackProviders: [...config.fallbackProviders],
-      }
-    : undefined;
+  const previous = currentWebSearchConfig;
+  if (!config) {
+    if (hasWebSearchProviderKeys(previous)) {
+      console.warn(
+        '[web-search] runtime config cleared; provider API keys supplied through runtime config will be unavailable until a new config arrives.',
+      );
+    }
+    currentWebSearchConfig = undefined;
+    return;
+  }
+
+  currentWebSearchConfig = {
+    ...config,
+    fallbackProviders: [...config.fallbackProviders],
+    // Follow-up IPC files redact provider keys, so keep the first in-memory
+    // values until this long-lived agent process restarts.
+    braveApiKey: config.braveApiKey ?? previous?.braveApiKey,
+    perplexityApiKey: config.perplexityApiKey ?? previous?.perplexityApiKey,
+    tavilyApiKey: config.tavilyApiKey ?? previous?.tavilyApiKey,
+  };
 }
 
 export function setMcpClientManager(manager: McpClientManager | null): void {

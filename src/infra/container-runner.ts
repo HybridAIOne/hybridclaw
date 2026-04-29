@@ -624,15 +624,6 @@ function getOrSpawnContainer(
     'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
   ];
 
-  for (const [name, value] of [
-    ['BRAVE_API_KEY', BRAVE_API_KEY],
-    ['PERPLEXITY_API_KEY', PERPLEXITY_API_KEY],
-    ['TAVILY_API_KEY', TAVILY_API_KEY],
-  ] as const) {
-    if (!value) continue;
-    args.push('-e', `${name}=${value}`);
-  }
-
   // Run as host user so bind-mount file ownership matches
   const hostUid = process.getuid?.();
   const hostGid = process.getgid?.();
@@ -930,6 +921,9 @@ async function runContainerInner(
       cacheTtlMinutes: WEB_SEARCH_CACHE_TTL_MINUTES,
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
+      braveApiKey: BRAVE_API_KEY,
+      perplexityApiKey: PERPLEXITY_API_KEY,
+      tavilyApiKey: TAVILY_API_KEY,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,
