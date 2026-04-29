@@ -655,7 +655,7 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
-  const reconnectGatewayAdminTunnel = vi.fn(async () => ({
+  const reconnectTunnelStatus = {
     provider: 'ngrok',
     publicUrl: 'https://next-public.example.test',
     state: 'up' as const,
@@ -666,7 +666,8 @@ async function importFreshHealth(options?: {
     lastCheckedAt: null,
     nextReconnectAt: null,
     reconnectAttempt: 0,
-  }));
+  };
+  const reconnectGatewayAdminTunnel = vi.fn(async () => reconnectTunnelStatus);
   const getGatewayAdminStatistics = vi.fn(
     (params?: { days?: number | string }) => {
       const raw =
@@ -1687,6 +1688,7 @@ async function importFreshHealth(options?: {
     forkSessionBranch,
     getGatewayAdminOverview,
     getGatewayAdminStatistics,
+    reconnectTunnelStatus,
     reconnectGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
@@ -4220,18 +4222,7 @@ describe('gateway HTTP server', () => {
     expect(state.reconnectGatewayAdminTunnel).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
-      tunnel: {
-        provider: 'ngrok',
-        publicUrl: 'https://next-public.example.test',
-        state: 'up',
-        health: 'healthy',
-        running: true,
-        reconnectSupported: true,
-        lastError: null,
-        lastCheckedAt: null,
-        nextReconnectAt: null,
-        reconnectAttempt: 0,
-      },
+      tunnel: state.reconnectTunnelStatus,
     });
   });
 
