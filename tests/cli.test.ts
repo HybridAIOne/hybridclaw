@@ -4825,6 +4825,28 @@ describe('CLI hybridai commands', () => {
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 
+  it('does not fetch authenticated status when gateway health reports container mode for tui preflight', async () => {
+    const {
+      cli,
+      ensureContainerImageReady,
+      ensureHostRuntimeReady,
+      gatewayStatus,
+      runTui,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      sandboxMode: 'container',
+      gatewayHealthSandboxMode: 'container',
+      gatewayStatusSandboxMode: 'host',
+    });
+
+    await cli.main(['tui']);
+
+    expect(gatewayStatus).not.toHaveBeenCalled();
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps host-mode tui preflight on the local runtime config even when a reachable gateway reports container mode', async () => {
     const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
       await importFreshCli({

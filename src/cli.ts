@@ -413,8 +413,8 @@ async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | n
 
   try {
     const health = await gatewayHealth();
-    if (health.sandbox?.mode === 'host') {
-      return health.sandbox.mode;
+    if (health.sandbox) {
+      return health.sandbox.mode === 'host' ? 'host' : null;
     }
   } catch {
     // Fall back to authenticated status, then the local runtime config.
