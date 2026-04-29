@@ -1337,7 +1337,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   }
   if (sub === 'get') {
     const key = (normalized[1] || '').trim();
-    if (!key) {
+    if (!key || normalized.length > 2) {
       throw new Error('Usage: `hybridclaw config get <key>`');
     }
     const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);

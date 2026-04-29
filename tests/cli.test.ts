@@ -3562,6 +3562,14 @@ describe('CLI hybridai commands', () => {
     expect(logSpy).toHaveBeenCalledWith('4096');
   });
 
+  it('rejects extra arguments for config get', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['config', 'get', 'hybridai.maxTokens', 'typo']),
+    ).rejects.toThrow('Usage: `hybridclaw config get <key>`');
+  });
+
   it('reloads runtime config from disk through the top-level config command', async () => {
     const { cli, reloadRuntimeConfig, runDoctorCli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
