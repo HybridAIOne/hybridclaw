@@ -628,6 +628,61 @@ describe.sequential('token usage buffer', () => {
     await stopTokenUsageBuffer();
   });
 
+  test('per-session queue bound prevents one session from filling the buffer', async () => {
+    process.env.HOME = makeTempHome();
+    const dbPath = createTempDbPath();
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const { logger } = await import('../src/logger.ts');
+    initDatabase({ quiet: true, dbPath });
+    const {
+      _resetTokenUsageBufferForTests,
+      enqueueTokenUsage,
+      getTokenUsageBufferStats,
+      startTokenUsageBuffer,
+      stopTokenUsageBuffer,
+    } = await import('../src/usage/token-usage-buffer.ts');
+    _resetTokenUsageBufferForTests();
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+    startTokenUsageBuffer({
+      flushIntervalMs: 60_000,
+      maxBatchSize: 100,
+      maxQueueSize: 8,
+    });
+
+    for (let i = 0; i < 4; i++) {
+      enqueueTokenUsage({
+        sessionId: 'sess-noisy',
+        agentId: 'agent-noisy',
+        model: 'gpt-5-nano',
+        inputTokens: 1,
+        outputTokens: 1,
+      });
+    }
+    enqueueTokenUsage({
+      sessionId: 'sess-other',
+      agentId: 'agent-other',
+      model: 'gpt-5-nano',
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    const stats = getTokenUsageBufferStats();
+    expect(stats.totalDropped).toBe(2);
+    expect(stats.queueSize).toBe(3);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'sess-noisy',
+        sessionQueueSize: 2,
+        maxSessionQueueSize: 2,
+      }),
+      'token_usage: session queue full, dropping event',
+    );
+
+    await stopTokenUsageBuffer();
+  });
+
   test('stopTokenUsageBuffer drains pending events', async () => {
     process.env.HOME = makeTempHome();
     const dbPath = createTempDbPath();

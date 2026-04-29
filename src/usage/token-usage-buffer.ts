@@ -61,6 +61,7 @@ export interface TokenUsageBufferStats {
 const DEFAULT_FLUSH_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_BATCH_SIZE = 100;
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
+const MIN_SESSION_QUEUE_SIZE = 2;
 const MIN_FLUSH_INTERVAL_MS = 250;
 
 interface BufferState {
@@ -69,6 +70,7 @@ interface BufferState {
   flushIntervalMs: number;
   maxBatchSize: number;
   maxQueueSize: number;
+  maxSessionQueueSize: number;
   totalDropped: number;
   lastError: string | null;
   started: boolean;
@@ -116,6 +118,7 @@ const state: BufferState = {
   flushIntervalMs: DEFAULT_FLUSH_INTERVAL_MS,
   maxBatchSize: DEFAULT_MAX_BATCH_SIZE,
   maxQueueSize: DEFAULT_MAX_QUEUE_SIZE,
+  maxSessionQueueSize: computeMaxSessionQueueSize(DEFAULT_MAX_QUEUE_SIZE),
   totalDropped: 0,
   lastError: null,
   started: false,
@@ -142,6 +145,7 @@ export function startTokenUsageBuffer(
     1,
     opts?.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE,
   );
+  state.maxSessionQueueSize = computeMaxSessionQueueSize(state.maxQueueSize);
 
   state.flushTimer = setInterval(() => {
     void flushTokenUsageBuffer().catch((err) => {
@@ -158,6 +162,7 @@ export function startTokenUsageBuffer(
       flushIntervalMs: state.flushIntervalMs,
       maxBatchSize: state.maxBatchSize,
       maxQueueSize: state.maxQueueSize,
+      maxSessionQueueSize: state.maxSessionQueueSize,
     },
     'Token usage buffer started',
   );
@@ -205,6 +210,9 @@ export function _resetTokenUsageBufferForTests(): void {
   state.flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS;
   state.maxBatchSize = DEFAULT_MAX_BATCH_SIZE;
   state.maxQueueSize = DEFAULT_MAX_QUEUE_SIZE;
+  state.maxSessionQueueSize = computeMaxSessionQueueSize(
+    DEFAULT_MAX_QUEUE_SIZE,
+  );
 }
 
 /**
@@ -216,7 +224,8 @@ export function _resetTokenUsageBufferForTests(): void {
  * the disk-write cost.
  */
 export function enqueueTokenUsage(event: TokenUsageEvent): void {
-  if (!event.sessionId?.trim() || !event.agentId?.trim()) {
+  const sessionId = event.sessionId?.trim();
+  if (!sessionId || !event.agentId?.trim()) {
     // Match recordUsageEvent's silent ignore for invalid inputs.
     return;
   }
@@ -245,6 +254,20 @@ export function enqueueTokenUsage(event: TokenUsageEvent): void {
     );
     return;
   }
+  const sessionQueueSize = getSessionQueueSize(sessionId);
+  if (sessionQueueSize >= state.maxSessionQueueSize) {
+    state.totalDropped += 1;
+    logger.warn(
+      {
+        sessionId,
+        model: event.model,
+        sessionQueueSize,
+        maxSessionQueueSize: state.maxSessionQueueSize,
+      },
+      'token_usage: session queue full, dropping event',
+    );
+    return;
+  }
 
   state.queue.push({
     ...event,
@@ -256,6 +279,22 @@ export function enqueueTokenUsage(event: TokenUsageEvent): void {
       logger.warn({ err }, 'token_usage: opportunistic flush failed');
     });
   }
+}
+
+function computeMaxSessionQueueSize(maxQueueSize: number): number {
+  if (maxQueueSize <= MIN_SESSION_QUEUE_SIZE) return maxQueueSize;
+  return Math.min(
+    maxQueueSize,
+    Math.max(MIN_SESSION_QUEUE_SIZE, Math.ceil(maxQueueSize / 4)),
+  );
+}
+
+function getSessionQueueSize(sessionId: string): number {
+  let count = 0;
+  for (const queued of state.queue) {
+    if (queued.sessionId.trim() === sessionId) count += 1;
+  }
+  return count;
 }
 
 function getInvalidUsageNumericFields(event: TokenUsageEvent): string[] {
