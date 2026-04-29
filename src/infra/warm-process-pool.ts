@@ -121,7 +121,7 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
     for (const entry of this.entries.values()) {
       if (entry.agentId !== agentId) continue;
       if (entry.isReady && !entry.isReady()) continue;
-      if (!claimed || entry.lastUsedAt < claimed.lastUsedAt) claimed = entry;
+      if (!claimed || entry.lastUsedAt > claimed.lastUsedAt) claimed = entry;
     }
     if (!claimed) return null;
     this.entries.delete(claimed.id);

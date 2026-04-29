@@ -90,6 +90,29 @@ test('evicts the minimum viable warm entries under memory pressure', () => {
   expect(pool.idleCountForAgent('agent_a')).toBe(2);
 });
 
+test('claims the freshest ready warm entry before pressure evicts older entries', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({ maxIdlePerAgent: 3 }),
+  );
+  const old = makeEntry('old', 'agent_a', 100);
+  const middle = makeEntry('middle', 'agent_a', 200);
+  const fresh = makeEntry('fresh', 'agent_a', 300);
+  pool.add(old);
+  pool.add(middle);
+  pool.add(fresh);
+
+  expect(pool.claim('agent_a', 400)).toBe(fresh);
+  expect(fresh.lastUsedAt).toBe(400);
+
+  const evicted = pool.evictForPressure({
+    totalProcessCount: 3,
+    maxProcessCount: 2,
+  });
+
+  expect(evicted).toEqual([old]);
+  expect(pool.claim('agent_a')).toBe(middle);
+});
+
 test('applies warm pool config changes to existing entries', () => {
   const pool = new WarmProcessPool(
     normalizeWarmProcessPoolConfig({ enabled: true, maxIdlePerAgent: 3 }),
