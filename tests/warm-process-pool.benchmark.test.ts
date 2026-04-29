@@ -19,7 +19,11 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-function makeFakeChildProcess(pid: number) {
+function makeFakeChildProcess(
+  pid: number,
+  requestStartDelayMs: number,
+  advanceClock: (durationMs: number) => void,
+) {
   const proc = new EventEmitter() as EventEmitter & {
     pid: number;
     stderr: EventEmitter;
@@ -32,6 +36,7 @@ function makeFakeChildProcess(pid: number) {
   proc.stderr = new EventEmitter();
   proc.stdin = Object.assign(new EventEmitter(), {
     write: vi.fn(() => {
+      advanceClock(requestStartDelayMs);
       proc.stderr.emit(
         'data',
         Buffer.from('[hybridclaw-agent] agent request start\n'),
@@ -54,25 +59,22 @@ function makeFakeChildProcess(pid: number) {
   return proc;
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.doUnmock('node:child_process');
-  vi.doUnmock('../src/infra/host-runtime-setup.js');
-  vi.doUnmock('../src/infra/ipc.js');
-  vi.doUnmock('../src/providers/factory.js');
-  vi.doUnmock('../src/logger.js');
-  vi.resetModules();
-  restoreEnvVar('HOME', ORIGINAL_HOME);
-});
-
-test('benchmark keeps p95 cold-start within the warm-process budget on a synthetic host workload', async () => {
+async function runSyntheticHostWorkload(requestStartDelayMs: number): Promise<{
+  coldStartP95Ms: number | null;
+  withinBudget: boolean;
+}> {
   process.env.HOME = makeTempHome();
   vi.resetModules();
+
+  let now = 1_700_000_000_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
 
   let nextPid = 10_000;
   const spawn = vi.fn(() => {
     nextPid += 1;
-    return makeFakeChildProcess(nextPid) as never;
+    return makeFakeChildProcess(nextPid, requestStartDelayMs, (durationMs) => {
+      now += durationMs;
+    }) as never;
   });
   const readOutput = vi.fn(async () => ({
     status: 'success' as const,
@@ -158,6 +160,33 @@ test('benchmark keeps p95 cold-start within the warm-process budget on a synthet
     await Promise.resolve();
   }
 
-  expect(getWarmHostColdStartP95Ms()).not.toBeNull();
-  expect(isWarmHostColdStartWithinBudget()).toBe(true);
+  return {
+    coldStartP95Ms: getWarmHostColdStartP95Ms(),
+    withinBudget: isWarmHostColdStartWithinBudget(),
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.doUnmock('node:child_process');
+  vi.doUnmock('../src/infra/host-runtime-setup.js');
+  vi.doUnmock('../src/infra/ipc.js');
+  vi.doUnmock('../src/providers/factory.js');
+  vi.doUnmock('../src/logger.js');
+  vi.resetModules();
+  restoreEnvVar('HOME', ORIGINAL_HOME);
+});
+
+test('benchmark keeps p95 cold-start within the warm-process budget on a synthetic host workload', async () => {
+  const result = await runSyntheticHostWorkload(50);
+
+  expect(result.coldStartP95Ms).toBe(50);
+  expect(result.withinBudget).toBe(true);
+});
+
+test('benchmark detects p95 cold-start budget violations on a synthetic host workload', async () => {
+  const result = await runSyntheticHostWorkload(250);
+
+  expect(result.coldStartP95Ms).toBe(250);
+  expect(result.withinBudget).toBe(false);
 });
