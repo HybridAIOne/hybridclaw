@@ -27,9 +27,10 @@ async function withProbeDeadline<T>(
   const timeoutPromise = new Promise<T>((resolve) => {
     timeout = setTimeout(() => resolve(fallback()), timeoutMs);
   });
+  const probePromise = promise.catch(() => fallback());
 
   try {
-    return await Promise.race([promise, timeoutPromise]);
+    return await Promise.race([probePromise, timeoutPromise]);
   } finally {
     clearTimeout(timeout);
   }
