@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../types/api.js';
 import type { ContainerOutput, MediaContextItem } from '../types/container.js';
 import type {
+  EscalationTarget,
   PendingApproval,
   PluginRuntimeToolDefinition,
   ToolProgressEvent,
@@ -36,12 +37,14 @@ export interface ExecutorRequest {
   allowedTools?: string[];
   blockedTools?: string[];
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   abortSignal?: AbortSignal;
   media?: MediaContextItem[];
   audioTranscriptsPrepended?: boolean;
   pluginTools?: PluginRuntimeToolDefinition[];
+  escalationTarget?: EscalationTarget;
 }
 
 export interface Executor {

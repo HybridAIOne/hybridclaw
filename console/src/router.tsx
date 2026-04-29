@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
@@ -21,6 +22,7 @@ import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
+import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
 
 const LazyTerminalPage = lazy(async () => {
@@ -69,6 +71,12 @@ const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
+const statisticsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/statistics',
+  component: StatisticsPage,
+});
+
 const approvalsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/approvals',
@@ -79,6 +87,12 @@ const agentFilesRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/agents',
   component: AgentFilesPage,
+});
+
+const agentScoreboardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/agent-scoreboard',
+  component: AgentsPage,
 });
 
 const terminalRoute = createRoute({
@@ -165,17 +179,25 @@ const toolsRoute = createRoute({
   component: ToolsPage,
 });
 
-const chatRoute = createRoute({
+const chatIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/chat',
+  component: ChatRouteComponent,
+});
+
+const chatSessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chat/$sessionId',
   component: ChatRouteComponent,
 });
 
 const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
+    statisticsRoute,
     approvalsRoute,
     agentFilesRoute,
+    agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
     sessionsRoute,
@@ -191,7 +213,8 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
-  chatRoute,
+  chatIndexRoute,
+  chatSessionRoute,
 ]);
 
 export const router = createRouter({

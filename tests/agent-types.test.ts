@@ -1,6 +1,11 @@
 import { expect, test } from 'vitest';
 
-import { buildOptionalAgentPresentation } from '../src/agents/agent-types.js';
+import {
+  agentCvEquals,
+  buildOptionalAgentPresentation,
+  cloneAgentCv,
+  normalizeAgentCv,
+} from '../src/agents/agent-types.js';
 
 test('buildOptionalAgentPresentation includes only populated presentation fields', () => {
   expect(
@@ -15,4 +20,66 @@ test('buildOptionalAgentPresentation includes only populated presentation fields
   ).toEqual({
     imageAsset: 'avatars/charly.png',
   });
+});
+
+test('normalizeAgentCv accepts a string asset pointer', () => {
+  expect(normalizeAgentCv('agents/charly/CV.md')).toEqual({
+    asset: 'agents/charly/CV.md',
+  });
+  expect(normalizeAgentCv('   ')).toBeUndefined();
+});
+
+test('normalizeAgentCv trims fields, dedupes capabilities, and drops empties', () => {
+  expect(
+    normalizeAgentCv({
+      summary: '  Senior researcher  ',
+      background: '',
+      capabilities: [' research ', 'writing', 'research', '', 7],
+      asset: ' agents/charly/CV.md ',
+    }),
+  ).toEqual({
+    summary: 'Senior researcher',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+});
+
+test('normalizeAgentCv returns undefined for non-object, empty, or noise input', () => {
+  expect(normalizeAgentCv(undefined)).toBeUndefined();
+  expect(normalizeAgentCv(null)).toBeUndefined();
+  expect(normalizeAgentCv(['array'])).toBeUndefined();
+  expect(normalizeAgentCv({})).toBeUndefined();
+  expect(
+    normalizeAgentCv({ summary: '   ', capabilities: [] }),
+  ).toBeUndefined();
+});
+
+test('cloneAgentCv produces an independent copy', () => {
+  const original = {
+    summary: 'Senior',
+    capabilities: ['a', 'b'],
+    asset: 'CV.md',
+  };
+  const copy = cloneAgentCv(original);
+  expect(copy).toEqual(original);
+  copy?.capabilities?.push('c');
+  expect(original.capabilities).toEqual(['a', 'b']);
+});
+
+test('agentCvEquals compares structurally', () => {
+  expect(agentCvEquals(undefined, undefined)).toBe(true);
+  expect(
+    agentCvEquals(
+      { summary: 'a', capabilities: ['x', 'y'] },
+      { summary: 'a', capabilities: ['x', 'y'] },
+    ),
+  ).toBe(true);
+  expect(
+    agentCvEquals(
+      { summary: 'a', capabilities: ['x', 'y'] },
+      { summary: 'a', capabilities: ['y', 'x'] },
+    ),
+  ).toBe(false);
+  expect(agentCvEquals({ summary: 'a' }, { summary: 'b' })).toBe(false);
+  expect(agentCvEquals({ summary: 'a' }, undefined)).toBe(false);
 });

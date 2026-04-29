@@ -27,7 +27,10 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentCv,
   DEFAULT_AGENT_ID,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
 } from './agent-types.js';
 
 const LEGACY_WORKSPACE_DIRS = [
@@ -155,6 +158,12 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const skills = normalizeOptionalTrimmedUniqueStringArray(
     (value as { skills?: unknown }).skills,
   );
+  const owner = normalizeString((value as { owner?: unknown }).owner);
+  const role = normalizeString((value as { role?: unknown }).role);
+  const cv = normalizeAgentCv((value as { cv?: unknown }).cv);
+  const escalationTarget = normalizeAgentEscalationTarget(
+    (value as { escalationTarget?: unknown }).escalationTarget,
+  );
   return {
     id,
     ...(name ? { name } : {}),
@@ -164,7 +173,76 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
+}
+
+function fingerprintString(value: string | undefined): string {
+  if (!value) return '0:0';
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${value.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function fingerprintStringArray(values: string[] | undefined): string {
+  return values?.map(fingerprintString).join(',') ?? '';
+}
+
+function fingerprintModel(model: AgentModelConfig | undefined): string {
+  if (!model) return '';
+  if (typeof model === 'string') return `s:${fingerprintString(model)}`;
+  return `o:${fingerprintString(model.primary)}:${fingerprintStringArray(model.fallbacks)}`;
+}
+
+function fingerprintCv(cv: AgentConfig['cv']): string {
+  if (!cv) return '';
+  return [
+    fingerprintString(cv.summary),
+    fingerprintString(cv.background),
+    fingerprintStringArray(cv.capabilities),
+    fingerprintString(cv.asset),
+  ].join(':');
+}
+
+function fingerprintAgent(agent: AgentConfig): string {
+  return [
+    fingerprintString(agent.id),
+    fingerprintString(agent.name),
+    fingerprintString(agent.displayName),
+    fingerprintString(agent.imageAsset),
+    fingerprintModel(agent.model),
+    fingerprintStringArray(agent.skills),
+    fingerprintString(agent.workspace),
+    fingerprintString(agent.chatbotId),
+    typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
+    fingerprintString(agent.owner),
+    fingerprintString(agent.role),
+    fingerprintCv(agent.cv),
+    fingerprintString(agent.escalationTarget?.channel),
+    fingerprintString(agent.escalationTarget?.recipient),
+  ].join('|');
+}
+
+function fingerprintAgentsConfig(params: {
+  defaultAgentId: string;
+  defaults: AgentDefaultsConfig;
+  list: AgentConfig[];
+}): string {
+  return [
+    fingerprintString(params.defaultAgentId),
+    fingerprintModel(params.defaults.model),
+    fingerprintString(params.defaults.chatbotId),
+    typeof params.defaults.enableRag === 'boolean'
+      ? String(params.defaults.enableRag)
+      : '',
+    ...params.list.map(fingerprintAgent),
+  ].join('\n');
 }
 
 function normalizeAgentsConfig(config: AgentsConfig | undefined): {
@@ -187,15 +265,16 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
     seen.add(DEFAULT_AGENT_ID);
   }
   const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
+  const fingerprint = fingerprintAgentsConfig({
+    defaultAgentId,
+    defaults,
+    list,
+  });
   return {
     defaultAgentId,
     defaults,
     list,
-    fingerprint: JSON.stringify({
-      defaultAgentId,
-      defaults,
-      list,
-    }),
+    fingerprint,
   };
 }
 
@@ -215,6 +294,12 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(agent.owner ? { owner: agent.owner } : {}),
+    ...(agent.role ? { role: agent.role } : {}),
+    ...(agent.cv ? { cv: agent.cv } : {}),
+    ...(agent.escalationTarget
+      ? { escalationTarget: { ...agent.escalationTarget } }
+      : {}),
   };
 }
 
@@ -247,21 +332,13 @@ function rebuildRegistryFromDatabase(): void {
 function syncConfiguredAgentsToDatabase(): void {
   const mainAgent = configuredAgents.find(
     (entry) => entry.id === DEFAULT_AGENT_ID,
-  ) ?? {
-    id: DEFAULT_AGENT_ID,
-    name: 'Main Agent',
-  };
-  dbUpsertAgent({
-    id: DEFAULT_AGENT_ID,
-    name: mainAgent.name || 'Main Agent',
-    displayName: mainAgent.displayName,
-    imageAsset: mainAgent.imageAsset,
-    model: cloneModelConfig(mainAgent.model),
-    skills: mainAgent.skills,
-    workspace: mainAgent.workspace,
-    chatbotId: mainAgent.chatbotId,
-    enableRag: mainAgent.enableRag,
-  });
+  );
+  if (!mainAgent) {
+    dbUpsertAgent({
+      id: DEFAULT_AGENT_ID,
+      name: 'Main Agent',
+    });
+  }
 
   for (const agent of configuredAgents) {
     dbUpsertAgent({
@@ -274,6 +351,10 @@ function syncConfiguredAgentsToDatabase(): void {
       workspace: agent.workspace,
       chatbotId: agent.chatbotId,
       enableRag: agent.enableRag,
+      owner: agent.owner,
+      role: agent.role,
+      cv: cloneAgentCv(agent.cv),
+      escalationTarget: agent.escalationTarget,
     });
   }
 }

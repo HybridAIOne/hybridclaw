@@ -194,13 +194,13 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     );
   });
 
-  test('/chat serves the chat SPA', async () => {
+  test('/chat serves the console SPA (chat is top-level, not under /admin)', async () => {
     const res = await fetch(`${GATEWAY_URL}/chat`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('<title>HybridClaw Chat</title>');
+    expect(html).toContain('<title>HybridClaw Admin</title>');
   });
 
   test('/admin serves the console (host mode, no container auth)', async () => {

@@ -4,6 +4,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
@@ -31,13 +32,17 @@ import type {
   AdminSchedulerResponse,
   AdminSession,
   AdminSkillsResponse,
+  AdminStatisticsResponse,
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AgentListItem,
+  AgentListResponse,
   AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
+  SignalLinkResponse,
 } from './types';
 
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
@@ -196,6 +201,20 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
+export function fetchStatistics(
+  token: string,
+  days?: number,
+): Promise<AdminStatisticsResponse> {
+  const search =
+    typeof days === 'number' && Number.isFinite(days)
+      ? `?days=${Math.max(1, Math.floor(days))}`
+      : '';
+  return requestJson<AdminStatisticsResponse>(
+    `/api/admin/statistics${search}`,
+    { token },
+  );
+}
+
 export function reloadGateway(
   token: string,
 ): Promise<{ status: 'ok'; message: string }> {
@@ -248,6 +267,13 @@ export function adminTerminalSocketUrl(
 
 export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
+}
+
+export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
+  const payload = await requestJson<AgentListResponse>('/api/agents/list', {
+    token,
+  });
+  return payload.agents;
 }
 
 export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
@@ -470,6 +496,21 @@ export function saveConfig(
     method: 'PUT',
     body: { config },
   });
+}
+
+export function startSignalLink(
+  token: string,
+  options: { cliPath?: string; deviceName?: string },
+): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', {
+    token,
+    method: 'POST',
+    body: options,
+  });
+}
+
+export function fetchSignalLink(token: string): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', { token });
 }
 
 function runAdminCommand(
@@ -748,6 +789,15 @@ export function fetchAdaptiveSkillHealth(
   return requestJson<AdminAdaptiveSkillHealthResponse>('/api/skills/health', {
     token,
   });
+}
+
+export function fetchAgentScoreboard(
+  token: string,
+): Promise<AdminAgentScoreboardResponse> {
+  return requestJson<AdminAgentScoreboardResponse>(
+    '/api/admin/agent-scoreboard',
+    { token },
+  );
 }
 
 export function fetchAdaptiveSkillAmendments(

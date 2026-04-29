@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
+import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { SlidingWindowRateLimiter } from '../channels/discord/rate-limiter.js';
 import {
   APP_VERSION,
@@ -218,13 +219,7 @@ function buildTokenCacheKey(config: ResolvedIngestConfig): string {
 }
 
 function parseBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    return normalized === '1' || normalized === 'true' || normalized === 'yes';
-  }
-  return false;
+  return parseBooleanWithDefault(value, false);
 }
 
 function parseMessage(value: unknown): string | null {

@@ -8,6 +8,7 @@ import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BRAVE_API_KEY,
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
@@ -22,11 +23,13 @@ import {
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
+  PERPLEXITY_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  TAVILY_API_KEY,
   WEB_SEARCH_CACHE_TTL_MINUTES,
   WEB_SEARCH_DEFAULT_COUNT,
   WEB_SEARCH_FALLBACK_PROVIDERS,
@@ -34,6 +37,7 @@ import {
   WEB_SEARCH_SEARXNG_BASE_URL,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
@@ -43,7 +47,11 @@ import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import {
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
+} from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import {
   collectConfiguredDiscordChannelIds,
@@ -63,12 +71,15 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
+import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
   decodeStreamDelta,
+  decodeThinkingDelta,
   flushCollapsedStreamDebugSummary,
   isStreamActivityLine,
+  isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -149,6 +160,7 @@ interface PoolEntry {
   workerSignature: string;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
@@ -274,6 +286,22 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
   }
 }
 
+function emitThinkingDelta(entry: PoolEntry, line: string): void {
+  const callback = entry.onThinkingDelta;
+  if (!callback) return;
+  const delta = decodeThinkingDelta(line);
+  if (delta == null) return;
+
+  try {
+    if (delta) callback(redactCredentialSecrets(delta));
+  } catch (err) {
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Thinking delta callback failed',
+    );
+  }
+}
+
 function emitToolProgress(entry: PoolEntry, line: string): void {
   const callback = entry.onToolProgress;
   if (!callback) return;
@@ -319,7 +347,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   if (!match) return null;
   try {
     const raw = Buffer.from(match[1], 'base64').toString('utf-8');
-    const parsed = JSON.parse(raw) as PendingApproval;
+    const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
+      escalationTarget?: unknown;
+    };
     if (
       !parsed ||
       typeof parsed !== 'object' ||
@@ -330,6 +360,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     ) {
       return null;
     }
+    const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
     return {
       approvalId: parsed.approvalId,
       prompt: redactCredentialSecrets(parsed.prompt),
@@ -343,6 +374,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
         Number.isFinite(parsed.expiresAt)
           ? parsed.expiresAt
           : null,
+      ...(escalationTarget ? { escalationTarget } : {}),
     };
   } catch {
     return null;
@@ -475,9 +507,9 @@ function getOrSpawnHostProcess(
     ),
     HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     SEARXNG_BASE_URL: WEB_SEARCH_SEARXNG_BASE_URL,
-    BRAVE_API_KEY: process.env.BRAVE_API_KEY,
-    PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
-    TAVILY_API_KEY: process.env.TAVILY_API_KEY,
+    BRAVE_API_KEY,
+    PERPLEXITY_API_KEY,
+    TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_ID: agentId,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
@@ -525,8 +557,17 @@ function getOrSpawnHostProcess(
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (consumeModelResponseDebugFileLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
+      emitThinkingDelta(entry, line);
+      if (isThinkingDeltaLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
         continue;
@@ -555,21 +596,33 @@ function getOrSpawnHostProcess(
   proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
-      rememberStderrLine(entry, tail);
-      emitTextDelta(entry, tail);
-      if (isStreamActivityLine(tail)) {
+      if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
-      } else if (
-        !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
-          logger.debug({ sessionId }, message);
-        })
-      ) {
-        if (!emitApprovalProgress(entry, tail)) {
-          emitToolProgress(entry, tail);
-          logger.debug({ sessionId }, tail);
+        entry.stderrBuffer = '';
+      } else {
+        rememberStderrLine(entry, tail);
+        emitTextDelta(entry, tail);
+        emitThinkingDelta(entry, tail);
+        if (isStreamActivityLine(tail)) {
+          entry.activity?.notify();
+        } else if (isThinkingDeltaLine(tail)) {
+          entry.activity?.notify();
+        } else if (
+          !consumeCollapsedStreamDebugLine(
+            tail,
+            entry.streamDebug,
+            (message) => {
+              logger.debug({ sessionId }, message);
+            },
+          )
+        ) {
+          if (!emitApprovalProgress(entry, tail)) {
+            emitToolProgress(entry, tail);
+            logger.debug({ sessionId }, tail);
+          }
         }
+        entry.stderrBuffer = '';
       }
-      entry.stderrBuffer = '';
     }
     entry.terminalError = formatHostAgentTerminalError(entry, { code, signal });
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
@@ -645,12 +698,14 @@ async function runHostProcessInner(
     allowedTools,
     blockedTools,
     onTextDelta,
+    onThinkingDelta,
     onToolProgress,
     onApprovalProgress,
     abortSignal,
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    escalationTarget,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
@@ -718,6 +773,7 @@ async function runHostProcessInner(
     fullAutoNeverApproveTools,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
+    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
     maxTokens: resolveExecutorMaxTokens({
       model,
       discoveredMaxTokens: modelRuntime.maxTokens,
@@ -762,6 +818,7 @@ async function runHostProcessInner(
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
@@ -811,6 +868,7 @@ async function runHostProcessInner(
 
   const activity = createActivityTracker();
   entry.onTextDelta = onTextDelta;
+  entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
@@ -893,6 +951,8 @@ async function runHostProcessInner(
       logger.debug({ sessionId }, message);
     });
     if (entry.onTextDelta === onTextDelta) entry.onTextDelta = undefined;
+    if (entry.onThinkingDelta === onThinkingDelta)
+      entry.onThinkingDelta = undefined;
     if (entry.onToolProgress === onToolProgress)
       entry.onToolProgress = undefined;
     if (entry.onApprovalProgress === onApprovalProgress) {

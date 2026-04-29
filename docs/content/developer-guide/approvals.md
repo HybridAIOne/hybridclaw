@@ -51,9 +51,11 @@ In practice, approvals cover:
   shell patterns such as `sudo` or `curl | sh`, host-app control, and writes
   outside the workspace fence are red.
 - Most runtime tools. Read/search tools are green. `write`, `edit`, and
-  `memory` are yellow. `delete` is red. Browser interaction tools are usually
-  yellow. MCP tools are classified by name into read/search/fetch, edit/state,
-  or execute/delete groups.
+  `memory` are yellow. `delete` is red. `delegate` is green because it is
+  internal orchestration; the delegated agent's child tool calls are still
+  classified separately. Browser interaction tools are usually yellow. MCP tools
+  are classified by name into read/search/fetch, edit/state, or execute/delete
+  groups.
 - File access and file operations. Reads are mostly green, while writes and
   edits are yellow. Deletion is red. Writes outside the workspace become red
   because of `approval.workspace_fence`.
@@ -101,6 +103,7 @@ Two important transitions:
 | Read-only channel actions | Green | `message read`, `message member-info`, `message channel-info` | Channel lookup only |
 | Image analysis | Green | `vision_analyze`, `image` | Read-only image inspection |
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
+| Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
 | Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test` | Includes bundled read-only PDF scripts |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
@@ -165,6 +168,83 @@ Examples:
 - `hybridclaw policy deny "*.example.com" --agent research`
 - `hybridclaw policy preset add github`
 - `hybridclaw policy default allow`
+
+## General Policy Engine
+
+The network policy runtime is implemented as a consumer of the shared policy
+engine. The engine evaluates rules as `when` predicate expressions that return
+an action. Consumers register their own predicates and decide how actions map to
+runtime behavior.
+
+Canonical rule shape:
+
+```yaml
+policies:
+  - id: nda-leak-block
+    description: Block confidential material before it leaves the workspace.
+    when:
+      all:
+        - predicate: leak.label
+          equals: confidential
+        - predicate: agent
+          equals: finance
+    action:
+      type: block
+      reason: NDA material cannot be sent externally.
+  - id: budget-soft-limit
+    when:
+      any:
+        - predicate: budget.percent_used
+          gte: 80
+        - predicate: budget.remaining_usd
+          lt: 10
+    action:
+      type: warn
+      reason: Monthly model budget is close to exhaustion.
+  - id: redact-token
+    when:
+      predicate: text.matches
+      pattern: "(?i)api[_-]?key"
+    action:
+      type: transform
+      transformer: redact-secrets
+```
+
+Expression operators:
+
+- `predicate`: invokes a consumer-registered predicate with the remaining YAML
+  keys as parameters.
+- `all`: every nested expression must match.
+- `any`: at least one nested expression must match.
+- `not`: the nested expression must not match.
+
+Standard action types are `block`, `warn`, `log`, and `transform`. Consumers
+may also use domain-specific actions such as the network consumer's existing
+`allow` and `deny` actions. Rules are evaluated in order by default, and the
+first match wins unless a consumer explicitly asks the engine to collect all
+matches.
+
+Skill availability is also a policy-engine consumer. Static
+`skills.disabled` and `skills.channelDisabled.*` entries are applied first,
+then workspace `.hybridclaw/policy.yaml` `skill.rules` can deny individual
+skills by agent, channel, source, category, capability, role, tenant, or skill
+quality score:
+
+```yaml
+skill:
+  rules:
+    - id: deny-sap-outside-finance
+      when:
+        all:
+          - predicate: skill.name
+            equals: sap
+          - not:
+              predicate: actor.role
+              equals: finance
+      action:
+        type: deny
+        reason: SAP is finance-only.
+```
 
 ## Approval Scopes
 
@@ -256,4 +336,4 @@ air on a phone call is worse than the pause window used on text surfaces.
 | `src/commands/policy-command.ts` | Shared CLI and slash-command policy command runner |
 | `src/gateway/pending-approvals.ts` | Gateway-side pending approval cache for button and reply helpers |
 | `src/tui.ts` | TUI picker, numeric shortcuts, and `/approve` replay handling |
-| `docs/chat.html` | Embedded web chat approval buttons and cached approval handling |
+| `console/src/routes/chat/message-block.tsx` | Web chat approval buttons and cached approval handling |

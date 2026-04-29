@@ -636,6 +636,7 @@ test('trace export adds a fallback limitation when structured turn audit is unav
       total_tokens: 0,
       total_tool_calls: 0,
       total_cost_usd: 0,
+      cost_per_call_usd: 0,
       call_count: 0,
     },
   });
@@ -712,6 +713,7 @@ test('trace export preserves multiline task descriptions', async () => {
       total_tokens: 0,
       total_tool_calls: 0,
       total_cost_usd: 0,
+      cost_per_call_usd: 0,
       call_count: 0,
     },
   });
@@ -820,6 +822,7 @@ test('trace export enriches outcome with commit metadata from bash tool results'
       total_tokens: 0,
       total_tool_calls: 1,
       total_cost_usd: 0,
+      cost_per_call_usd: 0,
       call_count: 0,
     },
   });
@@ -1065,6 +1068,7 @@ test('trace export redacts secrets and anonymizes absolute-path usernames', asyn
       total_tokens: 0,
       total_tool_calls: 1,
       total_cost_usd: 0,
+      cost_per_call_usd: 0,
       call_count: 0,
     },
   });
@@ -1270,6 +1274,7 @@ test('trace export preserves tool call linkage ids even when they look random', 
       total_tokens: 0,
       total_tool_calls: 1,
       total_cost_usd: 0,
+      cost_per_call_usd: 0,
       call_count: 0,
     },
   });

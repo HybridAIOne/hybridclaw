@@ -44,7 +44,11 @@ import {
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { safeExtractZip } from '../agents/claw-security.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import {
+  emitToolExecutionAuditEvents,
+  makeAuditRunId,
+  recordAuditEvent,
+} from '../audit/audit-events.js';
 import { getObservabilityIngestState } from '../audit/observability-ingest.js';
 import {
   getAnthropicAuthStatus,
@@ -60,12 +64,21 @@ import {
   fetchLiveAdminEmailMessage,
 } from '../channels/email/admin-mailbox.js';
 import {
+  getSignalCliAvailability,
+  getSignalLinkState,
+} from '../channels/signal/pairing.js';
+import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
   resolveVoiceWebhookPaths,
 } from '../channels/voice/twilio-manager.js';
 import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { getWhatsAppPairingState } from '../channels/whatsapp/pairing-state.js';
+import {
+  parseIdArg,
+  parseIntegerArg,
+  parseLowerArg,
+} from '../command-parsing.js';
 import { buildLocalSessionSlashHelpEntries } from '../command-registry.js';
 import { runBtwSideQuestion } from '../commands/btw-command.js';
 import { runPolicyCommand } from '../commands/policy-command.js';
@@ -79,6 +92,7 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
@@ -96,6 +110,7 @@ import {
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_DELEGATION_MAX_DEPTH,
+  PROACTIVE_DELEGATION_MODEL,
   PROACTIVE_RALPH_MAX_ITERATIONS,
   refreshRuntimeSecretsFromEnv,
   SLACK_APP_TOKEN,
@@ -135,11 +150,13 @@ import {
   deleteMemoryValue,
   deleteSessionData,
   deleteTask,
+  enqueueProactiveMessage,
   getAllSessions,
   getFullAutoSessionCount,
   getMemoryValue,
   getQueuedProactiveMessageCount,
   getRecentMessages,
+  getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getRecentStructuredAuditForSession,
   getSessionBoundaryMessagesBySessionIds,
@@ -149,14 +166,20 @@ import {
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
+  getStatisticsTotals,
   getStructuredAuditForSession,
   getTasksForSession,
   getUsageTotals,
+  listMessageTrendByDay,
   listSemanticMemoriesForSession,
+  listSessionTrendByDay,
+  listStatsByChannel,
   listStructuredAuditEntries,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageBySession,
+  listUsageDailyBreakdown,
   pauseTask,
   recordRequestLog,
   recordUsageEvent,
@@ -187,8 +210,6 @@ import {
 } from '../policy/policy-store.js';
 import {
   discoverCodexModels,
-  getDiscoveredCodexModelContextWindow,
-  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
 } from '../providers/codex-discovery.js';
 import {
@@ -197,7 +218,6 @@ import {
 } from '../providers/factory.js';
 import {
   discoverHuggingFaceModels,
-  getDiscoveredHuggingFaceModelContextWindow,
   getDiscoveredHuggingFaceModelNames,
 } from '../providers/huggingface-discovery.js';
 import {
@@ -205,32 +225,25 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import {
-  getDiscoveredHybridAIModelContextWindow,
-  getDiscoveredHybridAIModelMaxTokens,
-  getDiscoveredHybridAIModelNames,
-} from '../providers/hybridai-discovery.js';
+import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
 import {
   type HybridAIHealthResult,
   hybridAIProbe,
 } from '../providers/hybridai-health.js';
-import { resolveModelContextWindowFallback } from '../providers/hybridai-models.js';
-import {
-  getLocalModelInfo,
-  resolveLocalModelContextWindow,
-} from '../providers/local-discovery.js';
+import { getLocalModelInfo } from '../providers/local-discovery.js';
 import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
-  getDiscoveredMistralModelContextWindow,
   getDiscoveredMistralModelNames,
   resolveDiscoveredMistralModelCanonicalName,
 } from '../providers/mistral-discovery.js';
 import {
   getAvailableModelList,
+  getModelCatalogMetadata,
   isAvailableModelFree,
   normalizeModelCatalogProviderFilter,
   refreshAvailableModelCatalogs,
+  refreshModelCatalogMetadata,
 } from '../providers/model-catalog.js';
 import {
   formatHybridAIModelForCatalog,
@@ -242,8 +255,6 @@ import {
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
-  getDiscoveredOpenRouterModelContextWindow,
-  getDiscoveredOpenRouterModelMaxTokens,
   getDiscoveredOpenRouterModelNames,
 } from '../providers/openrouter-discovery.js';
 import { isRecommendedModel } from '../providers/recommended-models.js';
@@ -283,6 +294,11 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import {
+  formatAgentAssignmentHints,
+  getAgentScoreboard,
+  getObservedAgentSkillCount,
+} from '../skills/agent-scoreboard.js';
+import {
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
 } from '../skills/skills.js';
@@ -290,7 +306,11 @@ import { guardSkillDirectory } from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
-import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
+import type {
+  ArtifactMetadata,
+  ToolExecution,
+  ToolProgressEvent,
+} from '../types/execution.js';
 import type { MemoryCitation, SemanticMemoryEntry } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type {
@@ -305,6 +325,7 @@ import type {
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { sleep } from '../utils/sleep.js';
+import { formatDurationMs } from '../utils/text-format.js';
 import {
   ensureBootstrapFiles,
   resetWorkspace,
@@ -316,6 +337,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
+import { buildContextUsageSnapshot } from './context-usage.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -351,7 +373,11 @@ import {
 import { diagnoseProviderForModels } from './gateway-provider-service.js';
 import { interruptGatewaySessionExecution } from './gateway-request-runtime.js';
 import { getGatewayLifecycleStatus } from './gateway-restart.js';
-import { readSessionStatusSnapshot } from './gateway-session-status.js';
+import {
+  readDelegateSessionStatusSnapshot,
+  readSessionStatusSnapshot,
+  type SessionStatusSnapshot,
+} from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
   formatRelativeTime,
@@ -363,6 +389,7 @@ import {
   type GatewayAdminAgentMarkdownFileResponse,
   type GatewayAdminAgentMarkdownRevision,
   type GatewayAdminAgentMarkdownRevisionResponse,
+  type GatewayAdminAgentScoreboardResponse,
   type GatewayAdminAgentsResponse,
   type GatewayAdminApprovalAgent,
   type GatewayAdminApprovalsResponse,
@@ -386,9 +413,13 @@ import {
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
   type GatewayAdminSkillsResponse,
+  type GatewayAdminStatisticsChannelRow,
+  type GatewayAdminStatisticsResponse,
+  type GatewayAdminStatisticsTrendDay,
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
+  type GatewayAgentListResponse,
   type GatewayAgentsResponse,
   type GatewayAssistantPresentation,
   type GatewayChatRequest,
@@ -429,10 +460,14 @@ const assistantPresentationImagePathCache = new Map<string, string | null>();
 const ADMIN_AGENT_MARKDOWN_MAX_BYTES = 200_000;
 const ADMIN_AGENT_MARKDOWN_MAX_REVISIONS = 50;
 const ADMIN_AGENT_MARKDOWN_REVISIONS_DIRNAME = 'markdown-revisions';
+const ADMIN_AGENT_MARKDOWN_FILES = [
+  ...WORKSPACE_BOOTSTRAP_FILES,
+  'CV.md',
+] as const;
 const ADMIN_AGENT_MARKDOWN_FILE_SET = new Set<string>(
-  WORKSPACE_BOOTSTRAP_FILES,
+  ADMIN_AGENT_MARKDOWN_FILES,
 );
-type AdminAgentMarkdownFileName = (typeof WORKSPACE_BOOTSTRAP_FILES)[number];
+type AdminAgentMarkdownFileName = (typeof ADMIN_AGENT_MARKDOWN_FILES)[number];
 type GatewayAdminAgentMarkdownFileStats = Pick<
   GatewayAdminAgentMarkdownFile,
   'exists' | 'updatedAt' | 'sizeBytes'
@@ -669,6 +704,8 @@ const ORCHESTRATOR_SUBAGENT_ALLOWED_TOOLS = [
 ];
 const MAX_DELEGATION_TASKS = 6;
 const MAX_DELEGATION_USER_CHARS = 500;
+const MAX_QUEUED_DELEGATION_MESSAGES = 500;
+const DELEGATION_STREAM_DELTA_FLUSH_CHARS = 96;
 const MAX_RALPH_ITERATIONS = 64;
 const RESET_CONFIRMATION_TTL_MS = 120_000;
 const DISCORD_CHANNEL_MODE_VALUES = new Set(['off', 'mention', 'free']);
@@ -710,6 +747,8 @@ interface DelegationRunResult {
   durationMs: number;
   attempts: number;
   toolsUsed: string[];
+  toolExecutions?: ToolExecution[];
+  tokenCount?: number;
   result?: string;
   error?: string;
   artifacts?: ArtifactMetadata[];
@@ -718,6 +757,18 @@ interface DelegationRunResult {
 interface DelegationCompletionEntry {
   title: string;
   run: DelegationRunResult;
+}
+
+interface DelegationStatusEntry {
+  title: string;
+  model: string;
+  status: 'queued' | 'running' | DelegationRunStatus;
+  toolUses: number;
+  tokenCount?: number;
+  currentTool?: string;
+  currentToolDetail?: string;
+  lastTool?: string;
+  lastToolDetail?: string;
 }
 
 interface DelegationTaskRunInput {
@@ -729,6 +780,73 @@ interface DelegationTaskRunInput {
   agentId: string;
   mode: DelegationMode;
   task: NormalizedDelegationTask;
+  onToolProgress?: (event: ToolProgressEvent) => void;
+}
+
+function persistDelegationAttempt(params: {
+  sessionId: string;
+  model: string;
+  chatbotId: string;
+  messages: ChatMessage[];
+  durationMs: number;
+  output?: Awaited<ReturnType<typeof runAgent>>;
+  error?: string;
+}): void {
+  const runId = makeAuditRunId('delegate');
+  const toolExecutions = params.output?.toolExecutions || [];
+  const toolCallCount = toolExecutions.length;
+  emitToolExecutionAuditEvents({
+    sessionId: params.sessionId,
+    runId,
+    toolExecutions,
+  });
+  if (params.output?.tokenUsage) {
+    const usagePayload = buildTokenUsageAuditPayload(
+      params.messages,
+      params.output.result,
+      params.output.tokenUsage,
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId,
+      event: {
+        type: 'model.usage',
+        provider: resolveModelProvider(params.model),
+        model: params.model,
+        durationMs: params.durationMs,
+        toolCallCount,
+        ...usagePayload,
+      },
+    });
+    recordUsageEvent({
+      sessionId: params.sessionId,
+      agentId: 'delegate',
+      model: params.model,
+      inputTokens: firstNumber([usagePayload.promptTokens]) || 0,
+      outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
+      totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
+      toolCalls: toolCallCount,
+      costUsd: extractUsageCostUsd(params.output.tokenUsage),
+    });
+  }
+  maybeRecordGatewayRequestLog({
+    sessionId: params.sessionId,
+    model: params.model,
+    chatbotId: params.chatbotId,
+    messages: params.messages,
+    status: params.output?.status === 'success' ? 'success' : 'error',
+    response:
+      params.output?.status === 'success'
+        ? (params.output.result ?? null)
+        : null,
+    error:
+      params.output?.status === 'success'
+        ? null
+        : params.output?.error || params.error || null,
+    toolExecutions,
+    toolsUsed: params.output?.toolsUsed || [],
+    durationMs: params.durationMs,
+  });
 }
 
 export function shouldForceNewTuiSession(
@@ -815,6 +933,7 @@ export type {
   GatewayAdminDeleteSessionResult,
   GatewayAdminOverview,
   GatewayAdminSession,
+  GatewayAdminStatisticsResponse,
   GatewayChatResult,
   GatewayCommandRequest,
   GatewayCommandResult,
@@ -871,7 +990,7 @@ function normalizeGatewayAdminAgentMarkdownFileName(
   const normalized = value.trim();
   if (!ADMIN_AGENT_MARKDOWN_FILE_SET.has(normalized)) {
     throw new Error(
-      `Unsupported markdown file "${normalized}". Allowed files: ${WORKSPACE_BOOTSTRAP_FILES.join(', ')}`,
+      `Unsupported markdown file "${normalized}". Allowed files: ${ADMIN_AGENT_MARKDOWN_FILES.join(', ')}`,
     );
   }
   return normalized as AdminAgentMarkdownFileName;
@@ -960,7 +1079,7 @@ function getGatewayAdminAgentMarkdownFilePresenceStats(
     }
   }
 
-  return WORKSPACE_BOOTSTRAP_FILES.reduce(
+  return ADMIN_AGENT_MARKDOWN_FILES.reduce(
     (statsByName, fileName) => {
       const entry = entriesByName.get(fileName);
       statsByName[fileName] = {
@@ -1003,7 +1122,7 @@ function mapGatewayAdminAgent(
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
     workspace: resolved.workspace || null,
     workspacePath,
-    markdownFiles: WORKSPACE_BOOTSTRAP_FILES.map(
+    markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
       (fileName) =>
         options?.markdownFileOverrides?.[fileName] ||
         mapGatewayAdminAgentMarkdownFile({
@@ -1608,15 +1727,7 @@ function mapModelUsageRow(
 }
 
 function resolveKnownModelContextWindow(model: string): number | null {
-  return (
-    resolveLocalModelContextWindow(model) ??
-    getDiscoveredCodexModelContextWindow(model) ??
-    getDiscoveredHuggingFaceModelContextWindow(model) ??
-    getDiscoveredHybridAIModelContextWindow(model) ??
-    getDiscoveredMistralModelContextWindow(model) ??
-    getDiscoveredOpenRouterModelContextWindow(model) ??
-    resolveModelContextWindowFallback(model)
-  );
+  return getModelCatalogMetadata(model).contextWindow;
 }
 
 function resolveDisplayedModelName(model: string): string {
@@ -1692,12 +1803,6 @@ function mapAdminSession(session: Session): GatewayAdminSession {
     createdAt: session.created_at,
     lastActive: session.last_active,
   };
-}
-
-function parseIntOrNull(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const parsed = parseInt(raw, 10);
-  return Number.isNaN(parsed) ? null : parsed;
 }
 
 export function normalizeMediaContextItems(raw: unknown): MediaContextItem[] {
@@ -2124,6 +2229,48 @@ function formatPercent(value: number | null): string {
   return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 }
 
+function formatThroughput(throughput: number): string {
+  const rounded =
+    throughput >= 100
+      ? Math.round(throughput)
+      : Math.round(throughput * 10) / 10;
+  return String(rounded);
+}
+
+function formatTokensPerSecond(value: number | null): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value))
+    return 'n/a tok/s';
+  return `${formatThroughput(value)} tok/s`;
+}
+
+function formatPerformanceTokensPerSecond(
+  value: number | null,
+  stddev: number | null,
+): string {
+  if (value == null || Number.isNaN(value) || !Number.isFinite(value)) {
+    return 'n/a';
+  }
+  const stddevLabel =
+    stddev != null && Number.isFinite(stddev)
+      ? formatThroughput(Math.max(0, stddev))
+      : 'n/a';
+  return `${formatTokensPerSecond(value)} (± ${stddevLabel})`;
+}
+
+function isLocalModelProvider(model: string | null | undefined): boolean {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  const provider = normalized.split('/', 1)[0] || '';
+  return (
+    provider === 'ollama' ||
+    provider === 'lmstudio' ||
+    provider === 'llamacpp' ||
+    provider === 'vllm'
+  );
+}
+
 function formatArchiveReference(archivePath: string): string {
   const normalized = archivePath.trim();
   if (!normalized) return 'archive.json';
@@ -2144,6 +2291,20 @@ function formatUsd(value: number | null): string {
   if (value >= 1) return `$${value.toFixed(2)}`;
   if (value >= 0.01) return `$${value.toFixed(4)}`;
   return `$${value.toFixed(6)}`;
+}
+
+function resolveModelCostLabel(params: {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+}): string | null {
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
+  if (pricing.input == null && pricing.output == null) return null;
+  const inputCost =
+    pricing.input == null ? 0 : params.promptTokens * pricing.input;
+  const outputCost =
+    pricing.output == null ? 0 : params.completionTokens * pricing.output;
+  return formatUsd(inputCost + outputCost);
 }
 
 function resolveSessionAgentId(session: { agent_id: string }): string {
@@ -2501,13 +2662,14 @@ export function getGatewayAssistantPresentationForAgent(
   };
 }
 
-export function getGatewayAssistantPresentationForSession(
-  sessionId: string,
-): GatewayAssistantPresentation {
-  const session = memoryService.getSessionById(sessionId);
-  return getGatewayAssistantPresentationForAgent(
-    session ? resolveSessionAgentId(session) : DEFAULT_AGENT_ID,
-  );
+export function getGatewayAssistantPresentationForMessageAgent(
+  agentId?: string | null,
+): GatewayAssistantPresentation | undefined {
+  const normalizedAgentId = String(agentId || '').trim();
+  if (!normalizedAgentId || normalizedAgentId === DEFAULT_AGENT_ID) {
+    return undefined;
+  }
+  return getGatewayAssistantPresentationForAgent(normalizedAgentId);
 }
 
 export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
@@ -3008,6 +3170,7 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   resultText: string;
+  artifacts?: ArtifactMetadata[] | null;
   toolCallCount: number;
   startedAt: number;
   replaceBuiltInMemory?: boolean;
@@ -3031,6 +3194,8 @@ export function recordSuccessfulTurn(opts: {
             username: null,
             role: 'assistant',
             content: opts.resultText,
+            agentId: opts.agentId,
+            artifacts: opts.artifacts,
           }),
         }
       : memoryService.storeTurn({
@@ -3043,7 +3208,9 @@ export function recordSuccessfulTurn(opts: {
           assistant: {
             userId: 'assistant',
             username: null,
+            agentId: opts.agentId,
             content: opts.resultText,
+            artifacts: opts.artifacts,
           },
         });
   if (opts.replaceBuiltInMemory !== true) {
@@ -3456,7 +3623,7 @@ export function buildTokenUsageAuditPayload(
   messages: ChatMessage[],
   resultText: string | null | undefined,
   tokenUsage?: TokenUsageStats,
-): Record<string, number | boolean> {
+): Record<string, boolean | number | unknown[]> {
   const promptChars = messages.reduce((total, message) => {
     const content = typeof message.content === 'string' ? message.content : '';
     return total + content.length;
@@ -3506,6 +3673,9 @@ export function buildTokenUsageAuditPayload(
     apiPromptTokens,
     apiCompletionTokens,
     apiTotalTokens,
+    ...(tokenUsage?.performanceSamples?.length
+      ? { performanceSamples: tokenUsage.performanceSamples }
+      : {}),
     ...(apiCacheUsageAvailable
       ? {
           apiCacheUsageAvailable,
@@ -3547,6 +3717,8 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       ? whatsappAuthResult.value
       : { linked: false, jid: null };
   const whatsappPairing = getWhatsAppPairingState();
+  const signalPairing = getSignalLinkState();
+  const signalCli = getSignalCliAvailability();
   const sandbox = getSandboxDiagnostics();
   const localBackends = Object.fromEntries(
     [...localBackendsMap.entries()].map(([backend, status]) => [
@@ -3647,6 +3819,20 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
       jobs: getSchedulerStatus(),
     },
     discord,
+    signal: {
+      enabled: runtimeConfig.signal.enabled,
+      daemonUrlConfigured: Boolean(runtimeConfig.signal.daemonUrl.trim()),
+      accountConfigured: Boolean(runtimeConfig.signal.account.trim()),
+      pairingStatus: signalPairing.status,
+      pairingQrText: signalPairing.pairingQrText,
+      pairingUri: signalPairing.pairingUri,
+      pairingUpdatedAt: signalPairing.updatedAt,
+      pairingError: signalPairing.error,
+      cliAvailable: signalCli.available,
+      cliPath: signalCli.path,
+      cliVersion: signalCli.version,
+      cliError: signalCli.error,
+    },
     slack,
     telegram,
     email,
@@ -3687,6 +3873,155 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
         .slice(0, 6)
         .map(mapModelUsageRow),
     },
+  };
+}
+
+const STATISTICS_MIN_DAYS = 1;
+const STATISTICS_MAX_DAYS = 90;
+const STATISTICS_DEFAULT_DAYS = 30;
+
+function normalizeStatisticsDays(raw: number | string | undefined): number {
+  const parsed =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim()
+        ? Number.parseInt(raw, 10)
+        : STATISTICS_DEFAULT_DAYS;
+  if (!Number.isFinite(parsed)) {
+    return STATISTICS_DEFAULT_DAYS;
+  }
+  return Math.max(
+    STATISTICS_MIN_DAYS,
+    Math.min(STATISTICS_MAX_DAYS, Math.floor(parsed)),
+  );
+}
+
+function toIsoDate(daysOffsetFromToday: number): string {
+  const now = new Date();
+  now.setUTCHours(0, 0, 0, 0);
+  now.setUTCDate(now.getUTCDate() + daysOffsetFromToday);
+  return now.toISOString().slice(0, 10);
+}
+
+export function getGatewayAdminStatistics(params?: {
+  days?: number | string;
+}): GatewayAdminStatisticsResponse {
+  const days = normalizeStatisticsDays(params?.days);
+  const startDate = toIsoDate(-(days - 1));
+  const endDate = toIsoDate(0);
+
+  const messageTrend = listMessageTrendByDay({ days });
+  const sessionTrend = listSessionTrendByDay({ days });
+  const usageTrend = listUsageDailyBreakdown({ days });
+  const channelRows = listStatsByChannel({ days });
+  const totals = getStatisticsTotals({ days });
+
+  const trendByDay = new Map<string, GatewayAdminStatisticsTrendDay>();
+  // Seed every UTC calendar day in [startDate, endDate] with zeros so the
+  // response always covers `rangeDays` contiguous days, even when no
+  // activity was recorded.
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = toIsoDate(-(days - 1 - offset));
+    trendByDay.set(date, {
+      date,
+      newSessions: 0,
+      activeSessions: 0,
+      userMessages: 0,
+      assistantMessages: 0,
+      totalMessages: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      callCount: 0,
+      toolCalls: 0,
+      costUsd: 0,
+    });
+  }
+
+  // SQLite may emit timestamps from the rolling-window helpers that fall
+  // just before startDate (when a query window is wider than the response
+  // window). Drop those; they're outside the documented range.
+  const upsertDay = (
+    day: string,
+    apply: (target: GatewayAdminStatisticsTrendDay) => void,
+  ): void => {
+    if (!day || day < startDate || day > endDate) return;
+    const target = trendByDay.get(day);
+    if (target) apply(target);
+  };
+
+  for (const row of messageTrend) {
+    upsertDay(row.day, (day) => {
+      day.userMessages = row.user_messages;
+      day.assistantMessages = row.assistant_messages;
+      day.totalMessages = row.total_messages;
+    });
+  }
+  for (const row of sessionTrend) {
+    upsertDay(row.day, (day) => {
+      day.newSessions = row.new_sessions;
+      day.activeSessions = row.active_sessions;
+    });
+  }
+  for (const row of usageTrend) {
+    upsertDay(row.day, (day) => {
+      day.inputTokens = row.total_input_tokens;
+      day.outputTokens = row.total_output_tokens;
+      day.totalTokens = row.total_tokens;
+      day.callCount = row.call_count;
+      day.toolCalls = row.total_tool_calls;
+      day.costUsd = row.total_cost_usd;
+    });
+  }
+
+  const trend = Array.from(trendByDay.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
+
+  const usageTotals = trend.reduce(
+    (acc, day) => {
+      acc.totalInputTokens += day.inputTokens;
+      acc.totalOutputTokens += day.outputTokens;
+      acc.totalTokens += day.totalTokens;
+      acc.totalCostUsd += day.costUsd;
+      acc.callCount += day.callCount;
+      acc.totalToolCalls += day.toolCalls;
+      return acc;
+    },
+    {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
+      totalCostUsd: 0,
+      callCount: 0,
+      totalToolCalls: 0,
+    },
+  );
+
+  const channels: GatewayAdminStatisticsChannelRow[] = channelRows.map(
+    (row) => ({
+      channelId: row.channel_id || '(unknown)',
+      sessionCount: row.session_count,
+      userMessages: row.user_messages,
+      assistantMessages: row.assistant_messages,
+      totalMessages: row.total_messages,
+    }),
+  );
+
+  return {
+    rangeDays: days,
+    startDate,
+    endDate,
+    totals: {
+      newSessions: totals.new_sessions,
+      activeSessions: totals.active_sessions,
+      totalMessages: totals.total_messages,
+      userMessages: totals.user_messages,
+      assistantMessages: totals.assistant_messages,
+      ...usageTotals,
+    },
+    trend,
+    channels,
   };
 }
 
@@ -3923,9 +4258,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const usageByAgent = new Map(
-    listUsageByAgent({ window: 'all' }).map(
-      (row) => [row.agent_id, row] as const,
-    ),
+    listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),
   );
   const usageBySession = new Map(
     listUsageBySession({ window: 'all' }).map(
@@ -3963,13 +4296,15 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
     sessionsByAgent.set(session.agentId, existing);
   }
   const agents = agentIds
-    .map((agentId) =>
-      mapLogicalAgentCard({
+    .map((agentId) => {
+      const usage = usageByAgent.get(agentId);
+      return mapLogicalAgentCard({
         agent: getAgentById(agentId) ?? resolveAgentConfig(agentId),
         sessions: sessionsByAgent.get(agentId) ?? [],
-        usage: usageByAgent.get(agentId),
-      }),
-    )
+        usage,
+        monthlySpendUsd: usage?.monthly_cost_usd,
+      });
+    })
     .sort((left, right) => {
       const rank = { active: 0, idle: 1, stopped: 2, unused: 3 } as const;
       const byStatus = rank[left.status] - rank[right.status];
@@ -4670,25 +5005,20 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     providerStatus: sortedProviderStatus,
     models: modelIds
       .map((modelId) => {
-        const codexMaxTokens = getDiscoveredCodexModelMaxTokens(modelId);
         const info = getLocalModelInfo(modelId);
-        const hybridaiMaxTokens = getDiscoveredHybridAIModelMaxTokens(modelId);
-        const openRouterMaxTokens =
-          getDiscoveredOpenRouterModelMaxTokens(modelId);
+        const metadata = getModelCatalogMetadata(modelId);
         const dailySummary = dailyUsage.get(modelId);
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
           discovered: Boolean(info),
           backend: info?.backend || null,
-          contextWindow: resolveKnownModelContextWindow(modelId),
-          maxTokens:
-            info?.maxTokens ??
-            codexMaxTokens ??
-            hybridaiMaxTokens ??
-            openRouterMaxTokens ??
-            null,
-          isReasoning: info?.isReasoning ?? false,
+          contextWindow: metadata.contextWindow,
+          maxTokens: metadata.maxTokens,
+          pricingUsdPerToken: metadata.pricingUsdPerToken,
+          capabilities: metadata.capabilities,
+          metadataSources: metadata.sources,
+          isReasoning: info?.isReasoning ?? metadata.capabilities.reasoning,
           thinkingFormat: info?.thinkingFormat || null,
           family: info?.family || null,
           parameterSize: info?.parameterSize || null,
@@ -4999,6 +5329,16 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
       always: skill.always,
       tags: skill.metadata.hybridclaw.tags,
       relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    })),
+  };
+}
+
+export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardResponse {
+  return {
+    observed_skill_count: getObservedAgentSkillCount(),
+    agents: getAgentScoreboard().map(({ cv_path, ...entry }) => ({
+      ...entry,
+      best_skills: entry.best_skills.map((score) => ({ ...score })),
     })),
   };
 }
@@ -5752,6 +6092,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
       username: null,
       role: 'assistant',
       content: resultText,
+      agentId: resolved.agentId,
     });
     appendSessionTranscript(resolved.agentId, {
       sessionId: session.id,
@@ -5854,20 +6195,34 @@ export function getGatewayHistory(
     .map((message) => {
       if (message.role !== 'assistant') return message;
       const content = stripSilentToken(message.content);
-      return content === message.content
-        ? message
-        : {
-            ...message,
-            content,
-          };
+      const assistantPresentation =
+        getGatewayAssistantPresentationForMessageAgent(message.agent_id);
+      if (content === message.content && !assistantPresentation) {
+        return message;
+      }
+      return {
+        ...message,
+        ...(content !== message.content ? { content } : {}),
+        ...(assistantPresentation ? { assistantPresentation } : {}),
+      };
     })
     .filter((message) => message.content.trim().length > 0)
     .reverse();
   return {
+    sessionId: page.sessionId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
     branchFamilies: page.branchFamilies,
+  };
+}
+
+export function getGatewayAgentList(): GatewayAgentListResponse {
+  return {
+    agents: listAgents().map((agent) => ({
+      id: agent.id,
+      name: agent.name || null,
+    })),
   };
 }
 
@@ -5876,13 +6231,31 @@ export function getGatewayRecentChatSessions(params: {
   channelId?: string | null;
   limit?: number;
   query?: string | null;
+  fallbackToChannelRecent?: boolean;
 }): GatewayRecentChatSession[] {
-  return getRecentSessionsForUser({
+  const sessions = getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
     query: params.query,
   });
+  if (!params.fallbackToChannelRecent) {
+    return sessions;
+  }
+  const channelSessions = getRecentSessionsForChannel({
+    channelId: params.channelId || 'web',
+    limit: params.limit,
+    query: params.query,
+  });
+  const merged = new Map<string, GatewayRecentChatSession>();
+  for (const session of [...channelSessions, ...sessions]) {
+    merged.set(session.sessionId, session);
+  }
+  return [...merged.values()]
+    .sort(
+      (a, b) => Date.parse(b.lastActive || '') - Date.parse(a.lastActive || ''),
+    )
+    .slice(0, params.limit ?? 20);
 }
 
 function resolveHistorySummarySinceMs(
@@ -5949,12 +6322,10 @@ function resolveSubagentAllowedTools(depth: number): string[] {
 }
 
 function buildSubagentSystemPrompt(params: {
-  depth: number;
   canDelegate: boolean;
-  mode: DelegationMode;
   allowedTools: string[];
 }): string {
-  const { depth, canDelegate, mode, allowedTools } = params;
+  const { canDelegate, allowedTools } = params;
   const delegationLine = canDelegate
     ? 'You may delegate further only if absolutely necessary and still within depth/turn limits.'
     : 'You are a leaf subagent. Do not delegate further work.';
@@ -5973,17 +6344,15 @@ function buildSubagentSystemPrompt(params: {
     '- Complete exactly the delegated task and return concrete results.',
     '- Stay scoped to the assigned objective; no unrelated side quests.',
     '',
-    '## Runtime',
-    `Delegation mode: ${mode}.`,
-    `Current delegation depth: ${depth}.`,
+    '## Delegation Capability',
     delegationLine,
     '',
     ...(toolsSummary ? [toolsSummary, ''] : []),
     '## Rules',
     '- Do not interact with users directly.',
     '- Do not create schedules or persistent autonomous workflows.',
-    'Do not poll or sleep for completion checks; return when the task is complete.',
-    '- Use tools only when needed and keep actions minimal and relevant.',
+    '- Do as many tool calls as needed until you have all the information required to fully answer the task.',
+    '- When using `web_search`, use multiple searches with varied search terms so you get a more diverse and complete result.',
     '',
     '## Output Format (required)',
     'Use this exact section structure in your final response:',
@@ -5998,9 +6367,26 @@ function buildSubagentSystemPrompt(params: {
   ].join('\n');
 }
 
-function formatDurationMs(ms: number): string {
-  if (ms < 1_000) return `${ms}ms`;
-  return `${(ms / 1_000).toFixed(1)}s`;
+function buildSubagentUserPrompt(params: {
+  depth: number;
+  mode: DelegationMode;
+  canDelegate: boolean;
+  taskPrompt: string;
+}): string {
+  const { depth, mode, canDelegate, taskPrompt } = params;
+  const assignmentHints = formatAgentAssignmentHints(taskPrompt);
+  return [
+    '# Delegated Task',
+    `Delegation mode: ${mode}.`,
+    `Current delegation depth: ${depth}.`,
+    canDelegate
+      ? 'Delegation capability: You may delegate further only if absolutely necessary and still within depth/turn limits.'
+      : 'Delegation capability: You are a leaf subagent. Do not delegate further work.',
+    '',
+    ...(assignmentHints ? [assignmentHints, ''] : []),
+    'Task handoff from parent:',
+    taskPrompt,
+  ].join('\n');
 }
 
 function inferDelegationStatus(errorText: string): DelegationRunStatus {
@@ -6009,24 +6395,170 @@ function inferDelegationStatus(errorText: string): DelegationRunStatus {
     : 'failed';
 }
 
+function extractDelegationTokenCount(
+  tokenUsage?: TokenUsageStats,
+): number | undefined {
+  if (!tokenUsage) return undefined;
+  const total = tokenUsage.apiUsageAvailable
+    ? tokenUsage.apiTotalTokens
+    : tokenUsage.estimatedTotalTokens;
+  if (!Number.isFinite(total) || total <= 0) return undefined;
+  return Math.round(total);
+}
+
+function formatDelegationTokenCount(tokenCount?: number): string {
+  if (!tokenCount || tokenCount <= 0) return '';
+  if (tokenCount < 1_000) return `${tokenCount} tokens`;
+  return `${(tokenCount / 1_000).toFixed(1)}k tokens`;
+}
+
+function parseToolProgressPreviewObject(
+  preview: string,
+): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(preview);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function firstStringToolArg(
+  args: Record<string, unknown>,
+  keys: string[],
+): string {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (Array.isArray(value)) {
+      const strings = value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (strings.length > 0) return strings.join(', ');
+    }
+  }
+  return '';
+}
+
+function extractToolProgressPreviewValue(preview: string, key: string): string {
+  const match = preview.match(new RegExp(`"${key}"\\s*:\\s*"([^"]{1,200})`));
+  return match?.[1]?.trim() || '';
+}
+
+function formatDelegationToolDetail(event: ToolProgressEvent): string {
+  const preview = String(event.preview || '').trim();
+  if (!preview) return '';
+
+  const args = parseToolProgressPreviewObject(preview);
+  if (args) {
+    const toolName = event.toolName.toLowerCase();
+    const url = firstStringToolArg(args, ['url', 'href', 'uri']);
+    if (
+      url &&
+      (toolName.includes('web') ||
+        toolName.includes('browser') ||
+        toolName.includes('http'))
+    ) {
+      return abbreviateForUser(url, 96);
+    }
+    const query = firstStringToolArg(args, ['query', 'q', 'search_query']);
+    if (query) return abbreviateForUser(query, 96);
+    const pathValue = firstStringToolArg(args, [
+      'path',
+      'file',
+      'file_path',
+      'cwd',
+      'workdir',
+    ]);
+    if (pathValue) return abbreviateForUser(pathValue, 96);
+    const command = firstStringToolArg(args, ['cmd', 'command']);
+    if (command) return abbreviateForUser(command, 96);
+    const selector = firstStringToolArg(args, ['selector', 'ref_id', 'id']);
+    if (selector) return abbreviateForUser(selector, 96);
+  }
+
+  for (const key of ['url', 'href', 'uri', 'query', 'q', 'path', 'cmd']) {
+    const value = extractToolProgressPreviewValue(preview, key);
+    if (value) return abbreviateForUser(value, 96);
+  }
+
+  return abbreviateForUser(preview, 96);
+}
+
 function normalizeDelegationTask(
   raw: unknown,
-  fallbackModel: string,
+  params: {
+    fallbackModel: string;
+    parentModel: string;
+    configuredDelegateModel: string;
+  },
 ): NormalizedDelegationTask | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const task = raw as DelegationTaskSpec;
   const prompt = typeof task.prompt === 'string' ? task.prompt.trim() : '';
   if (!prompt) return null;
   const label = typeof task.label === 'string' ? task.label.trim() : '';
-  const model =
-    typeof task.model === 'string' && task.model.trim()
-      ? task.model.trim()
-      : fallbackModel;
+  const model = resolveDelegationRequestedModel({
+    requestedModel: task.model,
+    fallbackModel: params.fallbackModel,
+    parentModel: params.parentModel,
+    configuredDelegateModel: params.configuredDelegateModel,
+  });
   return {
     prompt,
     label: label || undefined,
     model,
   };
+}
+
+function resolveDelegationFallbackModel(parentModel: string): string {
+  return getRuntimeConfig().proactive.delegation.model.trim() || parentModel;
+}
+
+function areEquivalentDelegationModels(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  const leftTrimmed = String(left || '').trim();
+  const rightTrimmed = String(right || '').trim();
+  if (!leftTrimmed || !rightTrimmed) return false;
+  if (
+    leftTrimmed.localeCompare(rightTrimmed, undefined, {
+      sensitivity: 'accent',
+    }) === 0
+  ) {
+    return true;
+  }
+  return (
+    normalizeHybridAIModelForRuntime(leftTrimmed).toLowerCase() ===
+    normalizeHybridAIModelForRuntime(rightTrimmed).toLowerCase()
+  );
+}
+
+function resolveDelegationRequestedModel(params: {
+  requestedModel: string | null | undefined;
+  fallbackModel: string;
+  parentModel: string;
+  configuredDelegateModel: string;
+}): string {
+  const requestedModel = String(params.requestedModel || '').trim();
+  if (!requestedModel) return params.fallbackModel;
+  if (
+    params.configuredDelegateModel &&
+    params.parentModel &&
+    areEquivalentDelegationModels(requestedModel, params.parentModel) &&
+    !areEquivalentDelegationModels(
+      requestedModel,
+      params.configuredDelegateModel,
+    )
+  ) {
+    return params.configuredDelegateModel;
+  }
+  return requestedModel;
 }
 
 export function normalizeDelegationEffect(
@@ -6047,10 +6579,16 @@ export function normalizeDelegationEffect(
   }
 
   const label = typeof effect.label === 'string' ? effect.label.trim() : '';
-  const baseModel =
-    typeof effect.model === 'string' && effect.model.trim()
-      ? effect.model.trim()
-      : fallbackModel;
+  const configuredDelegateModel =
+    getRuntimeConfig().proactive.delegation.model.trim();
+  const resolvedFallbackModel =
+    configuredDelegateModel || resolveDelegationFallbackModel(fallbackModel);
+  const baseModel = resolveDelegationRequestedModel({
+    requestedModel: effect.model,
+    fallbackModel: resolvedFallbackModel,
+    parentModel: fallbackModel,
+    configuredDelegateModel,
+  });
   const prompt = typeof effect.prompt === 'string' ? effect.prompt.trim() : '';
   const rawTasks = Array.isArray(effect.tasks) ? effect.tasks : [];
   const rawChain = Array.isArray(effect.chain) ? effect.chain : [];
@@ -6083,7 +6621,11 @@ export function normalizeDelegationEffect(
   }
   const tasks: NormalizedDelegationTask[] = [];
   for (let i = 0; i < sourceTasks.length; i++) {
-    const normalized = normalizeDelegationTask(sourceTasks[i], baseModel);
+    const normalized = normalizeDelegationTask(sourceTasks[i], {
+      fallbackModel: baseModel,
+      parentModel: fallbackModel,
+      configuredDelegateModel,
+    });
     if (!normalized)
       return { error: `${mode} delegation task #${i + 1} is invalid` };
     tasks.push(normalized);
@@ -6103,7 +6645,13 @@ function renderDelegationTaskTitle(
   index: number,
   total: number,
 ): string {
-  if (task.label) return task.label;
+  if (task.label && !/[-_]/.test(task.label)) return task.label;
+  const promptTitle = task.prompt
+    .split(/\r?\n/, 1)[0]
+    ?.replace(/\s+/g, ' ')
+    .replace(/[.:;,\s]+$/, '')
+    .trim();
+  if (promptTitle) return abbreviateForUser(promptTitle, 72);
   if (mode === 'chain') return `step ${index + 1}/${total}`;
   if (mode === 'parallel') return `task ${index + 1}/${total}`;
   return 'task';
@@ -6130,6 +6678,7 @@ async function runDelegationTaskWithRetry(
     agentId,
     mode,
     task,
+    onToolProgress,
   } = input;
   const allowedTools = resolveSubagentAllowedTools(childDepth);
   const canDelegate = allowedTools.includes('delegate');
@@ -6142,8 +6691,28 @@ async function runDelegationTaskWithRetry(
   let lastStatus: DelegationRunStatus = 'failed';
   let lastDuration = 0;
   const sessionId = nextDelegationSessionId(parentSessionId, childDepth);
+  const requestMessages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: buildSubagentSystemPrompt({
+        canDelegate,
+        allowedTools,
+      }),
+    },
+    {
+      role: 'user',
+      content: buildSubagentUserPrompt({
+        depth: childDepth,
+        mode,
+        canDelegate,
+        taskPrompt: task.prompt,
+      }),
+    },
+  ];
   let lastToolsUsed: string[] = [];
+  let lastToolExecutions: ToolExecution[] = [];
   let lastArtifacts: ArtifactMetadata[] | undefined;
+  let lastTokenCount: number | undefined;
 
   while (attempt < maxAttempts) {
     attempt += 1;
@@ -6151,29 +6720,29 @@ async function runDelegationTaskWithRetry(
     try {
       const output = await runAgent({
         sessionId,
-        messages: [
-          {
-            role: 'system',
-            content: buildSubagentSystemPrompt({
-              depth: childDepth,
-              canDelegate,
-              mode,
-              allowedTools,
-            }),
-          },
-          { role: 'user', content: task.prompt },
-        ],
+        messages: requestMessages,
         chatbotId,
         enableRag,
         model: task.model,
         agentId,
         channelId,
         allowedTools,
+        onToolProgress,
       });
       const durationMs = Date.now() - startedAt;
       lastDuration = durationMs;
       lastToolsUsed = output.toolsUsed || [];
+      lastToolExecutions = output.toolExecutions || [];
       lastArtifacts = output.artifacts;
+      lastTokenCount = extractDelegationTokenCount(output.tokenUsage);
+      persistDelegationAttempt({
+        sessionId,
+        model: task.model,
+        chatbotId,
+        messages: requestMessages,
+        durationMs,
+        output,
+      });
 
       if (output.status === 'success' && output.result?.trim()) {
         stopSessionHostProcess(sessionId);
@@ -6184,6 +6753,7 @@ async function runDelegationTaskWithRetry(
           durationMs,
           attempts: attempt,
           toolsUsed: output.toolsUsed || [],
+          tokenCount: extractDelegationTokenCount(output.tokenUsage),
           result: output.result.trim(),
           artifacts: output.artifacts,
         };
@@ -6216,6 +6786,14 @@ async function runDelegationTaskWithRetry(
       const errorText = err instanceof Error ? err.message : String(err);
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
+      persistDelegationAttempt({
+        sessionId,
+        model: task.model,
+        chatbotId,
+        messages: requestMessages,
+        durationMs,
+        error: errorText,
+      });
       const classification: GatewayErrorClass = classifyGatewayError(errorText);
       const shouldRetry =
         classification === 'transient' && attempt < maxAttempts;
@@ -6244,6 +6822,8 @@ async function runDelegationTaskWithRetry(
     durationMs: lastDuration,
     attempts: attempt,
     toolsUsed: lastToolsUsed,
+    toolExecutions: lastToolExecutions,
+    tokenCount: lastTokenCount,
     error: lastError,
     artifacts: lastArtifacts,
   };
@@ -6330,6 +6910,256 @@ function formatDelegationCompletion(params: {
   };
 }
 
+function formatDelegationStatus(params: {
+  label?: string;
+  entries: DelegationStatusEntry[];
+  parentModel?: string;
+}): string {
+  const runningCount = params.entries.filter(
+    (entry) => entry.status === 'running' || entry.status === 'queued',
+  ).length;
+  const finishedCount = params.entries.length - runningCount;
+  const distinctDelegateModels = Array.from(
+    new Set(
+      params.entries
+        .map((entry) => entry.model.trim())
+        .filter(
+          (model) =>
+            model &&
+            (!params.parentModel ||
+              model.localeCompare(params.parentModel, undefined, {
+                sensitivity: 'accent',
+              }) !== 0),
+        ),
+    ),
+  );
+  const modelSuffix =
+    distinctDelegateModels.length > 0
+      ? ` (${distinctDelegateModels.join(', ')})`
+      : '';
+  const heading =
+    runningCount > 0
+      ? `Running ${runningCount} delegate jobs${modelSuffix}`
+      : `${finishedCount} delegate jobs finished${modelSuffix}`;
+  const lines = ['[Delegate Status]', heading];
+  params.entries.forEach((entry, index) => {
+    const prefix = index === params.entries.length - 1 ? '└' : '├';
+    const donePrefix = index === params.entries.length - 1 ? '   └' : '│  └';
+    const toolLabel =
+      entry.toolUses === 1 ? '1 tool use' : `${entry.toolUses} tool uses`;
+    const tokenLabel = formatDelegationTokenCount(entry.tokenCount);
+    const statusLabel =
+      entry.status === 'queued'
+        ? 'initializing'
+        : entry.status === 'running'
+          ? entry.currentTool
+            ? `running ${entry.currentTool}${entry.currentToolDetail ? ` ${entry.currentToolDetail}` : ''}`
+            : entry.lastTool
+              ? `thinking after ${entry.lastTool}${entry.lastToolDetail ? ` ${entry.lastToolDetail}` : ''}`
+              : 'starting'
+          : entry.status;
+    lines.push(
+      `${prefix} ${entry.title} · ${toolLabel}${tokenLabel ? ` · ${tokenLabel}` : ''}`,
+    );
+    lines.push(
+      `${donePrefix} ${statusLabel === 'completed' ? 'Done' : statusLabel}`,
+    );
+  });
+  return lines.join('\n');
+}
+
+async function synthesizeDelegationFinal(params: {
+  parentSessionId: string;
+  channelId: string;
+  chatbotId: string;
+  enableRag: boolean;
+  agentId: string;
+  model: string;
+  parentPrompt?: string;
+  parentResult?: string;
+  delegationResults: string;
+  onTextDelta?: (delta: string) => void;
+}): Promise<string | null> {
+  if (!params.parentPrompt?.trim()) return null;
+  const sessionId = nextDelegationSessionId(params.parentSessionId, 0);
+  const output = await runAgent({
+    sessionId,
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You are synthesizing the final user-facing answer after delegated research completed.',
+          'Use the delegated results as source material.',
+          'Return only the final answer to the user.',
+          'Do not say you are waiting for delegates.',
+          'Do not mention internal session ids.',
+        ].join('\n'),
+      },
+      {
+        role: 'user',
+        content: [
+          'Original user request:',
+          params.parentPrompt.trim(),
+          '',
+          'Parent provisional response:',
+          params.parentResult?.trim() || '(none)',
+          '',
+          'Delegated results:',
+          params.delegationResults.trim(),
+        ].join('\n'),
+      },
+    ],
+    chatbotId: params.chatbotId,
+    enableRag: params.enableRag,
+    model: params.model,
+    agentId: params.agentId,
+    channelId: params.channelId,
+    allowedTools: [],
+    onTextDelta: params.onTextDelta,
+  });
+  stopSessionHostProcess(sessionId);
+  if (output.status !== 'success') return null;
+  const result = output.result?.trim();
+  return result || null;
+}
+
+function queueDelegationProactiveMessage(params: {
+  parentSessionId: string;
+  channelId: string;
+  text: string;
+  artifactCount: number;
+  source?: string;
+}): void {
+  const { queued, dropped } = enqueueProactiveMessage(
+    params.channelId,
+    params.text,
+    params.source || 'delegate',
+    MAX_QUEUED_DELEGATION_MESSAGES,
+  );
+  logger.info(
+    {
+      parentSessionId: params.parentSessionId,
+      channelId: params.channelId,
+      queued,
+      dropped,
+      artifactCount: params.artifactCount,
+    },
+    'Delegation proactive message queued',
+  );
+  if (params.artifactCount > 0) {
+    logger.warn(
+      {
+        parentSessionId: params.parentSessionId,
+        channelId: params.channelId,
+        artifactCount: params.artifactCount,
+      },
+      'Queued delegation message does not persist attachments; only text was queued',
+    );
+  }
+}
+
+function createDelegationSynthesisStream(params: {
+  parentSessionId: string;
+  channelId: string;
+}): {
+  onTextDelta: (delta: string) => void;
+  finish: () => void;
+  started: () => boolean;
+  text: () => string;
+} {
+  let hasStarted = false;
+  let hasFinished = false;
+  let buffer = '';
+  let streamedText = '';
+
+  const queue = (source: string, text: string): void => {
+    queueDelegationProactiveMessage({
+      parentSessionId: params.parentSessionId,
+      channelId: params.channelId,
+      text,
+      artifactCount: 0,
+      source,
+    });
+  };
+
+  const ensureStarted = (): void => {
+    if (hasStarted) return;
+    hasStarted = true;
+    queue('delegate:stream:start', '');
+  };
+
+  const flush = (): void => {
+    if (!buffer) return;
+    ensureStarted();
+    queue('delegate:stream:delta', buffer);
+    buffer = '';
+  };
+
+  return {
+    onTextDelta: (delta: string) => {
+      const text = String(delta || '');
+      if (!text) return;
+      streamedText += text;
+      buffer += text;
+      if (
+        buffer.length >= DELEGATION_STREAM_DELTA_FLUSH_CHARS ||
+        buffer.endsWith('\n')
+      ) {
+        flush();
+      }
+    },
+    finish: () => {
+      if (hasFinished) return;
+      hasFinished = true;
+      if (!hasStarted && !buffer) return;
+      flush();
+      queue('delegate:stream:end', '');
+    },
+    started: () => hasStarted,
+    text: () => streamedText,
+  };
+}
+
+async function publishDelegationLifecycleMessage(params: {
+  parentSessionId: string;
+  channelId: string;
+  text: string;
+  artifacts?: ArtifactMetadata[];
+  onProactiveMessage?: (
+    message: ProactiveMessagePayload,
+  ) => void | Promise<void>;
+}): Promise<void> {
+  const text = params.text.trim();
+  if (!text) return;
+  const artifactCount = params.artifacts?.length || 0;
+
+  if (params.onProactiveMessage) {
+    try {
+      await params.onProactiveMessage({
+        text,
+        artifacts: params.artifacts,
+      });
+      return;
+    } catch (err) {
+      logger.warn(
+        {
+          parentSessionId: params.parentSessionId,
+          channelId: params.channelId,
+          err,
+        },
+        'Delegation proactive callback failed; falling back to queue',
+      );
+    }
+  }
+
+  queueDelegationProactiveMessage({
+    parentSessionId: params.parentSessionId,
+    channelId: params.channelId,
+    text,
+    artifactCount,
+  });
+}
+
 async function publishDelegationCompletion(params: {
   parentSessionId: string;
   channelId: string;
@@ -6337,6 +7167,7 @@ async function publishDelegationCompletion(params: {
   forLLM: string;
   forUser: string;
   artifacts?: ArtifactMetadata[];
+  publishForUser?: boolean;
   onProactiveMessage?: (
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
@@ -6348,6 +7179,7 @@ async function publishDelegationCompletion(params: {
     forLLM,
     forUser,
     artifacts,
+    publishForUser = true,
     onProactiveMessage,
   } = params;
 
@@ -6357,6 +7189,7 @@ async function publishDelegationCompletion(params: {
     username: null,
     role: 'assistant',
     content: forLLM,
+    agentId,
   });
   appendSessionTranscript(agentId, {
     sessionId: parentSessionId,
@@ -6367,18 +7200,15 @@ async function publishDelegationCompletion(params: {
     content: forLLM,
   });
 
-  if (onProactiveMessage) {
-    await onProactiveMessage({ text: forUser, artifacts });
-    return;
-  }
-  logger.info(
-    {
+  if (publishForUser) {
+    await publishDelegationLifecycleMessage({
       parentSessionId,
-      message: forUser,
-      artifactCount: artifacts?.length || 0,
-    },
-    'Delegation completion (no proactive channel callback)',
-  );
+      channelId,
+      text: forUser,
+      artifacts,
+      onProactiveMessage,
+    });
+  }
 }
 
 export function enqueueDelegationFromSideEffect(params: {
@@ -6388,21 +7218,50 @@ export function enqueueDelegationFromSideEffect(params: {
   chatbotId: string;
   enableRag: boolean;
   agentId: string;
+  parentModel?: string;
   onProactiveMessage?: (
     message: ProactiveMessagePayload,
   ) => void | Promise<void>;
   parentDepth: number;
+  parentPrompt?: string;
+  parentResult?: string;
+}): void {
+  enqueueDelegationBatchFromSideEffects({
+    ...params,
+    plans: [params.plan],
+  });
+}
+
+export function enqueueDelegationBatchFromSideEffects(params: {
+  plans: NormalizedDelegationPlan[];
+  parentSessionId: string;
+  channelId: string;
+  chatbotId: string;
+  enableRag: boolean;
+  agentId: string;
+  parentModel?: string;
+  onProactiveMessage?: (
+    message: ProactiveMessagePayload,
+  ) => void | Promise<void>;
+  parentDepth: number;
+  parentPrompt?: string;
+  parentResult?: string;
 }): void {
   const {
-    plan,
+    plans,
     parentSessionId,
     channelId,
     chatbotId,
     enableRag,
     agentId,
+    parentModel,
     onProactiveMessage,
     parentDepth,
+    parentPrompt,
+    parentResult,
   } = params;
+  const activePlans = plans.filter((plan) => plan.tasks.length > 0);
+  if (activePlans.length === 0) return;
   const childDepth = parentDepth + 1;
   if (childDepth > PROACTIVE_DELEGATION_MAX_DEPTH) {
     logger.info(
@@ -6412,69 +7271,78 @@ export function enqueueDelegationFromSideEffect(params: {
     return;
   }
 
+  const statusEntries: DelegationStatusEntry[] = [];
+  const statusEntriesByPlan = activePlans.map((plan) =>
+    plan.tasks.map((task, index) => {
+      const entry: DelegationStatusEntry = {
+        title: renderDelegationTaskTitle(
+          plan.mode,
+          task,
+          index,
+          plan.tasks.length,
+        ),
+        model: task.model,
+        status: 'queued',
+        toolUses: 0,
+      };
+      statusEntries.push(entry);
+      return entry;
+    }),
+  );
+  const batchLabel =
+    activePlans.length === 1
+      ? activePlans[0]?.label
+      : activePlans
+          .map((plan) => plan.label)
+          .filter(Boolean)
+          .join(', ') || undefined;
+
   const jobId = `${parentSessionId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   enqueueDelegation({
     id: jobId,
     run: async () => {
       const startedAt = Date.now();
       const entries: DelegationCompletionEntry[] = [];
+      await publishDelegationLifecycleMessage({
+        parentSessionId,
+        channelId,
+        text: formatDelegationStatus({
+          label: batchLabel,
+          entries: statusEntries,
+          parentModel,
+        }),
+        onProactiveMessage,
+      });
 
-      if (plan.mode === 'parallel') {
-        const runs = await Promise.all(
-          plan.tasks.map(async (task, index) => {
-            const run = await runDelegationTaskWithRetry({
+      let statusPublishChain = Promise.resolve();
+      const publishStatus = (): Promise<void> => {
+        const text = formatDelegationStatus({
+          label: batchLabel,
+          entries: statusEntries,
+          parentModel,
+        });
+        statusPublishChain = statusPublishChain
+          .catch(() => undefined)
+          .then(() =>
+            publishDelegationLifecycleMessage({
               parentSessionId,
-              childDepth,
               channelId,
-              chatbotId,
-              enableRag,
-              agentId,
-              mode: plan.mode,
-              task,
-            });
-            return {
-              title: renderDelegationTaskTitle(
-                plan.mode,
-                task,
-                index,
-                plan.tasks.length,
-              ),
-              run,
-            } as DelegationCompletionEntry;
-          }),
-        );
-        entries.push(...runs);
-      } else if (plan.mode === 'chain') {
-        let previousResult = '';
-        for (let i = 0; i < plan.tasks.length; i++) {
-          const task = plan.tasks[i];
-          const run = await runDelegationTaskWithRetry({
-            parentSessionId,
-            childDepth,
-            channelId,
-            chatbotId,
-            enableRag,
-            agentId,
-            mode: plan.mode,
-            task: {
-              ...task,
-              prompt: interpolateChainPrompt(task.prompt, previousResult),
-            },
-          });
-          entries.push({
-            title: renderDelegationTaskTitle(
-              plan.mode,
-              task,
-              i,
-              plan.tasks.length,
-            ),
-            run,
-          });
-          if (run.status !== 'completed') break;
-          previousResult = run.result || '';
-        }
-      } else {
-        const task = plan.tasks[0];
+              text,
+              onProactiveMessage,
+            }),
+          );
+        return statusPublishChain;
+      };
+      const runTask = async (params: {
+        plan: NormalizedDelegationPlan;
+        task: NormalizedDelegationTask;
+        index: number;
+        statusEntry: DelegationStatusEntry;
+        prompt?: string;
+      }): Promise<DelegationCompletionEntry> => {
+        const { plan, task, statusEntry, prompt } = params;
+        statusEntry.status = 'running';
+        await publishStatus();
         const run = await runDelegationTaskWithRetry({
           parentSessionId,
           childDepth,
@@ -6483,35 +7351,158 @@ export function enqueueDelegationFromSideEffect(params: {
           enableRag,
           agentId,
           mode: plan.mode,
-          task,
+          task: prompt ? { ...task, prompt } : task,
+          onToolProgress: (event) => {
+            if (event.phase === 'finish') {
+              statusEntry.toolUses += 1;
+              statusEntry.lastTool = statusEntry.currentTool ?? event.toolName;
+              statusEntry.lastToolDetail = statusEntry.currentToolDetail;
+              statusEntry.currentTool = undefined;
+              statusEntry.currentToolDetail = undefined;
+              void publishStatus();
+              return;
+            }
+            statusEntry.currentTool = event.toolName;
+            statusEntry.currentToolDetail = formatDelegationToolDetail(event);
+            void publishStatus();
+          },
         });
-        entries.push({
-          title: renderDelegationTaskTitle(plan.mode, task, 0, 1),
+        statusEntry.status = run.status;
+        statusEntry.currentTool = undefined;
+        statusEntry.currentToolDetail = undefined;
+        statusEntry.lastTool = undefined;
+        statusEntry.lastToolDetail = undefined;
+        statusEntry.toolUses = Math.max(
+          statusEntry.toolUses,
+          run.toolsUsed.length,
+        );
+        statusEntry.tokenCount = run.tokenCount;
+        await publishStatus();
+        return {
+          title: statusEntry.title,
           run,
-        });
-      }
+        };
+      };
+
+      const runPlan = async (
+        plan: NormalizedDelegationPlan,
+        planIndex: number,
+      ): Promise<DelegationCompletionEntry[]> => {
+        const planStatusEntries = statusEntriesByPlan[planIndex] || [];
+        if (plan.mode === 'parallel') {
+          return Promise.all(
+            plan.tasks.map(async (task, index) =>
+              runTask({
+                plan,
+                task,
+                index,
+                statusEntry: planStatusEntries[index],
+              }),
+            ),
+          );
+        }
+
+        if (plan.mode === 'chain') {
+          const planEntries: DelegationCompletionEntry[] = [];
+          let previousResult = '';
+          for (let i = 0; i < plan.tasks.length; i++) {
+            const task = plan.tasks[i];
+            const entry = await runTask({
+              plan,
+              task,
+              index: i,
+              statusEntry: planStatusEntries[i],
+              prompt: interpolateChainPrompt(task.prompt, previousResult),
+            });
+            planEntries.push(entry);
+            if (entry.run.status !== 'completed') break;
+            previousResult = entry.run.result || '';
+          }
+          return planEntries;
+        }
+
+        const task = plan.tasks[0];
+        return [
+          await runTask({
+            plan,
+            task,
+            index: 0,
+            statusEntry: planStatusEntries[0],
+          }),
+        ];
+      };
+
+      const planEntries = await Promise.all(
+        activePlans.map(async (plan, planIndex) => runPlan(plan, planIndex)),
+      );
+      entries.push(...planEntries.flat());
 
       if (entries.length === 0) {
         logger.warn(
-          { parentSessionId, mode: plan.mode },
+          { parentSessionId, planCount: activePlans.length },
           'Delegation produced no entries',
         );
         return;
       }
 
       const completion = formatDelegationCompletion({
-        mode: plan.mode,
-        label: plan.label,
+        mode:
+          activePlans.length === 1
+            ? activePlans[0]?.mode || 'single'
+            : 'parallel',
+        label: batchLabel,
         entries,
         totalDurationMs: Date.now() - startedAt,
       });
+      let finalForUser: string | null = null;
+      let streamedFinal = false;
+      let synthesisStream: ReturnType<
+        typeof createDelegationSynthesisStream
+      > | null = null;
+      try {
+        synthesisStream =
+          channelId === 'tui'
+            ? createDelegationSynthesisStream({
+                parentSessionId,
+                channelId,
+              })
+            : null;
+        finalForUser = await synthesizeDelegationFinal({
+          parentSessionId,
+          channelId,
+          chatbotId,
+          enableRag,
+          agentId,
+          model: parentModel || HYBRIDAI_MODEL,
+          parentPrompt,
+          parentResult,
+          delegationResults: completion.forLLM,
+          onTextDelta: synthesisStream?.onTextDelta,
+        });
+        synthesisStream?.finish();
+        streamedFinal =
+          Boolean(finalForUser) &&
+          (synthesisStream?.started() === true ||
+            Boolean(synthesisStream?.text().trim()));
+        if (streamedFinal && synthesisStream) {
+          finalForUser = synthesisStream.text().trim() || finalForUser;
+        }
+      } catch (err) {
+        logger.warn(
+          { parentSessionId, channelId, err },
+          'Delegation final synthesis failed; using completion summary',
+        );
+      } finally {
+        synthesisStream?.finish();
+      }
       await publishDelegationCompletion({
         parentSessionId,
         channelId,
         agentId,
         forLLM: completion.forLLM,
-        forUser: completion.forUser,
+        forUser: finalForUser || completion.forUser,
         artifacts: completion.artifacts,
+        publishForUser: !streamedFinal,
         onProactiveMessage,
       });
     },
@@ -6581,6 +7572,39 @@ export async function prepareSessionAutoReset(params: {
   return expiryEvaluation;
 }
 
+function buildGatewaySessionContextUsageSnapshot(
+  session: Session,
+  statusSnapshot?: SessionStatusSnapshot,
+): ReturnType<typeof buildContextUsageSnapshot> {
+  const runtime = resolveSessionRuntimeTarget(session);
+  const sessionModel = runtime.model;
+  const modelContextWindowTokens = resolveKnownModelContextWindow(sessionModel);
+  return buildContextUsageSnapshot({
+    sessionId: session.id,
+    model: sessionModel,
+    messageCount: session.message_count,
+    compactionCount: session.compaction_count,
+    modelContextWindowTokens,
+    ...(statusSnapshot ? { statusSnapshot } : {}),
+  });
+}
+
+export function getGatewaySessionContextUsage(sessionId: string): {
+  status: 'ok' | 'not_found';
+  sessionId: string;
+  snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+} {
+  const session = memoryService.getSessionById(sessionId);
+  if (!session) {
+    return { status: 'not_found', sessionId, snapshot: null };
+  }
+  return {
+    status: 'ok',
+    sessionId: session.id,
+    snapshot: buildGatewaySessionContextUsageSnapshot(session),
+  };
+}
+
 export async function handleGatewayCommand(
   req: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
@@ -6590,7 +7614,7 @@ export async function handleGatewayCommand(
       channelId: req.channelId,
       surface: 'command',
     });
-  const cmd = (req.args[0] || '').toLowerCase();
+  const cmd = parseLowerArg(req.args, 0);
   const sessionResetPolicy = resolveSessionAutoResetPolicy(req.channelId);
   const expiryEvaluation = await prepareSessionAutoReset({
     sessionId: req.sessionId,
@@ -6709,7 +7733,7 @@ export async function handleGatewayCommand(
       }
 
       case 'agent': {
-        const sub = (req.args[1] || '').toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (!sub || sub === 'info' || sub === 'current') {
           const currentAgentId = resolveSessionAgentId(session);
           const agent = resolveAgentConfig(currentAgentId);
@@ -6748,7 +7772,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'switch') {
-          const targetAgentId = String(req.args[2] || '').trim();
+          const targetAgentId = parseIdArg(req.args, 2);
           if (!targetAgentId) {
             return badCommand('Usage', 'Usage: `agent switch <id>`');
           }
@@ -6773,7 +7797,7 @@ export async function handleGatewayCommand(
             ({ id: currentAgentId } satisfies AgentConfig);
           const resolvedAgent = resolveAgentConfig(currentAgentId);
           const sessionOverride = formatSessionModelOverride(session.model);
-          const modelName = String(req.args[2] || '').trim();
+          const modelName = parseIdArg(req.args, 2);
 
           if (!modelName) {
             const runtime = resolveAgentForRequest({ session });
@@ -6835,7 +7859,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'create') {
-          const newAgentId = String(req.args[2] || '').trim();
+          const newAgentId = parseIdArg(req.args, 2);
           if (!newAgentId) {
             return badCommand(
               'Usage',
@@ -6860,8 +7884,8 @@ export async function handleGatewayCommand(
           if (trailingArgs.length > 0) {
             if (
               trailingArgs.length !== 2 ||
-              trailingArgs[0] !== '--model' ||
-              !String(trailingArgs[1] || '').trim()
+              parseLowerArg(trailingArgs, 0) !== '--model' ||
+              !parseIdArg(trailingArgs, 1)
             ) {
               return badCommand(
                 'Usage',
@@ -6873,7 +7897,7 @@ export async function handleGatewayCommand(
             });
             const availableModels = getAvailableModelList();
             modelName = resolveRequestedCatalogModelName(
-              String(trailingArgs[1] || ''),
+              parseIdArg(trailingArgs, 1),
               availableModels,
             );
             await refreshAvailableModelCatalogs({
@@ -6922,10 +7946,10 @@ export async function handleGatewayCommand(
           let yes = false;
 
           for (let index = 2; index < req.args.length; index += 1) {
-            const arg = String(req.args[index] || '').trim();
+            const arg = parseIdArg(req.args, index);
             if (!arg) continue;
             if (arg === '--id') {
-              const nextValue = String(req.args[index + 1] || '').trim();
+              const nextValue = parseIdArg(req.args, index + 1);
               if (!nextValue || nextValue.startsWith('--')) {
                 return badCommand(
                   'Usage',
@@ -7059,7 +8083,7 @@ export async function handleGatewayCommand(
 
       case 'bot': {
         const runtime = resolveAgentForRequest({ session });
-        const sub = req.args[1]?.toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (sub === 'list') {
           try {
             const bots = await fetchHybridAIBots({ cacheTtlMs: BOT_CACHE_TTL });
@@ -7199,10 +8223,11 @@ export async function handleGatewayCommand(
       }
 
       case 'model': {
-        const sub = req.args[1]?.toLowerCase();
-        const providerFilterArg = sub === 'list' ? req.args[2] : undefined;
+        const sub = parseLowerArg(req.args, 1);
+        const providerFilterArg =
+          sub === 'list' ? parseIdArg(req.args, 2) : undefined;
         const listModifierArg =
-          sub === 'list' ? req.args[3]?.toLowerCase() : undefined;
+          sub === 'list' ? parseLowerArg(req.args, 3) : undefined;
         const providerFilter = providerFilterArg
           ? normalizeModelCatalogProviderFilter(providerFilterArg)
           : null;
@@ -7211,10 +8236,7 @@ export async function handleGatewayCommand(
           listModifierArg === 'all' ||
           listModifierArg === 'full';
         const needsAvailableModels =
-          sub === 'list' ||
-          sub === 'info' ||
-          sub === 'default' ||
-          sub === 'set';
+          sub === 'list' || sub === 'default' || sub === 'set';
         if (needsAvailableModels) {
           await refreshAvailableModelCatalogs({
             includeHybridAI:
@@ -7234,6 +8256,9 @@ export async function handleGatewayCommand(
         const sessionOverride = formatSessionModelOverride(session.model);
         const fallbackModel =
           resolveAgentModel(resolvedAgent) || HYBRIDAI_MODEL;
+        if (sub === 'info') {
+          await refreshModelCatalogMetadata(runtime.model);
+        }
         if (sub === 'list') {
           if (providerFilterArg && !providerFilter) {
             return badCommand(
@@ -7296,7 +8321,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'default') {
-          const modelName = req.args[2];
+          const modelName = parseIdArg(req.args, 2);
           if (!modelName) {
             const defaultModel = resolveRequestedCatalogModelName(
               HYBRIDAI_MODEL,
@@ -7336,7 +8361,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'set') {
-          const modelName = req.args[2];
+          const modelName = parseIdArg(req.args, 2);
           if (!modelName)
             return badCommand('Usage', 'Usage: `model set <name>`');
           const normalizedModelName = resolveRequestedCatalogModelName(
@@ -7373,19 +8398,33 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'info') {
-          const currentModel = resolveRequestedCatalogModelName(
-            runtime.model,
-            availableModels,
-          );
-          const modelCatalog = availableModels.map((model) => ({
-            value: model,
-            label:
-              model === currentModel
-                ? `${formatModelForDisplay(model)} (current)`
-                : formatModelForDisplay(model),
-            isFree: isAvailableModelFree(model),
-            ...(isRecommendedModel(model) ? { recommended: true } : {}),
-          }));
+          const metadata = getModelCatalogMetadata(runtime.model);
+          const normalizedRuntimeModel = runtime.model.trim().toLowerCase();
+          const pricing = metadata.pricingUsdPerToken;
+          const pricingLine = normalizedRuntimeModel.startsWith('openai-codex/')
+            ? 'Pricing: subscription included (0 EUR)'
+            : /^(ollama|lmstudio|llamacpp|vllm)\//.test(normalizedRuntimeModel)
+              ? 'Pricing: local model (0 EUR)'
+              : pricing.input != null || pricing.output != null
+                ? `Pricing: ${
+                    pricing.input == null
+                      ? 'unknown'
+                      : formatUsd(pricing.input * 1_000_000)
+                  } input / ${
+                    pricing.output == null
+                      ? 'unknown'
+                      : formatUsd(pricing.output * 1_000_000)
+                  } output per 1M tokens`
+                : 'Pricing: dynamic pricing unavailable';
+          const capabilities =
+            [
+              metadata.capabilities.vision ? 'vision' : null,
+              metadata.capabilities.tools ? 'tools' : null,
+              metadata.capabilities.jsonMode ? 'JSON mode' : null,
+              metadata.capabilities.reasoning ? 'reasoning' : null,
+            ]
+              .filter((capability) => capability != null)
+              .join(', ') || 'unknown';
           return infoCommand(
             'Model Info',
             [
@@ -7393,14 +8432,13 @@ export async function handleGatewayCommand(
               `Global model: ${formatModelForDisplay(HYBRIDAI_MODEL)}`,
               `Agent model: ${formatConfiguredAgentModel(resolvedAgent)}`,
               `Session model: ${sessionOverride}`,
-              '',
-              'Available now:',
-              modelCatalog.length > 0
-                ? modelCatalog.map((entry) => entry.label).join('\n')
-                : '(none)',
+              `Known metadata: ${metadata.known ? 'yes' : 'no'}`,
+              `Context window: ${metadata.contextWindow == null ? 'unknown' : formatCompactNumber(metadata.contextWindow)}`,
+              `Max output tokens: ${metadata.maxTokens == null ? 'unknown' : formatCompactNumber(metadata.maxTokens)}`,
+              `Capabilities: ${capabilities}`,
+              pricingLine,
+              `Sources: ${metadata.sources.length > 0 ? metadata.sources.join(', ') : 'unknown'}`,
             ].join('\n'),
-            undefined,
-            modelCatalog.length > 0 ? { modelCatalog } : undefined,
           );
         }
 
@@ -7421,7 +8459,7 @@ export async function handleGatewayCommand(
       }
 
       case 'rag': {
-        const sub = req.args[1]?.toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (sub === 'on' || sub === 'off') {
           updateSessionRag(session.id, sub === 'on');
           return plainCommand(
@@ -7439,7 +8477,7 @@ export async function handleGatewayCommand(
       }
 
       case 'channel': {
-        const sub = (req.args[1] || '').toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (sub === 'mode' || !sub) {
           const guildId = req.guildId;
           if (!guildId) {
@@ -7448,7 +8486,7 @@ export async function handleGatewayCommand(
               '`channel mode` is only available in Discord guild channels.',
             );
           }
-          const requestedMode = (req.args[sub ? 2 : 1] || '').toLowerCase();
+          const requestedMode = parseLowerArg(req.args, sub ? 2 : 1);
           if (!requestedMode) {
             const currentMode = resolveGuildChannelMode(guildId, req.channelId);
             return infoCommand(
@@ -7482,7 +8520,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'policy') {
-          const requestedPolicy = (req.args[2] || '').toLowerCase();
+          const requestedPolicy = parseLowerArg(req.args, 2);
           if (!requestedPolicy) {
             return infoCommand(
               'Channel Policy',
@@ -7516,7 +8554,7 @@ export async function handleGatewayCommand(
       }
 
       case 'ralph': {
-        const sub = (req.args[1] || '').toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (!sub || sub === 'info' || sub === 'status') {
           const current = normalizeRalphIterations(
             PROACTIVE_RALPH_MAX_ITERATIONS,
@@ -7540,13 +8578,14 @@ export async function handleGatewayCommand(
         } else if (sub === 'off') {
           nextValue = 0;
         } else if (sub === 'set') {
-          if (req.args[2] == null) {
+          const rawValue = parseIdArg(req.args, 2);
+          if (!rawValue) {
             return badCommand(
               'Usage',
               'Usage: `ralph set <n>` (0=off, -1=unlimited, 1-64=extra iterations)',
             );
           }
-          const parsed = Number.parseInt(req.args[2], 10);
+          const parsed = Number.parseInt(rawValue, 10);
           if (Number.isNaN(parsed)) {
             return badCommand(
               'Usage',
@@ -7588,7 +8627,7 @@ export async function handleGatewayCommand(
       }
 
       case 'fullauto': {
-        const sub = (req.args[1] || '').trim().toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (!sub) {
           const refreshed = memoryService.getSessionById(session.id) ?? session;
           return infoCommand(
@@ -7637,7 +8676,7 @@ export async function handleGatewayCommand(
 
       case 'show': {
         const currentMode = normalizeSessionShowMode(session.show_mode);
-        const nextMode = (req.args[1] || '').trim().toLowerCase();
+        const nextMode = parseLowerArg(req.args, 1);
 
         if (!nextMode || nextMode === 'info' || nextMode === 'status') {
           return infoCommand(
@@ -7664,8 +8703,10 @@ export async function handleGatewayCommand(
       }
 
       case 'auth': {
-        const sub = (req.args[1] || '').trim().toLowerCase();
-        const provider = normalizeGatewayAuthStatusProvider(req.args[2]);
+        const sub = parseLowerArg(req.args, 1);
+        const provider = normalizeGatewayAuthStatusProvider(
+          parseIdArg(req.args, 2),
+        );
         if (sub === 'status' && provider) {
           if (!isLocalSession(req)) {
             return badCommand(
@@ -7690,7 +8731,7 @@ export async function handleGatewayCommand(
           );
         }
 
-        const sub = (req.args[1] || '').trim().toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (!sub || sub === 'list') {
           const config = getRuntimeConfig();
           const secretNames = listStoredRuntimeSecretNames();
@@ -7710,7 +8751,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'set') {
-          const secretName = String(req.args[2] || '').trim();
+          const secretName = parseIdArg(req.args, 2);
           const secretValue = req.args.slice(3).join(' ').trim();
           if (!secretName || !secretValue) {
             return badCommand('Usage', 'Usage: `secret set <name> <value>`');
@@ -7735,7 +8776,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'unset' || sub === 'delete' || sub === 'remove') {
-          const secretName = String(req.args[2] || '').trim();
+          const secretName = parseIdArg(req.args, 2);
           if (!secretName) {
             return badCommand('Usage', 'Usage: `secret unset <name>`');
           }
@@ -7757,7 +8798,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'route') {
-          const action = (req.args[2] || '').trim().toLowerCase();
+          const action = parseLowerArg(req.args, 2);
           if (!action || action === 'list') {
             const rules = getRuntimeConfig().tools.httpRequest.authRules;
             return infoCommand(
@@ -7773,10 +8814,10 @@ export async function handleGatewayCommand(
           }
 
           if (action === 'add') {
-            const rawPrefix = String(req.args[3] || '').trim();
-            const secretName = String(req.args[4] || '').trim();
-            const rawHeader = String(req.args[5] || '').trim();
-            const rawAuthPrefix = String(req.args[6] || '').trim();
+            const rawPrefix = parseIdArg(req.args, 3);
+            const secretName = parseIdArg(req.args, 4);
+            const rawHeader = parseIdArg(req.args, 5);
+            const rawAuthPrefix = parseIdArg(req.args, 6);
             if (!rawPrefix || !secretName) {
               return badCommand(
                 'Usage',
@@ -7831,8 +8872,8 @@ export async function handleGatewayCommand(
           }
 
           if (action === 'remove') {
-            const rawPrefix = String(req.args[3] || '').trim();
-            const rawHeader = String(req.args[4] || '').trim();
+            const rawPrefix = parseIdArg(req.args, 3);
+            const rawHeader = parseIdArg(req.args, 4);
             if (!rawPrefix) {
               return badCommand(
                 'Usage',
@@ -7880,7 +8921,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'show' || sub === 'status') {
-          const secretName = String(req.args[2] || '').trim();
+          const secretName = parseIdArg(req.args, 2);
           if (!secretName) {
             return badCommand('Usage', 'Usage: `secret show <name>`');
           }
@@ -7914,7 +8955,7 @@ export async function handleGatewayCommand(
         }
 
         const voiceConfig = getRuntimeConfig().voice;
-        const sub = (req.args[1] || '').trim().toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         const publicWebhook = resolveVoiceCommandWebhookUrl(
           voiceConfig.webhookPath,
         );
@@ -8020,7 +9061,7 @@ export async function handleGatewayCommand(
           );
         }
 
-        const sub = (req.args[1] || '').trim().toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (!sub) {
           const currentConfig = getRuntimeConfig();
           return infoCommand(
@@ -8076,7 +9117,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'set') {
-          const key = String(req.args[2] || '').trim();
+          const key = parseIdArg(req.args, 2);
           const rawValue = req.args.slice(3).join(' ').trim();
           if (!key || !rawValue) {
             return badCommand(
@@ -8157,7 +9198,7 @@ export async function handleGatewayCommand(
       }
 
       case 'mcp': {
-        const sub = (req.args[1] || 'list').toLowerCase();
+        const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
         const runtimeConfig = getRuntimeConfig();
         const servers = runtimeConfig.mcpServers || {};
 
@@ -8178,7 +9219,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'add') {
-          const parsedName = parseMcpServerName(String(req.args[2] || ''));
+          const parsedName = parseMcpServerName(parseIdArg(req.args, 2));
           if (!parsedName.name) {
             return badCommand(
               parsedName.error === 'Usage: `mcp add <name> <json>`'
@@ -8204,7 +9245,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'remove') {
-          const name = String(req.args[2] || '').trim();
+          const name = parseIdArg(req.args, 2);
           if (!name) {
             return badCommand('Usage', 'Usage: `mcp remove <name>`');
           }
@@ -8223,7 +9264,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'toggle') {
-          const name = String(req.args[2] || '').trim();
+          const name = parseIdArg(req.args, 2);
           if (!name) {
             return badCommand('Usage', 'Usage: `mcp toggle <name>`');
           }
@@ -8245,7 +9286,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'reconnect') {
-          const name = String(req.args[2] || '').trim();
+          const name = parseIdArg(req.args, 2);
           if (!name) {
             return badCommand('Usage', 'Usage: `mcp reconnect <name>`');
           }
@@ -8306,7 +9347,7 @@ export async function handleGatewayCommand(
       }
 
       case 'reset': {
-        const sub = req.args[1]?.toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (sub && sub !== 'yes' && sub !== 'no') {
           return badCommand('Usage', 'Usage: `reset [yes|no]`');
         }
@@ -8400,6 +9441,49 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'context': {
+        const { snapshot } = getGatewaySessionContextUsage(session.id);
+        if (!snapshot) {
+          return badCommand(
+            'Context Usage',
+            'Session not found or has no context usage recorded yet.',
+          );
+        }
+        const usedLabel =
+          snapshot.contextUsedTokens != null
+            ? formatCompactNumber(snapshot.contextUsedTokens)
+            : 'n/a';
+        const budgetLabel =
+          snapshot.contextBudgetTokens != null
+            ? formatCompactNumber(snapshot.contextBudgetTokens)
+            : 'unknown';
+        const percentLabel =
+          snapshot.contextUsagePercent == null ||
+          !Number.isFinite(snapshot.contextUsagePercent)
+            ? 'n/a'
+            : snapshot.contextUsagePercent > 100
+              ? `${Math.round(snapshot.contextUsagePercent)}%`
+              : formatPercent(snapshot.contextUsagePercent);
+        const remainingLabel =
+          snapshot.contextRemainingTokens != null
+            ? formatCompactNumber(snapshot.contextRemainingTokens)
+            : 'n/a';
+        const lines = [
+          `🧠 Model: ${formatModelForDisplay(snapshot.model)}`,
+          `📚 Context: ${usedLabel}/${budgetLabel} tokens (${percentLabel})`,
+          `🪽 Headroom: ${remainingLabel} tokens until the window fills`,
+          `🧹 Compaction: triggers at ${formatCompactNumber(snapshot.compactionMessageThreshold)} msgs or ${formatCompactNumber(snapshot.compactionTokenBudget)} tokens, keeping ${snapshot.compactionKeepRecent} recent · ran ${snapshot.compactionCount}×`,
+          `💬 Messages in session: ${formatCompactNumber(snapshot.messageCount)}`,
+        ];
+        if (snapshot.contextBudgetTokens == null) {
+          lines.push(
+            '',
+            'Tip: context window for this model is unknown, so the ring shows usage without a budget. Set a known model with `/model set <name>` to see headroom.',
+          );
+        }
+        return infoCommand('Context Usage', lines.join('\n'));
+      }
+
       case 'compact': {
         try {
           const result = await memoryService.compactSession(session.id);
@@ -8429,7 +9513,7 @@ export async function handleGatewayCommand(
       }
 
       case 'dream': {
-        const sub = (req.args[1] || '').trim().toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         const currentConfig = getRuntimeConfig();
         const currentIntervalHours = Math.max(
           0,
@@ -8513,7 +9597,7 @@ export async function handleGatewayCommand(
           );
         }
 
-        const rawSub = (req.args[1] || '').trim();
+        const rawSub = parseIdArg(req.args, 1);
         const sub = rawSub.toLowerCase();
         if (sub && sub !== 'inspect' && sub !== 'query') {
           return badCommand(
@@ -8536,10 +9620,10 @@ export async function handleGatewayCommand(
           );
         }
 
-        const targetSessionArg =
-          sub === 'inspect' ? req.args[2] : req.args[1] || session.id || '';
         const targetSessionId =
-          String(targetSessionArg || '').trim() || session.id;
+          (sub === 'inspect'
+            ? parseIdArg(req.args, 2)
+            : parseIdArg(req.args, 1)) || session.id;
         if (!targetSessionId) {
           return badCommand(
             'Usage',
@@ -8580,12 +9664,73 @@ export async function handleGatewayCommand(
         if (sessionModel.trim().toLowerCase().startsWith('mistral/')) {
           await discoverMistralModels();
         }
+        await refreshModelCatalogMetadata(sessionModel);
         const modelContextWindowTokens =
           resolveKnownModelContextWindow(sessionModel);
         const metrics = readSessionStatusSnapshot(session.id, {
           currentModel: sessionModel,
           modelContextWindowTokens,
         });
+        const contextSnapshot = buildGatewaySessionContextUsageSnapshot(
+          session,
+          metrics,
+        );
+        const delegateModel = PROACTIVE_DELEGATION_MODEL.trim();
+        const showDelegateSetup =
+          delegateModel.length > 0 &&
+          delegateModel.localeCompare(sessionModel, undefined, {
+            sensitivity: 'accent',
+          }) !== 0;
+        const delegateMetrics = showDelegateSetup
+          ? readDelegateSessionStatusSnapshot(session.id)
+          : null;
+        const mainPromptTokens = Math.max(0, metrics.promptTokens || 0);
+        const mainCompletionTokens = Math.max(0, metrics.completionTokens || 0);
+        const delegatePromptTokens = Math.max(
+          0,
+          delegateMetrics?.promptTokens || 0,
+        );
+        const delegateCompletionTokens = Math.max(
+          0,
+          delegateMetrics?.completionTokens || 0,
+        );
+        const totalTokens =
+          mainPromptTokens +
+          mainCompletionTokens +
+          delegatePromptTokens +
+          delegateCompletionTokens;
+        const localTokens =
+          (isLocalModelProvider(sessionModel)
+            ? mainPromptTokens + mainCompletionTokens
+            : 0) +
+          (showDelegateSetup && isLocalModelProvider(delegateModel)
+            ? delegatePromptTokens + delegateCompletionTokens
+            : 0);
+        const localTokenLabel = ` · ${formatPercent(
+          totalTokens > 0 ? (localTokens / totalTokens) * 100 : 0,
+        )} local`;
+        const mainCostLabel = resolveModelCostLabel({
+          model: sessionModel,
+          promptTokens: mainPromptTokens,
+          completionTokens: mainCompletionTokens,
+        });
+        const delegateCostLabel = showDelegateSetup
+          ? resolveModelCostLabel({
+              model: delegateModel,
+              promptTokens: delegatePromptTokens,
+              completionTokens: delegateCompletionTokens,
+            })
+          : null;
+        const costLabel =
+          mainCostLabel || delegateCostLabel
+            ? ` · Cost: ${mainCostLabel ?? 'n/a'}${showDelegateSetup ? ` (delegate: ${delegateCostLabel ?? 'n/a'})` : ''}`
+            : '';
+        const performanceLabel =
+          metrics.tokensPerSecond != null ||
+          metrics.inputTokensPerSecond != null ||
+          metrics.outputTokensPerSecond != null
+            ? `⚡ Performance: Output ${formatPerformanceTokensPerSecond(metrics.outputTokensPerSecond, metrics.outputTokensPerSecondStddev)} · Input ${formatPerformanceTokensPerSecond(metrics.inputTokensPerSecond, metrics.inputTokensPerSecondStddev)} · Total ${formatPerformanceTokensPerSecond(metrics.tokensPerSecond, metrics.tokensPerSecondStddev)}`
+            : null;
         const queueLabel = `${delegationStatus.active} active / ${delegationStatus.queued} queued`;
         const proactiveQueued = getQueuedProactiveMessageCount();
         const cacheKnown =
@@ -8594,11 +9739,11 @@ export async function handleGatewayCommand(
           cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
         );
         const contextLabel =
-          metrics.contextUsedTokens != null &&
-          metrics.contextBudgetTokens != null
-            ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
-            : metrics.contextUsedTokens != null
-              ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
+          contextSnapshot.contextUsedTokens != null &&
+          contextSnapshot.contextBudgetTokens != null
+            ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/${formatCompactNumber(contextSnapshot.contextBudgetTokens)} (${formatPercent(contextSnapshot.contextUsagePercent)})`
+            : contextSnapshot.contextUsedTokens != null
+              ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
@@ -8609,12 +9754,13 @@ export async function handleGatewayCommand(
         const showMode = normalizeSessionShowMode(session.show_mode);
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
-          `🧠 Model: ${formatModelForDisplay(sessionModel)}`,
-          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out`,
+          `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
+          `🧮 Tokens: ${formatCompactNumber(metrics.promptTokens)} in / ${formatCompactNumber(metrics.completionTokens)} out${showDelegateSetup ? ` (delegate: ${formatCompactNumber(delegatePromptTokens)} in / ${formatCompactNumber(delegateCompletionTokens)} out)` : ''}${localTokenLabel}${costLabel}`,
+          ...(performanceLabel ? [performanceLabel] : []),
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
             : '🗄️ Cache: n/a (provider did not report cache stats)',
-          `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
+          `📚 Context: ${contextLabel} · 🧹 Compactions: ${contextSnapshot.compactionCount}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
           ...(activeSandboxSessionIds.length > 0
             ? [
@@ -8646,7 +9792,7 @@ export async function handleGatewayCommand(
       }
 
       case 'sessions': {
-        const sub = (req.args[1] || '').toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (sub === 'active') {
           const activeSessionIds = getActiveExecutorSessionIds();
           if (activeSessionIds.length === 0) {
@@ -8711,7 +9857,7 @@ export async function handleGatewayCommand(
       }
 
       case 'usage': {
-        const sub = (req.args[1] || 'summary').toLowerCase();
+        const sub = parseLowerArg(req.args, 1, { defaultValue: 'summary' });
         if (sub === 'daily' || sub === 'monthly') {
           const rows = listUsageByAgent({ window: sub });
           if (rows.length === 0) {
@@ -8724,15 +9870,15 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'model') {
-          const maybeWindow = (req.args[2] || '').toLowerCase();
+          const maybeWindow = parseLowerArg(req.args, 2);
           const window =
             maybeWindow === 'daily' || maybeWindow === 'monthly'
               ? maybeWindow
               : 'monthly';
           const modelAgentId =
             maybeWindow === 'daily' || maybeWindow === 'monthly'
-              ? (req.args[3] || '').trim()
-              : (req.args[2] || '').trim();
+              ? parseIdArg(req.args, 3)
+              : parseIdArg(req.args, 2);
           const rows = listUsageByModel({
             window,
             agentId: modelAgentId || undefined,
@@ -8791,20 +9937,20 @@ export async function handleGatewayCommand(
       }
 
       case 'export': {
-        const sub = (req.args[1] || 'session').toLowerCase();
+        const sub = parseLowerArg(req.args, 1, { defaultValue: 'session' });
         if (sub !== 'session' && sub !== 'trace') {
           return badCommand(
             'Usage',
             'Usage: `export session [sessionId]` or `export trace [sessionId|all|--all]`',
           );
         }
-        const traceTarget = (req.args[2] || '').trim();
+        const traceTarget = parseIdArg(req.args, 2);
         const exportAllTraces =
           sub === 'trace' &&
           (traceTarget.toLowerCase() === 'all' || traceTarget === '--all');
         const targetSessionId = exportAllTraces
           ? ''
-          : (traceTarget || session.id || '').trim();
+          : traceTarget || session.id;
         if (!exportAllTraces && !targetSessionId) {
           return badCommand(
             'Usage',
@@ -8903,7 +10049,7 @@ export async function handleGatewayCommand(
       }
 
       case 'audit': {
-        const targetSessionId = (req.args[1] || session.id || '').trim();
+        const targetSessionId = parseIdArg(req.args, 1) || session.id;
         if (!targetSessionId) {
           return badCommand('Usage', 'Usage: `audit [sessionId]`');
         }
@@ -8932,7 +10078,7 @@ export async function handleGatewayCommand(
       }
 
       case 'schedule': {
-        const sub = req.args[1]?.toLowerCase();
+        const sub = parseLowerArg(req.args, 1);
         if (sub === 'add') {
           const rest = req.args.slice(2).join(' ');
           const atMatch = rest.match(/^at\s+"([^"]+)"\s+(.+)$/i);
@@ -9034,7 +10180,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'remove') {
-          const taskId = parseIntOrNull(req.args[2]);
+          const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule remove <id>`');
           deleteTask(taskId);
@@ -9043,7 +10189,7 @@ export async function handleGatewayCommand(
         }
 
         if (sub === 'toggle') {
-          const taskId = parseIntOrNull(req.args[2]);
+          const taskId = parseIntegerArg(req.args, 2);
           if (!taskId)
             return badCommand('Usage', 'Usage: `schedule toggle <id>`');
           const tasks = getTasksForSession(session.id);
@@ -9084,6 +10230,7 @@ export async function handleGatewayCommand(
           dataDir: DATA_DIR,
           gatewayBaseUrl: GATEWAY_BASE_URL,
           webApiToken: WEB_API_TOKEN,
+          gatewayApiToken: GATEWAY_API_TOKEN,
           effectiveAgentId: runtime.agentId,
           effectiveModel: runtime.model,
         });

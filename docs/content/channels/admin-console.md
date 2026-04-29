@@ -17,8 +17,11 @@ and delete the current workspace network policy rules for a selected agent.
 
 - `/admin/channels` shows each transport as `active`, `configured`, or
   `available`
-- `/admin/channels` edits Discord, Slack, Telegram, WhatsApp, email, Microsoft
-  Teams, iMessage, and Twilio voice settings from one place
+- `/admin/channels` edits Discord, Slack, Telegram, Signal, WhatsApp, email,
+  Microsoft Teams, iMessage, and Twilio voice settings from one place
+- `/admin/channels` can start the Signal linked-device QR flow when
+  `signal-cli` is installed on the gateway host. HybridClaw Cloud gateway
+  images include `signal-cli` on amd64 hosts.
 - `/admin/channels` saves `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`,
   `SLACK_APP_TOKEN`, `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, and
   `IMESSAGE_PASSWORD` through the same encrypted runtime secret store used by
@@ -42,6 +45,10 @@ and delete the current workspace network policy rules for a selected agent.
   browser
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
+- `/admin/statistics` shows activity trends, token totals, cost estimates, and
+  channel breakdowns across selectable date ranges
+- `/admin/agent-scoreboard` shows observed agent skill scores, best skills,
+  reliability, timing, and links to generated `CV.md` files
 - destructive admin actions use explicit browser confirmation dialogs before
   HybridClaw applies the requested change
 
@@ -69,6 +76,10 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want explicit browser confirmation before destructive operator actions
 - you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI
+- you want to monitor usage, cost, and channel activity without querying the
+  database directly
+- you want to compare agents by observed skill performance before assigning
+  production work
 
 ## Related Pages
 

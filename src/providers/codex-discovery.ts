@@ -234,3 +234,9 @@ export function getDiscoveredCodexModelContextWindow(
 export function getDiscoveredCodexModelMaxTokens(model: string): number | null {
   return defaultCodexDiscoveryStore.getModelMaxTokens(model);
 }
+
+export function getDiscoveredCodexModelPricingUsdPerToken(
+  model: string,
+): { input: number | null; output: number | null } | null {
+  return normalizeCodexModelName(model) ? { input: 0, output: 0 } : null;
+}

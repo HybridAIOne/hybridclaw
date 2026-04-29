@@ -122,48 +122,50 @@ export function AuditPage() {
           )}
         </Panel>
 
-        <Panel title="Inspection" accent="warm">
-          {!selectedEntry ? (
-            <div className="empty-state">
-              Select an audit event to inspect it.
-            </div>
-          ) : (
-            <div className="detail-stack">
-              <div className="key-value-grid">
-                <div>
-                  <span>Event type</span>
-                  <strong>{selectedEntry.eventType}</strong>
+        <div className="sticky-detail">
+          <Panel title="Inspection" accent="warm">
+            {!selectedEntry ? (
+              <div className="empty-state">
+                Select an audit event to inspect it.
+              </div>
+            ) : (
+              <div className="detail-stack">
+                <div className="key-value-grid">
+                  <div>
+                    <span>Event type</span>
+                    <strong>{selectedEntry.eventType}</strong>
+                  </div>
+                  <div>
+                    <span>Session</span>
+                    <strong>{selectedEntry.sessionId}</strong>
+                  </div>
+                  <div>
+                    <span>Timestamp</span>
+                    <strong>{formatDateTime(selectedEntry.timestamp)}</strong>
+                  </div>
+                  <div>
+                    <span>Run ID</span>
+                    <strong>{selectedEntry.runId}</strong>
+                  </div>
+                  <div>
+                    <span>Seq</span>
+                    <strong>{selectedEntry.seq}</strong>
+                  </div>
+                  <div>
+                    <span>Parent run</span>
+                    <strong>{selectedEntry.parentRunId || 'none'}</strong>
+                  </div>
                 </div>
-                <div>
-                  <span>Session</span>
-                  <strong>{selectedEntry.sessionId}</strong>
-                </div>
-                <div>
-                  <span>Timestamp</span>
-                  <strong>{formatDateTime(selectedEntry.timestamp)}</strong>
-                </div>
-                <div>
-                  <span>Run ID</span>
-                  <strong>{selectedEntry.runId}</strong>
-                </div>
-                <div>
-                  <span>Seq</span>
-                  <strong>{selectedEntry.seq}</strong>
-                </div>
-                <div>
-                  <span>Parent run</span>
-                  <strong>{selectedEntry.parentRunId || 'none'}</strong>
+                <div className="summary-block">
+                  <span>Payload</span>
+                  <pre className="payload-block">
+                    {prettifyPayload(selectedEntry.payload)}
+                  </pre>
                 </div>
               </div>
-              <div className="summary-block">
-                <span>Payload</span>
-                <pre className="payload-block">
-                  {prettifyPayload(selectedEntry.payload)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </Panel>
+            )}
+          </Panel>
+        </div>
       </div>
     </div>
   );

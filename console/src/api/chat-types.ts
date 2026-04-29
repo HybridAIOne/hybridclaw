@@ -10,10 +10,19 @@ export interface ChatRecentResponse {
   sessions: ChatRecentSession[];
 }
 
+export interface ChatMobileQrResponse {
+  launchUrl: string;
+  expiresAt: string;
+  qrSvg: string;
+}
+
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   id?: number | string | null;
+  agent_id?: string | null;
+  artifacts?: ChatArtifact[];
+  assistantPresentation?: AssistantPresentation | null;
 }
 
 export interface AssistantPresentation {
@@ -38,6 +47,27 @@ export interface ChatHistoryResponse {
   history: ChatHistoryMessage[];
   assistantPresentation?: AssistantPresentation | null;
   branchFamilies?: BranchFamily[];
+}
+
+export interface ChatContextSnapshot {
+  sessionId: string;
+  model: string;
+  contextUsedTokens: number | null;
+  contextBudgetTokens: number | null;
+  contextUsagePercent: number | null;
+  contextRemainingTokens: number | null;
+  compactionCount: number;
+  compactionTokenBudget: number;
+  compactionMessageThreshold: number;
+  compactionKeepRecent: number;
+  messageCount: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+}
+
+export interface ChatContextResponse {
+  sessionId: string;
+  snapshot: ChatContextSnapshot | null;
 }
 
 export interface ChatCommandSuggestion {
@@ -88,6 +118,7 @@ export interface ChatStreamResult {
   userMessageId?: number | string | null;
   assistantMessageId?: number | string | null;
   result?: string;
+  assistantPresentation?: AssistantPresentation | null;
   artifacts?: ChatArtifact[];
   toolsUsed?: string[];
 }

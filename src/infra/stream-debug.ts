@@ -1,4 +1,5 @@
 const STREAM_DELTA_RE = /^\[stream\]\s+([A-Za-z0-9+/=]+)$/;
+const THINKING_DELTA_RE = /^\[thinking\]\s+([A-Za-z0-9+/=]+)$/;
 const STREAM_ACTIVITY_RE = /^\[stream-activity\]$/;
 
 export interface StreamDebugState {
@@ -14,7 +15,19 @@ export function createStreamDebugState(): StreamDebugState {
 }
 
 export function decodeStreamDelta(line: string): string | null {
-  const match = line.match(STREAM_DELTA_RE);
+  return decodeBase64Line(line, STREAM_DELTA_RE);
+}
+
+export function decodeThinkingDelta(line: string): string | null {
+  return decodeBase64Line(line, THINKING_DELTA_RE);
+}
+
+export function isThinkingDeltaLine(line: string): boolean {
+  return THINKING_DELTA_RE.test(line);
+}
+
+function decodeBase64Line(line: string, pattern: RegExp): string | null {
+  const match = line.match(pattern);
   if (!match) return null;
 
   try {

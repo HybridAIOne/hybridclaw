@@ -27,6 +27,7 @@ export interface SkillErrorCluster {
 export interface SkillObservation {
   id: number;
   skill_name: string;
+  agent_id: string | null;
   session_id: string;
   run_id: string;
   outcome: SkillExecutionOutcome;
@@ -53,6 +54,41 @@ export interface SkillObservationSummary {
   negative_feedback_count: number;
   error_clusters: SkillErrorCluster[];
   last_observed_at: string | null;
+}
+
+export interface AgentSkillScore {
+  agent_id: string;
+  skill_id: string;
+  skill_name: string;
+  total_executions: number;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  tool_breakage_rate: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  last_run_at: string | null;
+  quality_score: number;
+  reliability_score: number;
+  timing_score: number;
+  score: number;
+  last_observed_at: string | null;
+}
+
+export interface AgentScoreboardEntry {
+  agent_id: string;
+  display_name: string;
+  total_executions: number;
+  success_rate: number;
+  avg_score: number;
+  avg_quality_score: number;
+  avg_reliability_score: number;
+  avg_timing_score: number;
+  best_skills: AgentSkillScore[];
+  last_observed_at: string | null;
+  cv_path: string;
 }
 
 export interface SkillHealthMetrics {
@@ -100,6 +136,12 @@ export interface SkillAmendment {
 export interface AdaptiveSkillsConfig {
   enabled: boolean;
   observationEnabled: boolean;
+  trajectoryCapture: {
+    enabledAgentIds: string[];
+    storeDir: string;
+    retentionDays: number;
+    retentionDaysByTenant: Record<string, number>;
+  };
   inspectionIntervalMs: number;
   observationRetentionDays: number;
   trailingWindowHours: number;

@@ -11,6 +11,7 @@ import type { MouseEventHandler, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppSidebar } from './app-sidebar';
 import {
+  MobileTopbarTrigger,
   Sidebar,
   SidebarContent,
   type SidebarContextSnapshot,
@@ -217,6 +218,28 @@ describe('Sidebar — desktop', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
     expect(aside?.getAttribute('data-state')).toBe('expanded');
+  });
+
+  it('re-expand trigger placed inside the sidebar header remains inside the collapsed aside', () => {
+    // Regression guard: the collapsed rail previously let children widen the
+    // grid column past the 4rem aside, pushing an in-header trigger into the
+    // clipped region and leaving users stuck in collapsed state.
+    const { container } = render(
+      <SidebarProvider>
+        <Sidebar>
+          <div>
+            <SidebarTrigger />
+            <input style={{ width: '100%' }} />
+          </div>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+      </SidebarProvider>,
+    );
+    const aside = container.querySelector('aside');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+    const expandButton = screen.getByRole('button', { name: 'Expand sidebar' });
+    expect(aside?.contains(expandButton)).toBe(true);
   });
 });
 
@@ -552,7 +575,7 @@ describe('AppSidebar', () => {
     expect(screen.queryByRole('button', { name: 'Forget token' })).toBeNull();
   });
 
-  it('desktop sidebar is always expanded', () => {
+  it('desktop sidebar starts expanded and exposes a collapse trigger', () => {
     const { container } = render(
       <SidebarProvider>
         <AppSidebar
@@ -564,7 +587,9 @@ describe('AppSidebar', () => {
     );
     const aside = container.querySelector('aside');
     expect(aside?.getAttribute('data-state')).toBe('expanded');
-    expect(screen.queryByRole('button', { name: /sidebar$/i })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /collapse sidebar/i }),
+    ).not.toBeNull();
   });
 
   it('closes mobile sidebar when a nav link is clicked', () => {
@@ -609,6 +634,65 @@ describe('AppSidebar', () => {
     // Sheet portals a section[role="dialog"] to document.body.
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog?.getAttribute('data-mobile')).toBe('true');
+  });
+});
+
+describe('MobileTopbarTrigger', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(cleanup);
+
+  it('renders nothing on desktop', () => {
+    setViewport(1440);
+    const { container } = render(
+      <SidebarProvider>
+        <MobileTopbarTrigger />
+      </SidebarProvider>,
+    );
+    expect(container.querySelector('button')).toBeNull();
+  });
+
+  it('renders a SidebarTrigger on mobile and forwards className', () => {
+    setViewport(800);
+    render(
+      <SidebarProvider>
+        <MobileTopbarTrigger className="custom-topbar-class" />
+      </SidebarProvider>,
+    );
+    const button = screen.getByRole('button', { name: 'Open sidebar' });
+    expect(button.className).toContain('custom-topbar-class');
+  });
+
+  it('clicking the mobile trigger opens the sidebar drawer', () => {
+    setViewport(800);
+    const captured = { value: null as SidebarCtx | null };
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <MobileTopbarTrigger />
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
+      </SidebarProvider>,
+    );
+    expect(captured.value?.openMobile).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    expect(captured.value?.openMobile).toBe(true);
+  });
+
+  it('disappears when the viewport crosses from mobile to desktop', () => {
+    setViewport(800);
+    const { container } = render(
+      <SidebarProvider>
+        <MobileTopbarTrigger />
+      </SidebarProvider>,
+    );
+    expect(container.querySelector('button')).not.toBeNull();
+    act(() => setViewport(1440));
+    expect(container.querySelector('button')).toBeNull();
   });
 });
 

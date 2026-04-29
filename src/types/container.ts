@@ -1,6 +1,7 @@
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
+  EscalationTarget,
   PendingApproval,
   PluginRuntimeToolDefinition,
   ToolExecution,
@@ -70,6 +71,7 @@ export interface ContainerInput {
   fullAutoNeverApproveTools?: string[];
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
@@ -86,6 +88,7 @@ export interface ContainerInput {
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface ContainerOutput {

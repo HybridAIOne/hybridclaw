@@ -38,11 +38,11 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar collapsible="none">
+    <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className={styles.headerRow}>
-          <SidebarBrand />
-          <MobileSidebarTrigger />
+          <SidebarBrand subtitle="Admin console" />
+          <SidebarTrigger className={styles.sidebarToggle} />
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -80,7 +80,7 @@ export function AppSidebar(props: {
   );
 }
 
-function SidebarBrand() {
+export function SidebarBrand(props: { subtitle?: string }) {
   return (
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
@@ -89,17 +89,13 @@ function SidebarBrand() {
         </span>
         <div className={styles.brandText}>
           <h1>HybridClaw</h1>
-          <span className={styles.eyebrow}>Admin console</span>
+          {props.subtitle ? (
+            <span className={styles.eyebrow}>{props.subtitle}</span>
+          ) : null}
         </div>
       </div>
     </div>
   );
-}
-
-function MobileSidebarTrigger() {
-  const { isMobile } = useSidebar();
-  if (!isMobile) return null;
-  return <SidebarTrigger className={styles.sidebarToggle} />;
 }
 
 function SidebarNavLink(props: { item: SidebarNavItem }) {
@@ -108,6 +104,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
   return (
     <Link
       to={props.item.to}
+      title={props.item.label}
       activeProps={{
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}
@@ -127,7 +124,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
   );
 }
 
-function SidebarMeta(props: { version?: string }) {
+export function SidebarMeta(props: { version?: string }) {
   if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>

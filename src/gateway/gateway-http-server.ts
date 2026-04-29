@@ -15,10 +15,15 @@ import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
 import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
+  getSignalLinkState,
+  startSignalLink,
+} from '../channels/signal/pairing.js';
+import {
   handleVoiceUpgrade,
   handleVoiceWebhook,
 } from '../channels/voice/runtime.js';
 import { resolveVoiceWebhookPaths } from '../channels/voice/twilio-manager.js';
+import { parseLowerArg } from '../command-parsing.js';
 import {
   DATA_DIR,
   GATEWAY_API_TOKEN,
@@ -131,6 +136,7 @@ import {
   ensureGatewayBootstrapAutostart,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
+  getGatewayAdminAgentScoreboard,
   getGatewayAdminAgents,
   getGatewayAdminApprovals,
   getGatewayAdminAudit,
@@ -145,13 +151,15 @@ import {
   getGatewayAdminOverview,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
+  getGatewayAdminStatistics,
   getGatewayAdminTools,
+  getGatewayAgentList,
   getGatewayAgents,
-  getGatewayAssistantPresentationForSession,
   getGatewayBootstrapAutostartState,
   getGatewayHistory,
   getGatewayHistorySummary,
   getGatewayRecentChatSessions,
+  getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
   removeGatewayAdminChannel,
@@ -181,6 +189,7 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import { renderQrSvg } from './qr-svg.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -328,6 +337,21 @@ type ApiPluginToolRequestBody = {
   sessionId?: unknown;
   channelId?: unknown;
 };
+
+type ApiChatMobileQrRequestBody = {
+  userId?: unknown;
+  sessionId?: unknown;
+  baseUrl?: unknown;
+};
+
+const MOBILE_LAUNCH_TTL_MS = 10 * 60 * 1000;
+const MOBILE_LAUNCH_TOKEN_MAX_ENTRIES = 10_000;
+type MobileLaunchTokenEntry = {
+  userId: string;
+  sessionId: string;
+  expiresAt: number;
+};
+const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -485,7 +509,7 @@ async function resolveApiChatSlashCommandResult(
   let handledApprovalCommand = false;
 
   for (const args of slashCommands) {
-    if ((args[0] || '').trim().toLowerCase() === 'approve') {
+    if (parseLowerArg(args, 0) === 'approve') {
       const handled = await handleTextChannelApprovalCommand({
         sessionId,
         guildId: chatRequest.guildId,
@@ -623,12 +647,6 @@ function isRuntimeMSTeamsChannelConfig(
   return true;
 }
 
-function isLoopbackAddress(address: string | undefined): boolean {
-  if (!address) return false;
-  const normalized = address.replace(/^::ffff:/, '');
-  return normalized === '127.0.0.1' || normalized === '::1';
-}
-
 function hasQueryToken(url: URL): boolean {
   const token = (url.searchParams.get('token') || '').trim();
   if (!token) return false;
@@ -646,10 +664,7 @@ function hasApiAuth(
     Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
-  if (!WEB_API_TOKEN) {
-    return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
-  }
-  if (authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
   return gatewayTokenMatch;
 }
 
@@ -667,13 +682,6 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   }
   if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
     return 'gateway-token';
-  }
-
-  const normalizedAddress = String(req.socket.remoteAddress || '')
-    .replace(/^::ffff:/, '')
-    .trim();
-  if (isLoopbackAddress(req.socket.remoteAddress)) {
-    return `loopback:${normalizedAddress || 'unknown'}`;
   }
   return 'authenticated';
 }
@@ -707,10 +715,115 @@ function sendRedirect(
   res.end();
 }
 
+function escapeInlineScriptValue(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function cleanupExpiredMobileLaunchTokens(now = Date.now()): void {
+  for (const [token, entry] of mobileLaunchTokens) {
+    if (entry.expiresAt <= now) mobileLaunchTokens.delete(token);
+  }
+}
+
+function evictOldestMobileLaunchTokens(): void {
+  while (mobileLaunchTokens.size >= MOBILE_LAUNCH_TOKEN_MAX_ENTRIES) {
+    const oldestToken = mobileLaunchTokens.keys().next().value;
+    if (!oldestToken) return;
+    mobileLaunchTokens.delete(oldestToken);
+  }
+}
+
+function createMobileLaunchToken(params: {
+  userId: string;
+  sessionId: string;
+}): string {
+  cleanupExpiredMobileLaunchTokens();
+  evictOldestMobileLaunchTokens();
+  const token = randomUUID();
+  mobileLaunchTokens.set(token, {
+    userId: params.userId,
+    sessionId: params.sessionId,
+    expiresAt: Date.now() + MOBILE_LAUNCH_TTL_MS,
+  });
+  return token;
+}
+
+function resolveMobileLaunchToken(token: string):
+  | {
+      userId: string;
+      sessionId: string;
+    }
+  | undefined {
+  cleanupExpiredMobileLaunchTokens();
+  const normalizedToken = token.trim();
+  const entry = mobileLaunchTokens.get(normalizedToken);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    mobileLaunchTokens.delete(normalizedToken);
+    return undefined;
+  }
+  mobileLaunchTokens.delete(normalizedToken);
+  return {
+    userId: entry.userId,
+    sessionId: entry.sessionId,
+  };
+}
+
+function normalizePublicBaseUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRequestOrigin(
+  req: IncomingMessage,
+  bodyBaseUrl?: unknown,
+): string {
+  const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
+  if (explicitBaseUrl) return explicitBaseUrl;
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    ?.trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '')
+    .split(',')[0]
+    ?.trim();
+  const proto = forwardedProto || 'http';
+  const host = forwardedHost || req.headers.host || `127.0.0.1:${HEALTH_PORT}`;
+  return `${proto}://${host}`;
+}
+
+function buildMobileLaunchUrl(params: {
+  origin: string;
+  token: string;
+}): string {
+  const url = new URL('/chat/continue', params.origin);
+  url.searchParams.set('token', params.token);
+  return url.toString();
+}
+
 function resolveHybridAILoginUrl(): string | null {
   const baseUrl = HYBRIDAI_BASE_URL.trim().replace(/\/+$/, '');
   if (!baseUrl) return null;
   return `${baseUrl}${HYBRIDAI_LOGIN_PATH}`;
+}
+
+function isConsoleSpaPath(pathname: string): boolean {
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/chat' ||
+    pathname.startsWith('/chat/')
+  );
 }
 
 function requiresSessionAuth(pathname: string): boolean {
@@ -719,12 +832,9 @@ function requiresSessionAuth(pathname: string): boolean {
   }
 
   return (
-    pathname === '/chat' ||
-    pathname === '/chat.html' ||
     pathname === '/agents' ||
     pathname === '/agents.html' ||
-    pathname === '/admin' ||
-    pathname.startsWith('/admin/')
+    isConsoleSpaPath(pathname)
   );
 }
 
@@ -1180,13 +1290,11 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
   const pathname = url.pathname;
   if (serveDocs(url, res)) return true;
   const filePath = resolveSiteFile(
-    pathname === '/chat'
-      ? '/chat.html'
-      : pathname === '/agents'
-        ? '/agents.html'
-        : pathname === '/about' || pathname === '/about/'
-          ? '/index.html'
-          : pathname,
+    pathname === '/agents'
+      ? '/agents.html'
+      : pathname === '/about' || pathname === '/about/'
+        ? '/index.html'
+        : pathname,
   );
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
@@ -1196,15 +1304,10 @@ function serveStatic(url: URL, res: ServerResponse): boolean {
   return true;
 }
 
-function resolveConsoleFile(pathname: string): string | null {
-  const subPath = pathname.replace(/^\/admin/, '') || '/index.html';
-  const directFile = resolveStaticFile(CONSOLE_DIST_DIR, subPath);
-  if (directFile) return directFile;
-  return resolveStaticFile(CONSOLE_DIST_DIR, '/index.html');
-}
-
-function serveConsole(pathname: string, res: ServerResponse): boolean {
-  const filePath = resolveConsoleFile(pathname);
+function serveConsoleFile(
+  filePath: string | null,
+  res: ServerResponse,
+): boolean {
   if (!filePath) return false;
   const ext = path.extname(filePath).toLowerCase();
   const mimeType = SITE_MIME_TYPES[ext] || 'application/octet-stream';
@@ -1216,6 +1319,17 @@ function serveConsole(pathname: string, res: ServerResponse): boolean {
   });
   res.end(fs.readFileSync(filePath));
   return true;
+}
+
+function serveConsoleAsset(pathname: string, res: ServerResponse): boolean {
+  return serveConsoleFile(resolveStaticFile(CONSOLE_DIST_DIR, pathname), res);
+}
+
+function serveConsoleIndex(res: ServerResponse): boolean {
+  return serveConsoleFile(
+    resolveStaticFile(CONSOLE_DIST_DIR, '/index.html'),
+    res,
+  );
 }
 
 async function handleApiChat(
@@ -1476,6 +1590,13 @@ async function handleApiChatStream(
       delta: filteredDelta,
     });
   };
+  const onThinkingDelta = (delta: string): void => {
+    if (!delta) return;
+    sendEvent({
+      type: 'thinking',
+      delta,
+    });
+  };
   let streamedApprovalId: string | null = null;
   const onApprovalProgress = (approval: PendingApproval): void => {
     streamedApprovalId = approval.approvalId;
@@ -1492,6 +1613,7 @@ async function handleApiChatStream(
         await handleGatewayMessage({
           ...chatRequest,
           onTextDelta,
+          onThinkingDelta,
           onToolProgress,
           onApprovalProgress,
         }),
@@ -1743,11 +1865,10 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
-    sessionId,
+    sessionId: historyPage.sessionId,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
-    assistantPresentation: getGatewayAssistantPresentationForSession(sessionId),
     bootstrapAutostart,
     ...(historyPage.branchFamilies.length > 0
       ? { branchFamilies: historyPage.branchFamilies }
@@ -1794,6 +1915,9 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const hasWebSessionUser =
+    channelId.toLowerCase() === 'web' &&
+    Boolean(resolveSessionAuthenticatedUserId(req));
   const userId = resolveGatewayRequestUserId({
     req,
     channelId,
@@ -1813,8 +1937,71 @@ function handleApiChatRecent(
       channelId,
       limit,
       ...(query ? { query } : {}),
+      ...(channelId.toLowerCase() === 'web' && !hasWebSessionUser
+        ? { fallbackToChannelRecent: true }
+        : {}),
     }),
   });
+}
+
+async function handleApiChatMobileQr(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiChatMobileQrRequestBody;
+  const userId = normalizeOptionalString(body.userId);
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!userId) {
+    sendJson(res, 400, { error: 'Missing `userId` in request body.' });
+    return;
+  }
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+
+  const token = createMobileLaunchToken({ userId, sessionId });
+  const launchUrl = buildMobileLaunchUrl({
+    origin: resolveRequestOrigin(req, body.baseUrl),
+    token,
+  });
+  sendJson(res, 200, {
+    launchUrl,
+    expiresAt: new Date(Date.now() + MOBILE_LAUNCH_TTL_MS).toISOString(),
+    qrSvg: renderQrSvg(launchUrl),
+  });
+}
+
+function handleChatMobileContinue(res: ServerResponse, url: URL): void {
+  const token = normalizeOptionalString(url.searchParams.get('token'));
+  const launch = token ? resolveMobileLaunchToken(token) : undefined;
+  if (!launch) {
+    sendText(res, 401, 'Mobile launch QR code is invalid or expired.');
+    return;
+  }
+
+  const escapedUserId = escapeInlineScriptValue(launch.userId);
+  const escapedSessionId = escapeInlineScriptValue(launch.sessionId);
+  const escapedRedirect = escapeInlineScriptValue(
+    `/chat/${encodeURIComponent(launch.sessionId)}`,
+  );
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!DOCTYPE html><html><body><script>` +
+      `localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `localStorage.setItem('hybridclaw_session',${escapedSessionId});` +
+      `window.location.replace(${escapedRedirect});` +
+      `</script></body></html>`,
+  );
 }
 
 let cachedSlashMenuEntries: ReturnType<typeof buildTuiSlashMenuEntries> | null =
@@ -1840,6 +2027,27 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
   return cachedSlashMenuEntries;
 }
 
+function handleApiChatContext(res: ServerResponse, url: URL): void {
+  const sessionId = url.searchParams.get('sessionId')?.trim();
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const result = getGatewaySessionContextUsage(sessionId);
+  if (result.status === 'not_found' || !result.snapshot) {
+    sendJson(res, 200, { sessionId, snapshot: null });
+    return;
+  }
+  sendJson(res, 200, {
+    sessionId: result.sessionId,
+    snapshot: result.snapshot,
+  });
+}
+
 function handleApiChatCommands(res: ServerResponse, url: URL): void {
   const query = (url.searchParams.get('q') ?? '').slice(0, 200);
   const ranked = rankTuiSlashMenuEntries(getSlashMenuEntries(), query);
@@ -1856,6 +2064,10 @@ function handleApiChatCommands(res: ServerResponse, url: URL): void {
 
 async function handleApiAgents(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAgents());
+}
+
+function handleApiAgentList(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAgentList());
 }
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
@@ -1925,6 +2137,11 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+function handleApiAdminStatistics(res: ServerResponse, url: URL): void {
+  const daysRaw = url.searchParams.get('days') ?? undefined;
+  sendJson(res, 200, getGatewayAdminStatistics({ days: daysRaw }));
 }
 
 async function handleApiAdminEmail(res: ServerResponse): Promise<void> {
@@ -2509,6 +2726,36 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminSignalLink(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if ((req.method || 'GET') === 'GET') {
+    sendJson(res, 200, getSignalLinkState());
+    return;
+  }
+
+  const body = (await readJsonBody(req).catch(() => ({}))) as {
+    cliPath?: unknown;
+    deviceName?: unknown;
+  };
+  try {
+    sendJson(
+      res,
+      200,
+      startSignalLink({
+        cliPath: typeof body.cliPath === 'string' ? body.cliPath : undefined,
+        deviceName:
+          typeof body.deviceName === 'string' ? body.deviceName : undefined,
+      }),
+    );
+  } catch (error) {
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : 'Signal link failed.',
+    });
+  }
+}
+
 function extractUpstreamError(payload: unknown, status: number): string {
   const record = payload as Record<string, unknown> | null;
   const nested = record?.error;
@@ -3030,6 +3277,10 @@ async function handleApiAdminSkills(
   );
 }
 
+function handleApiAdminAgentScoreboard(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminAgentScoreboard());
+}
+
 const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 async function handleApiAdminSkillUpload(
@@ -3335,6 +3586,15 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname === '/chat/continue') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method Not Allowed' });
+        return;
+      }
+      handleChatMobileContinue(res, url);
+      return;
+    }
+
     if (pathname === '/auth/callback') {
       if (method !== 'GET') {
         sendJson(res, 405, { error: 'Method Not Allowed' });
@@ -3494,11 +3754,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminOverview(res);
             return;
           }
+          if (pathname === '/api/admin/statistics' && method === 'GET') {
+            handleApiAdminStatistics(res, url);
+            return;
+          }
           if (
             pathname === '/api/admin/agents' ||
             pathname.startsWith('/api/admin/agents/')
           ) {
             await handleApiAdminAgents(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
+            handleApiAdminAgentScoreboard(res);
             return;
           }
           if (
@@ -3564,6 +3832,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (
+            pathname === '/api/admin/signal/link' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiAdminSignalLink(req, res);
+            return;
+          }
+          if (
             pathname === '/api/admin/email-config/fetch' &&
             method === 'GET'
           ) {
@@ -3620,12 +3895,24 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiChatRecent(req, res, url);
             return;
           }
+          if (pathname === '/api/chat/mobile-qr' && method === 'POST') {
+            await handleApiChatMobileQr(req, res);
+            return;
+          }
           if (pathname === '/api/chat/commands' && method === 'GET') {
             handleApiChatCommands(res, url);
             return;
           }
+          if (pathname === '/api/chat/context' && method === 'GET') {
+            handleApiChatContext(res, url);
+            return;
+          }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
+            return;
+          }
+          if (pathname === '/api/agents/list' && method === 'GET') {
+            handleApiAgentList(res);
             return;
           }
           if (pathname === '/api/proactive/pull' && method === 'GET') {
@@ -3734,12 +4021,18 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (pathname.startsWith('/assets/')) {
+      if (serveConsoleAsset(pathname, res)) return;
+      sendText(res, 404, 'Not Found');
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
 
-    if (pathname.startsWith('/admin')) {
-      if (serveConsole(pathname, res)) return;
+    if (isConsoleSpaPath(pathname)) {
+      if (serveConsoleIndex(res)) return;
       sendText(
         res,
         503,

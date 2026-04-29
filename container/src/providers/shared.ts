@@ -9,6 +9,7 @@ import { isRuntimeProvider, type RuntimeProvider } from './provider-ids.js';
 export type { RuntimeProvider } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
+  sessionId?: string;
   provider: RuntimeProvider | undefined;
   providerMethod?: string;
   baseUrl: string;
@@ -19,6 +20,7 @@ export interface NormalizedCallArgs {
   requestHeaders: Record<string, string> | undefined;
   messages: ChatMessage[];
   tools: ToolDefinition[];
+  debugModelResponses?: boolean;
   maxTokens: number | undefined;
   isLocal: boolean;
   contextWindow: number | undefined;
@@ -27,6 +29,7 @@ export interface NormalizedCallArgs {
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
   onTextDelta: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
 }
 
@@ -150,6 +153,89 @@ export function summarizeHybridAICompletionForDebug(
       ? 'null'
       : typeof content;
   return `id=${response.id || 'null'} model=${response.model || 'null'} finish=${choice?.finish_reason || 'null'} contentType=${contentType}`;
+}
+
+export function logModelResponseDebug(params: {
+  provider: RuntimeProvider | undefined;
+  model: string;
+  kind:
+    | 'raw_non_streaming_response'
+    | 'non_streaming_response'
+    | 'streaming_response';
+  response: unknown;
+}): void {
+  try {
+    emitModelResponseDebugFileText(
+      `[model-response-debug] ${JSON.stringify({
+        provider: params.provider || 'hybridai',
+        model: params.model,
+        kind: params.kind,
+        response: params.response,
+      })}\n`,
+    );
+  } catch (err) {
+    emitModelResponseDebugFileText(
+      `[model-response-debug] failed to serialize response: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+export function emitModelResponseDebugFileText(text: string): void {
+  console.error(
+    `[model-response-debug-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
+  );
+}
+
+export function logLastPrompt(params: {
+  sessionId?: string;
+  provider: RuntimeProvider | undefined;
+  model: string;
+  kind: string;
+  request: unknown;
+}): void {
+  try {
+    const text = `${JSON.stringify({
+      ts: new Date().toISOString(),
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      provider: params.provider || 'hybridai',
+      model: params.model,
+      kind: params.kind,
+      request: params.request,
+    })}\n`;
+    console.error(
+      `[last-prompt-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
+    );
+  } catch {
+    // Prompt dumping is diagnostic-only and must not disrupt model execution.
+  }
+}
+
+export function emitRawSsePayloadDebug(
+  args: NormalizedCallArgs,
+  payloadText: string,
+): void {
+  if (!args.debugModelResponses) return;
+  emitModelResponseDebugFileText(`data: ${payloadText}\n\n`);
+}
+
+export function emitRawSseLineDebug(
+  args: NormalizedCallArgs,
+  rawLine: string,
+): void {
+  if (!args.debugModelResponses) return;
+  const normalized = rawLine.replace(/\r$/, '');
+  if (!normalized.trimStart().startsWith('data:')) return;
+  emitModelResponseDebugFileText(`${normalized}\n\n`);
+}
+
+export function emitRawNdjsonLineDebug(
+  args: NormalizedCallArgs,
+  rawLine: string,
+): void {
+  if (!args.debugModelResponses) return;
+  const normalized = rawLine.replace(/\r$/, '');
+  if (!normalized.trim()) return;
+  emitModelResponseDebugFileText(`${normalized}\n`);
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

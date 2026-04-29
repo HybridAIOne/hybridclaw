@@ -69,6 +69,20 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  signal?: {
+    enabled: boolean;
+    daemonUrlConfigured: boolean;
+    accountConfigured: boolean;
+    pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+    pairingQrText: string | null;
+    pairingUri: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+    cliAvailable: boolean;
+    cliPath: string;
+    cliVersion: string | null;
+    cliError: string | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -219,6 +233,11 @@ export interface GatewayHistoryMessage {
   username: string | null;
   role: string;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
 }
 
@@ -258,6 +277,50 @@ export interface AdminOverview {
     monthly: AdminUsageSummary;
     topModels: AdminModelUsageRow[];
   };
+}
+
+export interface AdminStatisticsTrendDay {
+  date: string;
+  newSessions: number;
+  activeSessions: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  callCount: number;
+  toolCalls: number;
+  costUsd: number;
+}
+
+export interface AdminStatisticsChannelRow {
+  channelId: string;
+  sessionCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+}
+
+export interface AdminStatisticsResponse {
+  rangeDays: number;
+  startDate: string;
+  endDate: string;
+  totals: {
+    newSessions: number;
+    activeSessions: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    callCount: number;
+    totalToolCalls: number;
+  };
+  trend: AdminStatisticsTrendDay[];
+  channels: AdminStatisticsChannelRow[];
 }
 
 export interface AdminDiscordChannelConfig {
@@ -352,6 +415,7 @@ export interface AdminConfig {
     discord: string;
     msteams: string;
     slack: string;
+    signal: string;
     telegram: string;
     voice: string;
     whatsapp: string;
@@ -472,6 +536,18 @@ export interface AdminConfig {
     textChunkLimit: number;
     mediaMaxMb: number;
   };
+  signal: {
+    enabled: boolean;
+    daemonUrl: string;
+    account: string;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    groupPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    groupAllowFrom: string[];
+    textChunkLimit: number;
+    reconnectIntervalMs: number;
+    outboundDelayMs: number;
+  };
   voice: {
     enabled: boolean;
     provider: 'twilio';
@@ -567,6 +643,14 @@ export interface AdminConfigResponse {
   config: AdminConfig;
 }
 
+export interface SignalLinkResponse {
+  status: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+  pairingQrText: string | null;
+  pairingUri: string | null;
+  updatedAt: string | null;
+  error: string | null;
+}
+
 export interface AdminCommandResult {
   kind: 'plain' | 'info' | 'error';
   title?: string;
@@ -579,9 +663,20 @@ export interface AdminCommandResult {
 export interface AdminModelCatalogEntry {
   id: string;
   discovered: boolean;
-  backend: 'ollama' | 'lmstudio' | 'vllm' | null;
+  backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+  capabilities: {
+    vision: boolean;
+    tools: boolean;
+    jsonMode: boolean;
+    reasoning: boolean;
+  };
+  metadataSources: string[];
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;
@@ -707,6 +802,7 @@ export interface AgentCard {
   effectiveModels: string[];
   lastActive: string | null;
   status: 'active' | 'idle' | 'stopped' | 'unused';
+  monthlySpendUsd: number;
 }
 
 export interface AgentSessionCard {
@@ -777,6 +873,15 @@ export type AgentsOverview = Pick<
   AgentsOverviewResponse,
   'agents' | 'sessions'
 >;
+
+export interface AgentListItem {
+  id: string;
+  name: string | null;
+}
+
+export interface AgentListResponse {
+  agents: AgentListItem[];
+}
 
 export interface JobAgent {
   id: string;
@@ -992,6 +1097,45 @@ export interface AdminAdaptiveSkillHealthMetric {
 
 export interface AdminAdaptiveSkillHealthResponse {
   metrics: AdminAdaptiveSkillHealthMetric[];
+}
+
+export interface AdminAgentSkillScore {
+  agent_id: string;
+  skill_id: string;
+  skill_name: string;
+  total_executions: number;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  tool_breakage_rate: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  last_run_at: string | null;
+  quality_score: number;
+  reliability_score: number;
+  timing_score: number;
+  score: number;
+  last_observed_at: string | null;
+}
+
+export interface AdminAgentScoreboardEntry {
+  agent_id: string;
+  display_name: string;
+  total_executions: number;
+  success_rate: number;
+  avg_score: number;
+  avg_quality_score: number;
+  avg_reliability_score: number;
+  avg_timing_score: number;
+  best_skills: AdminAgentSkillScore[];
+  last_observed_at: string | null;
+}
+
+export interface AdminAgentScoreboardResponse {
+  observed_skill_count: number;
+  agents: AdminAgentScoreboardEntry[];
 }
 
 export interface AdminAdaptiveSkillAmendment {

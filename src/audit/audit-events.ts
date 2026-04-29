@@ -41,6 +41,23 @@ function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
 }
 
+type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
+type ApprovalDecision = NonNullable<ToolExecution['approvalDecision']>;
+type EscalationRoute = NonNullable<ToolExecution['escalationRoute']>;
+
+function resolveAutonomyEscalationRoute(params: {
+  decision: ApprovalDecision;
+  tier: ApprovalTier;
+  blocked: boolean;
+}): EscalationRoute {
+  if (params.blocked || params.decision === 'denied') return 'policy_denial';
+  if (params.decision === 'required') return 'approval_request';
+  if (params.tier === 'yellow' && params.decision === 'implicit') {
+    return 'implicit_notice';
+  }
+  return 'none';
+}
+
 const SENSITIVE_ARG_KEY_RE =
   /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
 
@@ -75,6 +92,23 @@ export function emitToolExecutionAuditEvents(input: {
   const { sessionId, runId, toolExecutions } = input;
   toolExecutions.forEach((execution, index) => {
     const toolCallId = `${runId}:tool:${index + 1}`;
+    const effectiveTier = execution.approvalTier || 'green';
+    const effectiveBaseTier =
+      execution.approvalBaseTier || execution.approvalTier || 'green';
+    const effectiveDecision = execution.approvalDecision || 'auto';
+    const effectiveEscalationRoute =
+      execution.escalationRoute ||
+      resolveAutonomyEscalationRoute({
+        decision: effectiveDecision,
+        tier: effectiveTier,
+        blocked: Boolean(execution.blocked),
+      });
+    const effectiveReason =
+      execution.approvalReason ||
+      execution.blockedReason ||
+      (effectiveDecision === 'auto'
+        ? 'allowed'
+        : `approval:${effectiveDecision}`);
     const argumentsObject = parseJsonObject(execution.arguments || '{}');
     const auditArguments = sanitizeAuditArguments(
       execution.name,
@@ -100,14 +134,49 @@ export function emitToolExecutionAuditEvents(input: {
         action: `tool:${execution.name}`,
         resource: 'container.sandbox',
         allowed: !execution.blocked,
-        reason:
-          execution.blockedReason ||
-          execution.approvalReason ||
-          (execution.approvalDecision
-            ? `approval:${execution.approvalDecision}`
-            : 'allowed'),
+        reason: effectiveReason,
       },
     });
+
+    recordAuditEvent({
+      sessionId,
+      runId,
+      event: {
+        type: 'autonomy.decision',
+        toolCallId,
+        action: execution.approvalActionKey || `tool:${execution.name}`,
+        autonomyLevel: execution.autonomyLevel || 'full-autonomous',
+        stakes: execution.stakes || 'low',
+        escalationRoute: effectiveEscalationRoute,
+        approvalTier: effectiveTier,
+        approvalBaseTier: effectiveBaseTier,
+        approvalDecision: effectiveDecision,
+        reason: effectiveReason,
+      },
+    });
+
+    if (effectiveEscalationRoute !== 'none') {
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'escalation.decision',
+          toolCallId,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          proposedAction:
+            execution.approvalIntent ||
+            execution.approvalActionKey ||
+            `tool:${execution.name}`,
+          escalationRoute: effectiveEscalationRoute,
+          target: execution.escalationTarget || null,
+          stakes: execution.stakes || 'low',
+          classifier: execution.stakesScore?.classifier || null,
+          classifierReasoning: execution.stakesScore?.reasons || [],
+          approvalDecision: effectiveDecision,
+          reason: effectiveReason,
+        },
+      });
+    }
 
     const isRedApprovalAction =
       execution.approvalTier === 'red' || execution.approvalBaseTier === 'red';
@@ -134,7 +203,7 @@ export function emitToolExecutionAuditEvents(input: {
             toolCallId,
             action: execution.approvalActionKey || `tool:${execution.name}`,
             description,
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
           },
         });
       }
@@ -172,7 +241,7 @@ export function emitToolExecutionAuditEvents(input: {
                 : pending || approved
                   ? 'prompt'
                   : 'policy',
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
           },
         });
       }

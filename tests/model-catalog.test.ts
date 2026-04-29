@@ -97,6 +97,71 @@ afterEach(async () => {
   vi.doUnmock('../src/auth/anthropic-auth.js');
 });
 
+test('model catalog metadata resolves context and capabilities from static data', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  const metadata = catalog.getModelCatalogMetadata('hybridai/gpt-5-nano');
+
+  expect(metadata.known).toBe(true);
+  expect(metadata.contextWindow).toBe(400_000);
+  expect(metadata.pricingUsdPerToken).toEqual({ input: null, output: null });
+  expect(metadata.capabilities).toEqual({
+    vision: true,
+    tools: true,
+    jsonMode: true,
+    reasoning: true,
+  });
+  expect(metadata.sources).toEqual(
+    expect.arrayContaining(['https://developers.openai.com/api/docs/models']),
+  );
+
+  const flagship = catalog.getModelCatalogMetadata('hybridai/gpt-5.5');
+  expect(flagship.known).toBe(true);
+  expect(flagship.contextWindow).toBe(1_000_000);
+  expect(flagship.maxTokens).toBe(128_000);
+  expect(flagship.pricingUsdPerToken).toEqual({ input: null, output: null });
+});
+
+test('static context and vision lookups share versioned metadata', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/gpt-5.4').contextWindow,
+  ).toBe(1_050_000);
+  expect(catalog.isModelVisionCapable('hybridai/gpt-5-nano')).toBe(true);
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/gpt-5-nano').capabilities.vision,
+  ).toBe(true);
+});
+
+test('model catalog metadata falls back safely for missing models', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  const metadata = catalog.getModelCatalogMetadata(
+    'unknown-provider/not-real-model',
+  );
+
+  expect(metadata).toMatchObject({
+    known: false,
+    pricingUsdPerToken: { input: null, output: null },
+    contextWindow: null,
+    maxTokens: null,
+    capabilities: {
+      vision: false,
+      tools: false,
+      jsonMode: false,
+      reasoning: false,
+    },
+    sources: [],
+  });
+});
+
 test('available model catalog falls back to HybridAI /v1/models when /models is unavailable', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -204,6 +269,10 @@ test('available model catalog merges the current default model with discovered l
   expect(catalog.getAvailableModelList('local')).toEqual([
     'lmstudio/qwen/qwen3.5-9b',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0, output: 0 });
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/gpt-4.1-mini',
   );
@@ -230,6 +299,10 @@ test('available model catalog prefixes HybridAI provider-family models', async (
               id: 'mistral-small',
               provider: 'mistral',
               context_length: 131_072,
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+              },
             },
           ],
         }),
@@ -254,6 +327,64 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/mistral/mistral-small',
   );
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0.000001, output: 0.000002 });
+});
+
+test('model catalog selects the cheapest model matching capability flags', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-catalog-cheap-selector';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-5',
+              context_length: 400_000,
+              pricing: {
+                prompt: '0.00001',
+                completion: '0.00003',
+              },
+            },
+            {
+              id: 'gpt-5-nano',
+              context_length: 400_000,
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs({ includeHybridAI: true });
+
+  expect(catalog.findCheapestModelMeetingCapabilities({ jsonMode: true })).toBe(
+    'hybridai/gpt-5-nano',
+  );
+  expect(
+    catalog
+      .selectModelsByCapabilityAndCost({ jsonMode: true })
+      .map((selection) => selection.model)
+      .slice(0, 2),
+  ).toEqual(['hybridai/gpt-5-nano', 'hybridai/gpt-5']);
 });
 
 test('available model catalog reloads OpenRouter discovery after 60 minutes', async () => {
@@ -331,6 +462,10 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
     'openrouter/beta/model-c:free',
     'openrouter/zeta/model-b',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('openrouter/zeta/model-b')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 1, output: 1 });
   expect(catalog.getAvailableModelList('codex')).toEqual([]);
 });
 
@@ -435,6 +570,10 @@ test('available model catalog discovers Codex models from the models endpoint', 
     'Chatgpt-Account-Id': 'acct_catalog',
     'OpenAI-Beta': 'responses=experimental',
   });
+  expect(
+    catalog.getModelCatalogMetadata('openai-codex/gpt-5-codex')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0, output: 0 });
 });
 
 test('available model catalog discovers Anthropic models from /v1/models', async () => {
@@ -459,6 +598,7 @@ test('available model catalog discovers Anthropic models from /v1/models', async
               id: 'claude-opus-4-20250514',
               max_input_tokens: 200_000,
               max_tokens: 32_000,
+              pricing: { input_per_million: 15, output_per_million: 75 },
               capabilities: { vision: true },
             },
             {
@@ -487,6 +627,10 @@ test('available model catalog discovers Anthropic models from /v1/models', async
   expect(catalog.isModelVisionCapable('anthropic/claude-opus-4-20250514')).toBe(
     true,
   );
+  expect(
+    catalog.getModelCatalogMetadata('anthropic/claude-opus-4-20250514')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 15 / 1_000_000, output: 75 / 1_000_000 });
   const anthropicRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
       url: new URL(String(input)),
@@ -871,6 +1015,7 @@ test('available model catalog merges discovered Mistral models from /models', as
               name: 'mistral-medium-2508',
               aliases: ['mistral-medium-2508', 'mistral-medium'],
               max_context_length: 131_072,
+              pricing: { prompt: '0.000002', completion: '0.000006' },
             },
             {
               id: 'mistral-medium-2508',
@@ -904,6 +1049,10 @@ test('available model catalog merges discovered Mistral models from /models', as
   expect(catalog.getAvailableModelList('mistral')).not.toContain(
     'mistral/mistral-medium-latest',
   );
+  expect(
+    catalog.getModelCatalogMetadata('mistral/mistral-medium-2508')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0.000002, output: 0.000006 });
 });
 
 test('available model catalog reads Hugging Face provider-level context windows', async () => {
@@ -934,6 +1083,10 @@ test('available model catalog reads Hugging Face provider-level context windows'
                     provider: 'novita',
                     status: 'live',
                     context_length: 262144,
+                    pricing: {
+                      input_per_million: 0.07,
+                      output_per_million: 0.21,
+                    },
                   },
                 ],
               },
@@ -956,6 +1109,11 @@ test('available model catalog reads Hugging Face provider-level context windows'
       'huggingface/XiaomiMiMo/MiMo-V2-Flash',
     ),
   ).toBe(262_144);
+  expect(
+    discovery.getDiscoveredHuggingFaceModelPricingUsdPerToken(
+      'huggingface/XiaomiMiMo/MiMo-V2-Flash',
+    ),
+  ).toEqual({ input: 0.07 / 1_000_000, output: 0.21 / 1_000_000 });
 });
 
 test('available model catalog does not cap the default Hugging Face list', async () => {

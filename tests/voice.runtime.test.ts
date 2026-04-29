@@ -1,5 +1,7 @@
+import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { afterEach, expect, test, vi } from 'vitest';
+import WebSocket from 'ws';
 import { buildTwilioSignature } from '../src/channels/voice/security.js';
 
 function makeFormRequest(params: {
@@ -503,4 +505,142 @@ test('handleVoiceWebhook warns once when the Twilio auth token is missing', asyn
   ).toHaveLength(1);
 
   await shutdownVoice();
+});
+
+test('voice relay websocket close does not abort an active prompt turn', async () => {
+  const getConfigSnapshot = vi.fn(() => ({
+    voice: {
+      enabled: true,
+      provider: 'twilio',
+      twilio: {
+        accountSid: 'AC123',
+        authToken: '',
+        fromNumber: '+14155550123',
+      },
+      relay: {
+        ttsProvider: 'default',
+        voice: '',
+        transcriptionProvider: 'default',
+        language: 'en-US',
+        interruptible: true,
+        welcomeGreeting: 'Hello! How can I help you today?',
+      },
+      webhookPath: '/voice',
+      maxConcurrentCalls: 8,
+    },
+  }));
+
+  vi.doMock('../src/config/config.js', () => ({
+    GATEWAY_BASE_URL: '',
+    TWILIO_AUTH_TOKEN: 'env-voice-token',
+    getConfigSnapshot,
+  }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    },
+  }));
+
+  const { handleVoiceUpgrade, initVoice, shutdownVoice } = await import(
+    '../src/channels/voice/runtime.js'
+  );
+  let observedSignal: AbortSignal | null = null;
+  let resolveHandlerStarted: () => void = () => {};
+  let resolveHandlerRelease: () => void = () => {};
+  let resolveHandlerFinished: () => void = () => {};
+  const handlerStarted = new Promise<void>((resolve) => {
+    resolveHandlerStarted = resolve;
+  });
+  const handlerRelease = new Promise<void>((resolve) => {
+    resolveHandlerRelease = resolve;
+  });
+  const handlerFinished = new Promise<void>((resolve) => {
+    resolveHandlerFinished = resolve;
+  });
+
+  await initVoice(async (...args) => {
+    const context = args[8];
+    observedSignal = context.abortSignal;
+    resolveHandlerStarted();
+    try {
+      await handlerRelease;
+    } finally {
+      resolveHandlerFinished();
+    }
+  });
+
+  const server = createServer();
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url || '/', `http://${req.headers.host || ''}`);
+    if (!handleVoiceUpgrade(req, socket, head, url)) {
+      socket.destroy();
+    }
+  });
+
+  try {
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Expected test server to listen on a TCP port.');
+    }
+    const relayUrl = `ws://127.0.0.1:${address.port}/voice/relay`;
+    const signature = buildTwilioSignature({
+      authToken: 'env-voice-token',
+      url: relayUrl,
+    });
+    const client = new WebSocket(relayUrl, {
+      headers: {
+        'x-twilio-signature': signature,
+      },
+    });
+    await new Promise<void>((resolve, reject) => {
+      client.once('open', resolve);
+      client.once('error', reject);
+    });
+
+    client.send(
+      JSON.stringify({
+        type: 'setup',
+        sessionId: 'VX123',
+        accountSid: 'AC123',
+        callSid: 'CA-WS-CLOSE',
+        from: '+15550001111',
+        to: '+15550002222',
+      }),
+    );
+    client.send(
+      JSON.stringify({
+        type: 'prompt',
+        voicePrompt: 'hello there',
+        lang: 'en-US',
+        last: true,
+      }),
+    );
+
+    await handlerStarted;
+    expect(observedSignal?.aborted).toBe(false);
+
+    client.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(observedSignal?.aborted).toBe(false);
+    resolveHandlerRelease();
+    await handlerFinished;
+  } finally {
+    await shutdownVoice();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
 });

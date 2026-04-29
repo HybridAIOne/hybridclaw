@@ -1,3 +1,7 @@
+import type {
+  StakesScore as CanonicalStakesScore,
+  StakesSignal as CanonicalStakesSignal,
+} from '../shared/stakes-classifier.js';
 import type { McpServerConfig } from './mcp/types.js';
 
 export interface ChatContentTextPart {
@@ -72,6 +76,7 @@ export interface ChatCompletionResponse {
       cached_tokens?: number;
     };
   };
+  timing?: ModelCallTiming;
 }
 
 export interface ToolDefinition {
@@ -224,6 +229,7 @@ export interface ContainerInput {
   fullAutoNeverApproveTools?: string[];
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
@@ -240,6 +246,7 @@ export interface ContainerInput {
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface MediaContextItem {
@@ -249,6 +256,27 @@ export interface MediaContextItem {
   mimeType: string | null;
   sizeBytes: number;
   filename: string;
+}
+
+export type ToolExecutionStakesSignal = CanonicalStakesSignal;
+export type ToolExecutionStakesScore = CanonicalStakesScore;
+
+export interface EscalationTarget {
+  channel: string;
+  recipient: string;
+}
+
+export function normalizeEscalationTarget(
+  value: unknown,
+): EscalationTarget | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as { channel?: unknown; recipient?: unknown };
+  const channel = typeof raw.channel === 'string' ? raw.channel.trim() : '';
+  const recipient =
+    typeof raw.recipient === 'string' ? raw.recipient.trim() : '';
+  return channel && recipient ? { channel, recipient } : undefined;
 }
 
 export interface ToolExecution {
@@ -261,6 +289,15 @@ export interface ToolExecution {
   blockedReason?: string;
   approvalTier?: 'green' | 'yellow' | 'red';
   approvalBaseTier?: 'green' | 'yellow' | 'red';
+  autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
+  stakes?: 'low' | 'medium' | 'high';
+  stakesScore?: ToolExecutionStakesScore;
+  escalationRoute?:
+    | 'none'
+    | 'implicit_notice'
+    | 'approval_request'
+    | 'policy_denial';
+  escalationTarget?: EscalationTarget;
   approvalDecision?:
     | 'auto'
     | 'implicit'
@@ -291,6 +328,7 @@ export interface PendingApproval {
   allowAgent: boolean;
   allowAll: boolean;
   expiresAt: number | null;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface TokenUsageStats {
@@ -305,6 +343,18 @@ export interface TokenUsageStats {
   estimatedPromptTokens: number;
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;
+  performanceSamples?: ModelCallPerformanceSample[];
+}
+
+export interface ModelCallTiming {
+  durationMs: number;
+  firstTextDeltaMs?: number;
+}
+
+export interface ModelCallPerformanceSample extends ModelCallTiming {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export interface ArtifactMetadata {

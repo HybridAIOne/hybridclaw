@@ -39,6 +39,9 @@ Skill roots include:
   `install` feed operator-facing summaries, related-skill hints, and install
   helpers
 - installer metadata lives under `metadata.hybridclaw.install:`
+- production package metadata lives under `manifest:` or
+  `metadata.hybridclaw.manifest:` and declares `id`, `version`,
+  `capabilities`, `required_credentials`, and `supported_channels`
 
 ## Invocation Paths
 
@@ -114,10 +117,9 @@ because they change the host dependency state.
 HybridClaw separates skill discovery from runtime availability.
 
 - `skills.disabled` is the global disabled list
-- `skills.channelDisabled.discord`
-- `skills.channelDisabled.msteams`
-- `skills.channelDisabled.whatsapp`
-- `skills.channelDisabled.email`
+- `skills.channelDisabled.<channel>` blocks a skill in one channel. Current
+  channel keys include `discord`, `msteams`, `signal`, `slack`, `telegram`,
+  `voice`, `whatsapp`, `email`, and `imessage`.
 
 Operator surfaces:
 
@@ -166,6 +168,24 @@ Guard behavior:
 - `--force` only overrides a `caution` scanner verdict
 - `--skip-skill-scan` bypasses the scanner entirely for trusted operators
 - `dangerous` verdicts stay blocked
+
+## Package Lifecycle
+
+Packaged business skills use audited lifecycle commands:
+
+- `hybridclaw skill install <source>`
+- `hybridclaw skill upgrade <source>`
+- `hybridclaw skill uninstall <skill-name>`
+- `hybridclaw skill revisions <skill-name>`
+- `hybridclaw skill rollback <skill-name> <revision-id>`
+
+Lifecycle commands update `skills.installed`, write audit events, and store
+package snapshots in the existing runtime config revision database as `skill`
+assets. `manifest.supported_channels` is enforced during skill loading so a
+skill is not advertised in unsupported channel contexts.
+
+See [How to Ship a Business Skill](../guides/skills/business-skills.md) for the
+operator-facing packaging contract.
 
 ## Adaptive Skills
 

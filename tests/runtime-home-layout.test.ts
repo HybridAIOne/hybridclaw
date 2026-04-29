@@ -16,8 +16,13 @@ const ORIGINAL_GROQ_API_KEY = process.env.GROQ_API_KEY;
 const ORIGINAL_DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const ORIGINAL_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ORIGINAL_GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const ORIGINAL_BRAVE_API_KEY = process.env.BRAVE_API_KEY;
+const ORIGINAL_PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
+const ORIGINAL_TAVILY_API_KEY = process.env.TAVILY_API_KEY;
 const ORIGINAL_DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const ORIGINAL_EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
+const ORIGINAL_WEB_API_TOKEN = process.env.WEB_API_TOKEN;
+const ORIGINAL_GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN;
 const ORIGINAL_HYBRIDCLAW_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = path.resolve(TEST_DIR, '..');
@@ -80,8 +85,13 @@ afterEach(() => {
   restoreEnvVar('DEEPGRAM_API_KEY', ORIGINAL_DEEPGRAM_API_KEY);
   restoreEnvVar('GEMINI_API_KEY', ORIGINAL_GEMINI_API_KEY);
   restoreEnvVar('GOOGLE_API_KEY', ORIGINAL_GOOGLE_API_KEY);
+  restoreEnvVar('BRAVE_API_KEY', ORIGINAL_BRAVE_API_KEY);
+  restoreEnvVar('PERPLEXITY_API_KEY', ORIGINAL_PERPLEXITY_API_KEY);
+  restoreEnvVar('TAVILY_API_KEY', ORIGINAL_TAVILY_API_KEY);
   restoreEnvVar('DISCORD_TOKEN', ORIGINAL_DISCORD_TOKEN);
   restoreEnvVar('EMAIL_PASSWORD', ORIGINAL_EMAIL_PASSWORD);
+  restoreEnvVar('WEB_API_TOKEN', ORIGINAL_WEB_API_TOKEN);
+  restoreEnvVar('GATEWAY_API_TOKEN', ORIGINAL_GATEWAY_API_TOKEN);
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_HYBRIDCLAW_MASTER_KEY);
 });
 
@@ -232,6 +242,50 @@ describe('runtime secrets', () => {
     expect(JSON.stringify(stored)).not.toContain('HEALTH_PORT');
     expect(JSON.stringify(stored)).not.toContain('LOG_LEVEL');
     expect(JSON.stringify(stored)).not.toContain('DB_PATH');
+  });
+
+  it('prefers stored runtime secrets over live env fallbacks for web search providers', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    process.env.BRAVE_API_KEY = 'env-brave-key';
+    process.env.PERPLEXITY_API_KEY = 'env-perplexity-key';
+    process.env.TAVILY_API_KEY = 'env-tavily-key';
+
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveNamedRuntimeSecrets({
+      BRAVE_API_KEY: 'stored-brave-key',
+      PERPLEXITY_API_KEY: 'stored-perplexity-key',
+      TAVILY_API_KEY: 'stored-tavily-key',
+    });
+
+    const config = await importFreshConfigGlobals(homeDir);
+
+    expect(config.BRAVE_API_KEY).toBe('stored-brave-key');
+    expect(config.PERPLEXITY_API_KEY).toBe('stored-perplexity-key');
+    expect(config.TAVILY_API_KEY).toBe('stored-tavily-key');
+  });
+
+  it('persists a generated gateway API token for local CLI clients', async () => {
+    const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
+    delete process.env.WEB_API_TOKEN;
+    delete process.env.GATEWAY_API_TOKEN;
+
+    const firstConfig = await importFreshConfigGlobals(homeDir);
+    const generatedToken = firstConfig.GATEWAY_API_TOKEN;
+
+    expect(generatedToken).toMatch(/^[a-f0-9]{48}$/);
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('GATEWAY_API_TOKEN'),
+    ).toBeNull();
+
+    expect(firstConfig.ensureGatewayApiTokenPersisted()).toBe(generatedToken);
+
+    expect(runtimeSecrets.readStoredRuntimeSecret('GATEWAY_API_TOKEN')).toBe(
+      generatedToken,
+    );
+
+    const secondConfig = await importFreshConfigGlobals(homeDir);
+    expect(secondConfig.GATEWAY_API_TOKEN).toBe(generatedToken);
   });
 
   it('saves credentials under ~/.hybridclaw/credentials.json', async () => {
@@ -562,7 +616,7 @@ describe('runtime secrets', () => {
     );
   });
 
-  it('does not override shell-provided secrets during config refresh', async () => {
+  it('prefers stored secrets over shell-provided fallbacks during config refresh', async () => {
     const homeDir = makeTempDir('hybridclaw-runtime-secrets-');
     process.env.HF_TOKEN = 'hf-from-shell';
 
@@ -571,7 +625,7 @@ describe('runtime secrets', () => {
     const config = await importFreshConfigGlobals(homeDir);
     config.refreshRuntimeSecretsFromEnv();
 
-    expect(config.HUGGINGFACE_API_KEY).toBe('hf-from-shell');
+    expect(config.HUGGINGFACE_API_KEY).toBe('hf-from-file');
   });
 });
 

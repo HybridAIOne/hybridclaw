@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -42,6 +43,16 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
+const HEADED_BROWSER_ARGS = [
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--disable-translate',
+  '--metrics-recording-only',
+  '--password-store=basic',
+  '--use-mock-keychain',
+];
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -185,6 +196,7 @@ type BrowserModelContext = {
   chatbotId: string;
   requestHeaders: Record<string, string>;
   maxTokens?: number;
+  debugModelResponses?: boolean;
 };
 
 type BrowserRunner = {
@@ -197,6 +209,7 @@ type BrowserSession = {
   socketDir: string;
   profileDir?: string;
   stateName?: string;
+  headed: boolean;
   createdAt: number;
   lastUsedAt: number;
 };
@@ -256,6 +269,7 @@ export function setBrowserModelContext(
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
@@ -273,6 +287,7 @@ export function setBrowserModelContext(
       maxTokens > 0
         ? Math.floor(maxTokens)
         : undefined,
+    debugModelResponses,
   };
 }
 
@@ -314,6 +329,14 @@ function shouldPersistProfiles(): boolean {
 
 function shouldPersistSessionState(): boolean {
   return envFlagEnabled('BROWSER_PERSIST_SESSION_STATE', true);
+}
+
+function shouldLaunchHeaded(): boolean {
+  return (
+    envFlagEnabled('BROWSER_HEADFUL', false) ||
+    envFlagEnabled('BROWSER_HEADED', false) ||
+    envFlagEnabled('AGENT_BROWSER_HEADED', false)
+  );
 }
 
 function resolveProfileRoot(): string {
@@ -395,7 +418,55 @@ function resolveRunner(): BrowserRunner | null {
   return cachedRunner;
 }
 
-function getSession(sessionId: string): BrowserSession {
+function resolveHeadedBrowserExecutable(): string | undefined {
+  const configured = String(
+    process.env.AGENT_BROWSER_EXECUTABLE_PATH || '',
+  ).trim();
+  if (configured) return configured;
+
+  const chromeBin = String(process.env.CHROME_BIN || '').trim();
+  if (chromeBin) return chromeBin;
+
+  if (process.platform === 'darwin') {
+    const googleChrome =
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    return fs.existsSync(googleChrome) ? googleChrome : undefined;
+  }
+
+  if (process.platform === 'linux') {
+    for (const name of ['google-chrome', 'google-chrome-stable']) {
+      const result = spawnSync('which', [name], { encoding: 'utf-8' });
+      if (result.status === 0 && result.stdout.trim()) {
+        return result.stdout.trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function resolveBrowserLaunchArgs(session: BrowserSession): string | undefined {
+  const configured = String(process.env.AGENT_BROWSER_ARGS || '').trim();
+  if (!session.headed) return configured || undefined;
+
+  const configuredArgs = configured
+    ? configured
+        .split(/[,\n]/)
+        .map((arg) => arg.trim())
+        .filter(Boolean)
+    : [];
+  const merged = [...configuredArgs];
+  const existing = new Set(merged);
+  for (const arg of HEADED_BROWSER_ARGS) {
+    if (!existing.has(arg)) merged.push(arg);
+  }
+  return merged.length > 0 ? merged.join('\n') : undefined;
+}
+
+function getSession(
+  sessionId: string,
+  options: { headed?: boolean } = {},
+): BrowserSession {
   const sessionKey = normalizeSessionKey(sessionId);
   const existing = activeSessions.get(sessionKey);
   if (existing) {
@@ -434,11 +505,23 @@ function getSession(sessionId: string): BrowserSession {
     socketDir,
     profileDir,
     stateName,
+    headed: options.headed ?? shouldLaunchHeaded(),
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
   };
   activeSessions.set(sessionKey, session);
   return session;
+}
+
+async function prepareSessionMode(
+  sessionId: string,
+  options: { headed?: boolean } = {},
+): Promise<void> {
+  if (options.headed == null) return;
+  const sessionKey = normalizeSessionKey(sessionId);
+  const existing = activeSessions.get(sessionKey);
+  if (!existing || existing.headed === options.headed) return;
+  await closeSession(sessionKey);
 }
 
 function ensureWritableDir(dirPath: string): string {
@@ -1295,7 +1378,7 @@ async function runAgentBrowser(
   sessionId: string,
   command: string,
   commandArgs: string[] = [],
-  options: { timeoutMs?: number; cdpUrl?: string } = {},
+  options: { timeoutMs?: number; cdpUrl?: string; headed?: boolean } = {},
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const runner = resolveRunner();
   if (!runner) {
@@ -1311,7 +1394,8 @@ async function runAgentBrowser(
     1_000,
     Math.min(options.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS, 180_000),
   );
-  const session = getSession(sessionId);
+  await prepareSessionMode(sessionId, { headed: options.headed });
+  const session = getSession(sessionId, { headed: options.headed });
   const homeDir = resolveWritableHome();
   const npmCacheDir = ensureWritableDir(BROWSER_NPM_CACHE);
   const xdgCacheDir = ensureWritableDir(BROWSER_XDG_CACHE);
@@ -1334,12 +1418,30 @@ async function runAgentBrowser(
     NPM_CONFIG_CACHE: npmCacheDir,
     npm_config_cache: npmCacheDir,
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
+    AGENT_BROWSER_HEADED: session.headed ? '1' : '0',
   };
   if (session.stateName) {
     browserEnv.AGENT_BROWSER_SESSION_NAME = session.stateName;
   }
   if (!cdpUrl && session.profileDir) {
     browserEnv.AGENT_BROWSER_PROFILE = session.profileDir;
+  }
+  const launchArgs = resolveBrowserLaunchArgs(session);
+  if (launchArgs) {
+    browserEnv.AGENT_BROWSER_ARGS = launchArgs;
+  } else {
+    delete browserEnv.AGENT_BROWSER_ARGS;
+  }
+  if (session.headed && !cdpUrl) {
+    const executablePath = resolveHeadedBrowserExecutable();
+    if (!executablePath) {
+      return {
+        success: false,
+        error:
+          'Headful browser control requires Google Chrome. Install Google Chrome or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH to a Chrome executable. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
+      };
+    }
+    browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
   }
 
   try {
@@ -1419,11 +1521,12 @@ export async function executeBrowserTool(
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertNavigationUrl(args.url);
+        const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,
           'open',
           [parsed.toString()],
-          { timeoutMs: 60_000 },
+          { timeoutMs: 60_000, headed },
         );
         if (!result.success)
           return failure(result.error || 'navigation failed');
@@ -1470,6 +1573,7 @@ export async function executeBrowserTool(
           ...(hasNoscript ? { has_noscript: true } : {}),
           ...(rootShell ? { root_shell: true } : {}),
           read_extraction_hint: extractionHint,
+          headed: getSession(effectiveSessionId).headed,
           ...(botWarning ? { bot_detection_warning: botWarning } : {}),
         });
       }
@@ -1914,13 +2018,18 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_navigate',
       description:
-        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
+        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. If the user asks for a visible/headed/headful browser window, pass headed=true; the setting persists for the browser session and may require a local display. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
       parameters: {
         type: 'object',
         properties: {
           url: {
             type: 'string',
             description: 'URL to open (http:// or https://)',
+          },
+          headed: {
+            type: 'boolean',
+            description:
+              'Use a visible browser window when the user explicitly requests headful/headed browser control.',
           },
         },
         required: ['url'],
