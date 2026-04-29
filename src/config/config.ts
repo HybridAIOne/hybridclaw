@@ -553,6 +553,7 @@ export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
 let internalGatewayApiToken = '';
+let internalGatewayApiTokenPersisted = false;
 function getInternalGatewayApiToken(): string {
   if (!internalGatewayApiToken) {
     internalGatewayApiToken = randomBytes(24).toString('hex');
@@ -560,10 +561,12 @@ function getInternalGatewayApiToken(): string {
   return internalGatewayApiToken;
 }
 
-function getSharedGatewayApiToken(): string {
+function getOrPersistGatewayApiToken(): string {
   const token = getInternalGatewayApiToken();
+  if (internalGatewayApiTokenPersisted) return token;
   try {
     saveRuntimeSecrets({ GATEWAY_API_TOKEN: token });
+    internalGatewayApiTokenPersisted = true;
   } catch (err) {
     logger.warn(
       { err },
@@ -969,7 +972,10 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
-    getSharedGatewayApiToken();
+    // Persist the generated fallback so separately launched local clients can
+    // authenticate to this gateway. Deleting credentials while the gateway is
+    // already running can still require a gateway restart to repersist the token.
+    getOrPersistGatewayApiToken();
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 
