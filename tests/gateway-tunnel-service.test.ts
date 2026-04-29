@@ -7,9 +7,14 @@ import type {
 
 function makeRuntimeConfig(
   deployment: RuntimeConfig['deployment'],
+  options: { healthHost?: string; healthPort?: number } = {},
 ): RuntimeConfig {
   return {
     deployment,
+    ops: {
+      healthHost: options.healthHost ?? '127.0.0.1',
+      healthPort: options.healthPort ?? 9090,
+    },
   } as RuntimeConfig;
 }
 
@@ -44,6 +49,13 @@ async function importService(options: {
     }
     return provider;
   });
+  const createTailscaleTunnelProvider = vi.fn(() => {
+    const provider = providers.shift();
+    if (!provider) {
+      throw new Error('unexpected provider creation');
+    }
+    return provider;
+  });
 
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => options.config,
@@ -55,12 +67,16 @@ async function importService(options: {
   vi.doMock('../src/tunnel/ngrok-tunnel-provider.js', () => ({
     createNgrokTunnelProvider,
   }));
+  vi.doMock('../src/tunnel/tailscale-tunnel-provider.js', () => ({
+    createTailscaleTunnelProvider,
+  }));
 
   const service = await import('../src/gateway/gateway-tunnel-service.js');
   service.resetGatewayAdminTunnelForTests();
   return {
     ...service,
     createNgrokTunnelProvider,
+    createTailscaleTunnelProvider,
     makeAuditRunId,
     recordAuditEvent,
   };
@@ -70,6 +86,7 @@ afterEach(() => {
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/audit/audit-events.js');
   vi.doUnmock('../src/tunnel/ngrok-tunnel-provider.js');
+  vi.doUnmock('../src/tunnel/tailscale-tunnel-provider.js');
   vi.resetModules();
 });
 
@@ -96,6 +113,7 @@ test('admin tunnel status reports configured manual public URL as healthy', asyn
     nextReconnectAt: null,
   });
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
+  expect(service.createTailscaleTunnelProvider).not.toHaveBeenCalled();
 });
 
 test('admin tunnel status stops stale ngrok provider when config changes', async () => {
@@ -133,6 +151,74 @@ test('admin tunnel status stops stale ngrok provider when config changes', async
   service.getGatewayAdminTunnelStatus();
 
   expect(newProvider.stop).toHaveBeenCalledTimes(1);
+});
+
+test('admin tunnel status creates a managed tailscale provider', async () => {
+  const provider: TunnelProvider = {
+    status: vi.fn(() => ({
+      ...downStatus,
+      running: true,
+      public_url: 'https://gateway.example.ts.net',
+      state: 'up',
+    })),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig(
+      {
+        mode: 'local',
+        public_url: '',
+        tunnel: {
+          provider: 'tailscale',
+          health_check_interval_ms: 60_000,
+        },
+      },
+      { healthPort: 19_090 },
+    ),
+    provider,
+  });
+
+  expect(service.getGatewayAdminTunnelStatus()).toMatchObject({
+    provider: 'tailscale',
+    publicUrl: 'https://gateway.example.ts.net',
+    health: 'healthy',
+    reconnectSupported: true,
+  });
+  expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
+  expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
+    addr: '127.0.0.1:19090',
+    healthCheckIntervalMs: 60_000,
+  });
+});
+
+test('admin tunnel status formats IPv6 tunnel target addresses', async () => {
+  const provider: TunnelProvider = {
+    status: vi.fn(() => downStatus),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig(
+      {
+        mode: 'local',
+        public_url: '',
+        tunnel: {
+          provider: 'tailscale',
+          health_check_interval_ms: 30_000,
+        },
+      },
+      { healthHost: '::1', healthPort: 9090 },
+    ),
+    provider,
+  });
+
+  service.getGatewayAdminTunnelStatus();
+
+  expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
+    addr: '[::1]:9090',
+    healthCheckIntervalMs: 30_000,
+  });
 });
 
 test('admin tunnel reconnect audits the action and restarts ngrok', async () => {
@@ -176,6 +262,7 @@ test('admin tunnel reconnect audits the action and restarts ngrok', async () => 
   });
 
   expect(service.createNgrokTunnelProvider).toHaveBeenCalledWith({
+    addr: '127.0.0.1:9090',
     healthCheckIntervalMs: 45_000,
   });
   expect(provider.stop).toHaveBeenCalledTimes(1);

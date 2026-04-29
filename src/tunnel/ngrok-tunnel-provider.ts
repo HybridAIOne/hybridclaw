@@ -1,9 +1,5 @@
 import type { Config } from '@ngrok/ngrok';
-import {
-  recordAuditEvent as defaultRecordAuditEvent,
-  makeAuditRunId,
-  type RecordAuditEventInput,
-} from '../audit/audit-events.js';
+import { recordAuditEvent as defaultRecordAuditEvent } from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import {
   DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS as DEFAULT_HEALTH_INTERVAL_MS,
@@ -12,15 +8,26 @@ import {
   DEFAULT_TUNNEL_RECONNECT_MAX_BACKOFF_MS as DEFAULT_RECONNECT_MAX_BACKOFF_MS,
   type TunnelProvider,
   type TunnelStartResult,
-  type TunnelState,
   type TunnelStatus,
 } from './tunnel-provider.js';
+import {
+  DEFAULT_TUNNEL_AUDIT_SESSION_ID,
+  errorMessage,
+  makeTunnelRunId,
+  normalizeDurationMs,
+  recordTunnelAudit,
+  redactSecret,
+  type TunnelAuditRecorder,
+  TunnelStatusTracker,
+  type TunnelStatusUpdate,
+  type TunnelTimer,
+  unrefTimer,
+} from './tunnel-provider-utils.js';
 
 export const NGROK_AUTHTOKEN_SECRET = 'NGROK_AUTHTOKEN';
 export const DEFAULT_NGROK_TUNNEL_ADDR = 9090;
 const DEFAULT_NGROK_HEALTH_CHECK_PATH = '/health';
 const RECONNECT_JITTER_RATIO = 0.1;
-const TUNNEL_AUDIT_SESSION_ID = 'system:tunnel';
 
 interface NgrokListener {
   url(): string | null;
@@ -31,21 +38,10 @@ interface NgrokClient {
   forward(config: Config | string | number): Promise<NgrokListener>;
 }
 
-type TunnelTimer = ReturnType<typeof setTimeout>;
 type TunnelHealthFetch = (
   input: string | URL,
   init?: { method?: string; signal?: AbortSignal },
 ) => Promise<Pick<Response, 'ok' | 'status'>>;
-type TunnelAuditRecorder = (
-  input: RecordAuditEventInput,
-) => void | Promise<void>;
-type TunnelStatusUpdate = {
-  lastCheckedAt?: string | null;
-  lastError?: string | null;
-  nextReconnectAt?: string | null;
-  reconnectAttempt?: number;
-  state?: TunnelState;
-};
 
 export interface NgrokTunnelProviderOptions {
   addr?: Config['addr'];
@@ -93,30 +89,11 @@ function normalizePublicUrl(value: string | null): string {
   return parsed.toString().replace(/\/$/, '');
 }
 
-function redactSecret(message: string, secret: string): string {
-  const trimmed = secret.trim();
-  if (!trimmed) return message;
-  return message.replaceAll(trimmed, '<redacted>');
-}
-
-function normalizeDurationMs(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.max(1, Math.trunc(value));
-}
-
 function normalizeHealthCheckPath(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_NGROK_HEALTH_CHECK_PATH;
   const trimmed = value.trim();
   if (!trimmed) return DEFAULT_NGROK_HEALTH_CHECK_PATH;
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-}
-
-function unrefTimer(timer: TunnelTimer): void {
-  timer.unref();
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function jitterReconnectDelayMs(delayMs: number): number {
@@ -135,7 +112,6 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private readonly healthCheckPath: string;
   private readonly healthCheckTimeoutMs: number;
   private readonly metadata?: string;
-  private readonly onStatusChange?: (status: TunnelStatus) => void;
   private readonly readSecret: (secretName: string) => string | null;
   private readonly reconnectInitialBackoffMs: number;
   private readonly reconnectMaxBackoffMs: number;
@@ -143,22 +119,17 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private readonly schemes?: string[];
   private readonly tokenSecretName: string;
   private readonly loadNgrok: () => Promise<NgrokClient>;
+  private readonly statusTracker: TunnelStatusTracker;
   private healthTimer: TunnelTimer | null = null;
   private listener: NgrokListener | null = null;
-  private lastCheckedAt: string | null = null;
-  private lastError: string | null = null;
-  private nextReconnectAt: string | null = null;
   private publicUrl: string | null = null;
-  private reconnectAttempt = 0;
   private reconnectTimer: TunnelTimer | null = null;
-  private state: TunnelState = 'down';
-  private statusVersion = 0;
   private tunnelRunId: string | null = null;
 
   constructor(options: NgrokTunnelProviderOptions = {}) {
     this.addr = options.addr ?? DEFAULT_NGROK_TUNNEL_ADDR;
     this.auditSessionId =
-      options.auditSessionId?.trim() || TUNNEL_AUDIT_SESSION_ID;
+      options.auditSessionId?.trim() || DEFAULT_TUNNEL_AUDIT_SESSION_ID;
     this.domain = options.domain;
     this.fetch =
       options.fetch ?? ((input, init) => globalThis.fetch(input, init));
@@ -173,7 +144,6 @@ export class NgrokTunnelProvider implements TunnelProvider {
       DEFAULT_HEALTH_TIMEOUT_MS,
     );
     this.metadata = options.metadata;
-    this.onStatusChange = options.onStatusChange;
     this.readSecret = options.readSecret ?? readStoredRuntimeSecret;
     this.reconnectInitialBackoffMs = normalizeDurationMs(
       options.reconnectInitialBackoffMs,
@@ -193,6 +163,10 @@ export class NgrokTunnelProvider implements TunnelProvider {
     this.tokenSecretName =
       options.tokenSecretName?.trim() || NGROK_AUTHTOKEN_SECRET;
     this.loadNgrok = options.loadNgrok ?? loadDefaultNgrok;
+    this.statusTracker = new TunnelStatusTracker(
+      () => this.status(),
+      options.onStatusChange,
+    );
   }
 
   async start(): Promise<TunnelStartResult> {
@@ -201,10 +175,12 @@ export class NgrokTunnelProvider implements TunnelProvider {
     }
 
     const startReason =
-      this.state === 'reconnecting' ? 'manual_reconnect' : 'started';
+      this.statusTracker.state === 'reconnecting'
+        ? 'manual_reconnect'
+        : 'started';
     this.clearTimer('healthTimer');
     this.clearTimer('reconnectTimer');
-    this.updateStatus({
+    this.statusTracker.update({
       lastCheckedAt: null,
       lastError: null,
       nextReconnectAt: null,
@@ -297,72 +273,10 @@ export class NgrokTunnelProvider implements TunnelProvider {
   }
 
   status(): TunnelStatus {
-    return {
-      running: Boolean(this.listener && this.publicUrl),
-      public_url: this.publicUrl,
-      state: this.state,
-      last_error: this.lastError,
-      last_checked_at: this.lastCheckedAt,
-      next_reconnect_at: this.nextReconnectAt,
-      reconnect_attempt: this.reconnectAttempt,
-    };
-  }
-
-  private updateStatus(update: TunnelStatusUpdate): void {
-    const previousVersion = this.statusVersion;
-    let changed = false;
-    if ('lastCheckedAt' in update) {
-      const next = update.lastCheckedAt ?? null;
-      if (this.lastCheckedAt !== next) {
-        this.lastCheckedAt = next;
-        changed = true;
-      }
-    }
-    if ('lastError' in update) {
-      const next = update.lastError ?? null;
-      if (this.lastError !== next) {
-        this.lastError = next;
-        changed = true;
-      }
-    }
-    if ('nextReconnectAt' in update) {
-      const next = update.nextReconnectAt ?? null;
-      if (this.nextReconnectAt !== next) {
-        this.nextReconnectAt = next;
-        changed = true;
-      }
-    }
-    if ('reconnectAttempt' in update) {
-      const next = Math.max(0, update.reconnectAttempt ?? 0);
-      if (this.reconnectAttempt !== next) {
-        this.reconnectAttempt = next;
-        changed = true;
-      }
-    }
-    if (update.state && this.state !== update.state) {
-      this.state = update.state;
-      changed = true;
-    }
-
-    if (changed) {
-      this.statusVersion += 1;
-    }
-
-    if (this.statusVersion !== previousVersion) {
-      this.publishStatusChange();
-    }
-  }
-
-  private publishStatusChange(): void {
-    if (!this.onStatusChange) return;
-    try {
-      this.onStatusChange(this.status());
-    } catch (error) {
-      console.warn(
-        '[tunnel] status change handler failed.',
-        errorMessage(error),
-      );
-    }
+    return this.statusTracker.snapshot(
+      Boolean(this.listener && this.publicUrl),
+      this.publicUrl,
+    );
   }
 
   private async markTunnelUp(
@@ -371,11 +285,11 @@ export class NgrokTunnelProvider implements TunnelProvider {
     reason: string,
   ): Promise<void> {
     const wasRunning = Boolean(this.listener && this.publicUrl);
-    const tunnelRunId = this.tunnelRunId ?? makeAuditRunId('tunnel');
+    const tunnelRunId = this.tunnelRunId ?? makeTunnelRunId();
     this.listener = listener;
     this.publicUrl = publicUrl;
     this.tunnelRunId = tunnelRunId;
-    this.updateStatus({
+    this.statusTracker.update({
       lastError: null,
       nextReconnectAt: null,
       reconnectAttempt: 0,
@@ -418,24 +332,13 @@ export class NgrokTunnelProvider implements TunnelProvider {
       runId?: string | null;
     },
   ): Promise<void> {
-    try {
-      await this.recordAuditEvent({
-        sessionId: this.auditSessionId,
-        runId: details.runId ?? makeAuditRunId('tunnel'),
-        event: {
-          type,
-          provider: 'ngrok',
-          reason: details.reason,
-          ...(details.publicUrl ? { public_url: details.publicUrl } : {}),
-          ...(details.error ? { error: details.error } : {}),
-        },
-      });
-    } catch (error) {
-      console.warn(
-        '[tunnel] failed to record tunnel audit event.',
-        errorMessage(error),
-      );
-    }
+    await recordTunnelAudit({
+      auditSessionId: this.auditSessionId,
+      details,
+      provider: 'ngrok',
+      recordAuditEvent: this.recordAuditEvent,
+      type,
+    });
   }
 
   private clearActiveTunnel(update: TunnelStatusUpdate): {
@@ -449,7 +352,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     this.listener = null;
     this.publicUrl = null;
     this.tunnelRunId = null;
-    this.updateStatus(update);
+    this.statusTracker.update(update);
     return { listener, publicUrl, tunnelRunId };
   }
 
@@ -473,13 +376,13 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private async runHealthCheck(): Promise<void> {
     const listener = this.listener;
     const publicUrl = this.publicUrl;
-    if (!listener || !publicUrl || this.state !== 'up') return;
+    if (!listener || !publicUrl || this.statusTracker.state !== 'up') return;
 
     const checkedAt = new Date().toISOString();
     try {
       await this.checkTunnelHealth(publicUrl);
       if (this.listener !== listener || this.publicUrl !== publicUrl) return;
-      this.updateStatus({
+      this.statusTracker.update({
         lastCheckedAt: checkedAt,
         lastError: null,
         reconnectAttempt: 0,
@@ -529,14 +432,14 @@ export class NgrokTunnelProvider implements TunnelProvider {
   }
 
   private scheduleReconnect(message: string): void {
-    const attempt = this.reconnectAttempt + 1;
+    const attempt = this.statusTracker.reconnectAttempt + 1;
     const baseDelayMs = Math.min(
       this.reconnectMaxBackoffMs,
       this.reconnectInitialBackoffMs * 2 ** Math.max(0, attempt - 1),
     );
     const delayMs = jitterReconnectDelayMs(baseDelayMs);
     const nextReconnectAt = new Date(Date.now() + delayMs).toISOString();
-    this.updateStatus({
+    this.statusTracker.update({
       lastError: message,
       nextReconnectAt,
       reconnectAttempt: attempt,
@@ -551,7 +454,11 @@ export class NgrokTunnelProvider implements TunnelProvider {
   }
 
   private async reconnect(): Promise<void> {
-    if (this.state !== 'reconnecting' || this.listener || this.publicUrl)
+    if (
+      this.statusTracker.state !== 'reconnecting' ||
+      this.listener ||
+      this.publicUrl
+    )
       return;
     try {
       const { listener, publicUrl } = await this.openTunnel();
