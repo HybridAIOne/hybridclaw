@@ -1,0 +1,86 @@
+[
+  {
+    "id": "top-customers-revenue",
+    "category": "revenue",
+    "question": "top customers by revenue",
+    "expectedSqlContains": ["customer", "orders", "lineitem", "revenue"],
+    "expectedFirstValue": "Customer#000000101"
+  },
+  {
+    "id": "revenue-by-nation",
+    "category": "revenue",
+    "question": "revenue by nation",
+    "expectedSqlContains": ["nation", "revenue", "GROUP BY"],
+    "expectedFirstValue": "GERMANY"
+  },
+  {
+    "id": "late-shipments",
+    "category": "operations",
+    "question": "late shipments",
+    "expectedSqlContains": ["l_receiptdate", "l_commitdate"],
+    "expectedRowCount": 3
+  },
+  {
+    "id": "open-orders-status",
+    "category": "orders",
+    "question": "open orders by status",
+    "expectedSqlContains": ["orders", "o_orderstatus", "COUNT"],
+    "expectedFirstValue": "O"
+  },
+  {
+    "id": "orders-for-customer",
+    "category": "orders",
+    "question": "orders for Customer#000000101",
+    "expectedSqlContains": ["Customer#000000101", "o_orderdate"],
+    "expectedRowCount": 2
+  },
+  {
+    "id": "discount-by-brand",
+    "category": "pricing",
+    "question": "average discount by part brand",
+    "expectedSqlContains": ["p_brand", "AVG"],
+    "expectedFirstValue": "Brand#11"
+  },
+  {
+    "id": "supplier-revenue",
+    "category": "supplier",
+    "question": "supplier revenue",
+    "expectedSqlContains": ["supplier", "revenue"],
+    "expectedFirstValue": "Supplier#000000201"
+  },
+  {
+    "id": "customer-count-by-segment",
+    "category": "customers",
+    "question": "customer count by market segment",
+    "expectedSqlContains": ["c_mktsegment", "COUNT"],
+    "expectedRowCount": 3
+  },
+  {
+    "id": "parts-by-brand",
+    "category": "parts",
+    "question": "parts by brand",
+    "expectedSqlContains": ["part", "p_brand", "COUNT"],
+    "expectedFirstValue": "Brand#11"
+  },
+  {
+    "id": "daily-order-totals",
+    "category": "orders",
+    "question": "daily order totals",
+    "expectedSqlContains": ["o_orderdate", "SUM"],
+    "expectedRowCount": 4
+  },
+  {
+    "id": "revenue-in-march",
+    "category": "revenue",
+    "question": "revenue in March 1995",
+    "expectedSqlContains": ["1995-03-01", "1995-04-01", "revenue"],
+    "expectedFirstValue": 2060.0
+  },
+  {
+    "id": "largest-orders",
+    "category": "orders",
+    "question": "largest orders",
+    "expectedSqlContains": ["o_totalprice", "ORDER BY"],
+    "expectedFirstValue": 401
+  }
+]

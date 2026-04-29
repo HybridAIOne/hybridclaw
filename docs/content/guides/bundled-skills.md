@@ -6,11 +6,11 @@ sidebar_position: 4
 
 # Bundled Skills
 
-HybridClaw ships with 37 bundled skills. A few notable categories:
+HybridClaw ships with 38 bundled skills. A few notable categories:
 
 - office workflows: `pdf`, `xlsx`, `docx`, `pptx`, `office-workflows`
 - planning and engineering: `project-manager`, `feature-planning`,
-  `code-review`, `code-simplification`, `gh-issues`
+  `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
 - visual explainers and animation: `manim-video`, `excalidraw`
 - platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`,
   `wordpress`, `gog`, `google-workspace`, `discord`
