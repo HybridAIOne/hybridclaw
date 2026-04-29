@@ -376,6 +376,35 @@ function makeResponse() {
   return response;
 }
 
+function getSetCookieHeader(res: ReturnType<typeof makeResponse>): string {
+  const value = res.getHeader('Set-Cookie');
+  if (Array.isArray(value)) return value.join('; ');
+  return String(value || '');
+}
+
+function getCookiePair(setCookie: string, cookieName: string): string {
+  return (
+    setCookie
+      .split(/,\s*|\s*;\s*/)
+      .find((segment) => segment.startsWith(`${cookieName}=`)) || ''
+  );
+}
+
+function issueLocalWebSessionCookie(
+  state: Awaited<ReturnType<typeof importFreshHealth>>,
+): string {
+  const req = makeRequest({
+    url: '/chat',
+    headers: { host: 'localhost:9090' },
+    noAuth: true,
+  });
+  const res = makeResponse();
+
+  state.handler(req as never, res as never);
+
+  return getCookiePair(getSetCookieHeader(res), 'hybridclaw_local_session');
+}
+
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
@@ -398,6 +427,7 @@ async function importFreshHealth(options?: {
   dataDir?: string;
   webApiToken?: string;
   gatewayApiToken?: string;
+  healthHost?: string;
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
@@ -1459,7 +1489,7 @@ async function importFreshHealth(options?: {
     DATA_DIR: dataDir,
     GATEWAY_API_TOKEN:
       options?.gatewayApiToken ?? DEFAULT_TEST_GATEWAY_API_TOKEN,
-    HEALTH_HOST: '127.0.0.1',
+    HEALTH_HOST: options?.healthHost || '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
     HYBRIDAI_MODEL: 'gpt-5',
@@ -1816,8 +1846,172 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('voice-webhook');
   });
 
-  test('rejects unauthenticated API requests even from loopback addresses', async () => {
+  test('issues a local web-session cookie for loopback console pages when WEB_API_TOKEN is unset', async () => {
     const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(getSetCookieHeader(res)).toContain('hybridclaw_local_session=');
+    expect(getSetCookieHeader(res)).toContain('HttpOnly');
+    expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
+  });
+
+  test('does not issue a local web-session cookie for non-loopback request hosts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'example.com' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(getSetCookieHeader(res)).toBe('');
+  });
+
+  test('does not issue a local web-session cookie with forwarding headers', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090', 'x-forwarded-for': '203.0.113.10' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(getSetCookieHeader(res)).toBe('');
+  });
+
+  test('rejects unauthenticated console pages when the gateway bind host is not loopback', async () => {
+    const state = await importFreshHealth({ healthHost: '0.0.0.0' });
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toContain('Configure WEB_API_TOKEN');
+    expect(getSetCookieHeader(res)).toBe('');
+  });
+
+  test('rejects API requests from loopback without bearer auth or local web-session cookie', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/status',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('allows API requests with a local web-session cookie when WEB_API_TOKEN is unset', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { cookie, host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(
+      expect.objectContaining({ status: 'ok' }),
+    );
+  });
+
+  test('rejects local web-session API auth with forwarding headers', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/status',
+      headers: {
+        cookie,
+        host: 'localhost:9090',
+        'x-forwarded-for': '203.0.113.10',
+      },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects unsafe local web-session API requests without same-origin headers', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: { cookie, host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('allows unsafe local web-session API requests with a matching origin', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie,
+        host: 'localhost:9090',
+        origin: 'http://localhost:9090',
+      },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+  });
+
+  test('requires API auth from loopback when WEB_API_TOKEN is configured', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
     const req = makeRequest({
       url: '/api/status',
       noAuth: true,
@@ -1852,11 +2046,12 @@ describe('gateway HTTP server', () => {
     });
   });
 
-  test('rejects an empty bearer token when WEB_API_TOKEN is unset', async () => {
+  test('allows an empty bearer token with a local web-session cookie when WEB_API_TOKEN is unset', async () => {
     const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
     const req = makeRequest({
       url: '/api/status',
-      headers: { authorization: 'Bearer ' },
+      headers: { authorization: 'Bearer ', cookie, host: 'localhost:9090' },
       noAuth: true,
     });
     const res = makeResponse();
@@ -1864,10 +2059,12 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await waitForResponse(res, (next) => next.writableEnded);
 
-    expect(res.statusCode).toBe(401);
-    expect(JSON.parse(res.body)).toEqual({
-      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
-    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+      }),
+    );
   });
 
   test('rejects unauthorized OpenAI-compatible API requests from non-loopback addresses', async () => {
@@ -5200,6 +5397,71 @@ describe('gateway HTTP server', () => {
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
         remoteAddress: '10.0.0.5',
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '401 Unauthorized',
+    );
+  });
+
+  test('allows terminal websocket upgrades with local web-session cookie and matching origin', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie,
+          host: 'localhost:9090',
+          origin: 'http://localhost:9090',
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        hasRequestAuth: true,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
+  test('rejects terminal websocket upgrades with local web-session cookie but no origin', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie,
+          host: 'localhost:9090',
+        },
         noAuth: true,
       }) as never,
       socket as never,
