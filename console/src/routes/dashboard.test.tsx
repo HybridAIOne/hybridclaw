@@ -193,7 +193,7 @@ describe('DashboardPage', () => {
         }),
       ),
     );
-    reconnectTunnelMock.mockRejectedValue(new Error(message));
+    reconnectTunnelMock.mockRejectedValue(new Error(` ${message} `));
 
     renderDashboardPage();
 
