@@ -1,18 +1,20 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Config } from '@ngrok/ngrok';
+import {
+  recordAuditEvent as defaultRecordAuditEvent,
+  type RecordAuditEventInput,
+} from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
-import type {
-  TunnelProvider,
-  TunnelStartResult,
-  TunnelState,
-  TunnelStatus,
-} from './tunnel-provider.js';
 import {
   DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS as DEFAULT_HEALTH_INTERVAL_MS,
   DEFAULT_TUNNEL_HEALTH_CHECK_TIMEOUT_MS as DEFAULT_HEALTH_TIMEOUT_MS,
   DEFAULT_TUNNEL_RECONNECT_INITIAL_BACKOFF_MS as DEFAULT_RECONNECT_INITIAL_BACKOFF_MS,
   DEFAULT_TUNNEL_RECONNECT_MAX_BACKOFF_MS as DEFAULT_RECONNECT_MAX_BACKOFF_MS,
+  type TunnelProvider,
+  type TunnelStartResult,
+  type TunnelState,
+  type TunnelStatus,
 } from './tunnel-provider.js';
 
 export const NGROK_AUTHTOKEN_SECRET = 'NGROK_AUTHTOKEN';
@@ -34,15 +36,9 @@ type TunnelHealthFetch = (
   input: string | URL,
   init?: { method?: string; signal?: AbortSignal },
 ) => Promise<Pick<Response, 'ok' | 'status'>>;
-interface TunnelAuditRecord {
-  sessionId: string;
-  runId: string;
-  event: {
-    type: string;
-    [key: string]: unknown;
-  };
-}
-type TunnelAuditRecorder = (input: TunnelAuditRecord) => void | Promise<void>;
+type TunnelAuditRecorder = (
+  input: RecordAuditEventInput,
+) => void | Promise<void>;
 
 export interface NgrokTunnelProviderOptions {
   addr?: Config['addr'];
@@ -109,14 +105,7 @@ function normalizeHealthCheckPath(value: unknown): string {
 }
 
 function unrefTimer(timer: TunnelTimer): void {
-  if (
-    typeof timer === 'object' &&
-    timer &&
-    'unref' in timer &&
-    typeof timer.unref === 'function'
-  ) {
-    timer.unref();
-  }
+  timer.unref();
 }
 
 function errorMessage(error: unknown): string {
@@ -124,14 +113,7 @@ function errorMessage(error: unknown): string {
 }
 
 function makeTunnelAuditRunId(): string {
-  return `tunnel_${Date.now()}_${randomUUID().slice(0, 8)}`;
-}
-
-async function recordDefaultTunnelAudit(
-  input: TunnelAuditRecord,
-): Promise<void> {
-  const { recordAuditEvent } = await import('../audit/audit-events.js');
-  recordAuditEvent(input);
+  return `tunnel_${randomUUID()}`;
 }
 
 export class NgrokTunnelProvider implements TunnelProvider {
@@ -161,6 +143,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private reconnectAttempt = 0;
   private reconnectTimer: TunnelTimer | null = null;
   private state: TunnelState = 'down';
+  private statusVersion = 0;
 
   constructor(options: NgrokTunnelProviderOptions = {}) {
     this.addr = options.addr ?? DEFAULT_NGROK_TUNNEL_ADDR;
@@ -193,7 +176,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     this.recordAuditEvent =
       options.recordAuditEvent === false
         ? null
-        : (options.recordAuditEvent ?? recordDefaultTunnelAudit);
+        : (options.recordAuditEvent ?? defaultRecordAuditEvent);
     this.schemes = options.schemes;
     this.tokenSecretName =
       options.tokenSecretName?.trim() || NGROK_AUTHTOKEN_SECRET;
@@ -318,25 +301,46 @@ export class NgrokTunnelProvider implements TunnelProvider {
     reconnectAttempt?: number;
     state?: TunnelState;
   }): void {
-    const before = JSON.stringify(this.status());
+    const previousVersion = this.statusVersion;
+    let changed = false;
     if ('lastCheckedAt' in update) {
-      this.lastCheckedAt = update.lastCheckedAt ?? null;
+      const next = update.lastCheckedAt ?? null;
+      if (this.lastCheckedAt !== next) {
+        this.lastCheckedAt = next;
+        changed = true;
+      }
     }
     if ('lastError' in update) {
-      this.lastError = update.lastError ?? null;
+      const next = update.lastError ?? null;
+      if (this.lastError !== next) {
+        this.lastError = next;
+        changed = true;
+      }
     }
     if ('nextReconnectAt' in update) {
-      this.nextReconnectAt = update.nextReconnectAt ?? null;
+      const next = update.nextReconnectAt ?? null;
+      if (this.nextReconnectAt !== next) {
+        this.nextReconnectAt = next;
+        changed = true;
+      }
     }
     if ('reconnectAttempt' in update) {
-      this.reconnectAttempt = Math.max(0, update.reconnectAttempt ?? 0);
+      const next = Math.max(0, update.reconnectAttempt ?? 0);
+      if (this.reconnectAttempt !== next) {
+        this.reconnectAttempt = next;
+        changed = true;
+      }
     }
-    if (update.state) {
+    if (update.state && this.state !== update.state) {
       this.state = update.state;
+      changed = true;
     }
 
-    const after = JSON.stringify(this.status());
-    if (before !== after) {
+    if (changed) {
+      this.statusVersion += 1;
+    }
+
+    if (this.statusVersion !== previousVersion) {
       this.publishStatusChange();
     }
   }
