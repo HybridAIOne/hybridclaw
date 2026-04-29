@@ -233,6 +233,14 @@ test('agent owner, role, and CV persist through runtime config and registry', as
         name: 'Main Agent',
       },
       {
+        id: 'analyst',
+        reportsTo: 'main',
+      },
+      {
+        id: 'writer',
+        reportsTo: 'main',
+      },
+      {
         id: 'charly',
         name: 'Charly',
         owner: '  benedikt  ',
@@ -277,6 +285,14 @@ test('agent owner, role, and CV persist through runtime config and registry', as
       {
         id: 'main',
         name: 'Main Agent',
+      },
+      {
+        id: 'analyst',
+        reportsTo: 'main',
+      },
+      {
+        id: 'writer',
+        reportsTo: 'main',
       },
       {
         id: 'charly',

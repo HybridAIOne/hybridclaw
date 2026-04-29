@@ -107,7 +107,7 @@ test('validateAgentOrgChart accepts tree-shaped reporting lines', () => {
   ).not.toThrow();
 });
 
-test('validateAgentOrgChart rejects reports_to cycles and dangling parents', () => {
+test('validateAgentOrgChart rejects reports_to cycles and dangling references', () => {
   expect(() =>
     validateAgentOrgChart([
       { id: 'alpha', reportsTo: 'beta' },
@@ -118,4 +118,12 @@ test('validateAgentOrgChart rejects reports_to cycles and dangling parents', () 
   expect(() =>
     validateAgentOrgChart([{ id: 'alpha', reportsTo: 'missing' }]),
   ).toThrow('Agent "alpha" reports_to references unknown agent "missing".');
+
+  expect(() =>
+    validateAgentOrgChart([{ id: 'alpha', delegatesTo: ['missing'] }]),
+  ).toThrow('Agent "alpha" delegates_to references unknown agent "missing".');
+
+  expect(() =>
+    validateAgentOrgChart([{ id: 'alpha', peers: ['missing'] }]),
+  ).toThrow('Agent "alpha" peers references unknown agent "missing".');
 });

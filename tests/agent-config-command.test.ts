@@ -38,8 +38,8 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
       enableRag: true,
       role: 'Support Lead',
       reports_to: 'main',
-      delegates_to: ['triage', 'triage'],
-      peers: ['research'],
+      delegates_to: ['main', 'main'],
+      peers: ['main'],
       skills: ['memory', 'memory', 'docs'],
       markdown: {
         'IDENTITY.md': '# Felix\n',
@@ -58,8 +58,8 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
     enableRag: true,
     role: 'Support Lead',
     reportsTo: 'main',
-    delegatesTo: ['triage'],
-    peers: ['research'],
+    delegatesTo: ['main'],
+    peers: ['main'],
     skills: ['memory', 'docs'],
   });
   expect(

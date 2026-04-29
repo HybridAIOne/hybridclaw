@@ -337,7 +337,7 @@ function rebuildFallbackRegistry(): void {
   }
 }
 
-function rebuildRegistryFromDatabase(): void {
+function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   registry = new Map<string, AgentConfig>();
   for (const agent of dbListAgents()) {
     registry.set(agent.id, agent);
@@ -348,7 +348,9 @@ function rebuildRegistryFromDatabase(): void {
       name: 'Main Agent',
     });
   }
-  validateAgentOrgChart(Array.from(registry.values()));
+  if (options?.validate !== false) {
+    validateAgentOrgChart(Array.from(registry.values()));
+  }
 }
 
 function syncConfiguredAgentsToDatabase(): void {
@@ -565,7 +567,7 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   }
   validateAgentOrgChart(Array.from(nextAgentsById.values()));
   dbUpsertAgent(normalized);
-  rebuildRegistryFromDatabase();
+  rebuildRegistryFromDatabase({ validate: false });
   registryInitialized = true;
   registryDbBacked = true;
   return resolveAgentConfig(normalized.id);

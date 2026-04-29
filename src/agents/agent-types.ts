@@ -156,6 +156,27 @@ export function validateAgentOrgChart(agents: AgentConfig[]): void {
     reportsToByAgent.set(agent.id, reportsTo);
   }
 
+  for (const agent of agents) {
+    for (const delegateId of agent.delegatesTo ?? []) {
+      const normalizedDelegateId = normalizeTrimmedString(delegateId);
+      if (!normalizedDelegateId) continue;
+      if (!agentIds.has(normalizedDelegateId)) {
+        throw new Error(
+          `Agent "${agent.id}" delegates_to references unknown agent "${normalizedDelegateId}".`,
+        );
+      }
+    }
+    for (const peerId of agent.peers ?? []) {
+      const normalizedPeerId = normalizeTrimmedString(peerId);
+      if (!normalizedPeerId) continue;
+      if (!agentIds.has(normalizedPeerId)) {
+        throw new Error(
+          `Agent "${agent.id}" peers references unknown agent "${normalizedPeerId}".`,
+        );
+      }
+    }
+  }
+
   const visited = new Set<string>();
   const visiting = new Set<string>();
 
