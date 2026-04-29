@@ -2,16 +2,30 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { expect, test, vi } from 'vitest';
-import { judgeTrace } from '../src/evals/trace-judge.js';
-import { getSessionUsageTotals, initDatabase } from '../src/memory/db.js';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+
+const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
 
 function createTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-judge-'));
   return path.join(dir, 'test.db');
 }
 
+beforeEach(() => {
+  process.env.HYBRIDCLAW_DATA_DIR = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-judge-home-'),
+  );
+  vi.resetModules();
+});
+
+afterEach(() => {
+  if (ORIGINAL_DATA_DIR === undefined) delete process.env.HYBRIDCLAW_DATA_DIR;
+  else process.env.HYBRIDCLAW_DATA_DIR = ORIGINAL_DATA_DIR;
+  vi.restoreAllMocks();
+});
+
 test('judgeTrace falls back when the cheapest model call fails', async () => {
+  const { judgeTrace } = await import('../src/evals/trace-judge.js');
   const calls: string[] = [];
   const fetchMock = vi.fn(async () => {
     throw new Error('network refresh should not run by default');
@@ -68,6 +82,7 @@ test('judgeTrace falls back when the cheapest model call fails', async () => {
 });
 
 test('judgeTrace rejects oversized judge inputs before model calls', async () => {
+  const { judgeTrace } = await import('../src/evals/trace-judge.js');
   const modelCaller = vi.fn();
 
   await expect(
@@ -83,6 +98,12 @@ test('judgeTrace rejects oversized judge inputs before model calls', async () =>
 });
 
 test('judgeTrace records judge usage cost into UsageTotals', async () => {
+  const { judgeTrace } = await import('../src/evals/trace-judge.js');
+  const {
+    getRecentStructuredAuditForSession,
+    getSessionUsageTotals,
+    initDatabase,
+  } = await import('../src/memory/db.js');
   const dbPath = createTempDbPath();
   initDatabase({ quiet: true, dbPath });
 
@@ -118,4 +139,15 @@ test('judgeTrace records judge usage cost into UsageTotals', async () => {
     cost_per_call_usd: 0.0012,
     call_count: 1,
   });
+  const batchEvent = getRecentStructuredAuditForSession(
+    'judge-session',
+    20,
+  ).find((event) => event.event_type === 'usage.batch_flushed');
+  expect(batchEvent).toBeDefined();
+  const payload = JSON.parse(String(batchEvent?.payload ?? '{}')) as {
+    batchHash?: string;
+    eventCount?: number;
+  };
+  expect(payload.eventCount).toBe(1);
+  expect(payload.batchHash).toMatch(/^[0-9a-f]{64}$/);
 });

@@ -128,8 +128,9 @@ import {
 
 let db: Database.Database;
 let databaseInitialized = false;
+let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 26;
+export const DATABASE_SCHEMA_VERSION = 27;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -945,12 +946,15 @@ function migrateV4(database: Database.Database): void {
       output_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0.0,
-      tool_calls INTEGER NOT NULL DEFAULT 0
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      batch_id TEXT,
+      batch_hash TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_usage_events_agent_time ON usage_events(agent_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_time ON usage_events(timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_model_time ON usage_events(model, timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_session_time ON usage_events(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
   `);
 
   recordMigration(
@@ -2102,6 +2106,41 @@ function migrateV26(
   recordMigration(database, 26, 'Persist agent org-chart relationships');
 }
 
+function migrateV27(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'batch_id',
+    ddl: 'batch_id TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'batch_hash',
+    ddl: 'batch_hash TEXT',
+    quiet,
+  });
+  if (
+    tableExists(database, 'usage_events') &&
+    columnExists(database, 'usage_events', 'batch_id')
+  ) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
+    `);
+  }
+
+  recordMigration(
+    database,
+    27,
+    'Persist token usage batch identifiers and hashes',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2159,6 +2198,7 @@ function runMigrations(
   }
   if (currentVersion < 25) migrateV25(database, opts);
   if (currentVersion < 26) migrateV26(database, opts);
+  if (currentVersion < 27) migrateV27(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2174,6 +2214,7 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   const dbPath = path.resolve(opts?.dbPath || DB_PATH);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new Database(dbPath);
+  usageEventBatchInsertStatement = null;
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
@@ -3111,14 +3152,14 @@ function usageWindowWhereClause(window: UsageWindow): string | null {
   return null;
 }
 
-function normalizeUsageNumber(value: unknown): number {
+export function normalizeUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value));
   }
   return 0;
 }
 
-function normalizeUsageCost(value: unknown): number {
+export function normalizeUsageCost(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, value);
   }
@@ -3141,7 +3182,7 @@ function applyUsageFilters(params: {
   if (windowClause) params.whereClauses.push(windowClause);
 }
 
-export function recordUsageEvent(params: {
+export interface RecordUsageEventEntry {
   sessionId: string;
   agentId: string;
   model: string;
@@ -3151,39 +3192,183 @@ export function recordUsageEvent(params: {
   toolCalls?: number;
   costUsd?: number;
   timestamp?: string;
-}): void {
-  const sessionId = resolveSessionIdCompat(params.sessionId.trim());
-  const agentId = params.agentId.trim();
-  const model = params.model.trim() || 'unknown';
-  if (!sessionId || !agentId) return;
-  const inputTokens = normalizeUsageNumber(params.inputTokens);
-  const outputTokens = normalizeUsageNumber(params.outputTokens);
+}
+
+export interface RecordUsageEventBatchEntry extends RecordUsageEventEntry {
+  id?: string;
+  batchId?: string;
+  batchHash?: string;
+}
+
+type NormalizedUsageEventRow = {
+  id: string;
+  sessionId: string;
+  agentId: string;
+  timestamp: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  toolCalls: number;
+  batchId: string | null;
+  batchHash: string | null;
+};
+
+function normalizeUsageEntry(
+  entry: RecordUsageEventBatchEntry,
+): NormalizedUsageEventRow | null {
+  const sessionId = resolveSessionIdCompat(entry.sessionId.trim());
+  const agentId = entry.agentId.trim();
+  if (!sessionId || !agentId) return null;
+  const inputTokens = normalizeUsageNumber(entry.inputTokens);
+  const outputTokens = normalizeUsageNumber(entry.outputTokens);
   const totalTokens = normalizeUsageNumber(
-    params.totalTokens ?? inputTokens + outputTokens,
+    entry.totalTokens ?? inputTokens + outputTokens,
   );
-  const toolCalls = normalizeUsageNumber(params.toolCalls);
-  const costUsd = normalizeUsageCost(params.costUsd);
-  const timestamp =
-    typeof params.timestamp === 'string' && params.timestamp.trim()
-      ? params.timestamp.trim()
-      : new Date().toISOString();
+  return {
+    id:
+      typeof entry.id === 'string' && entry.id.trim()
+        ? entry.id.trim()
+        : randomUUID(),
+    sessionId,
+    agentId,
+    timestamp:
+      typeof entry.timestamp === 'string' && entry.timestamp.trim()
+        ? entry.timestamp.trim()
+        : new Date().toISOString(),
+    model: entry.model.trim() || 'unknown',
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: normalizeUsageCost(entry.costUsd),
+    toolCalls: normalizeUsageNumber(entry.toolCalls),
+    batchId:
+      typeof entry.batchId === 'string' && entry.batchId.trim()
+        ? entry.batchId.trim()
+        : null,
+    batchHash:
+      typeof entry.batchHash === 'string' && entry.batchHash.trim()
+        ? entry.batchHash.trim()
+        : null,
+  };
+}
+
+function getUsageEventBatchInsertStatement(): Database.Statement {
+  if (!usageEventBatchInsertStatement) {
+    usageEventBatchInsertStatement = db.prepare(
+      `INSERT INTO usage_events
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+  }
+  return usageEventBatchInsertStatement;
+}
+
+export function recordUsageEvent(params: RecordUsageEventEntry): void {
+  const row = normalizeUsageEntry(params);
+  if (!row) return;
 
   db.prepare(
     `INSERT INTO usage_events
       (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    randomUUID(),
-    sessionId,
-    agentId,
-    timestamp,
-    model,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    costUsd,
-    toolCalls,
+    row.id,
+    row.sessionId,
+    row.agentId,
+    row.timestamp,
+    row.model,
+    row.inputTokens,
+    row.outputTokens,
+    row.totalTokens,
+    row.costUsd,
+    row.toolCalls,
   );
+}
+
+export interface UsageBatchHashRecord {
+  sessionId: string;
+  agentId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  toolCalls: number;
+  costUsd: number;
+  timestamp: string;
+  batchId: string;
+  batchHash: string | null;
+}
+
+/**
+ * Bulk-insert usage events inside a single SQLite transaction.
+ *
+ * Used by the asynchronous token-usage buffer to amortize the write cost
+ * of high-frequency model invocations. Each row is normalized identically
+ * to {@link recordUsageEvent}; rows with missing session/agent ids are
+ * silently dropped to preserve drop-on-the-floor semantics.
+ */
+export function recordUsageEventBatch(
+  entries: RecordUsageEventBatchEntry[],
+): void {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+
+  const normalized: NormalizedUsageEventRow[] = [];
+  for (const entry of entries) {
+    const row = normalizeUsageEntry(entry);
+    if (row) normalized.push(row);
+  }
+  if (normalized.length === 0) return;
+
+  const insert = getUsageEventBatchInsertStatement();
+  const transaction = db.transaction((rows: NormalizedUsageEventRow[]) => {
+    for (const row of rows) {
+      insert.run(
+        row.id,
+        row.sessionId,
+        row.agentId,
+        row.timestamp,
+        row.model,
+        row.inputTokens,
+        row.outputTokens,
+        row.totalTokens,
+        row.costUsd,
+        row.toolCalls,
+        row.batchId,
+        row.batchHash,
+      );
+    }
+  });
+  transaction(normalized);
+}
+
+export function listUsageEventsByBatchId(
+  batchId: string,
+): UsageBatchHashRecord[] {
+  ensureDatabaseReady();
+  const normalizedBatchId = batchId.trim();
+  if (!normalizedBatchId) return [];
+  const rows = db
+    .prepare(
+      `SELECT
+         session_id AS sessionId,
+         agent_id AS agentId,
+         model,
+         input_tokens AS inputTokens,
+         output_tokens AS outputTokens,
+         total_tokens AS totalTokens,
+         tool_calls AS toolCalls,
+         cost_usd AS costUsd,
+         timestamp,
+         batch_id AS batchId,
+         batch_hash AS batchHash
+       FROM usage_events
+       WHERE batch_id = ?
+       ORDER BY id ASC`,
+    )
+    .all(normalizedBatchId) as UsageBatchHashRecord[];
+  return rows;
 }
 
 function serializeRequestLogJson(value: unknown): string | null {

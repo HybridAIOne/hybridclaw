@@ -22,8 +22,7 @@ export function makeAuditRunId(prefix = 'run'): string {
 
 export function recordAuditEvent(input: RecordAuditEventInput): void {
   try {
-    const record = appendAuditEvent(input);
-    logStructuredAuditEvent(record);
+    recordAuditEventStrict(input);
   } catch (err) {
     logger.warn(
       {
@@ -35,6 +34,11 @@ export function recordAuditEvent(input: RecordAuditEventInput): void {
       'Failed to persist structured audit event',
     );
   }
+}
+
+export function recordAuditEventStrict(input: RecordAuditEventInput): void {
+  const record = appendAuditEvent(input);
+  logStructuredAuditEvent(record);
 }
 
 function summarizeToolResult(text: string): string {
