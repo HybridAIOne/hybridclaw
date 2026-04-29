@@ -784,6 +784,7 @@ export interface RuntimeConfig {
     eval_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -1055,6 +1056,12 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
+    cv: {
+      retentionDays: 90,
+      renderThrottleMs: 14_400_000,
+      batchDebounceMs: 30_000,
+      narrationDailyBudgetUsd: 0.005,
+    },
     trajectoryCapture: {
       enabledAgentIds: [],
       storeDir: '',
@@ -1414,6 +1421,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     flush_memories: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    cv_narration: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -4475,6 +4487,9 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawAdaptiveSkillsCv = isRecord(rawAdaptiveSkills.cv)
+    ? rawAdaptiveSkills.cv
+    : {};
   const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
     ? rawAdaptiveSkills.trajectoryCapture
     : {};
@@ -4536,6 +4551,9 @@ function normalizeRuntimeConfig(
     rawAuxiliaryModels.flush_memories,
   )
     ? rawAuxiliaryModels.flush_memories
+    : {};
+  const rawCvNarrationAuxiliaryModel = isRecord(rawAuxiliaryModels.cv_narration)
+    ? rawAuxiliaryModels.cv_narration
     : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
@@ -4871,6 +4889,28 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.observationEnabled,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
+      cv: {
+        retentionDays: normalizeInteger(
+          rawAdaptiveSkillsCv.retentionDays,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.retentionDays,
+          { min: 0 },
+        ),
+        renderThrottleMs: normalizeInteger(
+          rawAdaptiveSkillsCv.renderThrottleMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.renderThrottleMs,
+          { min: 0 },
+        ),
+        batchDebounceMs: normalizeInteger(
+          rawAdaptiveSkillsCv.batchDebounceMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.batchDebounceMs,
+          { min: 0 },
+        ),
+        narrationDailyBudgetUsd: normalizeNumber(
+          rawAdaptiveSkillsCv.narrationDailyBudgetUsd,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.narrationDailyBudgetUsd,
+          { min: 0 },
+        ),
+      },
       trajectoryCapture: {
         enabledAgentIds: normalizeStringArray(
           rawTrajectoryCapture.enabledAgentIds,
@@ -5456,6 +5496,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      cv_narration: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawCvNarrationAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.provider,
+        ),
+        model: normalizeString(
+          rawCvNarrationAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawCvNarrationAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },

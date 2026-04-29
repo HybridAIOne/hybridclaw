@@ -58,6 +58,7 @@ export interface SkillRunEvent {
   agent_id: string | null;
   session_id: string;
   run_id: string;
+  created_at: string;
   input: SkillRunBoundedPayload | null;
   output: SkillRunBoundedPayload | null;
   input_full: SkillRunFullPayload | null;
