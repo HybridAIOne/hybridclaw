@@ -248,6 +248,7 @@ import {
   formatModelCountSuffix,
   formatModelForDisplay,
   HYBRIDAI_MODEL_PREFIX,
+  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
@@ -4980,26 +4981,22 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
   };
 }
 
+function resolveKnownNonHybridProviderKey(
+  prefix: string,
+): GatewayModelProviderKey {
+  const normalized = prefix.replace(/\/+$/g, '');
+  if (normalized === 'openai-codex') return 'codex';
+  return normalized as GatewayModelProviderKey;
+}
+
 const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
   [HYBRIDAI_MODEL_PREFIX, 'hybridai'],
-  ['openai-codex/', 'codex'],
-  ['anthropic/', 'anthropic'],
-  ['openrouter/', 'openrouter'],
-  ['mistral/', 'mistral'],
-  ['huggingface/', 'huggingface'],
-  ['gemini/', 'gemini'],
-  ['deepseek/', 'deepseek'],
-  ['xai/', 'xai'],
-  ['zai/', 'zai'],
-  ['kimi/', 'kimi'],
-  ['minimax/', 'minimax'],
-  ['dashscope/', 'dashscope'],
-  ['xiaomi/', 'xiaomi'],
-  ['kilo/', 'kilo'],
-  ['ollama/', 'ollama'],
-  ['lmstudio/', 'lmstudio'],
-  ['llamacpp/', 'llamacpp'],
-  ['vllm/', 'vllm'],
+  ...NON_HYBRID_PROVIDER_PREFIXES.map(
+    (prefix): [string, GatewayModelProviderKey] => [
+      prefix,
+      resolveKnownNonHybridProviderKey(prefix),
+    ],
+  ),
 ];
 
 // Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
