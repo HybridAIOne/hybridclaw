@@ -647,12 +647,6 @@ function isRuntimeMSTeamsChannelConfig(
   return true;
 }
 
-function isLoopbackAddress(address: string | undefined): boolean {
-  if (!address) return false;
-  const normalized = address.replace(/^::ffff:/, '');
-  return normalized === '127.0.0.1' || normalized === '::1';
-}
-
 function hasQueryToken(url: URL): boolean {
   const token = (url.searchParams.get('token') || '').trim();
   if (!token) return false;
@@ -688,13 +682,6 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   }
   if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
     return 'gateway-token';
-  }
-
-  const normalizedAddress = String(req.socket.remoteAddress || '')
-    .replace(/^::ffff:/, '')
-    .trim();
-  if (isLoopbackAddress(req.socket.remoteAddress)) {
-    return `loopback:${normalizedAddress || 'unknown'}`;
   }
   return 'authenticated';
 }
