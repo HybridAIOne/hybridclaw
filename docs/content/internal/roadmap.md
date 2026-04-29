@@ -15,20 +15,20 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 
 ## Status snapshot — 2026-04-29
 
-**Foundations:** 5 of 11 fully done (F1–F5 ✅) · **F6 now 3/5** (F6.1 ✅, F6.2 ✅, **F6.3 ✅ tunnel health/reconnect via PR #650**) · **F8 now 3/5** (F8.1 ✅, F8.2 ✅, **F8.3 ✅ escalation routing via PR #641**) · F7, F9, F10 not started · F11 has PR #656 in flight on F11.1 trace-judge interface.
+**Foundations:** 5 of 11 fully done (F1–F5 ✅) · **F6 now 4/5** (F6.1 ✅, F6.2 ✅, F6.3 ✅, **F6.4 ✅ admin surface via PR #662**) · **F8 now 3/5** (F8.1 ✅, F8.2 ✅, F8.3 ✅) · **F10 now 1/4** (**F10.1 ✅ org-chart schema via PR #665**) · **F11 now 1/4** (**F11.1 ✅ judge interface + dispatch via PR #656**) · F7, F9 not started.
 
-**P0 features:** R3 fully done · **R21 now 2/10** (R21.1 framework ✅ + **R21.2 Salesforce ✅ via PR #642**) · R1 1/5 (R1.1 ✅) · R5 1/6 (R5.1 ✅) · R2, R4, R6 not started.
+**P0 features:** R3 fully done · **R21 now 2/10** (R21.1 framework ✅ + R21.2 Salesforce ✅) · R1 1/5 (R1.1 ✅) · R5 1/6 (R5.1 ✅) · R2, R4, R6 not started.
 
 **Cross-cutting:** A2 + A3 done (2 of 5) · A1, A4, A5 not started.
 
-**P1/P2:** **R10 now 2/7** (R10.1 trajectory capture ✅ + R10.2 store schema + retention ✅) · R10.3 PII scrub has PR #655 in flight · R8 brand voice (PR #408) + R9 peer-delegation (PR #409) + R23 backup CLI (PR #428) + **R27 async usage buffer (PR #467)** + **R28 provider fallback chain (PR #413)** also have PRs in flight (~5 PRs queued for merge).
+**P1/P2:** **R10 now 3/7** (R10.1 trajectory capture ✅ + R10.2 store schema + retention ✅ + **R10.3 PII scrub ✅ via PR #655**) · R8 brand voice (PR #408) + R9 peer-delegation (PR #409) + R23 backup CLI (PR #428) + R27 async usage buffer (PR #467) + R28 provider fallback chain (PR #413) have PRs in flight (~5 PRs queued for merge).
 
 **EU positioning bundle filed:**
 - *Connectivity:* F6.6 Tailscale · F6.7 Cloudflare · R18.7 SIP outbound · R24 SMS channel · **R26 Fax gateway** (new — DACH B2B / Steuerberater workflows)
 - *Deployment:* R25 EU deployment recipes (Hetzner / IONOS / Open Telekom Cloud)
 - *Skills:* R21.7 Hetzner DevOps · R21.8 SAP Analytics Cloud · R21.9 DATEV · R21.10 Lexware Office
 
-**Total closed roadmap issues:** **29 of ~152 (≈19%)** — up from 24 at last update (5 new closures: F6.3, F8.3, R10.1, R10.2, R21.2). Two more PRs about to merge (R10.3 #655, F11.1 #656) will push closure to 31/152. **Foundation/feature mix shifting:** as F6/F8/F11/R21 chains advance, the next critical-path picks are F4-derived skill features (R8 brand-voice, R7 shared memory) and operator-surface work (F6.4 admin, F9 always-on).
+**Total closed roadmap issues:** **33 of ~152 (≈22%)** — up from 29 at last update (4 new closures: R10.3 #655, F11.1 #656, **F6.4 #662**, **F10.1 #665**). **Foundation/feature mix shifting:** with F6 nearly complete and F10 + F11 chains opened up, the next critical-path picks are **F9 always-on runtime** (Principle III is still aspirational without it), **F10.2–F10.4 team-structure children** (now unblocked), and **F11.2 trace prep** (gates R6 leak / R8 brand voice / R10 trajectory rating).
 
 ## Status legend
 
@@ -46,7 +46,7 @@ The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Nu
 | 7 | **Shared enterprise memory** | RAG over team docs / CRM / wiki, available in self-hosted HC. Pluggable vector store, per-agent source scoping, retrieval-quality eval suite. *Principle I.* | P1 | ⬜ |
 | 8 | **Brand-voice + output classifier** | Per-tenant voice profile (do / don't, tone, banned phrases). Pre-ship classifier on responses; block / rewrite via policy engine. *Principle VII.* | P1 | 🔄 PR #408 |
 | 9 | **Hierarchical swarm — HC1 delegates to HC2** | Cross-instance delegation. Signed delegation tokens, transport over HTTP, audit-log linking across instances. *Principle VI.* | P1 | 🔄 PR #409 |
-| 10 | **Auto fine-tuning on real tasks** | Trajectory capture → PII scrub → per-customer training data → fine-tuning pipeline → tuned-model registry with eval gate before promotion. *Principle VIII.* | P1 | 🟡 2/7 (R10.1 ✅, R10.2 ✅; R10.3 PR #655 in flight) |
+| 10 | **Auto fine-tuning on real tasks** | Trajectory capture → PII scrub → per-customer training data → fine-tuning pipeline → tuned-model registry with eval gate before promotion. *Principle VIII.* | P1 | 🟡 3/7 (R10.1 ✅, R10.2 ✅, R10.3 ✅) |
 | 11 | **Operator notification windows + escalation routing** | *Reframed under v3 Principle III.* The coworker is always on; this issue covers per-operator notification preferences (when to page vs. queue for the morning summary) and escalation routing through F8. | P2 | ⬜ (2 anti-principle children closed) |
 | 12 | **Mobile-first admin (iOS / Android wrapper)** | Responsive admin pages, mobile-friendly approval flow, push notifications, native wrappers via Capacitor or React Native. *Principle X.* | P1 | ⬜ |
 | 13 | **Per-client cost & audit reports** | Client tagging on activity, per-client cost rollup extending #5, per-client audit-log filter, branded PDF export. *Principle VII.* | P1 | ⬜ |
@@ -76,12 +76,12 @@ Cross-cutting work that several roadmap items depend on. Decomposed under the `f
 - ✅ **F3** — Generalize the network-only policy engine into a "predicate → action" engine. Used by #4, #5, #6, #8, #14, F8.
 - ✅ **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
 - ✅ **F5** — Model pricing & capability matrix on top of `model-catalog`. Required by #5 cost compute and future routing.
-- 🟡 **F6 (3/5)** — Deployment-mode + public-URL abstraction. F6.1 (config schema) ✅, F6.2 (TunnelProvider + ngrok ref impl) ✅, **F6.3 (health check + auto-reconnect with capped-backoff jitter) ✅**. F6.4 admin surface + F6.5 docs still open. **Additional providers filed:** F6.6 Tailscale Funnel, F6.7 Cloudflare Tunnel — both P1, both slot into the F6.2 interface.
+- 🟡 **F6 (4/5)** — Deployment-mode + public-URL abstraction. F6.1 (config schema) ✅, F6.2 (TunnelProvider + ngrok ref impl) ✅, F6.3 (health check + auto-reconnect with capped-backoff jitter) ✅, **F6.4 (admin surface for public URL + tunnel status) ✅ via PR #662**. F6.5 docs still open. **Additional providers filed:** F6.6 Tailscale Funnel, F6.7 Cloudflare Tunnel — both P1, both slot into the F6.2 interface.
 - ⬜ **F7** — Global identity primitives. Canonical user IDs (`username@authority`, default authority `hybridai`) and canonical agent IDs (`agent-slug@user@instance-id`), plus a resolver and TOFU trust model. Required by #1 envelope addressing, #9 cross-instance delegation, #14 SSO federation, #15 handoff, #17 portfolio refs. *(Note: R1.1 inline-implements the bare-minimum canonical-id; full F7 still needed for #9.)*
 - 🟡 **F8 (3/5)** — Autonomy + escalation policy framework. F8.1 (autonomy levels) ✅, F8.2 (stakes classifier) ✅, **F8.3 (escalation routing) ✅**. F8.4 default-action runtime + F8.5 audit events still open (note: F8.4 substantially shipped via #608 + #641 — scope-check before re-implementing). **Required by Principle II.**
 - ⬜ **F9** — Always-on runtime guarantees. Warm process pool, per-agent liveness probe, auto-restart with backoff, fleet red/green dashboard. **Required by Principle III** ("doesn't clock out") — without it the principle is aspirational.
-- ⬜ **F10** — Agent org-chart / team primitive. Roles, reporting lines, escalation chains as first-class data — not derived from message graphs. Required by F8 escalation routing and #15 handoff context.
-- 🔄 **F11 (PR #656 in flight on F11.1)** — Aux-LLM trace-judge framework. Pluggable judge over agent traces, used by #6 leak detection, #8 brand voice, #3.8 risk score, #10 trajectory rating. PR #656 implements F11.1 judge interface + cheap-model dispatch — about to land. F11.2 trace prep + F11.3 eval-the-judge + F11.4 subscriber pattern remain.
+- 🟡 **F10 (1/4)** — Agent org-chart / team primitive. **F10.1 (schema: roles, reports_to, delegates_to, peers + tree validation) ✅ via PR #665**. F10.2 persisted team structures via F4 + F10.3 resolution helpers (`manager_of`, `peers_of`, `escalation_chain`) + F10.4 admin UI to view/edit org chart still open. Required by F8 escalation routing and #15 handoff context.
+- 🟡 **F11 (1/4)** — Aux-LLM trace-judge framework. Pluggable judge over agent traces, used by #6 leak detection, #8 brand voice, #3.8 risk score, #10 trajectory rating. **F11.1 (judge interface + cheap-model dispatch) ✅ via PR #656**. F11.2 trace prep + F11.3 eval-the-judge + F11.4 subscriber pattern remain.
 
 ## Cross-cutting additions
 
