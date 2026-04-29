@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+
+WRITE_GRANT_ENV = "HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT"
 
 sql = sys.stdin.read().lower()
 
-if "information_schema.tables" in sql:
+if "env_check" in sql:
+    rows = [
+        {
+            "has_write_grant": WRITE_GRANT_ENV in os.environ,
+            "backend": os.environ.get("WAREHOUSE_SQL_BACKEND"),
+            "profile": os.environ.get("WAREHOUSE_SQL_PROFILE"),
+        }
+    ]
+elif "information_schema.tables" in sql:
     rows = [
         {
             "table_schema": "public",

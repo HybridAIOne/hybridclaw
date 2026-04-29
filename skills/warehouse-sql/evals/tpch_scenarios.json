@@ -31,7 +31,7 @@
     "id": "orders-for-customer",
     "category": "orders",
     "question": "orders for Customer#000000101",
-    "expectedSqlContains": ["Customer#000000101", "o_orderdate"],
+    "expectedSqlContains": ["WHERE c.c_name = ?", "o_orderdate"],
     "expectedRowCount": 2
   },
   {

@@ -93,9 +93,25 @@ test('warehouse SQL helper plans and reviews read-only SQL', () => {
   expect(payload.command).toBe('plan');
   expect(payload.sql).toContain('JOIN lineitem');
   expect(payload.sql).toContain('revenue');
+  expect(payload.parameters).toEqual([]);
   expect(payload.review.status).toBe('pass');
   expect(payload.review.readOnly).toBe(true);
   expect(payload.review.modelReview.required).toBe(true);
+});
+
+test('warehouse SQL helper emits parameters for planned customer filters', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'orders for Customer#000000101',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.sql).toContain('WHERE c.c_name = ?');
+  expect(payload.sql).not.toContain('Customer#000000101');
+  expect(payload.parameters).toEqual(['Customer#000000101']);
 });
 
 test('warehouse SQL helper caches SQLite schema introspection', () => {
@@ -118,6 +134,7 @@ test('warehouse SQL helper caches SQLite schema introspection', () => {
   expect(first.status).toBe(0);
   const firstPayload = JSON.parse(first.stdout);
   expect(firstPayload.cache.status).toBe('miss');
+  expect(fs.statSync(firstPayload.cache.path).mode & 0o777).toBe(0o600);
   expect(
     firstPayload.tables.map((table: { name: string }) => table.name),
   ).toContain('lineitem');
@@ -204,6 +221,35 @@ test('warehouse SQL helper refreshes and executes non-SQLite backends through co
   expect(queryPayload.execution.backend).toBe('postgres');
   expect(queryPayload.execution.rows).toEqual([
     { c_name: 'Customer#000000101', revenue: 1650 },
+  ]);
+
+  const envCheck = runHelper(
+    [
+      '--format',
+      'json',
+      'query',
+      '--backend',
+      'postgres',
+      '--profile',
+      'analytics',
+      '--backend-command',
+      backendCommand,
+      '--execute',
+      'SELECT env_check LIMIT 1',
+    ],
+    {
+      HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT: 'secret-grant',
+      HYBRIDCLAW_WAREHOUSE_SQL_POSTGRES_PASSWORD: 'backend-secret',
+    },
+  );
+  expect(envCheck.status).toBe(0);
+  const envPayload = JSON.parse(envCheck.stdout);
+  expect(envPayload.execution.rows).toEqual([
+    {
+      backend: 'postgres',
+      has_write_grant: false,
+      profile: 'analytics',
+    },
   ]);
 });
 
@@ -307,7 +353,9 @@ test('warehouse SQL helper executes reviewed SQLite queries only when requested'
     '--database',
     dbPath,
     '--execute',
-    'SELECT c_name FROM customer ORDER BY c_name LIMIT 1',
+    '--params',
+    '["Customer#000000101"]',
+    'SELECT c_name FROM customer WHERE c_name = ? LIMIT 1',
   ]);
   expect(executed.status).toBe(0);
   const executedPayload = JSON.parse(executed.stdout);

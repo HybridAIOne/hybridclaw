@@ -87,6 +87,10 @@ HybridClaw gateway scheduler:
 python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json schedule-refresh --backend postgres --profile analytics --every "0 */6 * * *"
 ```
 
+Set `HYBRIDCLAW_GATEWAY_TOKEN` or `GATEWAY_API_TOKEN` in the environment for
+production scheduler registration. `--gateway-token` is supported for tests, but
+tokens passed as CLI arguments can be visible in process listings.
+
 ## Read/Write Rules
 
 - Default posture is read-only. `SELECT`, `WITH`, and `EXPLAIN` are allowed.

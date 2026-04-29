@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hmac
 import hashlib
 import io
 import json
@@ -33,6 +34,15 @@ DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 DEFAULT_MAX_ROWS = 200
 WRITE_GRANT_ENV = "HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:9090"
+CONNECTOR_ENV_PASSTHROUGH = {
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "TMPDIR",
+}
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 EVAL_SCENARIOS_PATH = SKILL_DIR / "evals" / "tpch_scenarios.json"
@@ -173,6 +183,12 @@ class ReviewResult:
     requires_write_grant: bool
 
 
+@dataclass
+class SqlPlan:
+    sql: str
+    parameters: list[Any]
+
+
 def utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -232,6 +248,29 @@ def resolve_backend_command(args: argparse.Namespace) -> str:
     return os.environ.get(backend_command_env_name(args.backend), "").strip()
 
 
+def connector_command_env(args: argparse.Namespace, sql: str) -> dict[str, str]:
+    backend_prefix = f"HYBRIDCLAW_WAREHOUSE_SQL_{args.backend.upper().replace('-', '_')}_"
+    env: dict[str, str] = {}
+    for name in CONNECTOR_ENV_PASSTHROUGH:
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    for name, value in os.environ.items():
+        if not name.startswith(backend_prefix):
+            continue
+        if name in {WRITE_GRANT_ENV, backend_command_env_name(args.backend)}:
+            continue
+        env[name] = value
+    env.update(
+        {
+            "WAREHOUSE_SQL_BACKEND": args.backend,
+            "WAREHOUSE_SQL_PROFILE": str(getattr(args, "profile", "default") or "default"),
+            "WAREHOUSE_SQL_QUERY": sql,
+        }
+    )
+    return env
+
+
 def parse_rows_payload(raw: str) -> list[dict[str, Any]]:
     text = raw.strip()
     if not text:
@@ -259,12 +298,7 @@ def run_backend_command(args: argparse.Namespace, sql: str) -> list[dict[str, An
         raise WarehouseSqlError(
             f"{args.backend} requires {backend_command_env_name(args.backend)} or --backend-command, or an installed Python driver with the required environment."
         )
-    env = {
-        **os.environ,
-        "WAREHOUSE_SQL_BACKEND": args.backend,
-        "WAREHOUSE_SQL_PROFILE": str(getattr(args, "profile", "default") or "default"),
-        "WAREHOUSE_SQL_QUERY": sql,
-    }
+    env = connector_command_env(args, sql)
     try:
         result = subprocess.run(
             shlex.split(command),
@@ -574,6 +608,30 @@ def quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def write_private_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}-{int(time.time() * 1000)}")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(tmp_path, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, path)
+        os.chmod(path, 0o600)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
     ensure_backend(args.backend)
     cache_dir = Path(args.cache_dir).expanduser() if args.cache_dir else default_cache_dir()
@@ -602,7 +660,7 @@ def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
         payload["introspection"] = BACKEND_INTROSPECTION_SQL[args.backend]
         payload["adapter"] = "command" if resolve_backend_command(args) else "python-driver"
 
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_private_json(path, payload)
     payload["cache"] = {
         "status": "refresh" if args.refresh else "miss",
         "path": str(path),
@@ -651,6 +709,12 @@ def first_keyword(statement: str) -> str:
     return match.group(0).lower() if match else ""
 
 
+def write_grant_matches(write_grant: str | None, expected_grant: str) -> bool:
+    if not write_grant or not expected_grant:
+        return False
+    return hmac.compare_digest(write_grant, expected_grant)
+
+
 def review_sql(
     sql: str,
     *,
@@ -692,10 +756,10 @@ def review_sql(
             findings.append(f"Write SQL requires {WRITE_GRANT_ENV} to be set.")
         if not write_grant:
             findings.append("Write SQL requires --write-grant.")
-        elif expected_grant and write_grant != expected_grant:
+        elif expected_grant and not write_grant_matches(write_grant, expected_grant):
             findings.append("Provided write grant does not match the per-skill grant.")
 
-    status = "pass" if (read_only or (requires_write_grant and allow_write and write_grant and write_grant == os.environ.get(WRITE_GRANT_ENV, ""))) and len(statements) == 1 else "block"
+    status = "pass" if (read_only or (requires_write_grant and allow_write and write_grant_matches(write_grant, os.environ.get(WRITE_GRANT_ENV, "")))) and len(statements) == 1 else "block"
     return ReviewResult(
         status=status,
         read_only=read_only,
@@ -744,6 +808,7 @@ def plan_sql(question: str, *, limit: int = 10) -> dict[str, Any]:
     q = normalize_question(question)
     customer = extract_customer_name(question)
     capped_limit = max(1, min(limit, DEFAULT_MAX_ROWS))
+    parameters: list[Any] = []
 
     if "top customer" in q and "revenue" in q:
         sql = f"""
@@ -784,11 +849,12 @@ ORDER BY order_count DESC, o_orderstatus
 LIMIT 10
 """.strip()
     elif customer and "order" in q:
+        parameters = [customer]
         sql = f"""
 SELECT o.o_orderkey, o.o_orderdate, o.o_orderstatus, o.o_totalprice
 FROM orders o
 JOIN customer c ON c.c_custkey = o.o_custkey
-WHERE c.c_name = '{escape_sql_literal(customer)}'
+WHERE c.c_name = ?
 ORDER BY o.o_orderdate
 LIMIT {capped_limit}
 """.strip()
@@ -860,13 +926,10 @@ LIMIT {capped_limit}
         "question": question,
         "dialect": "ansi-sql",
         "sql": sql,
+        "parameters": parameters,
         "review": review["review"],
         "schemaAssumption": "TPC-H-style customer/orders/lineitem/supplier/part/nation schema",
     }
-
-
-def escape_sql_literal(value: str) -> str:
-    return value.replace("'", "''")
 
 
 def execute_sqlite_query(
@@ -874,6 +937,7 @@ def execute_sqlite_query(
     sql: str,
     *,
     max_rows: int,
+    parameters: list[Any] | None = None,
     allow_write: bool = False,
     write_grant: str | None = None,
 ) -> dict[str, Any]:
@@ -881,7 +945,7 @@ def execute_sqlite_query(
     if result.status != "pass":
         raise WarehouseSqlError("SQL review blocked execution: " + "; ".join(result.findings))
     with connect_sqlite(database) as conn:
-        cursor = conn.execute(sql)
+        cursor = conn.execute(sql, parameters or [])
         if not result.read_only:
             conn.commit()
             return {
@@ -964,7 +1028,12 @@ def run_eval_scenarios() -> dict[str, Any]:
                 for expected in scenario.get("expectedSqlContains", []):
                     if str(expected).lower() not in sql.lower():
                         case_result["findings"].append(f"SQL missing expected token: {expected}")
-                query_result = execute_sqlite_query(database, sql, max_rows=DEFAULT_MAX_ROWS)
+                query_result = execute_sqlite_query(
+                    database,
+                    sql,
+                    max_rows=DEFAULT_MAX_ROWS,
+                    parameters=plan.get("parameters", []),
+                )
                 if "expectedRowCount" in scenario and query_result["rowCount"] != scenario["expectedRowCount"]:
                     case_result["findings"].append(
                         f"row count {query_result['rowCount']} != {scenario['expectedRowCount']}"
@@ -1165,10 +1234,14 @@ def handle_query(args: argparse.Namespace) -> Any:
         }
         return payload
     if args.backend == "sqlite":
+        parameters = json.loads(args.params) if args.params else []
+        if not isinstance(parameters, list):
+            raise WarehouseSqlError("--params must be a JSON array.")
         result = execute_sqlite_query(
             args.database,
             args.sql,
             max_rows=args.max_rows,
+            parameters=parameters,
             allow_write=args.allow_write,
             write_grant=args.write_grant,
         )
@@ -1250,6 +1323,7 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--profile", default="default")
     query.add_argument("--backend-command", help="Executable connector command that reads SQL on stdin and emits JSON/CSV rows.")
     query.add_argument("--timeout-seconds", type=int, default=60)
+    query.add_argument("--params", help="JSON array of SQLite parameters for positional placeholders.")
     query.add_argument("--allow-write", action="store_true")
     query.add_argument("--write-grant")
     query.add_argument("sql")
