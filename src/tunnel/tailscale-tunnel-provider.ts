@@ -7,7 +7,6 @@ import {
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import {
   DEFAULT_TUNNEL_HEALTH_CHECK_TIMEOUT_MS as DEFAULT_COMMAND_TIMEOUT_MS,
-  DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS as DEFAULT_HEALTH_INTERVAL_MS,
   type TunnelProvider,
   type TunnelStartResult,
   type TunnelState,
@@ -27,7 +26,6 @@ type TailscaleCommandRunner = (
   args: string[],
   options?: { timeoutMs?: number },
 ) => Promise<TailscaleCommandResult>;
-type TunnelTimer = ReturnType<typeof setTimeout>;
 type TunnelAuditRecorder = (
   input: RecordAuditEventInput,
 ) => void | Promise<void>;
@@ -40,10 +38,8 @@ type TunnelStatusUpdate = {
 };
 
 export interface TailscaleTunnelProviderOptions {
-  addr?: string | number;
-  auditSessionId?: string;
+  addr?: string;
   commandTimeoutMs?: number;
-  healthCheckIntervalMs?: number;
   onStatusChange?: (status: TunnelStatus) => void;
   readSecret?: (secretName: string) => string | null;
   recordAuditEvent?: TunnelAuditRecorder;
@@ -87,10 +83,7 @@ function defaultCommandRunner(
     });
 }
 
-function normalizeAddr(value: string | number | undefined): string {
-  if (typeof value === 'number') {
-    return `localhost:${Math.max(1, Math.trunc(value))}`;
-  }
+function normalizeAddr(value: string | undefined): string {
   const trimmed = value?.trim();
   return trimmed || DEFAULT_TAILSCALE_TUNNEL_ADDR;
 }
@@ -188,15 +181,12 @@ function isTailscaleLoggedOutError(message: string): boolean {
 
 export class TailscaleTunnelProvider implements TunnelProvider {
   private readonly addr: string;
-  private readonly auditSessionId: string;
   private readonly commandTimeoutMs: number;
-  private readonly healthCheckIntervalMs: number;
   private readonly onStatusChange?: (status: TunnelStatus) => void;
   private readonly readSecret: (secretName: string) => string | null;
   private readonly recordAuditEvent: TunnelAuditRecorder;
   private readonly runCommand: TailscaleCommandRunner;
   private readonly tokenSecretName: string;
-  private healthTimer: TunnelTimer | null = null;
   private lastCheckedAt: string | null = null;
   private lastError: string | null = null;
   private nextReconnectAt: string | null = null;
@@ -208,15 +198,9 @@ export class TailscaleTunnelProvider implements TunnelProvider {
 
   constructor(options: TailscaleTunnelProviderOptions = {}) {
     this.addr = normalizeAddr(options.addr);
-    this.auditSessionId =
-      options.auditSessionId?.trim() || TUNNEL_AUDIT_SESSION_ID;
     this.commandTimeoutMs = normalizeDurationMs(
       options.commandTimeoutMs,
       DEFAULT_COMMAND_TIMEOUT_MS,
-    );
-    this.healthCheckIntervalMs = normalizeDurationMs(
-      options.healthCheckIntervalMs,
-      DEFAULT_HEALTH_INTERVAL_MS,
     );
     this.onStatusChange = options.onStatusChange;
     this.readSecret = options.readSecret ?? readStoredRuntimeSecret;
@@ -264,7 +248,6 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       });
       const publicUrl = await this.resolvePublicUrl(startResult);
       await this.markTunnelUp(publicUrl, 'started');
-      this.scheduleHealthCheck();
       return { public_url: publicUrl };
     } catch (error) {
       const message = redactSecret(errorMessage(error), authKey);
@@ -284,7 +267,6 @@ export class TailscaleTunnelProvider implements TunnelProvider {
   }
 
   async stop(): Promise<void> {
-    this.clearTimer();
     const { publicUrl, tunnelRunId } = this.clearActiveTunnel({
       lastCheckedAt: null,
       lastError: null,
@@ -352,71 +334,6 @@ export class TailscaleTunnelProvider implements TunnelProvider {
     if (fromStatus) return fromStatus;
 
     throw new Error('tailscale did not report a public ts.net URL.');
-  }
-
-  private clearTimer(): void {
-    if (!this.healthTimer) return;
-    clearTimeout(this.healthTimer);
-    this.healthTimer = null;
-  }
-
-  private scheduleHealthCheck(): void {
-    this.clearTimer();
-    if (!this.publicUrl || this.state !== 'up') return;
-    this.healthTimer = setTimeout(() => {
-      this.healthTimer = null;
-      void this.runHealthCheck();
-    }, this.healthCheckIntervalMs);
-    this.healthTimer.unref();
-  }
-
-  private async runHealthCheck(): Promise<void> {
-    const publicUrl = this.publicUrl;
-    if (!publicUrl || this.state !== 'up') return;
-
-    const checkedAt = new Date().toISOString();
-    try {
-      const funnelStatus = await this.runCommand(
-        ['funnel', 'status', '--json'],
-        {
-          timeoutMs: this.commandTimeoutMs,
-        },
-      );
-      const currentPublicUrl =
-        publicUrlFromFunnelStatusJson(parseJson(funnelStatus.stdout)) ||
-        publicUrlFromText(funnelStatus.stdout) ||
-        publicUrlFromText(funnelStatus.stderr);
-      if (!currentPublicUrl) {
-        throw new Error(
-          'Tailscale Funnel status did not report an active public URL.',
-        );
-      }
-      if (this.publicUrl !== publicUrl || this.state !== 'up') return;
-      this.publicUrl = currentPublicUrl;
-      this.updateStatus({
-        lastCheckedAt: checkedAt,
-        lastError: null,
-        reconnectAttempt: 0,
-        state: 'up',
-      });
-      this.scheduleHealthCheck();
-    } catch (error) {
-      if (this.publicUrl !== publicUrl || this.state !== 'up') return;
-      const message = errorMessage(error);
-      const { tunnelRunId } = this.clearActiveTunnel({
-        lastCheckedAt: checkedAt,
-        lastError: message,
-        nextReconnectAt: null,
-        reconnectAttempt: 0,
-        state: 'down',
-      });
-      await this.recordTunnelAudit('tunnel.down', {
-        error: message,
-        publicUrl,
-        reason: 'health_check_failed',
-        runId: tunnelRunId,
-      });
-    }
   }
 
   private updateStatus(update: TunnelStatusUpdate): void {
@@ -507,7 +424,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
   ): Promise<void> {
     try {
       await this.recordAuditEvent({
-        sessionId: this.auditSessionId,
+        sessionId: TUNNEL_AUDIT_SESSION_ID,
         runId: details.runId ?? makeAuditRunId('tunnel'),
         event: {
           type,

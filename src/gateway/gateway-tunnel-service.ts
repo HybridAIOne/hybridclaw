@@ -45,7 +45,9 @@ function managedProviderKeyFor(params: {
   provider: RuntimeDeploymentTunnelProvider | undefined;
   healthCheckIntervalMs: number;
 }): string {
-  return `${params.provider || 'none'}:${params.addr}:${params.healthCheckIntervalMs}`;
+  const healthKey =
+    params.provider === 'ngrok' ? `:${params.healthCheckIntervalMs}` : '';
+  return `${params.provider || 'none'}:${params.addr}${healthKey}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -86,14 +88,14 @@ function getManagedTunnelProvider(): TunnelProvider | null {
     if (managedProvider) {
       stopStaleManagedProvider(managedProvider);
     }
-    const options = {
-      addr,
-      healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
-    };
     managedProvider =
       provider === 'ngrok'
-        ? createNgrokTunnelProvider(options)
-        : createTailscaleTunnelProvider(options);
+        ? createNgrokTunnelProvider({
+            addr,
+            healthCheckIntervalMs:
+              config.deployment.tunnel.health_check_interval_ms,
+          })
+        : createTailscaleTunnelProvider({ addr });
     managedProviderKey = key;
   }
   return managedProvider;
