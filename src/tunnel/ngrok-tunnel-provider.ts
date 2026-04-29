@@ -20,6 +20,7 @@ import {
 export const NGROK_AUTHTOKEN_SECRET = 'NGROK_AUTHTOKEN';
 export const DEFAULT_NGROK_TUNNEL_ADDR = 9090;
 const DEFAULT_NGROK_HEALTH_CHECK_PATH = '/health';
+const RECONNECT_JITTER_RATIO = 0.1;
 const TUNNEL_AUDIT_SESSION_ID = 'system:tunnel';
 
 interface NgrokListener {
@@ -121,6 +122,12 @@ function errorMessage(error: unknown): string {
 
 function makeTunnelAuditRunId(): string {
   return `tunnel_${randomUUID()}`;
+}
+
+function jitterReconnectDelayMs(delayMs: number): number {
+  const factor =
+    1 - RECONNECT_JITTER_RATIO + Math.random() * RECONNECT_JITTER_RATIO * 2;
+  return Math.max(1, Math.round(delayMs * factor));
 }
 
 export class NgrokTunnelProvider implements TunnelProvider {
@@ -515,10 +522,11 @@ export class NgrokTunnelProvider implements TunnelProvider {
 
   private scheduleReconnect(message: string): void {
     const attempt = this.reconnectAttempt + 1;
-    const delayMs = Math.min(
+    const baseDelayMs = Math.min(
       this.reconnectMaxBackoffMs,
       this.reconnectInitialBackoffMs * 2 ** Math.max(0, attempt - 1),
     );
+    const delayMs = jitterReconnectDelayMs(baseDelayMs);
     const nextReconnectAt = new Date(Date.now() + delayMs).toISOString();
     this.updateStatus({
       lastError: message,

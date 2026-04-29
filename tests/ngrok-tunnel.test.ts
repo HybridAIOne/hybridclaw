@@ -261,6 +261,7 @@ describe('NgrokTunnelProvider', () => {
 
   it('reconnects with capped backoff when a health check fails', async () => {
     vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     try {
       const firstClose = vi.fn(async () => {});
       const secondClose = vi.fn(async () => {});
@@ -329,6 +330,59 @@ describe('NgrokTunnelProvider', () => {
 
       await provider.stop();
     } finally {
+      random.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('jitters reconnect backoff to avoid synchronized retries', async () => {
+    vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(1);
+    try {
+      const firstClose = vi.fn(async () => {});
+      const secondClose = vi.fn(async () => {});
+      const forward = vi
+        .fn()
+        .mockResolvedValueOnce({
+          close: firstClose,
+          url: () => 'https://first.ngrok.app',
+        })
+        .mockResolvedValueOnce({
+          close: secondClose,
+          url: () => 'https://jitter.ngrok.app',
+        });
+      const fetch = vi.fn(async () => ({ ok: false, status: 503 }));
+      const provider = new NgrokTunnelProvider({
+        fetch,
+        healthCheckIntervalMs: 100,
+        loadNgrok: async () => ({ forward }),
+        reconnectInitialBackoffMs: 50,
+        reconnectMaxBackoffMs: 500,
+        recordAuditEvent: vi.fn(),
+        readSecret: () => 'test-token',
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(provider.status()).toMatchObject({
+        state: 'reconnecting',
+        reconnect_attempt: 1,
+      });
+
+      await vi.advanceTimersByTimeAsync(54);
+      expect(forward).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(forward).toHaveBeenCalledTimes(2);
+      expect(provider.status()).toMatchObject({
+        running: true,
+        public_url: 'https://jitter.ngrok.app',
+        state: 'up',
+      });
+
+      await provider.stop();
+    } finally {
+      random.mockRestore();
       vi.useRealTimers();
     }
   });
