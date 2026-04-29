@@ -369,6 +369,41 @@ test('agent registry rejects cyclic reports_to relationships', async () => {
   ).toThrow('Agent reports_to cycle detected: design -> ops -> design.');
 });
 
+test('agent registry rejects deleting agents still referenced by org-chart fields', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { deleteRegisteredAgent, getAgentById, initAgentRegistry } =
+    await import('../src/agents/agent-registry.ts');
+
+  const agents = [
+    { id: 'main', name: 'Main Agent' },
+    { id: 'lead', name: 'Lead Agent', reportsTo: 'main' },
+    { id: 'worker', reportsTo: 'lead' },
+    { id: 'support', delegatesTo: ['lead'] },
+    { id: 'reviewer', peers: ['lead'] },
+  ];
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = agents;
+  });
+  initAgentRegistry({ list: agents });
+
+  expect(() => deleteRegisteredAgent('lead')).toThrow(
+    'Cannot delete agent "lead" because it is still referenced by: reviewer.peers, support.delegates_to, worker.reports_to.',
+  );
+  expect(getAgentById('lead')).toMatchObject({
+    id: 'lead',
+    name: 'Lead Agent',
+  });
+});
+
 test('legacy agents without org-chart fields load cleanly after migration v26', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

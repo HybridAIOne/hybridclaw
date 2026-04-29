@@ -546,6 +546,31 @@ export function getStoredAgentConfig(
   return registry.get(normalizedId) || null;
 }
 
+function hasAgentReference(
+  values: readonly string[] | undefined,
+  agentId: string,
+): boolean {
+  return values?.some((value) => normalizeString(value) === agentId) ?? false;
+}
+
+function collectAgentDeletionBlockers(agentId: string): string[] {
+  const blockers: string[] = [];
+  for (const agent of registry.values()) {
+    const sourceAgentId = normalizeString(agent.id);
+    if (!sourceAgentId || sourceAgentId === agentId) continue;
+    if (normalizeString(agent.reportsTo) === agentId) {
+      blockers.push(`${sourceAgentId}.reports_to`);
+    }
+    if (hasAgentReference(agent.delegatesTo, agentId)) {
+      blockers.push(`${sourceAgentId}.delegates_to`);
+    }
+    if (hasAgentReference(agent.peers, agentId)) {
+      blockers.push(`${sourceAgentId}.peers`);
+    }
+  }
+  return blockers.sort();
+}
+
 export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
@@ -576,6 +601,14 @@ export function deleteRegisteredAgent(agentId: string): boolean {
   if (!normalizedId) return false;
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
+  }
+  ensureRegistryCurrent();
+  if (!registry.has(normalizedId)) return false;
+  const blockers = collectAgentDeletionBlockers(normalizedId);
+  if (blockers.length > 0) {
+    throw new Error(
+      `Cannot delete agent "${normalizedId}" because it is still referenced by: ${blockers.join(', ')}.`,
+    );
   }
   const deleted = dbDeleteAgent(normalizedId);
   rebuildRegistryFromDatabase();
