@@ -1593,8 +1593,6 @@ function getAdminChannelDisabledSkills(
   );
 }
 
-export type GatewayStatusOptions = GatewayHealthOptions;
-
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
@@ -3687,7 +3685,7 @@ export function buildTokenUsageAuditPayload(
 }
 
 export async function getGatewayStatus(
-  options: GatewayStatusOptions = {},
+  options: GatewayHealthOptions = {},
 ): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
   const hybridai = getHybridAIAuthStatus();

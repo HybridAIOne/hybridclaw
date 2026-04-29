@@ -15,12 +15,6 @@ const GATEWAY_STATUS_PROVIDER_PROBE_TIMEOUT_MS = 750;
 
 export interface GatewayHealthOptions {
   refreshProviderHealth?: boolean;
-  providerProbeTimeoutMs?: number;
-}
-
-function providerProbeTimeoutMs(options: GatewayHealthOptions): number {
-  const timeoutMs = options.providerProbeTimeoutMs ?? 0;
-  return timeoutMs > 0 ? timeoutMs : GATEWAY_STATUS_PROVIDER_PROBE_TIMEOUT_MS;
 }
 
 function dedupeStrings(values: string[]): string[] {
@@ -71,7 +65,7 @@ export function resolveGatewayLocalBackendsHealth(
   }
   return withProbeDeadline(
     localBackendsProbe.get(),
-    providerProbeTimeoutMs(options),
+    GATEWAY_STATUS_PROVIDER_PROBE_TIMEOUT_MS,
     fallbackLocalBackendsHealth,
   );
 }
@@ -84,7 +78,7 @@ export function resolveGatewayHybridAIHealth(
   }
   return withProbeDeadline(
     hybridAIProbe.get(),
-    providerProbeTimeoutMs(options),
+    GATEWAY_STATUS_PROVIDER_PROBE_TIMEOUT_MS,
     fallbackHybridAIHealth,
   );
 }

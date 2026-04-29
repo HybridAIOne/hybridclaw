@@ -167,7 +167,10 @@ test('getGatewayStatus uses cached HybridAI health when probe exceeds deadline',
   );
   initDatabase({ quiet: true });
 
-  const status = await getGatewayStatus({ providerProbeTimeoutMs: 1 });
+  vi.useFakeTimers();
+  const statusPromise = getGatewayStatus();
+  await vi.advanceTimersByTimeAsync(750);
+  const status = await statusPromise;
 
   expect(hybridAIGet).toHaveBeenCalledTimes(1);
   expect(status.providerHealth?.hybridai).toMatchObject({
