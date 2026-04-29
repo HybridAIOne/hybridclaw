@@ -268,9 +268,25 @@ export interface AdminModelUsageRow extends AdminUsageSummary {
   model: string;
 }
 
+export type AdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
+
+export interface AdminTunnelStatus {
+  provider: string | null;
+  publicUrl: string | null;
+  state: 'down' | 'starting' | 'up' | 'reconnecting';
+  health: AdminTunnelHealth;
+  running: boolean;
+  reconnectSupported: boolean;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  nextReconnectAt: string | null;
+  reconnectAttempt: number;
+}
+
 export interface AdminOverview {
   status: GatewayStatus;
   configPath: string;
+  tunnel: AdminTunnelStatus;
   recentSessions: AdminSession[];
   usage: {
     daily: AdminUsageSummary;

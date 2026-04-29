@@ -615,6 +615,18 @@ async function importFreshHealth(options?: {
   const getGatewayAdminOverview = vi.fn(async () => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
+    tunnel: {
+      provider: 'ngrok',
+      publicUrl: 'https://public.example.test',
+      state: 'up' as const,
+      health: 'healthy' as const,
+      running: true,
+      reconnectSupported: true,
+      lastError: null,
+      lastCheckedAt: '2026-04-29T10:00:00.000Z',
+      nextReconnectAt: null,
+      reconnectAttempt: 0,
+    },
     recentSessions: [],
     usage: {
       daily: {
@@ -635,6 +647,18 @@ async function importFreshHealth(options?: {
       },
       topModels: [],
     },
+  }));
+  const reconnectGatewayAdminTunnel = vi.fn(async () => ({
+    provider: 'ngrok',
+    publicUrl: 'https://next-public.example.test',
+    state: 'up' as const,
+    health: 'healthy' as const,
+    running: true,
+    reconnectSupported: true,
+    lastError: null,
+    lastCheckedAt: null,
+    nextReconnectAt: null,
+    reconnectAttempt: 0,
   }));
   const getGatewayAdminStatistics = vi.fn(
     (params?: { days?: number | string }) => {
@@ -1557,6 +1581,7 @@ async function importFreshHealth(options?: {
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
+    reconnectGatewayAdminTunnel,
     readSystemPromptMessage,
     renderGatewayCommand,
     resolveGatewayChatbotId,
@@ -1654,6 +1679,7 @@ async function importFreshHealth(options?: {
     forkSessionBranch,
     getGatewayAdminOverview,
     getGatewayAdminStatistics,
+    reconnectGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -4129,6 +4155,35 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body)).toMatchObject({
       configPath: '/tmp/config.json',
       status: { status: 'ok', sessions: 2 },
+    });
+  });
+
+  test('reconnects the admin tunnel for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/tunnel/reconnect',
+      method: 'POST',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.reconnectGatewayAdminTunnel).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      tunnel: {
+        provider: 'ngrok',
+        publicUrl: 'https://next-public.example.test',
+        state: 'up',
+        health: 'healthy',
+        running: true,
+        reconnectSupported: true,
+        lastError: null,
+        lastCheckedAt: null,
+        nextReconnectAt: null,
+        reconnectAttempt: 0,
+      },
     });
   });
 

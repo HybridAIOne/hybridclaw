@@ -4,11 +4,13 @@ import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
+  RuntimeDeploymentTunnelProvider,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
+import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -581,9 +583,25 @@ export interface GatewayAdminModelUsageRow extends GatewayAdminUsageSummary {
   model: string;
 }
 
+export type GatewayAdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
+
+export interface GatewayAdminTunnelStatus {
+  provider: RuntimeDeploymentTunnelProvider | null;
+  publicUrl: string | null;
+  state: TunnelState;
+  health: GatewayAdminTunnelHealth;
+  running: boolean;
+  reconnectSupported: boolean;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  nextReconnectAt: string | null;
+  reconnectAttempt: number;
+}
+
 export interface GatewayAdminOverview {
   status: GatewayStatus;
   configPath: string;
+  tunnel: GatewayAdminTunnelStatus;
   recentSessions: GatewayAdminSession[];
   usage: {
     daily: GatewayAdminUsageSummary;

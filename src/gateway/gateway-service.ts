@@ -383,6 +383,10 @@ import {
   parseTimestamp,
 } from './gateway-time.js';
 import {
+  getGatewayAdminTunnelStatus,
+  reconnectGatewayAdminTunnel,
+} from './gateway-tunnel-service.js';
+import {
   type GatewayAdminAgent,
   type GatewayAdminAgentMarkdownFile,
   type GatewayAdminAgentMarkdownFileResponse,
@@ -447,6 +451,8 @@ import {
   normalizeSessionShowMode,
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
+
+export { reconnectGatewayAdminTunnel };
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -3864,6 +3870,7 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   return {
     status: await getGatewayStatus(),
     configPath: runtimeConfigPath(),
+    tunnel: getGatewayAdminTunnelStatus(),
     recentSessions: getAllSessions().slice(0, 8).map(mapAdminSession),
     usage: {
       daily: mapUsageSummary(getUsageTotals({ window: 'daily' })),

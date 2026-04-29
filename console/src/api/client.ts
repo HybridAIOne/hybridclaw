@@ -36,6 +36,7 @@ import type {
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AdminTunnelStatus,
   AgentListItem,
   AgentListResponse,
   AgentsOverview,
@@ -199,6 +200,19 @@ export function fetchHealth(): Promise<GatewayStatus> {
 
 export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
+}
+
+export async function reconnectTunnel(
+  token: string,
+): Promise<AdminTunnelStatus> {
+  const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
+    '/api/admin/tunnel/reconnect',
+    {
+      token,
+      method: 'POST',
+    },
+  );
+  return payload.tunnel;
 }
 
 export function fetchStatistics(
