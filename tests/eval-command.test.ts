@@ -3768,6 +3768,22 @@ test('rejects the removed eval run syntax', async () => {
   );
 });
 
+test('fails fast when eval gateway auth tokens are missing', async () => {
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+
+  await expect(
+    handleEvalCommand(
+      defaultEvalParams({
+        args: ['env'],
+        webApiToken: '',
+        gatewayApiToken: '',
+      }),
+    ),
+  ).rejects.toThrow(
+    'Eval requires WEB_API_TOKEN or GATEWAY_API_TOKEN for the local OpenAI-compatible gateway.',
+  );
+});
+
 test('encodes fresh-agent ablation options into the eval model', async () => {
   const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
 

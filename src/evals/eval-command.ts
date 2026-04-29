@@ -425,6 +425,11 @@ function buildEvalEnvironment(params: {
   const webToken = params.webApiToken.trim();
   const gatewayToken = params.gatewayApiToken.trim();
   const token = webToken || gatewayToken;
+  if (!token) {
+    throw new Error(
+      'Eval requires WEB_API_TOKEN or GATEWAY_API_TOKEN for the local OpenAI-compatible gateway.',
+    );
+  }
   const baseModel = params.effectiveModel.trim() || 'hybridai/gpt-4.1-mini';
   const profiledModel = encodeEvalProfileModel(baseModel, params.profile);
   return {
