@@ -25,8 +25,8 @@ import {
   HybridAILogo,
   KiloLogo,
   KimiLogo,
-  LMStudioLogo,
   LlamaCppLogo,
+  LMStudioLogo,
   MetaLogo,
   MicrosoftLogo,
   MiniMaxLogo,
@@ -256,7 +256,13 @@ const VENDOR_LOGOS: Record<string, LogoComponent> = {
   Microsoft: MicrosoftLogo,
 };
 
-function ProviderIcon({ provider, size = 18 }: { provider: string; size?: number }) {
+function ProviderIcon({
+  provider,
+  size = 18,
+}: {
+  provider: string;
+  size?: number;
+}) {
   const Logo = PROVIDER_LOGOS[provider as KnownProvider];
   if (Logo) return <Logo width={size} height={size} />;
   return <ServerIcon width={size} height={size} />;

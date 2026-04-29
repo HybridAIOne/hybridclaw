@@ -48,7 +48,14 @@ export function GeminiLogo(props: ProviderLogoProps) {
   return (
     <Frame viewBox="0 0 24 24" {...props}>
       <defs>
-        <linearGradient id="gemini-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id="gemini-grad"
+          x1="0"
+          y1="0"
+          x2="24"
+          y2="24"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0" stopColor="#1C7DFF" />
           <stop offset="0.52" stopColor="#1C69FF" />
           <stop offset="1" stopColor="#F0DCD6" />
@@ -76,10 +83,16 @@ export function DeepSeekLogo(props: ProviderLogoProps) {
 export function MistralLogo(props: ProviderLogoProps) {
   return (
     <Frame viewBox="0 0 256 256" {...props}>
-      <path fill="#000" d="M186 28h42v42h-42zM28 28h42v42H28zM28 70h42v42H28zM28 112h42v42H28zM28 154h42v42H28zM28 196h42v42H28z" />
+      <path
+        fill="#000"
+        d="M186 28h42v42h-42zM28 28h42v42H28zM28 70h42v42H28zM28 112h42v42H28zM28 154h42v42H28zM28 196h42v42H28z"
+      />
       <path fill="#F7D046" d="M186 28h42v42h-42z" />
       <path fill="#F2A73B" d="M70 70h42v42H70zM186 70h42v42h-42z" />
-      <path fill="#EE792F" d="M112 112h42v42h-42zM70 112h42v42H70zM186 112h42v42h-42z" />
+      <path
+        fill="#EE792F"
+        d="M112 112h42v42h-42zM70 112h42v42H70zM186 112h42v42h-42z"
+      />
       <path fill="#EB5829" d="M70 154h42v42H70zM186 154h42v42h-42z" />
       <path fill="#EA3326" d="M70 196h42v42H70zM186 196h42v42h-42z" />
     </Frame>
@@ -147,10 +160,7 @@ export function MicrosoftLogo(props: ProviderLogoProps) {
 export function HybridAILogo(props: ProviderLogoProps) {
   return (
     <Frame viewBox="0 0 24 24" {...props}>
-      <path
-        fill="currentColor"
-        d="M5 4h2v7h10V4h2v16h-2v-7H7v7H5V4Z"
-      />
+      <path fill="currentColor" d="M5 4h2v7h10V4h2v16h-2v-7H7v7H5V4Z" />
     </Frame>
   );
 }
