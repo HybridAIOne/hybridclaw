@@ -171,6 +171,7 @@ python3 skills/salesforce/scripts/salesforce_query.py --format json describe Acc
 - Never print secrets, dump the full environment, or commit auth profile files.
 - Treat `SF_DOMAIN` as one of: `login` (production) or `test` (sandbox).
 - Prefer `--format json` when another tool or script needs the response.
+- Treat raw `query` and `tooling-query` SOQL as full-credential reads: any caller with gateway access can read arbitrary Salesforce data allowed by the stored OAuth user.
 - For large tables, narrow the selected columns and use a SOQL `LIMIT` first.
 - The helper strips Salesforce `attributes` objects by default to keep row output compact. Use `--keep-attributes` only when the caller explicitly needs them.
 - If the API route is disabled or insufficient, explain that and fall back to browser or admin guidance instead of guessing.

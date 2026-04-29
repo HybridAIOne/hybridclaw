@@ -7408,7 +7408,7 @@ describe('gateway HTTP server', () => {
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
 
-    const { saveNamedRuntimeSecrets } = await import(
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
       '../src/security/runtime-secrets.ts'
     );
     saveNamedRuntimeSecrets({
@@ -7429,6 +7429,7 @@ describe('gateway HTTP server', () => {
         new Response(
           JSON.stringify({
             access_token: 'salesforce-access-token',
+            bearer: 'salesforce-bearer-token',
             instance_url: 'https://acme.my.salesforce.com',
           }),
           {
@@ -7458,6 +7459,7 @@ describe('gateway HTTP server', () => {
         body: 'grant_type=password&client_id=<secret:SF_FULL_CLIENTID>&client_secret=<secret:SF_FULL_SECRET>&username=<secret:SF_FULL_USERNAME>&password=<secret:SF_FULL_PASSWORD>',
         captureResponseFields: [
           { jsonPath: 'access_token', secretName: 'SF_ACCESS_TOKEN' },
+          { jsonPath: 'bearer', secretName: 'SF_BEARER' },
           { jsonPath: 'instance_url', secretName: 'SF_INSTANCE_URL' },
         ],
       },
@@ -7473,9 +7475,17 @@ describe('gateway HTTP server', () => {
       status: 200,
       captured: {
         access_token: 'SF_ACCESS_TOKEN',
+        bearer: 'SF_BEARER',
         instance_url: 'SF_INSTANCE_URL',
       },
     });
+    expect(readStoredRuntimeSecret('SF_ACCESS_TOKEN_BOUND_DOMAIN')).toBe(
+      'acme.my.salesforce.com',
+    );
+    expect(readStoredRuntimeSecret('SF_BEARER_BOUND_DOMAIN')).toBe(
+      'acme.my.salesforce.com',
+    );
+    expect(readStoredRuntimeSecret('SF_INSTANCE_URL_BOUND_DOMAIN')).toBeNull();
 
     const apiReq = makeRequest({
       method: 'POST',

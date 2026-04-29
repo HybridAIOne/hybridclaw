@@ -306,6 +306,7 @@ function replaceSecretPlaceholders(value: unknown): unknown {
 }
 
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
+const UNBOUND_OAUTH_CAPTURE_JSON_PATHS = new Set(['instance_url']);
 
 /**
  * Return the exact lowercase hostname for domain binding.
@@ -394,11 +395,11 @@ function extractBindingDomainFromResponse(
  * fields into the secret store and return the mapping.  The original
  * response body is **never** forwarded to the caller.
  *
- * For every captured secret that looks like a token (contains "token" in the
- * jsonPath), a domain binding is stored so that `bearerSecretName` only works
- * against the resource host. OAuth APIs such as Salesforce issue tokens from a
- * login host but return an `instance_url` resource host; bind to that resource
- * host when present and fall back to the OAuth endpoint hostname otherwise.
+ * Captured OAuth secrets are bound by default so that `bearerSecretName` only
+ * works against the resource host. OAuth APIs such as Salesforce issue tokens
+ * from a login host but return an `instance_url` resource host; bind to that
+ * resource host when present and fall back to the OAuth endpoint hostname
+ * otherwise. Non-token metadata captures must be explicitly exempted.
  */
 function captureOAuthResponse(
   responseJson: unknown,
@@ -421,9 +422,9 @@ function captureOAuthResponse(
       secrets[rule.secretName] = value.trim();
       captured[rule.jsonPath] = rule.secretName;
 
-      // Bind token secrets to the OAuth endpoint's domain so they
-      // cannot be exfiltrated to an attacker-controlled URL.
-      if (rule.jsonPath.includes('token')) {
+      // Bind captured OAuth secrets by default so future token field names such
+      // as "access" or "bearer" cannot silently become cross-host credentials.
+      if (!UNBOUND_OAUTH_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
         secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
       }
     }
