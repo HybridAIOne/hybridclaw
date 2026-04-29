@@ -15,8 +15,9 @@ full runtime config surface before editing your local file.
 Use `hybridclaw config` to print the active runtime config,
 `hybridclaw config check` to validate only the config file itself,
 `hybridclaw config reload` to force an immediate in-process hot reload from
-disk, `hybridclaw config set <key> <value>` to edit an existing dotted key
-path without rewriting the whole file manually, and
+disk, `hybridclaw config get <key>` to print one resolved dotted key,
+`hybridclaw config set <key> <value>` to edit an existing dotted key path
+without rewriting the whole file manually, and
 `hybridclaw config revisions [list|rollback <id>|delete <id>|clear]` to audit
 or restore tracked config snapshots.
 
@@ -89,6 +90,12 @@ saved revision history directly.
 - `container.persistBashState` controls whether `bash` tool calls reuse shell
   state (`cd`, exported env vars, aliases) for the active runtime session
   (`true`, default) or start fresh on each call (`false`)
+- `container.warmPool.*` controls the adaptive idle runtime pool used by host
+  and container execution. `enabled` turns the pool on, `minIdlePerActiveAgent`
+  and `maxIdlePerAgent` bound per-agent prewarming, `trafficWindowMs` decides
+  which agents count as recently active, `coldStartBudgetMs` is the target
+  startup budget, and `memoryPressureRssMb` trims idle entries under memory
+  pressure.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`

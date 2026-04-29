@@ -96,7 +96,7 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat keeps a recent-session sidebar and can search conversation titles
   with contextual snippets before you reopen an older browser session
 - Web Chat shows live context-window usage, accepts `/context`, and lets you
-  switch the active agent from the composer
+  switch the active agent and model from the composer
 - Web Chat accepts `/btw <question>` side questions while a primary run is
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
@@ -113,6 +113,9 @@ Once the gateway is running, open HybridClaw locally:
 - `hybridclaw gateway status` reports sandbox/runtime details, and in
   container mode it includes the configured image name plus the resolved
   version and short image id.
+- `hybridclaw backup` creates a WAL-safe archive of the runtime home, and
+  `hybridclaw backup restore <archive.zip>` validates the archive before
+  replacing local runtime state.
 - `hybridclaw update --yes` upgrades a global npm install and auto-restarts a
   running local gateway with its original launch parameters when possible,
   falling back to `hybridclaw gateway restart` if not.
@@ -131,8 +134,9 @@ Once the gateway is running, open HybridClaw locally:
   are injected into prompts at runtime.
 - `/admin/approvals` manages approval policies from the browser.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
-  browser without tearing down the enclosing workspace container; keep
-  `hybridclaw gateway restart` for local/manual full restarts.
+  browser, and shows public URL plus tunnel status, without tearing down the
+  enclosing workspace container; keep `hybridclaw gateway restart` for
+  local/manual full restarts.
 - `/context` and the web chat context ring show current context-window usage,
   remaining headroom, and compaction counts for the active session.
 - `proactive.delegation.model` can pin delegated work to a different model
@@ -140,8 +144,11 @@ Once the gateway is running, open HybridClaw locally:
   share when that split is configured.
 - `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and
   `deployment.tunnel.health_check_interval_ms` describe local/cloud exposure
-  and tunnel health cadence. The built-in ngrok tunnel provider reads
-  `NGROK_AUTHTOKEN` from the encrypted runtime secret store.
+  and tunnel health cadence. The built-in ngrok and Tailscale Funnel providers
+  read `NGROK_AUTHTOKEN` and `TS_AUTHKEY` from the encrypted runtime secret
+  store.
+- `container.warmPool` keeps a bounded adaptive pool of idle host/container
+  runtimes for recently active agents when low cold-start latency matters.
 - `container.persistBashState` controls whether bash tool calls share shell
   state (`cd`, exported env vars, aliases) across turns in the same active
   runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
@@ -200,8 +207,10 @@ Once the gateway is running, open HybridClaw locally:
 - Packaged skills can declare versioned manifests, capabilities, required
   credentials, supported channels, and per-agent autonomy policy.
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
-  GitHub issue queue processing (`gh-issues`), and editable Excalidraw diagram
-  creation.
+  Salesforce inspection, GitHub issue queue processing (`gh-issues`),
+  brand-voice drafting, and editable Excalidraw diagram creation.
+- The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
+  responses that violate configured voice rules before they reach users.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled
   PDF creator wraps long lines, honors explicit `\n`, and adds pages
   automatically when reports or invoices spill past the first page.

@@ -84,6 +84,10 @@ or change one top-level `plugins.list[].config` key without editing
   turns back into MemPalace, and can route prompt-time retrieval through CLI
   helpers or an active `mempalace` MCP server
 - `qmd-memory` injects external markdown retrieval context into prompts
+- `brand-voice` registers an output guard that checks final responses against
+  configured voice guidance, banned phrases or regexes, required phrases, and
+  optional classifier/rewriter models. It can flag, rewrite, or block
+  off-brand output before the message is returned to the user.
 - `brevo-email` provides per-agent email addresses through a Brevo inbound
   webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
   `BREVO_WEBHOOK_SECRET`, and optional config keys such as `domain`,
@@ -96,6 +100,8 @@ Example config writes:
 ```bash
 hybridclaw plugin config brevo-email domain agent.hybridai.one
 hybridclaw plugin config brevo-email fromName "HybridClaw Agent"
+hybridclaw plugin config brand-voice mode rewrite
+hybridclaw plugin config brand-voice voice "Clear, direct, concrete, no hype."
 ```
 
 When a reply uses plugin-provided prompt context, the TUI shows a footer such
