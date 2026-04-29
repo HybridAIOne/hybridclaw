@@ -223,7 +223,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Configure concierge routing',
   },
   config: {
-    command: '/config [check|reload|set <key> <value>]',
+    command: '/config [check|reload|get <key>|set <key> <value>]',
     description: 'Show or update local runtime config',
   },
   context: {
@@ -539,6 +539,10 @@ export function mapCanonicalCommandToGatewayArgs(
       if (!sub) return ['config'];
       if (sub === 'check') return ['config', 'check'];
       if (sub === 'reload') return ['config', 'reload'];
+      if (sub === 'get') {
+        const key = (parts[2] || '').trim();
+        return key ? ['config', 'get', key] : ['config', 'get'];
+      }
       if (sub === 'set') {
         const key = (parts[2] || '').trim();
         const value = parts.slice(3).join(' ').trim();
@@ -1170,9 +1174,19 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'config',
       description:
-        'Show, validate, reload, or set the local runtime config file',
+        'Show, validate, reload, get, or set the local runtime config file',
       tuiOnly: true,
+      tuiMenu: {
+        label: '/config [check|reload|get|set] [key] [value]',
+        insertText: '/config ',
+      },
       tuiMenuEntries: [
+        {
+          id: 'config.get',
+          label: '/config get <key>',
+          insertText: '/config get ',
+          description: 'Show one runtime config value',
+        },
         {
           id: 'config.set',
           label: '/config set <key> <value>',
@@ -1200,6 +1214,7 @@ function buildSlashCommandCatalogDefinitions(
           choices: [
             { name: 'check', value: 'check' },
             { name: 'reload', value: 'reload' },
+            { name: 'get', value: 'get' },
             { name: 'set', value: 'set' },
           ],
         },
@@ -2689,6 +2704,7 @@ export function parseCanonicalSlashCommandArgs(
       if (!action && !key && !value) return ['config'];
       if (action === 'check' && !key && !value) return ['config', 'check'];
       if (action === 'reload' && !key && !value) return ['config', 'reload'];
+      if (action === 'get' && key && !value) return ['config', 'get', key];
       if (action !== 'set' || !key || !value) return null;
       return ['config', 'set', key, value];
     }

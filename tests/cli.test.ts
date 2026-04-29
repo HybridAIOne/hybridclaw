@@ -3551,6 +3551,25 @@ describe('CLI hybridai commands', () => {
     expect(process.exitCode).toBe(0);
   });
 
+  it('prints a single runtime config value from the top-level config command', async () => {
+    const { cli, runtimeConfigPath } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'get', 'hybridai.maxTokens']);
+
+    expect(logSpy).toHaveBeenCalledWith(`Active config: ${runtimeConfigPath()}`);
+    expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
+    expect(logSpy).toHaveBeenCalledWith('4096');
+  });
+
+  it('rejects extra arguments for config get', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['config', 'get', 'hybridai.maxTokens', 'typo']),
+    ).rejects.toThrow('Usage: `hybridclaw config get <key>`');
+  });
+
   it('reloads runtime config from disk through the top-level config command', async () => {
     const { cli, reloadRuntimeConfig, runDoctorCli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

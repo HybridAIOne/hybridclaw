@@ -329,6 +329,18 @@ test('registers config as a local slash/text command', async () => {
       commandName: 'config',
       getString: (name) =>
         name === 'action'
+          ? 'get'
+          : name === 'key'
+            ? 'hybridai.maxTokens'
+            : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'get', 'hybridai.maxTokens']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) =>
+        name === 'action'
           ? 'set'
           : name === 'key'
             ? 'hybridai.maxTokens'
@@ -347,6 +359,9 @@ test('registers config as a local slash/text command', async () => {
     'config',
     'reload',
   ]);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['config', 'get', 'hybridai.maxTokens']),
+  ).toEqual(['config', 'get', 'hybridai.maxTokens']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'config',
@@ -725,7 +740,7 @@ test('builds local session help entries from the registry with surface filtering
         command: '/auth status <provider>',
       }),
       expect.objectContaining({
-        command: '/config [check|reload|set <key> <value>]',
+        command: '/config [check|reload|get <key>|set <key> <value>]',
       }),
       expect.objectContaining({
         command: '/paste',
@@ -741,7 +756,7 @@ test('builds local session help entries from the registry with surface filtering
         command: '/auth status <provider>',
       }),
       expect.objectContaining({
-        command: '/config [check|reload|set <key> <value>]',
+        command: '/config [check|reload|get <key>|set <key> <value>]',
       }),
     ]),
   );
