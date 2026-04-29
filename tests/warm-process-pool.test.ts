@@ -153,21 +153,38 @@ test('applies cold-start budget config changes without recreating samples', () =
   expect(pool.isWithinColdStartBudget()).toBe(true);
 });
 
-test('does not claim a warm entry before the worker is ready', () => {
+test('prefers ready warm entries but falls back to warming entries', () => {
   const pool = new WarmProcessPool(
     normalizeWarmProcessPoolConfig({ maxIdlePerAgent: 2 }),
   );
-  let ready = false;
-  const entry = {
+  const warming = {
     ...makeEntry('warming', 'agent_a', 100),
-    isReady: () => ready,
+    isReady: () => false,
+  };
+  const ready = {
+    ...makeEntry('ready', 'agent_a', 90),
+    isReady: () => true,
   };
 
-  pool.add(entry);
+  pool.add(warming);
+  pool.add(ready);
 
-  expect(pool.claim('agent_a')).toBeNull();
-  ready = true;
-  expect(pool.claim('agent_a')).toBe(entry);
+  expect(pool.claim('agent_a')).toBe(ready);
+  expect(pool.claim('agent_a')).toBe(warming);
+});
+
+test('claims warming entries instead of forcing redundant spawns', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({ maxIdlePerAgent: 2 }),
+  );
+  const warming = {
+    ...makeEntry('warming', 'agent_a', 100),
+    isReady: () => false,
+  };
+
+  pool.add(warming);
+
+  expect(pool.claim('agent_a')).toBe(warming);
 });
 
 test('reports synthetic p95 cold-start budget compliance', () => {

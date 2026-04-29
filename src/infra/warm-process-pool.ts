@@ -117,12 +117,20 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   }
 
   claim(agentId: string, now = Date.now()): T | null {
-    let claimed: T | null = null;
+    let readyClaim: T | null = null;
+    let warmingClaim: T | null = null;
     for (const entry of this.entries.values()) {
       if (entry.agentId !== agentId) continue;
-      if (entry.isReady && !entry.isReady()) continue;
-      if (!claimed || entry.lastUsedAt > claimed.lastUsedAt) claimed = entry;
+      const isReady = !entry.isReady || entry.isReady();
+      if (isReady) {
+        if (!readyClaim || entry.lastUsedAt > readyClaim.lastUsedAt)
+          readyClaim = entry;
+        continue;
+      }
+      if (!warmingClaim || entry.lastUsedAt > warmingClaim.lastUsedAt)
+        warmingClaim = entry;
     }
+    const claimed = readyClaim || warmingClaim;
     if (!claimed) return null;
     this.entries.delete(claimed.id);
     claimed.lastUsedAt = now;
