@@ -679,13 +679,7 @@ test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without 
 
   const warnMock = vi.fn();
   vi.doMock('../src/logger.js', () => ({
-    logger: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: warnMock,
-      error: vi.fn(),
-      fatal: vi.fn(),
-    },
+    logger: { warn: warnMock },
   }));
   vi.doMock('../src/providers/model-catalog.js', async () => {
     const actual = await vi.importActual<
