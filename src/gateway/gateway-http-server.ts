@@ -88,7 +88,9 @@ import {
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
   getSessionAuthPayload,
+  hasLocalWebSessionAuth,
   hasSessionAuth,
+  setLocalWebSessionCookie,
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
@@ -654,10 +656,93 @@ function hasQueryToken(url: URL): boolean {
   return token === GATEWAY_API_TOKEN;
 }
 
+function isLoopbackSocketAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  if (address === '::1') return true;
+  if (address.startsWith('::ffff:')) {
+    const mappedAddress = address.slice('::ffff:'.length);
+    return (
+      mappedAddress === '127.0.0.1' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(mappedAddress)
+    );
+  }
+  if (address === '127.0.0.1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+}
+
+function isLoopbackHost(value: string): boolean {
+  const host = value.trim().toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost') return true;
+  return isLoopbackSocketAddress(host);
+}
+
+function hasForwardingHeaders(req: IncomingMessage): boolean {
+  return (
+    req.headers.forwarded !== undefined ||
+    req.headers['x-forwarded-for'] !== undefined ||
+    req.headers['x-forwarded-host'] !== undefined ||
+    req.headers['x-forwarded-proto'] !== undefined
+  );
+}
+
+function extractHostnameFromHostHeader(
+  value: string | string[] | undefined,
+): string | null {
+  const host = normalizeHeaderValue(value);
+  if (!host) return null;
+  if (host.startsWith('[')) {
+    const endIndex = host.indexOf(']');
+    if (endIndex === -1) return null;
+    return host.slice(1, endIndex).trim().toLowerCase() || null;
+  }
+  const colonIndex = host.indexOf(':');
+  return (colonIndex === -1 ? host : host.slice(0, colonIndex))
+    .trim()
+    .toLowerCase();
+}
+
+function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
+  const requestHost = extractHostnameFromHostHeader(req.headers.host);
+  return (
+    !WEB_API_TOKEN &&
+    isLoopbackHost(HEALTH_HOST) &&
+    isLoopbackSocketAddress(req.socket.remoteAddress) &&
+    !hasForwardingHeaders(req) &&
+    Boolean(requestHost && isLoopbackHost(requestHost))
+  );
+}
+
+function requestUsesHttps(req: IncomingMessage): boolean {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto) return forwardedProto === 'https';
+  return (req.socket as { encrypted?: boolean }).encrypted === true;
+}
+
+function resolveRequestOriginForAuth(req: IncomingMessage): string | null {
+  const host = String(req.headers.host || '').trim();
+  if (!host) return null;
+  const protocol = requestUsesHttps(req) ? 'https' : 'http';
+  return `${protocol}://${host}`;
+}
+
+function hasSameGatewayOrigin(req: IncomingMessage): boolean {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return false;
+  return origin === resolveRequestOriginForAuth(req);
+}
+
 function hasApiAuth(
   req: IncomingMessage,
   url?: URL,
-  opts?: { allowQueryToken?: boolean },
+  opts?: {
+    allowLocalWebSession?: boolean;
+    allowQueryToken?: boolean;
+    requireSameOrigin?: boolean;
+  },
 ): boolean {
   const authHeader = req.headers.authorization || '';
   const gatewayTokenMatch =
@@ -665,6 +750,14 @@ function hasApiAuth(
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
   if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (
+    opts?.allowLocalWebSession &&
+    isLocalWebSessionAllowed(req) &&
+    hasLocalWebSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
+  }
   return gatewayTokenMatch;
 }
 
@@ -791,13 +884,10 @@ function resolveRequestOrigin(
   const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
   if (explicitBaseUrl) return explicitBaseUrl;
 
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    ?.trim();
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
     ?.trim();
-  const proto = forwardedProto || 'http';
+  const proto = requestUsesHttps(req) ? 'https' : 'http';
   const host = forwardedHost || req.headers.host || `127.0.0.1:${HEALTH_PORT}`;
   return `${proto}://${host}`;
 }
@@ -823,6 +913,14 @@ function isConsoleSpaPath(pathname: string): boolean {
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
     pathname.startsWith('/chat/')
+  );
+}
+
+function isLocalWebSurfacePath(pathname: string): boolean {
+  return (
+    isConsoleSpaPath(pathname) ||
+    pathname === '/agents' ||
+    pathname === '/agents.html'
   );
 }
 
@@ -1882,7 +1980,7 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url)) {
+  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -3477,7 +3575,12 @@ function handleApiArtifact(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowQueryToken: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowQueryToken: true,
+    })
+  ) {
     sendJson(res, 401, {
       error:
         'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
@@ -3723,6 +3826,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       if (
         !hasApiAuth(req, url, {
           allowQueryToken: pathname === '/api/events',
+          allowLocalWebSession: true,
+          requireSameOrigin: method !== 'GET',
         })
       ) {
         sendJson(res, 401, {
@@ -4031,6 +4136,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (isLocalWebSurfacePath(pathname)) {
+      if (!WEB_API_TOKEN && !isLoopbackHost(HEALTH_HOST)) {
+        sendText(
+          res,
+          401,
+          'Unauthorized. Configure WEB_API_TOKEN before exposing the web console on a non-loopback host.',
+        );
+        return;
+      }
+      if (isLocalWebSessionAllowed(req)) {
+        setLocalWebSessionCookie(res);
+      }
+    }
+
     if (isConsoleSpaPath(pathname)) {
       if (serveConsoleIndex(res)) return;
       sendText(
@@ -4059,8 +4178,23 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     const sessionAuthenticated = hasSessionAuth(req);
+    const tokenAuthenticated = hasApiAuth(req, url, {
+      allowQueryToken: false,
+    });
+    if (
+      !sessionAuthenticated &&
+      !tokenAuthenticated &&
+      isLocalWebSessionAllowed(req) &&
+      hasLocalWebSessionAuth(req) &&
+      !hasSameGatewayOrigin(req)
+    ) {
+      writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
     const requestAuthenticated = hasApiAuth(req, url, {
       allowQueryToken: false,
+      allowLocalWebSession: true,
+      requireSameOrigin: true,
     });
     if (
       !sessionAuthenticated &&
