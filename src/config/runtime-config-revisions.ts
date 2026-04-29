@@ -49,6 +49,11 @@ export interface RuntimeConfigRevision extends RuntimeConfigRevisionSummary {
   content: string;
 }
 
+export interface RuntimeConfigRevisionHistory {
+  revisions: RuntimeConfigRevision[];
+  state: RuntimeConfigRevisionState | null;
+}
+
 export interface RuntimeConfigRevisionState {
   actor: string;
   route: string;
@@ -558,6 +563,35 @@ export function listRuntimeAssetRevisions(
       .all(normalizedAssetType, assetPath)
       .map((row) => mapRevisionSummaryRow(row)),
   );
+}
+
+export function listRuntimeAssetRevisionHistory(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionHistory {
+  const normalizedAssetType = normalizeRevisionAssetType(assetType);
+  return withRevisionDatabase((database) => {
+    const revisions = database
+      .prepare<[string, string], ConfigRevisionRow>(
+        `SELECT id, asset_type, actor, route, source, md5, byte_length, content, created_at, replaced_by_md5
+         FROM config_revisions
+         WHERE asset_type = ? AND config_path = ?
+         ORDER BY id DESC`,
+      )
+      .all(normalizedAssetType, assetPath)
+      .map((row) => mapRevisionRow(row));
+    const state = database
+      .prepare<[string, string], ConfigRevisionStateRow>(
+        `SELECT current_content, actor, route, source, updated_at
+         FROM config_revision_state
+         WHERE asset_type = ? AND config_path = ?`,
+      )
+      .get(normalizedAssetType, assetPath);
+    return {
+      revisions,
+      state: state ? mapRevisionStateRow(state) : null,
+    };
+  });
 }
 
 export function getRuntimeConfigRevision(

@@ -1,10 +1,9 @@
 import path from 'node:path';
 
 import {
-  getRuntimeAssetRevision,
-  getRuntimeAssetRevisionState,
-  listRuntimeAssetRevisions,
+  listRuntimeAssetRevisionHistory,
   type RuntimeConfigChangeMeta,
+  type RuntimeConfigRevision,
   type RuntimeConfigRevisionSummary,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
@@ -42,8 +41,8 @@ export function agentTeamStructureAssetPath(): string {
 }
 
 function revisionNextContent(params: {
-  revision: RuntimeConfigRevisionSummary;
-  revisions: RuntimeConfigRevisionSummary[];
+  revision: RuntimeConfigRevision;
+  revisions: RuntimeConfigRevision[];
   currentContent: string;
 }): string | null {
   if (!params.revision.replacedByMd5) return null;
@@ -54,31 +53,15 @@ function revisionNextContent(params: {
   const nextRevision = params.revisions.find(
     (candidate) => candidate.md5 === params.revision.replacedByMd5,
   );
-  if (!nextRevision) return null;
-  const record = getRuntimeAssetRevision(
-    'team',
-    AGENT_TEAM_STRUCTURE_ASSET_PATH,
-    nextRevision.id,
-  );
-  return record?.content ?? null;
+  return nextRevision?.content ?? null;
 }
 
 function summarizeRevision(params: {
-  revision: RuntimeConfigRevisionSummary;
-  revisions: RuntimeConfigRevisionSummary[];
+  revision: RuntimeConfigRevision;
+  revisions: RuntimeConfigRevision[];
   currentContent: string;
 }): AgentTeamStructureRevisionSummary {
-  const record = getRuntimeAssetRevision(
-    'team',
-    AGENT_TEAM_STRUCTURE_ASSET_PATH,
-    params.revision.id,
-  );
-  if (!record) {
-    throw new Error(
-      `Team structure revision ${params.revision.id} was not found.`,
-    );
-  }
-  const snapshot = parseAgentTeamStructureSnapshot(record.content);
+  const snapshot = parseAgentTeamStructureSnapshot(params.revision.content);
   const nextContent = revisionNextContent(params);
   const nextSnapshot = nextContent
     ? parseAgentTeamStructureSnapshot(nextContent)
@@ -110,15 +93,18 @@ export function syncAgentTeamStructureRevisionState(
 export function listAgentTeamStructureRevisions(
   currentAgents: AgentConfig[],
 ): AgentTeamStructureRevisionSummary[] {
-  const revisions = listRuntimeAssetRevisions(
+  const history = listRuntimeAssetRevisionHistory(
     'team',
     AGENT_TEAM_STRUCTURE_ASSET_PATH,
   );
   const currentContent =
-    getRuntimeAssetRevisionState('team', AGENT_TEAM_STRUCTURE_ASSET_PATH)
-      ?.content ?? serializeAgentTeamStructure(currentAgents);
-  return revisions.map((revision) =>
-    summarizeRevision({ revision, revisions, currentContent }),
+    history.state?.content ?? serializeAgentTeamStructure(currentAgents);
+  return history.revisions.map((revision) =>
+    summarizeRevision({
+      revision,
+      revisions: history.revisions,
+      currentContent,
+    }),
   );
 }
 
@@ -126,31 +112,24 @@ export function getAgentTeamStructureRevision(
   revisionId: number,
   currentAgents: AgentConfig[],
 ): AgentTeamStructureRevision {
-  const revisions = listRuntimeAssetRevisions(
+  const history = listRuntimeAssetRevisionHistory(
     'team',
     AGENT_TEAM_STRUCTURE_ASSET_PATH,
   );
-  const summary = revisions.find((revision) => revision.id === revisionId);
-  if (!summary) {
-    throw new Error(`Team structure revision ${revisionId} was not found.`);
-  }
-  const record = getRuntimeAssetRevision(
-    'team',
-    AGENT_TEAM_STRUCTURE_ASSET_PATH,
-    revisionId,
+  const revision = history.revisions.find(
+    (candidate) => candidate.id === revisionId,
   );
-  if (!record) {
+  if (!revision) {
     throw new Error(`Team structure revision ${revisionId} was not found.`);
   }
   const currentContent =
-    getRuntimeAssetRevisionState('team', AGENT_TEAM_STRUCTURE_ASSET_PATH)
-      ?.content ?? serializeAgentTeamStructure(currentAgents);
+    history.state?.content ?? serializeAgentTeamStructure(currentAgents);
   const nextContent = revisionNextContent({
-    revision: summary,
-    revisions,
+    revision,
+    revisions: history.revisions,
     currentContent,
   });
-  const snapshot = parseAgentTeamStructureSnapshot(record.content);
+  const snapshot = parseAgentTeamStructureSnapshot(revision.content);
   const nextSnapshot = nextContent
     ? parseAgentTeamStructureSnapshot(nextContent)
     : null;
@@ -158,6 +137,7 @@ export function getAgentTeamStructureRevision(
     snapshot,
     nextSnapshot ?? snapshot,
   );
+  const { content: _content, ...summary } = revision;
   return {
     ...summary,
     diff,

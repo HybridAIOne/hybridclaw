@@ -2610,30 +2610,27 @@ export function replaceAgentOrgChart(
       syncAttachedTeamRevisionState(currentAgents, revisionMeta);
     }
     const statement = db.prepare(
-      `INSERT INTO agents (
-         id,
-         role,
-         reports_to,
-         delegates_to,
-         peers,
-         created_at,
-         updated_at
-       ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET
-         role = excluded.role,
-         reports_to = excluded.reports_to,
-         delegates_to = excluded.delegates_to,
-         peers = excluded.peers,
-         updated_at = datetime('now')`,
+      `UPDATE agents
+       SET role = ?,
+           reports_to = ?,
+           delegates_to = ?,
+           peers = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
     );
     for (const agent of nextAgents) {
-      statement.run(
-        agent.id,
+      const result = statement.run(
         agent.role?.trim() || null,
         agent.reportsTo?.trim() || null,
         serializeAgentStringArray(agent.delegatesTo),
         serializeAgentStringArray(agent.peers),
+        agent.id,
       );
+      if (result.changes !== 1) {
+        throw new Error(
+          `Cannot restore team structure because agent "${agent.id}" does not exist.`,
+        );
+      }
     }
     if (revisionMeta) {
       syncAttachedTeamRevisionState(nextAgents, revisionMeta);
