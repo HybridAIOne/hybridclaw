@@ -69,6 +69,7 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
+import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
@@ -103,7 +104,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 23;
+export const CONFIG_VERSION = 24;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -255,6 +256,7 @@ export type RuntimeDeploymentTunnelProvider =
 
 export interface RuntimeDeploymentTunnelConfig {
   provider?: RuntimeDeploymentTunnelProvider;
+  health_check_interval_ms: number;
 }
 
 export interface RuntimeDeploymentConfig {
@@ -1015,6 +1017,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     public_url: '',
     tunnel: {
       provider: 'manual',
+      health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
     },
   },
   agents: {
@@ -1809,7 +1812,14 @@ export function normalizeDeploymentConfig(
   return {
     mode: normalizeDeploymentMode(raw.mode, fallback.mode),
     public_url: normalizeOptionalBaseUrl(raw.public_url, fallback.public_url),
-    tunnel: tunnelProvider ? { provider: tunnelProvider } : {},
+    tunnel: {
+      ...(tunnelProvider ? { provider: tunnelProvider } : {}),
+      health_check_interval_ms: normalizeInteger(
+        rawTunnel.health_check_interval_ms,
+        fallback.tunnel.health_check_interval_ms,
+        { min: 1 },
+      ),
+    },
   };
 }
 
