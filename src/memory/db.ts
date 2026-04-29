@@ -2125,9 +2125,14 @@ function migrateV27(
     ddl: 'batch_hash TEXT',
     quiet,
   });
-  database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
-  `);
+  if (
+    tableExists(database, 'usage_events') &&
+    columnExists(database, 'usage_events', 'batch_id')
+  ) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
+    `);
+  }
 
   recordMigration(
     database,
