@@ -27,6 +27,7 @@ DEFAULT_FIELD_LIMIT = 80
 DEFAULT_OBJECT_LIMIT = 200
 DEFAULT_SEARCH_LIMIT = 10
 DEFAULT_MEETING_MINUTES = 30
+GATEWAY_TIMEOUT_BUFFER_S = 5
 
 SF_ACCESS_TOKEN_SECRET = "SF_ACCESS_TOKEN"
 SF_INSTANCE_URL_SECRET = "SF_INSTANCE_URL"
@@ -239,7 +240,9 @@ def gateway_request(
         proxy_url, data=encoded, method="POST", headers=proxy_headers,
     )
     try:
-        with request.urlopen(req, timeout=gw.timeout_ms / 1000 + 5) as resp:
+        with request.urlopen(
+            req, timeout=gw.timeout_ms / 1000 + GATEWAY_TIMEOUT_BUFFER_S
+        ) as resp:
             raw = resp.read().decode("utf-8")
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace").strip()
@@ -553,15 +556,18 @@ def find_single_record(
     ]
     if is_salesforce_id(cleaned):
         where = f"Id = '{escape_soql_literal(cleaned)}'"
+        order_clause = ""
         limit = 1
     else:
         exact = escape_soql_literal(cleaned)
-        where = f"Name = '{exact}'"
-        limit = 2
+        like = escape_soql_like_literal(cleaned)
+        where = f"(Name = '{exact}' OR Name LIKE '%{like}%')"
+        order_clause = " ORDER BY LastModifiedDate DESC"
+        limit = 6
 
     soql = (
         f"SELECT {', '.join(select_fields)} FROM {sobject} "
-        f"WHERE {where} LIMIT {limit}"
+        f"WHERE {where}{order_clause} LIMIT {limit}"
     )
     payload = run_query(
         session,
@@ -573,32 +579,18 @@ def find_single_record(
     records = payload.get("records", [])
     if isinstance(records, list) and len(records) == 1 and is_mapping(records[0]):
         return records[0]
-    if isinstance(records, list) and len(records) > 1:
-        names = ", ".join(
-            str(record.get("Name", record.get("Id")))
-            for record in records
-            if is_mapping(record)
-        )
-        raise SalesforceError(f"Ambiguous {sobject} target {cleaned!r}: {names}")
-
     if is_salesforce_id(cleaned):
         raise SalesforceError(f"No {sobject} found for id {cleaned!r}")
-
-    like = escape_soql_like_literal(cleaned)
-    soql = (
-        f"SELECT {', '.join(select_fields)} FROM {sobject} "
-        f"WHERE Name LIKE '%{like}%' ORDER BY LastModifiedDate DESC LIMIT 6"
-    )
-    payload = run_query(
-        session,
-        soql=soql,
-        tooling=False,
-        max_records=6,
-        keep_attributes=False,
-    )
-    records = payload.get("records", [])
-    if isinstance(records, list) and len(records) == 1 and is_mapping(records[0]):
-        return records[0]
+    if isinstance(records, list):
+        exact_records = [
+            record
+            for record in records
+            if is_mapping(record) and record.get("Name") == cleaned
+        ]
+        if len(exact_records) == 1:
+            return exact_records[0]
+        if len(exact_records) > 1:
+            records = exact_records
     if not records:
         raise SalesforceError(f"No {sobject} found matching {cleaned!r}")
     names = ", ".join(
@@ -624,6 +616,8 @@ def strip_attributes(value: Any) -> Any:
 def list_objects(
     session: SalesforceSession, *, search: str, custom_only: bool, limit: int
 ) -> dict[str, Any]:
+    # Salesforce /sobjects has no server-side search/filter parameter, so this
+    # endpoint fetches the full object catalog before applying local filters.
     payload = session.get_json(session.data_path("/sobjects"))
     objects = payload.get("sobjects", []) if is_mapping(payload) else []
     if not isinstance(objects, list):

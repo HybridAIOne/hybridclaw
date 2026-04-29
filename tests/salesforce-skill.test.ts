@@ -18,6 +18,18 @@ const scenariosPath = path.join(
   'evals',
   'scenarios.json',
 );
+const assertionsPath = path.join(
+  process.cwd(),
+  'tests',
+  'fixtures',
+  'salesforce_helper_assertions.py',
+);
+
+function runAssertion(caseName: string) {
+  return spawnSync('python3', [assertionsPath, helperPath, caseName], {
+    encoding: 'utf-8',
+  });
+}
 
 test('salesforce helper --help exits cleanly', () => {
   const result = spawnSync('python3', [helperPath, '--help'], {
@@ -68,28 +80,7 @@ test('salesforce helper plans compound natural-language workflows offline', () =
 });
 
 test('salesforce helper preserves custom stage names and escapes SOQL LIKE wildcards', () => {
-  const result = spawnSync(
-    'python3',
-    [
-      '-c',
-      [
-        'import importlib.util, json, pathlib, sys',
-        'helper_path = pathlib.Path(sys.argv[1])',
-        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
-        'module = importlib.util.module_from_spec(spec)',
-        'sys.modules[spec.name] = module',
-        'spec.loader.exec_module(module)',
-        'print(json.dumps({',
-        '    "standardStage": module.normalize_stage_name("closed won"),',
-        '    "customStage": module.normalize_stage_name("legal review - phase_2"),',
-        '    "literal": module.escape_soql_literal("Acme_50%\'s"),',
-        '    "likeLiteral": module.escape_soql_like_literal("Acme_50%\'s"),',
-        '}))',
-      ].join('\n'),
-      helperPath,
-    ],
-    { encoding: 'utf-8' },
-  );
+  const result = runAssertion('normalize-and-escape');
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
@@ -102,58 +93,7 @@ test('salesforce helper preserves custom stage names and escapes SOQL LIKE wildc
 });
 
 test('salesforce helper validates Salesforce request URLs and reuses resolved opportunity ids', () => {
-  const result = spawnSync(
-    'python3',
-    [
-      '-c',
-      [
-        'import importlib.util, json, pathlib, sys',
-        'helper_path = pathlib.Path(sys.argv[1])',
-        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
-        'module = importlib.util.module_from_spec(spec)',
-        'sys.modules[spec.name] = module',
-        'spec.loader.exec_module(module)',
-        'gateway_calls = []',
-        'def fake_gateway_request(gateway, **kwargs):',
-        '    gateway_calls.append(kwargs)',
-        '    return {"ok": True}',
-        'module.gateway_request = fake_gateway_request',
-        'gateway = module.GatewayConfig(base_url="http://127.0.0.1:9090", api_token="test-token", timeout_ms=1000)',
-        'session = module.SalesforceSession(api_version="61.0", gateway=gateway)',
-        'session.request_json("GET", "/services/data/v61.0/query")',
-        'session.request_json("GET", "https://example.my.salesforce.com/services/data/v61.0/query")',
-        'errors = []',
-        'for bad in ["http://stubs", "services/data/v61.0/query"]:',
-        '    try:',
-        '        session.request_json("GET", bad)',
-        '    except module.ConfigError:',
-        '        errors.append(bad)',
-        'captured_targets = []',
-        'class DummySession:',
-        '    api_version = "61.0"',
-        'module.plan_natural_language = lambda statement: {',
-        '    "statement": statement,',
-        '    "actions": [',
-        '        {"action": "update-opportunity", "opportunity": "Acme", "stage": "Closed Won", "probability": 100},',
-        '        {"action": "log-activity", "activityType": "call", "target": " acme ", "targetObject": "Opportunity", "subject": "Call for Acme", "date": "today", "notes": statement},',
-        '    ],',
-        '}',
-        'module.update_opportunity = lambda *args, **kwargs: {"target": {"id": "006000000000001AAA", "name": "Acme"}}',
-        'def fake_log_activity(*args, **kwargs):',
-        '    captured_targets.append(kwargs["target"])',
-        '    return {"target": kwargs["target"]}',
-        'module.log_activity = fake_log_activity',
-        'module.run_planned_actions(DummySession(), statement="move and log", dry_run=False)',
-        'print(json.dumps({',
-        '    "urls": [call["url"] for call in gateway_calls],',
-        '    "errors": errors,',
-        '    "capturedTargets": captured_targets,',
-        '}))',
-      ].join('\n'),
-      helperPath,
-    ],
-    { encoding: 'utf-8' },
-  );
+  const result = runAssertion('request-and-reuse');
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
@@ -169,60 +109,7 @@ test('salesforce helper validates Salesforce request URLs and reuses resolved op
 });
 
 test('salesforce helper validates planned actions before writes and ignores malformed API versions', () => {
-  const result = spawnSync(
-    'python3',
-    [
-      '-c',
-      [
-        'import importlib.util, json, pathlib, sys',
-        'helper_path = pathlib.Path(sys.argv[1])',
-        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
-        'module = importlib.util.module_from_spec(spec)',
-        'sys.modules[spec.name] = module',
-        'spec.loader.exec_module(module)',
-        'gateway_payloads = []',
-        'def fake_gateway_request(gateway, **kwargs):',
-        '    return gateway_payloads.pop(0)',
-        'module.gateway_request = fake_gateway_request',
-        'gateway = module.GatewayConfig(base_url="http://127.0.0.1:9090", api_token="test-token", timeout_ms=1000)',
-        'gateway_payloads.append(["not-an-object", {"version": "60.0"}, 7, {"version": "61.0"}])',
-        'latest = module.resolve_latest_api_version(gateway)',
-        'gateway_payloads.append(["bad", {"label": "missing version"}])',
-        'invalid_version_error = ""',
-        'try:',
-        '    module.resolve_latest_api_version(gateway)',
-        'except module.SalesforceError as exc:',
-        '    invalid_version_error = str(exc)',
-        'writes = []',
-        'class DummySession:',
-        '    api_version = "61.0"',
-        'module.plan_natural_language = lambda statement: {',
-        '    "statement": statement,',
-        '    "actions": [',
-        '        {"action": "update-opportunity", "opportunity": "Acme", "stage": "Closed Won", "probability": 100},',
-        '        {"action": "find-records", "recordType": "leads", "search": "Acme", "limit": 10},',
-        '    ],',
-        '}',
-        'def fake_update(*args, **kwargs):',
-        '    writes.append(kwargs)',
-        '    return {"target": {"id": "006000000000001AAA", "name": "Acme"}}',
-        'module.update_opportunity = fake_update',
-        'plan_error = ""',
-        'try:',
-        '    module.run_planned_actions(DummySession(), statement="bad plan", dry_run=False)',
-        'except module.ConfigError as exc:',
-        '    plan_error = str(exc)',
-        'print(json.dumps({',
-        '    "latest": latest,',
-        '    "invalidVersionError": invalid_version_error,',
-        '    "planError": plan_error,',
-        '    "writeCount": len(writes),',
-        '}))',
-      ].join('\n'),
-      helperPath,
-    ],
-    { encoding: 'utf-8' },
-  );
+  const result = runAssertion('validate-plan-and-versions');
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
@@ -270,66 +157,7 @@ test('salesforce helper eval suite covers 30 read and write scenarios', () => {
 });
 
 test('salesforce helper builds gateway-backed opportunity update and activity writes', () => {
-  const result = spawnSync(
-    'python3',
-    [
-      '-c',
-      [
-        'import importlib.util, json, pathlib, sys',
-        'helper_path = pathlib.Path(sys.argv[1])',
-        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
-        'module = importlib.util.module_from_spec(spec)',
-        'sys.modules[spec.name] = module',
-        'spec.loader.exec_module(module)',
-        'class FakeSession:',
-        '    api_version = "61.0"',
-        '    def __init__(self):',
-        '        self.calls = []',
-        '    def data_path(self, suffix):',
-        '        return "/services/data/v61.0" + suffix',
-        '    def get_json(self, path):',
-        '        assert path.startswith("/services/data/v61.0/query?")',
-        '        return {',
-        '            "totalSize": 1,',
-        '            "done": True,',
-        '            "records": [{',
-        '                "Id": "006000000000001AAA",',
-        '                "Name": "Acme Renewal",',
-        '                "StageName": "Proposal/Price Quote",',
-        '                "Probability": 60,',
-        '            }],',
-        '        }',
-        '    def patch_json(self, path, payload):',
-        '        self.calls.append({"method": "PATCH", "path": path, "payload": payload})',
-        '        return {}',
-        '    def post_json(self, path, payload):',
-        '        self.calls.append({"method": "POST", "path": path, "payload": payload})',
-        '        return {"id": "00T000000000001AAA", "success": True}',
-        'session = FakeSession()',
-        'update = module.update_opportunity(',
-        '    session,',
-        '    identifier="Acme Renewal",',
-        '    stage="Closed Won",',
-        '    probability=None,',
-        '    dry_run=False,',
-        ')',
-        'activity = module.log_activity(',
-        '    session,',
-        '    activity_type="call",',
-        '    target="006000000000001AAA",',
-        '    target_object="opportunity",',
-        '    subject="Discovery follow-up",',
-        '    activity_date="today",',
-        '    notes="Spoke with the champion.",',
-        '    duration_minutes=30,',
-        '    dry_run=False,',
-        ')',
-        'print(json.dumps({"update": update, "activity": activity, "calls": session.calls}))',
-      ].join('\n'),
-      helperPath,
-    ],
-    { encoding: 'utf-8' },
-  );
+  const result = runAssertion('write-payloads');
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
@@ -356,38 +184,27 @@ test('salesforce helper builds gateway-backed opportunity update and activity wr
       path: '/services/data/v61.0/sobjects/Task',
     }),
   ]);
+  expect(payload.queryCount).toBe(2);
+});
+
+test('salesforce helper resolves fuzzy record names with one SOQL query', () => {
+  const result = runAssertion('single-query-fuzzy-resolution');
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.record).toEqual(
+    expect.objectContaining({
+      Id: '006000000000001AAA',
+      Name: 'Acme Renewal',
+    }),
+  );
+  expect(payload.queryCount).toBe(1);
+  expect(payload.query).toContain("Name = 'Acme Ren'");
+  expect(payload.query).toContain("Name LIKE '%Acme Ren%'");
 });
 
 test('salesforce helper routes all requests through gateway proxy', () => {
-  const result = spawnSync(
-    'python3',
-    [
-      '-c',
-      [
-        'import importlib.util, json, pathlib, sys',
-        'helper_path = pathlib.Path(sys.argv[1])',
-        'spec = importlib.util.spec_from_file_location("salesforce_query", helper_path)',
-        'module = importlib.util.module_from_spec(spec)',
-        'sys.modules[spec.name] = module',
-        'spec.loader.exec_module(module)',
-        '# Verify gateway_request exists and is the HTTP layer',
-        'assert callable(module.gateway_request)',
-        '# Verify no direct urllib request_json function exists',
-        'assert not hasattr(module, "request_json")',
-        '# Verify no secret resolution functions exist',
-        'assert not hasattr(module, "read_stored_secret")',
-        'assert not hasattr(module, "resolve_secret_input")',
-        'assert not hasattr(module, "normalize_stored_secret_output")',
-        '# Verify no AuthConfig (secrets are never loaded into the script)',
-        'assert not hasattr(module, "AuthConfig")',
-        '# Verify no store_secret function (token captured gateway-side)',
-        'assert not hasattr(module, "store_secret")',
-        'print(json.dumps({"ok": True}))',
-      ].join('\n'),
-      helperPath,
-    ],
-    { encoding: 'utf-8' },
-  );
+  const result = runAssertion('route-check');
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout.trim());
@@ -395,31 +212,7 @@ test('salesforce helper routes all requests through gateway proxy', () => {
 });
 
 test('salesforce helper never touches secrets directly', () => {
-  const result = spawnSync(
-    'python3',
-    [
-      '-c',
-      [
-        'import pathlib, sys',
-        'content = pathlib.Path(sys.argv[1]).read_text()',
-        'assert "secret show" not in content, (',
-        '    "Script must not read secrets via CLI"',
-        ')',
-        'assert "secret set" not in content, (',
-        '    "Script must not write secrets via CLI — use captureResponseSecrets"',
-        ')',
-        'assert "subprocess" not in content, (',
-        '    "Script must not shell out to manage secrets"',
-        ')',
-        'assert "captureResponseSecrets" not in content, (',
-        '    "Script must not reference captureResponseSecrets directly"',
-        ')',
-        'print("ok")',
-      ].join('\n'),
-      helperPath,
-    ],
-    { encoding: 'utf-8' },
-  );
+  const result = runAssertion('secret-scan');
 
   expect(result.status).toBe(0);
   expect(result.stdout.trim()).toBe('ok');
