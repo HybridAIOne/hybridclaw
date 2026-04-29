@@ -465,7 +465,9 @@ agent:
 existing registered agent, it cannot point back to the same agent, and cycles
 are rejected before the agent is persisted. `delegatesTo` and `peers` are
 stored as first-class arrays for routing and presentation; they do not imply
-managerial reporting.
+managerial reporting. Delegation and peer relationships are graph edges, not a
+tree: cycles are allowed, and any code that traverses those relationships must
+maintain its own visited set.
 
 HQ with per-client agencies:
 

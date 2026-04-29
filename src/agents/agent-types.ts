@@ -157,6 +157,8 @@ export function validateAgentOrgChart(agents: AgentConfig[]): void {
     reportsToByAgent.set(agent.id, reportsTo);
   }
 
+  // Delegation and peer links are graph edges, not a management tree. Validate
+  // targets here; traversal code must still keep its own visited set.
   for (const agent of agents) {
     for (const delegateId of agent.delegatesTo ?? []) {
       const normalizedDelegateId = normalizeTrimmedString(delegateId);
