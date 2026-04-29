@@ -11,12 +11,14 @@ import type {
   TunnelState,
   TunnelStatus,
 } from '../tunnel/tunnel-provider.js';
+import {
+  DEFAULT_TUNNEL_AUDIT_SESSION_ID,
+  errorMessage,
+} from '../tunnel/tunnel-provider-utils.js';
 import type {
   GatewayAdminTunnelHealth,
   GatewayAdminTunnelStatus,
 } from './gateway-types.js';
-
-const TUNNEL_AUDIT_SESSION_ID = 'system:tunnel';
 
 let managedProvider: TunnelProvider | null = null;
 let managedProviderKey: string | null = null;
@@ -50,10 +52,6 @@ function managedProviderKeyFor(params: {
       ? `:${params.healthCheckIntervalMs}`
       : '';
   return `${params.provider || 'none'}:${params.addr}${healthKey}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function stopStaleManagedProvider(provider: TunnelProvider): void {
@@ -145,7 +143,7 @@ export function getGatewayAdminTunnelStatus(): GatewayAdminTunnelStatus {
 export async function reconnectGatewayAdminTunnel(): Promise<GatewayAdminTunnelStatus> {
   const before = getGatewayAdminTunnelStatus();
   recordAuditEvent({
-    sessionId: TUNNEL_AUDIT_SESSION_ID,
+    sessionId: DEFAULT_TUNNEL_AUDIT_SESSION_ID,
     runId: makeAuditRunId('tunnel-admin'),
     event: {
       type: 'tunnel.manual_reconnect',

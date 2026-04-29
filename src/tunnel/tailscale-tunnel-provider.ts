@@ -1,9 +1,5 @@
 import { execFile } from 'node:child_process';
-import {
-  recordAuditEvent as defaultRecordAuditEvent,
-  makeAuditRunId,
-  type RecordAuditEventInput,
-} from '../audit/audit-events.js';
+import { recordAuditEvent as defaultRecordAuditEvent } from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import {
   DEFAULT_TUNNEL_HEALTH_CHECK_TIMEOUT_MS as DEFAULT_COMMAND_TIMEOUT_MS,
@@ -12,14 +8,23 @@ import {
   DEFAULT_TUNNEL_RECONNECT_MAX_BACKOFF_MS as DEFAULT_RECONNECT_MAX_BACKOFF_MS,
   type TunnelProvider,
   type TunnelStartResult,
-  type TunnelState,
   type TunnelStatus,
 } from './tunnel-provider.js';
+import {
+  DEFAULT_TUNNEL_AUDIT_SESSION_ID,
+  errorMessage,
+  makeTunnelRunId,
+  normalizeDurationMs,
+  recordTunnelAudit,
+  redactSecret,
+  type TunnelAuditRecorder,
+  TunnelStatusTracker,
+  type TunnelStatusUpdate,
+  type TunnelTimer,
+} from './tunnel-provider-utils.js';
 
 export const TS_AUTHKEY_SECRET = 'TS_AUTHKEY';
 export const DEFAULT_TAILSCALE_TUNNEL_ADDR = 'localhost:9090';
-
-const TUNNEL_AUDIT_SESSION_ID = 'system:tunnel';
 
 type TailscaleCommandResult = {
   stdout: string;
@@ -33,17 +38,6 @@ type TailscaleCommandRunner = (
   args: string[],
   options?: TailscaleCommandOptions,
 ) => Promise<TailscaleCommandResult>;
-type TunnelTimer = ReturnType<typeof setTimeout>;
-type TunnelAuditRecorder = (
-  input: RecordAuditEventInput,
-) => void | Promise<void>;
-type TunnelStatusUpdate = {
-  lastCheckedAt?: string | null;
-  lastError?: string | null;
-  nextReconnectAt?: string | null;
-  reconnectAttempt?: number;
-  state?: TunnelState;
-};
 
 export interface TailscaleTunnelProviderOptions {
   addr?: string;
@@ -91,6 +85,7 @@ function defaultCommandRunner(
 ): TailscaleCommandRunner {
   return (args, options) =>
     runTailscaleCommand(command, args, {
+      ...options,
       timeoutMs: options?.timeoutMs ?? timeoutMs,
     });
 }
@@ -98,21 +93,6 @@ function defaultCommandRunner(
 function normalizeAddr(value: string | undefined): string {
   const trimmed = value?.trim();
   return trimmed || DEFAULT_TAILSCALE_TUNNEL_ADDR;
-}
-
-function normalizeDurationMs(value: unknown, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.max(1, Math.trunc(value));
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function redactSecret(message: string, secret: string): string {
-  const trimmed = secret.trim();
-  if (!trimmed) return message;
-  return message.replaceAll(trimmed, '<redacted>');
 }
 
 function parseJson(value: string): unknown {
@@ -182,22 +162,16 @@ export class TailscaleTunnelProvider implements TunnelProvider {
   private readonly addr: string;
   private readonly commandTimeoutMs: number;
   private readonly healthCheckIntervalMs: number;
-  private readonly onStatusChange?: (status: TunnelStatus) => void;
   private readonly readSecret: (secretName: string) => string | null;
   private readonly reconnectInitialBackoffMs: number;
   private readonly reconnectMaxBackoffMs: number;
   private readonly recordAuditEvent: TunnelAuditRecorder;
   private readonly runCommand: TailscaleCommandRunner;
+  private readonly statusTracker: TunnelStatusTracker;
   private readonly tokenSecretName: string;
   private healthTimer: TunnelTimer | null = null;
-  private lastCheckedAt: string | null = null;
-  private lastError: string | null = null;
-  private nextReconnectAt: string | null = null;
   private publicUrl: string | null = null;
-  private reconnectAttempt = 0;
   private reconnectTimer: TunnelTimer | null = null;
-  private state: TunnelState = 'down';
-  private statusVersion = 0;
   private tunnelRunId: string | null = null;
 
   constructor(options: TailscaleTunnelProviderOptions = {}) {
@@ -210,7 +184,6 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       options.healthCheckIntervalMs,
       DEFAULT_HEALTH_INTERVAL_MS,
     );
-    this.onStatusChange = options.onStatusChange;
     this.readSecret = options.readSecret ?? readStoredRuntimeSecret;
     this.reconnectInitialBackoffMs = normalizeDurationMs(
       options.reconnectInitialBackoffMs,
@@ -233,6 +206,10 @@ export class TailscaleTunnelProvider implements TunnelProvider {
         this.commandTimeoutMs,
       );
     this.tokenSecretName = options.tokenSecretName?.trim() || TS_AUTHKEY_SECRET;
+    this.statusTracker = new TunnelStatusTracker(
+      () => this.status(),
+      options.onStatusChange,
+    );
   }
 
   async start(): Promise<TunnelStartResult> {
@@ -241,10 +218,12 @@ export class TailscaleTunnelProvider implements TunnelProvider {
     }
 
     const startReason =
-      this.state === 'reconnecting' ? 'manual_reconnect' : 'started';
+      this.statusTracker.state === 'reconnecting'
+        ? 'manual_reconnect'
+        : 'started';
     this.clearTimer('healthTimer');
     this.clearTimer('reconnectTimer');
-    this.updateStatus({
+    this.statusTracker.update({
       lastCheckedAt: null,
       lastError: null,
       nextReconnectAt: null,
@@ -334,15 +313,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
   }
 
   status(): TunnelStatus {
-    return {
-      running: Boolean(this.publicUrl),
-      public_url: this.publicUrl,
-      state: this.state,
-      last_error: this.lastError,
-      last_checked_at: this.lastCheckedAt,
-      next_reconnect_at: this.nextReconnectAt,
-      reconnect_attempt: this.reconnectAttempt,
-    };
+    return this.statusTracker.snapshot(Boolean(this.publicUrl), this.publicUrl);
   }
 
   private async getStatusJson(): Promise<unknown> {
@@ -388,7 +359,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
 
   private scheduleHealthCheck(): void {
     this.clearTimer('healthTimer');
-    if (!this.publicUrl || this.state !== 'up') return;
+    if (!this.publicUrl || this.statusTracker.state !== 'up') return;
     this.healthTimer = setTimeout(() => {
       this.healthTimer = null;
       void this.runHealthCheck();
@@ -398,7 +369,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
 
   private async runHealthCheck(): Promise<void> {
     const publicUrl = this.publicUrl;
-    if (!publicUrl || this.state !== 'up') return;
+    if (!publicUrl || this.statusTracker.state !== 'up') return;
 
     const checkedAt = new Date().toISOString();
     try {
@@ -408,9 +379,10 @@ export class TailscaleTunnelProvider implements TunnelProvider {
           'Tailscale Funnel status did not report an active public URL.',
         );
       }
-      if (this.publicUrl !== publicUrl || this.state !== 'up') return;
+      if (this.publicUrl !== publicUrl || this.statusTracker.state !== 'up')
+        return;
       this.publicUrl = currentPublicUrl;
-      this.updateStatus({
+      this.statusTracker.update({
         lastCheckedAt: checkedAt,
         lastError: null,
         nextReconnectAt: null,
@@ -419,7 +391,8 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       });
       this.scheduleHealthCheck();
     } catch (error) {
-      if (this.publicUrl !== publicUrl || this.state !== 'up') return;
+      if (this.publicUrl !== publicUrl || this.statusTracker.state !== 'up')
+        return;
       const message = errorMessage(error);
       const { tunnelRunId } = this.clearActiveTunnel({
         lastCheckedAt: checkedAt,
@@ -448,13 +421,13 @@ export class TailscaleTunnelProvider implements TunnelProvider {
   }
 
   private scheduleReconnect(message: string): void {
-    const attempt = this.reconnectAttempt + 1;
+    const attempt = this.statusTracker.reconnectAttempt + 1;
     const delayMs = Math.min(
       this.reconnectMaxBackoffMs,
       this.reconnectInitialBackoffMs * 2 ** Math.max(0, attempt - 1),
     );
     const nextReconnectAt = new Date(Date.now() + delayMs).toISOString();
-    this.updateStatus({
+    this.statusTracker.update({
       lastError: message,
       nextReconnectAt,
       reconnectAttempt: attempt,
@@ -469,7 +442,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
   }
 
   private async reconnect(): Promise<void> {
-    if (this.state !== 'reconnecting' || this.publicUrl) return;
+    if (this.statusTracker.state !== 'reconnecting' || this.publicUrl) return;
     const authKey = this.readSecret(this.tokenSecretName)?.trim() || '';
     try {
       const publicUrl = await this.openTunnel(authKey);
@@ -480,68 +453,12 @@ export class TailscaleTunnelProvider implements TunnelProvider {
     }
   }
 
-  private updateStatus(update: TunnelStatusUpdate): void {
-    const previousVersion = this.statusVersion;
-    let changed = false;
-    if ('lastCheckedAt' in update) {
-      const next = update.lastCheckedAt ?? null;
-      if (this.lastCheckedAt !== next) {
-        this.lastCheckedAt = next;
-        changed = true;
-      }
-    }
-    if ('lastError' in update) {
-      const next = update.lastError ?? null;
-      if (this.lastError !== next) {
-        this.lastError = next;
-        changed = true;
-      }
-    }
-    if ('nextReconnectAt' in update) {
-      const next = update.nextReconnectAt ?? null;
-      if (this.nextReconnectAt !== next) {
-        this.nextReconnectAt = next;
-        changed = true;
-      }
-    }
-    if ('reconnectAttempt' in update) {
-      const next = Math.max(0, update.reconnectAttempt ?? 0);
-      if (this.reconnectAttempt !== next) {
-        this.reconnectAttempt = next;
-        changed = true;
-      }
-    }
-    if (update.state && this.state !== update.state) {
-      this.state = update.state;
-      changed = true;
-    }
-
-    if (changed) {
-      this.statusVersion += 1;
-    }
-    if (this.statusVersion !== previousVersion) {
-      this.publishStatusChange();
-    }
-  }
-
-  private publishStatusChange(): void {
-    if (!this.onStatusChange) return;
-    try {
-      this.onStatusChange(this.status());
-    } catch (error) {
-      console.warn(
-        '[tunnel] status change handler failed.',
-        errorMessage(error),
-      );
-    }
-  }
-
   private async markTunnelUp(publicUrl: string, reason: string): Promise<void> {
     const wasRunning = Boolean(this.publicUrl);
-    const tunnelRunId = this.tunnelRunId ?? makeAuditRunId('tunnel');
+    const tunnelRunId = this.tunnelRunId ?? makeTunnelRunId();
     this.publicUrl = publicUrl;
     this.tunnelRunId = tunnelRunId;
-    this.updateStatus({
+    this.statusTracker.update({
       lastCheckedAt: new Date().toISOString(),
       lastError: null,
       nextReconnectAt: null,
@@ -566,24 +483,13 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       runId?: string | null;
     },
   ): Promise<void> {
-    try {
-      await this.recordAuditEvent({
-        sessionId: TUNNEL_AUDIT_SESSION_ID,
-        runId: details.runId ?? makeAuditRunId('tunnel'),
-        event: {
-          type,
-          provider: 'tailscale',
-          reason: details.reason,
-          ...(details.publicUrl ? { public_url: details.publicUrl } : {}),
-          ...(details.error ? { error: details.error } : {}),
-        },
-      });
-    } catch (error) {
-      console.warn(
-        '[tunnel] failed to record tunnel audit event.',
-        errorMessage(error),
-      );
-    }
+    await recordTunnelAudit({
+      auditSessionId: DEFAULT_TUNNEL_AUDIT_SESSION_ID,
+      details,
+      provider: 'tailscale',
+      recordAuditEvent: this.recordAuditEvent,
+      type,
+    });
   }
 
   private clearActiveTunnel(update: TunnelStatusUpdate): {
@@ -594,7 +500,7 @@ export class TailscaleTunnelProvider implements TunnelProvider {
     const tunnelRunId = this.tunnelRunId;
     this.publicUrl = null;
     this.tunnelRunId = null;
-    this.updateStatus(update);
+    this.statusTracker.update(update);
     return { publicUrl, tunnelRunId };
   }
 }
