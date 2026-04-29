@@ -6,6 +6,7 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { logger } from '../logger.js';
 import {
   type ConfidentialPlaceholderMap,
   createPlaceholderMap,
@@ -100,6 +101,7 @@ interface RedactionStats {
 }
 
 const TRACE_TAIL_TRUNCATED_MARKER = '[truncated leading trace]\n';
+let loggedMissingConfidentialTraceRules = false;
 
 const DEFAULT_TRACE_JUDGE_TEMPLATE: TracePromptTemplate = {
   id: 'trace-judge-v1',
@@ -301,7 +303,14 @@ function resolveRuleSet(
   if (options.confidentialRuleSet !== undefined) {
     return options.confidentialRuleSet;
   }
-  return isConfidentialRedactionEnabled() ? getConfidentialRuleSet() : null;
+  if (isConfidentialRedactionEnabled()) return getConfidentialRuleSet();
+  if (!loggedMissingConfidentialTraceRules) {
+    loggedMissingConfidentialTraceRules = true;
+    logger.warn(
+      'Confidential trace redaction is not configured; judge trace preparation will apply secret-pattern redaction only.',
+    );
+  }
+  return null;
 }
 
 function redactTrace(
@@ -424,6 +433,27 @@ function defaultTemplateFileContent(): string {
   return `${JSON.stringify(DEFAULT_TRACE_JUDGE_TEMPLATE, null, 2)}\n`;
 }
 
+function writeTemplateFileIfMissing(templatePath: string): void {
+  fs.mkdirSync(path.dirname(templatePath), { recursive: true });
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(templatePath, 'wx', 0o600);
+    fs.writeFileSync(fd, defaultTemplateFileContent(), 'utf-8');
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'EEXIST'
+    ) {
+      return;
+    }
+    throw error;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
   template: TracePromptTemplate;
   templateStats: TracePreparationTemplateStats;
@@ -454,11 +484,7 @@ function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
     if (options.templatePath && !options.createTemplateIfMissing) {
       throw new Error(`Trace prompt template not found: ${templatePath}`);
     }
-    fs.mkdirSync(path.dirname(templatePath), { recursive: true });
-    fs.writeFileSync(templatePath, defaultTemplateFileContent(), {
-      encoding: 'utf-8',
-      mode: 0o600,
-    });
+    writeTemplateFileIfMissing(templatePath);
   }
 
   const content = fs.readFileSync(templatePath, 'utf-8');

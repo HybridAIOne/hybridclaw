@@ -24,6 +24,8 @@ afterEach(() => {
   else process.env.HYBRIDCLAW_DATA_DIR = originalDataDir;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -213,6 +215,24 @@ clients:
   });
   expect(prepared.redaction.rehydrate(prepared.traceText)).toContain(
     'Acme Medical',
+  );
+});
+
+test('prepareTraceJudgePrompt warns when confidential rules are omitted and unconfigured', async () => {
+  vi.stubEnv('HYBRIDCLAW_CONFIDENTIAL_DISABLE', '1');
+  const loggerMod = await import('../src/logger.js');
+  const warnSpy = vi
+    .spyOn(loggerMod.logger, 'warn')
+    .mockImplementation(() => undefined as never);
+  const { prepareTraceJudgePrompt } = await import(
+    '../src/evals/trace-preparation.js'
+  );
+
+  const prepared = prepareTraceJudgePrompt({ answer: 'A' }, 'Pass.');
+
+  expect(prepared.redaction.confidentialEnabled).toBe(false);
+  expect(warnSpy).toHaveBeenCalledWith(
+    'Confidential trace redaction is not configured; judge trace preparation will apply secret-pattern redaction only.',
   );
 });
 
