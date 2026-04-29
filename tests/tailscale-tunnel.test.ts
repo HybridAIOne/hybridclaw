@@ -76,28 +76,33 @@ describe('TailscaleTunnelProvider', () => {
   });
 
   it('logs in with TS_AUTHKEY when tailscaled is not already logged in', async () => {
-    const runCommand = vi.fn(async (args: string[]) => {
-      if (args.join(' ') === 'status --json') {
-        throw new Error('not logged in');
-      }
-      if (args.join(' ') === 'up --auth-key test-auth-key') {
-        return { stdout: '', stderr: '' };
-      }
-      if (args.join(' ') === 'funnel --bg localhost:9090') {
-        return { stdout: '', stderr: '' };
-      }
-      if (args.join(' ') === 'funnel status --json') {
-        return {
-          stdout: JSON.stringify({
-            TCP: {
-              '443': { HTTPS: true, URL: 'https://gateway.example.ts.net' },
-            },
-          }),
-          stderr: '',
-        };
-      }
-      throw new Error(`unexpected command: ${args.join(' ')}`);
-    });
+    const runCommand = vi.fn(
+      async (args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+        if (args.join(' ') === 'status --json') {
+          throw new Error('not logged in');
+        }
+        if (
+          args.join(' ') === 'up' &&
+          options?.env?.TS_AUTHKEY === 'test-auth-key'
+        ) {
+          return { stdout: '', stderr: '' };
+        }
+        if (args.join(' ') === 'funnel --bg localhost:9090') {
+          return { stdout: '', stderr: '' };
+        }
+        if (args.join(' ') === 'funnel status --json') {
+          return {
+            stdout: JSON.stringify({
+              TCP: {
+                '443': { HTTPS: true, URL: 'https://gateway.example.ts.net' },
+              },
+            }),
+            stderr: '',
+          };
+        }
+        throw new Error(`unexpected command: ${args.join(' ')}`);
+      },
+    );
     const provider = new TailscaleTunnelProvider({
       readSecret: (secretName) =>
         secretName === 'TS_AUTHKEY' ? ' test-auth-key ' : null,
@@ -108,9 +113,14 @@ describe('TailscaleTunnelProvider', () => {
     await expect(provider.start()).resolves.toEqual({
       public_url: 'https://gateway.example.ts.net',
     });
+    const upCall = runCommand.mock.calls.find(
+      (call) => call[0].join(' ') === 'up',
+    );
+    expect(upCall?.[0]).toEqual(['up']);
+    expect(upCall?.[0]).not.toContain('test-auth-key');
     expect(runCommand).toHaveBeenCalledWith(
-      ['up', '--auth-key', 'test-auth-key'],
-      { timeoutMs: 5_000 },
+      ['up'],
+      { env: { TS_AUTHKEY: 'test-auth-key' }, timeoutMs: 5_000 },
     );
   });
 
@@ -316,15 +326,20 @@ describe('TailscaleTunnelProvider', () => {
   });
 
   it('redacts TS_AUTHKEY from startup errors', async () => {
-    const runCommand = vi.fn(async (args: string[]) => {
-      if (args.join(' ') === 'status --json') {
-        throw new Error('not logged in');
-      }
-      if (args.join(' ') === 'up --auth-key secret-auth-key') {
-        throw new Error('auth failed for secret-auth-key');
-      }
-      throw new Error(`unexpected command: ${args.join(' ')}`);
-    });
+    const runCommand = vi.fn(
+      async (args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+        if (args.join(' ') === 'status --json') {
+          throw new Error('not logged in');
+        }
+        if (
+          args.join(' ') === 'up' &&
+          options?.env?.TS_AUTHKEY === 'secret-auth-key'
+        ) {
+          throw new Error('auth failed for secret-auth-key');
+        }
+        throw new Error(`unexpected command: ${args.join(' ')}`);
+      },
+    );
     const recordAuditEvent = vi.fn();
     const provider = new TailscaleTunnelProvider({
       readSecret: () => 'secret-auth-key',

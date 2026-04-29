@@ -25,9 +25,13 @@ type TailscaleCommandResult = {
   stdout: string;
   stderr: string;
 };
+type TailscaleCommandOptions = {
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+};
 type TailscaleCommandRunner = (
   args: string[],
-  options?: { timeoutMs?: number },
+  options?: TailscaleCommandOptions,
 ) => Promise<TailscaleCommandResult>;
 type TunnelTimer = ReturnType<typeof setTimeout>;
 type TunnelAuditRecorder = (
@@ -58,13 +62,14 @@ export interface TailscaleTunnelProviderOptions {
 function runTailscaleCommand(
   command: string,
   args: string[],
-  options: { timeoutMs?: number } = {},
+  options: TailscaleCommandOptions = {},
 ): Promise<TailscaleCommandResult> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       args,
       {
+        ...(options.env ? { env: { ...process.env, ...options.env } } : {}),
         timeout: options.timeoutMs,
         windowsHide: true,
       },
@@ -288,7 +293,8 @@ export class TailscaleTunnelProvider implements TunnelProvider {
     }
 
     if (!existingStatus && authKey) {
-      await this.runCommand(['up', '--auth-key', authKey], {
+      await this.runCommand(['up'], {
+        env: { TS_AUTHKEY: authKey },
         timeoutMs: this.commandTimeoutMs,
       });
     }
