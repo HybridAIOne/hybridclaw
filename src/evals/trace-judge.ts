@@ -1,5 +1,8 @@
 import { recordUsageEvent } from '../memory/db.js';
-import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import {
+  type AuxiliaryModelUsage,
+  callAuxiliaryModel,
+} from '../providers/auxiliary.js';
 import {
   getModelCatalogMetadata,
   type ModelCapabilityRequirements,
@@ -26,19 +29,6 @@ export interface JudgeTraceUsageContext {
   timestamp?: string;
 }
 
-export interface JudgeTraceModelUsage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  input_tokens?: number;
-  output_tokens?: number;
-  totalTokens?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  costUsd?: number;
-  cost_usd?: number;
-}
-
 export interface JudgeTraceModelCallParams {
   model: string;
   messages: ChatMessage[];
@@ -50,7 +40,7 @@ export interface JudgeTraceModelCallParams {
 export interface JudgeTraceModelCallResponse {
   content: string;
   model?: string;
-  usage?: JudgeTraceModelUsage | null;
+  usage?: AuxiliaryModelUsage | null;
 }
 
 export interface JudgeTraceOptions {
@@ -73,18 +63,11 @@ const DEFAULT_JUDGE_CAPABILITIES: ModelCapabilityRequirements = {
 const DEFAULT_JUDGE_MAX_TOKENS = 800;
 const DEFAULT_JUDGE_TIMEOUT_MS = 45_000;
 
-function normalizeOptionalModel(
-  value: string | null | undefined,
-): string | null {
-  const normalized = String(value || '').trim();
-  return normalized || null;
-}
-
 function uniqueModels(models: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
   for (const rawModel of models) {
-    const model = normalizeOptionalModel(rawModel);
+    const model = rawModel?.trim() || null;
     if (!model || seen.has(model)) continue;
     seen.add(model);
     unique.push(model);
@@ -196,41 +179,32 @@ function parseJudgeResult(content: string): JudgeTraceResult {
   };
 }
 
-function readFiniteNumber(values: unknown[]): number | null {
-  for (const value of values) {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-  }
-  return null;
+function readUsageNumber(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
 }
 
 function estimateJudgeUsage(params: {
   messages: ChatMessage[];
   content: string;
-  usage?: JudgeTraceModelUsage | null;
+  usage?: AuxiliaryModelUsage | null;
 }): {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   costUsd: number | null;
 } {
-  const usage: JudgeTraceModelUsage = params.usage || {};
+  const usage = params.usage;
   const inputTokens =
-    readFiniteNumber([
-      usage.prompt_tokens,
-      usage.input_tokens,
-      usage.inputTokens,
-    ]) ?? estimateTokenCountFromMessages(params.messages);
+    readUsageNumber(usage?.inputTokens) ??
+    estimateTokenCountFromMessages(params.messages);
   const outputTokens =
-    readFiniteNumber([
-      usage.completion_tokens,
-      usage.output_tokens,
-      usage.outputTokens,
-    ]) ?? estimateTokenCountFromText(params.content);
+    readUsageNumber(usage?.outputTokens) ??
+    estimateTokenCountFromText(params.content);
   const totalTokens =
-    readFiniteNumber([usage.total_tokens, usage.totalTokens]) ??
-    inputTokens + outputTokens;
-  const costUsd = readFiniteNumber([usage.costUsd, usage.cost_usd]);
+    readUsageNumber(usage?.totalTokens) ?? inputTokens + outputTokens;
+  const costUsd = readUsageNumber(usage?.costUsd);
 
   return {
     inputTokens: Math.floor(inputTokens),
@@ -269,6 +243,7 @@ async function defaultJudgeModelCaller(
   return {
     content: response.content,
     model: response.model,
+    usage: response.usage,
   };
 }
 
@@ -296,7 +271,7 @@ function recordJudgeUsage(params: {
   model: string;
   messages: ChatMessage[];
   content: string;
-  usage?: JudgeTraceModelUsage | null;
+  usage?: AuxiliaryModelUsage | null;
 }): void {
   if (!params.context) return;
   const usage = estimateJudgeUsage({
@@ -351,7 +326,7 @@ export async function judgeTrace(
       const result = parseJudgeResult(response.content);
       recordJudgeUsage({
         context: options.usageContext,
-        model: normalizeOptionalModel(response.model) || model,
+        model: response.model?.trim() || model,
         messages,
         content: response.content,
         usage: response.usage,

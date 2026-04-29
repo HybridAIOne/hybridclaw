@@ -72,9 +72,9 @@ test('judgeTrace records judge usage cost into UsageTotals', async () => {
         verdict: 'pass',
       }),
       usage: {
-        prompt_tokens: 100,
-        completion_tokens: 20,
-        total_tokens: 120,
+        inputTokens: 100,
+        outputTokens: 20,
+        totalTokens: 120,
         costUsd: 0.0012,
       },
     })),
