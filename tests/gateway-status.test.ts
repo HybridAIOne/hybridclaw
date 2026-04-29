@@ -628,6 +628,49 @@ test('getGatewayAdminModels provider counts match the catalog rows', async () =>
   });
 });
 
+test('getGatewayAdminModels tags each row with its providerHealth key', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.openrouter.models = ['openrouter/anthropic/claude-sonnet-4'];
+  });
+  vi.doMock('../src/providers/model-catalog.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/model-catalog.js')
+    >('../src/providers/model-catalog.js');
+    return {
+      ...actual,
+      refreshAvailableModelCatalogs: vi.fn(async () => {}),
+      getAvailableModelList: vi.fn(() => [
+        'gpt-4.1-mini', // bare slug = HybridAI passthrough
+        'openai-codex/gpt-5', // openai-codex/ prefix maps to providerHealth key 'codex'
+        'openrouter/anthropic/claude-sonnet-4',
+        'gemini/gemini-2.5-pro',
+        'ollama/llama-3.1',
+      ]),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await getGatewayAdminModels();
+
+  const byId = Object.fromEntries(result.models.map((m) => [m.id, m.provider]));
+  expect(byId['gpt-4.1-mini']).toBe('hybridai');
+  // The 'openai-codex/' id prefix must translate to the 'codex' providerHealth key.
+  expect(byId['openai-codex/gpt-5']).toBe('codex');
+  expect(byId['openrouter/anthropic/claude-sonnet-4']).toBe('openrouter');
+  expect(byId['gemini/gemini-2.5-pro']).toBe('gemini');
+  expect(byId['ollama/llama-3.1']).toBe('ollama');
+});
+
 test('getGatewayAdminModels populates context windows from provider discovery', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

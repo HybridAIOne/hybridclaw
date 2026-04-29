@@ -47,6 +47,7 @@ function makeModelsResponse(
     models: [
       {
         id: 'gpt-5',
+        provider: 'hybridai',
         discovered: false,
         backend: null,
         contextWindow: 128000,
@@ -61,6 +62,7 @@ function makeModelsResponse(
       },
       {
         id: 'openrouter/anthropic/claude-sonnet-4',
+        provider: 'openrouter',
         discovered: true,
         backend: null,
         contextWindow: 200000,
@@ -127,6 +129,7 @@ describe('ModelsPage', () => {
         models: [
           {
             id: 'openrouter/anthropic/claude-sonnet-4',
+            provider: 'openrouter',
             discovered: true,
             backend: null,
             contextWindow: 200000,
@@ -152,6 +155,7 @@ describe('ModelsPage', () => {
           },
           {
             id: 'gpt-5',
+            provider: 'hybridai',
             discovered: false,
             backend: null,
             contextWindow: 128000,
@@ -173,6 +177,7 @@ describe('ModelsPage', () => {
           },
           {
             id: 'openai-codex/gpt-5.4',
+            provider: 'codex',
             discovered: false,
             backend: null,
             contextWindow: 400000,

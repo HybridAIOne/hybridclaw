@@ -674,11 +674,20 @@ export interface AdminCommandResult {
   mainSessionKey?: string;
 }
 
-export interface AdminModelCatalogEntry {
+/** Minimum fields the chat surface needs to render and switch between models. */
+export interface ChatModel {
   id: string;
-  discovered: boolean;
+  /** Gateway provider key (matches `GatewayStatus.providerHealth` keys). */
+  provider: string;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
+  isReasoning: boolean;
+  family: string | null;
+  parameterSize: string | null;
+}
+
+export interface AdminModelCatalogEntry extends ChatModel {
+  discovered: boolean;
   maxTokens: number | null;
   pricingUsdPerToken: {
     input: number | null;
@@ -691,10 +700,7 @@ export interface AdminModelCatalogEntry {
     reasoning: boolean;
   };
   metadataSources: string[];
-  isReasoning: boolean;
   thinkingFormat: string | null;
-  family: string | null;
-  parameterSize: string | null;
   usageDaily: AdminUsageSummary | null;
   usageMonthly: AdminUsageSummary | null;
 }

@@ -443,6 +443,7 @@ import {
   type GatewayCommandRequest,
   type GatewayCommandResult,
   type GatewayHistorySummary,
+  type GatewayModelProviderKey,
   type GatewayProviderHealthEntry,
   type GatewayRecentChatSession,
   type GatewayStatus,
@@ -4978,6 +4979,47 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
   };
 }
 
+const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
+  ['openai-codex/', 'codex'],
+  ['anthropic/', 'anthropic'],
+  ['openrouter/', 'openrouter'],
+  ['mistral/', 'mistral'],
+  ['huggingface/', 'huggingface'],
+  ['gemini/', 'gemini'],
+  ['deepseek/', 'deepseek'],
+  ['xai/', 'xai'],
+  ['zai/', 'zai'],
+  ['kimi/', 'kimi'],
+  ['minimax/', 'minimax'],
+  ['dashscope/', 'dashscope'],
+  ['xiaomi/', 'xiaomi'],
+  ['kilo/', 'kilo'],
+  ['ollama/', 'ollama'],
+  ['lmstudio/', 'lmstudio'],
+  ['llamacpp/', 'llamacpp'],
+  ['vllm/', 'vllm'],
+];
+
+// Bare slugs (no `provider/` prefix) are HybridAI passthroughs by gateway
+// convention — that's what `runtimeConfig.hybridai.defaultModel` carries and
+// what `/model set <slug>` resolves through.
+function resolveModelProviderKey(modelId: string): GatewayModelProviderKey {
+  const normalized = modelId.trim().toLowerCase();
+  for (const [prefix, key] of MODEL_PROVIDER_KEY_BY_PREFIX) {
+    if (normalized.startsWith(prefix)) return key;
+  }
+  // A `/`-bearing slug that didn't match any known prefix means a new provider
+  // landed in the catalog without an entry here; surface it instead of silently
+  // miscategorizing as HybridAI.
+  if (normalized.includes('/')) {
+    logger.warn(
+      { modelId },
+      'Unknown provider prefix in model id; defaulting to hybridai',
+    );
+  }
+  return 'hybridai';
+}
+
 export async function getGatewayAdminModels(): Promise<GatewayAdminModelsResponse> {
   await refreshAvailableModelCatalogs({ includeHybridAI: true });
 
@@ -5037,40 +5079,10 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
     number
   >();
 
-  for (const modelId of modelIds) {
-    const normalized = modelId.trim().toLowerCase();
-    if (!normalized) continue;
-
-    type ProviderKey = keyof NonNullable<
-      GatewayAdminModelsResponse['providerStatus']
-    >;
-    const PROVIDER_KEY_BY_PREFIX: Array<[string, ProviderKey]> = [
-      ['openai-codex/', 'codex'],
-      ['openrouter/', 'openrouter'],
-      ['mistral/', 'mistral'],
-      ['huggingface/', 'huggingface'],
-      ['gemini/', 'gemini'],
-      ['deepseek/', 'deepseek'],
-      ['xai/', 'xai'],
-      ['zai/', 'zai'],
-      ['kimi/', 'kimi'],
-      ['minimax/', 'minimax'],
-      ['dashscope/', 'dashscope'],
-      ['xiaomi/', 'xiaomi'],
-      ['kilo/', 'kilo'],
-      ['ollama/', 'ollama'],
-      ['lmstudio/', 'lmstudio'],
-      ['llamacpp/', 'llamacpp'],
-      ['vllm/', 'vllm'],
-    ];
-    let providerKey: ProviderKey = 'hybridai';
-    for (const [prefix, key] of PROVIDER_KEY_BY_PREFIX) {
-      if (normalized.startsWith(prefix)) {
-        providerKey = key;
-        break;
-      }
-    }
-
+  const providerKeyByModel = new Map(
+    modelIds.map((id) => [id, resolveModelProviderKey(id)] as const),
+  );
+  for (const providerKey of providerKeyByModel.values()) {
     modelCountByProvider.set(
       providerKey,
       (modelCountByProvider.get(providerKey) || 0) + 1,
@@ -5114,6 +5126,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
         const monthlySummary = monthlyUsage.get(modelId);
         return {
           id: modelId,
+          provider: providerKeyByModel.get(modelId) ?? 'hybridai',
           discovered: Boolean(info),
           backend: info?.backend || null,
           contextWindow: metadata.contextWindow,

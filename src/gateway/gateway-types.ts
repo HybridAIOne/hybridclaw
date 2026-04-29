@@ -921,8 +921,14 @@ export interface GatewayAdminAgentMarkdownRevisionResponse {
   };
 }
 
+/** Key into `GatewayAdminModelsResponse.providerStatus`. */
+export type GatewayModelProviderKey = keyof NonNullable<
+  GatewayAdminModelsResponse['providerStatus']
+>;
+
 export interface GatewayAdminModelCatalogEntry {
   id: string;
+  provider: GatewayModelProviderKey;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
