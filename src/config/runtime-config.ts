@@ -1054,6 +1054,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
+    cv: {
+      retentionDays: 90,
+      renderThrottleMs: 14_400_000,
+      batchDebounceMs: 30_000,
+    },
     trajectoryCapture: {
       enabledAgentIds: [],
       storeDir: '',
@@ -4474,6 +4479,9 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawAdaptiveSkillsCv = isRecord(rawAdaptiveSkills.cv)
+    ? rawAdaptiveSkills.cv
+    : {};
   const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
     ? rawAdaptiveSkills.trajectoryCapture
     : {};
@@ -4870,6 +4878,23 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.observationEnabled,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
+      cv: {
+        retentionDays: normalizeInteger(
+          rawAdaptiveSkillsCv.retentionDays,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.retentionDays,
+          { min: 0 },
+        ),
+        renderThrottleMs: normalizeInteger(
+          rawAdaptiveSkillsCv.renderThrottleMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.renderThrottleMs,
+          { min: 0 },
+        ),
+        batchDebounceMs: normalizeInteger(
+          rawAdaptiveSkillsCv.batchDebounceMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.batchDebounceMs,
+          { min: 0 },
+        ),
+      },
       trajectoryCapture: {
         enabledAgentIds: normalizeStringArray(
           rawTrajectoryCapture.enabledAgentIds,

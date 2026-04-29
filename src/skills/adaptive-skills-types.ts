@@ -136,6 +136,11 @@ export interface SkillAmendment {
 export interface AdaptiveSkillsConfig {
   enabled: boolean;
   observationEnabled: boolean;
+  cv: {
+    retentionDays: number;
+    renderThrottleMs: number;
+    batchDebounceMs: number;
+  };
   trajectoryCapture: {
     enabledAgentIds: string[];
     storeDir: string;

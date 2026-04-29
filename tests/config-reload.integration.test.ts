@@ -91,6 +91,11 @@ describe('config reload integration', () => {
   it('reloadRuntimeConfig normalizes trajectory retention policy', () => {
     writeConfig({
       adaptiveSkills: {
+        cv: {
+          retentionDays: '45',
+          renderThrottleMs: -1,
+          batchDebounceMs: '1500',
+        },
         trajectoryCapture: {
           retentionDays: 90,
           retentionDaysByTenant: {
@@ -103,10 +108,13 @@ describe('config reload integration', () => {
     });
 
     const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.adaptiveSkills.cv).toEqual({
+      retentionDays: 45,
+      renderThrottleMs: 0,
+      batchDebounceMs: 1500,
+    });
     expect(cfg.adaptiveSkills.trajectoryCapture.retentionDays).toBe(90);
-    expect(
-      cfg.adaptiveSkills.trajectoryCapture.retentionDaysByTenant,
-    ).toEqual({
+    expect(cfg.adaptiveSkills.trajectoryCapture.retentionDaysByTenant).toEqual({
       writer: 30,
       reviewer: 0,
       invalid: 90,

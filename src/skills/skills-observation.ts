@@ -281,6 +281,7 @@ export function recordSkillExecution(input: {
     agent_id: agentId,
     session_id: input.sessionId,
     run_id: input.runId,
+    created_at: new Date().toISOString(),
     input: inputPayloads.bounded,
     output: outputPayloads.bounded,
     input_full: inputPayloads.full,
