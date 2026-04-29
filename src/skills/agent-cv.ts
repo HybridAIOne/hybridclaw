@@ -10,6 +10,7 @@ import {
   findCheapestModelMeetingCapabilities,
   getModelCatalogMetadata,
 } from '../providers/model-catalog.js';
+import { normalizeAuxiliaryProviderModel } from '../providers/task-routing.js';
 import {
   type ConfidentialPlaceholderMap,
   createPlaceholderMap,
@@ -31,7 +32,6 @@ const CV_STATE_FILE = '.CV.state.json';
 const MAX_NARRATION_SOURCE_CHARS = 1_200;
 const DEFAULT_CV_NARRATION_MAX_TOKENS = 1_200;
 const DEFAULT_CV_NARRATION_TIMEOUT_MS = 20_000;
-const CV_NARRATION_DAILY_BUDGET_USD = 0.005;
 const APPROX_CHARS_PER_TOKEN = 4;
 
 interface AgentCvEntry {
@@ -235,7 +235,10 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
 }
 
 function writeMarkdownAtomic(filePath: string, content: string): void {
-  writeFileAtomic(filePath, content, 'utf-8');
+  writeFileAtomic(filePath, content, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
 }
 
 function sortCvEntries(entries: AgentCvEntry[]): AgentCvEntry[] {
@@ -518,13 +521,33 @@ function normalizeUsageCostUsd(value: unknown): number | null {
   return cost;
 }
 
+function configuredCvNarrationModelForBudget(): string | null {
+  const config = getRuntimeConfig().auxiliaryModels.cv_narration;
+  const model = config.model.trim();
+  if (config.provider === 'auto') return model || null;
+  try {
+    return normalizeAuxiliaryProviderModel({
+      provider: config.provider,
+      model,
+    });
+  } catch (error) {
+    logger.warn(
+      { provider: config.provider, model, error },
+      'Failed to normalize configured agent CV narration model',
+    );
+    return null;
+  }
+}
+
 async function narrateSkillRuns(input: {
   events: SkillRunEvent[];
   remainingBudgetUsd: number;
 }): Promise<{ narrations: CvNarration[]; costUsd: number }> {
   const events = input.events;
-  const model = findCheapestModelMeetingCapabilities({ jsonMode: true });
-  if (!model || input.remainingBudgetUsd <= 0) {
+  const fallbackModel = findCheapestModelMeetingCapabilities({
+    jsonMode: true,
+  });
+  if (!fallbackModel || input.remainingBudgetUsd <= 0) {
     return { narrations: events.map(fallbackNarration), costUsd: 0 };
   }
 
@@ -540,8 +563,9 @@ async function narrateSkillRuns(input: {
     'Create CV entries for these skill runs.',
     JSON.stringify(sources, null, 2),
   ].join('\n\n');
+  const budgetModel = configuredCvNarrationModelForBudget() || fallbackModel;
   const estimatedCostUsd = estimateNarrationCostUsd({
-    model,
+    model: budgetModel,
     systemPrompt,
     userPrompt,
     maxOutputTokens: DEFAULT_CV_NARRATION_MAX_TOKENS,
@@ -550,7 +574,7 @@ async function narrateSkillRuns(input: {
     logger.warn(
       {
         eventCount: events.length,
-        model,
+        model: budgetModel,
         remainingBudgetUsd: input.remainingBudgetUsd,
       },
       'Skipping agent CV narration because model pricing is unavailable',
@@ -561,7 +585,7 @@ async function narrateSkillRuns(input: {
     logger.warn(
       {
         eventCount: events.length,
-        model,
+        model: budgetModel,
         estimatedCostUsd,
         remainingBudgetUsd: input.remainingBudgetUsd,
       },
@@ -573,7 +597,7 @@ async function narrateSkillRuns(input: {
   try {
     const result = await callAuxiliaryModel({
       task: 'cv_narration',
-      model,
+      fallbackModel,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -707,7 +731,8 @@ async function refreshAgentCvFromEvents(input: {
           events,
           remainingBudgetUsd: Math.max(
             0,
-            CV_NARRATION_DAILY_BUDGET_USD - spentToday,
+            getRuntimeConfig().adaptiveSkills.cv.narrationDailyBudgetUsd -
+              spentToday,
           ),
         })
       : { narrations: [], costUsd: 0 };

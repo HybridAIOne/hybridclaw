@@ -511,6 +511,11 @@ test('renders chronological CV.md with narrated runs and yearly retention summar
   await waitForQueuedAgentCvRefreshes();
 
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
+  expect(callAuxiliaryModelMock.mock.calls[0]?.[0]).toMatchObject({
+    task: 'cv_narration',
+    fallbackModel: 'hybridai/gpt-5-nano',
+  });
+  expect(callAuxiliaryModelMock.mock.calls[0]?.[0].model).toBeUndefined();
   expect(findCheapestModelMeetingCapabilitiesMock).toHaveBeenCalledWith({
     jsonMode: true,
   });
@@ -906,6 +911,40 @@ test('CV narration falls back without an aux call when the daily budget would be
   expect(cv('lena')).toContain(`Completed ${context.skillName}`);
 });
 
+test('CV narration daily budget can be disabled through runtime config', async () => {
+  vi.useFakeTimers();
+  context = await createAdaptiveSkillsTestContext();
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const { cv, waitForQueuedAgentCvRefreshes } = await import(
+    '../src/skills/agent-scoreboard.ts'
+  );
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.adaptiveSkills.cv.narrationDailyBudgetUsd = 0;
+  });
+
+  vi.setSystemTime(new Date('2026-04-27T09:00:00.000Z'));
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-disabled-budget',
+    runId: 'run-cv-disabled-budget',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+
+  await waitForQueuedAgentCvRefreshes();
+
+  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+});
+
 test('CV narration logs and falls back when pricing is unavailable', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
@@ -1048,6 +1087,7 @@ test('refreshes generated CV.md with a temp file rename', async () => {
   });
   expect(tempWrite).toBeTruthy();
   expect(renameSpy).toHaveBeenCalledWith(tempWrite?.[0], cvPath);
+  expect(fs.statSync(cvPath).mode & 0o777).toBe(0o600);
 });
 
 test('records audit event when agent skill score recompute fails', async () => {

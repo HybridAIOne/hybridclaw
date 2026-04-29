@@ -140,6 +140,7 @@ export interface AdaptiveSkillsConfig {
     retentionDays: number;
     renderThrottleMs: number;
     batchDebounceMs: number;
+    narrationDailyBudgetUsd: number;
   };
   trajectoryCapture: {
     enabledAgentIds: string[];

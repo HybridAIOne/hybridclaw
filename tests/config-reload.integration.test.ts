@@ -95,6 +95,7 @@ describe('config reload integration', () => {
           retentionDays: '45',
           renderThrottleMs: -1,
           batchDebounceMs: '1500',
+          narrationDailyBudgetUsd: '0.0025',
         },
         trajectoryCapture: {
           retentionDays: 90,
@@ -105,6 +106,13 @@ describe('config reload integration', () => {
           },
         },
       },
+      auxiliaryModels: {
+        cv_narration: {
+          provider: 'openrouter',
+          model: 'openai/gpt-5-nano',
+          maxTokens: '500',
+        },
+      },
     });
 
     const cfg = configMod.reloadRuntimeConfig('test');
@@ -112,6 +120,12 @@ describe('config reload integration', () => {
       retentionDays: 45,
       renderThrottleMs: 0,
       batchDebounceMs: 1500,
+      narrationDailyBudgetUsd: 0.0025,
+    });
+    expect(cfg.auxiliaryModels.cv_narration).toEqual({
+      provider: 'openrouter',
+      model: 'openai/gpt-5-nano',
+      maxTokens: 500,
     });
     expect(cfg.adaptiveSkills.trajectoryCapture.retentionDays).toBe(90);
     expect(cfg.adaptiveSkills.trajectoryCapture.retentionDaysByTenant).toEqual({

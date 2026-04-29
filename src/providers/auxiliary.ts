@@ -23,10 +23,7 @@ import {
 } from './task-routing.js';
 import { isRecord } from './utils.js';
 
-type InternalAuxiliaryTextTask = 'cv_narration';
-type AuxiliaryTextTask =
-  | Exclude<AuxiliaryTask, 'vision'>
-  | InternalAuxiliaryTextTask;
+type AuxiliaryTextTask = Exclude<AuxiliaryTask, 'vision'>;
 type RuntimeProvider = RuntimeProviderId;
 
 interface AuxiliaryTextCallContext {
@@ -416,7 +413,6 @@ async function resolveTaskOverrideTextCallContext(
   params: AuxiliaryModelCallParams,
   requestedMaxTokens: number | undefined,
 ): Promise<AuxiliaryTextCallContext | null> {
-  if (params.task === 'cv_narration') return null;
   const taskOverride = await resolveTaskModelPolicy(params.task, {
     agentId: params.agentId,
     chatbotId: params.fallbackChatbotId,
