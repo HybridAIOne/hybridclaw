@@ -384,6 +384,11 @@
       "model": "",
       "maxTokens": 0
     },
+    "eval_judge": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
     "mcp": {
       "provider": "auto",
       "model": "",

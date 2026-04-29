@@ -2148,6 +2148,7 @@ describe.sequential('usage aggregation DB', () => {
     expect(agentDaily.call_count).toBe(2);
     expect(agentDaily.total_tokens).toBe(800);
     expect(agentDaily.total_cost_usd).toBeCloseTo(0.0049, 6);
+    expect(agentDaily.cost_per_call_usd).toBeCloseTo(0.00245, 6);
     expect(monthlySpendUsd(' agent-a ')).toBeCloseTo(0.0049, 6);
     expect(monthlySpendEur(' agent-a ')).toBeCloseTo(
       0.0049 / MODEL_METADATA_USD_TO_EUR.usdPerEur,

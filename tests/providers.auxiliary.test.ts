@@ -220,6 +220,11 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
               },
             },
           ],
+          usage: {
+            prompt_tokens: 42,
+            completion_tokens: 8,
+            total_tokens: 50,
+          },
         }),
         {
           status: 200,
@@ -245,6 +250,11 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
     provider: 'hybridai',
     model: 'hybridai/gpt-5-nano',
     content: 'HybridAI cleanup response.',
+    usage: {
+      inputTokens: 42,
+      outputTokens: 8,
+      totalTokens: 50,
+    },
   });
 });
 
@@ -273,7 +283,7 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
     'event: response.output_text.delta\r\n',
     'data: {"type":"response.output_text.delta","delta":" memory"}\r\n\r\n',
     'event: response.completed\r\n',
-    'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Clean memory"}]}]}}\r\n\r\n',
+    'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Clean memory"}]}],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}}\r\n\r\n',
   ].join('');
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -310,6 +320,11 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
     provider: 'openai-codex',
     model: 'openai-codex/gpt-5-codex',
     content: 'Clean memory',
+    usage: {
+      inputTokens: 11,
+      outputTokens: 7,
+      totalTokens: 18,
+    },
   });
 });
 
