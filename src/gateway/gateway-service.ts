@@ -3686,6 +3686,8 @@ export async function getGatewayStatus(
       resolveGatewayLocalBackendsHealth(options),
       resolveGatewayHybridAIHealth(options),
       getWhatsAppAuthStatus(),
+      // Warm the Codex model cache for provider counts; the status payload
+      // reads discovered names after all probes settle.
       refreshProviderHealth && codex.authenticated && !codex.reloginRequired
         ? discoverCodexModels()
         : Promise.resolve([]),
