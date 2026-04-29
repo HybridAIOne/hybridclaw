@@ -55,22 +55,15 @@ is disabled by default.
 Key settings:
 
 - `enabled`: turns on inspection, amendment staging, and evaluation
-- `observationEnabled`: records executions and feedback even when the full loop
-  is off
+- `observationEnabled`: records executions and feedback even when the full loop is off
 - `inspectionIntervalMs`: heartbeat cadence for inspection and retention work
-- `observationRetentionDays`: keeps observation storage bounded; `0` disables
-  pruning
+- `observationRetentionDays`: keeps observation storage bounded; `0` disables pruning
 - `trailingWindowHours`: observation lookback used when computing health
-- `autoApplyEnabled`: only applies staged amendments automatically when the
-  guard verdict is `safe` with zero findings
-- `trajectoryCapture.enabledAgentIds`: opt-in agent IDs whose full redacted
-  skill-run trajectories are appended to JSONL files
+- `autoApplyEnabled`: only applies staged amendments automatically when the guard verdict is `safe` with zero findings
+- `trajectoryCapture.enabledAgentIds`: opt-in agent IDs whose full redacted skill-run trajectories are appended to JSONL files
 - Captured trajectories run through PII/secret redaction plus the confidential-info redactor before they are written. Confidential placeholders keep the documented `«CONF:<RULE_ID>»` format so downstream training data preserves the masking convention.
-- `trajectoryCapture.storeDir`: optional trajectory store location; empty uses
-  a `trajectories/` directory beside the runtime database, absolute paths are
-  used as-is, and relative paths resolve under the runtime home directory
-- `trajectoryCapture.retentionDays`: trajectory JSONL retention window; default
-  is 365 days and `0` disables trajectory pruning
+- `trajectoryCapture.storeDir`: optional trajectory store location; empty uses a `trajectories/` directory beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory
+- `trajectoryCapture.retentionDays`: trajectory JSONL retention window; default is 365 days and `0` disables trajectory pruning
 - `trajectoryCapture.retentionDaysByTenant`: optional per-coworker retention overrides keyed by tenant ID; trajectory tenants map to agent IDs unless that value would be redacted, in which case a stable non-PII hash key is used
 
 Legacy `skillCognee` config input is still normalized into `adaptiveSkills` for
