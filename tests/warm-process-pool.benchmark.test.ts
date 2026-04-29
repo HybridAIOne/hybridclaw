@@ -36,11 +36,13 @@ function makeFakeChildProcess(
   proc.stderr = new EventEmitter();
   proc.stdin = Object.assign(new EventEmitter(), {
     write: vi.fn(() => {
-      advanceClock(requestStartDelayMs);
-      proc.stderr.emit(
-        'data',
-        Buffer.from('[hybridclaw-agent] agent request start\n'),
-      );
+      queueMicrotask(() => {
+        advanceClock(requestStartDelayMs);
+        proc.stderr.emit(
+          'data',
+          Buffer.from('[hybridclaw-agent] agent request start\n'),
+        );
+      });
       return true;
     }),
   });
@@ -61,21 +63,26 @@ function makeFakeChildProcess(
 
 async function runSyntheticHostWorkload(requestStartDelayMs: number): Promise<{
   coldStartP95Ms: number | null;
+  coldStartsRecorded: number;
   withinBudget: boolean;
+  warmClaims: number;
 }> {
   process.env.HOME = makeTempHome();
   vi.resetModules();
 
   let now = 1_700_000_000_000;
+  let coldStartsRecorded = 0;
   vi.spyOn(Date, 'now').mockImplementation(() => now);
 
   let nextPid = 10_000;
   const spawn = vi.fn(() => {
     nextPid += 1;
     return makeFakeChildProcess(nextPid, requestStartDelayMs, (durationMs) => {
+      coldStartsRecorded += 1;
       now += durationMs;
     }) as never;
   });
+  const loggerInfo = vi.fn();
   const readOutput = vi.fn(async () => ({
     status: 'success' as const,
     result: 'ok',
@@ -132,7 +139,7 @@ async function runSyntheticHostWorkload(requestStartDelayMs: number): Promise<{
   vi.doMock('../src/logger.js', () => ({
     logger: {
       debug: vi.fn(),
-      info: vi.fn(),
+      info: loggerInfo,
       warn: vi.fn(),
       error: vi.fn(),
     },
@@ -162,7 +169,11 @@ async function runSyntheticHostWorkload(requestStartDelayMs: number): Promise<{
 
   return {
     coldStartP95Ms: getWarmHostColdStartP95Ms(),
+    coldStartsRecorded,
     withinBudget: isWarmHostColdStartWithinBudget(),
+    warmClaims: loggerInfo.mock.calls.filter(
+      (call) => call[1] === 'Claimed warm host agent process',
+    ).length,
   };
 }
 
@@ -181,6 +192,8 @@ test('benchmark keeps p95 cold-start within the warm-process budget on a synthet
   const result = await runSyntheticHostWorkload(50);
 
   expect(result.coldStartP95Ms).toBe(50);
+  expect(result.coldStartsRecorded).toBe(20);
+  expect(result.warmClaims).toBeGreaterThan(0);
   expect(result.withinBudget).toBe(true);
 });
 
@@ -188,5 +201,7 @@ test('benchmark detects p95 cold-start budget violations on a synthetic host wor
   const result = await runSyntheticHostWorkload(250);
 
   expect(result.coldStartP95Ms).toBe(250);
+  expect(result.coldStartsRecorded).toBe(20);
+  expect(result.warmClaims).toBeGreaterThan(0);
   expect(result.withinBudget).toBe(false);
 });
