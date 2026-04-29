@@ -19,7 +19,7 @@ optional Python drivers or an operator-provided connector command.
       "columns": [
         {"name": "o_orderkey", "type": "INTEGER", "nullable": false}
       ],
-      "primaryKeys": ["o_orderkey"],
+      "primaryKeys": [],
       "foreignKeys": [
         {
           "columns": ["o_custkey"],
@@ -44,8 +44,11 @@ The command emits backend-specific introspection SQL for:
 
 - table and view discovery
 - column names/types/nullability
-- primary keys where the backend exposes them through information schema
 - foreign keys where the backend exposes them through information schema
+
+`primaryKeys` is always present in the cache shape, but may be empty for
+non-SQLite backends. Consumers should not require primary-key metadata for
+warehouse backends.
 
 ## Connector Command Protocol
 

@@ -18,6 +18,8 @@ if "env_check" in sql:
             "profile": os.environ.get("WAREHOUSE_SQL_PROFILE"),
         }
     ]
+elif "bad_rows" in sql:
+    rows = [["not", "an", "object"]]
 elif "information_schema.tables" in sql:
     rows = [
         {

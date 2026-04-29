@@ -274,12 +274,19 @@ def parse_rows_payload(raw: str) -> list[dict[str, Any]]:
         return [dict(row) for row in reader]
 
     if isinstance(parsed, list):
-        return [row for row in parsed if isinstance(row, dict)]
+        return validate_row_objects(parsed)
     if isinstance(parsed, dict):
         rows = parsed.get("rows")
         if isinstance(rows, list):
-            return [row for row in rows if isinstance(row, dict)]
+            return validate_row_objects(rows)
     raise WarehouseSqlError("Backend command must emit a JSON row array, {'rows': [...]}, or CSV with headers.")
+
+
+def validate_row_objects(rows: list[Any]) -> list[dict[str, Any]]:
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise WarehouseSqlError(f"Backend command row {index} must be a JSON object.")
+    return rows
 
 
 def run_backend_command(args: argparse.Namespace, sql: str) -> list[dict[str, Any]]:
@@ -452,10 +459,47 @@ def make_table_entry(schema: str, name: str, table_type: str = "table") -> dict[
     }
 
 
+def bigquery_qualified_information_schema(args: argparse.Namespace, table: str) -> str:
+    project = (
+        str(getattr(args, "bigquery_project", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_PROJECT", "").strip()
+    )
+    dataset = (
+        str(getattr(args, "bigquery_dataset", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_DATASET", "").strip()
+    )
+    if not dataset:
+        raise WarehouseSqlError(
+            "BigQuery schema introspection requires --bigquery-dataset or HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_DATASET."
+        )
+    qualifier = f"{project}.{dataset}" if project else dataset
+    if not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_]+)?", qualifier):
+        raise WarehouseSqlError(
+            "BigQuery project/dataset contains unsupported characters for INFORMATION_SCHEMA SQL."
+        )
+    return f"`{qualifier}.INFORMATION_SCHEMA.{table}`"
+
+
+def backend_introspection_sql(args: argparse.Namespace, key: str) -> str | None:
+    sql = BACKEND_INTROSPECTION_SQL[args.backend][key]
+    if args.backend == "bigquery" and sql is not None:
+        table = "TABLES" if key == "tables" else "COLUMNS"
+        placeholder = f"`<project>.<dataset>.INFORMATION_SCHEMA.{table}`"
+        return sql.replace(
+            placeholder,
+            bigquery_qualified_information_schema(args, table),
+        )
+    return sql
+
+
 def normalize_backend_schema(args: argparse.Namespace) -> dict[str, Any]:
-    table_rows = run_backend_sql(args, BACKEND_INTROSPECTION_SQL[args.backend]["tables"])
-    column_rows = run_backend_sql(args, BACKEND_INTROSPECTION_SQL[args.backend]["columns"])
-    fk_sql = BACKEND_INTROSPECTION_SQL[args.backend]["foreignKeys"]
+    tables_sql = backend_introspection_sql(args, "tables")
+    columns_sql = backend_introspection_sql(args, "columns")
+    if tables_sql is None or columns_sql is None:
+        raise WarehouseSqlError(f"{args.backend} does not define required table/column introspection SQL.")
+    table_rows = run_backend_sql(args, tables_sql)
+    column_rows = run_backend_sql(args, columns_sql)
+    fk_sql = backend_introspection_sql(args, "foreignKeys")
     fk_rows = run_backend_sql(args, fk_sql) if fk_sql is not None else []
 
     tables: dict[tuple[str, str], dict[str, Any]] = {}
@@ -610,24 +654,30 @@ def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
     now = time.time()
 
     if path.exists() and not args.refresh:
-        age_seconds = now - path.stat().st_mtime
-        if ttl_seconds == 0 or age_seconds <= ttl_seconds:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            if payload.get("cacheVersion") == CACHE_VERSION:
-                payload["cache"] = {
-                    "status": "hit",
-                    "path": str(path),
-                    "ageSeconds": int(age_seconds),
-                    "ttlSeconds": ttl_seconds,
-                }
-                return payload
+        try:
+            age_seconds = now - path.stat().st_mtime
+            if ttl_seconds == 0 or age_seconds <= ttl_seconds:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if payload.get("cacheVersion") == CACHE_VERSION:
+                    payload["cache"] = {
+                        "status": "hit",
+                        "path": str(path),
+                        "ageSeconds": int(age_seconds),
+                        "ttlSeconds": ttl_seconds,
+                    }
+                    return payload
+        except (OSError, json.JSONDecodeError):
+            pass
 
     if args.backend == "sqlite":
         payload = sqlite_schema(args.database)
         payload["profile"] = args.profile
     else:
         payload = normalize_backend_schema(args)
-        payload["introspection"] = BACKEND_INTROSPECTION_SQL[args.backend]
+        payload["introspection"] = {
+            key: backend_introspection_sql(args, key)
+            for key in ("tables", "columns", "foreignKeys")
+        }
         payload["adapter"] = "command" if resolve_backend_command(args) else "python-driver"
 
     write_private_json(path, payload)
@@ -707,15 +757,25 @@ def review_sql(
         for keyword in MUTATING_KEYWORDS
         if re.search(rf"\b{re.escape(keyword)}\b", lowered)
     )
+    write_through_select = bool(
+        re.search(r"\bselect\b[\s\S]*\binto\b", cleaned, re.IGNORECASE)
+    )
     starter = first_keyword(statements[0]) if statements else ""
-    read_only = bool(statements) and starter in READ_ONLY_STARTERS and not keyword_hits
+    read_only = (
+        bool(statements)
+        and starter in READ_ONLY_STARTERS
+        and not keyword_hits
+        and not write_through_select
+    )
     requires_write_grant = not read_only
 
     if keyword_hits:
         findings.append(f"Mutating or privileged keyword(s) found: {', '.join(keyword_hits)}.")
+    if write_through_select:
+        findings.append("SELECT INTO requires the write-grant path.")
     if statements and starter not in READ_ONLY_STARTERS:
         findings.append(f"Statement starts with '{starter or 'unknown'}', not a read-only SQL verb.")
-    if read_only and " limit " not in lowered and starter != "explain":
+    if read_only and not re.search(r"\blimit\b", cleaned, re.IGNORECASE) and starter != "explain":
         findings.append("Exploratory read does not include LIMIT; add one unless an aggregate query requires all rows.")
 
     if requires_write_grant:
@@ -988,7 +1048,33 @@ def build_refresh_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--cache-dir", args.cache_dir])
     if getattr(args, "backend_command", None):
         command.extend(["--backend-command", args.backend_command])
+    if getattr(args, "bigquery_project", None):
+        command.extend(["--bigquery-project", args.bigquery_project])
+    if getattr(args, "bigquery_dataset", None):
+        command.extend(["--bigquery-dataset", args.bigquery_dataset])
     return command
+
+
+def scheduler_delivery_payload(args: argparse.Namespace) -> dict[str, Any]:
+    delivery_kind = str(getattr(args, "delivery_kind", "") or "last-channel")
+    if delivery_kind == "last-channel":
+        return {"kind": "last-channel"}
+    if delivery_kind == "channel":
+        delivery_to = str(getattr(args, "delivery_to", "") or "").strip()
+        if not delivery_to:
+            raise WarehouseSqlError("Channel delivery requires --delivery-to.")
+        return {
+            "kind": "channel",
+            "channel": args.delivery_channel,
+            "to": delivery_to,
+        }
+    webhook_url = str(getattr(args, "delivery_webhook_url", "") or "").strip()
+    if not webhook_url:
+        raise WarehouseSqlError("Webhook delivery requires --delivery-webhook-url.")
+    return {
+        "kind": "webhook",
+        "webhookUrl": webhook_url,
+    }
 
 
 def scheduler_job_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -1015,10 +1101,7 @@ def scheduler_job_payload(args: argparse.Namespace) -> dict[str, Any]:
             "kind": "agent_turn",
             "message": message,
         },
-        "delivery": {
-            "kind": "channel",
-            "to": args.delivery_channel,
-        },
+        "delivery": scheduler_delivery_payload(args),
     }
 
 
@@ -1114,6 +1197,8 @@ def build_parser() -> argparse.ArgumentParser:
     schema.add_argument("--cache-dir", help="Schema cache directory.")
     schema.add_argument("--cache-ttl-seconds", type=int, default=DEFAULT_CACHE_TTL_SECONDS)
     schema.add_argument("--backend-command", help="Executable connector command that reads SQL on stdin and emits JSON/CSV rows.")
+    schema.add_argument("--bigquery-project", help="BigQuery project for INFORMATION_SCHEMA introspection.")
+    schema.add_argument("--bigquery-dataset", help="BigQuery dataset for INFORMATION_SCHEMA introspection.")
     schema.add_argument("--timeout-seconds", type=int, default=60)
     schema.add_argument("--refresh", action="store_true", help="Force a schema refresh.")
     schema.set_defaults(func=handle_schema)
@@ -1128,11 +1213,20 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_refresh.add_argument("--profile", default="default")
     schedule_refresh.add_argument("--cache-dir", help="Schema cache directory.")
     schedule_refresh.add_argument("--backend-command", help="Executable connector command that reads SQL on stdin and emits JSON/CSV rows.")
+    schedule_refresh.add_argument("--bigquery-project", help="BigQuery project for INFORMATION_SCHEMA introspection.")
+    schedule_refresh.add_argument("--bigquery-dataset", help="BigQuery dataset for INFORMATION_SCHEMA introspection.")
     schedule_refresh.add_argument("--every", default="0 */6 * * *", help="Cron expression.")
     schedule_refresh.add_argument("--time-zone", default="UTC")
     schedule_refresh.add_argument("--job-id")
     schedule_refresh.add_argument("--agent-id", default="main")
-    schedule_refresh.add_argument("--delivery-channel", default="scheduler")
+    schedule_refresh.add_argument(
+        "--delivery-kind",
+        choices=["last-channel", "channel", "webhook"],
+        default="last-channel",
+    )
+    schedule_refresh.add_argument("--delivery-channel", default="discord", help="Channel kind for channel deliveries.")
+    schedule_refresh.add_argument("--delivery-to", help="Destination/channel id for channel deliveries.")
+    schedule_refresh.add_argument("--delivery-webhook-url", help="Webhook URL for webhook deliveries.")
     schedule_refresh.add_argument("--gateway-url")
     schedule_refresh.add_argument("--gateway-token")
     schedule_refresh.add_argument("--timeout-seconds", type=int, default=30)

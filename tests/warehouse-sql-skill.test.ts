@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { expect, test } from 'vitest';
+import { afterEach, expect, test } from 'vitest';
 
 const helperPath = path.join(
   process.cwd(),
@@ -26,6 +26,20 @@ const backendStubPath = path.join(
   'fixtures',
   'warehouse_backend_stub.py',
 );
+const tempDirs = new Set<string>();
+
+afterEach(() => {
+  for (const dir of tempDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  tempDirs.clear();
+});
+
+function makeTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.add(dir);
+  return dir;
+}
 
 function runHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync('python3', [helperPath, ...args], {
@@ -34,14 +48,40 @@ function runHelper(args: string[], env: NodeJS.ProcessEnv = {}) {
   });
 }
 
-function runHelperAsync(args: string[], env: NodeJS.ProcessEnv = {}) {
+function runHelperAsync(
+  args: string[],
+  env: NodeJS.ProcessEnv = {},
+  timeoutMs = 10_000,
+) {
   return new Promise<{ status: number | null; stdout: string; stderr: string }>(
-    (resolve) => {
+    (resolve, reject) => {
       const child = spawn('python3', [helperPath, ...args], {
         env: { ...process.env, ...env },
       });
       let stdout = '';
       let stderr = '';
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const finishResolve = (status: number | null) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        resolve({ status, stdout, stderr });
+      };
+      const finishReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        reject(error);
+      };
+      timeout = setTimeout(() => {
+        child.kill();
+        finishReject(
+          new Error(
+            `Timed out after ${timeoutMs}ms waiting for warehouse SQL helper`,
+          ),
+        );
+      }, timeoutMs);
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
@@ -50,15 +90,18 @@ function runHelperAsync(args: string[], env: NodeJS.ProcessEnv = {}) {
       child.stderr.on('data', (chunk) => {
         stderr += chunk;
       });
+      child.on('error', (error) => {
+        finishReject(error);
+      });
       child.on('close', (status) => {
-        resolve({ status, stdout, stderr });
+        finishResolve(status);
       });
     },
   );
 }
 
 function createFixtureDb(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'warehouse-sql-test-'));
+  const dir = makeTempDir('warehouse-sql-test-');
   const dbPath = path.join(dir, 'tpch.db');
   const db = new Database(dbPath);
   try {
@@ -83,9 +126,7 @@ test('warehouse SQL helper --help exits cleanly', () => {
 
 test('warehouse SQL helper caches SQLite schema introspection', () => {
   const dbPath = createFixtureDb();
-  const cacheDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'warehouse-sql-cache-'),
-  );
+  const cacheDir = makeTempDir('warehouse-sql-cache-');
 
   const first = runHelper([
     '--format',
@@ -146,12 +187,26 @@ test('warehouse SQL helper caches SQLite schema introspection', () => {
   const versionMismatchPayload = JSON.parse(versionMismatch.stdout);
   expect(versionMismatchPayload.cache.status).toBe('miss');
   expect(versionMismatchPayload.cacheVersion).toBe(firstPayload.cacheVersion);
+
+  fs.writeFileSync(secondPayload.cache.path, '{');
+  const corruptCache = runHelper([
+    '--format',
+    'json',
+    'schema',
+    '--backend',
+    'sqlite',
+    '--database',
+    dbPath,
+    '--cache-dir',
+    cacheDir,
+  ]);
+  expect(corruptCache.status).toBe(0);
+  const corruptCachePayload = JSON.parse(corruptCache.stdout);
+  expect(corruptCachePayload.cache.status).toBe('miss');
 });
 
 test('warehouse SQL helper refreshes and executes non-SQLite backends through connector commands', () => {
-  const cacheDir = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'warehouse-sql-cache-'),
-  );
+  const cacheDir = makeTempDir('warehouse-sql-cache-');
   const backendCommand = `python3 ${backendStubPath}`;
 
   const schema = runHelper([
@@ -243,6 +298,51 @@ test('warehouse SQL helper refreshes and executes non-SQLite backends through co
       profile: 'analytics',
     },
   ]);
+
+  const badRows = runHelper([
+    '--format',
+    'json',
+    'query',
+    '--backend',
+    'postgres',
+    '--profile',
+    'analytics',
+    '--backend-command',
+    backendCommand,
+    '--execute',
+    'SELECT bad_rows LIMIT 1',
+  ]);
+  expect(badRows.status).toBe(2);
+  const badRowsPayload = JSON.parse(badRows.stdout);
+  expect(badRowsPayload.error).toContain('row 0');
+});
+
+test('warehouse SQL helper renders BigQuery introspection from explicit dataset config', () => {
+  const cacheDir = makeTempDir('warehouse-sql-cache-');
+  const schema = runHelper([
+    '--format',
+    'json',
+    'schema',
+    '--backend',
+    'bigquery',
+    '--profile',
+    'analytics',
+    '--backend-command',
+    `python3 ${backendStubPath}`,
+    '--bigquery-project',
+    'example-project',
+    '--bigquery-dataset',
+    'analytics',
+    '--cache-dir',
+    cacheDir,
+    '--refresh',
+  ]);
+
+  expect(schema.status).toBe(0);
+  const payload = JSON.parse(schema.stdout);
+  expect(payload.introspection.tables).toContain(
+    '`example-project.analytics.INFORMATION_SCHEMA.TABLES`',
+  );
 });
 
 test('warehouse SQL helper blocks writes unless the per-skill grant matches', () => {
@@ -279,6 +379,31 @@ test('warehouse SQL helper blocks writes unless the per-skill grant matches', ()
   const allowedPayload = JSON.parse(allowed.stdout);
   expect(allowedPayload.review.status).toBe('pass');
   expect(allowedPayload.review.readOnly).toBe(false);
+
+  const selectInto = runHelper([
+    '--format',
+    'json',
+    'review',
+    'SELECT * INTO copied_customer FROM customer LIMIT 1',
+  ]);
+  expect(selectInto.status).toBe(0);
+  const selectIntoPayload = JSON.parse(selectInto.stdout);
+  expect(selectIntoPayload.review.status).toBe('block');
+  expect(selectIntoPayload.review.findings).toEqual(
+    expect.arrayContaining([expect.stringContaining('SELECT INTO')]),
+  );
+
+  const limitNewline = runHelper([
+    '--format',
+    'json',
+    'review',
+    'SELECT c_name FROM customer LIMIT\n1',
+  ]);
+  expect(limitNewline.status).toBe(0);
+  const limitNewlinePayload = JSON.parse(limitNewline.stdout);
+  expect(limitNewlinePayload.review.findings).not.toEqual(
+    expect.arrayContaining([expect.stringContaining('does not include LIMIT')]),
+  );
 });
 
 test('warehouse SQL helper honors write grants during SQLite execution', () => {
@@ -464,6 +589,9 @@ test('warehouse SQL helper registers scheduled schema refresh jobs through the g
         kind: 'agent_turn',
         message: expect.stringContaining('--refresh'),
       }),
+      delivery: {
+        kind: 'last-channel',
+      },
     }),
   );
 });

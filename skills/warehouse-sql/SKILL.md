@@ -67,6 +67,11 @@ runtime or provide `--backend-command` / `HYBRIDCLAW_WAREHOUSE_SQL_<BACKEND>_COM
 Connector commands read SQL on stdin and emit a JSON row array, `{"rows": [...]}`
 or CSV with headers. Do not invent credentials.
 
+BigQuery schema introspection requires `--bigquery-dataset` or
+`HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_DATASET`. Set
+`--bigquery-project` / `HYBRIDCLAW_WAREHOUSE_SQL_BIGQUERY_PROJECT` when the
+dataset is not in the default project.
+
 ## Schema Cache
 
 The helper writes schema cache files outside the repo by default at:
@@ -82,6 +87,10 @@ HybridClaw gateway scheduler:
 ```bash
 python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json schedule-refresh --backend postgres --profile analytics --every "0 */6 * * *"
 ```
+
+Scheduled refreshes default to `last-channel` delivery. Use
+`--delivery-kind channel --delivery-to <channel-id>` only when the target
+channel id is known.
 
 Set `HYBRIDCLAW_GATEWAY_TOKEN` or `GATEWAY_API_TOKEN` in the environment for
 production scheduler registration. `--gateway-token` is supported for tests, but
