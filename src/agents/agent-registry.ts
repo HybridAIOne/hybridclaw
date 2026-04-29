@@ -566,6 +566,11 @@ export function getAgentById(agentId: string): AgentConfig | null {
   return findAgentConfig(normalizedId);
 }
 
+export function displayNameForAgent(agentId: string): string {
+  const agent = getAgentById(agentId);
+  return agent?.displayName || agent?.name || agentId;
+}
+
 export function getStoredAgentConfig(
   agentId?: string | null,
 ): AgentConfig | null {

@@ -62,6 +62,10 @@ export async function createAdaptiveSkillsTestContext(options?: {
     draft.skills.disabled = [];
     draft.adaptiveSkills.enabled = false;
     draft.adaptiveSkills.observationEnabled = true;
+    draft.adaptiveSkills.cv.retentionDays = 90;
+    draft.adaptiveSkills.cv.renderThrottleMs = 0;
+    draft.adaptiveSkills.cv.batchDebounceMs = 30_000;
+    draft.adaptiveSkills.cv.narrationDailyBudgetUsd = 0.005;
     draft.adaptiveSkills.inspectionIntervalMs = 0;
     draft.adaptiveSkills.observationRetentionDays = 30;
     draft.adaptiveSkills.trailingWindowHours = 24;
