@@ -358,3 +358,36 @@ test('file-backed prompt templates are versioned as runtime template assets', as
   expect(restored).toContain('System v1');
   expect(fs.readFileSync(templatePath, 'utf-8')).toContain('System v1');
 });
+
+test('file-backed prompt templates are cached while unchanged', async () => {
+  const { prepareTraceJudgePrompt } = await import(
+    '../src/evals/trace-preparation.js'
+  );
+  const templatePath = path.join(tmpDir, 'templates', 'cached-judge.json');
+  fs.mkdirSync(path.dirname(templatePath), { recursive: true });
+  fs.writeFileSync(
+    templatePath,
+    JSON.stringify({
+      id: 'cached-judge',
+      system: 'Cached system',
+      user: 'Cached user: {{judge_input_json}}',
+    }),
+    'utf-8',
+  );
+
+  prepareTraceJudgePrompt({ answer: 'A' }, 'Pass.', {
+    templatePath,
+    confidentialRuleSet: null,
+  });
+
+  const readSpy = vi.spyOn(fs, 'readFileSync');
+  const prepared = prepareTraceJudgePrompt({ answer: 'B' }, 'Pass.', {
+    templatePath,
+    confidentialRuleSet: null,
+  });
+
+  expect(prepared.messages[0]?.content).toBe('Cached system');
+  expect(
+    readSpy.mock.calls.filter(([target]) => String(target) === templatePath),
+  ).toHaveLength(0);
+});

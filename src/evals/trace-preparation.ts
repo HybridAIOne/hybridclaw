@@ -100,8 +100,15 @@ interface RedactionStats {
   secretRedactedStringCount: number;
 }
 
+interface CachedTracePromptTemplate {
+  mtimeNs: bigint;
+  size: bigint;
+  template: TracePromptTemplate;
+}
+
 const TRACE_TAIL_TRUNCATED_MARKER = '[truncated leading trace]\n';
 let loggedMissingConfidentialTraceRules = false;
+const templateCache = new Map<string, CachedTracePromptTemplate>();
 
 const DEFAULT_TRACE_JUDGE_TEMPLATE: TracePromptTemplate = {
   id: 'trace-judge-v1',
@@ -382,15 +389,49 @@ function fitTraceToTokenBudget(
   let tokenDroppedToolCalls = 0;
   let includedToolCallCount = match?.items.length ?? 0;
   if (match && match.items.length > 1) {
-    let included = match.items;
-    while (included.length > 1 && estimatedTraceTokens > maxTraceTokens) {
-      included = included.slice(1);
-      tokenDroppedToolCalls += 1;
+    let best: {
+      candidate: unknown;
+      included: unknown[];
+      traceText: string;
+      estimatedTraceTokens: number;
+    } | null = null;
+    let low = 1;
+    let high = match.items.length - 1;
+
+    while (low <= high) {
+      const keepCount = Math.floor((low + high) / 2);
+      const included = match.items.slice(-keepCount);
+      const nextCandidate = replaceAtPath(candidate, match.path, included);
+      const nextTraceText = serializeTracePreparationInput(nextCandidate);
+      const nextEstimatedTraceTokens =
+        estimateTokenCountFromText(nextTraceText);
+
+      if (nextEstimatedTraceTokens <= maxTraceTokens) {
+        best = {
+          candidate: nextCandidate,
+          included,
+          traceText: nextTraceText,
+          estimatedTraceTokens: nextEstimatedTraceTokens,
+        };
+        low = keepCount + 1;
+      } else {
+        high = keepCount - 1;
+      }
+    }
+
+    if (best) {
+      candidate = best.candidate;
+      traceText = best.traceText;
+      estimatedTraceTokens = best.estimatedTraceTokens;
+      includedToolCallCount = best.included.length;
+    } else {
+      const included = match.items.slice(-1);
       candidate = replaceAtPath(candidate, match.path, included);
       traceText = serializeTracePreparationInput(candidate);
       estimatedTraceTokens = estimateTokenCountFromText(traceText);
+      includedToolCallCount = included.length;
     }
-    includedToolCallCount = included.length;
+    tokenDroppedToolCalls = match.items.length - includedToolCallCount;
   }
 
   let truncatedSerializedTrace = false;
@@ -454,6 +495,31 @@ function writeTemplateFileIfMissing(templatePath: string): void {
   }
 }
 
+function readCachedTracePromptTemplate(
+  templatePath: string,
+): TracePromptTemplate | null {
+  const cached = templateCache.get(templatePath);
+  if (!cached) return null;
+  const stat = fs.statSync(templatePath, { bigint: true });
+  if (cached.mtimeNs !== stat.mtimeNs || cached.size !== stat.size) {
+    templateCache.delete(templatePath);
+    return null;
+  }
+  return cached.template;
+}
+
+function cacheTracePromptTemplate(
+  templatePath: string,
+  template: TracePromptTemplate,
+): void {
+  const stat = fs.statSync(templatePath, { bigint: true });
+  templateCache.set(templatePath, {
+    mtimeNs: stat.mtimeNs,
+    size: stat.size,
+    template,
+  });
+}
+
 function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
   template: TracePromptTemplate;
   templateStats: TracePreparationTemplateStats;
@@ -487,6 +553,19 @@ function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
     writeTemplateFileIfMissing(templatePath);
   }
 
+  const cachedTemplate = readCachedTracePromptTemplate(templatePath);
+  if (cachedTemplate) {
+    return {
+      template: cachedTemplate,
+      templateStats: {
+        id: cachedTemplate.id,
+        path: templatePath,
+        versioned: true,
+        revisionChanged: false,
+      },
+    };
+  }
+
   const content = fs.readFileSync(templatePath, 'utf-8');
   const template = normalizeTemplate(JSON.parse(content), templatePath);
   const revisionState = syncRuntimeAssetRevisionState(
@@ -495,6 +574,7 @@ function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
     options.revisionMeta,
     { exists: true, content },
   );
+  cacheTracePromptTemplate(templatePath, template);
 
   return {
     template,
