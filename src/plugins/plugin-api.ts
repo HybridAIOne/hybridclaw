@@ -26,6 +26,7 @@ import type {
   PluginHookName,
   PluginInboundWebhookDefinition,
   PluginLogger,
+  PluginOutputGuard,
   PluginPromptHook,
   PluginRegistrationMode,
   PluginRuntime,
@@ -125,6 +126,9 @@ export function createPluginApi(params: {
     },
     registerPromptHook(hook: PluginPromptHook): void {
       params.manager.registerPromptHook(params.pluginId, hook);
+    },
+    registerOutputGuard(guard: PluginOutputGuard): void {
+      params.manager.registerOutputGuard(params.pluginId, guard);
     },
     registerCommand(cmd: PluginCommandDefinition): void {
       params.manager.registerCommand(params.pluginId, cmd);
