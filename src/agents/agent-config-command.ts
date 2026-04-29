@@ -14,8 +14,10 @@ import { activateAgentInRuntimeConfig } from './agent-runtime-config.js';
 import {
   type AgentConfig,
   type AgentModelConfig,
+  hasSnakeCamelAlias,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
 } from './agent-types.js';
 
 const MARKDOWN_MAX_BYTES = 200_000;
@@ -224,31 +226,18 @@ function applyAgentConfigFieldUpdates(
     if (role) next.role = role;
     else delete next.role;
   }
-  const reportsToValue = Object.hasOwn(updates, 'reportsTo')
-    ? updates.reportsTo
-    : Object.hasOwn(updates, 'reports_to')
-      ? updates.reports_to
-      : undefined;
-  if (
-    Object.hasOwn(updates, 'reportsTo') ||
-    Object.hasOwn(updates, 'reports_to')
-  ) {
-    const reportsTo = normalizeOptionalStringField('reportsTo', reportsToValue);
+  if (hasSnakeCamelAlias(updates, 'reportsTo', 'reports_to')) {
+    const reportsTo = normalizeOptionalStringField(
+      'reportsTo',
+      resolveSnakeCamelAlias(updates, 'reportsTo', 'reports_to'),
+    );
     if (reportsTo) next.reportsTo = reportsTo;
     else delete next.reportsTo;
   }
-  const delegatesToValue = Object.hasOwn(updates, 'delegatesTo')
-    ? updates.delegatesTo
-    : Object.hasOwn(updates, 'delegates_to')
-      ? updates.delegates_to
-      : undefined;
-  if (
-    Object.hasOwn(updates, 'delegatesTo') ||
-    Object.hasOwn(updates, 'delegates_to')
-  ) {
+  if (hasSnakeCamelAlias(updates, 'delegatesTo', 'delegates_to')) {
     const delegatesTo = normalizeOptionalStringArrayField(
       'delegatesTo',
-      delegatesToValue,
+      resolveSnakeCamelAlias(updates, 'delegatesTo', 'delegates_to'),
     );
     if (delegatesTo !== undefined) next.delegatesTo = delegatesTo;
     else delete next.delegatesTo;

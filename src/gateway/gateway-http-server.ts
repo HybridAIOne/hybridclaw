@@ -4,7 +4,10 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  resolveSnakeCamelAlias,
+} from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   type DiscordToolActionRequest,
@@ -2400,9 +2403,16 @@ async function readApiAdminAgentPayload(
   options?: { requireId?: boolean },
 ): Promise<ApiAdminAgentPayload> {
   const body = (await readJsonBody(req)) as ApiAdminAgentPayloadBody;
-  const delegatesToInput = Object.hasOwn(body, 'delegatesTo')
-    ? body.delegatesTo
-    : body.delegates_to;
+  const reportsToInput = resolveSnakeCamelAlias(
+    body,
+    'reportsTo',
+    'reports_to',
+  );
+  const delegatesToInput = resolveSnakeCamelAlias(
+    body,
+    'delegatesTo',
+    'delegates_to',
+  );
   const payload: ApiAdminAgentPayload = {
     id: String(body.id || '').trim() || undefined,
     name: typeof body.name === 'string' ? body.name : undefined,
@@ -2412,13 +2422,11 @@ async function readApiAdminAgentPayload(
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     role: typeof body.role === 'string' ? body.role : undefined,
     reportsTo:
-      typeof body.reportsTo === 'string'
-        ? body.reportsTo
-        : typeof body.reports_to === 'string'
-          ? body.reports_to
-          : body.reportsTo === null || body.reports_to === null
-            ? null
-            : undefined,
+      typeof reportsToInput === 'string'
+        ? reportsToInput
+        : reportsToInput === null
+          ? null
+          : undefined,
     delegatesTo: normalizeApiAdminAgentStringArray(
       'delegatesTo',
       delegatesToInput,

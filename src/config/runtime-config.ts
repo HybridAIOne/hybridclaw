@@ -13,8 +13,10 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentCv,
   DEFAULT_AGENT_ID,
+  hasSnakeCamelAlias,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
 import type {
@@ -2227,19 +2229,19 @@ function normalizeAgentConfig(
     allowEmpty: true,
   });
   const reportsTo = normalizeString(
-    value.reportsTo ?? value.reports_to,
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
     fallback?.reportsTo ?? '',
     {
       allowEmpty: true,
     },
   );
-  const delegatesTo = Object.hasOwn(value, 'delegatesTo')
-    ? normalizeOptionalTrimmedUniqueStringArray(value.delegatesTo)
-    : Object.hasOwn(value, 'delegates_to')
-      ? normalizeOptionalTrimmedUniqueStringArray(value.delegates_to)
-      : fallback?.delegatesTo
-        ? [...fallback.delegatesTo]
-        : undefined;
+  const delegatesTo = hasSnakeCamelAlias(value, 'delegatesTo', 'delegates_to')
+    ? normalizeOptionalTrimmedUniqueStringArray(
+        resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
+      )
+    : fallback?.delegatesTo
+      ? [...fallback.delegatesTo]
+      : undefined;
   const peers = Object.hasOwn(value, 'peers')
     ? normalizeOptionalTrimmedUniqueStringArray(value.peers)
     : fallback?.peers

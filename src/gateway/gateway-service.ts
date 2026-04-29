@@ -4176,6 +4176,42 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   });
 }
 
+type GatewayAdminAgentOrgChartParams = {
+  role?: string | null;
+  reportsTo?: string | null;
+  delegatesTo?: string[] | null;
+  peers?: string[] | null;
+};
+
+function buildGatewayAdminAgentOrgChartPatch(
+  params: GatewayAdminAgentOrgChartParams,
+): Partial<Pick<AgentConfig, 'role' | 'reportsTo' | 'delegatesTo' | 'peers'>> {
+  return {
+    ...(params.role !== undefined
+      ? { role: params.role?.trim() || undefined }
+      : {}),
+    ...(params.reportsTo !== undefined
+      ? { reportsTo: params.reportsTo?.trim() || undefined }
+      : {}),
+    ...(params.delegatesTo !== undefined
+      ? {
+          delegatesTo:
+            params.delegatesTo == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
+        }
+      : {}),
+    ...(params.peers !== undefined
+      ? {
+          peers:
+            params.peers == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
+        }
+      : {}),
+  };
+}
+
 export function createGatewayAdminAgent(params: {
   id: string;
   name?: string | null;
@@ -4200,24 +4236,7 @@ export function createGatewayAdminAgent(params: {
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
-    ...(params.role?.trim() ? { role: params.role.trim() } : {}),
-    ...(params.reportsTo?.trim() ? { reportsTo: params.reportsTo.trim() } : {}),
-    ...(params.delegatesTo !== undefined
-      ? {
-          delegatesTo:
-            params.delegatesTo == null
-              ? undefined
-              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
-        }
-      : {}),
-    ...(params.peers !== undefined
-      ? {
-          peers:
-            params.peers == null
-              ? undefined
-              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
-        }
-      : {}),
+    ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
   return {
@@ -4264,28 +4283,7 @@ export function updateGatewayAdminAgent(
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
-    ...(params.role !== undefined
-      ? { role: params.role?.trim() || undefined }
-      : {}),
-    ...(params.reportsTo !== undefined
-      ? { reportsTo: params.reportsTo?.trim() || undefined }
-      : {}),
-    ...(params.delegatesTo !== undefined
-      ? {
-          delegatesTo:
-            params.delegatesTo == null
-              ? undefined
-              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
-        }
-      : {}),
-    ...(params.peers !== undefined
-      ? {
-          peers:
-            params.peers == null
-              ? undefined
-              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
-        }
-      : {}),
+    ...buildGatewayAdminAgentOrgChartPatch(params),
   });
   return {
     agent: mapGatewayAdminAgent(saved),

@@ -31,6 +31,7 @@ import {
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from './agent-types.js';
 
@@ -162,12 +163,10 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const owner = normalizeString((value as { owner?: unknown }).owner);
   const role = normalizeString((value as { role?: unknown }).role);
   const reportsTo = normalizeString(
-    (value as { reportsTo?: unknown; reports_to?: unknown }).reportsTo ??
-      (value as { reports_to?: unknown }).reports_to,
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
   );
   const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
-    (value as { delegatesTo?: unknown; delegates_to?: unknown }).delegatesTo ??
-      (value as { delegates_to?: unknown }).delegates_to,
+    resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
   );
   const peers = normalizeOptionalTrimmedUniqueStringArray(
     (value as { peers?: unknown }).peers,

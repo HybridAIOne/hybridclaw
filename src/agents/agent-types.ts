@@ -116,6 +116,23 @@ export function agentCvEquals(a?: AgentCv, b?: AgentCv): boolean {
   return aCaps.every((entry, index) => entry === bCaps[index]);
 }
 
+export function hasSnakeCamelAlias(
+  value: object,
+  camelKey: string,
+  snakeKey: string,
+): boolean {
+  return resolveSnakeCamelAlias(value, camelKey, snakeKey) !== undefined;
+}
+
+export function resolveSnakeCamelAlias(
+  value: object,
+  camelKey: string,
+  snakeKey: string,
+): unknown {
+  const record = value as Record<string, unknown>;
+  return record[camelKey] !== undefined ? record[camelKey] : record[snakeKey];
+}
+
 export function validateAgentOrgChart(agents: AgentConfig[]): void {
   const agentIds = new Set<string>();
   for (const agent of agents) {
