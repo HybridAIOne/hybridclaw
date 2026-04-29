@@ -204,4 +204,32 @@ describe('DashboardPage', () => {
       expect(screen.getAllByText(message)).toHaveLength(1);
     });
   });
+
+  it('shows distinct tunnel and reconnect errors', async () => {
+    const tunnelError =
+      'ngrok auth token is not configured in encrypted runtime secrets.';
+    const reconnectError = 'Failed to start ngrok tunnel.';
+    fetchOverviewMock.mockResolvedValue(
+      makeOverview(
+        makeTunnelStatus({
+          publicUrl: null,
+          state: 'down',
+          health: 'down',
+          lastError: tunnelError,
+          lastCheckedAt: null,
+        }),
+      ),
+    );
+    reconnectTunnelMock.mockRejectedValue(new Error(reconnectError));
+
+    renderDashboardPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+    await waitFor(() => {
+      expect(reconnectTunnelMock).toHaveBeenCalledWith('test-token');
+      expect(screen.getByText(tunnelError)).toBeTruthy();
+      expect(screen.getByText(reconnectError)).toBeTruthy();
+    });
+  });
 });
