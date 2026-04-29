@@ -72,6 +72,10 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
     return this.entries.size;
   }
 
+  get memoryPressureEnabled(): boolean {
+    return this.config.memoryPressureRssBytes > 0;
+  }
+
   values(): T[] {
     return Array.from(this.entries.values());
   }

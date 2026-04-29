@@ -191,6 +191,12 @@ const warmPool = new WarmProcessPool<PoolEntry>(
   }),
 );
 const STDERR_HISTORY_LIMIT = 20;
+const MEMORY_SAMPLE_TTL_MS = 5_000;
+let hostMemorySample: {
+  at: number;
+  processKey: string;
+  totalBytes: number;
+} | null = null;
 
 function rememberStderrLine(entry: PoolEntry, line: string): void {
   entry.stderrHistory.push(line);
@@ -267,7 +273,6 @@ async function waitForHostCapacity(
       warmPool.evictForPressure({
         totalProcessCount: getTotalHostProcessCount() + 1,
         maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-        rssBytes: getObservedHostProcessMemoryBytes(),
       }),
     );
     if (getTotalHostProcessCount() < MAX_CONCURRENT_CONTAINERS) break;
@@ -503,22 +508,40 @@ function readProcessRssBytes(pid: number | undefined): number {
 }
 
 function getObservedHostProcessMemoryBytes(): number {
+  const warmEntries = warmPool.values();
+  if (warmEntries.length === 0 || !warmPool.memoryPressureEnabled) return 0;
+  const pids = [
+    ...Array.from(pool.values()).map((entry) => entry.process.pid),
+    ...warmEntries.map((entry) => entry.process.pid),
+  ].filter((pid): pid is number => typeof pid === 'number');
+  const processKey = Array.from(new Set(pids)).sort().join('\n');
+  const now = Date.now();
+  if (
+    hostMemorySample &&
+    hostMemorySample.processKey === processKey &&
+    now - hostMemorySample.at < MEMORY_SAMPLE_TTL_MS
+  ) {
+    return hostMemorySample.totalBytes;
+  }
+
   let total = 0;
-  for (const entry of pool.values()) {
-    total += readProcessRssBytes(entry.process.pid);
+  for (const pid of pids) {
+    total += readProcessRssBytes(pid);
   }
-  for (const entry of warmPool.values()) {
-    total += readProcessRssBytes(entry.process.pid);
-  }
+  hostMemorySample = { at: now, processKey, totalBytes: total };
   return total;
 }
 
 function enforceWarmHostPressure(): void {
+  if (warmPool.size === 0) return;
+  const totalProcessCount = getTotalHostProcessCount();
+  const overCapacity = totalProcessCount > MAX_CONCURRENT_CONTAINERS;
+  if (!overCapacity && !warmPool.memoryPressureEnabled) return;
   stopWarmEntries(
     warmPool.evictForPressure({
-      totalProcessCount: getTotalHostProcessCount(),
+      totalProcessCount,
       maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-      rssBytes: getObservedHostProcessMemoryBytes(),
+      rssBytes: overCapacity ? undefined : getObservedHostProcessMemoryBytes(),
     }),
   );
 }

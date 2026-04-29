@@ -148,6 +148,12 @@ const warmPool = new WarmProcessPool<PoolEntry>(
       CONTAINER_WARM_POOL.memoryPressureRssMb * 1024 * 1024,
   }),
 );
+const MEMORY_SAMPLE_TTL_MS = 5_000;
+let containerMemorySample: {
+  at: number;
+  containerKey: string;
+  totalBytes: number;
+} | null = null;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
@@ -457,34 +463,76 @@ function parseMemoryBytes(raw: string): number | null {
   return Math.floor(value * multiplier);
 }
 
-function readContainerMemoryBytes(containerName: string): number {
+function readContainerMemoryBytes(
+  containerNames: string[],
+): Map<string, number> {
+  const memoryByContainer = new Map<string, number>();
+  const uniqueContainerNames = Array.from(new Set(containerNames)).filter(
+    (name) => name.length > 0,
+  );
+  if (uniqueContainerNames.length === 0) return memoryByContainer;
+
   const result = spawnSync(
     'docker',
-    ['stats', '--no-stream', '--format', '{{.MemUsage}}', containerName],
+    [
+      'stats',
+      '--no-stream',
+      '--format',
+      '{{.Name}}\t{{.MemUsage}}',
+      ...uniqueContainerNames,
+    ],
     { encoding: 'utf-8', timeout: 2_000 },
   );
-  if (result.status !== 0) return 0;
-  const usage = String(result.stdout || '').split('/')[0] || '';
-  return parseMemoryBytes(usage) || 0;
+  if (result.status !== 0) return memoryByContainer;
+
+  for (const line of String(result.stdout || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const separatorIndex = trimmed.indexOf('\t');
+    if (separatorIndex === -1) continue;
+    const containerName = trimmed.slice(0, separatorIndex).trim();
+    const usage = trimmed.slice(separatorIndex + 1).split('/')[0] || '';
+    memoryByContainer.set(containerName, parseMemoryBytes(usage) || 0);
+  }
+  return memoryByContainer;
 }
 
 function getObservedContainerMemoryBytes(): number {
+  const warmEntries = warmPool.values();
+  if (warmEntries.length === 0 || !warmPool.memoryPressureEnabled) return 0;
+  const containerNames = [
+    ...Array.from(pool.values()).map((entry) => entry.containerName),
+    ...warmEntries.map((entry) => entry.containerName),
+  ];
+  const containerKey = Array.from(new Set(containerNames)).sort().join('\n');
+  const now = Date.now();
+  if (
+    containerMemorySample &&
+    containerMemorySample.containerKey === containerKey &&
+    now - containerMemorySample.at < MEMORY_SAMPLE_TTL_MS
+  ) {
+    return containerMemorySample.totalBytes;
+  }
+
+  const memoryByContainer = readContainerMemoryBytes(containerNames);
   let total = 0;
-  for (const entry of pool.values()) {
-    total += readContainerMemoryBytes(entry.containerName);
+  for (const containerName of containerNames) {
+    total += memoryByContainer.get(containerName) || 0;
   }
-  for (const entry of warmPool.values()) {
-    total += readContainerMemoryBytes(entry.containerName);
-  }
+  containerMemorySample = { at: now, containerKey, totalBytes: total };
   return total;
 }
 
 function enforceWarmContainerPressure(): void {
+  if (warmPool.size === 0) return;
+  const totalProcessCount = getTotalContainerProcessCount();
+  const overCapacity = totalProcessCount > MAX_CONCURRENT_CONTAINERS;
+  if (!overCapacity && !warmPool.memoryPressureEnabled) return;
   stopWarmEntries(
     warmPool.evictForPressure({
-      totalProcessCount: getTotalContainerProcessCount(),
+      totalProcessCount,
       maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-      rssBytes: getObservedContainerMemoryBytes(),
+      rssBytes: overCapacity ? undefined : getObservedContainerMemoryBytes(),
     }),
   );
 }
@@ -1073,7 +1121,6 @@ async function runContainerInner(
       warmPool.evictForPressure({
         totalProcessCount: getTotalContainerProcessCount() + 1,
         maxProcessCount: MAX_CONCURRENT_CONTAINERS,
-        rssBytes: getObservedContainerMemoryBytes(),
       }),
     );
   }
