@@ -4825,7 +4825,7 @@ describe('CLI hybridai commands', () => {
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 
-  it('does not fetch authenticated status when gateway health reports container mode for tui preflight', async () => {
+  it('uses container preflight when gateway health reports container mode without fetching authenticated status', async () => {
     const {
       cli,
       ensureContainerImageReady,
