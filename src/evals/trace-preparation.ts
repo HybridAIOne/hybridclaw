@@ -44,7 +44,6 @@ export interface TracePromptTemplateOptions {
   template?: TracePromptTemplate;
   templatePath?: string;
   createTemplateIfMissing?: boolean;
-  syncTemplateRevision?: boolean;
   revisionMeta?: RuntimeConfigChangeMeta;
 }
 
@@ -58,8 +57,6 @@ export interface TracePreparationWindowStats {
   originalToolCallCount: number;
   includedToolCallCount: number;
   droppedToolCallCount: number;
-  maxToolCalls: number;
-  maxTraceTokens: number;
   estimatedTraceTokens: number;
   truncatedByTokens: boolean;
   truncatedSerializedTrace: boolean;
@@ -71,7 +68,6 @@ export interface TracePreparationRedactionStats {
   placeholderCount: number;
   secretRedactedStringCount: number;
   rulesSource: string | null;
-  mappings: ConfidentialPlaceholderMap;
   rehydrate(text: string): string;
 }
 
@@ -341,7 +337,6 @@ function redactTrace(
       placeholderCount: mappings.byPlaceholder.size,
       secretRedactedStringCount: redactionStats.secretRedactedStringCount,
       rulesSource: ruleSet?.sourcePath ?? null,
-      mappings,
       rehydrate: (text: string) => rehydrateConfidential(text, mappings),
     },
   };
@@ -467,23 +462,20 @@ function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
 
   const content = fs.readFileSync(templatePath, 'utf-8');
   const template = normalizeTemplate(JSON.parse(content), templatePath);
-  const shouldSync = options.syncTemplateRevision !== false;
-  const revisionState = shouldSync
-    ? syncRuntimeAssetRevisionState(
-        'template',
-        templatePath,
-        options.revisionMeta,
-        { exists: true, content },
-      )
-    : null;
+  const revisionState = syncRuntimeAssetRevisionState(
+    'template',
+    templatePath,
+    options.revisionMeta,
+    { exists: true, content },
+  );
 
   return {
     template,
     templateStats: {
       id: template.id,
       path: templatePath,
-      versioned: shouldSync,
-      revisionChanged: revisionState?.changed ?? null,
+      versioned: true,
+      revisionChanged: revisionState.changed,
     },
   };
 }
@@ -561,8 +553,6 @@ export function prepareTraceJudgePrompt(
       originalToolCallCount: toolWindow.originalToolCallCount,
       includedToolCallCount: fitted.includedToolCallCount,
       droppedToolCallCount: fitted.droppedToolCallCount,
-      maxToolCalls,
-      maxTraceTokens,
       estimatedTraceTokens: fitted.estimatedTraceTokens,
       truncatedByTokens: fitted.truncatedByTokens,
       truncatedSerializedTrace: fitted.truncatedSerializedTrace,
