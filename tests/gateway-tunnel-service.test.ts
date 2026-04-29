@@ -26,16 +26,23 @@ const downStatus: TunnelStatus = {
 async function importService(options: {
   config: RuntimeConfig;
   provider?: TunnelProvider;
+  providers?: TunnelProvider[];
 }) {
   vi.resetModules();
 
   const recordAuditEvent = vi.fn();
   const makeAuditRunId = vi.fn(() => 'tunnel-admin-run');
+  const providers = options.providers
+    ? [...options.providers]
+    : options.provider
+      ? [options.provider]
+      : [];
   const createNgrokTunnelProvider = vi.fn(() => {
-    if (!options.provider) {
+    const provider = providers.shift();
+    if (!provider) {
       throw new Error('unexpected provider creation');
     }
-    return options.provider;
+    return provider;
   });
 
   vi.doMock('../src/config/runtime-config.js', () => ({
@@ -93,6 +100,43 @@ test('admin tunnel status reports configured manual public URL as healthy', asyn
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
 });
 
+test('admin tunnel status stops stale ngrok provider when config changes', async () => {
+  const config = makeRuntimeConfig({
+    mode: 'local',
+    public_url: '',
+    tunnel: {
+      provider: 'ngrok',
+      health_check_interval_ms: 30_000,
+    },
+  });
+  const oldProvider: TunnelProvider = {
+    status: vi.fn(() => downStatus),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://old.example.test' })),
+  };
+  const newProvider: TunnelProvider = {
+    status: vi.fn(() => downStatus),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://new.example.test' })),
+  };
+  const service = await importService({
+    config,
+    providers: [oldProvider, newProvider],
+  });
+
+  service.getGatewayAdminTunnelStatus();
+  config.deployment.tunnel.health_check_interval_ms = 45_000;
+  service.getGatewayAdminTunnelStatus();
+
+  expect(oldProvider.stop).toHaveBeenCalledTimes(1);
+  expect(service.createNgrokTunnelProvider).toHaveBeenCalledTimes(2);
+
+  config.deployment.tunnel.provider = 'manual';
+  service.getGatewayAdminTunnelStatus();
+
+  expect(newProvider.stop).toHaveBeenCalledTimes(1);
+});
+
 test('admin tunnel reconnect audits the action and restarts ngrok', async () => {
   let status: TunnelStatus = {
     ...downStatus,
@@ -148,6 +192,67 @@ test('admin tunnel reconnect audits the action and restarts ngrok', async () => 
       state: 'up',
     },
   });
+});
+
+test('admin tunnel reconnect serializes concurrent calls', async () => {
+  let resolveStop!: () => void;
+  const stopGate = new Promise<void>((resolve) => {
+    resolveStop = resolve;
+  });
+  let status: TunnelStatus = {
+    ...downStatus,
+    running: true,
+    public_url: 'https://old.example.test',
+    state: 'up',
+  };
+  const provider: TunnelProvider = {
+    status: vi.fn(() => status),
+    stop: vi.fn(async () => {
+      status = { ...downStatus };
+      await stopGate;
+    }),
+    start: vi.fn(async () => {
+      status = {
+        ...downStatus,
+        running: true,
+        public_url: 'https://new.example.test',
+        state: 'up',
+      };
+      return { public_url: 'https://new.example.test' };
+    }),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: '',
+      tunnel: {
+        provider: 'ngrok',
+        health_check_interval_ms: 45_000,
+      },
+    }),
+    provider,
+  });
+
+  const first = service.reconnectGatewayAdminTunnel();
+  await vi.waitFor(() => expect(provider.stop).toHaveBeenCalledTimes(1));
+  const second = service.reconnectGatewayAdminTunnel();
+
+  expect(provider.stop).toHaveBeenCalledTimes(1);
+  expect(provider.start).not.toHaveBeenCalled();
+
+  resolveStop();
+  await expect(Promise.all([first, second])).resolves.toEqual([
+    expect.objectContaining({
+      publicUrl: 'https://new.example.test',
+      health: 'healthy',
+    }),
+    expect.objectContaining({
+      publicUrl: 'https://new.example.test',
+      health: 'healthy',
+    }),
+  ]);
+  expect(provider.stop).toHaveBeenCalledTimes(1);
+  expect(provider.start).toHaveBeenCalledTimes(1);
 });
 
 test('unsupported tunnel reconnect is still audited before returning conflict', async () => {

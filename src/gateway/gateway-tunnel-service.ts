@@ -19,6 +19,7 @@ const TUNNEL_AUDIT_SESSION_ID = 'system:tunnel';
 
 let managedProvider: TunnelProvider | null = null;
 let managedProviderKey: string | null = null;
+let reconnectInFlight: Promise<GatewayAdminTunnelStatus> | null = null;
 
 function normalizePublicUrl(value: string | null | undefined): string | null {
   return value?.trim() || null;
@@ -37,10 +38,26 @@ function managedProviderKeyFor(params: {
   return `${params.provider || 'none'}:${params.healthCheckIntervalMs}`;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function stopStaleManagedProvider(provider: TunnelProvider): void {
+  void provider.stop().catch((error) => {
+    console.warn(
+      '[tunnel] failed to stop stale managed tunnel provider.',
+      errorMessage(error),
+    );
+  });
+}
+
 function getManagedTunnelProvider(): TunnelProvider | null {
   const config = getRuntimeConfig();
   const provider = config.deployment.tunnel.provider;
   if (provider !== 'ngrok') {
+    if (managedProvider) {
+      stopStaleManagedProvider(managedProvider);
+    }
     managedProvider = null;
     managedProviderKey = null;
     return null;
@@ -51,6 +68,9 @@ function getManagedTunnelProvider(): TunnelProvider | null {
     healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
   });
   if (!managedProvider || managedProviderKey !== key) {
+    if (managedProvider) {
+      stopStaleManagedProvider(managedProvider);
+    }
     managedProvider = createNgrokTunnelProvider({
       healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
     });
@@ -109,19 +129,34 @@ export async function reconnectGatewayAdminTunnel(): Promise<GatewayAdminTunnelS
   });
 
   const provider = getManagedTunnelProvider();
-  if (!provider || before.provider !== 'ngrok') {
+  if (!provider) {
     throw new GatewayRequestError(
       409,
       'Manual reconnect is only supported for ngrok tunnels.',
     );
   }
 
-  await provider.stop();
-  await provider.start();
-  return getGatewayAdminTunnelStatus();
+  if (reconnectInFlight) {
+    return reconnectInFlight;
+  }
+
+  const operation = (async () => {
+    await provider.stop();
+    await provider.start();
+    return getGatewayAdminTunnelStatus();
+  })();
+  reconnectInFlight = operation;
+  try {
+    return await operation;
+  } finally {
+    if (reconnectInFlight === operation) {
+      reconnectInFlight = null;
+    }
+  }
 }
 
 export function resetGatewayAdminTunnelForTests(): void {
   managedProvider = null;
   managedProviderKey = null;
+  reconnectInFlight = null;
 }
