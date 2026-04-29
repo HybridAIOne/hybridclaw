@@ -1694,6 +1694,8 @@ async function main(): Promise<void> {
   console.error(
     `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
   );
+  // This marks runtime process readiness only. Request-specific MCP, plugin,
+  // media, and model setup still runs after input and before agent start.
   console.error('[hybridclaw-agent] ready for input');
   process.once('SIGINT', () => {
     void shutdownAgentProcess(0, 'SIGINT');

@@ -3057,9 +3057,11 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
       maxIdlePerAgent: warmPool.maxIdlePerAgent,
       memoryPressureRssMb: warmPool.memoryPressureRssMb,
       coldStartBudgetMs: warmPool.coldStartBudgetMs,
+      warmScope:
+        'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
       disableConfig: 'container.warmPool.enabled=false',
     },
-    'Warm process pool enabled; idle agent workers may be spawned after requests',
+    'Warm process pool enabled; idle workers prewarm runtime process startup only',
   );
 }
 

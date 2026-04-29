@@ -713,9 +713,11 @@ describe('gateway bootstrap', () => {
         maxIdlePerAgent: 2,
         memoryPressureRssMb: 2_048,
         coldStartBudgetMs: 200,
+        warmScope:
+          'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
         disableConfig: 'container.warmPool.enabled=false',
       },
-      'Warm process pool enabled; idle agent workers may be spawned after requests',
+      'Warm process pool enabled; idle workers prewarm runtime process startup only',
     );
   });
 
