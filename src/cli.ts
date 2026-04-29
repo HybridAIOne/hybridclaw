@@ -407,16 +407,26 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
 }
 
 async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | null> {
-  const { gatewayStatus } = await import('./gateway/gateway-client.js');
+  const { gatewayHealth, gatewayStatus } = await import(
+    './gateway/gateway-client.js'
+  );
+
+  try {
+    const health = await gatewayHealth();
+    if (health.sandbox?.mode === 'host') {
+      return health.sandbox.mode;
+    }
+  } catch {
+    // Fall back to authenticated status, then the local runtime config.
+  }
 
   try {
     const status = await gatewayStatus();
-    const runtimeSandboxMode = status.sandbox?.mode;
-    if (runtimeSandboxMode === 'host') {
-      return runtimeSandboxMode;
+    if (status.sandbox?.mode === 'host') {
+      return status.sandbox.mode;
     }
   } catch {
-    // Fall back to the local runtime config when the gateway is not reachable.
+    // Fall back to the local runtime config when gateway status is unavailable.
   }
 
   return null;

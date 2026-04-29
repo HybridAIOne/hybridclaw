@@ -247,6 +247,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
+  gatewayHealthSandboxMode?: 'host' | 'container' | null;
   gatewayStatusSandboxMode?: 'host' | 'container' | null;
   sandboxMode?: 'host' | 'container';
   sandboxModeExplicit?: boolean;
@@ -1062,6 +1063,24 @@ async function importFreshCli(options?: {
     }
     return {
       status: 'ok',
+      sandbox: options?.gatewayHealthSandboxMode
+        ? {
+            mode: options.gatewayHealthSandboxMode,
+            modeExplicit: true,
+            runningInsideContainer: false,
+            image: null,
+            network: null,
+            memory: null,
+            memorySwap: null,
+            cpus: null,
+            securityFlags: [],
+            mountAllowlistPath: '/tmp/mount-allowlist.json',
+            additionalMountsConfigured: 0,
+            activeSessions: 0,
+            activeSessionIds: [],
+            warning: null,
+          }
+        : undefined,
     };
   });
   const gatewayStatus = vi.fn(async () => {
@@ -4781,6 +4800,22 @@ describe('CLI hybridai commands', () => {
         gatewayReachable: true,
         sandboxMode: 'container',
         gatewayStatusSandboxMode: 'host',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses unauthenticated gateway health sandbox mode for tui preflight when status auth fails', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        gatewayStatusReachable: false,
+        sandboxMode: 'container',
+        gatewayHealthSandboxMode: 'host',
       });
 
     await cli.main(['tui']);

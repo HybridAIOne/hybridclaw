@@ -13,6 +13,7 @@ import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
   readStoredRuntimeSecrets,
+  saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import {
@@ -558,6 +559,19 @@ function getInternalGatewayApiToken(): string {
   }
   return internalGatewayApiToken;
 }
+
+function getSharedGatewayApiToken(): string {
+  const token = getInternalGatewayApiToken();
+  try {
+    saveRuntimeSecrets({ GATEWAY_API_TOKEN: token });
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Failed to persist generated gateway API token; local gateway clients in other processes may need an explicit GATEWAY_API_TOKEN.',
+    );
+  }
+  return token;
+}
 export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
@@ -955,7 +969,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
-    getInternalGatewayApiToken();
+    getSharedGatewayApiToken();
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 
