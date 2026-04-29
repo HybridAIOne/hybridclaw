@@ -6,8 +6,15 @@ import { afterEach, expect, test, vi } from 'vitest';
 import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
-const { callAuxiliaryModelMock, modelPricingUsdPerToken } = vi.hoisted(() => ({
+const {
+  callAuxiliaryModelMock,
+  findCheapestModelMeetingCapabilitiesMock,
+  modelPricingUsdPerToken,
+} = vi.hoisted(() => ({
   callAuxiliaryModelMock: vi.fn(),
+  findCheapestModelMeetingCapabilitiesMock: vi.fn(
+    () => 'hybridai/gpt-5-nano',
+  ),
   modelPricingUsdPerToken: {
     input: 0.00000001,
     output: 0.00000001,
@@ -19,7 +26,7 @@ vi.mock('../src/providers/model-catalog.js', async (importOriginal) => {
     await importOriginal<typeof import('../src/providers/model-catalog.js')>();
   return {
     ...actual,
-    findCheapestModelMeetingCapabilities: vi.fn(() => 'hybridai/gpt-5-nano'),
+    findCheapestModelMeetingCapabilities: findCheapestModelMeetingCapabilitiesMock,
     getModelCatalogMetadata: vi.fn((model: string) => ({
       ...actual.getModelCatalogMetadata(model),
       pricingUsdPerToken: { ...modelPricingUsdPerToken },
@@ -54,9 +61,20 @@ function mockRecordedCvNarration(
   });
 }
 
+function writeAgentCvState(
+  agentWorkspace: string,
+  state: Record<string, unknown>,
+): string {
+  fs.mkdirSync(agentWorkspace, { recursive: true });
+  const statePath = path.join(agentWorkspace, '.CV.state.json');
+  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
+  return statePath;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   callAuxiliaryModelMock.mockReset();
+  findCheapestModelMeetingCapabilitiesMock.mockClear();
   modelPricingUsdPerToken.input = 0.00000001;
   modelPricingUsdPerToken.output = 0.00000001;
   resetConfidentialRulesForTesting?.();
@@ -493,6 +511,9 @@ test('renders chronological CV.md with narrated runs and yearly retention summar
   await waitForQueuedAgentCvRefreshes();
 
   expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
+  expect(findCheapestModelMeetingCapabilitiesMock).toHaveBeenCalledWith({
+    jsonMode: true,
+  });
   expect(
     cv('lena', { generatedAt: '2026-04-29T09:00:00.000Z' }),
   ).toMatchInlineSnapshot(`
@@ -658,6 +679,160 @@ test('throttled CV entries render after the window even after empty refresh requ
   expect(fs.readFileSync(cvPath, 'utf-8')).toContain(
     'Completed the second assignment',
   );
+});
+
+test('CV refresh treats invalid persisted render timestamps as never rendered', async () => {
+  vi.useFakeTimers();
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.adaptiveSkills.cv.batchDebounceMs = 0;
+    draft.adaptiveSkills.cv.renderThrottleMs = 14_400_000;
+  });
+  mockRecordedCvNarration([
+    {
+      run_id: 'run-cv-invalid-render',
+      title: 'Completed the timestamp recovery',
+      description: 'Rendered the CV immediately after loading invalid state.',
+    },
+  ]);
+
+  const workspace = agentWorkspaceDir('lena');
+  writeAgentCvState(workspace, {
+    schema_version: 1,
+    agent_id: 'lena',
+    updated_at: '2026-04-27T08:00:00.000Z',
+    last_rendered_at: 'not-a-date',
+    narration_cost_usd_by_day: {},
+    entries: [],
+  });
+
+  vi.setSystemTime(new Date('2026-04-27T09:00:00.000Z'));
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-invalid-render',
+    runId: 'run-cv-invalid-render',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+  await vi.advanceTimersByTimeAsync(1);
+
+  expect(
+    fs.readFileSync(path.join(workspace, 'CV.md'), 'utf-8'),
+  ).toContain('Completed the timestamp recovery');
+});
+
+test('CV state normalization drops entries with unknown outcomes', async () => {
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { cv } = await import('../src/skills/agent-scoreboard.ts');
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+
+  writeAgentCvState(agentWorkspaceDir('lena'), {
+    schema_version: 1,
+    agent_id: 'lena',
+    updated_at: '2026-04-27T08:00:00.000Z',
+    last_rendered_at: null,
+    narration_cost_usd_by_day: {},
+    entries: [
+      {
+        run_id: 'run-cv-corrupt',
+        session_id: 'session-cv-corrupt',
+        skill_id: context.skillName,
+        date: '2026-04-27',
+        created_at: '2026-04-27T08:00:00.000Z',
+        outcome: 'unknown',
+        title: 'Should not render',
+        description: 'This corrupted entry should be dropped.',
+      },
+    ],
+  });
+
+  expect(cv('lena')).not.toContain('Should not render');
+  expect(cv('lena')).toContain('No completed assignments recorded yet.');
+});
+
+test('CV narration cost history is pruned to the retention window', async () => {
+  vi.useFakeTimers();
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const { waitForQueuedAgentCvRefreshes } = await import(
+    '../src/skills/agent-scoreboard.ts'
+  );
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.adaptiveSkills.cv.batchDebounceMs = 0;
+    draft.adaptiveSkills.cv.retentionDays = 90;
+  });
+  mockRecordedCvNarration([
+    {
+      run_id: 'run-cv-cost-prune',
+      title: 'Completed a cost-pruned assignment',
+      description: 'Updated CV state while trimming stale budget rows.',
+    },
+  ]);
+
+  const workspace = agentWorkspaceDir('lena');
+  const statePath = writeAgentCvState(workspace, {
+    schema_version: 1,
+    agent_id: 'lena',
+    updated_at: '2026-04-27T08:00:00.000Z',
+    last_rendered_at: null,
+    narration_cost_usd_by_day: {
+      '2025-12-31': 0.001,
+      '2026-01-28': 0.001,
+      '2026-04-27': 0.001,
+      '2026-04-28': 0.001,
+    },
+    entries: [],
+  });
+
+  vi.setSystemTime(new Date('2026-04-27T09:00:00.000Z'));
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-cost-prune',
+    runId: 'run-cv-cost-prune',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+  await waitForQueuedAgentCvRefreshes();
+
+  const persistedState = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as {
+    narration_cost_usd_by_day: Record<string, number>;
+  };
+  expect(persistedState.narration_cost_usd_by_day).not.toHaveProperty(
+    '2025-12-31',
+  );
+  expect(persistedState.narration_cost_usd_by_day).not.toHaveProperty(
+    '2026-04-28',
+  );
+  expect(persistedState.narration_cost_usd_by_day).toHaveProperty(
+    '2026-01-28',
+    0.001,
+  );
+  expect(
+    persistedState.narration_cost_usd_by_day['2026-04-27'],
+  ).toBeCloseTo(0.0012);
 });
 
 test('CV narration falls back without an aux call when the daily budget would be exceeded', async () => {
