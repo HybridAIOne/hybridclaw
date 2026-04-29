@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.15.0) - 2026-04-29
+
 ### Added
 
 - **Backup and restore CLI**: `hybridclaw backup` creates WAL-safe runtime-home
