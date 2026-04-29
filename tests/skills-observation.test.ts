@@ -433,9 +433,10 @@ test('records agent skill scores and refreshes generated CV.md', async () => {
   expect(partialScore?.quality_score).toBeGreaterThan(70);
 });
 
-test('renders chronological CV.md with narrated runs and yearly retention summaries', async () => {
+test('renders chronological CV.md and prunes state to the retention window', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { recordSkillExecution } = await import(
     '../src/skills/skills-observation.ts'
   );
@@ -516,9 +517,21 @@ test('renders chronological CV.md with narrated runs and yearly retention summar
     fallbackModel: 'hybridai/gpt-5-nano',
   });
   expect(callAuxiliaryModelMock.mock.calls[0]?.[0].model).toBeUndefined();
+  const userPrompt = callAuxiliaryModelMock.mock.calls[0]?.[0].messages[1]
+    ?.content as string;
+  expect(userPrompt).toContain('[{"run_id"');
+  expect(userPrompt).not.toContain('\n  {');
   expect(findCheapestModelMeetingCapabilitiesMock).toHaveBeenCalledWith({
     jsonMode: true,
   });
+  const statePath = path.join(agentWorkspaceDir('lena'), '.CV.state.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as {
+    entries: Array<{ run_id: string }>;
+  };
+  expect(state.entries.map((entry) => entry.run_id)).toEqual([
+    'run-cv-history-1',
+    'run-cv-history-2',
+  ]);
   expect(
     cv('lena', { generatedAt: '2026-04-29T09:00:00.000Z' }),
   ).toMatchInlineSnapshot(`
@@ -532,10 +545,6 @@ test('renders chronological CV.md with narrated runs and yearly retention summar
     ## 2026-04-26 — Drafted Q2 brand voice update
 
     Pulled tone exemplars, wrote three variants, and sent the update to Marketing.
-
-    ## 2025 Summary
-
-    Completed 1 earlier assignment: Triaged inbound support tickets.
     "
   `);
 });
@@ -616,9 +625,8 @@ test('throttled CV entries render after the window even after empty refresh requ
   const { recordSkillExecution } = await import(
     '../src/skills/skills-observation.ts'
   );
-  const { scheduleAgentCvRefresh } = await import(
-    '../src/skills/agent-scoreboard.ts'
-  );
+  const { scheduleAgentCvRefresh, waitForQueuedAgentCvRefreshes } =
+    await import('../src/skills/agent-scoreboard.ts');
   context.dbModule.upsertAgent({
     id: 'lena',
     name: 'Lena',
@@ -653,6 +661,7 @@ test('throttled CV entries render after the window even after empty refresh requ
     durationMs: 100,
   });
   await vi.advanceTimersByTimeAsync(1);
+  await waitForQueuedAgentCvRefreshes();
   const cvPath = path.join(agentWorkspaceDir('lena'), 'CV.md');
   expect(fs.readFileSync(cvPath, 'utf-8')).toContain(
     'Completed the first assignment',
@@ -669,18 +678,21 @@ test('throttled CV entries render after the window even after empty refresh requ
     durationMs: 100,
   });
   await vi.advanceTimersByTimeAsync(1);
+  await waitForQueuedAgentCvRefreshes({ includeDeferredRenders: false });
   expect(fs.readFileSync(cvPath, 'utf-8')).not.toContain(
     'Completed the second assignment',
   );
 
   scheduleAgentCvRefresh('lena');
   await vi.advanceTimersByTimeAsync(1);
+  await waitForQueuedAgentCvRefreshes({ includeDeferredRenders: false });
   expect(fs.readFileSync(cvPath, 'utf-8')).not.toContain(
     'Completed the second assignment',
   );
 
   vi.setSystemTime(new Date('2026-04-27T13:00:00.000Z'));
   await vi.advanceTimersByTimeAsync(10_800_000);
+  await waitForQueuedAgentCvRefreshes();
   expect(fs.readFileSync(cvPath, 'utf-8')).toContain(
     'Completed the second assignment',
   );
@@ -692,6 +704,9 @@ test('CV refresh treats invalid persisted render timestamps as never rendered', 
   const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { recordSkillExecution } = await import(
     '../src/skills/skills-observation.ts'
+  );
+  const { waitForQueuedAgentCvRefreshes } = await import(
+    '../src/skills/agent-scoreboard.ts'
   );
   context.dbModule.upsertAgent({
     id: 'lena',
@@ -730,6 +745,7 @@ test('CV refresh treats invalid persisted render timestamps as never rendered', 
     durationMs: 100,
   });
   await vi.advanceTimersByTimeAsync(1);
+  await waitForQueuedAgentCvRefreshes();
 
   expect(
     fs.readFileSync(path.join(workspace, 'CV.md'), 'utf-8'),

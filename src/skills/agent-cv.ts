@@ -62,8 +62,8 @@ interface CvNarration {
 
 const pendingAgentCvRefreshes = new Map<string, NodeJS.Timeout>();
 const pendingAgentCvRenderRefreshes = new Map<string, NodeJS.Timeout>();
-const pendingAgentCvEvents = new Map<string, SkillRunEvent[]>();
-let queuedAgentCvRefreshWork: Promise<void> = Promise.resolve();
+const pendingAgentCvEvents = new Map<string, Map<string, SkillRunEvent>>();
+const queuedAgentCvRefreshWork = new Map<string, Promise<void>>();
 
 export function cvPathForAgent(agentId: string): string {
   return path.join(agentWorkspaceDir(agentId), 'CV.md');
@@ -227,6 +227,30 @@ function writeFileAtomic(
   }
 }
 
+async function writeFileAtomicAsync(
+  filePath: string,
+  content: string,
+  options?: fs.WriteFileOptions,
+): Promise<void> {
+  const dir = path.dirname(filePath);
+  const tempPath = path.join(
+    dir,
+    `${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+  await fs.promises.mkdir(dir, { recursive: true });
+  try {
+    await fs.promises.writeFile(tempPath, content, options);
+    await fs.promises.rename(tempPath, filePath);
+  } catch (error) {
+    try {
+      await fs.promises.unlink(tempPath);
+    } catch {
+      // Best-effort cleanup after a failed atomic write.
+    }
+    throw error;
+  }
+}
+
 function writeJsonAtomic(filePath: string, value: unknown): void {
   writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, {
     encoding: 'utf-8',
@@ -234,8 +258,28 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
   });
 }
 
+async function writeJsonAtomicAsync(
+  filePath: string,
+  value: unknown,
+): Promise<void> {
+  await writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+}
+
 function writeMarkdownAtomic(filePath: string, content: string): void {
   writeFileAtomic(filePath, content, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+}
+
+async function writeMarkdownAtomicAsync(
+  filePath: string,
+  content: string,
+): Promise<void> {
+  await writeFileAtomicAsync(filePath, content, {
     encoding: 'utf-8',
     mode: 0o600,
   });
@@ -276,6 +320,16 @@ function splitEntriesByRetention(input: {
     olderByYear.set(year, existing);
   }
   return { recent, olderByYear };
+}
+
+function pruneCvEntriesByRetention(
+  entries: AgentCvEntry[],
+  retentionDays: number,
+  now: Date,
+): AgentCvEntry[] {
+  const cutoff = retentionCutoffDate(retentionDays, now);
+  if (!cutoff) return sortCvEntries(entries);
+  return sortCvEntries(entries.filter((entry) => entry.date >= cutoff));
 }
 
 function renderYearSummary(entries: AgentCvEntry[]): string {
@@ -366,6 +420,28 @@ function renderPersistedAgentCv(
   }
   writeJsonAtomic(cvStatePathForAgent(agentId), state);
   writeMarkdownAtomic(
+    cvPathForAgent(agentId),
+    renderCvMarkdown({
+      displayName: displayNameForAgent(agentId),
+      state,
+      generatedAt,
+      retentionDays: getRuntimeConfig().adaptiveSkills.cv.retentionDays,
+    }),
+  );
+}
+
+async function renderPersistedAgentCvAsync(
+  agentId: string,
+  state: AgentCvState,
+  generatedAt: string,
+): Promise<void> {
+  const pendingRender = pendingAgentCvRenderRefreshes.get(agentId);
+  if (pendingRender) {
+    clearTimeout(pendingRender);
+    pendingAgentCvRenderRefreshes.delete(agentId);
+  }
+  await writeJsonAtomicAsync(cvStatePathForAgent(agentId), state);
+  await writeMarkdownAtomicAsync(
     cvPathForAgent(agentId),
     renderCvMarkdown({
       displayName: displayNameForAgent(agentId),
@@ -561,7 +637,7 @@ async function narrateSkillRuns(input: {
   ].join(' ');
   const userPrompt = [
     'Create CV entries for these skill runs.',
-    JSON.stringify(sources, null, 2),
+    JSON.stringify(sources),
   ].join('\n\n');
   const budgetModel = configuredCvNarrationModelForBudget() || fallbackModel;
   const estimatedCostUsd = estimateNarrationCostUsd({
@@ -744,10 +820,14 @@ async function refreshAgentCvFromEvents(input: {
       day: budgetDay,
       costUsd: narrationResult.costUsd,
     }),
-    entries: sortCvEntries([
-      ...state.entries,
-      ...buildEntriesFromNarrations(events, narrationResult.narrations),
-    ]),
+    entries: pruneCvEntriesByRetention(
+      [
+        ...state.entries,
+        ...buildEntriesFromNarrations(events, narrationResult.narrations),
+      ],
+      getRuntimeConfig().adaptiveSkills.cv.retentionDays,
+      now,
+    ),
   };
 
   const config = getRuntimeConfig().adaptiveSkills.cv;
@@ -760,7 +840,7 @@ async function refreshAgentCvFromEvents(input: {
     })
   ) {
     nextState.last_rendered_at = now.toISOString();
-    renderPersistedAgentCv(agentId, nextState, now.toISOString());
+    await renderPersistedAgentCvAsync(agentId, nextState, now.toISOString());
     return;
   }
 
@@ -777,7 +857,7 @@ async function refreshAgentCvFromEvents(input: {
       pendingAgentCvRenderRefreshes.set(agentId, timer);
     }
   }
-  writeJsonAtomic(cvStatePathForAgent(agentId), nextState);
+  await writeJsonAtomicAsync(cvStatePathForAgent(agentId), nextState);
 }
 
 function queueAgentCvRefresh(
@@ -785,11 +865,18 @@ function queueAgentCvRefresh(
   events: SkillRunEvent[],
   forceRender = false,
 ): void {
-  queuedAgentCvRefreshWork = queuedAgentCvRefreshWork
+  const previous = queuedAgentCvRefreshWork.get(agentId) || Promise.resolve();
+  const next = previous
     .then(() => refreshAgentCvFromEvents({ agentId, events, forceRender }))
     .catch((error) => {
       logger.warn({ agentId, error }, 'Failed to refresh agent CV');
+    })
+    .finally(() => {
+      if (queuedAgentCvRefreshWork.get(agentId) === next) {
+        queuedAgentCvRefreshWork.delete(agentId);
+      }
     });
+  queuedAgentCvRefreshWork.set(agentId, next);
 }
 
 export function scheduleAgentCvRefresh(
@@ -800,10 +887,10 @@ export function scheduleAgentCvRefresh(
   if (!normalizedAgentId) return false;
   if (!getAgentById(normalizedAgentId)) return false;
   if (options?.event) {
-    const pending = pendingAgentCvEvents.get(normalizedAgentId) || [];
-    if (!pending.some((event) => event.run_id === options.event?.run_id)) {
-      pending.push(options.event);
-    }
+    const pending =
+      pendingAgentCvEvents.get(normalizedAgentId) ||
+      new Map<string, SkillRunEvent>();
+    pending.set(options.event.run_id, options.event);
     pendingAgentCvEvents.set(normalizedAgentId, pending);
   }
 
@@ -813,7 +900,9 @@ export function scheduleAgentCvRefresh(
   const delayMs = Math.max(0, Math.trunc(options?.delayMs ?? configDelay));
   const timer = setTimeout(() => {
     pendingAgentCvRefreshes.delete(normalizedAgentId);
-    const events = pendingAgentCvEvents.get(normalizedAgentId) || [];
+    const events = [
+      ...(pendingAgentCvEvents.get(normalizedAgentId) || []).values(),
+    ];
     pendingAgentCvEvents.delete(normalizedAgentId);
     queueAgentCvRefresh(normalizedAgentId, events);
   }, delayMs);
@@ -822,28 +911,32 @@ export function scheduleAgentCvRefresh(
   return true;
 }
 
-export async function waitForQueuedAgentCvRefreshes(): Promise<void> {
+export async function waitForQueuedAgentCvRefreshes(options?: {
+  includeDeferredRenders?: boolean;
+}): Promise<void> {
   const agentIds = [...pendingAgentCvRefreshes.keys()];
   for (const agentId of agentIds) {
     const timer = pendingAgentCvRefreshes.get(agentId);
     if (timer) {
       clearTimeout(timer);
       pendingAgentCvRefreshes.delete(agentId);
-      const events = pendingAgentCvEvents.get(agentId) || [];
+      const events = [...(pendingAgentCvEvents.get(agentId) || []).values()];
       pendingAgentCvEvents.delete(agentId);
       queueAgentCvRefresh(agentId, events);
     }
   }
-  const renderAgentIds = [...pendingAgentCvRenderRefreshes.keys()];
-  for (const agentId of renderAgentIds) {
-    const timer = pendingAgentCvRenderRefreshes.get(agentId);
-    if (timer) {
-      clearTimeout(timer);
-      pendingAgentCvRenderRefreshes.delete(agentId);
-      queueAgentCvRefresh(agentId, [], true);
+  if (options?.includeDeferredRenders !== false) {
+    const renderAgentIds = [...pendingAgentCvRenderRefreshes.keys()];
+    for (const agentId of renderAgentIds) {
+      const timer = pendingAgentCvRenderRefreshes.get(agentId);
+      if (timer) {
+        clearTimeout(timer);
+        pendingAgentCvRenderRefreshes.delete(agentId);
+        queueAgentCvRefresh(agentId, [], true);
+      }
     }
   }
-  await queuedAgentCvRefreshWork;
+  await Promise.all([...queuedAgentCvRefreshWork.values()]);
 }
 
 export function refreshAgentCvForSkillRun(event: SkillRunEvent): void {
