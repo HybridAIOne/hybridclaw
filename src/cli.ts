@@ -45,6 +45,7 @@ import {
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import {
+  formatRuntimeConfigValue,
   getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
@@ -1216,10 +1217,6 @@ async function handleEvalCommand(args: string[]): Promise<void> {
 }
 
 async function handleConfigCommand(args: string[]): Promise<void> {
-  function formatRuntimeConfigValue(value: unknown): string {
-    return JSON.stringify(value, null, 2) ?? String(value);
-  }
-
   function parseRevisionId(raw: string): number {
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {

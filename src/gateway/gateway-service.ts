@@ -135,6 +135,7 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
+  formatRuntimeConfigValue,
   getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
@@ -7786,10 +7787,6 @@ export async function handleGatewayCommand(
 
   function formatRuntimeConfigJson(config: RuntimeConfig): string {
     return JSON.stringify(config, null, 2);
-  }
-
-  function formatRuntimeConfigValue(value: unknown): string {
-    return JSON.stringify(value, null, 2) ?? String(value);
   }
 
   async function runRuntimeConfigCheck(): Promise<{
