@@ -18,6 +18,13 @@ function makeEntry(
   };
 }
 
+test('normalizes runtime memory pressure from MB to bytes', () => {
+  expect(
+    normalizeWarmProcessPoolConfig({ memoryPressureRssMb: 2 })
+      .memoryPressureRssBytes,
+  ).toBe(2 * 1024 * 1024);
+});
+
 test('sizes per-agent warm pools from recent traffic', () => {
   const pool = new WarmProcessPool(
     normalizeWarmProcessPoolConfig({
@@ -63,7 +70,7 @@ test('evicts the minimum viable warm entries under memory pressure', () => {
   const pool = new WarmProcessPool(
     normalizeWarmProcessPoolConfig({
       maxIdlePerAgent: 3,
-      memoryPressureRssBytes: 1_000,
+      memoryPressureRssMb: 1,
     }),
   );
   const old = makeEntry('old', 'agent_a', 100);
@@ -76,7 +83,7 @@ test('evicts the minimum viable warm entries under memory pressure', () => {
   const evicted = pool.evictForPressure({
     totalProcessCount: 3,
     maxProcessCount: 10,
-    rssBytes: 1_000,
+    rssBytes: 1024 * 1024,
   });
 
   expect(evicted).toEqual([old]);

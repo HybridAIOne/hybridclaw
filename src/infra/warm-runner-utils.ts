@@ -39,10 +39,7 @@ export interface MemorySample {
 export function normalizeWarmProcessPoolRuntimeConfig(
   config: RuntimeConfig['container']['warmPool'],
 ): ReturnType<typeof normalizeWarmProcessPoolConfig> {
-  return normalizeWarmProcessPoolConfig({
-    ...config,
-    memoryPressureRssBytes: config.memoryPressureRssMb * 1024 * 1024,
-  });
+  return normalizeWarmProcessPoolConfig(config);
 }
 
 export function rememberStderrLine(entry: WarmRunnerEntry, line: string): void {

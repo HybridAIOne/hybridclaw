@@ -7,6 +7,10 @@ export interface WarmProcessPoolConfig {
   memoryPressureRssBytes: number;
 }
 
+export type WarmProcessPoolConfigInput = Partial<WarmProcessPoolConfig> & {
+  memoryPressureRssMb?: number;
+};
+
 export interface WarmProcessPoolEntry {
   id: string;
   agentId: string;
@@ -23,7 +27,7 @@ interface TrafficSample {
 const DEFAULT_TRAFFIC_WINDOW_MS = 60 * 60 * 1000;
 
 export function normalizeWarmProcessPoolConfig(
-  raw: Partial<WarmProcessPoolConfig> = {},
+  raw: WarmProcessPoolConfigInput = {},
 ): WarmProcessPoolConfig {
   const coldStartBudgetMs = normalizeInteger(raw.coldStartBudgetMs, 200, 1);
   const trafficWindowMs = normalizeInteger(
@@ -37,13 +41,18 @@ export function normalizeWarmProcessPoolConfig(
     0,
   );
   const maxIdlePerAgent = normalizeInteger(raw.maxIdlePerAgent, 2, 0);
+  const memoryPressureRssBytes =
+    raw.memoryPressureRssBytes ??
+    (raw.memoryPressureRssMb == null
+      ? undefined
+      : raw.memoryPressureRssMb * 1024 * 1024);
   return {
     enabled: raw.enabled !== false,
     coldStartBudgetMs,
     trafficWindowMs,
     minIdlePerActiveAgent: Math.min(minIdlePerActiveAgent, maxIdlePerAgent),
     maxIdlePerAgent,
-    memoryPressureRssBytes: normalizeInteger(raw.memoryPressureRssBytes, 0, 0),
+    memoryPressureRssBytes: normalizeInteger(memoryPressureRssBytes, 0, 0),
   };
 }
 
