@@ -66,6 +66,7 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
+import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
@@ -407,16 +408,29 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
 }
 
 async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | null> {
-  const { gatewayStatus } = await import('./gateway/gateway-client.js');
+  const { gatewayHealth, gatewayStatus } = await import(
+    './gateway/gateway-client.js'
+  );
+
+  try {
+    const health = await gatewayHealth();
+    if (health.sandbox) {
+      return health.sandbox.mode === 'host' ? 'host' : null;
+    }
+  } catch (err) {
+    logger.debug(
+      { err },
+      'TUI preflight gateway health lookup failed; falling back to authenticated status.',
+    );
+  }
 
   try {
     const status = await gatewayStatus();
-    const runtimeSandboxMode = status.sandbox?.mode;
-    if (runtimeSandboxMode === 'host') {
-      return runtimeSandboxMode;
+    if (status.sandbox?.mode === 'host') {
+      return status.sandbox.mode;
     }
   } catch {
-    // Fall back to the local runtime config when the gateway is not reachable.
+    // Fall back to the local runtime config when gateway status is unavailable.
   }
 
   return null;
@@ -717,6 +731,7 @@ async function runGatewayForeground(
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
+  getConfigApi().ensureGatewayApiTokenPersisted();
   ensureGatewayRunDir();
   if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
     delete process.env[GATEWAY_LOG_FILE_ENV];
@@ -822,6 +837,7 @@ async function startGatewayBackend(
     commandName,
     requireCredentials: false,
   });
+  getConfigApi().ensureGatewayApiTokenPersisted();
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);
