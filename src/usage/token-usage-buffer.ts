@@ -220,6 +220,18 @@ export function enqueueTokenUsage(event: TokenUsageEvent): void {
     // Match recordUsageEvent's silent ignore for invalid inputs.
     return;
   }
+  const invalidFields = getInvalidUsageNumericFields(event);
+  if (invalidFields.length > 0) {
+    logger.warn(
+      {
+        sessionId: event.sessionId,
+        agentId: event.agentId,
+        model: event.model,
+        invalidFields,
+      },
+      'token_usage: invalid usage values normalized before persistence',
+    );
+  }
   if (state.queue.length >= state.maxQueueSize) {
     state.totalDropped += 1;
     logger.warn(
@@ -244,6 +256,37 @@ export function enqueueTokenUsage(event: TokenUsageEvent): void {
       logger.warn({ err }, 'token_usage: opportunistic flush failed');
     });
   }
+}
+
+function getInvalidUsageNumericFields(event: TokenUsageEvent): string[] {
+  const invalidFields: string[] = [];
+  const usageNumbers: Array<keyof TokenUsageEvent> = [
+    'inputTokens',
+    'outputTokens',
+    'totalTokens',
+    'toolCalls',
+  ];
+  for (const field of usageNumbers) {
+    const value = event[field];
+    if (value === undefined) continue;
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      !Number.isInteger(value)
+    ) {
+      invalidFields.push(field);
+    }
+  }
+  if (
+    event.costUsd !== undefined &&
+    (typeof event.costUsd !== 'number' ||
+      !Number.isFinite(event.costUsd) ||
+      event.costUsd < 0)
+  ) {
+    invalidFields.push('costUsd');
+  }
+  return invalidFields;
 }
 
 /**
@@ -425,18 +468,7 @@ export function computeTokenUsageBatchHash(
   rows: TokenUsageBatchHashRow[],
 ): string {
   const canonicalRows = rows
-    .map((row) => ({
-      agentId: row.agentId,
-      batchId: row.batchId,
-      costUsd: row.costUsd,
-      inputTokens: row.inputTokens,
-      model: row.model,
-      outputTokens: row.outputTokens,
-      sessionId: row.sessionId,
-      timestamp: row.timestamp,
-      toolCalls: row.toolCalls,
-      totalTokens: row.totalTokens,
-    }))
+    .map(normalizeTokenUsageBatchHashRow)
     .sort(
       (a, b) =>
         [
@@ -467,6 +499,41 @@ export function computeTokenUsageBatchHash(
     ]),
   );
   return createHash('sha256').update(payload).digest('hex');
+}
+
+function normalizeTokenUsageBatchHashRow(
+  row: TokenUsageBatchHashRow,
+): TokenUsageBatchHashRow {
+  const inputTokens = normalizeUsageNumber(row.inputTokens);
+  const outputTokens = normalizeUsageNumber(row.outputTokens);
+  return {
+    sessionId: normalizeRequiredBatchHashString(row.sessionId, 'sessionId'),
+    agentId: normalizeRequiredBatchHashString(row.agentId, 'agentId'),
+    model: row.model.trim() || 'unknown',
+    inputTokens,
+    outputTokens,
+    totalTokens: normalizeUsageNumber(
+      row.totalTokens ?? inputTokens + outputTokens,
+    ),
+    toolCalls: normalizeUsageNumber(row.toolCalls),
+    costUsd: normalizeUsageCost(row.costUsd),
+    timestamp: normalizeRequiredBatchHashString(row.timestamp, 'timestamp'),
+    batchId: normalizeRequiredBatchHashString(row.batchId, 'batchId'),
+  };
+}
+
+function normalizeRequiredBatchHashString(
+  value: string,
+  field: string,
+): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Usage batch hash row ${field} must be a string.`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Usage batch hash row ${field} is required.`);
+  }
+  return trimmed;
 }
 
 export function verifyTokenUsageBatchHash(

@@ -301,6 +301,87 @@ describe.sequential('token usage buffer', () => {
     }
   });
 
+  test('batch hash canonicalizes usage values before hashing', async () => {
+    const { computeTokenUsageBatchHash } = await import(
+      '../src/usage/token-usage-buffer.ts'
+    );
+
+    const canonical = computeTokenUsageBatchHash([
+      {
+        sessionId: 'sess-normalized',
+        agentId: 'agent-normalized',
+        model: 'unknown',
+        inputTokens: 1,
+        outputTokens: 0,
+        totalTokens: 1,
+        toolCalls: 2,
+        costUsd: 0,
+        timestamp: '2026-04-29T12:00:00.000Z',
+        batchId: 'batch-normalized',
+      },
+    ]);
+    const raw = computeTokenUsageBatchHash([
+      {
+        sessionId: ' sess-normalized ',
+        agentId: ' agent-normalized ',
+        model: '   ',
+        inputTokens: 1.7,
+        outputTokens: -3,
+        totalTokens: undefined as unknown as number,
+        toolCalls: 2.9,
+        costUsd: -0.01,
+        timestamp: ' 2026-04-29T12:00:00.000Z ',
+        batchId: ' batch-normalized ',
+      },
+    ]);
+
+    expect(raw).toBe(canonical);
+  });
+
+  test('enqueueTokenUsage warns when usage values need normalization', async () => {
+    const dbPath = createTempDbPath();
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const { logger } = await import('../src/logger.ts');
+    initDatabase({ quiet: true, dbPath });
+    const {
+      _resetTokenUsageBufferForTests,
+      enqueueTokenUsage,
+      getTokenUsageBufferStats,
+    } = await import('../src/usage/token-usage-buffer.ts');
+    _resetTokenUsageBufferForTests();
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    enqueueTokenUsage({
+      sessionId: 'sess-invalid-values',
+      agentId: 'agent-invalid-values',
+      model: 'gpt-5-nano',
+      inputTokens: -5,
+      outputTokens: Number.NaN,
+      totalTokens: 1.7,
+      toolCalls: -1,
+      costUsd: -0.001,
+    });
+
+    expect(getTokenUsageBufferStats().queueSize).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'sess-invalid-values',
+        agentId: 'agent-invalid-values',
+        model: 'gpt-5-nano',
+        invalidFields: [
+          'inputTokens',
+          'outputTokens',
+          'totalTokens',
+          'toolCalls',
+          'costUsd',
+        ],
+      }),
+      'token_usage: invalid usage values normalized before persistence',
+    );
+  });
+
   test('batch audit grouping preserves distinct run ids', async () => {
     const dbPath = createTempDbPath();
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
