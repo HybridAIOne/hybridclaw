@@ -37,6 +37,7 @@ import {
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
+  onConfigChange,
   PERPLEXITY_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
@@ -421,6 +422,15 @@ function stopWarmEntries(entries: PoolEntry[]): void {
     stop: stopPoolEntry,
   });
 }
+
+onConfigChange((config) => {
+  stopWarmEntries(
+    warmPool.reconfigure(
+      normalizeWarmProcessPoolRuntimeConfig(config.container.warmPool),
+    ),
+  );
+  containerMemorySample = null;
+});
 
 function parseMemoryBytes(raw: string): number | null {
   const match = raw.trim().match(/^([\d.]+)\s*([kmgt]?i?b)?/i);

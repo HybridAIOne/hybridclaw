@@ -25,6 +25,7 @@ import {
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
+  onConfigChange,
   PERPLEXITY_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
@@ -477,6 +478,15 @@ function stopWarmEntries(entries: PoolEntry[]): void {
     stop: stopHostProcess,
   });
 }
+
+onConfigChange((config) => {
+  stopWarmEntries(
+    warmPool.reconfigure(
+      normalizeWarmProcessPoolRuntimeConfig(config.container.warmPool),
+    ),
+  );
+  hostMemorySample = null;
+});
 
 async function readProcessRssBytes(pid: number | undefined): Promise<number> {
   if (!pid) return 0;

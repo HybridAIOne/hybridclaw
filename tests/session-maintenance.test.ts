@@ -53,6 +53,7 @@ vi.mock('../src/config/config.js', () => ({
   SESSION_COMPACTION_SUMMARY_MAX_CHARS: 8_000,
   SESSION_COMPACTION_THRESHOLD: 20,
   SESSION_COMPACTION_TOKEN_BUDGET: 1_000,
+  onConfigChange: vi.fn(() => () => {}),
 }));
 
 vi.mock('../src/infra/ipc.js', () => ({

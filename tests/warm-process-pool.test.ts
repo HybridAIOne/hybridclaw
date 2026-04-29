@@ -59,6 +59,70 @@ test('evicts least recently used warm entries under capacity pressure', () => {
   expect(pool.claim('agent_b')).toBe(fresh);
 });
 
+test('evicts the minimum viable warm entries under memory pressure', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({
+      maxIdlePerAgent: 3,
+      memoryPressureRssBytes: 1_000,
+    }),
+  );
+  const old = makeEntry('old', 'agent_a', 100);
+  const middle = makeEntry('middle', 'agent_a', 200);
+  const fresh = makeEntry('fresh', 'agent_a', 300);
+  pool.add(old);
+  pool.add(middle);
+  pool.add(fresh);
+
+  const evicted = pool.evictForPressure({
+    totalProcessCount: 3,
+    maxProcessCount: 10,
+    rssBytes: 1_000,
+  });
+
+  expect(evicted).toEqual([old]);
+  expect(pool.idleCountForAgent('agent_a')).toBe(2);
+});
+
+test('applies warm pool config changes to existing entries', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({ enabled: true, maxIdlePerAgent: 3 }),
+  );
+  const old = makeEntry('old', 'agent_a', 100);
+  const middle = makeEntry('middle', 'agent_a', 200);
+  const fresh = makeEntry('fresh', 'agent_a', 300);
+  pool.add(old);
+  pool.add(middle);
+  pool.add(fresh);
+
+  expect(
+    pool.reconfigure(
+      normalizeWarmProcessPoolConfig({ enabled: true, maxIdlePerAgent: 1 }),
+    ),
+  ).toEqual([old, middle]);
+  expect(pool.idleCountForAgent('agent_a')).toBe(1);
+
+  expect(
+    pool.reconfigure(
+      normalizeWarmProcessPoolConfig({ enabled: false, maxIdlePerAgent: 1 }),
+    ),
+  ).toEqual([fresh]);
+  expect(pool.size).toBe(0);
+});
+
+test('applies cold-start budget config changes without recreating samples', () => {
+  const pool = new WarmProcessPool(
+    normalizeWarmProcessPoolConfig({ coldStartBudgetMs: 200 }),
+  );
+  pool.recordColdStart(300);
+
+  expect(pool.isWithinColdStartBudget()).toBe(false);
+
+  pool.reconfigure(normalizeWarmProcessPoolConfig({ coldStartBudgetMs: 400 }));
+
+  expect(pool.coldStartP95Ms()).toBe(300);
+  expect(pool.isWithinColdStartBudget()).toBe(true);
+});
+
 test('does not claim a warm entry before the worker is ready', () => {
   const pool = new WarmProcessPool(
     normalizeWarmProcessPoolConfig({ maxIdlePerAgent: 2 }),

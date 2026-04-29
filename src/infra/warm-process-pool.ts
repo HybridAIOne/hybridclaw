@@ -64,7 +64,7 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   private readonly sortedColdStartSamples: number[] = [];
   private cachedColdStartP95Ms: number | null = null;
 
-  constructor(private readonly config: WarmProcessPoolConfig) {}
+  constructor(private config: WarmProcessPoolConfig) {}
 
   get enabled(): boolean {
     return this.config.enabled && this.config.maxIdlePerAgent > 0;
@@ -80,6 +80,19 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
 
   values(): T[] {
     return Array.from(this.entries.values());
+  }
+
+  reconfigure(config: WarmProcessPoolConfig): T[] {
+    this.config = config;
+    if (!this.enabled) return this.clear();
+
+    const evicted: T[] = [];
+    const agentIds = new Set<string>();
+    for (const entry of this.entries.values()) agentIds.add(entry.agentId);
+    for (const agentId of agentIds) {
+      evicted.push(...this.trimAgent(agentId, this.config.maxIdlePerAgent));
+    }
+    return evicted;
   }
 
   add(entry: T): void {
@@ -192,16 +205,18 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
     const overCapacity = params.totalProcessCount > params.maxProcessCount;
     if (!memoryPressure && !overCapacity) return [];
 
+    const targetEvictions = Math.max(
+      params.totalProcessCount - params.maxProcessCount,
+      memoryPressure ? 1 : 0,
+    );
     const evicted: T[] = [];
     const candidates = this.values().sort(
       (left, right) => left.lastUsedAt - right.lastUsedAt,
     );
-    let total = params.totalProcessCount;
     for (const entry of candidates) {
-      if (!memoryPressure && total <= params.maxProcessCount) break;
+      if (evicted.length >= targetEvictions) break;
       if (!this.entries.delete(entry.id)) continue;
       evicted.push(entry);
-      total -= 1;
     }
     return evicted;
   }
