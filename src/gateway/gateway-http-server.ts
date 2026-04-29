@@ -164,6 +164,7 @@ import {
   getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   restoreGatewayAdminAgentMarkdownRevision,
@@ -2237,6 +2238,12 @@ async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
 }
 
+async function handleApiAdminTunnelReconnect(
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, { tunnel: await reconnectGatewayAdminTunnel() });
+}
+
 function handleApiAdminStatistics(res: ServerResponse, url: URL): void {
   const daysRaw = url.searchParams.get('days') ?? undefined;
   sendJson(res, 200, getGatewayAdminStatistics({ days: daysRaw }));
@@ -3857,6 +3864,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/overview' && method === 'GET') {
             await handleApiAdminOverview(res);
+            return;
+          }
+          if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
+            await handleApiAdminTunnelReconnect(res);
             return;
           }
           if (pathname === '/api/admin/statistics' && method === 'GET') {
