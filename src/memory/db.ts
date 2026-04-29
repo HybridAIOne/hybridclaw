@@ -2291,27 +2291,16 @@ function serializeAgentStringArray(
 
 const RUNTIME_REVISION_ATTACHMENT = 'runtime_revisions';
 
-function isRuntimeRevisionDatabaseAttached(): boolean {
-  return (
-    db.prepare('PRAGMA database_list').all() as Array<{ name: string }>
-  ).some((entry) => entry.name === RUNTIME_REVISION_ATTACHMENT);
-}
-
 function withRuntimeRevisionDatabaseAttached<T>(fn: () => T): T {
-  const alreadyAttached = isRuntimeRevisionDatabaseAttached();
-  if (!alreadyAttached) {
-    const revisionDbPath = runtimeConfigRevisionStorePath();
-    fs.mkdirSync(path.dirname(revisionDbPath), { recursive: true });
-    db.prepare(`ATTACH DATABASE ? AS ${RUNTIME_REVISION_ATTACHMENT}`).run(
-      revisionDbPath,
-    );
-  }
+  const revisionDbPath = runtimeConfigRevisionStorePath();
+  fs.mkdirSync(path.dirname(revisionDbPath), { recursive: true });
+  db.prepare(`ATTACH DATABASE ? AS ${RUNTIME_REVISION_ATTACHMENT}`).run(
+    revisionDbPath,
+  );
   try {
     return fn();
   } finally {
-    if (!alreadyAttached) {
-      db.exec(`DETACH DATABASE ${RUNTIME_REVISION_ATTACHMENT}`);
-    }
+    db.exec(`DETACH DATABASE ${RUNTIME_REVISION_ATTACHMENT}`);
   }
 }
 
@@ -2550,6 +2539,7 @@ export function upsertAgentWithTeamRevision(params: {
 }): AgentConfig {
   return withRuntimeRevisionDatabaseAttached(() => {
     const upsert = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
       const stored = upsertAgent(params.agent);
       syncAttachedTeamRevisionState(params.finalAgents, params.meta);
       return stored;
@@ -2565,6 +2555,7 @@ export function upsertAgentsWithTeamRevision(params: {
 }): AgentConfig[] {
   return withRuntimeRevisionDatabaseAttached(() => {
     const upsert = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
       for (const agent of params.agents) {
         upsertAgent(agent);
       }
@@ -2615,6 +2606,9 @@ export function replaceAgentOrgChart(
   validateAgentOrgChart(nextAgents);
 
   const updateOrgChart = db.transaction(() => {
+    if (revisionMeta) {
+      syncAttachedTeamRevisionState(currentAgents, revisionMeta);
+    }
     const statement = db.prepare(
       `INSERT INTO agents (
          id,
@@ -2671,6 +2665,7 @@ export function deleteAgentWithTeamRevision(params: {
 }): boolean {
   return withRuntimeRevisionDatabaseAttached(() => {
     const deleteWithRevision = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
       const deleted = deleteAgent(params.agentId);
       if (deleted) {
         syncAttachedTeamRevisionState(params.finalAgents, params.meta);

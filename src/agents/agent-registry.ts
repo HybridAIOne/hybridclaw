@@ -41,7 +41,6 @@ import {
   type AgentTeamStructureRevisionSummary,
   getAgentTeamStructureRevision,
   listAgentTeamStructureRevisions,
-  syncAgentTeamStructureRevisionState,
 } from './team-structure-revisions.js';
 
 const LEGACY_WORKSPACE_DIRS = [
@@ -385,11 +384,6 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
 
 function syncConfiguredAgentsToDatabase(): void {
   const currentAgents = dbListAgents();
-  syncAgentTeamStructureRevisionState(currentAgents, {
-    route: 'agents.team.before_config_sync',
-    source: 'agent-registry',
-  });
-
   const mainAgent = configuredAgents.find(
     (entry) => entry.id === DEFAULT_AGENT_ID,
   );
@@ -612,13 +606,6 @@ function currentTeamStructureAgents(): AgentConfig[] {
   return Array.from(registry.values()).map((agent) => applyDefaults(agent));
 }
 
-function syncCurrentTeamStructureRevisionState(route: string): void {
-  syncAgentTeamStructureRevisionState(currentTeamStructureAgents(), {
-    route,
-    source: 'agent-registry',
-  });
-}
-
 export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
@@ -637,7 +624,6 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
     });
   }
   validateAgentOrgChart(Array.from(nextAgentsById.values()));
-  syncCurrentTeamStructureRevisionState('agents.team.before_upsert');
   dbUpsertAgentWithTeamRevision({
     agent: normalized,
     finalAgents: Array.from(nextAgentsById.values()),
@@ -669,7 +655,6 @@ export function deleteRegisteredAgent(agentId: string): boolean {
   const finalAgents = Array.from(registry.values()).filter(
     (agent) => agent.id !== normalizedId,
   );
-  syncCurrentTeamStructureRevisionState('agents.team.before_delete');
   const deleted = dbDeleteAgentWithTeamRevision({
     agentId: normalizedId,
     finalAgents,
@@ -710,7 +695,6 @@ export function restoreRegisteredAgentTeamStructureRevision(
     revisionId,
     currentTeamStructureAgents(),
   );
-  syncCurrentTeamStructureRevisionState('agents.team.before_restore');
   dbReplaceAgentOrgChart(revision.snapshot.agents, {
     route: `agents.team.restore#${revisionId}`,
     source: 'agent-registry',

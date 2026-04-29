@@ -53,6 +53,7 @@ function revisionNextContent(params: {
   currentContent: string;
 }): string | null {
   if (!params.revision.replacedByMd5) return null;
+  // Runtime revisions link forward by storing the MD5 of the content that replaced this revision.
   if (md5(params.currentContent) === params.revision.replacedByMd5) {
     return params.currentContent;
   }
