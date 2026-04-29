@@ -135,6 +135,7 @@ import {
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import {
+  getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from '../config/runtime-config-edit.js';
@@ -7787,6 +7788,10 @@ export async function handleGatewayCommand(
     return JSON.stringify(config, null, 2);
   }
 
+  function formatRuntimeConfigValue(value: unknown): string {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  }
+
   async function runRuntimeConfigCheck(): Promise<{
     severity: 'ok' | 'warn' | 'error';
     text: string;
@@ -9232,13 +9237,37 @@ export async function handleGatewayCommand(
           }
         }
 
+        if (sub === 'get') {
+          const key = parseIdArg(req.args, 2);
+          if (!key || req.args.length > 3) {
+            return badCommand('Usage', 'Usage: `config get <key>`');
+          }
+          try {
+            const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
+            return infoCommand(
+              'Runtime Config Value',
+              [
+                `Path: ${runtimeConfigPath()}`,
+                `Key: ${key}`,
+                'Value:',
+                formatRuntimeConfigValue(value),
+              ].join('\n'),
+            );
+          } catch (error) {
+            return badCommand(
+              'Config Read Failed',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+
         if (sub === 'set') {
           const key = parseIdArg(req.args, 2);
           const rawValue = req.args.slice(3).join(' ').trim();
           if (!key || !rawValue) {
             return badCommand(
               'Usage',
-              'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+              'Usage: `config`, `config check`, `config reload`, `config get <key>`, or `config set <key> <value>`',
             );
           }
           try {
@@ -9275,7 +9304,7 @@ export async function handleGatewayCommand(
 
         return badCommand(
           'Usage',
-          'Usage: `config`, `config check`, `config reload`, or `config set <key> <value>`',
+          'Usage: `config`, `config check`, `config reload`, `config get <key>`, or `config set <key> <value>`',
         );
       }
 

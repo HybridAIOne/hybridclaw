@@ -1481,6 +1481,38 @@ test('config check validates the local runtime config', async () => {
   expect(result.text).toContain('0 errors');
 });
 
+test('config get shows one local runtime config value', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.maxTokens = 4096;
+  });
+
+  const configPath = path.join(homeDir, '.hybridclaw', 'config.json');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await handleGatewayCommand({
+    sessionId: 'session-config-get',
+    guildId: null,
+    channelId: 'web',
+    args: ['config', 'get', 'hybridai.maxTokens'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Runtime Config Value');
+  expect(result.text).toContain(`Path: ${configPath}`);
+  expect(result.text).toContain('Key: hybridai.maxTokens');
+  expect(result.text).toContain('Value:\n4096');
+});
+
 test('config reload hot-reloads the local runtime config from disk', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

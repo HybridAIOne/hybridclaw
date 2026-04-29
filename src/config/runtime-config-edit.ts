@@ -61,3 +61,20 @@ export function setRuntimeConfigValueAtPath(
   }
   current[leaf] = value;
 }
+
+export function getRuntimeConfigValueAtPath(
+  config: RuntimeConfig,
+  keyPath: string,
+): unknown {
+  const segments = splitRuntimeConfigPath(keyPath);
+  let current: unknown = config;
+
+  for (const segment of segments) {
+    if (!isConfigObject(current) || !Object.hasOwn(current, segment)) {
+      throw new Error(`Config key \`${keyPath}\` was not found.`);
+    }
+    current = current[segment];
+  }
+
+  return current;
+}
