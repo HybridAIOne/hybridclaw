@@ -297,7 +297,7 @@ function makeRequest(params: {
   body?: unknown;
   headers?: Record<string, string>;
   remoteAddress?: string;
-  authToken?: string | false;
+  noAuth?: boolean;
 }) {
   const chunks =
     params.body === undefined
@@ -315,13 +315,9 @@ function makeRequest(params: {
     method: params.method || 'GET',
     url: params.url,
     headers: {
-      ...(params.authToken === false
+      ...(params.noAuth
         ? {}
-        : {
-            authorization: `Bearer ${
-              params.authToken ?? DEFAULT_TEST_GATEWAY_API_TOKEN
-            }`,
-          }),
+        : { authorization: `Bearer ${DEFAULT_TEST_GATEWAY_API_TOKEN}` }),
       ...(params.headers || {}),
     },
     socket: {
@@ -1826,7 +1822,7 @@ describe('gateway HTTP server', () => {
       url: '/api/status',
       headers: { 'x-forwarded-for': '127.0.0.1' },
       remoteAddress: '203.0.113.10',
-      authToken: false,
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -1844,7 +1840,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/status',
       headers: { authorization: 'Bearer ' },
-      authToken: false,
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -1862,7 +1858,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/v1/models',
       remoteAddress: '203.0.113.10',
-      authToken: false,
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -3646,7 +3642,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/agent-avatar?agentId=charly&token=web-token',
       remoteAddress: '203.0.113.10',
-      authToken: false,
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -3986,7 +3982,7 @@ describe('gateway HTTP server', () => {
       method: 'POST',
       url: '/api/chat/mobile-qr',
       remoteAddress: '203.0.113.10',
-      authToken: false,
+      noAuth: true,
       body: {
         userId: 'web-user-a',
         sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
@@ -4241,7 +4237,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/admin/email',
       remoteAddress: '203.0.113.10',
-      authToken: false,
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -5187,7 +5183,7 @@ describe('gateway HTTP server', () => {
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
         remoteAddress: '10.0.0.5',
-        authToken: false,
+        noAuth: true,
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -7834,7 +7830,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: `/api/artifact?path=${encodeURIComponent(artifactPath)}`,
       remoteAddress: '203.0.113.10',
-      authToken: false,
+      noAuth: true,
     });
     const res = makeResponse();
 
