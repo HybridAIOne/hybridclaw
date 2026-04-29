@@ -150,6 +150,7 @@ function validateGraph(definition: WorkflowDefinition): string[] {
   const transitionKeys = new Set<string>();
   const outgoing = new Map<string, number>();
   const incoming = new Map<string, number>();
+  const nextByStep = new Map<string, string>();
   for (const transition of definition.transitions) {
     if (!stepIds.has(transition.from)) {
       issues.push(
@@ -173,6 +174,9 @@ function validateGraph(definition: WorkflowDefinition): string[] {
     transitionKeys.add(key);
     outgoing.set(transition.from, (outgoing.get(transition.from) || 0) + 1);
     incoming.set(transition.to, (incoming.get(transition.to) || 0) + 1);
+    if (!nextByStep.has(transition.from)) {
+      nextByStep.set(transition.from, transition.to);
+    }
   }
 
   for (const [stepId, count] of outgoing.entries()) {
@@ -190,6 +194,24 @@ function validateGraph(definition: WorkflowDefinition): string[] {
     issues.push(`workflow ${definition.id} has no root step`);
   } else if (roots.length > 1) {
     issues.push(`workflow ${definition.id} has multiple root steps`);
+  } else {
+    const visited = new Set<string>();
+    let current: string | undefined = roots[0]?.id;
+    while (current) {
+      if (visited.has(current)) {
+        issues.push(`workflow ${definition.id} contains a cycle at ${current}`);
+        break;
+      }
+      visited.add(current);
+      current = nextByStep.get(current);
+    }
+    for (const step of definition.steps) {
+      if (!visited.has(step.id)) {
+        issues.push(
+          `workflow ${definition.id} has unreachable step: ${step.id}`,
+        );
+      }
+    }
   }
   return issues;
 }

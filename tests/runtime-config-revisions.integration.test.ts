@@ -266,6 +266,39 @@ describe('runtime config revisions integration', () => {
     }
   });
 
+  it('lists runtime asset states with exact LIKE prefix escaping', async () => {
+    const revisionsMod = await import(
+      '../src/config/runtime-config-revisions.js'
+    );
+    const exactPrefix = path.join(tmpDir, 'workflow_runs', 'wf_');
+    const exactPath = path.join(exactPrefix, 'run.json');
+    const wildcardSiblingPath = path.join(
+      tmpDir,
+      'workflow_runs',
+      'wfA',
+      'run.json',
+    );
+
+    revisionsMod.syncRuntimeAssetRevisionState(
+      'workflow',
+      exactPath,
+      { route: 'test.workflow.exact', source: 'runtime-config-test' },
+      { exists: true, content: 'exact\n' },
+    );
+    revisionsMod.syncRuntimeAssetRevisionState(
+      'workflow',
+      wildcardSiblingPath,
+      { route: 'test.workflow.sibling', source: 'runtime-config-test' },
+      { exists: true, content: 'sibling\n' },
+    );
+
+    expect(
+      revisionsMod
+        .listRuntimeAssetRevisionStates('workflow', exactPrefix)
+        .map((entry) => entry.assetPath),
+    ).toEqual([exactPath]);
+  });
+
   it('migrates legacy config revision rows into typed asset storage', async () => {
     const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-cfg-v1-'));
     const legacyDbPath = path.join(legacyDir, 'data', 'config-revisions.db');

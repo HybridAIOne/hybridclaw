@@ -698,22 +698,27 @@ export function getRuntimeAssetRevisionState(
   });
 }
 
+function escapeSqlLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
 export function listRuntimeAssetRevisionStates(
   assetType: RuntimeRevisionAssetType,
   pathPrefix?: string,
 ): RuntimeConfigRevisionStateEntry[] {
   const normalizedAssetType = normalizeRevisionAssetType(assetType);
   const normalizedPrefix = String(pathPrefix || '').trim();
+  const likePrefix = `${escapeSqlLikePattern(normalizedPrefix)}%`;
   return withRevisionDatabase((database) => {
     const rows = normalizedPrefix
       ? database
-          .prepare<[string, string], ConfigRevisionStateEntryRow>(
+          .prepare<[string, string, string], ConfigRevisionStateEntryRow>(
             `SELECT config_path, current_content, actor, route, source, updated_at
              FROM config_revision_state
-             WHERE asset_type = ? AND config_path LIKE ?
+             WHERE asset_type = ? AND config_path LIKE ? ESCAPE ?
              ORDER BY updated_at DESC, config_path ASC`,
           )
-          .all(normalizedAssetType, `${normalizedPrefix}%`)
+          .all(normalizedAssetType, likePrefix, '\\')
       : database
           .prepare<[string], ConfigRevisionStateEntryRow>(
             `SELECT config_path, current_content, actor, route, source, updated_at

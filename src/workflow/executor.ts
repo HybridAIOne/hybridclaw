@@ -108,6 +108,22 @@ function nextStepId(
   return outgoing[0]?.to;
 }
 
+function stepIdsFrom(
+  workflow: WorkflowDefinition,
+  stepId: string,
+): Set<string> {
+  const downstream = new Set<string>();
+  let current: string | undefined = stepId;
+  while (current) {
+    if (downstream.has(current)) {
+      throw new Error(`Workflow ${workflow.id} contains a cycle at ${current}`);
+    }
+    downstream.add(current);
+    current = nextStepId(workflow, current);
+  }
+  return downstream;
+}
+
 function makeInitialRun(params: {
   workflow: WorkflowDefinition;
   runId?: string;
@@ -508,9 +524,7 @@ export async function returnForRevision(
     stepId;
   const revision = targetState.revisions.length + 1;
   const createdAt = nowIso();
-  const targetIndex = run.workflow.steps.findIndex(
-    (step) => step.id === stepId,
-  );
+  const downstreamStepIds = stepIdsFrom(run.workflow, stepId);
 
   targetState.revisions.push({
     revision,
@@ -521,10 +535,7 @@ export async function returnForRevision(
     created_at: createdAt,
   });
   for (const stepState of run.steps) {
-    const workflowIndex = run.workflow.steps.findIndex(
-      (step) => step.id === stepState.step_id,
-    );
-    if (workflowIndex >= targetIndex) {
+    if (downstreamStepIds.has(stepState.step_id)) {
       stepState.status =
         stepState.step_id === stepId ? 'pending' : 'revision_requested';
       delete stepState.started_at;

@@ -102,6 +102,25 @@ transitions:
     to: review
 `),
     ).toThrow('multiple outgoing transitions');
+    expect(() =>
+      parseWorkflowDefinitionYaml(`
+id: disconnected
+name: Disconnected
+steps:
+  - id: brief
+    owner_coworker_id: briefing
+    action: Write the brief.
+  - id: build
+    owner_coworker_id: builder
+    action: Build the draft.
+  - id: review
+    owner_coworker_id: reviewer
+    action: Review the draft.
+transitions:
+  - from: brief
+    to: build
+`),
+    ).toThrow('multiple root steps');
   });
 
   test('runs brief to build autonomously and pauses review when F8 exceeds the threshold', async () => {
@@ -562,6 +581,69 @@ transitions:
 
     expect(paused.status).toBe('paused');
     expect(paused.current_step_id).toBe('build');
+    expect(paused.steps.find((step) => step.step_id === 'build')?.status).toBe(
+      'paused',
+    );
+    expect(paused.steps.find((step) => step.step_id === 'review')?.status).toBe(
+      'revision_requested',
+    );
+  });
+
+  test('returnForRevision follows transitions when step order differs', async () => {
+    await initRuntimeDatabase();
+    const { executeWorkflow, returnForRevision } = await import(
+      '../src/workflow/executor.js'
+    );
+
+    const workflow = {
+      id: 'revision_transition_order_test',
+      name: 'Revision transition order test',
+      steps: [
+        {
+          id: 'review',
+          owner_coworker_id: 'reviewer',
+          action: 'Review the work.',
+        },
+        {
+          id: 'brief',
+          owner_coworker_id: 'briefing',
+          action: 'Brief the work.',
+        },
+        {
+          id: 'build',
+          owner_coworker_id: 'builder',
+          action: 'Build the work.',
+          stakes_threshold: 'medium' as const,
+        },
+      ],
+      transitions: [
+        { from: 'brief', to: 'build' },
+        { from: 'build', to: 'review' },
+      ],
+    };
+
+    const completed = await executeWorkflow({
+      workflow,
+      runId: 'run_revision_transition_order',
+      stakesClassifier: makeClassifier({ build: 'low' }),
+      dispatchStep: ({ step }) => ({ artifact: { stepId: step.id } }),
+    });
+    expect(completed.status).toBe('completed');
+
+    const paused = await returnForRevision(
+      'run_revision_transition_order',
+      'build',
+      'Rework the implementation.',
+      {
+        fromStepId: 'review',
+        stakesClassifier: makeClassifier({ build: 'high' }),
+        dispatchStep: ({ step }) => ({ artifact: { stepId: step.id } }),
+      },
+    );
+
+    expect(paused.steps.find((step) => step.step_id === 'brief')?.status).toBe(
+      'completed',
+    );
     expect(paused.steps.find((step) => step.step_id === 'build')?.status).toBe(
       'paused',
     );
