@@ -144,28 +144,15 @@ function publicUrlFromStatusJson(value: unknown): string | null {
 
 function publicUrlFromFunnelStatusJson(value: unknown): string | null {
   if (!isRecord(value)) return null;
-  const candidates: unknown[] = [];
-  const collect = (node: unknown): void => {
-    if (typeof node === 'string') {
-      candidates.push(node);
-      return;
-    }
-    if (Array.isArray(node)) {
-      for (const item of node) collect(item);
-      return;
-    }
-    if (!isRecord(node)) return;
-    for (const [key, child] of Object.entries(node)) {
-      if (/url|dns|name|host/i.test(key)) candidates.push(child);
-      collect(child);
-    }
-  };
-  collect(value);
-  for (const candidate of candidates) {
-    const publicUrl = normalizePublicUrl(candidate);
-    if (publicUrl) return publicUrl;
-  }
-  return null;
+  const tcp = isRecord(value.TCP) ? value.TCP : null;
+  const tcp443 = tcp && isRecord(tcp['443']) ? tcp['443'] : null;
+  const allowFunnel = isRecord(value.AllowFunnel) ? value.AllowFunnel : null;
+  return (
+    normalizePublicUrl(value.URL) ||
+    normalizePublicUrl(value.PublicURL) ||
+    normalizePublicUrl(tcp443?.URL) ||
+    normalizePublicUrl(allowFunnel?.['443'])
+  );
 }
 
 function publicUrlFromText(value: string): string | null {
@@ -319,6 +306,8 @@ export class TailscaleTunnelProvider implements TunnelProvider {
       publicUrlFromText(startResult.stderr);
     if (fromStartOutput) return fromStartOutput;
 
+    // Older and newer Tailscale CLI builds differ in how chatty `funnel --bg`
+    // is, so prefer its output when present and fall back to structured status.
     const funnelStatus = await this.runCommand(['funnel', 'status', '--json'], {
       timeoutMs: this.commandTimeoutMs,
     }).catch(() => null);

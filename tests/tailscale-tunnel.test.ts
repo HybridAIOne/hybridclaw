@@ -114,6 +114,45 @@ describe('TailscaleTunnelProvider', () => {
     );
   });
 
+  it('uses structured Funnel status when start output is quiet', async () => {
+    const runCommand = vi.fn(async (args: string[]) => {
+      if (args.join(' ') === 'status --json') {
+        return {
+          stdout: JSON.stringify({
+            Self: { DNSName: 'quiet.example.ts.net.' },
+          }),
+          stderr: '',
+        };
+      }
+      if (args.join(' ') === 'funnel --bg localhost:9090') {
+        return { stdout: '', stderr: '' };
+      }
+      if (args.join(' ') === 'funnel status --json') {
+        return {
+          stdout: JSON.stringify({
+            AllowFunnel: {
+              '443': 'https://quiet.example.ts.net',
+            },
+          }),
+          stderr: '',
+        };
+      }
+      throw new Error(`unexpected command: ${args.join(' ')}`);
+    });
+    const provider = new TailscaleTunnelProvider({
+      recordAuditEvent: vi.fn(),
+      runCommand,
+    });
+
+    await expect(provider.start()).resolves.toEqual({
+      public_url: 'https://quiet.example.ts.net',
+    });
+    expect(runCommand).toHaveBeenCalledWith(
+      ['funnel', 'status', '--json'],
+      { timeoutMs: 5_000 },
+    );
+  });
+
   it('fails gracefully when tailscaled is logged out and TS_AUTHKEY is missing', async () => {
     const runCommand = vi.fn(async (args: string[]) => {
       if (args.join(' ') === 'status --json') {
