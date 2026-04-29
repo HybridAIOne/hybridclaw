@@ -103,6 +103,7 @@ import {
   SLACK_BOT_TOKEN,
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
+import type { RuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   deleteQueuedProactiveMessage,
@@ -3046,9 +3047,26 @@ function startOrRestartMemoryConsolidationScheduler(): void {
   scheduleNextMemoryConsolidationRun();
 }
 
+function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
+  const warmPool = config.warmPool;
+  if (!warmPool.enabled || warmPool.maxIdlePerAgent <= 0) return;
+  logger.warn(
+    {
+      sandboxMode: config.sandboxMode,
+      minIdlePerActiveAgent: warmPool.minIdlePerActiveAgent,
+      maxIdlePerAgent: warmPool.maxIdlePerAgent,
+      memoryPressureRssMb: warmPool.memoryPressureRssMb,
+      coldStartBudgetMs: warmPool.coldStartBudgetMs,
+      disableConfig: 'container.warmPool.enabled=false',
+    },
+    'Warm process pool enabled; idle agent workers may be spawned after requests',
+  );
+}
+
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  logWarmProcessPoolStartup(getConfigSnapshot().container);
   validateGatewayPromptEnvDefaults();
   initDatabase();
   listAgents();

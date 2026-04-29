@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { ContainerOutput } from '../types/container.js';
 import {
@@ -97,7 +98,7 @@ export function canUseWarmPool(
 
 export function createWarmSessionId(agentId: string): string {
   const safeAgent = agentId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return `warm_${safeAgent}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `warm_${safeAgent}_${Date.now()}_${randomBytes(6).toString('hex')}`;
 }
 
 export function isTimedOutAgentOutput(output: ContainerOutput): boolean {
