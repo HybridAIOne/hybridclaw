@@ -157,6 +157,8 @@ import {
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminStatistics,
+  getGatewayAdminTeamStructure,
+  getGatewayAdminTeamStructureRevision,
   getGatewayAdminTools,
   getGatewayAgentList,
   getGatewayAgents,
@@ -171,6 +173,7 @@ import {
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   restoreGatewayAdminAgentMarkdownRevision,
+  restoreGatewayAdminTeamStructureRevision,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
@@ -2452,7 +2455,8 @@ function sendApiAdminAgentError(res: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const isKnownNotFoundMessage =
     /^Agent ["`].+["`] was not found\.$/.test(message) ||
-    /^Revision ["`].+["`] was not found\.$/.test(message);
+    /^Revision ["`].+["`] was not found\.$/.test(message) ||
+    /^Team structure revision \d+ was not found\.$/.test(message);
   const status =
     error instanceof GatewayRequestError
       ? error.statusCode
@@ -2770,6 +2774,49 @@ async function handleApiAdminAgents(
         error: route.isKnownPath ? 'Method Not Allowed' : 'Not Found',
       });
       return;
+  }
+}
+
+async function handleApiAdminTeamStructure(
+  res: ServerResponse,
+  method: string,
+  url: URL,
+): Promise<void> {
+  const segments = url.pathname.split('/').filter(Boolean);
+  if (segments.length === 3) {
+    if (method === 'GET') {
+      sendJson(res, 200, getGatewayAdminTeamStructure());
+      return;
+    }
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  const revisionId =
+    segments.length >= 5 && segments[3] === 'revisions'
+      ? parsePositiveInteger(decodeApiPathSegment(segments[4] || ''))
+      : null;
+  if (!revisionId) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  try {
+    if (segments.length === 5 && method === 'GET') {
+      sendJson(res, 200, getGatewayAdminTeamStructureRevision(revisionId));
+      return;
+    }
+    if (
+      segments.length === 6 &&
+      segments[5] === 'restore' &&
+      method === 'POST'
+    ) {
+      sendJson(res, 200, restoreGatewayAdminTeamStructureRevision(revisionId));
+      return;
+    }
+    sendMethodNotAllowed(res);
+  } catch (error) {
+    sendApiAdminAgentError(res, error);
   }
 }
 
@@ -3934,6 +3981,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/statistics' && method === 'GET') {
             handleApiAdminStatistics(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/team-structure' ||
+            pathname.startsWith('/api/admin/team-structure/')
+          ) {
+            await handleApiAdminTeamStructure(res, method, url);
             return;
           }
           if (

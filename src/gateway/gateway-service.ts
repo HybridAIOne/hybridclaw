@@ -35,15 +35,19 @@ import {
   deleteRegisteredAgent,
   findAgentConfig,
   getAgentById,
+  getRegisteredAgentTeamStructureRevision,
   getStoredAgentConfig,
   listAgents,
+  listRegisteredAgentTeamStructureRevisions,
   resolveAgentConfig,
   resolveAgentForRequest,
   resolveAgentModel,
+  restoreRegisteredAgentTeamStructureRevision,
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { safeExtractZip } from '../agents/claw-security.js';
+import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
@@ -421,6 +425,9 @@ import {
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
   type GatewayAdminStatisticsTrendDay,
+  type GatewayAdminTeamStructureResponse,
+  type GatewayAdminTeamStructureRevision,
+  type GatewayAdminTeamStructureRevisionResponse,
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
@@ -4052,6 +4059,50 @@ export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
       });
     }),
   };
+}
+
+function mapGatewayAdminTeamStructureRevision(
+  revision: ReturnType<
+    typeof listRegisteredAgentTeamStructureRevisions
+  >[number],
+): GatewayAdminTeamStructureRevision {
+  return {
+    id: revision.id,
+    createdAt: revision.createdAt,
+    actor: revision.actor,
+    route: revision.route,
+    source: revision.source,
+    md5: revision.md5,
+    sizeBytes: revision.byteLength,
+    replacedByMd5: revision.replacedByMd5,
+    changeCount: revision.changeCount,
+    diff: revision.diff,
+  };
+}
+
+export function getGatewayAdminTeamStructure(): GatewayAdminTeamStructureResponse {
+  return {
+    snapshot: buildAgentTeamStructureSnapshot(listAgents()),
+    revisions: listRegisteredAgentTeamStructureRevisions().map(
+      mapGatewayAdminTeamStructureRevision,
+    ),
+  };
+}
+
+export function getGatewayAdminTeamStructureRevision(
+  revisionId: number,
+): GatewayAdminTeamStructureRevisionResponse {
+  const revision = getRegisteredAgentTeamStructureRevision(revisionId);
+  return {
+    revision: mapGatewayAdminTeamStructureRevision(revision),
+  };
+}
+
+export function restoreGatewayAdminTeamStructureRevision(
+  revisionId: number,
+): GatewayAdminTeamStructureResponse {
+  restoreRegisteredAgentTeamStructureRevision(revisionId);
+  return getGatewayAdminTeamStructure();
 }
 
 export function getGatewayAdminAgentMarkdownFile(

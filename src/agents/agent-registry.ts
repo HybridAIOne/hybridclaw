@@ -9,10 +9,12 @@ import {
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
-  deleteAgent as dbDeleteAgent,
+  deleteAgentWithTeamRevision as dbDeleteAgentWithTeamRevision,
   getAgentById as dbGetAgentById,
   listAgents as dbListAgents,
-  upsertAgent as dbUpsertAgent,
+  replaceAgentOrgChart as dbReplaceAgentOrgChart,
+  upsertAgentsWithTeamRevision as dbUpsertAgentsWithTeamRevision,
+  upsertAgentWithTeamRevision as dbUpsertAgentWithTeamRevision,
   isDatabaseInitialized,
 } from '../memory/db.js';
 import type { Session } from '../types/session.js';
@@ -34,6 +36,12 @@ import {
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from './agent-types.js';
+import {
+  type AgentTeamStructureRevision,
+  type AgentTeamStructureRevisionSummary,
+  getAgentTeamStructureRevision,
+  listAgentTeamStructureRevisions,
+} from './team-structure-revisions.js';
 
 const LEGACY_WORKSPACE_DIRS = [
   'default',
@@ -353,37 +361,60 @@ function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   }
 }
 
+function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
+  return {
+    id: agent.id,
+    name: agent.name,
+    displayName: agent.displayName,
+    imageAsset: agent.imageAsset,
+    model: cloneModelConfig(agent.model),
+    skills: agent.skills,
+    workspace: agent.workspace,
+    chatbotId: agent.chatbotId,
+    enableRag: agent.enableRag,
+    owner: agent.owner,
+    role: agent.role,
+    reportsTo: agent.reportsTo,
+    delegatesTo: agent.delegatesTo,
+    peers: agent.peers,
+    cv: cloneAgentCv(agent.cv),
+    escalationTarget: agent.escalationTarget,
+  };
+}
+
 function syncConfiguredAgentsToDatabase(): void {
+  const currentAgents = dbListAgents();
   const mainAgent = configuredAgents.find(
     (entry) => entry.id === DEFAULT_AGENT_ID,
   );
+  const agentsToUpsert: AgentConfig[] = [];
+  const finalAgentsById = new Map(
+    currentAgents.map((agent) => [agent.id, agent] as const),
+  );
   if (!mainAgent) {
-    dbUpsertAgent({
+    const defaultMainAgent = {
       id: DEFAULT_AGENT_ID,
       name: 'Main Agent',
-    });
+    };
+    agentsToUpsert.push(defaultMainAgent);
+    finalAgentsById.set(DEFAULT_AGENT_ID, defaultMainAgent);
   }
 
   for (const agent of configuredAgents) {
-    dbUpsertAgent({
-      id: agent.id,
-      name: agent.name,
-      displayName: agent.displayName,
-      imageAsset: agent.imageAsset,
-      model: cloneModelConfig(agent.model),
-      skills: agent.skills,
-      workspace: agent.workspace,
-      chatbotId: agent.chatbotId,
-      enableRag: agent.enableRag,
-      owner: agent.owner,
-      role: agent.role,
-      reportsTo: agent.reportsTo,
-      delegatesTo: agent.delegatesTo,
-      peers: agent.peers,
-      cv: cloneAgentCv(agent.cv),
-      escalationTarget: agent.escalationTarget,
-    });
+    const nextAgent = configuredAgentForDatabase(agent);
+    agentsToUpsert.push(nextAgent);
+    finalAgentsById.set(nextAgent.id, nextAgent);
   }
+  const finalAgents = Array.from(finalAgentsById.values());
+  validateAgentOrgChart(finalAgents);
+  dbUpsertAgentsWithTeamRevision({
+    agents: agentsToUpsert,
+    finalAgents,
+    meta: {
+      route: 'agents.team.config_sync',
+      source: 'agent-registry',
+    },
+  });
 }
 
 function safeWorkspaceName(rawName: string): string {
@@ -571,6 +602,10 @@ function collectAgentDeletionBlockers(agentId: string): string[] {
   return blockers.sort();
 }
 
+function currentTeamStructureAgents(): AgentConfig[] {
+  return Array.from(registry.values()).map((agent) => applyDefaults(agent));
+}
+
 export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
@@ -589,7 +624,14 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
     });
   }
   validateAgentOrgChart(Array.from(nextAgentsById.values()));
-  dbUpsertAgent(normalized);
+  dbUpsertAgentWithTeamRevision({
+    agent: normalized,
+    finalAgents: Array.from(nextAgentsById.values()),
+    meta: {
+      route: `agents.team.upsert#${normalized.id}`,
+      source: 'agent-registry',
+    },
+  });
   rebuildRegistryFromDatabase({ validate: false });
   registryInitialized = true;
   registryDbBacked = true;
@@ -610,11 +652,60 @@ export function deleteRegisteredAgent(agentId: string): boolean {
       `Cannot delete agent "${normalizedId}" because it is still referenced by: ${blockers.join(', ')}.`,
     );
   }
-  const deleted = dbDeleteAgent(normalizedId);
+  const finalAgents = Array.from(registry.values()).filter(
+    (agent) => agent.id !== normalizedId,
+  );
+  const deleted = dbDeleteAgentWithTeamRevision({
+    agentId: normalizedId,
+    finalAgents,
+    meta: {
+      route: `agents.team.delete#${normalizedId}`,
+      source: 'agent-registry',
+    },
+  });
   rebuildRegistryFromDatabase();
   registryInitialized = true;
   registryDbBacked = true;
   return deleted;
+}
+
+export function listRegisteredAgentTeamStructureRevisions(): AgentTeamStructureRevisionSummary[] {
+  ensureRegistryCurrent();
+  return listAgentTeamStructureRevisions(currentTeamStructureAgents());
+}
+
+export function getRegisteredAgentTeamStructureRevision(
+  revisionId: number,
+): AgentTeamStructureRevision {
+  ensureRegistryCurrent();
+  return getAgentTeamStructureRevision(
+    revisionId,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function restoreRegisteredAgentTeamStructureRevision(
+  revisionId: number,
+): AgentTeamStructureRevision {
+  if (!isDatabaseInitialized()) {
+    throw new Error('Database is not initialized.');
+  }
+  ensureRegistryCurrent();
+  const revision = getAgentTeamStructureRevision(
+    revisionId,
+    currentTeamStructureAgents(),
+  );
+  dbReplaceAgentOrgChart(revision.snapshot.agents, {
+    route: `agents.team.restore#${revisionId}`,
+    source: 'agent-registry',
+  });
+  rebuildRegistryFromDatabase();
+  registryInitialized = true;
+  registryDbBacked = true;
+  return getAgentTeamStructureRevision(
+    revisionId,
+    currentTeamStructureAgents(),
+  );
 }
 
 export function migrateWorkspaceDirs(): void {
