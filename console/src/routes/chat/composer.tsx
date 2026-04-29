@@ -11,7 +11,15 @@ import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
+import {
+  type AgentSwitchOption,
+  AgentSwitchSelect,
+} from './agent-switch-select';
 import css from './chat-page.module.css';
+import {
+  type ModelSwitchEntry,
+  ModelSwitchSelect,
+} from './model-switch-select';
 
 function SlashSuggestions(props: {
   items: ChatCommandSuggestion[];
@@ -52,9 +60,16 @@ export function Composer(props: {
   onStop: () => void;
   onUploadFiles: (files: File[]) => Promise<MediaItem[]>;
   token: string;
+  agents?: AgentSwitchOption[];
+  selectedAgentId?: string;
+  onAgentSwitch?: (agentId: string) => void;
+  models?: ModelSwitchEntry[];
+  selectedModelId?: string;
+  onModelSwitch?: (modelId: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
@@ -66,6 +81,34 @@ export function Composer(props: {
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const updateComposerHeight = () => {
+      const height = wrapper.getBoundingClientRect().height;
+      if (!Number.isFinite(height) || height <= 0) return;
+      document.documentElement.style.setProperty(
+        '--chat-composer-height',
+        `${Math.ceil(height)}px`,
+      );
+    };
+
+    updateComposerHeight();
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(updateComposerHeight);
+    observer?.observe(wrapper);
+    window.addEventListener('resize', updateComposerHeight);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateComposerHeight);
+      document.documentElement.style.removeProperty('--chat-composer-height');
     };
   }, []);
 
@@ -198,8 +241,13 @@ export function Composer(props: {
     setPendingMedia((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const agentOptions = props.agents ?? [];
+  const selectedAgentId = props.selectedAgentId ?? '';
+  const modelOptions = props.models ?? [];
+  const selectedModelId = props.selectedModelId ?? '';
+
   return (
-    <div className={css.composerWrapper}>
+    <div className={css.composerWrapper} ref={wrapperRef}>
       <div className={css.composer} style={{ position: 'relative' }}>
         {showSuggestions ? (
           <SlashSuggestions
@@ -239,14 +287,28 @@ export function Composer(props: {
           aria-label="Message input"
         />
         <div className={css.composerActions}>
-          <button
-            type="button"
-            className={css.attachButton}
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Attach files"
-          >
-            +
-          </button>
+          <div className={css.composerLeftActions}>
+            <button
+              type="button"
+              className={css.attachButton}
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach files"
+            >
+              +
+            </button>
+            <AgentSwitchSelect
+              agents={agentOptions}
+              selectedAgentId={selectedAgentId}
+              disabled={props.isStreaming}
+              onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+            />
+            <ModelSwitchSelect
+              models={modelOptions}
+              selectedModelId={selectedModelId}
+              disabled={props.isStreaming}
+              onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
+            />
+          </div>
           <button
             type="button"
             className={cx(css.sendButton, props.isStreaming && css.stopping)}

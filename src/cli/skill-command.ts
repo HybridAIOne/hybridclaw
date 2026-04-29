@@ -6,76 +6,20 @@ import {
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
-import type {
-  SkillAmendment,
-  SkillHealthMetrics,
-  SkillObservation,
-} from '../skills/adaptive-skills-types.js';
+import {
+  formatSkillAmendment,
+  formatSkillHealthMetrics,
+  formatSkillObservationRun,
+} from '../skills/skill-formatters.js';
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
+import { resolveSkillInstallMode } from '../skills/skill-install-mode.js';
 import { normalizeArgs, parseSkillScopeArgs } from './common.js';
 import { isHelpRequest, printSkillUsage } from './help.js';
 
-function printSkillMetrics(metrics: SkillHealthMetrics): void {
-  const formatRatioAsPercent = (value: number): string =>
-    `${(value * 100).toFixed(2)}%`;
-  console.log(`Skill: ${metrics.skill_name}`);
-  console.log(`Executions: ${metrics.total_executions}`);
-  console.log(`Success rate: ${formatRatioAsPercent(metrics.success_rate)}`);
-  console.log(`Avg duration: ${Math.round(metrics.avg_duration_ms)}ms`);
-  console.log(
-    `Tool breakage: ${formatRatioAsPercent(metrics.tool_breakage_rate)}`,
-  );
-  console.log(`Positive feedback: ${metrics.positive_feedback_count}`);
-  console.log(`Negative feedback: ${metrics.negative_feedback_count}`);
-  console.log(`Degraded: ${metrics.degraded ? 'yes' : 'no'}`);
-  if (metrics.degradation_reasons.length > 0) {
-    console.log(`Reasons: ${metrics.degradation_reasons.join('; ')}`);
-  }
-  if (metrics.error_clusters.length > 0) {
-    console.log('Error clusters:');
-    for (const cluster of metrics.error_clusters) {
-      const sample = cluster.sample_detail ? ` — ${cluster.sample_detail}` : '';
-      console.log(`  ${cluster.category}: ${cluster.count}${sample}`);
-    }
-  }
-}
-
-function printAmendmentSummary(amendment: SkillAmendment): void {
-  console.log(
-    `v${amendment.version} [${amendment.status}] guard=${amendment.guard_verdict}/${amendment.guard_findings_count} runs=${amendment.runs_since_apply}`,
-  );
-  console.log(`  created: ${amendment.created_at}`);
-  if (amendment.reviewed_by) {
-    console.log(`  reviewed by: ${amendment.reviewed_by}`);
-  }
-  if (amendment.rationale) {
-    console.log(`  rationale: ${amendment.rationale}`);
-  }
-  if (amendment.diff_summary) {
-    console.log(`  diff: ${amendment.diff_summary}`);
-  }
-}
-
-function printSkillObservationRun(observation: SkillObservation): void {
-  console.log(`Run: ${observation.run_id}`);
-  console.log(`Outcome: ${observation.outcome}`);
-  console.log(`Observed: ${observation.created_at}`);
-  console.log(`Duration: ${observation.duration_ms}ms`);
-  console.log(
-    `Tools: ${observation.tool_calls_failed}/${observation.tool_calls_attempted} failed`,
-  );
-  if (observation.feedback_sentiment) {
-    console.log(`Feedback: ${observation.feedback_sentiment}`);
-  }
-  if (observation.user_feedback) {
-    console.log(`Feedback note: ${observation.user_feedback}`);
-  }
-  if (observation.error_category) {
-    console.log(`Error category: ${observation.error_category}`);
-  }
-  if (observation.error_detail) {
-    console.log(`Error detail: ${observation.error_detail}`);
+function printFormattedBlock(block: string): void {
+  for (const line of block.split('\n')) {
+    console.log(line);
   }
 }
 
@@ -121,16 +65,12 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       );
     }
 
-    const { loadSkillCatalog } = await import('../skills/skills.js');
-    const known = loadSkillCatalog().some((skill) => skill.name === skillName);
-    if (!known) {
-      throw new Error(`Unknown skill: ${skillName}`);
-    }
-
     const enabled = sub === 'enable';
-    const nextConfig = updateRuntimeConfig((draft) => {
-      setRuntimeSkillScopeEnabled(draft, skillName, enabled, channelKind);
-    });
+    const { setSkillPackageEnabled } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    setSkillPackageEnabled({ skillName, enabled, channelKind, actor: 'cli' });
+    const nextConfig = getRuntimeConfig();
     console.log(
       `${enabled ? 'Enabled' : 'Disabled'} ${skillName} in ${channelKind ?? 'global'} scope.`,
     );
@@ -245,7 +185,9 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       }
       for (const [index, metrics] of metricsList.entries()) {
         if (index > 0) console.log('');
-        printSkillMetrics(metrics);
+        printFormattedBlock(
+          formatSkillHealthMetrics(metrics, { errorClusterLayout: 'expanded' }),
+        );
       }
       return;
     }
@@ -253,7 +195,11 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
       printSkillUsage();
       throw new Error('Missing skill name for `hybridclaw skill inspect`.');
     }
-    printSkillMetrics(inspectObservedSkill(target));
+    printFormattedBlock(
+      formatSkillHealthMetrics(inspectObservedSkill(target), {
+        errorClusterLayout: 'expanded',
+      }),
+    );
     return;
   }
 
@@ -331,7 +277,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     }
     for (const [index, observation] of runs.entries()) {
       if (index > 0) console.log('');
-      printSkillObservationRun(observation);
+      printFormattedBlock(formatSkillObservationRun(observation));
     }
     return;
   }
@@ -352,31 +298,171 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     }
     for (const [index, amendment] of history.entries()) {
       if (index > 0) console.log('');
-      printAmendmentSummary(amendment);
+      printFormattedBlock(
+        formatSkillAmendment(amendment, { style: 'compact' }),
+      );
     }
     return;
   }
 
   if (sub === 'install') {
-    const skillName = normalized[1];
-    const installId = normalized[2];
-    if (!skillName || !installId) {
+    const installMode = resolveSkillInstallMode(normalized.slice(1), {
+      commandPrefix: 'hybridclaw skill',
+    });
+    if (!installMode.ok) {
       printSkillUsage();
+      if (installMode.error === 'missing-dependency') {
+        throw new Error(
+          'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
+        );
+      }
+      if (installMode.error === 'dependency-flags') {
+        throw new Error(
+          'Package install flags can only be used with `hybridclaw skill install <source>`.',
+        );
+      }
       throw new Error(
-        'Usage: `hybridclaw skill install <skill-name> <dependency>`.',
+        'Usage: `hybridclaw skill install <source>` or `hybridclaw skill install <skill-name> <dependency>`.',
       );
+    }
+    if (installMode.mode === 'package') {
+      const { installSkillPackage } = await import(
+        '../skills/skills-lifecycle.js'
+      );
+      const result = await installSkillPackage(installMode.source, {
+        actor: 'cli',
+        force: installMode.force,
+        skipGuard: installMode.skipSkillScan,
+      });
+      for (const warning of buildGuardWarningLines(result)) {
+        console.warn(warning);
+      }
+      console.log(
+        `${result.action === 'upgrade' ? 'Upgraded' : 'Installed'} ${result.manifest.name} v${result.manifest.version} from ${result.resolvedSource}`,
+      );
+      console.log(`Installed to ${result.skillDir}`);
+      return;
     }
 
     const { installSkillDependency } = await import(
       '../skills/skills-install.js'
     );
-    const result = await installSkillDependency({ skillName, installId });
+    const result = await installSkillDependency({
+      skillName: installMode.skillName,
+      installId: installMode.installId,
+    });
     if (result.stdout) console.log(result.stdout);
     if (result.stderr) console.error(result.stderr);
     if (!result.ok) {
       throw new Error(result.message);
     }
     console.log(result.message);
+    return;
+  }
+
+  if (sub === 'upgrade') {
+    const { source, skipSkillScan } = parseSkillImportArgs(
+      normalized.slice(1),
+      {
+        commandPrefix: 'hybridclaw skill',
+        commandName: 'upgrade',
+        allowForce: false,
+      },
+    );
+    const { upgradeSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    const result = await upgradeSkillPackage(source, {
+      actor: 'cli',
+      skipGuard: skipSkillScan,
+    });
+    for (const warning of buildGuardWarningLines(result)) {
+      console.warn(warning);
+    }
+    console.log(
+      `Upgraded ${result.manifest.name} v${result.manifest.version} from ${result.resolvedSource}`,
+    );
+    console.log(`Installed to ${result.skillDir}`);
+    return;
+  }
+
+  if (sub === 'uninstall') {
+    const skillName = normalized[1];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Usage: `hybridclaw skill uninstall <skill-name>`.');
+    }
+    const { uninstallSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    try {
+      const result = uninstallSkillPackage(skillName, { actor: 'cli' });
+      console.log(`Uninstalled ${result.skillName} from ${result.skillDir}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to uninstall skill.';
+      throw new Error(`Failed to uninstall ${skillName}: ${message}`);
+    }
+    return;
+  }
+
+  if (sub === 'revisions') {
+    const skillName = normalized[1];
+    if (!skillName) {
+      printSkillUsage();
+      throw new Error('Usage: `hybridclaw skill revisions <skill-name>`.');
+    }
+    const { listSkillPackageRevisions } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    let revisions: ReturnType<typeof listSkillPackageRevisions>;
+    try {
+      revisions = listSkillPackageRevisions(skillName);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Unknown skill ${skillName}.`;
+      throw new Error(`Failed to list revisions for ${skillName}: ${message}`);
+    }
+    if (revisions.length === 0) {
+      console.log(`No package revisions found for ${skillName}.`);
+      return;
+    }
+    for (const revision of revisions) {
+      console.log(
+        `${revision.id} ${revision.createdAt} ${revision.md5} ${revision.byteLength} bytes route=${revision.route}`,
+      );
+    }
+    return;
+  }
+
+  if (sub === 'rollback') {
+    const skillName = normalized[1];
+    const revisionId = Number.parseInt(normalized[2] || '', 10);
+    if (!skillName || !Number.isInteger(revisionId)) {
+      printSkillUsage();
+      throw new Error(
+        'Usage: `hybridclaw skill rollback <skill-name> <revision-id>`.',
+      );
+    }
+    const { rollbackSkillPackage } = await import(
+      '../skills/skills-lifecycle.js'
+    );
+    try {
+      const result = rollbackSkillPackage({
+        skillName,
+        revisionId,
+        actor: 'cli',
+      });
+      console.log(
+        `Rolled back ${result.skillName} to revision ${result.revisionId}.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown rollback error.';
+      throw new Error(
+        `Failed to roll back skill "${skillName}" to revision ${revisionId}: ${message}`,
+      );
+    }
     return;
   }
 

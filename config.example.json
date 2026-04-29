@@ -1,10 +1,18 @@
 {
-  "version": 21,
+  "version": 26,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
     "trustModelVersion": "",
     "trustModelAcceptedBy": ""
+  },
+  "deployment": {
+    "mode": "local",
+    "public_url": "",
+    "tunnel": {
+      "provider": "manual",
+      "health_check_interval_ms": 30000
+    }
   },
   "skills": {
     "extraDirs": [],
@@ -12,12 +20,14 @@
     "channelDisabled": {
       "discord": [],
       "msteams": [],
+      "signal": [],
       "slack": [],
       "telegram": [],
       "voice": [],
       "whatsapp": [],
       "email": []
-    }
+    },
+    "installed": []
   },
   "tools": {
     "disabled": []
@@ -25,6 +35,7 @@
   "channelInstructions": {
     "discord": "",
     "msteams": "",
+    "signal": "",
     "slack": "",
     "telegram": "",
     "voice": "This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.\nAbsolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.\nDo not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.\nDo not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.",
@@ -35,6 +46,10 @@
   "adaptiveSkills": {
     "enabled": false,
     "observationEnabled": true,
+    "trajectoryCapture": {
+      "enabledAgentIds": [],
+      "storeDir": ""
+    },
     "inspectionIntervalMs": 3600000,
     "observationRetentionDays": 30,
     "trailingWindowHours": 168,
@@ -156,6 +171,18 @@
     "requireMention": true,
     "textChunkLimit": 4000,
     "mediaMaxMb": 20
+  },
+  "signal": {
+    "enabled": false,
+    "daemonUrl": "http://127.0.0.1:8080",
+    "account": "",
+    "dmPolicy": "allowlist",
+    "groupPolicy": "disabled",
+    "allowFrom": [],
+    "groupAllowFrom": [],
+    "textChunkLimit": 4000,
+    "reconnectIntervalMs": 5000,
+    "outboundDelayMs": 350
   },
   "whatsapp": {
     "dmPolicy": "pairing",
@@ -357,6 +384,11 @@
       "model": "",
       "maxTokens": 0
     },
+    "eval_judge": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
     "mcp": {
       "provider": "auto",
       "model": "",
@@ -385,7 +417,15 @@
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5,
-    "persistBashState": true
+    "persistBashState": true,
+    "warmPool": {
+      "enabled": true,
+      "coldStartBudgetMs": 200,
+      "trafficWindowMs": 3600000,
+      "minIdlePerActiveAgent": 1,
+      "maxIdlePerAgent": 2,
+      "memoryPressureRssMb": 2048
+    }
   },
   "mcpServers": {
     "filesystem": {

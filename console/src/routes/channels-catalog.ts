@@ -4,6 +4,7 @@ import { pluralize } from '../lib/format';
 export type ChannelKind =
   | 'discord'
   | 'slack'
+  | 'signal'
   | 'telegram'
   | 'voice'
   | 'whatsapp'
@@ -23,6 +24,9 @@ interface ChannelCatalogOptions {
   discordTokenConfigured?: boolean;
   slackBotTokenConfigured?: boolean;
   slackAppTokenConfigured?: boolean;
+  signalDaemonUrlConfigured?: boolean;
+  signalAccountConfigured?: boolean;
+  signalCliAvailable?: boolean;
   telegramTokenConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
   whatsappLinked?: boolean;
@@ -142,6 +146,49 @@ function describeTelegram(
     kind: 'telegram',
     label: 'Telegram',
     summary: `DM ${config.telegram.dmPolicy} · groups ${config.telegram.groupPolicy}`,
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
+function describeSignal(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const daemonUrlConfigured = options.signalDaemonUrlConfigured === true;
+  const accountConfigured = options.signalAccountConfigured === true;
+  const cliAvailable = options.signalCliAvailable === true;
+  const inboundEnabled =
+    config.signal.dmPolicy !== 'disabled' ||
+    config.signal.groupPolicy !== 'disabled';
+  const active =
+    config.signal.enabled &&
+    daemonUrlConfigured &&
+    accountConfigured &&
+    inboundEnabled;
+  const configured =
+    active ||
+    config.signal.enabled ||
+    daemonUrlConfigured ||
+    accountConfigured ||
+    cliAvailable ||
+    config.signal.allowFrom.length > 0 ||
+    config.signal.groupAllowFrom.length > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'signal',
+    label: 'Signal',
+    summary: `DM ${config.signal.dmPolicy} · groups ${config.signal.groupPolicy}${cliAvailable ? ' · QR ready' : ''}`,
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -337,6 +384,7 @@ export function buildChannelCatalog(
     describeDiscord(config, options),
     describeSlack(config, options),
     describeTelegram(config, options),
+    describeSignal(config, options),
     describeVoice(config, options),
     describeWhatsApp(config, options),
     describeEmail(config, options),

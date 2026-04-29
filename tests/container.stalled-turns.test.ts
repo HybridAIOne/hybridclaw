@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { advanceStalledTurnCount } from '../container/src/stalled-turns.js';
+import {
+  advanceStalledTurnCount,
+  shouldRetryEmptyFinalResponse,
+} from '../container/src/stalled-turns.js';
 
 describe('container stalled turn budget', () => {
   test('resets after a turn with successful tool execution', () => {
@@ -31,5 +34,32 @@ describe('container stalled turn budget', () => {
         successfulToolCalls: 0,
       }),
     ).toBe(3);
+  });
+
+  test('retries empty final responses after tool use without artifacts', () => {
+    expect(
+      shouldRetryEmptyFinalResponse({
+        visibleAssistantText: null,
+        toolExecutionCount: 1,
+        artifactCount: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test('accepts final responses with text or artifacts', () => {
+    expect(
+      shouldRetryEmptyFinalResponse({
+        visibleAssistantText: 'Done',
+        toolExecutionCount: 1,
+        artifactCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryEmptyFinalResponse({
+        visibleAssistantText: null,
+        toolExecutionCount: 1,
+        artifactCount: 1,
+      }),
+    ).toBe(false);
   });
 });

@@ -21,6 +21,7 @@ import {
 } from '../session/session-preview.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
+import { dedupeStrings } from '../utils/normalized-strings.js';
 import { isFullAutoEnabled } from './fullauto-runtime.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type {
@@ -398,22 +399,11 @@ function getLogicalAgentStatus(
   return 'stopped';
 }
 
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const rawValue of values) {
-    const value = String(rawValue || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
-}
-
 export function mapLogicalAgentCard(params: {
   agent: AgentConfig;
   sessions: GatewaySessionCard[];
   usage?: GatewaySessionUsageSummary;
+  monthlySpendUsd?: number;
 }): GatewayLogicalAgentCard {
   const resolved = resolveAgentConfig(params.agent.id);
   const sessions = [...params.sessions].sort((left, right) => {
@@ -445,6 +435,7 @@ export function mapLogicalAgentCard(params: {
     inputTokens: usage?.total_input_tokens || 0,
     outputTokens: usage?.total_output_tokens || 0,
     costUsd: usage?.total_cost_usd || 0,
+    monthlySpendUsd: params.monthlySpendUsd || 0,
     messageCount: sessions.reduce(
       (sum, session) => sum + Number(session.messageCount || 0),
       0,

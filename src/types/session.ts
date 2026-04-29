@@ -1,3 +1,5 @@
+import type { ArtifactMetadata } from './execution.js';
+
 export type SessionShowMode = 'all' | 'thinking' | 'tools' | 'none';
 
 export interface Session {
@@ -38,6 +40,8 @@ export interface StoredMessage {
   username: string | null;
   role: string;
   content: string;
+  agent_id?: string | null;
+  artifacts?: ArtifactMetadata[];
   created_at: string;
 }
 
@@ -63,6 +67,7 @@ export interface ConversationBranchFamily {
 }
 
 export interface ConversationHistoryPage {
+  sessionId: string;
   sessionKey: string | null;
   mainSessionKey: string | null;
   history: StoredMessage[];

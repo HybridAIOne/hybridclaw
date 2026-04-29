@@ -9,6 +9,17 @@ const fetchModelsMock = vi.fn<() => Promise<AdminModelsResponse>>();
 const saveModelsMock = vi.fn();
 const useAuthMock = vi.fn();
 
+const modelMetadataDefaults = {
+  pricingUsdPerToken: { input: null, output: null },
+  capabilities: {
+    vision: true,
+    tools: true,
+    jsonMode: true,
+    reasoning: false,
+  },
+  metadataSources: [],
+};
+
 vi.mock('../api/client', () => ({
   fetchModels: () => fetchModelsMock(),
   saveModels: (token: string, payload: unknown) =>
@@ -36,10 +47,12 @@ function makeModelsResponse(
     models: [
       {
         id: 'gpt-5',
+        provider: 'hybridai',
         discovered: false,
         backend: null,
         contextWindow: 128000,
         maxTokens: 8192,
+        ...modelMetadataDefaults,
         isReasoning: false,
         thinkingFormat: null,
         family: null,
@@ -49,10 +62,16 @@ function makeModelsResponse(
       },
       {
         id: 'openrouter/anthropic/claude-sonnet-4',
+        provider: 'openrouter',
         discovered: true,
         backend: null,
         contextWindow: 200000,
         maxTokens: 8192,
+        ...modelMetadataDefaults,
+        capabilities: {
+          ...modelMetadataDefaults.capabilities,
+          reasoning: true,
+        },
         isReasoning: true,
         thinkingFormat: null,
         family: 'claude',
@@ -110,10 +129,16 @@ describe('ModelsPage', () => {
         models: [
           {
             id: 'openrouter/anthropic/claude-sonnet-4',
+            provider: 'openrouter',
             discovered: true,
             backend: null,
             contextWindow: 200000,
             maxTokens: 8192,
+            ...modelMetadataDefaults,
+            capabilities: {
+              ...modelMetadataDefaults.capabilities,
+              reasoning: true,
+            },
             isReasoning: true,
             thinkingFormat: null,
             family: 'claude',
@@ -130,10 +155,12 @@ describe('ModelsPage', () => {
           },
           {
             id: 'gpt-5',
+            provider: 'hybridai',
             discovered: false,
             backend: null,
             contextWindow: 128000,
             maxTokens: 8192,
+            ...modelMetadataDefaults,
             isReasoning: false,
             thinkingFormat: null,
             family: null,
@@ -150,10 +177,16 @@ describe('ModelsPage', () => {
           },
           {
             id: 'openai-codex/gpt-5.4',
+            provider: 'codex',
             discovered: false,
             backend: null,
             contextWindow: 400000,
             maxTokens: 32768,
+            ...modelMetadataDefaults,
+            capabilities: {
+              ...modelMetadataDefaults.capabilities,
+              reasoning: true,
+            },
             isReasoning: true,
             thinkingFormat: null,
             family: null,

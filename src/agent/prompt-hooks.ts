@@ -301,6 +301,11 @@ function buildMessageToolPromptLines(
       'Example: "Send this to Telegram" -> `message` {"action":"send","to":"telegram:<chatId>","content":"message text"}',
     );
   }
+  if (activeChannels.includes('signal')) {
+    examples.push(
+      'Example: "Send this on Signal" -> `message` {"action":"send","to":"signal:+15551234567","content":"message text"}',
+    );
+  }
   if (activeChannels.includes('whatsapp')) {
     examples.push(
       'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
@@ -430,6 +435,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
     'Escalation signals from web_fetch: `escalationHint` present, JavaScript-required pages, empty extraction, SPA shell-only pages, boilerplate-only extraction, or bot-blocked responses (403/429/challenge pages).',
     'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
+    'If the user explicitly asks for a visible, headed, or headful browser, call `browser_navigate` with `headed:true` on the first navigation for that browser task. Continue using the normal browser tools afterward; the visible/headful mode persists for the session.',
     'Browser extraction flow (for read/summarize requests): after `browser_navigate`, call `browser_snapshot` with `mode="full"` before deciding content is unavailable.',
     'If snapshot content is incomplete, run `browser_scroll` and then `browser_snapshot` again (repeat a few times for long/lazy-loaded pages).',
     'Do not use `browser_pdf` as a text-reading step; it is an export artifact, not a text extraction tool.',
@@ -626,6 +632,7 @@ function isChannelInstructionKind(
   return (
     kind === 'discord' ||
     kind === 'msteams' ||
+    kind === 'signal' ||
     kind === 'slack' ||
     kind === 'telegram' ||
     kind === 'voice' ||

@@ -17,7 +17,7 @@ const VIEW_SWITCH_ITEMS: ReadonlyArray<ViewSwitchItem> = [
     icon: Github,
     external: true,
   },
-  { href: '/development', label: 'Docs', icon: Docs },
+  { href: '/docs', label: 'Docs', icon: Docs },
 ];
 
 function isActive(pathname: string, path: string): boolean {

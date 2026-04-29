@@ -11,10 +11,22 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentCv,
   DEFAULT_AGENT_ID,
+  hasSnakeCamelAlias,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
+  validateAgentOrgChart,
 } from '../agents/agent-types.js';
-import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  ChannelKind,
+  SkillConfigChannelKind,
+} from '../channels/channel.js';
+import {
+  normalizeChannelKind,
+  normalizeSkillConfigChannelKind,
+} from '../channels/channel-registry.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -60,17 +72,25 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
+import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
+import { expandHomePath } from '../utils/path.js';
 import {
+  clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
+  deleteRuntimeAssetRevision as deleteTrackedRuntimeAssetRevision,
   deleteRuntimeConfigRevision as deleteTrackedRuntimeConfigRevision,
+  getRuntimeAssetRevision as getTrackedRuntimeAssetRevision,
+  getRuntimeAssetRevisionState as getTrackedRuntimeAssetRevisionState,
+  getRuntimeAssetRevisionStateMetadata as getTrackedRuntimeAssetRevisionStateMetadata,
   getRuntimeConfigRevision as getTrackedRuntimeConfigRevision,
   getRuntimeConfigRevisionState as getTrackedRuntimeConfigRevisionState,
   getRuntimeConfigRevisionStateMetadata as getTrackedRuntimeConfigRevisionStateMetadata,
+  listRuntimeAssetRevisions as listTrackedRuntimeAssetRevisions,
   listRuntimeConfigRevisions as listTrackedRuntimeConfigRevisions,
   type RuntimeConfigChangeMeta,
   type RuntimeConfigObservedFile,
@@ -78,13 +98,16 @@ import {
   type RuntimeConfigRevisionState,
   type RuntimeConfigRevisionStateMetadata,
   type RuntimeConfigRevisionSummary,
+  type RuntimeRevisionAssetType,
+  restoreRuntimeAssetRevision as restoreTrackedRuntimeAssetRevision,
   runtimeConfigRevisionStorePath,
   syncRuntimeConfigRevisionState,
+  syncRuntimeAssetRevisionState as syncTrackedRuntimeAssetRevisionState,
 } from './runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 21;
+export const CONFIG_VERSION = 26;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -98,6 +121,7 @@ const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
 const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   discord: '',
   msteams: '',
+  signal: '',
   slack: '',
   telegram: '',
   voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
@@ -175,6 +199,12 @@ export type SchedulerScheduleKind = 'at' | 'every' | 'cron' | 'one_shot';
 export type SchedulerActionKind = 'agent_turn' | 'system_event';
 export type SchedulerDeliveryKind = 'channel' | 'last-channel' | 'webhook';
 export const DEFAULT_ONE_SHOT_MAX_RETRIES = 3;
+export const SKILL_AUTONOMY_LEVELS = [
+  'full-autonomous',
+  'low-stakes-autonomous',
+  'confirm-each',
+] as const;
+export type SkillAutonomyLevel = (typeof SKILL_AUTONOMY_LEVELS)[number];
 export const SCHEDULER_BOARD_STATUSES = [
   'backlog',
   'in_progress',
@@ -203,6 +233,8 @@ export type SlackGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackReplyStyle = 'thread' | 'top-level';
 export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type SignalDmPolicy = 'open' | 'allowlist' | 'disabled';
+export type SignalGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -211,6 +243,30 @@ export type RuntimeAudioTranscriptionProvider =
   | 'groq'
   | 'deepgram'
   | 'google';
+export type RuntimeDeploymentMode = 'cloud' | 'local';
+export const RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS = [
+  'cloudflare',
+  'manual',
+  'ngrok',
+  'ssh',
+  'tailscale',
+] as const;
+export type RuntimeDeploymentKnownTunnelProvider =
+  (typeof RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS)[number];
+export type RuntimeDeploymentTunnelProvider =
+  | RuntimeDeploymentKnownTunnelProvider
+  | (string & {});
+
+export interface RuntimeDeploymentTunnelConfig {
+  provider?: RuntimeDeploymentTunnelProvider;
+  health_check_interval_ms: number;
+}
+
+export interface RuntimeDeploymentConfig {
+  mode: RuntimeDeploymentMode;
+  public_url: string;
+  tunnel: RuntimeDeploymentTunnelConfig;
+}
 
 export interface RuntimeAudioProviderModelConfig {
   type: 'provider';
@@ -427,6 +483,19 @@ export interface RuntimeTelegramConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSignalConfig {
+  enabled: boolean;
+  daemonUrl: string;
+  account: string;
+  dmPolicy: SignalDmPolicy;
+  groupPolicy: SignalGroupPolicy;
+  allowFrom: string[];
+  groupAllowFrom: string[];
+  textChunkLimit: number;
+  reconnectIntervalMs: number;
+  outboundDelayMs: number;
+}
+
 export interface RuntimeIMessageConfig {
   enabled: boolean;
   backend: IMessageBackend;
@@ -466,6 +535,7 @@ export interface RuntimeEmailConfig {
 export interface RuntimeChannelInstructionsConfig {
   discord: string;
   msteams: string;
+  signal: string;
   slack: string;
   telegram: string;
   voice: string;
@@ -523,14 +593,65 @@ export interface RuntimeHttpRequestToolConfig {
   authRules: RuntimeHttpRequestAuthRule[];
 }
 
+export interface RuntimeSkillAutonomyRule {
+  agentId: string;
+  skillName: string;
+  level: SkillAutonomyLevel;
+}
+
+export interface RuntimeSkillAutonomyConfig {
+  defaultLevel: SkillAutonomyLevel;
+  rules: RuntimeSkillAutonomyRule[];
+}
+
+export interface RuntimeSkillCredentialManifest {
+  id: string;
+  env?: string;
+  description?: string;
+  required: boolean;
+}
+
+export type RuntimeSkillLifecycleStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'uninstalled';
+
+export interface RuntimeInstalledSkillManifest {
+  id: string;
+  name: string;
+  version: string;
+  source: string;
+  skillDir: string;
+  manifestPath: string;
+  status: RuntimeSkillLifecycleStatus;
+  capabilities: string[];
+  requiredCredentials: RuntimeSkillCredentialManifest[];
+  supportedChannels: ChannelKind[];
+  installedAt: string;
+  updatedAt: string;
+}
+
+type RuntimeSkillAutonomyRuleIndex = Map<
+  string,
+  Map<string, SkillAutonomyLevel>
+>;
+
+const skillAutonomyRuleIndexes = new WeakMap<
+  RuntimeSkillAutonomyConfig,
+  RuntimeSkillAutonomyRuleIndex
+>();
+
 export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
+  deployment: RuntimeDeploymentConfig;
   agents: AgentsConfig;
   skills: {
     extraDirs: string[];
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+    autonomy: RuntimeSkillAutonomyConfig;
+    installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
     disabled: string[];
@@ -568,6 +689,7 @@ export interface RuntimeConfig {
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
   msteams: RuntimeMSTeamsConfig;
+  signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
   whatsapp: RuntimeWhatsAppConfig;
@@ -659,9 +781,11 @@ export interface RuntimeConfig {
     web_extract: RuntimeAuxiliaryModelPolicyConfig;
     session_search: RuntimeAuxiliaryModelPolicyConfig;
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
+    eval_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
+    cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -676,6 +800,14 @@ export interface RuntimeConfig {
     maxOutputBytes: number;
     maxConcurrent: number;
     persistBashState: boolean;
+    warmPool: {
+      enabled: boolean;
+      coldStartBudgetMs: number;
+      trafficWindowMs: number;
+      minIdlePerActiveAgent: number;
+      maxIdlePerAgent: number;
+      memoryPressureRssMb: number;
+    };
   };
   mcpServers: Record<string, McpServerConfig>;
   web: {
@@ -855,6 +987,7 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5-codex',
   'openai-codex/gpt-5.3-codex',
   'openai-codex/gpt-5.4',
+  'openai-codex/gpt-5.5',
   'openai-codex/gpt-5.3-codex-spark',
   'openai-codex/gpt-5.2-codex',
   'openai-codex/gpt-5.1-codex-max',
@@ -886,13 +1019,21 @@ const DEFAULT_DASHSCOPE_MODEL_LIST = ['dashscope/qwen3-coder-plus'] as const;
 const DEFAULT_XIAOMI_MODEL_LIST = ['xiaomi/MiMo-7B-RL'] as const;
 const DEFAULT_KILO_MODEL_LIST = ['kilo/anthropic/claude-sonnet-4.6'] as const;
 
-const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   version: CONFIG_VERSION,
   security: {
     trustModelAccepted: false,
     trustModelAcceptedAt: '',
     trustModelVersion: '',
     trustModelAcceptedBy: '',
+  },
+  deployment: {
+    mode: 'local',
+    public_url: '',
+    tunnel: {
+      provider: 'manual',
+      health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
+    },
   },
   agents: {
     defaultAgentId: DEFAULT_AGENT_ID,
@@ -903,6 +1044,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+    autonomy: {
+      defaultLevel: 'confirm-each',
+      rules: [],
+    },
+    installed: [],
   },
   tools: {
     disabled: [],
@@ -919,6 +1065,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
+    cv: {
+      retentionDays: 90,
+      renderThrottleMs: 14_400_000,
+      batchDebounceMs: 30_000,
+      narrationDailyBudgetUsd: 0.005,
+    },
+    trajectoryCapture: {
+      enabledAgentIds: [],
+      storeDir: '',
+      retentionDays: 365,
+      retentionDaysByTenant: {},
+    },
     inspectionIntervalMs: 3_600_000,
     observationRetentionDays: 30,
     trailingWindowHours: 168,
@@ -1046,6 +1204,18 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     requireMention: true,
     textChunkLimit: 4_000,
     mediaMaxMb: 20,
+  },
+  signal: {
+    enabled: false,
+    daemonUrl: '',
+    account: '',
+    dmPolicy: 'allowlist',
+    groupPolicy: 'disabled',
+    allowFrom: [],
+    groupAllowFrom: [],
+    textChunkLimit: 4_000,
+    reconnectIntervalMs: 5_000,
+    outboundDelayMs: 350,
   },
   whatsapp: {
     dmPolicy: 'pairing',
@@ -1249,6 +1419,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       model: '',
       maxTokens: 0,
     },
+    eval_judge: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
     mcp: {
       provider: 'auto',
       model: '',
@@ -1260,6 +1435,11 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     session_title: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    cv_narration: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -1278,6 +1458,14 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
     persistBashState: true,
+    warmPool: {
+      enabled: true,
+      coldStartBudgetMs: 200,
+      trafficWindowMs: 3_600_000,
+      minIdlePerActiveAgent: 1,
+      maxIdlePerAgent: 2,
+      memoryPressureRssMb: 2_048,
+    },
   },
   mcpServers: {},
   web: {
@@ -1595,6 +1783,177 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
+function normalizeRetentionDaysByTenant(
+  value: unknown,
+  fallback: Record<string, number>,
+  defaultRetentionDays: number,
+): Record<string, number> {
+  if (!isRecord(value)) return { ...fallback };
+  const normalized: Record<string, number> = {};
+  for (const [tenantId, rawDays] of Object.entries(value)) {
+    const normalizedTenantId = tenantId.trim();
+    if (!normalizedTenantId) continue;
+    normalized[normalizedTenantId] = normalizeInteger(
+      rawDays,
+      fallback[normalizedTenantId] ?? defaultRetentionDays,
+      { min: 0 },
+    );
+  }
+  return normalized;
+}
+
+function normalizeOptionalBaseUrl(value: unknown, fallback: string): string {
+  const candidate = normalizeString(value, fallback, { allowEmpty: true });
+  return candidate ? candidate.replace(/\/+$/, '') : '';
+}
+
+function normalizeDeploymentMode(
+  value: unknown,
+  fallback: RuntimeDeploymentMode,
+): RuntimeDeploymentMode {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'cloud' || normalized === 'local') return normalized;
+  return fallback;
+}
+
+function normalizeDeploymentTunnelProvider(
+  value: unknown,
+  fallback: RuntimeDeploymentTunnelProvider | undefined,
+): RuntimeDeploymentTunnelProvider | undefined {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (
+    (RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+      normalized,
+    )
+  ) {
+    return normalized as RuntimeDeploymentKnownTunnelProvider;
+  }
+  if (normalized === 'cloudflared' || normalized === 'cloudflare-tunnel') {
+    return 'cloudflare';
+  }
+  if (normalized === 'tailscale-funnel' || normalized === 'tailscale-serve') {
+    return 'tailscale';
+  }
+  if (normalized === 'reverse-proxy' || normalized === 'proxy') {
+    return 'manual';
+  }
+  return normalized;
+}
+
+export function normalizeDeploymentConfig(
+  value: unknown,
+  fallback: RuntimeDeploymentConfig,
+): RuntimeDeploymentConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawTunnel = isRecord(raw.tunnel) ? raw.tunnel : {};
+  const tunnelProvider = normalizeDeploymentTunnelProvider(
+    rawTunnel.provider,
+    fallback.tunnel.provider,
+  );
+  return {
+    mode: normalizeDeploymentMode(raw.mode, fallback.mode),
+    public_url: normalizeOptionalBaseUrl(raw.public_url, fallback.public_url),
+    tunnel: {
+      ...(tunnelProvider ? { provider: tunnelProvider } : {}),
+      health_check_interval_ms: normalizeInteger(
+        rawTunnel.health_check_interval_ms,
+        fallback.tunnel.health_check_interval_ms,
+        { min: 1 },
+      ),
+    },
+  };
+}
+
+function normalizeSkillAutonomyLevel(
+  value: unknown,
+  fallback: SkillAutonomyLevel,
+): SkillAutonomyLevel {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
+  return SKILL_AUTONOMY_LEVELS.includes(normalized as SkillAutonomyLevel)
+    ? (normalized as SkillAutonomyLevel)
+    : fallback;
+}
+
+function normalizeSkillAutonomyConfig(
+  value: unknown,
+  fallback: RuntimeSkillAutonomyConfig,
+): RuntimeSkillAutonomyConfig {
+  const raw = isRecord(value) ? value : {};
+  const defaultLevel = normalizeSkillAutonomyLevel(
+    raw.defaultLevel,
+    fallback.defaultLevel,
+  );
+  const rulesByKey = new Map<string, RuntimeSkillAutonomyRule>();
+  const rawRules = Array.isArray(raw.rules) ? raw.rules : [];
+  for (const item of rawRules) {
+    if (!isRecord(item)) {
+      console.warn(
+        '[runtime-config] skipping skills.autonomy rule: expected an object',
+      );
+      continue;
+    }
+    const agentId = normalizeString(item.agentId, '', {
+      allowEmpty: false,
+    });
+    const skillName = normalizeString(item.skillName, '', {
+      allowEmpty: false,
+    });
+    if (!agentId || !skillName) {
+      console.warn(
+        '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
+      );
+      continue;
+    }
+    const level = normalizeSkillAutonomyLevel(item.level, defaultLevel);
+    if (
+      typeof item.level === 'string' &&
+      item.level.trim() &&
+      level !== item.level.trim().toLowerCase()
+    ) {
+      console.warn(
+        `[runtime-config] invalid skills.autonomy level "${item.level.trim()}" for agentId "${agentId}" and skillName "${skillName}"; using default "${defaultLevel}"`,
+      );
+    }
+    rulesByKey.set(JSON.stringify([agentId, skillName]), {
+      agentId,
+      skillName,
+      level,
+    });
+  }
+
+  return {
+    defaultLevel,
+    rules: [...rulesByKey.values()].sort((a, b) => {
+      const byAgent = a.agentId.localeCompare(b.agentId);
+      return byAgent || a.skillName.localeCompare(b.skillName);
+    }),
+  };
+}
+
+function getSkillAutonomyRuleIndex(
+  autonomy: RuntimeSkillAutonomyConfig,
+): RuntimeSkillAutonomyRuleIndex {
+  const cached = skillAutonomyRuleIndexes.get(autonomy);
+  if (cached) return cached;
+
+  const index: RuntimeSkillAutonomyRuleIndex = new Map();
+  for (const rule of autonomy.rules) {
+    let skillRules = index.get(rule.agentId);
+    if (!skillRules) {
+      skillRules = new Map<string, SkillAutonomyLevel>();
+      index.set(rule.agentId, skillRules);
+    }
+    skillRules.set(rule.skillName, rule.level);
+  }
+  skillAutonomyRuleIndexes.set(autonomy, index);
+  return index;
+}
+
 function normalizeSkillChannelDisabled(
   value: unknown,
 ): Partial<Record<SkillConfigChannelKind, string[]>> {
@@ -1611,6 +1970,117 @@ function normalizeSkillChannelDisabled(
     channelDisabled[channelKind] = normalizeStringArray(rawDisabled, []);
   }
   return channelDisabled;
+}
+
+function normalizeSkillLifecycleStatus(
+  value: unknown,
+): RuntimeSkillLifecycleStatus {
+  const normalized = normalizeString(value, 'enabled', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return normalized === 'disabled' || normalized === 'uninstalled'
+    ? normalized
+    : 'enabled';
+}
+
+function normalizeRuntimeSkillCredentialManifests(
+  value: unknown,
+): RuntimeSkillCredentialManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const credentials: RuntimeSkillCredentialManifest[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const env = normalizeString(item.env, '', { allowEmpty: true });
+    const description = normalizeString(item.description, '', {
+      allowEmpty: true,
+    });
+    credentials.push({
+      id,
+      ...(env ? { env } : {}),
+      ...(description ? { description } : {}),
+      required: item.required === undefined ? true : item.required !== false,
+    });
+  }
+  return credentials;
+}
+
+function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
+  const channels: ChannelKind[] = [];
+  const seen = new Set<ChannelKind>();
+  for (const raw of normalizeStringArray(value, [])) {
+    const normalized =
+      raw.toLowerCase() === 'web' ? 'tui' : normalizeChannelKind(raw);
+    if (
+      !normalized ||
+      normalized === 'heartbeat' ||
+      normalized === 'scheduler'
+    ) {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    channels.push(normalized);
+  }
+  return channels;
+}
+
+function normalizeRuntimeInstalledSkillManifests(
+  value: unknown,
+): RuntimeInstalledSkillManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const manifestsById = new Map<string, RuntimeInstalledSkillManifest>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    const name = normalizeString(item.name, id, { allowEmpty: false });
+    if (!id || !name) continue;
+    const version = normalizeString(item.version, '0.0.0', {
+      allowEmpty: false,
+    });
+    const source = normalizeString(item.source, 'unknown', {
+      allowEmpty: false,
+    });
+    const skillDir = normalizeString(item.skillDir, '', {
+      allowEmpty: false,
+    });
+    const manifestPath = normalizeString(item.manifestPath, '', {
+      allowEmpty: false,
+    });
+    const installedAt = normalizeString(item.installedAt, '', {
+      allowEmpty: true,
+    });
+    const updatedAt = normalizeString(item.updatedAt, '', {
+      allowEmpty: true,
+    });
+    manifestsById.set(id, {
+      id,
+      name,
+      version,
+      source,
+      skillDir,
+      manifestPath,
+      status: normalizeSkillLifecycleStatus(item.status),
+      capabilities: normalizeStringArray(item.capabilities, []),
+      requiredCredentials: normalizeRuntimeSkillCredentialManifests(
+        item.requiredCredentials,
+      ),
+      supportedChannels: normalizeRuntimeSkillSupportedChannels(
+        item.supportedChannels,
+      ),
+      installedAt,
+      updatedAt,
+    });
+  }
+
+  return [...manifestsById.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
 }
 
 export function setRuntimeSkillScopeEnabled(
@@ -1787,6 +2257,39 @@ function normalizeAgentConfig(
     : fallback?.skills
       ? [...fallback.skills]
       : undefined;
+  const owner = normalizeString(value.owner, fallback?.owner ?? '', {
+    allowEmpty: true,
+  });
+  const role = normalizeString(value.role, fallback?.role ?? '', {
+    allowEmpty: true,
+  });
+  const reportsTo = normalizeString(
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
+    fallback?.reportsTo ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const delegatesTo = hasSnakeCamelAlias(value, 'delegatesTo', 'delegates_to')
+    ? normalizeOptionalTrimmedUniqueStringArray(
+        resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
+      )
+    : fallback?.delegatesTo
+      ? [...fallback.delegatesTo]
+      : undefined;
+  const peers = Object.hasOwn(value, 'peers')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.peers)
+    : fallback?.peers
+      ? [...fallback.peers]
+      : undefined;
+  const cv = Object.hasOwn(value, 'cv')
+    ? normalizeAgentCv(value.cv)
+    : cloneAgentCv(fallback?.cv);
+  const escalationTarget = Object.hasOwn(value, 'escalationTarget')
+    ? normalizeAgentEscalationTarget(value.escalationTarget)
+    : fallback?.escalationTarget
+      ? { ...fallback.escalationTarget }
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),
@@ -1796,6 +2299,13 @@ function normalizeAgentConfig(
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
+    ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
@@ -1821,6 +2331,7 @@ function normalizeAgentsConfig(
     list.unshift({ id: DEFAULT_AGENT_ID });
     seen.add(DEFAULT_AGENT_ID);
   }
+  validateAgentOrgChart(list);
   const defaultAgentId = normalizeString(
     raw.defaultAgentId,
     fallback.defaultAgentId ?? DEFAULT_AGENT_ID,
@@ -1974,15 +2485,6 @@ function normalizePathForCompare(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
 }
 
-function expandHomePath(value: string): string {
-  const normalized = value.trim();
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/') || normalized.startsWith('~\\')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  return normalized;
-}
-
 function isLegacyDefaultDbPath(value: string): boolean {
   const normalized = normalizePathForCompare(value);
   return (
@@ -2133,6 +2635,77 @@ function normalizeTelegramPolicy(
     return normalized;
   }
   return fallback;
+}
+
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalDmPolicy,
+): SignalDmPolicy;
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalGroupPolicy,
+): SignalGroupPolicy;
+function normalizeSignalPolicy(
+  value: unknown,
+  fallback: SignalDmPolicy | SignalGroupPolicy,
+): SignalDmPolicy | SignalGroupPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSignalConfig(
+  value: unknown,
+  fallback: RuntimeSignalConfig,
+): RuntimeSignalConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    daemonUrl: normalizeString(raw.daemonUrl, fallback.daemonUrl, {
+      allowEmpty: true,
+    }),
+    account: normalizeString(raw.account, fallback.account, {
+      allowEmpty: true,
+    }),
+    dmPolicy: normalizeSignalPolicy(raw.dmPolicy, fallback.dmPolicy),
+    groupPolicy: normalizeSignalPolicy(raw.groupPolicy, fallback.groupPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    groupAllowFrom: normalizeStringArray(
+      raw.groupAllowFrom,
+      fallback.groupAllowFrom,
+    ),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 8_000,
+      },
+    ),
+    reconnectIntervalMs: normalizeInteger(
+      raw.reconnectIntervalMs,
+      fallback.reconnectIntervalMs,
+      {
+        min: 500,
+        max: 60_000,
+      },
+    ),
+    outboundDelayMs: normalizeInteger(
+      raw.outboundDelayMs,
+      fallback.outboundDelayMs,
+      {
+        min: 0,
+        max: 10_000,
+      },
+    ),
+  };
 }
 
 function normalizeSlackGroupPolicy(
@@ -2477,6 +3050,7 @@ function normalizeChannelInstructionsConfig(
     msteams: normalizeString(raw.msteams, fallback.msteams, {
       allowEmpty: true,
     }),
+    signal: normalizeString(raw.signal, fallback.signal, { allowEmpty: true }),
     slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
     telegram: normalizeString(raw.telegram, fallback.telegram, {
       allowEmpty: true,
@@ -3928,17 +4502,25 @@ function normalizeRuntimeConfig(
   const raw = patch ?? {};
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
+  const rawDeployment = isRecord(raw.deployment) ? raw.deployment : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawAdaptiveSkillsCv = isRecord(rawAdaptiveSkills.cv)
+    ? rawAdaptiveSkills.cv
+    : {};
+  const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
+    ? rawAdaptiveSkills.trajectoryCapture
+    : {};
   const rawChannelInstructions = isRecord(raw.channelInstructions)
     ? raw.channelInstructions
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
+  const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -3981,6 +4563,9 @@ function normalizeRuntimeConfig(
   const rawSkillsHubAuxiliaryModel = isRecord(rawAuxiliaryModels.skills_hub)
     ? rawAuxiliaryModels.skills_hub
     : {};
+  const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
+    ? rawAuxiliaryModels.eval_judge
+    : {};
   const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
     ? rawAuxiliaryModels.mcp
     : {};
@@ -3993,6 +4578,9 @@ function normalizeRuntimeConfig(
     rawAuxiliaryModels.session_title,
   )
     ? rawAuxiliaryModels.session_title
+    : {};
+  const rawCvNarrationAuxiliaryModel = isRecord(rawAuxiliaryModels.cv_narration)
+    ? rawAuxiliaryModels.cv_narration
     : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
@@ -4014,6 +4602,9 @@ function normalizeRuntimeConfig(
     ? rawLocal.healthCheck
     : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
+  const rawContainerWarmPool = isRecord(rawContainer.warmPool)
+    ? rawContainer.warmPool
+    : {};
   const rawMcpServers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
@@ -4247,6 +4838,11 @@ function normalizeRuntimeConfig(
     rawDiscord.commandMode,
     legacyCommandModeFallback,
   );
+  const normalizedTrajectoryRetentionDays = normalizeInteger(
+    rawTrajectoryCapture.retentionDays,
+    DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.retentionDays,
+    { min: 0 },
+  );
 
   return {
     version: CONFIG_VERSION,
@@ -4271,6 +4867,10 @@ function normalizeRuntimeConfig(
         { allowEmpty: true },
       ),
     },
+    deployment: normalizeDeploymentConfig(
+      rawDeployment,
+      DEFAULT_RUNTIME_CONFIG.deployment,
+    ),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
       extraDirs: normalizeStringArray(
@@ -4282,6 +4882,11 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
+      autonomy: normalizeSkillAutonomyConfig(
+        rawSkills.autonomy,
+        DEFAULT_RUNTIME_CONFIG.skills.autonomy,
+      ),
+      installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
       disabled: normalizeStringArray(
@@ -4314,6 +4919,47 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.observationEnabled,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
+      cv: {
+        retentionDays: normalizeInteger(
+          rawAdaptiveSkillsCv.retentionDays,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.retentionDays,
+          { min: 0 },
+        ),
+        renderThrottleMs: normalizeInteger(
+          rawAdaptiveSkillsCv.renderThrottleMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.renderThrottleMs,
+          { min: 0 },
+        ),
+        batchDebounceMs: normalizeInteger(
+          rawAdaptiveSkillsCv.batchDebounceMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.batchDebounceMs,
+          { min: 0 },
+        ),
+        narrationDailyBudgetUsd: normalizeNumber(
+          rawAdaptiveSkillsCv.narrationDailyBudgetUsd,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.narrationDailyBudgetUsd,
+          { min: 0 },
+        ),
+      },
+      trajectoryCapture: {
+        enabledAgentIds: normalizeStringArray(
+          rawTrajectoryCapture.enabledAgentIds,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .enabledAgentIds,
+        ),
+        storeDir: normalizeString(
+          rawTrajectoryCapture.storeDir,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.storeDir,
+          { allowEmpty: true },
+        ),
+        retentionDays: normalizedTrajectoryRetentionDays,
+        retentionDaysByTenant: normalizeRetentionDaysByTenant(
+          rawTrajectoryCapture.retentionDaysByTenant,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .retentionDaysByTenant,
+          normalizedTrajectoryRetentionDays,
+        ),
+      },
       inspectionIntervalMs: normalizeInteger(
         rawAdaptiveSkills.inspectionIntervalMs,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,
@@ -4464,6 +5110,7 @@ function normalizeRuntimeConfig(
       ),
     },
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
+    signal: normalizeSignalConfig(rawSignal, DEFAULT_RUNTIME_CONFIG.signal),
     slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
     telegram: normalizeTelegramConfig(
       rawTelegram,
@@ -4834,6 +5481,22 @@ function normalizeRuntimeConfig(
           { min: 0, max: 1_000_000 },
         ),
       },
+      eval_judge: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawEvalJudgeAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.provider,
+        ),
+        model: normalizeString(
+          rawEvalJudgeAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawEvalJudgeAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
       mcp: {
         provider: normalizeAuxiliaryProviderSelection(
           rawMcpAuxiliaryModel.provider,
@@ -4879,6 +5542,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawSessionTitleAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      cv_narration: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawCvNarrationAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.provider,
+        ),
+        model: normalizeString(
+          rawCvNarrationAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawCvNarrationAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },
@@ -4941,6 +5620,37 @@ function normalizeRuntimeConfig(
         rawContainer.persistBashState,
         DEFAULT_RUNTIME_CONFIG.container.persistBashState,
       ),
+      warmPool: {
+        enabled: normalizeBoolean(
+          rawContainerWarmPool.enabled,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.enabled,
+        ),
+        coldStartBudgetMs: normalizeInteger(
+          rawContainerWarmPool.coldStartBudgetMs,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.coldStartBudgetMs,
+          { min: 1 },
+        ),
+        trafficWindowMs: normalizeInteger(
+          rawContainerWarmPool.trafficWindowMs,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.trafficWindowMs,
+          { min: 60_000 },
+        ),
+        minIdlePerActiveAgent: normalizeInteger(
+          rawContainerWarmPool.minIdlePerActiveAgent,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.minIdlePerActiveAgent,
+          { min: 0 },
+        ),
+        maxIdlePerAgent: normalizeInteger(
+          rawContainerWarmPool.maxIdlePerAgent,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.maxIdlePerAgent,
+          { min: 0 },
+        ),
+        memoryPressureRssMb: normalizeInteger(
+          rawContainerWarmPool.memoryPressureRssMb,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.memoryPressureRssMb,
+          { min: 0 },
+        ),
+      },
     },
     mcpServers: normalizeMcpServers(rawMcpServers),
     web: {
@@ -5624,6 +6334,12 @@ function migrateConfigSchemaOnStartup(): void {
     return;
   }
 
+  if (migrated.deployment.mode === 'cloud' && !migrated.deployment.public_url) {
+    console.warn(
+      '[runtime-config] deployment.mode is "cloud" but deployment.public_url is empty; inbound webhooks and public callbacks may fail until a public URL is configured',
+    );
+  }
+
   try {
     const parsedRecord = parsed as Record<string, unknown>;
     const rawContainer = isRecord(parsedRecord.container)
@@ -5726,6 +6442,25 @@ export function resolveDefaultAgentId(
   return hasConfiguredAgent ? configured : DEFAULT_AGENT_ID;
 }
 
+export function resolveSkillAutonomyLevel(
+  config: Pick<RuntimeConfig, 'skills'> = currentConfig,
+  agentId: string,
+  skillName: string,
+): SkillAutonomyLevel {
+  const defaultLevel = config.skills.autonomy.defaultLevel;
+  if (!agentId || !skillName) {
+    throw new Error(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+  }
+
+  return (
+    getSkillAutonomyRuleIndex(config.skills.autonomy)
+      .get(agentId)
+      ?.get(skillName) ?? defaultLevel
+  );
+}
+
 export function isContainerSandboxModeExplicit(): boolean {
   return currentConfigMetadata.containerSandboxModeExplicit;
 }
@@ -5747,6 +6482,7 @@ export type {
   RuntimeConfigRevisionState,
   RuntimeConfigRevisionStateMetadata,
   RuntimeConfigRevisionSummary,
+  RuntimeRevisionAssetType,
 };
 
 export function saveRuntimeConfig(
@@ -5871,26 +6607,84 @@ export function listRuntimeConfigRevisions(): RuntimeConfigRevisionSummary[] {
   return listTrackedRuntimeConfigRevisions(CONFIG_PATH);
 }
 
+export function listRuntimeAssetRevisions(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionSummary[] {
+  return listTrackedRuntimeAssetRevisions(assetType, assetPath);
+}
+
 export function getRuntimeConfigRevision(
   revisionId: number,
 ): RuntimeConfigRevision | null {
   return getTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
 
+export function getRuntimeAssetRevision(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+): RuntimeConfigRevision | null {
+  return getTrackedRuntimeAssetRevision(assetType, assetPath, revisionId);
+}
+
 export function getLastKnownGoodRuntimeConfigState(): RuntimeConfigRevisionState | null {
   return getTrackedRuntimeConfigRevisionState(CONFIG_PATH);
+}
+
+export function getLastKnownGoodRuntimeAssetState(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionState | null {
+  return getTrackedRuntimeAssetRevisionState(assetType, assetPath);
 }
 
 export function getLastKnownGoodRuntimeConfigMetadata(): RuntimeConfigRevisionStateMetadata | null {
   return getTrackedRuntimeConfigRevisionStateMetadata(CONFIG_PATH);
 }
 
+export function getLastKnownGoodRuntimeAssetMetadata(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): RuntimeConfigRevisionStateMetadata | null {
+  return getTrackedRuntimeAssetRevisionStateMetadata(assetType, assetPath);
+}
+
 export function deleteRuntimeConfigRevision(revisionId: number): boolean {
   return deleteTrackedRuntimeConfigRevision(CONFIG_PATH, revisionId);
 }
 
+export function deleteRuntimeAssetRevision(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+): boolean {
+  return deleteTrackedRuntimeAssetRevision(assetType, assetPath, revisionId);
+}
+
 export function clearRuntimeConfigRevisions(): number {
   return clearTrackedRuntimeConfigRevisions(CONFIG_PATH);
+}
+
+export function clearRuntimeAssetRevisions(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+): number {
+  return clearTrackedRuntimeAssetRevisions(assetType, assetPath);
+}
+
+export function syncRuntimeAssetRevisionState(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  meta?: RuntimeConfigChangeMeta,
+  observedFile?: RuntimeConfigObservedFile,
+): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
+  return syncTrackedRuntimeAssetRevisionState(
+    assetType,
+    assetPath,
+    meta,
+    observedFile,
+  );
 }
 
 export function restoreRuntimeConfigRevision(
@@ -5940,6 +6734,68 @@ export function restoreLastKnownGoodRuntimeConfig(
   }
 
   return saveRuntimeConfigSource(parsed as Record<string, unknown>, meta);
+}
+
+export function restoreRuntimeAssetRevision(
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreTrackedRuntimeAssetRevision(
+    assetType,
+    assetPath,
+    revisionId,
+    meta,
+  );
+}
+
+export function restoreRuntimeSkillRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('skill', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeKnowledgeRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('knowledge', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeCvRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('cv', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeClassifierRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('classifier', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeTeamRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('team', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeTemplateRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('template', assetPath, revisionId, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {

@@ -23,7 +23,7 @@ import { discoverOpenRouterModels } from './openrouter-discovery.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
-export type AuxiliaryTask = TaskModelKey;
+export type AuxiliaryTask = TaskModelKey | 'cv_narration';
 
 type RuntimeProvider = RuntimeProviderId;
 type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
@@ -31,7 +31,7 @@ type TaskOverrideSnapshot = Partial<
   Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
 >;
 
-const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS];
+const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS, 'cv_narration'];
 
 const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
@@ -407,7 +407,7 @@ export async function resolveTaskModelPolicies(
   params: { agentId?: string; chatbotId?: string; sessionModel?: string } = {},
 ): Promise<TaskModelPolicies | undefined> {
   const taskModels: TaskModelPolicies = {};
-  for (const task of AUXILIARY_TASKS) {
+  for (const task of TASK_MODEL_KEYS) {
     const policy = await resolveTaskModelPolicy(task, params);
     if (policy) {
       taskModels[task] = policy;

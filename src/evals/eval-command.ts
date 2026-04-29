@@ -79,7 +79,7 @@ export interface EvalEnvironment {
   apiKey: string;
   model: string;
   baseModel: string;
-  authMode: 'web-token' | 'loopback';
+  authMode: 'web-token' | 'gateway-token';
   profile: EvalProfile;
 }
 
@@ -88,6 +88,7 @@ export interface HandleEvalCommandParams {
   dataDir: string;
   gatewayBaseUrl: string;
   webApiToken: string;
+  gatewayApiToken: string;
   effectiveModel: string;
   effectiveAgentId?: string;
   channelId?: string;
@@ -417,20 +418,28 @@ function buildOpenAIBaseUrl(gatewayBaseUrl: string): string {
 function buildEvalEnvironment(params: {
   gatewayBaseUrl: string;
   webApiToken: string;
+  gatewayApiToken: string;
   effectiveModel: string;
   profile: EvalProfile;
 }): EvalEnvironment {
-  const token = params.webApiToken.trim();
+  const webToken = params.webApiToken.trim();
+  const gatewayToken = params.gatewayApiToken.trim();
+  const token = webToken || gatewayToken;
+  if (!token) {
+    throw new Error(
+      'Eval requires WEB_API_TOKEN or GATEWAY_API_TOKEN for the local OpenAI-compatible gateway.',
+    );
+  }
   const baseModel = params.effectiveModel.trim() || 'hybridai/gpt-4.1-mini';
   const profiledModel = encodeEvalProfileModel(baseModel, params.profile);
   return {
     baseUrl: buildOpenAIBaseUrl(params.gatewayBaseUrl),
-    apiKey: token || 'hybridclaw-local',
+    apiKey: token,
     model: profiledModel.includes(EVAL_MODEL_PROFILE_MARKER)
       ? profiledModel
       : `${profiledModel}${EVAL_MODEL_PROFILE_MARKER}current-agent`,
     baseModel,
-    authMode: token ? 'web-token' : 'loopback',
+    authMode: webToken ? 'web-token' : 'gateway-token',
     profile: params.profile,
   };
 }
@@ -438,7 +447,7 @@ function buildEvalEnvironment(params: {
 function describeAuthMode(env: EvalEnvironment): string {
   return env.authMode === 'web-token'
     ? 'WEB_API_TOKEN injected automatically'
-    : 'loopback auth with a dummy API key injected automatically';
+    : 'GATEWAY_API_TOKEN injected automatically';
 }
 
 function normalizeSuiteId(value: string): string {
@@ -4502,6 +4511,7 @@ export async function handleEvalCommand(
   const env = buildEvalEnvironment({
     gatewayBaseUrl: params.gatewayBaseUrl,
     webApiToken: params.webApiToken,
+    gatewayApiToken: params.gatewayApiToken,
     effectiveModel: params.effectiveModel,
     profile: parsed.profile,
   });

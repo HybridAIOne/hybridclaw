@@ -339,6 +339,7 @@ export function startHeartbeat(
         assistant: {
           userId: 'assistant',
           username: null,
+          agentId: resolvedAgentId,
           content: result,
         },
       });

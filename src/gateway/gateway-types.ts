@@ -1,17 +1,25 @@
 import type { BaseMessageOptions } from 'discord.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
+import type {
+  AgentTeamStructureDiff,
+  AgentTeamStructureSnapshot,
+} from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
+  RuntimeDeploymentTunnelProvider,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
+import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
+import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
   PendingApproval,
+  ToolExecution,
   ToolProgressEvent,
 } from '../types/execution.js';
 import type { MemoryCitation } from '../types/memory.js';
@@ -53,6 +61,7 @@ export interface GatewayChatResult {
   pluginsUsed?: string[];
   skillUsed?: string;
   agentId?: string;
+  assistantPresentation?: GatewayAssistantPresentation;
   model?: string;
   provider?: string;
   memoryCitations?: MemoryCitation[];
@@ -65,35 +74,7 @@ export interface GatewayChatResult {
     filename: string;
     mimeType: string;
   }>;
-  toolExecutions?: Array<{
-    name: string;
-    arguments: string;
-    result: string;
-    durationMs: number;
-    isError?: boolean;
-    blocked?: boolean;
-    blockedReason?: string;
-    approvalTier?: 'green' | 'yellow' | 'red';
-    approvalBaseTier?: 'green' | 'yellow' | 'red';
-    approvalDecision?:
-      | 'auto'
-      | 'implicit'
-      | 'approved_once'
-      | 'approved_session'
-      | 'approved_agent'
-      | 'approved_all'
-      | 'approved_fullauto'
-      | 'promoted'
-      | 'required'
-      | 'denied';
-    approvalActionKey?: string;
-    approvalIntent?: string;
-    approvalReason?: string;
-    approvalRequestId?: string;
-    approvalExpiresAt?: number;
-    approvalAllowSession?: boolean;
-    approvalAllowAgent?: boolean;
-  }>;
+  toolExecutions?: ToolExecution[];
   pendingApproval?: PendingApproval;
   tokenUsage?: TokenUsageStats;
   error?: string;
@@ -191,6 +172,7 @@ export interface GatewayChatRequest {
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {
+    channelId?: string;
     text: string;
     artifacts?: ArtifactMetadata[];
   }) => void | Promise<void>;
@@ -231,8 +213,15 @@ export interface GatewayHistoryMessage {
   user_id: string;
   username: string | null;
   role: string;
+  agent_id?: string | null;
   content: string;
+  artifacts?: Array<{
+    path: string;
+    filename: string;
+    mimeType: string;
+  }>;
   created_at: string;
+  assistantPresentation?: GatewayAssistantPresentation;
 }
 
 export interface GatewayHistoryToolBreakdownEntry {
@@ -278,7 +267,6 @@ export interface GatewayHistoryResponse {
   sessionKey?: string;
   mainSessionKey?: string;
   history: GatewayHistoryMessage[];
-  assistantPresentation?: GatewayAssistantPresentation;
   bootstrapAutostart?: {
     status: 'idle' | 'starting' | 'completed';
     fileName: 'BOOTSTRAP.md' | 'OPENING.md';
@@ -436,6 +424,20 @@ export interface GatewayStatus {
     pairingQrText: string | null;
     pairingUpdatedAt: string | null;
   };
+  signal?: {
+    enabled: boolean;
+    daemonUrlConfigured: boolean;
+    accountConfigured: boolean;
+    pairingStatus: 'idle' | 'starting' | 'qr' | 'complete' | 'error';
+    pairingQrText: string | null;
+    pairingUri: string | null;
+    pairingUpdatedAt: string | null;
+    pairingError: string | null;
+    cliAvailable: boolean;
+    cliPath: string;
+    cliVersion: string | null;
+    cliError: string | null;
+  };
   providerHealth?: Partial<
     Record<
       | 'hybridai'
@@ -585,15 +587,73 @@ export interface GatewayAdminModelUsageRow extends GatewayAdminUsageSummary {
   model: string;
 }
 
+export type GatewayAdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
+
+export interface GatewayAdminTunnelStatus {
+  provider: RuntimeDeploymentTunnelProvider | null;
+  publicUrl: string | null;
+  state: TunnelState;
+  health: GatewayAdminTunnelHealth;
+  reconnectSupported: boolean;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  nextReconnectAt: string | null;
+}
+
 export interface GatewayAdminOverview {
   status: GatewayStatus;
   configPath: string;
+  tunnel: GatewayAdminTunnelStatus;
   recentSessions: GatewayAdminSession[];
   usage: {
     daily: GatewayAdminUsageSummary;
     monthly: GatewayAdminUsageSummary;
     topModels: GatewayAdminModelUsageRow[];
   };
+}
+
+export interface GatewayAdminStatisticsTrendDay {
+  date: string;
+  newSessions: number;
+  activeSessions: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  callCount: number;
+  toolCalls: number;
+  costUsd: number;
+}
+
+export interface GatewayAdminStatisticsChannelRow {
+  channelId: string;
+  sessionCount: number;
+  userMessages: number;
+  assistantMessages: number;
+  totalMessages: number;
+}
+
+export interface GatewayAdminStatisticsResponse {
+  rangeDays: number;
+  startDate: string;
+  endDate: string;
+  totals: {
+    newSessions: number;
+    activeSessions: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    callCount: number;
+    totalToolCalls: number;
+  };
+  trend: GatewayAdminStatisticsTrendDay[];
+  channels: GatewayAdminStatisticsChannelRow[];
 }
 
 export interface GatewaySessionCard {
@@ -640,6 +700,7 @@ export interface GatewayLogicalAgentCard {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  monthlySpendUsd: number;
   messageCount: number;
   toolCalls: number;
   recentSessionId: string | null;
@@ -676,6 +737,15 @@ export interface GatewayAgentsResponse {
   };
   agents: GatewayLogicalAgentCard[];
   sessions: GatewaySessionCard[];
+}
+
+export interface GatewayAgentListItem {
+  id: string;
+  name: string | null;
+}
+
+export interface GatewayAgentListResponse {
+  agents: GatewayAgentListItem[];
 }
 
 export interface GatewayAdminJobAgent {
@@ -800,6 +870,10 @@ export interface GatewayAdminAgent {
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  role: string | null;
+  reportsTo: string | null;
+  delegatesTo: string[] | null;
+  peers: string[] | null;
   workspace: string | null;
   workspacePath: string;
   markdownFiles: GatewayAdminAgentMarkdownFile[];
@@ -807,6 +881,28 @@ export interface GatewayAdminAgent {
 
 export interface GatewayAdminAgentsResponse {
   agents: GatewayAdminAgent[];
+}
+
+export interface GatewayAdminTeamStructureRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+  sizeBytes: number;
+  replacedByMd5: string | null;
+  changeCount: number;
+  diff: AgentTeamStructureDiff;
+}
+
+export interface GatewayAdminTeamStructureResponse {
+  snapshot: AgentTeamStructureSnapshot;
+  revisions: GatewayAdminTeamStructureRevision[];
+}
+
+export interface GatewayAdminTeamStructureRevisionResponse {
+  revision: GatewayAdminTeamStructureRevision;
 }
 
 export interface GatewayAdminAgentMarkdownFileResponse {
@@ -825,12 +921,29 @@ export interface GatewayAdminAgentMarkdownRevisionResponse {
   };
 }
 
+/** Key into `GatewayAdminModelsResponse.providerStatus`. */
+export type GatewayModelProviderKey = keyof NonNullable<
+  GatewayAdminModelsResponse['providerStatus']
+>;
+
 export interface GatewayAdminModelCatalogEntry {
   id: string;
+  provider: GatewayModelProviderKey;
   discovered: boolean;
   backend: 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm' | null;
   contextWindow: number | null;
   maxTokens: number | null;
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+  capabilities: {
+    vision: boolean;
+    tools: boolean;
+    jsonMode: boolean;
+    reasoning: boolean;
+  };
+  metadataSources: string[];
   isReasoning: boolean;
   thinkingFormat: string | null;
   family: string | null;
@@ -978,6 +1091,22 @@ export interface GatewayAdminSkillsResponse {
   disabled: string[];
   channelDisabled: Partial<Record<SkillConfigChannelKind, string[]>>;
   skills: GatewayAdminSkill[];
+}
+
+export interface GatewayAdminAgentSkillScore
+  extends Omit<AgentScoreboardEntry['best_skills'][number], 'agent_id'> {
+  agent_id: string;
+}
+
+export interface GatewayAdminAgentScoreboardEntry
+  extends Omit<AgentScoreboardEntry, 'agent_id' | 'best_skills' | 'cv_path'> {
+  agent_id: string;
+  best_skills: GatewayAdminAgentSkillScore[];
+}
+
+export interface GatewayAdminAgentScoreboardResponse {
+  observed_skill_count: number;
+  agents: GatewayAdminAgentScoreboardEntry[];
 }
 
 export interface GatewayAdminPlugin {

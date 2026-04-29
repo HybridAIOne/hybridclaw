@@ -36,6 +36,7 @@ function createGatewayMainTestState(options?: {
   msteamsEnabled?: boolean;
   hasMSTeamsCredentials?: boolean;
   initGatewayServiceImpl?: () => Promise<void>;
+  warmPoolEnabled?: boolean;
 }) {
   return {
     commandHandler: null as null | ((...args: unknown[]) => Promise<void>),
@@ -43,6 +44,9 @@ function createGatewayMainTestState(options?: {
     teamsCommandHandler: null as null | ((...args: unknown[]) => Promise<void>),
     teamsMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
     slackMessageHandler: null as null | ((...args: unknown[]) => Promise<void>),
+    signalMessageHandler: null as
+      | null
+      | ((...args: unknown[]) => Promise<void>),
     telegramMessageHandler: null as
       | null
       | ((...args: unknown[]) => Promise<void>),
@@ -81,6 +85,18 @@ function createGatewayMainTestState(options?: {
         textChunkLimit: 12_000,
         replyStyle: 'thread',
         mediaMaxMb: 20,
+      },
+      signal: {
+        enabled: false,
+        daemonUrl: '',
+        account: '',
+        dmPolicy: 'disabled',
+        groupPolicy: 'disabled',
+        allowFrom: [] as string[],
+        groupAllowFrom: [] as string[],
+        textChunkLimit: 4_000,
+        reconnectIntervalMs: 5_000,
+        outboundDelayMs: 350,
       },
       telegram: {
         enabled: false,
@@ -132,6 +148,17 @@ function createGatewayMainTestState(options?: {
         groupPolicy: 'disabled',
       },
       local: { enabled: false },
+      container: {
+        sandboxMode: 'container',
+        warmPool: {
+          enabled: options?.warmPoolEnabled ?? false,
+          coldStartBudgetMs: 200,
+          trafficWindowMs: 3_600_000,
+          minIdlePerActiveAgent: 1,
+          maxIdlePerAgent: 2,
+          memoryPressureRssMb: 2_048,
+        },
+      },
       memory: {
         consolidationIntervalHours: 0,
         decayRate: 0.25,
@@ -185,6 +212,7 @@ function createGatewayMainTestState(options?: {
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
+    initSignal: vi.fn(),
     initSlack: vi.fn(),
     initTelegram: vi.fn(),
     initVoice: vi.fn(),
@@ -203,8 +231,10 @@ function createGatewayMainTestState(options?: {
     loggerWarn: vi.fn(),
     shutdownDiscord: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
+    shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
+    shutdownWhatsApp: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
       dailyFilesCompiled: 0,
@@ -239,6 +269,7 @@ function createGatewayMainTestState(options?: {
     resolveAgentWorkspaceId: vi.fn((agentId: string) => agentId),
     rewriteUserMentionsForMessage: vi.fn(async (text: string) => text),
     runManagedMediaCleanup: vi.fn(async () => {}),
+    setDiscordMaintenancePresence: vi.fn(async () => {}),
     executeWorkflow: vi.fn(async () => {}),
     setInterval: vi.fn(() => ({ timer: true })),
     setTimeout: vi.fn(() => ({ timer: true })),
@@ -277,6 +308,7 @@ async function importFreshGatewayMain(options?: {
   initGatewayServiceImpl?: () => Promise<void>;
   skipBootstrapHandlerCheck?: boolean;
   dataDir?: string;
+  warmPoolEnabled?: boolean;
   onState?: (state: ReturnType<typeof createGatewayMainTestState>) => void;
 }) {
   vi.resetModules();
@@ -314,6 +346,9 @@ async function importFreshGatewayMain(options?: {
       throw options.slackInitError;
     }
     state.slackMessageHandler = messageHandler;
+  });
+  state.initSignal.mockImplementation((messageHandler) => {
+    state.signalMessageHandler = messageHandler;
   });
   state.initTelegram.mockImplementation((messageHandler) => {
     state.telegramMessageHandler = messageHandler;
@@ -404,7 +439,7 @@ async function importFreshGatewayMain(options?: {
     initDiscord: state.initDiscord,
     sendToChannel: vi.fn(),
     shutdownDiscord: state.shutdownDiscord,
-    setDiscordMaintenancePresence: vi.fn(async () => {}),
+    setDiscordMaintenancePresence: state.setDiscordMaintenancePresence,
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsArtifactAttachments: state.buildTeamsArtifactAttachments,
@@ -414,6 +449,11 @@ async function importFreshGatewayMain(options?: {
     sendIMessageMediaToChat: vi.fn(async () => {}),
     sendToIMessageChat: vi.fn(async () => {}),
     shutdownIMessage: vi.fn(async () => {}),
+  }));
+  vi.doMock('../src/channels/signal/runtime.js', () => ({
+    initSignal: state.initSignal,
+    sendToSignalChat: vi.fn(async () => {}),
+    shutdownSignal: state.shutdownSignal,
   }));
   vi.doMock('../src/channels/telegram/runtime.js', () => ({
     hasTelegramBotToken: vi.fn(() =>
@@ -449,7 +489,7 @@ async function importFreshGatewayMain(options?: {
     initWhatsApp: state.initWhatsApp,
     sendToWhatsAppChat: vi.fn(async () => {}),
     sendWhatsAppMediaToChat: vi.fn(async () => {}),
-    shutdownWhatsApp: vi.fn(async () => {}),
+    shutdownWhatsApp: state.shutdownWhatsApp,
   }));
   vi.doMock('../src/channels/whatsapp/auth.js', () => ({
     WhatsAppAuthLockError: MockWhatsAppAuthLockError,
@@ -612,6 +652,7 @@ useCleanMocks({
     '../src/channels/discord/mentions.js',
     '../src/channels/discord/runtime.js',
     '../src/channels/imessage/runtime.js',
+    '../src/channels/signal/runtime.js',
     '../src/channels/telegram/runtime.js',
     '../src/channels/voice/runtime.js',
     '../src/channels/msteams/attachments.js',
@@ -660,6 +701,27 @@ describe('gateway bootstrap', () => {
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
     expect(state.onConfigChange).toHaveBeenCalledTimes(1);
     expect(state.setInterval).toHaveBeenCalled();
+  });
+
+  test('warns on startup when the warm process pool is enabled', async () => {
+    const state = await importFreshGatewayMain({ warmPoolEnabled: true });
+
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        sandboxMode: 'container',
+        minIdlePerActiveAgent: 1,
+        maxIdlePerAgent: 2,
+        effectiveMinIdlePerActiveAgent: 1,
+        memoryPressureRssMb: 2_048,
+        coldStartBudgetMs: 200,
+        warmScope:
+          'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
+        warmFill:
+          'filled after recent traffic for an agent; gateway startup does not pre-spawn workers',
+        disableConfig: 'container.warmPool.enabled=false',
+      },
+      'Warm process pool enabled; idle workers prewarm runtime process startup only',
+    );
   });
 
   test('runs a missed dream consolidation on startup when nightly scheduling is enabled', async () => {
@@ -2380,6 +2442,45 @@ describe('gateway bootstrap', () => {
     expect(
       state.startGatewayHttpServer.mock.results[0]?.value.broadcastShutdown,
     ).toHaveBeenCalledTimes(1);
+  });
+
+  test('shutdown continues when a cleanup step never resolves', async () => {
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as never);
+    const state = await importFreshGatewayMain({
+      onState: (nextState) => {
+        nextState.setDiscordMaintenancePresence.mockImplementation(
+          () => new Promise<void>(() => undefined),
+        );
+        nextState.setTimeout.mockImplementation((callback: () => void) => {
+          callback();
+          return { timer: true };
+        });
+      },
+    });
+    const sigintHandler = state.processOn.mock.calls.find(
+      ([event]) => event === 'SIGINT',
+    )?.[1] as (() => void) | undefined;
+
+    expect(sigintHandler).toBeTypeOf('function');
+
+    sigintHandler?.();
+    await settle();
+    await settle();
+
+    expect(state.loggerWarn).toHaveBeenCalledWith(
+      {
+        step: 'set Discord maintenance presence',
+        timeoutMs: 5_000,
+      },
+      'Gateway shutdown step timed out; continuing',
+    );
+    expect(state.shutdownEmail).toHaveBeenCalledTimes(1);
+    expect(state.shutdownSlack).toHaveBeenCalledTimes(1);
+    expect(state.shutdownTelegram).toHaveBeenCalledTimes(1);
+    expect(state.shutdownWhatsApp).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   test('keeps voice stopped on config change until shared Twilio auth token refresh completes', async () => {

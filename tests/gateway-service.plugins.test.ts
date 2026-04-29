@@ -53,6 +53,12 @@ const {
     handleInboundWebhook: vi.fn(async () => false),
     notifySessionStart: vi.fn(async () => {}),
     listPluginSummary: vi.fn(() => []),
+    hasOutputGuards: vi.fn(() => false),
+    applyOutputGuards: vi.fn(async (context: { resultText: string }) => ({
+      resultText: context.resultText,
+      blocked: false,
+      events: [],
+    })),
   };
   return {
     runAgentMock: vi.fn(),
@@ -1345,7 +1351,7 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
     '`/auth status <provider>`: Show local provider auth and config status',
   );
   expect(result.text).toContain(
-    '`/config [check|reload|set <key> <value>]`: Show or update local runtime config',
+    '`/config [check|reload|get <key>|set <key> <value>]`: Show or update local runtime config',
   );
   expect(result.text).not.toContain(
     '`plugin config <plugin-id> [key] [value|--unset]`',
@@ -1353,6 +1359,7 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   expect(result.text).not.toContain('`plugin enable <plugin-id>`');
   expect(result.text).not.toContain('`config check`');
   expect(result.text).not.toContain('`config reload`');
+  expect(result.text).not.toContain('`config get <key>`');
   expect(result.text).not.toContain('`config set <key> <value>`');
   expect(result.text).not.toContain('`/exit`');
   expect(result.text).not.toContain('`/paste`');

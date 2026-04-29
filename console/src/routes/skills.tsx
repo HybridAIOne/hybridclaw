@@ -30,12 +30,12 @@ import {
   useSortableRows,
 } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
-import { formatDateTime, formatRelativeTime } from '../lib/format';
+import {
+  formatDateTime,
+  formatPercent,
+  formatRelativeTime,
+} from '../lib/format';
 import { compareBoolean, compareNumber, compareText } from '../lib/sort';
-
-function formatPercent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
 
 const DEFAULT_SKILL_CATEGORIES = [
   'agents',
