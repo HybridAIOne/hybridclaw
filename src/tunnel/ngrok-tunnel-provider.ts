@@ -1,8 +1,7 @@
-import { randomUUID } from 'node:crypto';
-
 import type { Config } from '@ngrok/ngrok';
 import {
   recordAuditEvent as defaultRecordAuditEvent,
+  makeAuditRunId,
   type RecordAuditEventInput,
 } from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
@@ -118,10 +117,6 @@ function unrefTimer(timer: TunnelTimer): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function makeTunnelAuditRunId(): string {
-  return `tunnel_${randomUUID()}`;
 }
 
 function jitterReconnectDelayMs(delayMs: number): number {
@@ -376,7 +371,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     reason: string,
   ): Promise<void> {
     const wasRunning = Boolean(this.listener && this.publicUrl);
-    const tunnelRunId = this.tunnelRunId ?? makeTunnelAuditRunId();
+    const tunnelRunId = this.tunnelRunId ?? makeAuditRunId('tunnel');
     this.listener = listener;
     this.publicUrl = publicUrl;
     this.tunnelRunId = tunnelRunId;
@@ -426,7 +421,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     try {
       await this.recordAuditEvent({
         sessionId: this.auditSessionId,
-        runId: details.runId ?? makeTunnelAuditRunId(),
+        runId: details.runId ?? makeAuditRunId('tunnel'),
         event: {
           type,
           provider: 'ngrok',

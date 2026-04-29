@@ -178,16 +178,9 @@ saved revision history directly.
   the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
-- `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and
-  `deployment.tunnel.health_check_interval_ms` for declaring whether the
-  gateway runs behind a cloud URL or a local tunnel; cloud mode requires
-  `deployment.public_url`, while local mode requires a tunnel provider such as
-  `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`. The built-in ngrok
-  tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret
-  store and health-checks active tunnels every 30 seconds by default. Tunnel
-  health checks call the public tunnel URL, so they consume provider request
-  quota and generate traffic visible to the tunnel provider edge; increase the
-  interval when that cost matters
+- `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs behind a cloud URL or a local tunnel; cloud mode requires `deployment.public_url`, while local mode requires a tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`
+- The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default
+- Tunnel health checks call the public tunnel URL, so they consume provider request quota and generate traffic visible to the tunnel provider edge; increase the interval when that cost matters
 - `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` disables confidential-info redaction for
   local debugging. Leave it unset in normal operation so `.confidential.yml`
   rules can redact NDA-class matches before prompts are sent to models
