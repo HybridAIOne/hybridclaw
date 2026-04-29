@@ -2816,6 +2816,14 @@ function normalizeUsageCost(value: unknown): number {
   return 0;
 }
 
+function calculateUsageCostPerCall(
+  totalCostUsd: number,
+  callCount: number,
+): number {
+  if (callCount <= 0) return 0;
+  return normalizeUsageCost(totalCostUsd / callCount);
+}
+
 function applyUsageFilters(params: {
   whereClauses: string[];
   args: unknown[];
@@ -2962,6 +2970,7 @@ export function getUsageTotals(params?: {
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
@@ -2972,16 +2981,22 @@ export function getUsageTotals(params?: {
     total_output_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
+    cost_per_call_usd: 0,
     call_count: 0,
     total_tool_calls: 0,
   };
 
+  const callCount = normalizeUsageNumber(row.call_count);
+  const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
-    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
-    call_count: normalizeUsageNumber(row.call_count),
+    total_cost_usd: totalCostUsd,
+    cost_per_call_usd:
+      normalizeUsageCost(row.cost_per_call_usd) ||
+      calculateUsageCostPerCall(totalCostUsd, callCount),
+    call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
 }
@@ -3065,6 +3080,7 @@ export function getSessionUsageTotalsSince(
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
@@ -3078,16 +3094,22 @@ export function getSessionUsageTotalsSince(
     total_output_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
+    cost_per_call_usd: 0,
     call_count: 0,
     total_tool_calls: 0,
   };
 
+  const callCount = normalizeUsageNumber(row.call_count);
+  const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
-    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
-    call_count: normalizeUsageNumber(row.call_count),
+    total_cost_usd: totalCostUsd,
+    cost_per_call_usd:
+      normalizeUsageCost(row.cost_per_call_usd) ||
+      calculateUsageCostPerCall(totalCostUsd, callCount),
+    call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
 }

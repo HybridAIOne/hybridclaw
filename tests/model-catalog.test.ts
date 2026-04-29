@@ -333,6 +333,60 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   ).toEqual({ input: 0.000001, output: 0.000002 });
 });
 
+test('model catalog selects the cheapest model matching capability flags', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-catalog-cheap-selector';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-5',
+              context_length: 400_000,
+              pricing: {
+                prompt: '0.00001',
+                completion: '0.00003',
+              },
+            },
+            {
+              id: 'gpt-5-nano',
+              context_length: 400_000,
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs({ includeHybridAI: true });
+
+  expect(catalog.findCheapestModelMeetingCapabilities({ jsonMode: true })).toBe(
+    'hybridai/gpt-5-nano',
+  );
+  expect(
+    catalog
+      .selectModelsByCapabilityAndCost({ jsonMode: true })
+      .map((selection) => selection.model)
+      .slice(0, 2),
+  ).toEqual(['hybridai/gpt-5-nano', 'hybridai/gpt-5']);
+});
+
 test('available model catalog reloads OpenRouter discovery after 60 minutes', async () => {
   const homeDir = makeTempHome();
   process.env.OPENROUTER_API_KEY = 'or-test-key';

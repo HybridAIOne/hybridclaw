@@ -46,6 +46,7 @@ import {
 } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import {
+  type ModelCapabilityFlags,
   resolveStaticModelCatalogMetadata,
   type StaticModelCatalogMetadata,
 } from './model-metadata.js';
@@ -79,6 +80,20 @@ export interface ModelCatalogMetadata extends StaticModelCatalogMetadata {
     input: number | null;
     output: number | null;
   };
+}
+
+export type ModelCapabilityRequirements = Partial<ModelCapabilityFlags>;
+
+export interface ModelCatalogSelection {
+  model: string;
+  metadata: ModelCatalogMetadata;
+  estimatedUnitCostUsd: number | null;
+}
+
+export interface ModelCatalogSelectionOptions {
+  models?: string[];
+  excludeModels?: string[];
+  provider?: string;
 }
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
@@ -143,6 +158,28 @@ export function isAvailableModelFree(model: string): boolean {
     normalized.toLowerCase().startsWith(OPENROUTER_MODEL_PREFIX) &&
     isDiscoveredOpenRouterModelFree(normalized)
   );
+}
+
+function modelMeetsCapabilityRequirements(
+  metadata: ModelCatalogMetadata,
+  requirements: ModelCapabilityRequirements,
+): boolean {
+  for (const [capability, required] of Object.entries(requirements) as Array<
+    [keyof ModelCapabilityFlags, boolean | undefined]
+  >) {
+    if (required === undefined) continue;
+    if (metadata.capabilities[capability] !== required) return false;
+  }
+  return true;
+}
+
+function estimateModelUnitCostUsd(
+  pricing: ModelCatalogMetadata['pricingUsdPerToken'],
+): number | null {
+  if (pricing.input == null && pricing.output == null) return null;
+  const input = pricing.input ?? pricing.output ?? 0;
+  const output = pricing.output ?? pricing.input ?? 0;
+  return input + output;
 }
 
 function hasModelPrefix(model: string, prefix: string): boolean {
@@ -444,6 +481,53 @@ export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
       vision,
     },
   };
+}
+
+export function selectModelsByCapabilityAndCost(
+  requirements: ModelCapabilityRequirements,
+  options: ModelCatalogSelectionOptions = {},
+): ModelCatalogSelection[] {
+  const excluded = new Set(
+    (options.excludeModels || []).map((model) => model.trim()).filter(Boolean),
+  );
+  const models = dedupeModelList(
+    options.models || getAvailableModelList(options.provider),
+  ).filter((model) => !excluded.has(model));
+
+  return models
+    .map((model) => {
+      const metadata = getModelCatalogMetadata(model);
+      if (!modelMeetsCapabilityRequirements(metadata, requirements)) {
+        return null;
+      }
+      return {
+        model,
+        metadata,
+        estimatedUnitCostUsd: estimateModelUnitCostUsd(
+          metadata.pricingUsdPerToken,
+        ),
+      };
+    })
+    .filter((entry): entry is ModelCatalogSelection => entry != null)
+    .sort((left, right) => {
+      const leftCost = left.estimatedUnitCostUsd;
+      const rightCost = right.estimatedUnitCostUsd;
+      if (leftCost != null && rightCost != null && leftCost !== rightCost) {
+        return leftCost - rightCost;
+      }
+      if (leftCost != null && rightCost == null) return -1;
+      if (leftCost == null && rightCost != null) return 1;
+      return compareModelNames(left.model, right.model);
+    });
+}
+
+export function findCheapestModelMeetingCapabilities(
+  requirements: ModelCapabilityRequirements,
+  options: ModelCatalogSelectionOptions = {},
+): string | null {
+  return (
+    selectModelsByCapabilityAndCost(requirements, options)[0]?.model ?? null
+  );
 }
 
 /**
