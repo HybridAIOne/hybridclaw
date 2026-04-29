@@ -9,16 +9,13 @@ import type {
   HealthCheckResult,
   LocalBackendType,
 } from '../providers/local-types.js';
+import { dedupeStrings } from '../utils/normalized-strings.js';
 import type { GatewayProviderHealthEntry } from './gateway-types.js';
 
 const GATEWAY_STATUS_PROVIDER_PROBE_TIMEOUT_MS = 750;
 
 export interface GatewayHealthOptions {
   refreshProviderHealth?: boolean;
-}
-
-function dedupeStrings(values: string[]): string[] {
-  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 async function withProbeDeadline<T>(

@@ -318,7 +318,10 @@ import type {
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
-import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import {
+  dedupeStrings,
+  normalizeOptionalTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import {
@@ -1561,18 +1564,6 @@ function getGatewayAdminAgentMarkdownRevisionRecord(params: {
     throw new Error(`Revision "${revisionId}" was not found.`);
   }
   return record;
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const rawValue of values) {
-    const value = String(rawValue || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
 }
 
 function getAdminChannelDisabledSkills(

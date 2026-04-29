@@ -21,6 +21,7 @@ import {
 } from '../session/session-preview.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session, StoredMessage } from '../types/session.js';
+import { dedupeStrings } from '../utils/normalized-strings.js';
 import { isFullAutoEnabled } from './fullauto-runtime.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type {
@@ -396,18 +397,6 @@ function getLogicalAgentStatus(
   if (sessions.some((session) => session.status === 'active')) return 'active';
   if (sessions.some((session) => session.status === 'idle')) return 'idle';
   return 'stopped';
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const rawValue of values) {
-    const value = String(rawValue || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
 }
 
 export function mapLogicalAgentCard(params: {
