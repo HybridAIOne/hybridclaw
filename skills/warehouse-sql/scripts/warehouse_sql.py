@@ -439,6 +439,17 @@ def row_int(row: dict[str, Any], key: str, fallback: int = 0) -> int:
         return fallback
 
 
+def make_table_entry(schema: str, name: str, table_type: str = "table") -> dict[str, Any]:
+    return {
+        "name": name,
+        "schema": schema,
+        "type": table_type,
+        "columns": [],
+        "primaryKeys": [],
+        "foreignKeys": [],
+    }
+
+
 def normalize_backend_schema(args: argparse.Namespace) -> dict[str, Any]:
     table_rows = run_backend_sql(args, BACKEND_INTROSPECTION_SQL[args.backend]["tables"])
     column_rows = run_backend_sql(args, BACKEND_INTROSPECTION_SQL[args.backend]["columns"])
@@ -451,14 +462,11 @@ def normalize_backend_schema(args: argparse.Namespace) -> dict[str, Any]:
         name = row_text(row, "table_name", "name")
         if not name:
             continue
-        tables[(schema, name)] = {
-            "name": name,
-            "schema": schema,
-            "type": row_text(row, "table_type", "engine", "type") or "table",
-            "columns": [],
-            "primaryKeys": [],
-            "foreignKeys": [],
-        }
+        tables[(schema, name)] = make_table_entry(
+            schema,
+            name,
+            row_text(row, "table_type", "engine", "type") or "table",
+        )
 
     for row in column_rows:
         schema = row_text(row, "table_schema", "database", "schema") or "default"
@@ -466,17 +474,7 @@ def normalize_backend_schema(args: argparse.Namespace) -> dict[str, Any]:
         column = row_text(row, "column_name", "name")
         if not table or not column:
             continue
-        entry = tables.setdefault(
-            (schema, table),
-            {
-                "name": table,
-                "schema": schema,
-                "type": "table",
-                "columns": [],
-                "primaryKeys": [],
-                "foreignKeys": [],
-            },
-        )
+        entry = tables.setdefault((schema, table), make_table_entry(schema, table))
         entry["columns"].append(
             {
                 "name": column,
@@ -494,17 +492,7 @@ def normalize_backend_schema(args: argparse.Namespace) -> dict[str, Any]:
         ref_column = row_text(row, "references_column", "foreign_column_name")
         if not table or not column or not ref_table:
             continue
-        entry = tables.setdefault(
-            (schema, table),
-            {
-                "name": table,
-                "schema": schema,
-                "type": "table",
-                "columns": [],
-                "primaryKeys": [],
-                "foreignKeys": [],
-            },
-        )
+        entry = tables.setdefault((schema, table), make_table_entry(schema, table))
         entry["foreignKeys"].append(
             {
                 "columns": [column],
