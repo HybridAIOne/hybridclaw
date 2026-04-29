@@ -81,6 +81,27 @@ transitions:
       stakes_threshold: 'medium',
     });
     expect(WORKFLOW_DEFINITION_JSON_SCHEMA.properties.steps).toBeDefined();
+    expect(() =>
+      parseWorkflowDefinitionYaml(`
+id: branching
+name: Branching
+steps:
+  - id: brief
+    owner_coworker_id: briefing
+    action: Write the brief.
+  - id: build
+    owner_coworker_id: builder
+    action: Build the draft.
+  - id: review
+    owner_coworker_id: reviewer
+    action: Review the draft.
+transitions:
+  - from: brief
+    to: build
+  - from: brief
+    to: review
+`),
+    ).toThrow('multiple outgoing transitions');
   });
 
   test('runs brief to build autonomously and pauses review when F8 exceeds the threshold', async () => {
@@ -485,5 +506,67 @@ transitions:
       notes: 'Tighten the source citations.',
       actor: 'reviewer',
     });
+  });
+
+  test('returnForRevision marks downstream steps revision_requested before rerun', async () => {
+    await initRuntimeDatabase();
+    const { executeWorkflow, returnForRevision } = await import(
+      '../src/workflow/executor.js'
+    );
+
+    const workflow = {
+      id: 'revision_pause_test',
+      name: 'Revision pause test',
+      steps: [
+        {
+          id: 'brief',
+          owner_coworker_id: 'briefing',
+          action: 'Brief the work.',
+        },
+        {
+          id: 'build',
+          owner_coworker_id: 'builder',
+          action: 'Build the work.',
+          stakes_threshold: 'medium' as const,
+        },
+        {
+          id: 'review',
+          owner_coworker_id: 'reviewer',
+          action: 'Review the work.',
+        },
+      ],
+      transitions: [
+        { from: 'brief', to: 'build' },
+        { from: 'build', to: 'review' },
+      ],
+    };
+
+    const completed = await executeWorkflow({
+      workflow,
+      runId: 'run_revision_pause',
+      stakesClassifier: makeClassifier({ build: 'low' }),
+      dispatchStep: ({ step }) => ({ artifact: { stepId: step.id } }),
+    });
+    expect(completed.status).toBe('completed');
+
+    const paused = await returnForRevision(
+      'run_revision_pause',
+      'build',
+      'Rework the implementation.',
+      {
+        fromStepId: 'review',
+        stakesClassifier: makeClassifier({ build: 'high' }),
+        dispatchStep: ({ step }) => ({ artifact: { stepId: step.id } }),
+      },
+    );
+
+    expect(paused.status).toBe('paused');
+    expect(paused.current_step_id).toBe('build');
+    expect(paused.steps.find((step) => step.step_id === 'build')?.status).toBe(
+      'paused',
+    );
+    expect(paused.steps.find((step) => step.step_id === 'review')?.status).toBe(
+      'revision_requested',
+    );
   });
 });

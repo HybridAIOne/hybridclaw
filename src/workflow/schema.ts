@@ -148,6 +148,8 @@ function validateGraph(definition: WorkflowDefinition): string[] {
   }
 
   const transitionKeys = new Set<string>();
+  const outgoing = new Map<string, number>();
+  const incoming = new Map<string, number>();
   for (const transition of definition.transitions) {
     if (!stepIds.has(transition.from)) {
       issues.push(
@@ -169,6 +171,25 @@ function validateGraph(definition: WorkflowDefinition): string[] {
       );
     }
     transitionKeys.add(key);
+    outgoing.set(transition.from, (outgoing.get(transition.from) || 0) + 1);
+    incoming.set(transition.to, (incoming.get(transition.to) || 0) + 1);
+  }
+
+  for (const [stepId, count] of outgoing.entries()) {
+    if (count > 1) {
+      issues.push(`step has multiple outgoing transitions: ${stepId}`);
+    }
+  }
+  for (const [stepId, count] of incoming.entries()) {
+    if (count > 1) {
+      issues.push(`step has multiple incoming transitions: ${stepId}`);
+    }
+  }
+  const roots = definition.steps.filter((step) => !incoming.has(step.id));
+  if (roots.length === 0) {
+    issues.push(`workflow ${definition.id} has no root step`);
+  } else if (roots.length > 1) {
+    issues.push(`workflow ${definition.id} has multiple root steps`);
   }
   return issues;
 }

@@ -91,10 +91,6 @@ import {
 } from '../workflow/service.js';
 import { getWorkflowRunState } from '../workflow/store.js';
 import {
-  buildWorkflowRunView,
-  renderWorkflowRunState,
-} from '../workflow/visualizer.js';
-import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
   createAdminTerminalManager,
@@ -3312,11 +3308,7 @@ function sendApiAdminWorkflowRun(res: ServerResponse, runId: string): void {
     sendJson(res, 404, { error: `Unknown workflow run: ${runId}` });
     return;
   }
-  sendJson(res, 200, {
-    run,
-    view: buildWorkflowRunView(run),
-    text: renderWorkflowRunState(run),
-  });
+  sendJson(res, 200, { run });
 }
 
 function sendApiAdminWorkflows(res: ServerResponse): void {
@@ -3363,11 +3355,7 @@ async function handleApiAdminWorkflowStart(
       sessionId: `admin:workflow:${workflowId}`,
       userId: resolveApiAdminActor(req),
     });
-    sendJson(res, 201, {
-      run,
-      view: buildWorkflowRunView(run),
-      text: renderWorkflowRunState(run),
-    });
+    sendJson(res, 201, { run });
   } catch (error) {
     sendApiAdminWorkflowError(res, error);
   }
@@ -3386,11 +3374,7 @@ async function handleApiAdminWorkflowApprove(
       actor: resolveApiAdminActor(req),
       sessionId: `admin:workflow:${runId}`,
     });
-    sendJson(res, 200, {
-      run,
-      view: buildWorkflowRunView(run),
-      text: renderWorkflowRunState(run),
-    });
+    sendJson(res, 200, { run });
   } catch (error) {
     sendApiAdminWorkflowError(res, error);
   }
@@ -3419,11 +3403,7 @@ async function handleApiAdminWorkflowReturn(
       actor: resolveApiAdminActor(req),
       sessionId: `admin:workflow:${runId}`,
     });
-    sendJson(res, 200, {
-      run,
-      view: buildWorkflowRunView(run),
-      text: renderWorkflowRunState(run),
-    });
+    sendJson(res, 200, { run });
   } catch (error) {
     sendApiAdminWorkflowError(res, error);
   }

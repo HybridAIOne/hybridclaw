@@ -508,6 +508,9 @@ export async function returnForRevision(
     stepId;
   const revision = targetState.revisions.length + 1;
   const createdAt = nowIso();
+  const targetIndex = run.workflow.steps.findIndex(
+    (step) => step.id === stepId,
+  );
 
   targetState.revisions.push({
     revision,
@@ -521,9 +524,6 @@ export async function returnForRevision(
     const workflowIndex = run.workflow.steps.findIndex(
       (step) => step.id === stepState.step_id,
     );
-    const targetIndex = run.workflow.steps.findIndex(
-      (step) => step.id === stepId,
-    );
     if (workflowIndex >= targetIndex) {
       stepState.status =
         stepState.step_id === stepId ? 'pending' : 'revision_requested';
@@ -535,7 +535,6 @@ export async function returnForRevision(
       delete stepState.escalation;
     }
   }
-  targetState.status = 'pending';
   run.status = 'running';
   run.current_step_id = stepId;
   run.events.push(

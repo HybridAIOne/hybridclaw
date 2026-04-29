@@ -34,8 +34,9 @@ transitions:
 ```
 
 Required fields are `id`, `name`, `steps[].owner_coworker_id`,
-`steps[].action`, and `transitions`. `steps[].stakes_threshold` is optional and
-accepts `low`, `medium`, or `high`.
+`steps[].action`, and `transitions`. Transitions define one linear path through
+the steps; branching and fan-in are rejected. `steps[].stakes_threshold` is
+optional and accepts `low`, `medium`, or `high`.
 
 Starter templates live in `presets/workflows/`:
 

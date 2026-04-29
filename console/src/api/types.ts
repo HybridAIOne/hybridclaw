@@ -1320,29 +1320,6 @@ export interface AdminWorkflowRun {
   steps: AdminWorkflowStepRun[];
 }
 
-export interface AdminWorkflowStepView {
-  id: string;
-  ownerCoworkerId: string;
-  action: string;
-  status: string;
-  attempts: number;
-  active: boolean;
-  pendingApproval: boolean;
-  stakes?: string;
-  threshold?: string;
-  revisionCount: number;
-  artifactCount: number;
-}
-
-export interface AdminWorkflowRunView {
-  id: string;
-  workflowId: string;
-  name: string;
-  status: string;
-  currentStepId?: string;
-  steps: AdminWorkflowStepView[];
-}
-
 export interface AdminWorkflowsResponse {
   definitions: AdminWorkflowDefinition[];
   runs: AdminWorkflowRun[];
@@ -1350,8 +1327,6 @@ export interface AdminWorkflowsResponse {
 
 export interface AdminWorkflowRunResponse {
   run: AdminWorkflowRun;
-  view: AdminWorkflowRunView;
-  text: string;
 }
 
 export interface DeleteSessionResult {
