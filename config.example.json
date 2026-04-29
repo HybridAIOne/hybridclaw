@@ -1,5 +1,5 @@
 {
-  "version": 25,
+  "version": 26,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -412,7 +412,15 @@
     "additionalMounts": "",
     "maxOutputBytes": 10485760,
     "maxConcurrent": 5,
-    "persistBashState": true
+    "persistBashState": true,
+    "warmPool": {
+      "enabled": true,
+      "coldStartBudgetMs": 200,
+      "trafficWindowMs": 3600000,
+      "minIdlePerActiveAgent": 1,
+      "maxIdlePerAgent": 2,
+      "memoryPressureRssMb": 2048
+    }
   },
   "mcpServers": {
     "filesystem": {

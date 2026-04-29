@@ -107,7 +107,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 25;
+export const CONFIG_VERSION = 26;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -799,6 +799,14 @@ export interface RuntimeConfig {
     maxOutputBytes: number;
     maxConcurrent: number;
     persistBashState: boolean;
+    warmPool: {
+      enabled: boolean;
+      coldStartBudgetMs: number;
+      trafficWindowMs: number;
+      minIdlePerActiveAgent: number;
+      maxIdlePerAgent: number;
+      memoryPressureRssMb: number;
+    };
   };
   mcpServers: Record<string, McpServerConfig>;
   web: {
@@ -1444,6 +1452,14 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     maxOutputBytes: 10_485_760,
     maxConcurrent: 5,
     persistBashState: true,
+    warmPool: {
+      enabled: true,
+      coldStartBudgetMs: 200,
+      trafficWindowMs: 3_600_000,
+      minIdlePerActiveAgent: 1,
+      maxIdlePerAgent: 2,
+      memoryPressureRssMb: 2_048,
+    },
   },
   mcpServers: {},
   web: {
@@ -4575,6 +4591,9 @@ function normalizeRuntimeConfig(
     ? rawLocal.healthCheck
     : {};
   const rawContainer = isRecord(raw.container) ? raw.container : {};
+  const rawContainerWarmPool = isRecord(rawContainer.warmPool)
+    ? rawContainer.warmPool
+    : {};
   const rawMcpServers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
   const rawWeb = isRecord(raw.web) ? raw.web : {};
   const rawWebSearch = isRecord(rawWeb.search) ? rawWeb.search : {};
@@ -5574,6 +5593,37 @@ function normalizeRuntimeConfig(
         rawContainer.persistBashState,
         DEFAULT_RUNTIME_CONFIG.container.persistBashState,
       ),
+      warmPool: {
+        enabled: normalizeBoolean(
+          rawContainerWarmPool.enabled,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.enabled,
+        ),
+        coldStartBudgetMs: normalizeInteger(
+          rawContainerWarmPool.coldStartBudgetMs,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.coldStartBudgetMs,
+          { min: 1 },
+        ),
+        trafficWindowMs: normalizeInteger(
+          rawContainerWarmPool.trafficWindowMs,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.trafficWindowMs,
+          { min: 60_000 },
+        ),
+        minIdlePerActiveAgent: normalizeInteger(
+          rawContainerWarmPool.minIdlePerActiveAgent,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.minIdlePerActiveAgent,
+          { min: 0 },
+        ),
+        maxIdlePerAgent: normalizeInteger(
+          rawContainerWarmPool.maxIdlePerAgent,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.maxIdlePerAgent,
+          { min: 0 },
+        ),
+        memoryPressureRssMb: normalizeInteger(
+          rawContainerWarmPool.memoryPressureRssMb,
+          DEFAULT_RUNTIME_CONFIG.container.warmPool.memoryPressureRssMb,
+          { min: 0 },
+        ),
+      },
     },
     mcpServers: normalizeMcpServers(rawMcpServers),
     web: {
@@ -6711,6 +6761,14 @@ export function restoreRuntimeTeamRevision(
   meta?: RuntimeConfigChangeMeta,
 ): string {
   return restoreRuntimeAssetRevision('team', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeTemplateRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('template', assetPath, revisionId, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {
