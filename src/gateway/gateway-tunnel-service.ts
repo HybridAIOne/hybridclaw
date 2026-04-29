@@ -46,7 +46,9 @@ function managedProviderKeyFor(params: {
   healthCheckIntervalMs: number;
 }): string {
   const healthKey =
-    params.provider === 'ngrok' ? `:${params.healthCheckIntervalMs}` : '';
+    params.provider === 'ngrok' || params.provider === 'tailscale'
+      ? `:${params.healthCheckIntervalMs}`
+      : '';
   return `${params.provider || 'none'}:${params.addr}${healthKey}`;
 }
 
@@ -95,7 +97,11 @@ function getManagedTunnelProvider(): TunnelProvider | null {
             healthCheckIntervalMs:
               config.deployment.tunnel.health_check_interval_ms,
           })
-        : createTailscaleTunnelProvider({ addr });
+        : createTailscaleTunnelProvider({
+            addr,
+            healthCheckIntervalMs:
+              config.deployment.tunnel.health_check_interval_ms,
+          });
     managedProviderKey = key;
   }
   return managedProvider;

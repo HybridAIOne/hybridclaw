@@ -129,6 +129,10 @@ To stop Funnel outside HybridClaw:
 tailscale funnel --bg off
 ```
 
+HybridClaw uses the same stop command for best-effort cleanup. Tailscale treats
+that command as host-level Funnel cleanup, so it can also disable other Funnel
+bindings managed outside HybridClaw on the same machine.
+
 ## Security Notes
 
 - Keep HybridClaw bound to loopback and let Tailscale own public transport.

@@ -188,6 +188,7 @@ test('admin tunnel status creates a managed tailscale provider', async () => {
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
   expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
     addr: '127.0.0.1:19090',
+    healthCheckIntervalMs: 60_000,
   });
 });
 
@@ -216,6 +217,7 @@ test('admin tunnel status formats IPv6 tunnel target addresses', async () => {
 
   expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
     addr: '[::1]:9090',
+    healthCheckIntervalMs: 30_000,
   });
 });
 

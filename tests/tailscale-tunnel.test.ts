@@ -189,16 +189,97 @@ describe('TailscaleTunnelProvider', () => {
   });
 
   it('does not mask missing tailscale CLI errors as missing auth', async () => {
+    const runCommand = vi.fn(async () => {
+      throw new Error('spawn tailscale ENOENT');
+    });
     const provider = new TailscaleTunnelProvider({
       readSecret: () => null,
       recordAuditEvent: vi.fn(),
-      runCommand: vi.fn(async () => {
-        throw new Error('spawn tailscale ENOENT');
-      }),
+      runCommand,
     });
 
     await expect(provider.start()).rejects.toThrow('spawn tailscale ENOENT');
+    expect(runCommand).toHaveBeenCalledTimes(1);
     expect(provider.status().last_error).toBe('spawn tailscale ENOENT');
+  });
+
+  it('reconnects with capped backoff when Funnel health checks fail', async () => {
+    vi.useFakeTimers();
+    try {
+      const runCommand = vi.fn(async (args: string[]) => {
+        const command = args.join(' ');
+        if (command === 'status --json') {
+          return {
+            stdout: JSON.stringify({
+              Self: { DNSName: 'health.example.ts.net.' },
+            }),
+            stderr: '',
+          };
+        }
+        if (command === 'funnel --bg localhost:9090') {
+          const attempt = runCommand.mock.calls.filter(
+            (call) => call[0].join(' ') === command,
+          ).length;
+          return {
+            stdout:
+              attempt === 1
+                ? 'Available on the internet:\nhttps://first.example.ts.net\n'
+                : 'Available on the internet:\nhttps://second.example.ts.net\n',
+            stderr: '',
+          };
+        }
+        if (command === 'funnel status --json') {
+          return {
+            stdout: JSON.stringify({}),
+            stderr: '',
+          };
+        }
+        throw new Error(`unexpected command: ${command}`);
+      });
+      const recordAuditEvent = vi.fn();
+      const provider = new TailscaleTunnelProvider({
+        healthCheckIntervalMs: 100,
+        reconnectInitialBackoffMs: 50,
+        reconnectMaxBackoffMs: 50,
+        recordAuditEvent,
+        runCommand,
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(provider.status()).toMatchObject({
+        running: false,
+        public_url: null,
+        state: 'reconnecting',
+        last_error:
+          'Tailscale Funnel status did not report an active public URL.',
+        reconnect_attempt: 1,
+      });
+      expect(provider.status().last_checked_at).toEqual(expect.any(String));
+      expect(provider.status().next_reconnect_at).toEqual(expect.any(String));
+      expect(recordAuditEvent.mock.calls[1]?.[0].event).toMatchObject({
+        provider: 'tailscale',
+        public_url: 'https://first.example.ts.net',
+        reason: 'health_check_failed',
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(provider.status()).toMatchObject({
+        running: true,
+        public_url: 'https://second.example.ts.net',
+        state: 'up',
+        last_error: null,
+        reconnect_attempt: 0,
+        next_reconnect_at: null,
+      });
+      expect(
+        recordAuditEvent.mock.calls.map((call) => call[0].event.type),
+      ).toEqual(['tunnel.up', 'tunnel.down', 'tunnel.up']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns the existing Funnel URL when start is called while running', async () => {
