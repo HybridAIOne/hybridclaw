@@ -39,6 +39,13 @@ type TunnelHealthFetch = (
 type TunnelAuditRecorder = (
   input: RecordAuditEventInput,
 ) => void | Promise<void>;
+type TunnelStatusUpdate = {
+  lastCheckedAt?: string | null;
+  lastError?: string | null;
+  nextReconnectAt?: string | null;
+  reconnectAttempt?: number;
+  state?: TunnelState;
+};
 
 export interface NgrokTunnelProviderOptions {
   addr?: Config['addr'];
@@ -188,8 +195,8 @@ export class NgrokTunnelProvider implements TunnelProvider {
       return { public_url: this.publicUrl };
     }
 
-    this.clearHealthTimer();
-    this.clearReconnectTimer();
+    this.clearTimer('healthTimer');
+    this.clearTimer('reconnectTimer');
     this.updateStatus({
       lastCheckedAt: null,
       lastError: null,
@@ -204,9 +211,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
       this.scheduleHealthCheck();
       return { public_url: publicUrl };
     } catch (error) {
-      this.listener = null;
-      this.publicUrl = null;
-      this.updateStatus({
+      this.clearActiveTunnel({
         lastError: errorMessage(error),
         nextReconnectAt: null,
         reconnectAttempt: 0,
@@ -258,13 +263,9 @@ export class NgrokTunnelProvider implements TunnelProvider {
   }
 
   async stop(): Promise<void> {
-    this.clearHealthTimer();
-    this.clearReconnectTimer();
-    const listener = this.listener;
-    const publicUrl = this.publicUrl;
-    this.listener = null;
-    this.publicUrl = null;
-    this.updateStatus({
+    this.clearTimer('healthTimer');
+    this.clearTimer('reconnectTimer');
+    const { listener, publicUrl } = this.clearActiveTunnel({
       lastCheckedAt: null,
       lastError: null,
       nextReconnectAt: null,
@@ -294,13 +295,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     };
   }
 
-  private updateStatus(update: {
-    lastCheckedAt?: string | null;
-    lastError?: string | null;
-    nextReconnectAt?: string | null;
-    reconnectAttempt?: number;
-    state?: TunnelState;
-  }): void {
+  private updateStatus(update: TunnelStatusUpdate): void {
     const previousVersion = this.statusVersion;
     let changed = false;
     if ('lastCheckedAt' in update) {
@@ -352,7 +347,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     } catch (error) {
       console.warn(
         '[tunnel] status change handler failed.',
-        error instanceof Error ? error.message : String(error),
+        errorMessage(error),
       );
     }
   }
@@ -382,9 +377,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     publicUrl: string;
     reason: string;
   }): Promise<void> {
-    this.listener = null;
-    this.publicUrl = null;
-    this.updateStatus({
+    this.clearActiveTunnel({
       lastCheckedAt: params.lastCheckedAt ?? null,
       lastError: params.message,
       state: 'reconnecting',
@@ -420,25 +413,32 @@ export class NgrokTunnelProvider implements TunnelProvider {
     } catch (error) {
       console.warn(
         '[tunnel] failed to record tunnel audit event.',
-        error instanceof Error ? error.message : String(error),
+        errorMessage(error),
       );
     }
   }
 
-  private clearHealthTimer(): void {
-    if (!this.healthTimer) return;
-    clearTimeout(this.healthTimer);
-    this.healthTimer = null;
+  private clearActiveTunnel(update: TunnelStatusUpdate): {
+    listener: NgrokListener | null;
+    publicUrl: string | null;
+  } {
+    const listener = this.listener;
+    const publicUrl = this.publicUrl;
+    this.listener = null;
+    this.publicUrl = null;
+    this.updateStatus(update);
+    return { listener, publicUrl };
   }
 
-  private clearReconnectTimer(): void {
-    if (!this.reconnectTimer) return;
-    clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+  private clearTimer(name: 'healthTimer' | 'reconnectTimer'): void {
+    const timer = this[name];
+    if (!timer) return;
+    clearTimeout(timer);
+    this[name] = null;
   }
 
   private scheduleHealthCheck(): void {
-    this.clearHealthTimer();
+    this.clearTimer('healthTimer');
     if (!this.listener || !this.publicUrl) return;
     this.healthTimer = setTimeout(() => {
       this.healthTimer = null;
@@ -518,7 +518,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
       reconnectAttempt: attempt,
       state: 'reconnecting',
     });
-    this.clearReconnectTimer();
+    this.clearTimer('reconnectTimer');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.reconnect();
