@@ -31,6 +31,7 @@ export interface UsageTotals {
   total_output_tokens: number;
   total_tokens: number;
   total_cost_usd: number;
+  cost_per_call_usd: number;
   call_count: number;
   total_tool_calls: number;
 }

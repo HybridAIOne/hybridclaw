@@ -140,20 +140,12 @@ saved revision history directly.
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short"
 - `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
-- `plugins.list[]` for plugin overrides and config; use
-  `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
-  edits
-- `proactive.delegation.model` for pinning delegated subagent work to a
-  dedicated model while the parent turn keeps its own session or agent model;
-  leave it empty to use the parent model
-- `adaptiveSkills.*` for skill observation, amendment staging, rollback, and
-  opt-in trajectory capture via
-  `adaptiveSkills.trajectoryCapture.enabledAgentIds`; when
-  `adaptiveSkills.trajectoryCapture.storeDir` is empty, trajectories are stored
-  beside the runtime database, absolute paths are used as-is, and relative paths
-  resolve under the runtime home directory; trajectory retention defaults to
-  `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden
-  per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
+- `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
+- `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
+- `adaptiveSkills.*` for skill observation, amendment staging, rollback, and opt-in trajectory capture via `adaptiveSkills.trajectoryCapture.enabledAgentIds`
+- Captured trajectories run through PII/secret redaction, and configured confidential-info rules preserve the documented `«CONF:<RULE_ID>»` placeholder format before trajectories are written
+- `adaptiveSkills.trajectoryCapture.storeDir` controls trajectory storage; empty stores beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory
+- Trajectory retention defaults to `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
