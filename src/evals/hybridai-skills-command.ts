@@ -7,6 +7,7 @@ import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { deleteSessionData, isDatabaseInitialized } from '../memory/db.js';
 import { parseSessionKey } from '../session/session-key.js';
+import { DEFAULT_SKILL_SUPPORTED_CHANNELS } from '../skills/skill-manifest.js';
 import { resolveObservedSkillName, type Skill } from '../skills/skills.js';
 import type { ToolExecution } from '../types/execution.js';
 import {
@@ -112,7 +113,7 @@ export function isHybridaiSkillsAlias(value: string): boolean {
 }
 
 export function resolveHybridaiSkillsDocsRoot(): string {
-  return resolveInstallPath('docs', 'development', 'guides', 'skills');
+  return resolveInstallPath('docs', 'content', 'guides', 'skills');
 }
 
 export function resolveHybridaiSkillsInstallDir(dataDir: string): string {
@@ -414,6 +415,14 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
       name: entry.name,
       description: '',
       category: 'bundled',
+      manifest: {
+        id: entry.name,
+        name: entry.name,
+        version: '0.0.0',
+        capabilities: [],
+        requiredCredentials: [],
+        supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+      },
       userInvocable: false,
       disableModelInvocation: false,
       always: false,
@@ -482,7 +491,7 @@ function handleSetup(dataDir: string): GatewayCommandResult {
   if (!fs.existsSync(docsRoot)) {
     return errorResult(
       'hybridai-skills setup',
-      `Skills docs directory not found at \`${docsRoot}\`. Run from a HybridClaw install that ships \`docs/development/guides/skills/\`.`,
+      `Skills docs directory not found at \`${docsRoot}\`. Run from a HybridClaw install that ships \`docs/content/guides/skills/\`.`,
     );
   }
   const set = harvestHybridaiSkillsFixtures(docsRoot);
@@ -1897,7 +1906,7 @@ function renderHybridaiSkillsUsage(
     '- `/eval hybridai-skills results`',
     '',
     'What it does:',
-    '- `setup` harvests the "Try it yourself" prompts from `docs/development/guides/skills/*.md` into a JSONL fixture set.',
+    '- `setup` harvests the "Try it yourself" prompts from `docs/content/guides/skills/*.md` into a JSONL fixture set.',
     '- `run --dry-run` validates fixtures without calling the model (checks explicit-name references and skill existence).',
     '- `run` (default `--live`, runs all matching fixtures unless `--max N` is set) posts each fixture to the local HybridClaw OpenAI endpoint and grades from the session audit trace when available.',
     '- `run --explicit` prefixes each prompt with `/<skill>` so the model is forced to invoke the named skill (useful for isolating skill-execution failures from skill-trigger failures).',

@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+### Added
+
+- **Tunnel health checks**: The built-in ngrok tunnel provider health-checks
+  active tunnels on a configurable interval, records tunnel up/down audit
+  events, and reconnects failed tunnels with capped exponential backoff.
+
+## [0.14.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.14.0) - 2026-04-28
+
+### Added
+
+- **Signal channel**: HybridClaw can connect to Signal through a
+  `signal-cli` compatible daemon, with private-by-default DM and group
+  policies, outbound chunk pacing, reconnect handling, admin QR linking, and a
+  full setup guide.
+- **Confidential-info filter and audit leak scanner**: Operators can define
+  NDA-class client, project, person, keyword, and regex rules in
+  `.confidential.yml`; prompts are redacted before model calls, responses are
+  rehydrated for the user, and `hybridclaw audit scan-leaks` can inspect
+  historic audit logs with severity and type filters.
+- **Admin statistics and agent scoreboard**: The admin console adds
+  `/admin/statistics` for session, message, token, cost, and channel trends,
+  plus `/admin/agent-scoreboard` for per-agent skill scores, best skills,
+  reliability, timing, and CV links.
+- **Live context usage controls**: Web chat shows a live context-usage ring,
+  local sessions support `/context`, and compaction headroom is visible before
+  long-running chats hit the model window.
+- **Packaged skill lifecycle**: Production skills can declare manifests with
+  package id, version, capabilities, required credentials, and supported
+  channels. Operators can install, upgrade, uninstall, list revisions, and roll
+  back managed skills with audited snapshots.
+- **Skill autonomy and stakes policy foundations**: `skills.autonomy` records
+  per-agent skill autonomy levels, the container approval policy can classify
+  high-stakes actions, and conditional skill availability can be routed through
+  the generalized policy engine.
+- **Deployment config and ngrok tunnel provider**: Runtime config now declares
+  local or cloud deployment mode, public URLs, tunnel provider intent, and a
+  built-in ngrok tunnel provider backed by the encrypted `NGROK_AUTHTOKEN`
+  secret.
+- **Nix and Homebrew packaging groundwork**: The repo ships a multi-arch Nix
+  flake, NixOS service module, contributor dev shell, packaging notes, and a
+  preview Homebrew formula for future tap publication.
+- **Model metadata, pricing, and monthly usage rollups**: `/model info`,
+  `/usage`, and the admin Models page surface discovered context windows,
+  output limits, capabilities, pricing, and monthly per-model spend when
+  providers expose that metadata.
+- **Headful browser control**: Browser tools can run a visible Chrome session
+  when a user explicitly asks for headed/headful control, while shared browser
+  login profiles stay reusable for automation.
+- **Agent-to-agent and trajectory persistence foundations**: The runtime can
+  persist A2A envelopes and opt-in redacted skill-run trajectories, creating
+  the data trail needed for multi-agent handoffs, skill evaluation, and future
+  workflow tuning.
+
+### Changed
+
+- **Browser chat is more operational**: Chat navigation is session-id driven,
+  recent sessions keep richer snippets, the composer can switch agents, slash
+  result streams render correctly, and context-ring data is shared with the
+  `/context` command.
+- **Agent terminology and profile data are consistent**: The UI and internal
+  persistence moved from coworker compatibility naming to agent naming, while
+  agent configs gained owner, role, and CV fields.
+- **Model and provider status is discovery-led**: Provider catalogs cache
+  runtime discovery, merge pinned entries with discovered models, remove stale
+  static pricing assumptions, and keep status/model-info output focused on the
+  active model.
+- **Approval and policy evaluation is more explicit**: Approval tiers can be
+  influenced by autonomy level and stakes classification, invalid policy
+  regexes and thresholds warn early, and unsafe realpath inspection during
+  approval classification is avoided.
+- **Local diagnostics are more precise**: Gateway debug startup flags can
+  capture raw model responses and last prompts for local troubleshooting, and
+  `doctor` resource hygiene can reclaim stale gateway artifacts more safely.
+- **TUI and status reporting are quieter and more useful**: Proactive polling
+  runs less often, streamed TUI responses preserve visible text, transient tool
+  lines truncate cleanly, and status output includes tokens-per-second and
+  time-to-first-token aware metrics.
+
+### Fixed
+
+- **Web fetch is guarded against SSRF**: Plain HTTP retrieval now enforces
+  private-network protections more consistently before escalating to browser
+  tools.
+- **Headful browser launches require system Chrome**: Visible browser control
+  refuses unstable headed macOS fallback launches and reports the required
+  Chrome executable setup instead.
+- **Voice turns survive relay reconnects**: Twilio voice relay reconnects no
+  longer lose the active turn state while the gateway is handling a call.
+- **Chat history and streaming edge cases are closed**: Result-only slash
+  streams render, tool-call sentinels are stripped before storage, regenerated
+  replies include tools used, context rings stay visible, and `/chat.html`
+  redirects preserve query strings.
+- **Skill lifecycle and manifest handling are stricter**: Managed skill
+  installs require installed status records, validate snapshot entries, cap
+  restored file modes, preserve unknown deployment tunnel providers, and reject
+  upgrades for uninstalled packages.
+- **Channel runtimes shut down more predictably**: WhatsApp and voice shutdown
+  paths cancel stale work, Signal delivery validates daemon/account state, and
+  channel send tools remain scoped to active transports.
+
 ## [0.13.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.1) - 2026-04-24
 
 ### Added

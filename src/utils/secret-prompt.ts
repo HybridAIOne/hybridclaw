@@ -57,6 +57,16 @@ function shouldUseDedicatedSecretTty(): boolean {
   return process.stdin.listenerCount('data') > 0;
 }
 
+function reportSecretTtyCleanupFailure(
+  target: 'input' | 'output',
+  error: unknown,
+): void {
+  console.error(
+    `[hybridclaw] failed to close dedicated secret TTY ${target} descriptor:`,
+    error,
+  );
+}
+
 function openDedicatedSecretTty(): {
   input: tty.ReadStream;
   output: tty.WriteStream;
@@ -88,12 +98,16 @@ function openDedicatedSecretTty(): {
     if (inputFd !== null) {
       try {
         fs.closeSync(inputFd);
-      } catch {}
+      } catch (error) {
+        reportSecretTtyCleanupFailure('input', error);
+      }
     }
     if (outputFd !== null && outputFd !== inputFd) {
       try {
         fs.closeSync(outputFd);
-      } catch {}
+      } catch (error) {
+        reportSecretTtyCleanupFailure('output', error);
+      }
     }
     return null;
   }

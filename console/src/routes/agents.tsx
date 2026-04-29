@@ -35,8 +35,13 @@ export function AgentFilesPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const initialParams = new URLSearchParams(window.location.search);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    initialParams.get('agent'),
+  );
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(
+    initialParams.get('file'),
+  );
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(
     null,
   );
@@ -61,6 +66,9 @@ export function AgentFilesPage() {
   }, [selectedAgent, selectedAgentId]);
 
   useEffect(() => {
+    if (!agentsQuery.data) {
+      return;
+    }
     if (!selectedAgent) {
       if (selectedFileName !== null) {
         setSelectedFileName(null);
@@ -75,7 +83,7 @@ export function AgentFilesPage() {
       setSelectedFileName(availableFile);
       setSelectedRevisionId(null);
     }
-  }, [selectedAgent, selectedFileName]);
+  }, [agentsQuery.data, selectedAgent, selectedFileName]);
 
   const selectedFileSummary =
     selectedAgent?.markdownFiles.find(

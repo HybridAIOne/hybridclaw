@@ -63,7 +63,11 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import {
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
+} from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
@@ -119,12 +123,124 @@ import {
 } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import { firstNumber } from './gateway-utils.js';
+import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function formatEscalationRouteNotice(
+  approval: PendingApproval,
+  target: NonNullable<PendingApproval['escalationTarget']>,
+): string {
+  return `Escalation for ${target.recipient} on ${target.channel}.\n\n${approval.prompt}`;
+}
+
+async function routeEscalationApproval(params: {
+  approval: PendingApproval | undefined;
+  agentId: string;
+  currentChannelId: string;
+  sessionId: string;
+  runId: string;
+  onProactiveMessage: GatewayChatRequest['onProactiveMessage'];
+}): Promise<void> {
+  if (!params.approval) return;
+  const target = normalizeEscalationTarget(params.approval.escalationTarget);
+  if (!target) return;
+  const targetChannel = target.channel;
+  if (targetChannel === params.currentChannelId) return;
+  const auditBase = {
+    type: 'escalation.route',
+    approvalId: params.approval.approvalId,
+    agentId: params.agentId,
+    currentChannelId: params.currentChannelId,
+    targetChannel,
+    targetRecipient: target.recipient,
+  };
+  if (!isSupportedProactiveChannelId(targetChannel)) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Blocked escalation approval route to unsupported proactive target',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'blocked',
+        reason: 'unsupported_proactive_target',
+      },
+    });
+    return;
+  }
+  if (!params.onProactiveMessage) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Unable to route escalation approval notification because onProactiveMessage is unavailable',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'not_sent',
+        reason: 'missing_proactive_callback',
+      },
+    });
+    return;
+  }
+  try {
+    await params.onProactiveMessage({
+      channelId: targetChannel,
+      text: formatEscalationRouteNotice(params.approval, target),
+    });
+    logger.info(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Routed escalation approval notification',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'sent',
+      },
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+        error,
+      },
+      'Failed to route escalation approval notification',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+}
 
 function readGatewayPromptModeDefault(): PromptMode | undefined {
   const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
@@ -1012,6 +1128,7 @@ async function handleGatewayMessageInner(
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
+      escalationTarget: resolvedAgent.escalationTarget,
     });
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
@@ -1019,6 +1136,14 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    await routeEscalationApproval({
+      approval: output.pendingApproval,
+      agentId: resolvedAgent.id,
+      currentChannelId: req.channelId,
+      sessionId: req.sessionId,
+      runId,
+      onProactiveMessage: req.onProactiveMessage,
+    });
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
       toolExecutions,
@@ -1068,6 +1193,15 @@ async function handleGatewayMessageInner(
             toolExecutions,
           }),
           durationMs: Date.now() - startedAt,
+          model,
+          tokenUsage: output.tokenUsage,
+          costUsd: extractUsageCostUsd(output.tokenUsage),
+          agentId,
+          input: storedUserContent,
+          output: {
+            status: output.status,
+            result: output.result,
+          },
           errorDetail: output.error,
         });
       } catch (error) {
@@ -1241,9 +1375,42 @@ async function handleGatewayMessageInner(
       toolsUsed: output.toolsUsed || [],
       toolExecutions,
     });
-    const resultText = String(
-      normalizedResult.result || unnormalizedResultText,
-    );
+    let resultText = String(normalizedResult.result || unnormalizedResultText);
+    if (pluginManager?.hasOutputGuards()) {
+      try {
+        const guardOutcome = await pluginManager.applyOutputGuards({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          model: model || undefined,
+          userContent: storedUserContent,
+          resultText,
+        });
+        if (guardOutcome.events.length > 0) {
+          for (const event of guardOutcome.events) {
+            if (event.action === 'allow') continue;
+            logger.info(
+              {
+                sessionId: req.sessionId,
+                agentId,
+                pluginId: event.pluginId,
+                guardId: event.guardId,
+                action: event.action,
+                reason: event.reason,
+              },
+              'Plugin output guard adjusted response',
+            );
+          }
+          resultText = guardOutcome.resultText || resultText;
+        }
+      } catch (error) {
+        logger.warn(
+          { sessionId: req.sessionId, agentId, error },
+          'Plugin output guard pipeline failed; allowing original output',
+        );
+      }
+    }
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
@@ -1277,6 +1444,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       resultText,
+      artifacts: output.artifacts,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,

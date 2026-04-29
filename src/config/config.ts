@@ -13,6 +13,8 @@ import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
   readStoredRuntimeSecrets,
+  runtimeSecretsPath,
+  saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import {
@@ -551,8 +553,144 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
-const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
-export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
+const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
+const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
+const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
+let internalGatewayApiToken = '';
+let internalGatewayApiTokenPersisted = false;
+let gatewayApiTokenUsesGeneratedFallback = false;
+function getInternalGatewayApiToken(): string {
+  if (!internalGatewayApiToken) {
+    internalGatewayApiToken = randomBytes(24).toString('hex');
+  }
+  return internalGatewayApiToken;
+}
+
+function getGeneratedGatewayApiTokenFallback(): string {
+  gatewayApiTokenUsesGeneratedFallback = true;
+  return getInternalGatewayApiToken();
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function readStoredGatewayApiToken(): string {
+  return readStoredRuntimeSecrets().GATEWAY_API_TOKEN?.trim() || '';
+}
+
+function acquireGatewayApiTokenLock(): () => void {
+  const lockPath = `${runtimeSecretsPath()}.gateway-token.lock`;
+  const deadline = Date.now() + GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      try {
+        fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`);
+      } catch (err) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best effort
+        }
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // best effort
+        }
+        throw err;
+      }
+      return () => {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best effort
+        }
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // best effort
+        }
+      };
+    } catch (err) {
+      if (
+        !(err instanceof Error) ||
+        (err as NodeJS.ErrnoException).code !== 'EEXIST'
+      ) {
+        throw err;
+      }
+
+      try {
+        const stats = fs.statSync(lockPath);
+        if (Date.now() - stats.mtimeMs > GATEWAY_API_TOKEN_LOCK_STALE_MS) {
+          fs.rmSync(lockPath, { force: true });
+          continue;
+        }
+      } catch (statErr) {
+        if (
+          statErr instanceof Error &&
+          (statErr as NodeJS.ErrnoException).code === 'ENOENT'
+        ) {
+          continue;
+        }
+        throw statErr;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for gateway API token lock at ${lockPath}.`,
+        );
+      }
+      sleepSync(GATEWAY_API_TOKEN_LOCK_RETRY_MS);
+    }
+  }
+}
+
+export function ensureGatewayApiTokenPersisted(): string {
+  if (!gatewayApiTokenUsesGeneratedFallback) return GATEWAY_API_TOKEN;
+  if (internalGatewayApiTokenPersisted) return GATEWAY_API_TOKEN;
+
+  // Gateway startup persists generated fallbacks so separate local clients can
+  // authenticate. Plain config imports stay side-effect free.
+  const existing = readStoredGatewayApiToken();
+  if (existing) {
+    internalGatewayApiToken = existing;
+    GATEWAY_API_TOKEN = existing;
+    internalGatewayApiTokenPersisted = true;
+    gatewayApiTokenUsesGeneratedFallback = false;
+    return existing;
+  }
+
+  let releaseLock: (() => void) | null = null;
+  try {
+    releaseLock = acquireGatewayApiTokenLock();
+    const lockedExisting = readStoredGatewayApiToken();
+    if (lockedExisting) {
+      internalGatewayApiToken = lockedExisting;
+      GATEWAY_API_TOKEN = lockedExisting;
+      internalGatewayApiTokenPersisted = true;
+      gatewayApiTokenUsesGeneratedFallback = false;
+      return lockedExisting;
+    }
+
+    const token = getInternalGatewayApiToken();
+    saveRuntimeSecrets({ GATEWAY_API_TOKEN: token });
+    internalGatewayApiToken = readStoredGatewayApiToken() || token;
+    GATEWAY_API_TOKEN = internalGatewayApiToken;
+    internalGatewayApiTokenPersisted = true;
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Failed to persist generated gateway API token; local gateway clients in other processes may need an explicit GATEWAY_API_TOKEN.',
+    );
+  } finally {
+    releaseLock?.();
+  }
+  return GATEWAY_API_TOKEN;
+}
+export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -941,6 +1079,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(
       ['GATEWAY_API_TOKEN'],
@@ -949,7 +1088,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
-    INTERNAL_GATEWAY_API_TOKEN;
+    getGeneratedGatewayApiTokenFallback();
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 

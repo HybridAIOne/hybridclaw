@@ -88,7 +88,9 @@ import {
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
   getSessionAuthPayload,
+  hasLocalWebSessionAuth,
   hasSessionAuth,
+  setLocalWebSessionCookie,
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
@@ -136,6 +138,7 @@ import {
   ensureGatewayBootstrapAutostart,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
+  getGatewayAdminAgentScoreboard,
   getGatewayAdminAgents,
   getGatewayAdminApprovals,
   getGatewayAdminAudit,
@@ -150,6 +153,7 @@ import {
   getGatewayAdminOverview,
   getGatewayAdminSessions,
   getGatewayAdminSkills,
+  getGatewayAdminStatistics,
   getGatewayAdminTools,
   getGatewayAgentList,
   getGatewayAgents,
@@ -157,6 +161,7 @@ import {
   getGatewayHistory,
   getGatewayHistorySummary,
   getGatewayRecentChatSessions,
+  getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
   removeGatewayAdminChannel,
@@ -186,6 +191,7 @@ import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import { renderQrSvg } from './qr-svg.js';
 import {
   handleTextChannelApprovalCommand,
   renderTextChannelCommandResult,
@@ -333,6 +339,21 @@ type ApiPluginToolRequestBody = {
   sessionId?: unknown;
   channelId?: unknown;
 };
+
+type ApiChatMobileQrRequestBody = {
+  userId?: unknown;
+  sessionId?: unknown;
+  baseUrl?: unknown;
+};
+
+const MOBILE_LAUNCH_TTL_MS = 10 * 60 * 1000;
+const MOBILE_LAUNCH_TOKEN_MAX_ENTRIES = 10_000;
+type MobileLaunchTokenEntry = {
+  userId: string;
+  sessionId: string;
+  expiresAt: number;
+};
+const mobileLaunchTokens = new Map<string, MobileLaunchTokenEntry>();
 
 function parseApiAdminPolicyIndex(value: unknown): number {
   const parsed = parsePositiveInteger(value);
@@ -628,12 +649,6 @@ function isRuntimeMSTeamsChannelConfig(
   return true;
 }
 
-function isLoopbackAddress(address: string | undefined): boolean {
-  if (!address) return false;
-  const normalized = address.replace(/^::ffff:/, '');
-  return normalized === '127.0.0.1' || normalized === '::1';
-}
-
 function hasQueryToken(url: URL): boolean {
   const token = (url.searchParams.get('token') || '').trim();
   if (!token) return false;
@@ -641,20 +656,108 @@ function hasQueryToken(url: URL): boolean {
   return token === GATEWAY_API_TOKEN;
 }
 
+function isLoopbackSocketAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  if (address === '::1') return true;
+  if (address.startsWith('::ffff:')) {
+    const mappedAddress = address.slice('::ffff:'.length);
+    return (
+      mappedAddress === '127.0.0.1' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(mappedAddress)
+    );
+  }
+  if (address === '127.0.0.1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+}
+
+function isLoopbackHost(value: string): boolean {
+  const host = value.trim().toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost') return true;
+  return isLoopbackSocketAddress(host);
+}
+
+function hasForwardingHeaders(req: IncomingMessage): boolean {
+  return (
+    req.headers.forwarded !== undefined ||
+    req.headers['x-forwarded-for'] !== undefined ||
+    req.headers['x-forwarded-host'] !== undefined ||
+    req.headers['x-forwarded-proto'] !== undefined
+  );
+}
+
+function extractHostnameFromHostHeader(
+  value: string | string[] | undefined,
+): string | null {
+  const host = normalizeHeaderValue(value);
+  if (!host) return null;
+  if (host.startsWith('[')) {
+    const endIndex = host.indexOf(']');
+    if (endIndex === -1) return null;
+    return host.slice(1, endIndex).trim().toLowerCase() || null;
+  }
+  const colonIndex = host.indexOf(':');
+  return (colonIndex === -1 ? host : host.slice(0, colonIndex))
+    .trim()
+    .toLowerCase();
+}
+
+function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
+  const requestHost = extractHostnameFromHostHeader(req.headers.host);
+  return (
+    !WEB_API_TOKEN &&
+    isLoopbackHost(HEALTH_HOST) &&
+    isLoopbackSocketAddress(req.socket.remoteAddress) &&
+    !hasForwardingHeaders(req) &&
+    Boolean(requestHost && isLoopbackHost(requestHost))
+  );
+}
+
+function requestUsesHttps(req: IncomingMessage): boolean {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto) return forwardedProto === 'https';
+  return (req.socket as { encrypted?: boolean }).encrypted === true;
+}
+
+function resolveRequestOriginForAuth(req: IncomingMessage): string | null {
+  const host = String(req.headers.host || '').trim();
+  if (!host) return null;
+  const protocol = requestUsesHttps(req) ? 'https' : 'http';
+  return `${protocol}://${host}`;
+}
+
+function hasSameGatewayOrigin(req: IncomingMessage): boolean {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return false;
+  return origin === resolveRequestOriginForAuth(req);
+}
+
 function hasApiAuth(
   req: IncomingMessage,
   url?: URL,
-  opts?: { allowQueryToken?: boolean },
+  opts?: {
+    allowLocalWebSession?: boolean;
+    allowQueryToken?: boolean;
+    requireSameOrigin?: boolean;
+  },
 ): boolean {
   const authHeader = req.headers.authorization || '';
   const gatewayTokenMatch =
     Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
-  if (!WEB_API_TOKEN) {
-    return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (
+    opts?.allowLocalWebSession &&
+    isLocalWebSessionAllowed(req) &&
+    hasLocalWebSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
   }
-  if (authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
   return gatewayTokenMatch;
 }
 
@@ -672,13 +775,6 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   }
   if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
     return 'gateway-token';
-  }
-
-  const normalizedAddress = String(req.socket.remoteAddress || '')
-    .replace(/^::ffff:/, '')
-    .trim();
-  if (isLoopbackAddress(req.socket.remoteAddress)) {
-    return `loopback:${normalizedAddress || 'unknown'}`;
   }
   return 'authenticated';
 }
@@ -712,6 +808,99 @@ function sendRedirect(
   res.end();
 }
 
+function escapeInlineScriptValue(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+function cleanupExpiredMobileLaunchTokens(now = Date.now()): void {
+  for (const [token, entry] of mobileLaunchTokens) {
+    if (entry.expiresAt <= now) mobileLaunchTokens.delete(token);
+  }
+}
+
+function evictOldestMobileLaunchTokens(): void {
+  while (mobileLaunchTokens.size >= MOBILE_LAUNCH_TOKEN_MAX_ENTRIES) {
+    const oldestToken = mobileLaunchTokens.keys().next().value;
+    if (!oldestToken) return;
+    mobileLaunchTokens.delete(oldestToken);
+  }
+}
+
+function createMobileLaunchToken(params: {
+  userId: string;
+  sessionId: string;
+}): string {
+  cleanupExpiredMobileLaunchTokens();
+  evictOldestMobileLaunchTokens();
+  const token = randomUUID();
+  mobileLaunchTokens.set(token, {
+    userId: params.userId,
+    sessionId: params.sessionId,
+    expiresAt: Date.now() + MOBILE_LAUNCH_TTL_MS,
+  });
+  return token;
+}
+
+function resolveMobileLaunchToken(token: string):
+  | {
+      userId: string;
+      sessionId: string;
+    }
+  | undefined {
+  cleanupExpiredMobileLaunchTokens();
+  const normalizedToken = token.trim();
+  const entry = mobileLaunchTokens.get(normalizedToken);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    mobileLaunchTokens.delete(normalizedToken);
+    return undefined;
+  }
+  mobileLaunchTokens.delete(normalizedToken);
+  return {
+    userId: entry.userId,
+    sessionId: entry.sessionId,
+  };
+}
+
+function normalizePublicBaseUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRequestOrigin(
+  req: IncomingMessage,
+  bodyBaseUrl?: unknown,
+): string {
+  const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
+  if (explicitBaseUrl) return explicitBaseUrl;
+
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '')
+    .split(',')[0]
+    ?.trim();
+  const proto = requestUsesHttps(req) ? 'https' : 'http';
+  const host = forwardedHost || req.headers.host || `127.0.0.1:${HEALTH_PORT}`;
+  return `${proto}://${host}`;
+}
+
+function buildMobileLaunchUrl(params: {
+  origin: string;
+  token: string;
+}): string {
+  const url = new URL('/chat/continue', params.origin);
+  url.searchParams.set('token', params.token);
+  return url.toString();
+}
+
 function resolveHybridAILoginUrl(): string | null {
   const baseUrl = HYBRIDAI_BASE_URL.trim().replace(/\/+$/, '');
   if (!baseUrl) return null;
@@ -724,6 +913,14 @@ function isConsoleSpaPath(pathname: string): boolean {
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
     pathname.startsWith('/chat/')
+  );
+}
+
+function isLocalWebSurfacePath(pathname: string): boolean {
+  return (
+    isConsoleSpaPath(pathname) ||
+    pathname === '/agents' ||
+    pathname === '/agents.html'
   );
 }
 
@@ -1766,7 +1963,7 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
-    sessionId,
+    sessionId: historyPage.sessionId,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -1783,7 +1980,7 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url)) {
+  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -1816,6 +2013,9 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const hasWebSessionUser =
+    channelId.toLowerCase() === 'web' &&
+    Boolean(resolveSessionAuthenticatedUserId(req));
   const userId = resolveGatewayRequestUserId({
     req,
     channelId,
@@ -1835,8 +2035,71 @@ function handleApiChatRecent(
       channelId,
       limit,
       ...(query ? { query } : {}),
+      ...(channelId.toLowerCase() === 'web' && !hasWebSessionUser
+        ? { fallbackToChannelRecent: true }
+        : {}),
     }),
   });
+}
+
+async function handleApiChatMobileQr(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as ApiChatMobileQrRequestBody;
+  const userId = normalizeOptionalString(body.userId);
+  const sessionId = normalizeOptionalString(body.sessionId);
+  if (!userId) {
+    sendJson(res, 400, { error: 'Missing `userId` in request body.' });
+    return;
+  }
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` in request body.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+
+  const token = createMobileLaunchToken({ userId, sessionId });
+  const launchUrl = buildMobileLaunchUrl({
+    origin: resolveRequestOrigin(req, body.baseUrl),
+    token,
+  });
+  sendJson(res, 200, {
+    launchUrl,
+    expiresAt: new Date(Date.now() + MOBILE_LAUNCH_TTL_MS).toISOString(),
+    qrSvg: renderQrSvg(launchUrl),
+  });
+}
+
+function handleChatMobileContinue(res: ServerResponse, url: URL): void {
+  const token = normalizeOptionalString(url.searchParams.get('token'));
+  const launch = token ? resolveMobileLaunchToken(token) : undefined;
+  if (!launch) {
+    sendText(res, 401, 'Mobile launch QR code is invalid or expired.');
+    return;
+  }
+
+  const escapedUserId = escapeInlineScriptValue(launch.userId);
+  const escapedSessionId = escapeInlineScriptValue(launch.sessionId);
+  const escapedRedirect = escapeInlineScriptValue(
+    `/chat/${encodeURIComponent(launch.sessionId)}`,
+  );
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!DOCTYPE html><html><body><script>` +
+      `localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `localStorage.setItem('hybridclaw_session',${escapedSessionId});` +
+      `window.location.replace(${escapedRedirect});` +
+      `</script></body></html>`,
+  );
 }
 
 let cachedSlashMenuEntries: ReturnType<typeof buildTuiSlashMenuEntries> | null =
@@ -1860,6 +2123,27 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
   );
   cachedSlashMenuPluginKey = pluginKey;
   return cachedSlashMenuEntries;
+}
+
+function handleApiChatContext(res: ServerResponse, url: URL): void {
+  const sessionId = url.searchParams.get('sessionId')?.trim();
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const result = getGatewaySessionContextUsage(sessionId);
+  if (result.status === 'not_found' || !result.snapshot) {
+    sendJson(res, 200, { sessionId, snapshot: null });
+    return;
+  }
+  sendJson(res, 200, {
+    sessionId: result.sessionId,
+    snapshot: result.snapshot,
+  });
 }
 
 function handleApiChatCommands(res: ServerResponse, url: URL): void {
@@ -1951,6 +2235,11 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+function handleApiAdminStatistics(res: ServerResponse, url: URL): void {
+  const daysRaw = url.searchParams.get('days') ?? undefined;
+  sendJson(res, 200, getGatewayAdminStatistics({ days: daysRaw }));
 }
 
 async function handleApiAdminEmail(res: ServerResponse): Promise<void> {
@@ -3086,6 +3375,10 @@ async function handleApiAdminSkills(
   );
 }
 
+function handleApiAdminAgentScoreboard(res: ServerResponse): void {
+  sendJson(res, 200, getGatewayAdminAgentScoreboard());
+}
+
 const MAX_SKILL_ZIP_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 async function handleApiAdminSkillUpload(
@@ -3282,7 +3575,12 @@ function handleApiArtifact(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowQueryToken: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowQueryToken: true,
+    })
+  ) {
     sendJson(res, 401, {
       error:
         'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
@@ -3391,11 +3689,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (pathname === '/chat.html') {
-      // Preserve the query string so legacy `/chat.html?token=…` launch
-      // links keep handing the token off to the React console, which reads
-      // it from `window.location.search` (see `readStoredToken`).
-      sendRedirect(res, 301, `/chat${url.search}`);
+    if (pathname === '/chat/continue') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method Not Allowed' });
+        return;
+      }
+      handleChatMobileContinue(res, url);
       return;
     }
 
@@ -3527,6 +3826,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       if (
         !hasApiAuth(req, url, {
           allowQueryToken: pathname === '/api/events',
+          allowLocalWebSession: true,
+          requireSameOrigin: method !== 'GET',
         })
       ) {
         sendJson(res, 401, {
@@ -3558,11 +3859,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminOverview(res);
             return;
           }
+          if (pathname === '/api/admin/statistics' && method === 'GET') {
+            handleApiAdminStatistics(res, url);
+            return;
+          }
           if (
             pathname === '/api/admin/agents' ||
             pathname.startsWith('/api/admin/agents/')
           ) {
             await handleApiAdminAgents(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/agent-scoreboard' && method === 'GET') {
+            handleApiAdminAgentScoreboard(res);
             return;
           }
           if (
@@ -3691,8 +4000,16 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiChatRecent(req, res, url);
             return;
           }
+          if (pathname === '/api/chat/mobile-qr' && method === 'POST') {
+            await handleApiChatMobileQr(req, res);
+            return;
+          }
           if (pathname === '/api/chat/commands' && method === 'GET') {
             handleApiChatCommands(res, url);
+            return;
+          }
+          if (pathname === '/api/chat/context' && method === 'GET') {
+            handleApiChatContext(res, url);
             return;
           }
           if (pathname === '/api/agents' && method === 'GET') {
@@ -3819,6 +4136,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (isLocalWebSurfacePath(pathname)) {
+      if (!WEB_API_TOKEN && !isLoopbackHost(HEALTH_HOST)) {
+        sendText(
+          res,
+          401,
+          'Unauthorized. Configure WEB_API_TOKEN before exposing the web console on a non-loopback host.',
+        );
+        return;
+      }
+      if (isLocalWebSessionAllowed(req)) {
+        setLocalWebSessionCookie(res);
+      }
+    }
+
     if (isConsoleSpaPath(pathname)) {
       if (serveConsoleIndex(res)) return;
       sendText(
@@ -3847,8 +4178,23 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     const sessionAuthenticated = hasSessionAuth(req);
+    const tokenAuthenticated = hasApiAuth(req, url, {
+      allowQueryToken: false,
+    });
+    if (
+      !sessionAuthenticated &&
+      !tokenAuthenticated &&
+      isLocalWebSessionAllowed(req) &&
+      hasLocalWebSessionAuth(req) &&
+      !hasSameGatewayOrigin(req)
+    ) {
+      writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
     const requestAuthenticated = hasApiAuth(req, url, {
       allowQueryToken: false,
+      allowLocalWebSession: true,
+      requireSameOrigin: true,
     });
     if (
       !sessionAuthenticated &&

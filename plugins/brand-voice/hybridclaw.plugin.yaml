@@ -1,0 +1,133 @@
+id: brand-voice
+name: Brand Voice Output Guard
+version: 0.1.0
+kind: output-guard
+description: Tone-and-voice guard that scans final agent responses for off-brand language, banned phrases, and rule violations, then rewrites or blocks before the message ships.
+entrypoint: src/index.js
+credentials:
+  - ANTHROPIC_API_KEY
+  - OPENAI_API_KEY
+  - BRAND_VOICE_API_KEY
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    enabled:
+      type: boolean
+      default: true
+      description: Master switch for the guard.
+    mode:
+      type: string
+      enum: [block, rewrite, flag]
+      default: rewrite
+      description: How to handle off-brand output. `flag` only logs.
+    voice:
+      type: string
+      default: ''
+      description: One-paragraph description of the brand voice (formal, playful, …).
+    voiceFile:
+      type: string
+      description: Path to a markdown file with the brand voice guidelines. Loaded once at registration.
+    bannedPhrases:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Case-insensitive substrings that must never appear in output.
+    bannedPatterns:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Regular-expression patterns (with optional `/flags`) that must never appear in output.
+    requirePhrases:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Phrases that must appear in output. Missing any triggers off-brand.
+    blockMessage:
+      type: string
+      default: 'Output blocked by brand-voice guard.'
+      description: Replacement text when blocking.
+    minLength:
+      type: number
+      default: 0
+      minimum: 0
+      description: Skip the guard for outputs shorter than this many characters.
+    failureMode:
+      type: string
+      enum: [allow, block]
+      default: allow
+      description: What to do when the classifier or rewriter errors.
+    classifier:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        provider:
+          type: string
+          enum: [none, anthropic, openai, openai-compat]
+          default: none
+        model:
+          type: string
+          default: ''
+        baseUrl:
+          type: string
+        apiKeyEnv:
+          type: string
+        timeoutMs:
+          type: number
+          default: 8000
+          minimum: 1000
+          maximum: 60000
+        maxRetries:
+          type: number
+          default: 1
+          minimum: 0
+          maximum: 3
+    rewriter:
+      type: object
+      additionalProperties: false
+      default: {}
+      properties:
+        provider:
+          type: string
+          enum: [none, anthropic, openai, openai-compat]
+          default: none
+        model:
+          type: string
+          default: ''
+        baseUrl:
+          type: string
+        apiKeyEnv:
+          type: string
+        timeoutMs:
+          type: number
+          default: 12000
+          minimum: 1000
+          maximum: 120000
+        maxRetries:
+          type: number
+          default: 1
+          minimum: 0
+          maximum: 3
+configUiHints:
+  voice:
+    label: Brand voice description
+    placeholder: Friendly, plainspoken, no jargon. Confident but never cocky.
+  voiceFile:
+    label: Path to brand voice markdown
+  bannedPhrases:
+    label: Banned phrases
+    help: Case-insensitive substrings; one per array entry.
+  bannedPatterns:
+    label: Banned regex patterns
+    help: 'Examples: `dumb`, `/\\bguarantee[sd]?\\b/i`'
+  requirePhrases:
+    label: Phrases that must appear
+  classifier.apiKeyEnv:
+    label: Env var for classifier API key
+    placeholder: BRAND_VOICE_API_KEY
+  rewriter.apiKeyEnv:
+    label: Env var for rewriter API key

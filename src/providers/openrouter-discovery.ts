@@ -6,6 +6,10 @@ import {
   OPENROUTER_MODEL_PREFIX,
 } from './openrouter-utils.js';
 import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
+import {
   createDiscoveryStore,
   isRecord,
   normalizeBaseUrl,
@@ -93,6 +97,9 @@ export interface OpenRouterDiscoveryStore {
   isModelFree: (model: string) => boolean;
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => { input: number | null; output: number | null } | null;
   isModelVisionCapable: (model: string) => boolean;
 }
 
@@ -101,6 +108,7 @@ interface OpenRouterDiscoveryState {
   freeModelNames: Set<string>;
   contextWindowByModel: Map<string, number>;
   maxTokensByModel: Map<string, number>;
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   visionCapableModels: Set<string>;
 }
 
@@ -109,6 +117,7 @@ const buildEmptyOpenRouterDiscoveryState = (): OpenRouterDiscoveryState => ({
   freeModelNames: new Set(),
   contextWindowByModel: new Map(),
   maxTokensByModel: new Map(),
+  pricingByModel: new Map(),
   visionCapableModels: new Set(),
 });
 
@@ -141,6 +150,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
     const freeDiscovered = new Set<string>();
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const visionCapable = new Set<string>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
@@ -170,6 +180,10 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
         if (modelMaxTokens != null) {
           maxTokens.set(normalized, modelMaxTokens);
         }
+        const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+        if (pricing) {
+          pricingByModel.set(normalized, pricing);
+        }
         if (isFreeOpenRouterModel(entry)) {
           freeDiscovered.add(normalized);
         }
@@ -183,6 +197,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       freeModelNames: freeDiscovered,
       contextWindowByModel: contextWindows,
       maxTokensByModel: maxTokens,
+      pricingByModel,
       visionCapableModels: visionCapable,
     };
   }
@@ -235,6 +250,11 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
       const normalized = normalizeOpenRouterModelName(model);
       return state.maxTokensByModel.get(normalized) ?? null;
     },
+    getModelPricingUsdPerToken: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeOpenRouterModelName(model);
+      return state.pricingByModel.get(normalized) ?? null;
+    },
     isModelVisionCapable: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = normalizeOpenRouterModelName(model);
@@ -269,6 +289,12 @@ export function getDiscoveredOpenRouterModelMaxTokens(
   model: string,
 ): number | null {
   return defaultOpenRouterDiscoveryStore.getModelMaxTokens(model);
+}
+
+export function getDiscoveredOpenRouterModelPricingUsdPerToken(
+  model: string,
+): { input: number | null; output: number | null } | null {
+  return defaultOpenRouterDiscoveryStore.getModelPricingUsdPerToken(model);
 }
 
 export function isDiscoveredOpenRouterModelVisionCapable(

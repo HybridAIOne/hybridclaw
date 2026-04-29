@@ -3,6 +3,10 @@ import { logger } from '../logger.js';
 import { normalizeMistralModelName } from './mistral-utils.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
 import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
+import {
   createDiscoveryStore,
   isRecord,
   normalizeBaseUrl,
@@ -61,6 +65,9 @@ export interface MistralDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => DiscoveredModelPricingUsdPerToken | null;
   resolveCanonicalModelName: (model: string) => string;
   isModelVisionCapable: (model: string) => boolean;
   isModelDeprecated: (model: string) => boolean;
@@ -70,6 +77,7 @@ interface MistralDiscoveryState {
   canonicalModelByName: Map<string, string>;
   discoveredModelNames: string[];
   contextWindowByModel: Map<string, number>;
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   deprecatedModelNames: Set<string>;
   visionCapableModels: Set<string>;
 }
@@ -78,6 +86,7 @@ const buildEmptyMistralDiscoveryState = (): MistralDiscoveryState => ({
   canonicalModelByName: new Map(),
   discoveredModelNames: [],
   contextWindowByModel: new Map(),
+  pricingByModel: new Map(),
   deprecatedModelNames: new Set(),
   visionCapableModels: new Set(),
 });
@@ -108,6 +117,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
     const canonicalByName = new Map<string, string>();
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const deprecated = new Set<string>();
     const visionCapable = new Set<string>();
     for (const entry of data) {
@@ -134,6 +144,10 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       if (contextWindow != null) {
         contextWindows.set(canonical, contextWindow);
       }
+      const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+      if (pricing) {
+        pricingByModel.set(canonical, pricing);
+      }
       if (isVisionCapableMistralModel(entry)) {
         visionCapable.add(canonical);
       }
@@ -142,6 +156,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
       canonicalModelByName: canonicalByName,
       discoveredModelNames: [...discovered],
       contextWindowByModel: contextWindows,
+      pricingByModel,
       deprecatedModelNames: deprecated,
       visionCapableModels: visionCapable,
     };
@@ -188,6 +203,13 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
         state.canonicalModelByName.get(normalized) ?? normalized;
       return state.contextWindowByModel.get(canonical) ?? null;
     },
+    getModelPricingUsdPerToken: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeMistralModelName(model);
+      const canonical =
+        state.canonicalModelByName.get(normalized) ?? normalized;
+      return state.pricingByModel.get(canonical) ?? null;
+    },
     resolveCanonicalModelName: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = normalizeMistralModelName(model);
@@ -226,6 +248,12 @@ export function getDiscoveredMistralModelContextWindow(
   model: string,
 ): number | null {
   return defaultMistralDiscoveryStore.getModelContextWindow(model);
+}
+
+export function getDiscoveredMistralModelPricingUsdPerToken(
+  model: string,
+): DiscoveredModelPricingUsdPerToken | null {
+  return defaultMistralDiscoveryStore.getModelPricingUsdPerToken(model);
 }
 
 export function resolveDiscoveredMistralModelCanonicalName(

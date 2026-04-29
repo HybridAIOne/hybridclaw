@@ -1,34 +1,56 @@
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
+import { logger } from '../logger.js';
 import {
   discoverAnthropicModels,
+  getDiscoveredAnthropicModelContextWindow,
   getDiscoveredAnthropicModelNames,
+  getDiscoveredAnthropicModelPricingUsdPerToken,
   isDiscoveredAnthropicModelVisionCapable,
 } from './anthropic-discovery.js';
 import { ANTHROPIC_MODEL_PREFIX } from './anthropic-utils.js';
 import {
   discoverCodexModels,
+  getDiscoveredCodexModelContextWindow,
+  getDiscoveredCodexModelMaxTokens,
   getDiscoveredCodexModelNames,
+  getDiscoveredCodexModelPricingUsdPerToken,
 } from './codex-discovery.js';
 import { resolveModelProvider } from './factory.js';
-import { discoverHuggingFaceModels } from './huggingface-discovery.js';
+import {
+  discoverHuggingFaceModels,
+  getDiscoveredHuggingFaceModelContextWindow,
+  getDiscoveredHuggingFaceModelPricingUsdPerToken,
+} from './huggingface-discovery.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import {
   discoverHybridAIModels,
+  getDiscoveredHybridAIModelContextWindow,
+  getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
+  getDiscoveredHybridAIModelPricingUsdPerToken,
 } from './hybridai-discovery.js';
 import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
   discoverAllLocalModels,
   getDiscoveredLocalModelNames,
+  getLocalModelInfo,
+  resolveLocalModelContextWindow,
 } from './local-discovery.js';
 import {
   discoverMistralModels,
+  getDiscoveredMistralModelContextWindow,
+  getDiscoveredMistralModelPricingUsdPerToken,
   isDiscoveredDeprecatedMistralModel,
   isDiscoveredMistralModelVisionCapable,
   resolveDiscoveredMistralModelCanonicalName,
 } from './mistral-discovery.js';
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
+import {
+  type ModelCapabilityFlags,
+  resolveStaticModelCatalogMetadata,
+  type StaticModelCatalogMetadata,
+} from './model-metadata.js';
 import {
   formatHybridAIModelForCatalog,
   formatModelForDisplay,
@@ -37,10 +59,14 @@ import { OPENAI_CODEX_MODEL_PREFIX } from './openai.js';
 import {
   discoverOpenAICompatRemoteModels,
   getDiscoveredOpenAICompatRemoteModelNames,
+  getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken,
 } from './openai-compat-discovery.js';
 import { OPENAI_COMPAT_REMOTE_PROVIDERS } from './openai-compat-remote.js';
 import {
   discoverOpenRouterModels,
+  getDiscoveredOpenRouterModelContextWindow,
+  getDiscoveredOpenRouterModelMaxTokens,
+  getDiscoveredOpenRouterModelPricingUsdPerToken,
   isDiscoveredOpenRouterModelFree,
   isDiscoveredOpenRouterModelVisionCapable,
 } from './openrouter-discovery.js';
@@ -49,6 +75,40 @@ import { PROVIDER_ALIASES } from './provider-aliases.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 
 export type ModelCatalogProviderFilter = RuntimeProviderId | 'local';
+
+export interface ModelCatalogMetadata extends StaticModelCatalogMetadata {
+  pricingUsdPerToken: {
+    input: number | null;
+    output: number | null;
+  };
+}
+
+export type ModelCapabilityRequirements = Partial<ModelCapabilityFlags>;
+
+export interface ModelCatalogSelection {
+  model: string;
+  metadata: ModelCatalogMetadata;
+  estimatedUnitCostUsd: number | null;
+}
+
+export interface ModelCatalogSelectionOptions {
+  models?: string[];
+  excludeModels?: string[];
+  provider?: string;
+}
+
+export interface ModelCatalogRefreshFailure {
+  provider: string;
+  error: string;
+}
+
+export interface ModelCatalogRefreshResult {
+  attempted: number;
+  fulfilled: number;
+  rejected: number;
+  discoveredModelCount: number;
+  failures: ModelCatalogRefreshFailure[];
+}
 
 const OLLAMA_MODEL_PREFIX = 'ollama/';
 const LMSTUDIO_MODEL_PREFIX = 'lmstudio/';
@@ -114,6 +174,32 @@ export function isAvailableModelFree(model: string): boolean {
   );
 }
 
+function modelMeetsCapabilityRequirements(
+  metadata: ModelCatalogMetadata,
+  requirements: ModelCapabilityRequirements,
+): boolean {
+  for (const [capability, required] of Object.entries(requirements) as Array<
+    [keyof ModelCapabilityFlags, boolean | undefined]
+  >) {
+    if (required === undefined) continue;
+    if (metadata.capabilities[capability] !== required) return false;
+  }
+  return true;
+}
+
+function estimateModelUnitCostUsd(
+  pricing: ModelCatalogMetadata['pricingUsdPerToken'],
+): number | null {
+  if (pricing.input == null && pricing.output == null) return null;
+  const input = pricing.input ?? pricing.output ?? 0;
+  const output = pricing.output ?? pricing.input ?? 0;
+  return input + output;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function hasModelPrefix(model: string, prefix: string): boolean {
   return String(model || '')
     .trim()
@@ -168,31 +254,44 @@ function matchesProviderFilter(
   return provider === providerFilter;
 }
 
-function dedupeModelList(models: string[]): string[] {
+export function dedupeExplicitModelNames(
+  models: Array<string | null | undefined>,
+): string[] {
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const rawModel of models) {
-    const originalModel = String(rawModel || '').trim();
-    const model =
-      resolveModelProvider(originalModel) === 'hybridai' &&
-      !isLocalPrefixedModel(originalModel)
-        ? formatHybridAIModelForCatalog(originalModel)
-        : originalModel;
+    const model = rawModel?.trim() || null;
     if (!model || seen.has(model)) continue;
-    const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
-      ? resolveDiscoveredMistralModelCanonicalName(model)
-      : model;
-    if (!canonicalModel || seen.has(canonicalModel)) continue;
-    if (
-      hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
-      isDiscoveredDeprecatedMistralModel(canonicalModel)
-    ) {
-      continue;
-    }
-    seen.add(canonicalModel);
-    deduped.push(canonicalModel);
+    seen.add(model);
+    deduped.push(model);
   }
   return deduped;
+}
+
+function normalizeAvailableCatalogModel(rawModel: string): string | null {
+  const originalModel = String(rawModel || '').trim();
+  const model =
+    resolveModelProvider(originalModel) === 'hybridai' &&
+    !isLocalPrefixedModel(originalModel)
+      ? formatHybridAIModelForCatalog(originalModel)
+      : originalModel;
+  if (!model) return null;
+
+  const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
+    ? resolveDiscoveredMistralModelCanonicalName(model)
+    : model;
+  if (!canonicalModel) return null;
+  if (
+    hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
+    isDiscoveredDeprecatedMistralModel(canonicalModel)
+  ) {
+    return null;
+  }
+  return canonicalModel;
+}
+
+function dedupeModelList(models: string[]): string[] {
+  return dedupeExplicitModelNames(models.map(normalizeAvailableCatalogModel));
 }
 
 function collectModelsForProvider(
@@ -282,17 +381,235 @@ export function getAvailableModelList(provider?: string): string[] {
 
 export async function refreshAvailableModelCatalogs(opts?: {
   includeHybridAI?: boolean;
-}): Promise<void> {
-  await Promise.allSettled([
-    discoverCodexModels(),
-    discoverAnthropicModels(),
-    discoverAllLocalModels(),
-    discoverHuggingFaceModels(),
-    discoverMistralModels(),
-    discoverOpenRouterModels(),
-    discoverOpenAICompatRemoteModels(),
-    ...(opts?.includeHybridAI ? [discoverHybridAIModels()] : []),
-  ]);
+}): Promise<ModelCatalogRefreshResult> {
+  const tasks: Array<{
+    provider: string;
+    refresh: () => Promise<readonly unknown[]>;
+  }> = [
+    { provider: 'openai-codex', refresh: discoverCodexModels },
+    { provider: 'anthropic', refresh: discoverAnthropicModels },
+    { provider: 'local', refresh: discoverAllLocalModels },
+    { provider: 'huggingface', refresh: discoverHuggingFaceModels },
+    { provider: 'mistral', refresh: discoverMistralModels },
+    { provider: 'openrouter', refresh: discoverOpenRouterModels },
+    {
+      provider: 'openai-compatible',
+      refresh: async () => {
+        await discoverOpenAICompatRemoteModels();
+        return getDiscoveredOpenAICompatRemoteModelNames();
+      },
+    },
+    ...(opts?.includeHybridAI
+      ? [{ provider: 'hybridai', refresh: discoverHybridAIModels }]
+      : []),
+  ];
+  const results = await Promise.allSettled(
+    tasks.map(async (task) => ({
+      provider: task.provider,
+      models: await task.refresh(),
+    })),
+  );
+
+  let discoveredModelCount = 0;
+  const failures: ModelCatalogRefreshFailure[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    if (result.status === 'fulfilled') {
+      discoveredModelCount += result.value.models.length;
+      continue;
+    }
+    failures.push({
+      provider: tasks[index]?.provider ?? 'unknown',
+      error: errorMessage(result.reason),
+    });
+  }
+
+  if (failures.length > 0) {
+    logger.warn(
+      {
+        failures,
+        attempted: tasks.length,
+        fulfilled: tasks.length - failures.length,
+        discoveredModelCount,
+      },
+      'Model catalog refresh completed with provider failures',
+    );
+  }
+
+  return {
+    attempted: tasks.length,
+    fulfilled: tasks.length - failures.length,
+    rejected: failures.length,
+    discoveredModelCount,
+    failures,
+  };
+}
+
+export async function refreshModelCatalogMetadata(
+  model: string,
+): Promise<void> {
+  const normalized = String(model || '').trim();
+  if (!normalized) return;
+
+  if (isLocalPrefixedModel(normalized)) {
+    await discoverAllLocalModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, OPENAI_CODEX_MODEL_PREFIX)) {
+    await discoverCodexModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, ANTHROPIC_MODEL_PREFIX)) {
+    await discoverAnthropicModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX)) {
+    await discoverOpenRouterModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, MISTRAL_MODEL_PREFIX)) {
+    await discoverMistralModels();
+    return;
+  }
+  if (hasModelPrefix(normalized, HUGGINGFACE_MODEL_PREFIX)) {
+    await discoverHuggingFaceModels();
+    return;
+  }
+  for (const { prefix } of OPENAI_COMPAT_REMOTE_PROVIDERS) {
+    if (hasModelPrefix(normalized, prefix)) {
+      await discoverOpenAICompatRemoteModels();
+      return;
+    }
+  }
+  await discoverHybridAIModels();
+}
+
+function resolveKnownModelContextWindow(
+  model: string,
+  staticMetadata: StaticModelCatalogMetadata,
+): number | null {
+  return (
+    resolveLocalModelContextWindow(model) ??
+    getDiscoveredCodexModelContextWindow(model) ??
+    getDiscoveredHuggingFaceModelContextWindow(model) ??
+    getDiscoveredHybridAIModelContextWindow(model) ??
+    getDiscoveredMistralModelContextWindow(model) ??
+    getDiscoveredAnthropicModelContextWindow(model) ??
+    getDiscoveredOpenRouterModelContextWindow(model) ??
+    staticMetadata.contextWindow
+  );
+}
+
+function resolveKnownModelMaxTokens(
+  model: string,
+  staticMetadata: StaticModelCatalogMetadata,
+): number | null {
+  const info = getLocalModelInfo(model);
+  return (
+    info?.maxTokens ??
+    getDiscoveredCodexModelMaxTokens(model) ??
+    getDiscoveredHybridAIModelMaxTokens(model) ??
+    getDiscoveredOpenRouterModelMaxTokens(model) ??
+    staticMetadata.maxTokens
+  );
+}
+
+function resolveKnownModelPricingUsdPerToken(
+  model: string,
+): ModelCatalogMetadata['pricingUsdPerToken'] {
+  if (isLocalPrefixedModel(model)) {
+    return { input: 0, output: 0 };
+  }
+  if (hasModelPrefix(model, OPENAI_CODEX_MODEL_PREFIX)) {
+    return (
+      getDiscoveredCodexModelPricingUsdPerToken(model) ?? {
+        input: null,
+        output: null,
+      }
+    );
+  }
+  return (
+    getDiscoveredHybridAIModelPricingUsdPerToken(model) ??
+    getDiscoveredOpenRouterModelPricingUsdPerToken(model) ??
+    getDiscoveredMistralModelPricingUsdPerToken(model) ??
+    getDiscoveredHuggingFaceModelPricingUsdPerToken(model) ??
+    getDiscoveredAnthropicModelPricingUsdPerToken(model) ??
+    getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(model) ?? {
+      input: null,
+      output: null,
+    }
+  );
+}
+
+export function getModelCatalogMetadata(model: string): ModelCatalogMetadata {
+  const staticMetadata = resolveStaticModelCatalogMetadata(model);
+  const contextWindow = resolveKnownModelContextWindow(model, staticMetadata);
+  const maxTokens = resolveKnownModelMaxTokens(model, staticMetadata);
+  const pricingUsdPerToken = resolveKnownModelPricingUsdPerToken(model);
+  const vision = isModelVisionCapable(model);
+
+  return {
+    ...staticMetadata,
+    known:
+      staticMetadata.known ||
+      contextWindow != null ||
+      maxTokens != null ||
+      vision,
+    contextWindow,
+    maxTokens,
+    pricingUsdPerToken,
+    capabilities: {
+      ...staticMetadata.capabilities,
+      vision,
+    },
+  };
+}
+
+export function selectModelsByCapabilityAndCost(
+  requirements: ModelCapabilityRequirements,
+  options: ModelCatalogSelectionOptions = {},
+): ModelCatalogSelection[] {
+  const excluded = new Set(
+    (options.excludeModels || []).map((model) => model.trim()).filter(Boolean),
+  );
+  const models = dedupeModelList(
+    options.models || getAvailableModelList(options.provider),
+  ).filter((model) => !excluded.has(model));
+
+  return models
+    .map((model) => {
+      const metadata = getModelCatalogMetadata(model);
+      if (!modelMeetsCapabilityRequirements(metadata, requirements)) {
+        return null;
+      }
+      return {
+        model,
+        metadata,
+        estimatedUnitCostUsd: estimateModelUnitCostUsd(
+          metadata.pricingUsdPerToken,
+        ),
+      };
+    })
+    .filter((entry): entry is ModelCatalogSelection => entry != null)
+    .sort((left, right) => {
+      const leftCost = left.estimatedUnitCostUsd;
+      const rightCost = right.estimatedUnitCostUsd;
+      if (leftCost != null && rightCost != null && leftCost !== rightCost) {
+        return leftCost - rightCost;
+      }
+      if (leftCost != null && rightCost == null) return -1;
+      if (leftCost == null && rightCost != null) return 1;
+      return compareModelNames(left.model, right.model);
+    });
+}
+
+export function findCheapestModelMeetingCapabilities(
+  requirements: ModelCapabilityRequirements,
+  options: ModelCatalogSelectionOptions = {},
+): string | null {
+  return (
+    selectModelsByCapabilityAndCost(requirements, options)[0]?.model ?? null
+  );
 }
 
 /**
@@ -302,6 +619,9 @@ export async function refreshAvailableModelCatalogs(opts?: {
 export function isModelVisionCapable(model: string): boolean {
   const normalized = String(model || '').trim();
   if (!normalized) return false;
+  if (hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX)) {
+    return isDiscoveredOpenRouterModelVisionCapable(normalized);
+  }
   return (
     isDiscoveredMistralModelVisionCapable(normalized) ||
     isDiscoveredAnthropicModelVisionCapable(normalized) ||

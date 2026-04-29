@@ -441,6 +441,64 @@ Edit body.
     expect(skillsMod.loadSkills('silent')).toEqual([]);
   });
 
+  it('loadSkills applies workspace skill policy rules', async () => {
+    const extraDir = path.join(tmpDir, 'policy-skills');
+    writeSkill(
+      extraDir,
+      'sap',
+      `---
+name: sap
+description: SAP skill
+---
+
+SAP body.
+`,
+    );
+    writeSkill(
+      extraDir,
+      'ga4',
+      `---
+name: ga4
+description: GA4 skill
+---
+
+GA4 body.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+      draft.skills.disabled = [];
+    });
+
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const policyDir = path.join(agentWorkspaceDir('main'), '.hybridclaw');
+    fs.mkdirSync(policyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(policyDir, 'policy.yaml'),
+      [
+        'skill:',
+        '  rules:',
+        '    - id: deny-sap-for-main',
+        '      when:',
+        '        all:',
+        '          - predicate: skill.name',
+        '            equals: sap',
+        '          - predicate: agent.id',
+        '            equals: main',
+        '      action:',
+        '        type: deny',
+        '        reason: SAP is blocked for this agent.',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const skillNames = skillsMod.loadSkills('main').map((skill) => skill.name);
+    expect(skillNames).not.toContain('sap');
+    expect(skillNames).toContain('ga4');
+  });
+
   it('sorts discovered skills by category and then by name', () => {
     const extraDir = path.join(tmpDir, 'extra-categories');
     writeSkill(

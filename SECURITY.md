@@ -124,6 +124,8 @@ and assigns a 0-100 risk score:
 ```bash
 hybridclaw audit scan-leaks                # scan every session
 hybridclaw audit scan-leaks <sessionId>    # scan one session
+hybridclaw audit scan-leaks --level high   # critical/high only
+hybridclaw audit scan-leaks --type in,out  # prompts and model responses only
 hybridclaw audit scan-leaks --json         # machine-readable report
 ```
 

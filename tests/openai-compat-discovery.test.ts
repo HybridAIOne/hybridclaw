@@ -122,7 +122,10 @@ describe('openai-compat discovery — per-provider store', () => {
         jsonResponse({
           object: 'list',
           data: [
-            { id: 'gemini-2.5-pro' },
+            {
+              id: 'gemini-2.5-pro',
+              pricing: { input_per_million: 1.25, output_per_million: 10 },
+            },
             { id: 'gemini-2.5-flash' },
             { id: 'gemini-2.0-flash' },
           ],
@@ -151,6 +154,10 @@ describe('openai-compat discovery — per-provider store', () => {
       'gemini/gemini-2.5-flash',
       'gemini/gemini-2.0-flash',
     ]);
+    expect(store.getModelPricingUsdPerToken('gemini/gemini-2.5-pro')).toEqual({
+      input: 1.25 / 1_000_000,
+      output: 10 / 1_000_000,
+    });
   });
 
   test('does not double-prefix ids the API already namespaced (kilo proxy case)', async () => {
@@ -299,6 +306,45 @@ describe('openai-compat discovery — per-provider store', () => {
     await store.discoverModels();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(store.getModelNames()).toEqual(['xai/grok-3']);
+  });
+
+  test('uses xAI language models for aliases and pricing', async () => {
+    process.env.XAI_API_KEY = 'xai-test';
+    mockModules({ XAI_ENABLED: true });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://api.x.ai/v1/language-models');
+      return jsonResponse({
+        models: [
+          {
+            id: 'grok-4.20-0309',
+            aliases: ['grok-4.20-0309-non-reasoning'],
+            prompt_text_token_price: 300,
+            completion_text_token_price: 1500,
+          },
+        ],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const discovery = await importDiscovery();
+    const { OPENAI_COMPAT_REMOTE_PROVIDERS } = await importRegistry();
+    const xaiDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === 'xai');
+    if (!xaiDef) throw new Error('xai provider def missing');
+    const store = discovery.createOpenAICompatDiscoveryStore(
+      xaiDef,
+      () => true,
+    );
+
+    await expect(store.discoverModels()).resolves.toEqual([
+      'xai/grok-4.20-0309',
+      'xai/grok-4.20-0309-non-reasoning',
+    ]);
+    expect(
+      store.getModelPricingUsdPerToken('xai/grok-4.20-0309-non-reasoning'),
+    ).toEqual({
+      input: 0.00000003,
+      output: 0.00000015,
+    });
   });
 
   test('deduplicates concurrent discoverModels calls to a single fetch', async () => {

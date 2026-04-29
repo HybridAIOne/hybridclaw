@@ -9,6 +9,10 @@ import {
   stripHybridAIModelPrefix,
 } from './model-names.js';
 import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
+import {
   createDiscoveryStore,
   isRecord,
   normalizeBaseUrl,
@@ -123,7 +127,7 @@ function buildHybridAIModelKeyLookup(
 
 function resolveCachedHybridAIModelKey(
   model: string,
-  cachedValues: ReadonlyMap<string, number>,
+  cachedValues: ReadonlyMap<string, unknown>,
   lookup: HybridAIModelKeyLookup,
 ): string {
   const requested = String(model || '').trim();
@@ -151,6 +155,9 @@ export interface HybridAIDiscoveryStore {
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => { input: number | null; output: number | null } | null;
 }
 
 interface HybridAIDiscoveryState {
@@ -159,6 +166,8 @@ interface HybridAIDiscoveryState {
   contextWindowModelKeyLookup: HybridAIModelKeyLookup;
   maxTokensByModel: Map<string, number>;
   maxTokensModelKeyLookup: HybridAIModelKeyLookup;
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
+  pricingModelKeyLookup: HybridAIModelKeyLookup;
 }
 
 const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
@@ -167,6 +176,8 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   contextWindowModelKeyLookup: buildHybridAIModelKeyLookup([]),
   maxTokensByModel: new Map(),
   maxTokensModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  pricingByModel: new Map(),
+  pricingModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
 
 export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
@@ -203,6 +214,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
 
     for (const entry of getDiscoveryEntries(payload)) {
       if (!isRecord(entry)) continue;
@@ -223,6 +235,10 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (modelMaxTokens != null) {
         maxTokens.set(normalized, modelMaxTokens);
       }
+      const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+      if (pricing) {
+        pricingByModel.set(normalized, pricing);
+      }
     }
 
     return {
@@ -233,6 +249,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       ),
       maxTokensByModel: maxTokens,
       maxTokensModelKeyLookup: buildHybridAIModelKeyLookup(maxTokens.keys()),
+      pricingByModel,
+      pricingModelKeyLookup: buildHybridAIModelKeyLookup(pricingByModel.keys()),
     };
   }
 
@@ -287,6 +305,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.maxTokensByModel.get(normalized) ?? null;
     },
+    getModelPricingUsdPerToken: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.pricingByModel,
+        state.pricingModelKeyLookup,
+      );
+      return state.pricingByModel.get(normalized) ?? null;
+    },
   };
 }
 
@@ -312,4 +339,10 @@ export function getDiscoveredHybridAIModelMaxTokens(
   model: string,
 ): number | null {
   return defaultHybridAIDiscoveryStore.getModelMaxTokens(model);
+}
+
+export function getDiscoveredHybridAIModelPricingUsdPerToken(
+  model: string,
+): { input: number | null; output: number | null } | null {
+  return defaultHybridAIDiscoveryStore.getModelPricingUsdPerToken(model);
 }

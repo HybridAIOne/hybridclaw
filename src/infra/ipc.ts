@@ -42,6 +42,18 @@ function redactTaskModelSecrets(
   return Object.keys(redacted).length > 0 ? redacted : undefined;
 }
 
+function redactWebSearchSecrets(
+  webSearch: ContainerInput['webSearch'],
+): ContainerInput['webSearch'] | undefined {
+  if (!webSearch) return undefined;
+  return {
+    ...webSearch,
+    braveApiKey: undefined,
+    perplexityApiKey: undefined,
+    tavilyApiKey: undefined,
+  };
+}
+
 export function agentWorkspaceDir(agentId: string): string {
   return path.join(agentDir(agentId), 'workspace');
 }
@@ -79,6 +91,7 @@ export function writeInput(
         apiKey: '',
         requestHeaders: {},
         taskModels: redactTaskModelSecrets(input.taskModels),
+        webSearch: redactWebSearchSecrets(input.webSearch),
       }
     : input;
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {

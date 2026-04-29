@@ -336,7 +336,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
       }),
       expect.objectContaining({
         id: 'openai-codex/gpt-5.4-mini',
-        contextWindow: 272_000,
+        contextWindow: 400_000,
         maxTokens: null,
       }),
     ]),
@@ -1976,6 +1976,73 @@ test('status shows zero cache usage when the provider reports zero cache tokens'
   expect(result.text).toContain('🗄️ Cache: 0% hit · 0 cached, 0 new');
 });
 
+test('status shows estimated cost when model pricing is cached', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.OPENROUTER_API_KEY = 'or-status-cost-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+    config.openrouter.enabled = true;
+  });
+  vi.resetModules();
+  mockHealthProbes({ openrouterReachable: true });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'hunter-alpha',
+                pricing: { prompt: '0.000001', completion: '0.000002' },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-cost',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 1_000,
+      completionTokens: 100,
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-cost',
+    guildId: null,
+    channelId: 'channel-status-cost',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain(
+    '🧮 Tokens: 1k in / 100 out · 0% local · Cost: $0.0012',
+  );
+});
+
 test('status shows delegate model, delegate token totals, and local token share', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -3081,9 +3148,16 @@ test('model info shows global, agent, and session scopes', async () => {
   expect(result.text).toContain('Global model: hybridai/gpt-5');
   expect(result.text).toContain('Agent model: hybridai/gpt-5-mini');
   expect(result.text).toContain('Session model: hybridai/gpt-5-nano');
+  expect(result.text).toContain('Known metadata: yes');
+  expect(result.text).toContain('Pricing: dynamic pricing unavailable');
+  expect(result.text).toContain(
+    'Capabilities: vision, tools, JSON mode, reasoning',
+  );
+  expect(result.text).not.toContain('Available now:');
+  expect(result.modelCatalog).toBeUndefined();
 });
 
-test('model info filters unavailable provider models from available now', async () => {
+test('model info does not return the available model catalog', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   process.env.HYBRIDAI_API_KEY = 'hai-model-info-1234567890';
@@ -3141,25 +3215,32 @@ test('model info filters unavailable provider models from available now', async 
     channelId: 'channel-model-info-state',
     args: ['model', 'info'],
   });
+  const repeated = await handleGatewayCommand({
+    sessionId: 'session-model-info-state',
+    guildId: null,
+    channelId: 'channel-model-info-state',
+    args: ['model', 'info'],
+  });
 
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
-  expect(result.text).toContain('Available now:');
+  expect(repeated.kind).toBe('info');
+  expect(result.text).toContain('Effective model: hybridai/gpt-5');
+  expect(result.text).toContain('Pricing: dynamic pricing unavailable');
   expect(result.text).toContain('hybridai/gpt-5');
-  expect(result.text).toContain('hybridai/gpt-5-ultra');
+  expect(result.text).not.toContain('Available now:');
+  expect(result.text).not.toContain('hybridai/gpt-5-ultra');
   expect(result.text).not.toContain('openai-codex/');
   expect(result.text).not.toContain('lmstudio/qwen/qwen3.5-9b');
-  expect(result.modelCatalog).toEqual(
-    expect.arrayContaining([
-      {
-        value: 'hybridai/gpt-5',
-        label: 'hybridai/gpt-5 (current)',
-        isFree: false,
-      },
-    ]),
-  );
+  expect(result.modelCatalog).toBeUndefined();
+  expect(
+    fetchMock.mock.calls.filter(([input]) => input.endsWith('/models')),
+  ).toHaveLength(1);
+  expect(
+    fetchMock.mock.calls.some(([input]) => input.endsWith('/v1/models')),
+  ).toBe(false);
 });
 
 test('model list refreshes local backend health before filtering models', async () => {
