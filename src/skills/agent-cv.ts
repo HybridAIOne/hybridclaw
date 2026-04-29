@@ -137,12 +137,49 @@ function normalizeCostMap(value: unknown): Record<string, number> {
   return normalized;
 }
 
+function quarantineCorruptCvState(input: {
+  agentId: string;
+  statePath: string;
+  error: unknown;
+}): void {
+  const corruptPath = `${input.statePath}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(input.statePath, corruptPath);
+    logger.warn(
+      {
+        agentId: input.agentId,
+        statePath: input.statePath,
+        corruptPath,
+        error: input.error,
+      },
+      'Quarantined corrupt agent CV state',
+    );
+  } catch (quarantineError) {
+    logger.warn(
+      {
+        agentId: input.agentId,
+        statePath: input.statePath,
+        error: input.error,
+        quarantineError,
+      },
+      'Failed to quarantine corrupt agent CV state',
+    );
+  }
+}
+
 function loadCvState(agentId: string): AgentCvState {
   const statePath = cvStatePathForAgent(agentId);
   if (!fs.existsSync(statePath)) return emptyCvState(agentId);
   try {
     const parsed = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as unknown;
-    if (!isRecord(parsed)) return emptyCvState(agentId);
+    if (!isRecord(parsed)) {
+      quarantineCorruptCvState({
+        agentId,
+        statePath,
+        error: new Error('Agent CV state root must be an object.'),
+      });
+      return emptyCvState(agentId);
+    }
     const entries = Array.isArray(parsed.entries)
       ? parsed.entries
           .map(normalizeCvEntry)
@@ -165,7 +202,7 @@ function loadCvState(agentId: string): AgentCvState {
       entries,
     };
   } catch (error) {
-    logger.warn({ agentId, statePath, error }, 'Failed to load agent CV state');
+    quarantineCorruptCvState({ agentId, statePath, error });
     return emptyCvState(agentId);
   }
 }
@@ -445,7 +482,11 @@ function parseNarrations(
         };
       })
       .filter((entry): entry is CvNarration => Boolean(entry));
-  } catch {
+  } catch (error) {
+    logger.warn(
+      { eventCount: events.length, error },
+      'Failed to parse agent CV narration JSON',
+    );
     return [];
   }
 }
@@ -505,7 +546,18 @@ async function narrateSkillRuns(input: {
     userPrompt,
     maxOutputTokens: DEFAULT_CV_NARRATION_MAX_TOKENS,
   });
-  if (estimatedCostUsd == null || estimatedCostUsd > input.remainingBudgetUsd) {
+  if (estimatedCostUsd == null) {
+    logger.warn(
+      {
+        eventCount: events.length,
+        model,
+        remainingBudgetUsd: input.remainingBudgetUsd,
+      },
+      'Skipping agent CV narration because model pricing is unavailable',
+    );
+    return { narrations: events.map(fallbackNarration), costUsd: 0 };
+  }
+  if (estimatedCostUsd > input.remainingBudgetUsd) {
     logger.warn(
       {
         eventCount: events.length,

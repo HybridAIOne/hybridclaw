@@ -18,7 +18,7 @@ const {
   modelPricingUsdPerToken: {
     input: 0.00000001,
     output: 0.00000001,
-  },
+  } as { input: number | null; output: number | null },
 }));
 
 vi.mock('../src/providers/model-catalog.js', async (importOriginal) => {
@@ -764,6 +764,42 @@ test('CV state normalization drops entries with unknown outcomes', async () => {
   expect(cv('lena')).toContain('No completed assignments recorded yet.');
 });
 
+test('CV state load quarantines corrupt persisted state', async () => {
+  vi.useFakeTimers();
+  context = await createAdaptiveSkillsTestContext();
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { logger } = await import('../src/logger.ts');
+  const { cv } = await import('../src/skills/agent-scoreboard.ts');
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+  const workspace = agentWorkspaceDir('lena');
+  fs.mkdirSync(workspace, { recursive: true });
+  const statePath = path.join(workspace, '.CV.state.json');
+  fs.writeFileSync(statePath, '{not-json', 'utf-8');
+
+  vi.setSystemTime(new Date('2026-04-27T09:00:00.000Z'));
+  expect(cv('lena')).toContain('No completed assignments recorded yet.');
+
+  expect(fs.existsSync(statePath)).toBe(false);
+  expect(
+    fs
+      .readdirSync(workspace)
+      .filter((entry) => entry.startsWith('.CV.state.json.corrupt-')),
+  ).toHaveLength(1);
+  expect(warnSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      agentId: 'lena',
+      statePath,
+      corruptPath: expect.stringContaining('.CV.state.json.corrupt-'),
+      error: expect.any(SyntaxError),
+    }),
+    'Quarantined corrupt agent CV state',
+  );
+});
+
 test('CV narration cost history is pruned to the retention window', async () => {
   vi.useFakeTimers();
   context = await createAdaptiveSkillsTestContext();
@@ -868,6 +904,100 @@ test('CV narration falls back without an aux call when the daily budget would be
 
   expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
   expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+});
+
+test('CV narration logs and falls back when pricing is unavailable', async () => {
+  vi.useFakeTimers();
+  context = await createAdaptiveSkillsTestContext();
+  const { logger } = await import('../src/logger.ts');
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const { cv, waitForQueuedAgentCvRefreshes } = await import(
+    '../src/skills/agent-scoreboard.ts'
+  );
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+  modelPricingUsdPerToken.input = null;
+  modelPricingUsdPerToken.output = null;
+
+  vi.setSystemTime(new Date('2026-04-27T09:00:00.000Z'));
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-missing-pricing',
+    runId: 'run-cv-missing-pricing',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+
+  await waitForQueuedAgentCvRefreshes();
+
+  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+  expect(warnSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      eventCount: 1,
+      model: 'hybridai/gpt-5-nano',
+      remainingBudgetUsd: 0.005,
+    }),
+    'Skipping agent CV narration because model pricing is unavailable',
+  );
+});
+
+test('CV narration logs parse failures before falling back', async () => {
+  vi.useFakeTimers();
+  context = await createAdaptiveSkillsTestContext();
+  const { logger } = await import('../src/logger.ts');
+  const { recordSkillExecution } = await import(
+    '../src/skills/skills-observation.ts'
+  );
+  const { cv, waitForQueuedAgentCvRefreshes } = await import(
+    '../src/skills/agent-scoreboard.ts'
+  );
+  context.dbModule.upsertAgent({
+    id: 'lena',
+    name: 'Lena',
+  });
+  const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+  callAuxiliaryModelMock.mockResolvedValueOnce({
+    provider: 'hybridai',
+    model: 'hybridai/gpt-5-nano',
+    content: 'not json',
+    usage: {
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      costUsd: 0.0001,
+    },
+  });
+
+  vi.setSystemTime(new Date('2026-04-27T09:00:00.000Z'));
+  recordSkillExecution({
+    skillName: context.skillName,
+    sessionId: 'session-cv-bad-json',
+    runId: 'run-cv-bad-json',
+    agentId: 'lena',
+    toolExecutions: [],
+    outcome: 'success',
+    durationMs: 100,
+  });
+
+  await waitForQueuedAgentCvRefreshes();
+
+  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
+  expect(cv('lena')).toContain(`Completed ${context.skillName}`);
+  expect(warnSpy).toHaveBeenCalledWith(
+    expect.objectContaining({
+      eventCount: 1,
+      error: expect.any(SyntaxError),
+    }),
+    'Failed to parse agent CV narration JSON',
+  );
 });
 
 test('skips CV writes for unknown agent ids from skill events', async () => {
