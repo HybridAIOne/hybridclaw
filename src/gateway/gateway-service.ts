@@ -4094,13 +4094,7 @@ export function getGatewayAdminTeamStructureRevision(
 ): GatewayAdminTeamStructureRevisionResponse {
   const revision = getRegisteredAgentTeamStructureRevision(revisionId);
   return {
-    revision: {
-      ...mapGatewayAdminTeamStructureRevision(revision),
-      content: revision.content,
-      snapshot: revision.snapshot,
-      nextContent: revision.nextContent,
-      nextSnapshot: revision.nextSnapshot,
-    },
+    revision: mapGatewayAdminTeamStructureRevision(revision),
   };
 }
 

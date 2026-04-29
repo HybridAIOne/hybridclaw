@@ -18,7 +18,6 @@ import {
   diffAgentTeamStructureSnapshots,
   parseAgentTeamStructureSnapshot,
   serializeAgentTeamStructure,
-  serializeAgentTeamStructureSnapshot,
 } from './team-structure.js';
 
 export interface AgentTeamStructureRevisionSummary
@@ -29,10 +28,7 @@ export interface AgentTeamStructureRevisionSummary
 
 export interface AgentTeamStructureRevision
   extends AgentTeamStructureRevisionSummary {
-  content: string;
   snapshot: AgentTeamStructureSnapshot;
-  nextContent: string | null;
-  nextSnapshot: AgentTeamStructureSnapshot | null;
 }
 
 export function agentTeamStructureAssetPath(): string {
@@ -165,17 +161,9 @@ export function getAgentTeamStructureRevision(
     nextSnapshot ?? snapshot,
   );
   return {
-    ...record,
+    ...summary,
     diff,
     changeCount: agentTeamStructureDiffCount(diff),
     snapshot,
-    nextContent,
-    nextSnapshot,
   };
-}
-
-export function serializeAgentTeamStructureForRevision(
-  snapshot: AgentTeamStructureSnapshot,
-): string {
-  return serializeAgentTeamStructureSnapshot(snapshot);
 }

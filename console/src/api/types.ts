@@ -838,12 +838,7 @@ export interface AdminTeamStructureResponse {
 }
 
 export interface AdminTeamStructureRevisionResponse {
-  revision: AdminTeamStructureRevision & {
-    content: string;
-    snapshot: AdminTeamStructureSnapshot;
-    nextContent: string | null;
-    nextSnapshot: AdminTeamStructureSnapshot | null;
-  };
+  revision: AdminTeamStructureRevision;
 }
 
 export interface AdminAgentMarkdownFileResponse {

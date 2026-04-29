@@ -902,12 +902,7 @@ export interface GatewayAdminTeamStructureResponse {
 }
 
 export interface GatewayAdminTeamStructureRevisionResponse {
-  revision: GatewayAdminTeamStructureRevision & {
-    content: string;
-    snapshot: AgentTeamStructureSnapshot;
-    nextContent: string | null;
-    nextSnapshot: AgentTeamStructureSnapshot | null;
-  };
+  revision: GatewayAdminTeamStructureRevision;
 }
 
 export interface GatewayAdminAgentMarkdownFileResponse {
