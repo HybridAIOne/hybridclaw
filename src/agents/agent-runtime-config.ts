@@ -8,7 +8,7 @@ import type {
   AgentModelConfig,
   AgentsConfig,
 } from './agent-types.js';
-import { agentCvEquals } from './agent-types.js';
+import { agentCvEquals, agentEscalationTargetEquals } from './agent-types.js';
 
 function sameStringArray(a?: string[], b?: string[]): boolean {
   if (a === b) return true;
@@ -36,7 +36,11 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     a.enableRag === b.enableRag &&
     a.owner === b.owner &&
     a.role === b.role &&
-    agentCvEquals(a.cv, b.cv)
+    a.reportsTo === b.reportsTo &&
+    sameStringArray(a.delegatesTo, b.delegatesTo) &&
+    sameStringArray(a.peers, b.peers) &&
+    agentCvEquals(a.cv, b.cv) &&
+    agentEscalationTargetEquals(a.escalationTarget, b.escalationTarget)
   );
 }
 

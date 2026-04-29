@@ -380,6 +380,45 @@ test('getGatewayHistory tolerates databases without session_branches', async () 
   );
 });
 
+test('history and context usage resolve session keys to the current session', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayHistory, getGatewaySessionContextUsage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const session = memoryService.getOrCreateSession(
+    'web:session-key-context',
+    null,
+    'web',
+    'main',
+  );
+  memoryService.storeMessage({
+    sessionId: session.id,
+    userId: 'user-1',
+    username: 'web',
+    role: 'user',
+    content: 'hello',
+  });
+
+  const history = getGatewayHistory(session.session_key, 10);
+  const context = getGatewaySessionContextUsage(session.session_key);
+
+  expect(history.sessionId).toBe(session.id);
+  expect(context).toMatchObject({
+    status: 'ok',
+    sessionId: session.id,
+    snapshot: expect.objectContaining({
+      sessionId: session.id,
+      messageCount: 1,
+    }),
+  });
+});
+
 test('forkSessionBranch recreates session_branches when missing', async () => {
   setupHome();
 

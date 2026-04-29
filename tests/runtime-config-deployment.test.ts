@@ -70,6 +70,7 @@ describe('runtime deployment config', () => {
       public_url: '',
       tunnel: {
         provider: 'manual',
+        health_check_interval_ms: 30000,
       },
     });
     expect(readDiskConfig().deployment).toEqual({
@@ -77,6 +78,7 @@ describe('runtime deployment config', () => {
       public_url: '',
       tunnel: {
         provider: 'manual',
+        health_check_interval_ms: 30000,
       },
     });
   });
@@ -173,6 +175,7 @@ describe('runtime deployment config', () => {
     expect(readDiskConfig().deployment).toMatchObject({
       tunnel: {
         provider: 'wireguard',
+        health_check_interval_ms: 30000,
       },
     });
 
@@ -196,6 +199,7 @@ describe('runtime deployment config', () => {
         draft.deployment.mode = 'cloud';
         draft.deployment.public_url = 'https://bot.example.com/';
         draft.deployment.tunnel.provider = 'cloudflare';
+        draft.deployment.tunnel.health_check_interval_ms = 45000;
       },
       {
         actor: 'test-user',
@@ -209,6 +213,7 @@ describe('runtime deployment config', () => {
       public_url: 'https://bot.example.com',
       tunnel: {
         provider: 'cloudflare',
+        health_check_interval_ms: 45000,
       },
     });
     expect(readDiskConfig().deployment).toEqual({
@@ -216,6 +221,7 @@ describe('runtime deployment config', () => {
       public_url: 'https://bot.example.com',
       tunnel: {
         provider: 'cloudflare',
+        health_check_interval_ms: 45000,
       },
     });
     const revisions = runtimeConfig.listRuntimeConfigRevisions();
@@ -244,6 +250,7 @@ describe('runtime deployment config', () => {
       public_url: '',
       tunnel: {
         provider: 'manual',
+        health_check_interval_ms: 30000,
       },
     });
     expect(readDiskConfig().deployment).toEqual({
@@ -251,6 +258,7 @@ describe('runtime deployment config', () => {
       public_url: '',
       tunnel: {
         provider: 'manual',
+        health_check_interval_ms: 30000,
       },
     });
   });

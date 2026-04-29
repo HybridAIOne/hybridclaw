@@ -19,6 +19,7 @@ vi.mock('@tanstack/react-router', async () => {
 
 import type {
   BranchResponse,
+  ChatContextResponse,
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
@@ -45,6 +46,8 @@ const fetchChatRecentMock =
   >();
 const fetchChatHistoryMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
+const fetchChatContextMock =
+  vi.fn<(token: string, sessionId: string) => Promise<ChatContextResponse>>();
 const createChatMobileQrMock =
   vi.fn<
     (
@@ -82,6 +85,8 @@ vi.mock('../../api/chat', () => ({
   ) => fetchChatRecentMock(token, userId, channelId, limit, query),
   fetchChatHistory: (token: string, sessionId: string) =>
     fetchChatHistoryMock(token, sessionId),
+  fetchChatContext: (token: string, sessionId: string) =>
+    fetchChatContextMock(token, sessionId),
   createChatMobileQr: (
     token: string,
     payload: { userId: string; sessionId: string; baseUrl?: string },
@@ -157,6 +162,7 @@ describe('ChatPage', () => {
     fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
+    fetchChatContextMock.mockReset();
     createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
@@ -215,6 +221,10 @@ describe('ChatPage', () => {
             ],
       }),
     );
+    fetchChatContextMock.mockResolvedValue({
+      sessionId: 'session-a',
+      snapshot: null,
+    });
     fetchAgentListMock.mockResolvedValue([
       { id: 'main', name: 'Assistant' },
       { id: 'charly', name: 'Charly' },

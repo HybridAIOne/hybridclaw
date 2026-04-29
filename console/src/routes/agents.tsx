@@ -4,10 +4,17 @@ import {
   fetchAdminAgentMarkdownFile,
   fetchAdminAgentMarkdownRevision,
   fetchAdminAgents,
+  fetchAdminTeamStructure,
+  fetchAdminTeamStructureRevision,
   restoreAdminAgentMarkdownRevision,
+  restoreAdminTeamStructureRevision,
   saveAdminAgentMarkdownFile,
 } from '../api/client';
-import type { AdminAgent } from '../api/types';
+import type {
+  AdminAgent,
+  AdminTeamStructureDiff,
+  AdminTeamStructureFieldDiff,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
 import { Panel } from '../components/ui';
@@ -31,6 +38,31 @@ function getSelectedDocumentKey(
   return `${agentId}:${fileName}`;
 }
 
+function formatTeamFieldValue(
+  value: AdminTeamStructureFieldDiff['before'],
+): string {
+  if (Array.isArray(value)) return value.length > 0 ? value.join(', ') : 'none';
+  return value || 'none';
+}
+
+function formatTeamDiff(diff: AdminTeamStructureDiff): string {
+  const lines: string[] = [];
+  for (const agent of diff.added) {
+    lines.push(`+ ${agent.id}`);
+  }
+  for (const agent of diff.removed) {
+    lines.push(`- ${agent.id}`);
+  }
+  for (const agent of diff.changed) {
+    for (const field of agent.fields) {
+      lines.push(
+        `~ ${agent.agentId}.${field.field}: ${formatTeamFieldValue(field.before)} -> ${formatTeamFieldValue(field.after)}`,
+      );
+    }
+  }
+  return lines.length > 0 ? lines.join('\n') : 'No field changes recorded.';
+}
+
 export function AgentFilesPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -45,6 +77,9 @@ export function AgentFilesPage() {
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(
     null,
   );
+  const [selectedTeamRevisionId, setSelectedTeamRevisionId] = useState<
+    number | null
+  >(null);
   const [draftContent, setDraftContent] = useState('');
   const hydratedDocumentKeyRef = useRef<string | null>(null);
   const hydratedContentRef = useRef('');
@@ -132,6 +167,24 @@ export function AgentFilesPage() {
     enabled: Boolean(
       selectedAgent?.id && selectedFileName && selectedRevisionId,
     ),
+    refetchOnWindowFocus: false,
+  });
+
+  const teamQuery = useQuery({
+    queryKey: ['admin-team-structure', auth.token],
+    queryFn: () => fetchAdminTeamStructure(auth.token),
+    refetchOnWindowFocus: false,
+  });
+
+  const teamRevisionQuery = useQuery({
+    queryKey: [
+      'admin-team-structure-revision',
+      auth.token,
+      selectedTeamRevisionId || 0,
+    ],
+    queryFn: () =>
+      fetchAdminTeamStructureRevision(auth.token, selectedTeamRevisionId || 0),
+    enabled: Boolean(selectedTeamRevisionId),
     refetchOnWindowFocus: false,
   });
 
@@ -228,6 +281,29 @@ export function AgentFilesPage() {
     },
     onError: (error) => {
       toast.error('Restore failed', getErrorMessage(error));
+    },
+  });
+
+  const restoreTeamMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedTeamRevisionId) {
+        throw new Error('Select a team revision to restore first.');
+      }
+      return restoreAdminTeamStructureRevision(
+        auth.token,
+        selectedTeamRevisionId,
+      );
+    },
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['admin-team-structure', auth.token], payload);
+      void queryClient.invalidateQueries({
+        queryKey: ['admin-agents', auth.token],
+      });
+      setSelectedTeamRevisionId(null);
+      toast.success('Restored team structure from revision history.');
+    },
+    onError: (error) => {
+      toast.error('Team restore failed', getErrorMessage(error));
     },
   });
 
@@ -442,6 +518,104 @@ export function AgentFilesPage() {
                             }
                           >
                             Copy to Editor
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </Panel>
+                </div>
+
+                <div className="two-column-grid">
+                  <Panel
+                    title="Team Revisions"
+                    subtitle={`${teamQuery.data?.revisions.length || 0} saved revision${teamQuery.data?.revisions.length === 1 ? '' : 's'}`}
+                  >
+                    {teamQuery.isLoading ? (
+                      <div className="empty-state">
+                        Loading team revisions...
+                      </div>
+                    ) : !teamQuery.data?.revisions.length ? (
+                      <div className="empty-state">
+                        Team revisions appear here after org-chart changes.
+                      </div>
+                    ) : (
+                      <div className="list-stack selectable-list">
+                        {teamQuery.data.revisions.map((revision) => (
+                          <button
+                            key={revision.id}
+                            className={
+                              revision.id === selectedTeamRevisionId
+                                ? 'selectable-row active'
+                                : 'selectable-row'
+                            }
+                            type="button"
+                            onClick={() =>
+                              setSelectedTeamRevisionId(revision.id)
+                            }
+                          >
+                            <div>
+                              <strong>
+                                #{revision.id} ·{' '}
+                                {formatDateTime(revision.createdAt)}
+                              </strong>
+                              <small>
+                                {formatRelativeTime(revision.createdAt)} ·{' '}
+                                {revision.changeCount} change
+                                {revision.changeCount === 1 ? '' : 's'} ·{' '}
+                                {revision.route}
+                              </small>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </Panel>
+
+                  <Panel title="Team Diff" accent="warm">
+                    {!selectedTeamRevisionId ? (
+                      <div className="empty-state">
+                        Select a team revision to inspect its diff.
+                      </div>
+                    ) : teamRevisionQuery.isLoading ? (
+                      <div className="empty-state">
+                        Loading team revision...
+                      </div>
+                    ) : !teamRevisionQuery.data ? (
+                      <div className="empty-state">
+                        Team revision details are unavailable.
+                      </div>
+                    ) : (
+                      <div className="detail-stack">
+                        <div className="summary-block">
+                          <span>
+                            Revision #{teamRevisionQuery.data.revision.id}
+                          </span>
+                          <p>
+                            {teamRevisionQuery.data.revision.md5.slice(0, 16)} ·{' '}
+                            {teamRevisionQuery.data.revision.source}
+                          </p>
+                        </div>
+                        <label className="field textarea-field">
+                          <span>Diff</span>
+                          <textarea
+                            className="code-editor"
+                            rows={10}
+                            readOnly
+                            value={formatTeamDiff(
+                              teamRevisionQuery.data.revision.diff,
+                            )}
+                          />
+                        </label>
+                        <div className="button-row">
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={restoreTeamMutation.isPending}
+                            onClick={() => restoreTeamMutation.mutate()}
+                          >
+                            {restoreTeamMutation.isPending
+                              ? 'Restoring...'
+                              : 'Restore Team'}
                           </button>
                         </div>
                       </div>

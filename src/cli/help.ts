@@ -8,6 +8,7 @@ export function printMainUsage(): void {
   Commands:
   agent      Configure agents or manage portable agent archives
   auth       Unified provider login/logout/status
+  backup     Create or restore a full-state backup of ~/.hybridclaw
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
@@ -594,7 +595,12 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <source>
   hybridclaw skill install <skill-name> <dependency>
+  hybridclaw skill upgrade <source>
+  hybridclaw skill uninstall <skill-name>
+  hybridclaw skill revisions <skill-name>
+  hybridclaw skill rollback <skill-name> <revision-id>
   hybridclaw skill setup <skill-name>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
@@ -606,7 +612,9 @@ Commands:
 
 Notes:
   - \`list\` shows declared dependency ids from skill frontmatter.
-  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
+  - \`install <source>\` installs a packaged skill into \`~/.hybridclaw/skills\`, records a package manifest, and snapshots it for rollback.
+  - \`install <skill> <dependency>\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter.
+  - \`upgrade\`, \`uninstall\`, \`revisions\`, and \`rollback\` manage packaged skills through audited lifecycle records.
   - \`setup\` installs every declared dependency for a skill in order.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
@@ -617,8 +625,7 @@ Notes:
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
-  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
+  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.`);
 }
 
 export function printToolUsage(): void {
@@ -704,6 +711,25 @@ Notes:
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
 }
 
+export function printBackupUsage(): void {
+  console.log(`Usage: hybridclaw backup [options]
+       hybridclaw backup restore <archive.zip> [--force]
+
+Commands:
+  hybridclaw backup                       Create a timestamped backup of the HybridClaw runtime home
+  hybridclaw backup --output <path>       Write the backup archive to a specific path
+  hybridclaw backup restore <archive>     Restore the runtime home from a backup archive
+  hybridclaw backup restore <archive> --force   Overwrite without prompting
+
+Notes:
+  - Backups include everything under the HybridClaw runtime home (default: ~/.hybridclaw, or $HYBRIDCLAW_DATA_DIR when set).
+  - SQLite databases are snapshotted via the SQLite backup API, so WAL-mode databases produce consistent copies.
+  - Ephemeral state is excluded: WAL/SHM sidecars, cache/, container-image-state/, evals/, migration-backups/, gateway.pid, cron.pid, node_modules, and .git.
+  - The archive name defaults to hybridclaw-backup-YYYYMMDD-HHMMSS.zip in the current directory.
+  - \`backup restore\` prompts before overwriting an existing runtime home; pass \`--force\` to skip the prompt (for scripts and non-interactive shells).
+  - Restore validates an embedded manifest plus \`config.json\` and \`credentials.json\` marker files before replacing any data.`);
+}
+
 export function printSecretUsage(): void {
   console.log(`Usage: hybridclaw secret <command>
 
@@ -776,6 +802,7 @@ export function printHelpUsage(): void {
 Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
+  backup      Help for full-state backup and restore commands
   gateway     Help for gateway lifecycle and passthrough commands
   eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
@@ -847,6 +874,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'auth':
       printAuthUsage();
+      return true;
+    case 'backup':
+      printBackupUsage();
       return true;
     case 'gateway':
       printGatewayUsage();

@@ -223,6 +223,62 @@ autonomy:
     expect(evaluation.decision).toBe('required');
   });
 
+  test('low-stakes autonomy pauses medium-stakes actions for escalation', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({
+        path: 'docs/project-note.md',
+        content: 'Project note',
+      }),
+      latestUserPrompt: 'Create a project note',
+    });
+
+    expect(evaluation.stakes).toBe('medium');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.escalationRoute).not.toBe('implicit_notice');
+  });
+
+  test('out-of-bound escalation carries target and classifier reasoning', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({
+        action: 'send',
+        channel: 'customer-success',
+        text: 'Tell the customer their invoice was refunded.',
+      }),
+      latestUserPrompt: 'Send a refund update to the customer',
+      escalationTarget: {
+        channel: 'slack:COPS',
+        recipient: 'ops-lead',
+      },
+    });
+    const prompt = runtime.formatApprovalRequest(evaluation);
+
+    expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.escalationTarget).toEqual({
+      channel: 'slack:COPS',
+      recipient: 'ops-lead',
+    });
+    expect(prompt).toContain('Proposed action:');
+    expect(prompt).toContain('Classifier reasoning: high stakes via');
+    expect(prompt).toContain('Escalation target: slack:COPS / ops-lead');
+  });
+
   test('pip install is classified as dependency installation', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

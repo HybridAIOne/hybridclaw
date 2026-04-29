@@ -39,6 +39,7 @@ test('buildSlashCommandDefinitions includes the expanded Discord command set', (
       'show',
       'approve',
       'compact',
+      'context',
       'channel-mode',
       'channel-policy',
       'concierge',

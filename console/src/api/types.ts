@@ -268,9 +268,23 @@ export interface AdminModelUsageRow extends AdminUsageSummary {
   model: string;
 }
 
+export type AdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
+
+export interface AdminTunnelStatus {
+  provider: string | null;
+  publicUrl: string | null;
+  state: 'down' | 'starting' | 'up' | 'reconnecting';
+  health: AdminTunnelHealth;
+  reconnectSupported: boolean;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  nextReconnectAt: string | null;
+}
+
 export interface AdminOverview {
   status: GatewayStatus;
   configPath: string;
+  tunnel: AdminTunnelStatus;
   recentSessions: AdminSession[];
   usage: {
     daily: AdminUsageSummary;
@@ -768,6 +782,10 @@ export interface AdminAgent {
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  role: string | null;
+  reportsTo: string | null;
+  delegatesTo: string[] | null;
+  peers: string[] | null;
   workspace: string | null;
   workspacePath: string;
   markdownFiles: AdminAgentMarkdownFile[];
@@ -775,6 +793,58 @@ export interface AdminAgent {
 
 export interface AdminAgentsResponse {
   agents: AdminAgent[];
+}
+
+export interface AdminTeamStructureEntry {
+  id: string;
+  role?: string;
+  reportsTo?: string;
+  delegatesTo?: string[];
+  peers?: string[];
+}
+
+export interface AdminTeamStructureSnapshot {
+  version: 1;
+  agents: AdminTeamStructureEntry[];
+}
+
+export interface AdminTeamStructureFieldDiff {
+  field: 'role' | 'reportsTo' | 'delegatesTo' | 'peers';
+  before: string | string[] | null;
+  after: string | string[] | null;
+}
+
+export interface AdminTeamStructureAgentDiff {
+  agentId: string;
+  fields: AdminTeamStructureFieldDiff[];
+}
+
+export interface AdminTeamStructureDiff {
+  added: AdminTeamStructureEntry[];
+  removed: AdminTeamStructureEntry[];
+  changed: AdminTeamStructureAgentDiff[];
+}
+
+export interface AdminTeamStructureRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+  sizeBytes: number;
+  replacedByMd5: string | null;
+  changeCount: number;
+  diff: AdminTeamStructureDiff;
+}
+
+export interface AdminTeamStructureResponse {
+  snapshot: AdminTeamStructureSnapshot;
+  revisions: AdminTeamStructureRevision[];
+}
+
+export interface AdminTeamStructureRevisionResponse {
+  revision: AdminTeamStructureRevision;
 }
 
 export interface AdminAgentMarkdownFileResponse {

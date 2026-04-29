@@ -11,7 +11,14 @@ import {
   upsertRegisteredAgent,
 } from './agent-registry.js';
 import { activateAgentInRuntimeConfig } from './agent-runtime-config.js';
-import type { AgentConfig, AgentModelConfig } from './agent-types.js';
+import {
+  type AgentConfig,
+  type AgentModelConfig,
+  hasSnakeCamelAlias,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
+} from './agent-types.js';
 
 const MARKDOWN_MAX_BYTES = 200_000;
 const IMAGE_ASSET_MAX_BYTES = 5_000_000;
@@ -212,6 +219,60 @@ function applyAgentConfigFieldUpdates(
       delete next.enableRag;
     } else {
       throw new Error('`enableRag` must be a boolean or null.');
+    }
+  }
+  if (Object.hasOwn(updates, 'role')) {
+    const role = normalizeOptionalStringField('role', updates.role);
+    if (role) next.role = role;
+    else delete next.role;
+  }
+  if (hasSnakeCamelAlias(updates, 'reportsTo', 'reports_to')) {
+    const reportsTo = normalizeOptionalStringField(
+      'reportsTo',
+      resolveSnakeCamelAlias(updates, 'reportsTo', 'reports_to'),
+    );
+    if (reportsTo) next.reportsTo = reportsTo;
+    else delete next.reportsTo;
+  }
+  if (hasSnakeCamelAlias(updates, 'delegatesTo', 'delegates_to')) {
+    const delegatesTo = normalizeOptionalStringArrayField(
+      'delegatesTo',
+      resolveSnakeCamelAlias(updates, 'delegatesTo', 'delegates_to'),
+    );
+    if (delegatesTo !== undefined) next.delegatesTo = delegatesTo;
+    else delete next.delegatesTo;
+  }
+  if (Object.hasOwn(updates, 'peers')) {
+    const peers = normalizeOptionalStringArrayField('peers', updates.peers);
+    if (peers !== undefined) next.peers = peers;
+    else delete next.peers;
+  }
+  if (Object.hasOwn(updates, 'cv')) {
+    if (updates.cv === null) {
+      delete next.cv;
+    } else {
+      const cv = normalizeAgentCv(updates.cv);
+      if (!cv) {
+        throw new Error(
+          '`cv` must include at least one populated summary, background, capabilities, or asset field, or null.',
+        );
+      }
+      next.cv = cv;
+    }
+  }
+  if (Object.hasOwn(updates, 'escalationTarget')) {
+    if (updates.escalationTarget === null) {
+      delete next.escalationTarget;
+    } else {
+      const escalationTarget = normalizeAgentEscalationTarget(
+        updates.escalationTarget,
+      );
+      if (!escalationTarget) {
+        throw new Error(
+          '`escalationTarget` must include non-empty string `channel` and `recipient` fields, or null.',
+        );
+      }
+      next.escalationTarget = escalationTarget;
     }
   }
   return next;

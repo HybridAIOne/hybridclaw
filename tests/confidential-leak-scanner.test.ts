@@ -13,6 +13,10 @@ import {
   summarizeLeakReports,
 } from '../src/audit/leak-scanner.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
+import {
+  TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+  testThreads,
+} from './fixtures/trusted-agents.ts';
 
 let tempDir: string;
 
@@ -87,6 +91,55 @@ describe('audit log leak scanner', () => {
     expect(report.totalMatches).toBeGreaterThanOrEqual(2);
     expect(report.score).toBeGreaterThan(0);
     expect(['high', 'critical']).toContain(report.severity);
+  });
+
+  test('roadmap 6.x flags NDA content from trusted-agents thread fixtures', () => {
+    const fixtureRules = parseConfidentialYaml(
+      TRUSTED_AGENTS_CONFIDENTIAL_YAML,
+      'fixtures:trusted-agents',
+    );
+    const thread = testThreads.find(
+      (entry) => entry.id === 'thread_nda_triage',
+    );
+    if (!thread) throw new Error('Missing thread_nda_triage fixture');
+
+    writeWireLines('roadmap_6_fixture', [
+      {
+        type: 'metadata',
+        protocolVersion: '2.0',
+        sessionId: 'roadmap_6_fixture',
+        createdAt: '2026-04-20T11:00:00.000Z',
+      },
+      ...thread.messages.map((message, index) => ({
+        version: '2.0',
+        seq: index + 1,
+        timestamp: message.createdAt,
+        runId: 'run_roadmap_6_fixture',
+        sessionId: 'roadmap_6_fixture',
+        event: {
+          type: 'turn.start',
+          content: message.content,
+        },
+      })),
+    ]);
+
+    const report = scanAuditSessionForLeaks(
+      'roadmap_6_fixture',
+      fixtureRules,
+      tempDir,
+    );
+
+    expect(report.recordsScanned).toBe(thread.messages.length);
+    expect(report.matchedRecords).toHaveLength(1);
+    expect(report.matchedRecords[0].findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Project Canopy',
+          sensitivity: 'critical',
+        }),
+      ]),
+    );
+    expect(report.severity).toBe('critical');
   });
 
   test('returns zero matches when audit log is clean', () => {

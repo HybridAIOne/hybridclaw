@@ -4,7 +4,10 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  resolveSnakeCamelAlias,
+} from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
 import {
   type DiscordToolActionRequest,
@@ -88,7 +91,9 @@ import {
 import type { AdminTerminalServerMessage } from './admin-terminal-protocol.js';
 import {
   getSessionAuthPayload,
+  hasLocalWebSessionAuth,
   hasSessionAuth,
+  setLocalWebSessionCookie,
   setSessionCookie,
   verifyLaunchToken,
 } from './auth-token.js';
@@ -152,6 +157,8 @@ import {
   getGatewayAdminSessions,
   getGatewayAdminSkills,
   getGatewayAdminStatistics,
+  getGatewayAdminTeamStructure,
+  getGatewayAdminTeamStructureRevision,
   getGatewayAdminTools,
   getGatewayAgentList,
   getGatewayAgents,
@@ -159,11 +166,14 @@ import {
   getGatewayHistory,
   getGatewayHistorySummary,
   getGatewayRecentChatSessions,
+  getGatewaySessionContextUsage,
   getGatewayStatus,
   handleGatewayCommand,
+  reconnectGatewayAdminTunnel,
   removeGatewayAdminChannel,
   removeGatewayAdminMcpServer,
   restoreGatewayAdminAgentMarkdownRevision,
+  restoreGatewayAdminTeamStructureRevision,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
@@ -646,12 +656,6 @@ function isRuntimeMSTeamsChannelConfig(
   return true;
 }
 
-function isLoopbackAddress(address: string | undefined): boolean {
-  if (!address) return false;
-  const normalized = address.replace(/^::ffff:/, '');
-  return normalized === '127.0.0.1' || normalized === '::1';
-}
-
 function hasQueryToken(url: URL): boolean {
   const token = (url.searchParams.get('token') || '').trim();
   if (!token) return false;
@@ -659,20 +663,108 @@ function hasQueryToken(url: URL): boolean {
   return token === GATEWAY_API_TOKEN;
 }
 
+function isLoopbackSocketAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  if (address === '::1') return true;
+  if (address.startsWith('::ffff:')) {
+    const mappedAddress = address.slice('::ffff:'.length);
+    return (
+      mappedAddress === '127.0.0.1' ||
+      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(mappedAddress)
+    );
+  }
+  if (address === '127.0.0.1') return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+}
+
+function isLoopbackHost(value: string): boolean {
+  const host = value.trim().toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost') return true;
+  return isLoopbackSocketAddress(host);
+}
+
+function hasForwardingHeaders(req: IncomingMessage): boolean {
+  return (
+    req.headers.forwarded !== undefined ||
+    req.headers['x-forwarded-for'] !== undefined ||
+    req.headers['x-forwarded-host'] !== undefined ||
+    req.headers['x-forwarded-proto'] !== undefined
+  );
+}
+
+function extractHostnameFromHostHeader(
+  value: string | string[] | undefined,
+): string | null {
+  const host = normalizeHeaderValue(value);
+  if (!host) return null;
+  if (host.startsWith('[')) {
+    const endIndex = host.indexOf(']');
+    if (endIndex === -1) return null;
+    return host.slice(1, endIndex).trim().toLowerCase() || null;
+  }
+  const colonIndex = host.indexOf(':');
+  return (colonIndex === -1 ? host : host.slice(0, colonIndex))
+    .trim()
+    .toLowerCase();
+}
+
+function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
+  const requestHost = extractHostnameFromHostHeader(req.headers.host);
+  return (
+    !WEB_API_TOKEN &&
+    isLoopbackHost(HEALTH_HOST) &&
+    isLoopbackSocketAddress(req.socket.remoteAddress) &&
+    !hasForwardingHeaders(req) &&
+    Boolean(requestHost && isLoopbackHost(requestHost))
+  );
+}
+
+function requestUsesHttps(req: IncomingMessage): boolean {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto) return forwardedProto === 'https';
+  return (req.socket as { encrypted?: boolean }).encrypted === true;
+}
+
+function resolveRequestOriginForAuth(req: IncomingMessage): string | null {
+  const host = String(req.headers.host || '').trim();
+  if (!host) return null;
+  const protocol = requestUsesHttps(req) ? 'https' : 'http';
+  return `${protocol}://${host}`;
+}
+
+function hasSameGatewayOrigin(req: IncomingMessage): boolean {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return false;
+  return origin === resolveRequestOriginForAuth(req);
+}
+
 function hasApiAuth(
   req: IncomingMessage,
   url?: URL,
-  opts?: { allowQueryToken?: boolean },
+  opts?: {
+    allowLocalWebSession?: boolean;
+    allowQueryToken?: boolean;
+    requireSameOrigin?: boolean;
+  },
 ): boolean {
   const authHeader = req.headers.authorization || '';
   const gatewayTokenMatch =
     Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`;
   if (opts?.allowQueryToken && url && hasQueryToken(url)) return true;
 
-  if (!WEB_API_TOKEN) {
-    return gatewayTokenMatch || isLoopbackAddress(req.socket.remoteAddress);
+  if (WEB_API_TOKEN && authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
+  if (
+    opts?.allowLocalWebSession &&
+    isLocalWebSessionAllowed(req) &&
+    hasLocalWebSessionAuth(req) &&
+    (!opts.requireSameOrigin || hasSameGatewayOrigin(req))
+  ) {
+    return true;
   }
-  if (authHeader === `Bearer ${WEB_API_TOKEN}`) return true;
   return gatewayTokenMatch;
 }
 
@@ -690,13 +782,6 @@ function resolveApiMediaUploadQuotaKey(req: IncomingMessage): string {
   }
   if (GATEWAY_API_TOKEN && authHeader === `Bearer ${GATEWAY_API_TOKEN}`) {
     return 'gateway-token';
-  }
-
-  const normalizedAddress = String(req.socket.remoteAddress || '')
-    .replace(/^::ffff:/, '')
-    .trim();
-  if (isLoopbackAddress(req.socket.remoteAddress)) {
-    return `loopback:${normalizedAddress || 'unknown'}`;
   }
   return 'authenticated';
 }
@@ -806,13 +891,10 @@ function resolveRequestOrigin(
   const explicitBaseUrl = normalizePublicBaseUrl(bodyBaseUrl);
   if (explicitBaseUrl) return explicitBaseUrl;
 
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-    .split(',')[0]
-    ?.trim();
   const forwardedHost = String(req.headers['x-forwarded-host'] || '')
     .split(',')[0]
     ?.trim();
-  const proto = forwardedProto || 'http';
+  const proto = requestUsesHttps(req) ? 'https' : 'http';
   const host = forwardedHost || req.headers.host || `127.0.0.1:${HEALTH_PORT}`;
   return `${proto}://${host}`;
 }
@@ -838,6 +920,14 @@ function isConsoleSpaPath(pathname: string): boolean {
     pathname.startsWith('/admin/') ||
     pathname === '/chat' ||
     pathname.startsWith('/chat/')
+  );
+}
+
+function isLocalWebSurfacePath(pathname: string): boolean {
+  return (
+    isConsoleSpaPath(pathname) ||
+    pathname === '/agents' ||
+    pathname === '/agents.html'
   );
 }
 
@@ -1880,7 +1970,7 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   // sessionKey/mainSessionKey. If these fields ever become auth-sensitive,
   // remove them from this response instead of widening their meaning here.
   sendJson(res, 200, {
-    sessionId,
+    sessionId: historyPage.sessionId,
     sessionKey: historyPage.sessionKey || undefined,
     mainSessionKey: historyPage.mainSessionKey || undefined,
     history: historyPage.history,
@@ -1897,7 +1987,7 @@ function handleApiAgentAvatar(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url)) {
+  if (!hasApiAuth(req, url, { allowLocalWebSession: true })) {
     sendJson(res, 401, {
       error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
     });
@@ -2042,6 +2132,27 @@ function getSlashMenuEntries(): ReturnType<typeof buildTuiSlashMenuEntries> {
   return cachedSlashMenuEntries;
 }
 
+function handleApiChatContext(res: ServerResponse, url: URL): void {
+  const sessionId = url.searchParams.get('sessionId')?.trim();
+  if (!sessionId) {
+    sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
+    return;
+  }
+  if (isMalformedCanonicalSessionId(sessionId)) {
+    sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
+    return;
+  }
+  const result = getGatewaySessionContextUsage(sessionId);
+  if (result.status === 'not_found' || !result.snapshot) {
+    sendJson(res, 200, { sessionId, snapshot: null });
+    return;
+  }
+  sendJson(res, 200, {
+    sessionId: result.sessionId,
+    snapshot: result.snapshot,
+  });
+}
+
 function handleApiChatCommands(res: ServerResponse, url: URL): void {
   const query = (url.searchParams.get('q') ?? '').slice(0, 200);
   const ranked = rankTuiSlashMenuEntries(getSlashMenuEntries(), query);
@@ -2131,6 +2242,12 @@ function handleApiConfigReload(res: ServerResponse): void {
 
 async function handleApiAdminOverview(res: ServerResponse): Promise<void> {
   sendJson(res, 200, await getGatewayAdminOverview());
+}
+
+async function handleApiAdminTunnelReconnect(
+  res: ServerResponse,
+): Promise<void> {
+  sendJson(res, 200, { tunnel: await reconnectGatewayAdminTunnel() });
 }
 
 function handleApiAdminStatistics(res: ServerResponse, url: URL): void {
@@ -2230,6 +2347,12 @@ type ApiAdminAgentPayloadBody = {
   skills?: unknown;
   chatbotId?: unknown;
   enableRag?: unknown;
+  role?: unknown;
+  reportsTo?: unknown;
+  reports_to?: unknown;
+  delegatesTo?: unknown;
+  delegates_to?: unknown;
+  peers?: unknown;
   workspace?: unknown;
 };
 
@@ -2240,6 +2363,10 @@ type ApiAdminAgentPayload = {
   skills?: string[] | null;
   chatbotId?: string;
   enableRag?: boolean;
+  role?: string;
+  reportsTo?: string | null;
+  delegatesTo?: string[] | null;
+  peers?: string[] | null;
   workspace?: string;
 };
 
@@ -2328,7 +2455,8 @@ function sendApiAdminAgentError(res: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const isKnownNotFoundMessage =
     /^Agent ["`].+["`] was not found\.$/.test(message) ||
-    /^Revision ["`].+["`] was not found\.$/.test(message);
+    /^Revision ["`].+["`] was not found\.$/.test(message) ||
+    /^Team structure revision \d+ was not found\.$/.test(message);
   const status =
     error instanceof GatewayRequestError
       ? error.statusCode
@@ -2364,11 +2492,41 @@ function normalizeApiAdminAgentSkills(
   return normalizeTrimmedUniqueStringArray(skills);
 }
 
+function normalizeApiAdminAgentStringArray(
+  fieldName: string,
+  value: unknown,
+): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      `Expected \`${fieldName}\` to be an array or null.`,
+    );
+  }
+  return normalizeTrimmedUniqueStringArray(value);
+}
+
+function normalizeApiAdminNullableStringAlias(
+  value: object,
+  camelKey: string,
+  snakeKey: string,
+): string | null | undefined {
+  const input = resolveSnakeCamelAlias(value, camelKey, snakeKey);
+  if (typeof input === 'string') return input;
+  return input === null ? null : undefined;
+}
+
 async function readApiAdminAgentPayload(
   req: IncomingMessage,
   options?: { requireId?: boolean },
 ): Promise<ApiAdminAgentPayload> {
   const body = (await readJsonBody(req)) as ApiAdminAgentPayloadBody;
+  const delegatesToInput = resolveSnakeCamelAlias(
+    body,
+    'delegatesTo',
+    'delegates_to',
+  );
   const payload: ApiAdminAgentPayload = {
     id: String(body.id || '').trim() || undefined,
     name: typeof body.name === 'string' ? body.name : undefined,
@@ -2376,6 +2534,17 @@ async function readApiAdminAgentPayload(
     skills: normalizeApiAdminAgentSkills(body.skills),
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
+    role: typeof body.role === 'string' ? body.role : undefined,
+    reportsTo: normalizeApiAdminNullableStringAlias(
+      body,
+      'reportsTo',
+      'reports_to',
+    ),
+    delegatesTo: normalizeApiAdminAgentStringArray(
+      'delegatesTo',
+      delegatesToInput,
+    ),
+    peers: normalizeApiAdminAgentStringArray('peers', body.peers),
     workspace: typeof body.workspace === 'string' ? body.workspace : undefined,
   };
   if (options?.requireId && !payload.id) {
@@ -2409,6 +2578,10 @@ async function handleApiAdminAgentCollectionResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          role: payload.role,
+          reportsTo: payload.reportsTo,
+          delegatesTo: payload.delegatesTo,
+          peers: payload.peers,
           workspace: payload.workspace,
         }),
       );
@@ -2443,6 +2616,10 @@ async function handleApiAdminAgentResource(
           skills: payload.skills,
           chatbotId: payload.chatbotId,
           enableRag: payload.enableRag,
+          role: payload.role,
+          reportsTo: payload.reportsTo,
+          delegatesTo: payload.delegatesTo,
+          peers: payload.peers,
           workspace: payload.workspace,
         }),
       );
@@ -2597,6 +2774,49 @@ async function handleApiAdminAgents(
         error: route.isKnownPath ? 'Method Not Allowed' : 'Not Found',
       });
       return;
+  }
+}
+
+async function handleApiAdminTeamStructure(
+  res: ServerResponse,
+  method: string,
+  url: URL,
+): Promise<void> {
+  const segments = url.pathname.split('/').filter(Boolean);
+  if (segments.length === 3) {
+    if (method === 'GET') {
+      sendJson(res, 200, getGatewayAdminTeamStructure());
+      return;
+    }
+    sendMethodNotAllowed(res);
+    return;
+  }
+
+  const revisionId =
+    segments.length >= 5 && segments[3] === 'revisions'
+      ? parsePositiveInteger(decodeApiPathSegment(segments[4] || ''))
+      : null;
+  if (!revisionId) {
+    sendJson(res, 404, { error: 'Not Found' });
+    return;
+  }
+
+  try {
+    if (segments.length === 5 && method === 'GET') {
+      sendJson(res, 200, getGatewayAdminTeamStructureRevision(revisionId));
+      return;
+    }
+    if (
+      segments.length === 6 &&
+      segments[5] === 'restore' &&
+      method === 'POST'
+    ) {
+      sendJson(res, 200, restoreGatewayAdminTeamStructureRevision(revisionId));
+      return;
+    }
+    sendMethodNotAllowed(res);
+  } catch (error) {
+    sendApiAdminAgentError(res, error);
   }
 }
 
@@ -3471,7 +3691,12 @@ function handleApiArtifact(
   res: ServerResponse,
   url: URL,
 ): void {
-  if (!hasApiAuth(req, url, { allowQueryToken: true })) {
+  if (
+    !hasApiAuth(req, url, {
+      allowLocalWebSession: true,
+      allowQueryToken: true,
+    })
+  ) {
     sendJson(res, 401, {
       error:
         'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>` or pass `?token=<WEB_API_TOKEN>`.',
@@ -3553,7 +3778,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     const pathname = url.pathname;
 
     if (pathname === '/health' && method === 'GET') {
-      void getGatewayStatus().then(
+      void getGatewayStatus({ refreshProviderHealth: false }).then(
         (status) => sendJson(res, 200, status),
         (err) => {
           logger.error({ err }, 'Health check failed');
@@ -3717,6 +3942,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       if (
         !hasApiAuth(req, url, {
           allowQueryToken: pathname === '/api/events',
+          allowLocalWebSession: true,
+          requireSameOrigin: method !== 'GET',
         })
       ) {
         sendJson(res, 401, {
@@ -3748,8 +3975,19 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             await handleApiAdminOverview(res);
             return;
           }
+          if (pathname === '/api/admin/tunnel/reconnect' && method === 'POST') {
+            await handleApiAdminTunnelReconnect(res);
+            return;
+          }
           if (pathname === '/api/admin/statistics' && method === 'GET') {
             handleApiAdminStatistics(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/admin/team-structure' ||
+            pathname.startsWith('/api/admin/team-structure/')
+          ) {
+            await handleApiAdminTeamStructure(res, method, url);
             return;
           }
           if (
@@ -3897,6 +4135,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiChatCommands(res, url);
             return;
           }
+          if (pathname === '/api/chat/context' && method === 'GET') {
+            handleApiChatContext(res, url);
+            return;
+          }
           if (pathname === '/api/agents' && method === 'GET') {
             await handleApiAgents(res);
             return;
@@ -4021,6 +4263,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (isLocalWebSurfacePath(pathname)) {
+      if (!WEB_API_TOKEN && !isLoopbackHost(HEALTH_HOST)) {
+        sendText(
+          res,
+          401,
+          'Unauthorized. Configure WEB_API_TOKEN before exposing the web console on a non-loopback host.',
+        );
+        return;
+      }
+      if (isLocalWebSessionAllowed(req)) {
+        setLocalWebSessionCookie(res);
+      }
+    }
+
     if (isConsoleSpaPath(pathname)) {
       if (serveConsoleIndex(res)) return;
       sendText(
@@ -4049,8 +4305,23 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     const sessionAuthenticated = hasSessionAuth(req);
+    const tokenAuthenticated = hasApiAuth(req, url, {
+      allowQueryToken: false,
+    });
+    if (
+      !sessionAuthenticated &&
+      !tokenAuthenticated &&
+      isLocalWebSessionAllowed(req) &&
+      hasLocalWebSessionAuth(req) &&
+      !hasSameGatewayOrigin(req)
+    ) {
+      writeUpgradeError(socket, 401, 'Unauthorized');
+      return;
+    }
     const requestAuthenticated = hasApiAuth(req, url, {
       allowQueryToken: false,
+      allowLocalWebSession: true,
+      requireSameOrigin: true,
     });
     if (
       !sessionAuthenticated &&

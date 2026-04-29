@@ -11,6 +11,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { hasExecutableCommand } from '../utils/executables.js';
+import { expandHomePath } from '../utils/path.js';
 import {
   allRequiredBinsAvailable,
   checkPluginDependencies,
@@ -203,11 +204,7 @@ function defaultRunCommand({ command, args, cwd }: PluginCommand): void {
 }
 
 function expandUserPath(input: string, cwd: string): string {
-  if (input === '~') return os.homedir();
-  if (input.startsWith('~/')) {
-    return path.join(os.homedir(), input.slice(2));
-  }
-  return path.resolve(cwd, input);
+  return path.resolve(cwd, expandHomePath(input));
 }
 
 function looksLikeLocalPath(input: string): boolean {

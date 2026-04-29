@@ -5,6 +5,7 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentCv,
   normalizeAgentCv,
+  validateAgentOrgChart,
 } from '../src/agents/agent-types.js';
 
 test('buildOptionalAgentPresentation includes only populated presentation fields', () => {
@@ -82,4 +83,47 @@ test('agentCvEquals compares structurally', () => {
   ).toBe(false);
   expect(agentCvEquals({ summary: 'a' }, { summary: 'b' })).toBe(false);
   expect(agentCvEquals({ summary: 'a' }, undefined)).toBe(false);
+});
+
+test('validateAgentOrgChart accepts tree-shaped reporting lines', () => {
+  expect(() =>
+    validateAgentOrgChart([
+      { id: 'hq', role: 'Chief of Staff' },
+      { id: 'support-lead', role: 'Support Lead', reportsTo: 'hq' },
+      {
+        id: 'support-tier-1',
+        role: 'Support Specialist',
+        reportsTo: 'support-lead',
+        delegatesTo: ['support-tier-2'],
+        peers: ['support-tier-2'],
+      },
+      {
+        id: 'support-tier-2',
+        role: 'Escalation Specialist',
+        reportsTo: 'support-lead',
+        peers: ['support-tier-1'],
+      },
+    ]),
+  ).not.toThrow();
+});
+
+test('validateAgentOrgChart rejects reports_to cycles and dangling references', () => {
+  expect(() =>
+    validateAgentOrgChart([
+      { id: 'alpha', reportsTo: 'beta' },
+      { id: 'beta', reportsTo: 'alpha' },
+    ]),
+  ).toThrow('Agent reports_to cycle detected: alpha -> beta -> alpha.');
+
+  expect(() =>
+    validateAgentOrgChart([{ id: 'alpha', reportsTo: 'missing' }]),
+  ).toThrow('Agent "alpha" reports_to references unknown agent "missing".');
+
+  expect(() =>
+    validateAgentOrgChart([{ id: 'alpha', delegatesTo: ['missing'] }]),
+  ).toThrow('Agent "alpha" delegates_to references unknown agent "missing".');
+
+  expect(() =>
+    validateAgentOrgChart([{ id: 'alpha', peers: ['missing'] }]),
+  ).toThrow('Agent "alpha" peers references unknown agent "missing".');
 });

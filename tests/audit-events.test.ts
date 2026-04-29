@@ -106,8 +106,13 @@ test('emits approval request and response events for pending red actions', async
         autonomyLevel: 'full-autonomous',
         stakes: 'high',
         escalationRoute: 'approval_request',
+        escalationTarget: {
+          channel: 'slack:COPS',
+          recipient: 'ops-lead',
+        },
         approvalDecision: 'required',
         approvalActionKey: 'bash:other',
+        approvalIntent: 'run shell command `open -a Music`',
         approvalReason: 'this command may change local state',
         approvalRequestId: 'approve123',
       },
@@ -119,10 +124,27 @@ test('emits approval request and response events for pending red actions', async
     'tool.result',
     'approval.response',
     'approval.request',
+    'escalation.decision',
     'autonomy.decision',
     'authorization.check',
     'tool.call',
   ]);
+  const escalationEvent = events.find(
+    (event) => event.event_type === 'escalation.decision',
+  );
+  expect(JSON.parse(escalationEvent?.payload || '{}')).toEqual(
+    expect.objectContaining({
+      type: 'escalation.decision',
+      proposedAction: 'run shell command `open -a Music`',
+      escalationRoute: 'approval_request',
+      target: {
+        channel: 'slack:COPS',
+        recipient: 'ops-lead',
+      },
+      classifier: null,
+      classifierReasoning: [],
+    }),
+  );
 });
 
 test('autonomy audit falls back to internally consistent approval metadata', async () => {

@@ -136,6 +136,18 @@ export interface SkillAmendment {
 export interface AdaptiveSkillsConfig {
   enabled: boolean;
   observationEnabled: boolean;
+  cv: {
+    retentionDays: number;
+    renderThrottleMs: number;
+    batchDebounceMs: number;
+    narrationDailyBudgetUsd: number;
+  };
+  trajectoryCapture: {
+    enabledAgentIds: string[];
+    storeDir: string;
+    retentionDays: number;
+    retentionDaysByTenant: Record<string, number>;
+  };
   inspectionIntervalMs: number;
   observationRetentionDays: number;
   trailingWindowHours: number;

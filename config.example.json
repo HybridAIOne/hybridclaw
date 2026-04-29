@@ -1,5 +1,5 @@
 {
-  "version": 22,
+  "version": 25,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -10,7 +10,8 @@
     "mode": "local",
     "public_url": "",
     "tunnel": {
-      "provider": "manual"
+      "provider": "manual",
+      "health_check_interval_ms": 30000
     }
   },
   "skills": {
@@ -25,7 +26,8 @@
       "voice": [],
       "whatsapp": [],
       "email": []
-    }
+    },
+    "installed": []
   },
   "tools": {
     "disabled": []
@@ -44,6 +46,10 @@
   "adaptiveSkills": {
     "enabled": false,
     "observationEnabled": true,
+    "trajectoryCapture": {
+      "enabledAgentIds": [],
+      "storeDir": ""
+    },
     "inspectionIntervalMs": 3600000,
     "observationRetentionDays": 30,
     "trailingWindowHours": 168,
@@ -374,6 +380,11 @@
       "maxTokens": 0
     },
     "skills_hub": {
+      "provider": "auto",
+      "model": "",
+      "maxTokens": 0
+    },
+    "eval_judge": {
       "provider": "auto",
       "model": "",
       "maxTokens": 0

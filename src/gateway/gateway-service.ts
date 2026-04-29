@@ -35,15 +35,19 @@ import {
   deleteRegisteredAgent,
   findAgentConfig,
   getAgentById,
+  getRegisteredAgentTeamStructureRevision,
   getStoredAgentConfig,
   listAgents,
+  listRegisteredAgentTeamStructureRevisions,
   resolveAgentConfig,
   resolveAgentForRequest,
   resolveAgentModel,
+  restoreRegisteredAgentTeamStructureRevision,
   upsertRegisteredAgent,
 } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { safeExtractZip } from '../agents/claw-security.js';
+import { buildAgentTeamStructureSnapshot } from '../agents/team-structure.js';
 import {
   emitToolExecutionAuditEvents,
   makeAuditRunId,
@@ -92,6 +96,7 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
@@ -224,13 +229,7 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
-import {
-  type HybridAIHealthResult,
-  hybridAIProbe,
-} from '../providers/hybridai-health.js';
 import { getLocalModelInfo } from '../providers/local-discovery.js';
-import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
   getDiscoveredMistralModelNames,
@@ -323,6 +322,10 @@ import type {
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
+import {
+  dedupeStrings,
+  normalizeOptionalTrimmedUniqueStringArray,
+} from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import {
@@ -336,6 +339,7 @@ import {
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
+import { buildContextUsageSnapshot } from './context-usage.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -361,6 +365,13 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
+import {
+  buildGatewayHybridAIProviderEntry,
+  type GatewayHealthOptions,
+  invalidateGatewayProviderHealth,
+  resolveGatewayHybridAIHealth,
+  resolveGatewayLocalBackendsHealth,
+} from './gateway-health-service.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
@@ -374,12 +385,17 @@ import { getGatewayLifecycleStatus } from './gateway-restart.js';
 import {
   readDelegateSessionStatusSnapshot,
   readSessionStatusSnapshot,
+  type SessionStatusSnapshot,
 } from './gateway-session-status.js';
 import {
   formatDisplayTimestamp,
   formatRelativeTime,
   parseTimestamp,
 } from './gateway-time.js';
+import {
+  getGatewayAdminTunnelStatus,
+  reconnectGatewayAdminTunnel,
+} from './gateway-tunnel-service.js';
 import {
   type GatewayAdminAgent,
   type GatewayAdminAgentMarkdownFile,
@@ -413,6 +429,9 @@ import {
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
   type GatewayAdminStatisticsTrendDay,
+  type GatewayAdminTeamStructureResponse,
+  type GatewayAdminTeamStructureRevision,
+  type GatewayAdminTeamStructureRevisionResponse,
   type GatewayAdminToolCatalogEntry,
   type GatewayAdminToolsResponse,
   type GatewayAdminUsageSummary,
@@ -446,6 +465,8 @@ import {
   normalizeSessionShowMode,
 } from './show-mode.js';
 import { handleSkillCommand } from './skill-commands.js';
+
+export { reconnectGatewayAdminTunnel };
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -1118,6 +1139,12 @@ function mapGatewayAdminAgent(
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    role: resolved.role || null,
+    reportsTo: resolved.reportsTo || null,
+    delegatesTo: Array.isArray(resolved.delegatesTo)
+      ? [...resolved.delegatesTo]
+      : null,
+    peers: Array.isArray(resolved.peers) ? [...resolved.peers] : null,
     workspace: resolved.workspace || null,
     workspacePath,
     markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
@@ -1547,18 +1574,6 @@ function getGatewayAdminAgentMarkdownRevisionRecord(params: {
   return record;
 }
 
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const rawValue of values) {
-    const value = String(rawValue || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
-}
-
 function getAdminChannelDisabledSkills(
   value: RuntimeConfig['skills']['channelDisabled'],
 ): GatewayAdminSkillsResponse['channelDisabled'] {
@@ -1577,29 +1592,10 @@ function getAdminChannelDisabledSkills(
   );
 }
 
-function buildHybridAIProviderEntry(
-  probe: HybridAIHealthResult,
-): GatewayProviderHealthEntry {
-  const discoveredModelCount = dedupeStrings(
-    getDiscoveredHybridAIModelNames(),
-  ).length;
-
-  return {
-    kind: 'remote',
-    reachable: probe.reachable,
-    ...(probe.error ? { error: probe.error } : {}),
-    latencyMs: probe.latencyMs,
-    modelCount: probe.modelCount ?? discoveredModelCount,
-    detail: probe.reachable
-      ? `${probe.latencyMs}ms`
-      : probe.error || 'unreachable',
-  };
-}
-
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: HybridAIHealthResult;
+  hybridaiHealth: GatewayProviderHealthEntry;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const anthropicStatus = getAnthropicAuthStatus();
@@ -1608,7 +1604,7 @@ function buildGatewayProviderHealth(params: {
     runtimeConfig.anthropic.method,
   );
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth),
+    hybridai: params.hybridaiHealth,
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
@@ -1704,8 +1700,7 @@ async function getGatewayStatusForModelSubcommand(
   if (subcommand === 'list' || subcommand === 'info') {
     // These commands are expected to reflect the current live provider state,
     // not a recently cached health snapshot.
-    localBackendsProbe.invalidate();
-    hybridAIProbe.invalidate();
+    invalidateGatewayProviderHealth();
   }
   return await getGatewayStatus();
 }
@@ -3688,28 +3683,48 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
-export async function getGatewayStatus(): Promise<GatewayStatus> {
+export async function getGatewayStatus(
+  options: GatewayHealthOptions = {},
+): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
   const hybridai = getHybridAIAuthStatus();
-  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
-    await Promise.allSettled([
-      localBackendsProbe.get(),
-      hybridAIProbe.get(),
-      getWhatsAppAuthStatus(),
-      codex.authenticated && !codex.reloginRequired
-        ? discoverCodexModels()
-        : Promise.resolve([]),
-    ]);
+  const refreshProviderHealth = options.refreshProviderHealth ?? true;
+  const [
+    localBackendsResult,
+    hybridaiResult,
+    whatsappAuthResult,
+    codexDiscoveryResult,
+  ] = await Promise.allSettled([
+    resolveGatewayLocalBackendsHealth(options),
+    resolveGatewayHybridAIHealth(options),
+    getWhatsAppAuthStatus(),
+    // Warm the Codex model cache for provider counts; the status payload
+    // reads discovered names after all probes settle.
+    refreshProviderHealth && codex.authenticated && !codex.reloginRequired
+      ? discoverCodexModels()
+      : Promise.resolve([]),
+  ]);
+  if (codexDiscoveryResult.status === 'rejected') {
+    logger.debug(
+      { err: codexDiscoveryResult.reason },
+      'Codex model cache warmup failed during gateway status',
+    );
+  }
   const runtimeConfig = getRuntimeConfig();
   const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
       : new Map();
-  const hybridaiHealth: HybridAIHealthResult =
+  const hybridaiHealth = buildGatewayHybridAIProviderEntry(
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
-      : { reachable: false, error: 'probe failed', latencyMs: 0 };
+      : {
+          reachable: false,
+          error: 'probe failed',
+          latencyMs: 0,
+        },
+  );
   const whatsappAuth =
     whatsappAuthResult.status === 'fulfilled'
       ? whatsappAuthResult.value
@@ -3863,6 +3878,7 @@ export async function getGatewayAdminOverview(): Promise<GatewayAdminOverview> {
   return {
     status: await getGatewayStatus(),
     configPath: runtimeConfigPath(),
+    tunnel: getGatewayAdminTunnelStatus(),
     recentSessions: getAllSessions().slice(0, 8).map(mapAdminSession),
     usage: {
       daily: mapUsageSummary(getUsageTotals({ window: 'daily' })),
@@ -4038,6 +4054,50 @@ export function getGatewayAdminAgents(): GatewayAdminAgentsResponse {
   };
 }
 
+function mapGatewayAdminTeamStructureRevision(
+  revision: ReturnType<
+    typeof listRegisteredAgentTeamStructureRevisions
+  >[number],
+): GatewayAdminTeamStructureRevision {
+  return {
+    id: revision.id,
+    createdAt: revision.createdAt,
+    actor: revision.actor,
+    route: revision.route,
+    source: revision.source,
+    md5: revision.md5,
+    sizeBytes: revision.byteLength,
+    replacedByMd5: revision.replacedByMd5,
+    changeCount: revision.changeCount,
+    diff: revision.diff,
+  };
+}
+
+export function getGatewayAdminTeamStructure(): GatewayAdminTeamStructureResponse {
+  return {
+    snapshot: buildAgentTeamStructureSnapshot(listAgents()),
+    revisions: listRegisteredAgentTeamStructureRevisions().map(
+      mapGatewayAdminTeamStructureRevision,
+    ),
+  };
+}
+
+export function getGatewayAdminTeamStructureRevision(
+  revisionId: number,
+): GatewayAdminTeamStructureRevisionResponse {
+  const revision = getRegisteredAgentTeamStructureRevision(revisionId);
+  return {
+    revision: mapGatewayAdminTeamStructureRevision(revision),
+  };
+}
+
+export function restoreGatewayAdminTeamStructureRevision(
+  revisionId: number,
+): GatewayAdminTeamStructureResponse {
+  restoreRegisteredAgentTeamStructureRevision(revisionId);
+  return getGatewayAdminTeamStructure();
+}
+
 export function getGatewayAdminAgentMarkdownFile(
   agentId: string,
   fileName: string,
@@ -4167,6 +4227,42 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
   });
 }
 
+type GatewayAdminAgentOrgChartParams = {
+  role?: string | null;
+  reportsTo?: string | null;
+  delegatesTo?: string[] | null;
+  peers?: string[] | null;
+};
+
+function buildGatewayAdminAgentOrgChartPatch(
+  params: GatewayAdminAgentOrgChartParams,
+): Partial<Pick<AgentConfig, 'role' | 'reportsTo' | 'delegatesTo' | 'peers'>> {
+  return {
+    ...(params.role !== undefined
+      ? { role: params.role?.trim() || undefined }
+      : {}),
+    ...(params.reportsTo !== undefined
+      ? { reportsTo: params.reportsTo?.trim() || undefined }
+      : {}),
+    ...(params.delegatesTo !== undefined
+      ? {
+          delegatesTo:
+            params.delegatesTo == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
+        }
+      : {}),
+    ...(params.peers !== undefined
+      ? {
+          peers:
+            params.peers == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
+        }
+      : {}),
+  };
+}
+
 export function createGatewayAdminAgent(params: {
   id: string;
   name?: string | null;
@@ -4174,6 +4270,10 @@ export function createGatewayAdminAgent(params: {
   skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
+  role?: string | null;
+  reportsTo?: string | null;
+  delegatesTo?: string[] | null;
+  peers?: string[] | null;
   workspace?: string | null;
 }): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const saved = upsertRegisteredAgent({
@@ -4187,6 +4287,7 @@ export function createGatewayAdminAgent(params: {
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...buildGatewayAdminAgentOrgChartPatch(params),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
   return {
@@ -4202,6 +4303,10 @@ export function updateGatewayAdminAgent(
     skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
+    role?: string | null;
+    reportsTo?: string | null;
+    delegatesTo?: string[] | null;
+    peers?: string[] | null;
     workspace?: string | null;
   },
 ): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
@@ -4229,6 +4334,7 @@ export function updateGatewayAdminAgent(
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
       : {}),
+    ...buildGatewayAdminAgentOrgChartPatch(params),
   });
   return {
     agent: mapGatewayAdminAgent(saved),
@@ -6219,6 +6325,7 @@ export function getGatewayHistory(
     .filter((message) => message.content.trim().length > 0)
     .reverse();
   return {
+    sessionId: page.sessionId,
     sessionKey: page.sessionKey,
     mainSessionKey: page.mainSessionKey,
     history,
@@ -7579,6 +7686,39 @@ export async function prepareSessionAutoReset(params: {
     olderMessages: memoryService.getRecentMessages(existingSession.id),
   });
   return expiryEvaluation;
+}
+
+function buildGatewaySessionContextUsageSnapshot(
+  session: Session,
+  statusSnapshot?: SessionStatusSnapshot,
+): ReturnType<typeof buildContextUsageSnapshot> {
+  const runtime = resolveSessionRuntimeTarget(session);
+  const sessionModel = runtime.model;
+  const modelContextWindowTokens = resolveKnownModelContextWindow(sessionModel);
+  return buildContextUsageSnapshot({
+    sessionId: session.id,
+    model: sessionModel,
+    messageCount: session.message_count,
+    compactionCount: session.compaction_count,
+    modelContextWindowTokens,
+    ...(statusSnapshot ? { statusSnapshot } : {}),
+  });
+}
+
+export function getGatewaySessionContextUsage(sessionId: string): {
+  status: 'ok' | 'not_found';
+  sessionId: string;
+  snapshot: ReturnType<typeof buildContextUsageSnapshot> | null;
+} {
+  const session = memoryService.getSessionById(sessionId);
+  if (!session) {
+    return { status: 'not_found', sessionId, snapshot: null };
+  }
+  return {
+    status: 'ok',
+    sessionId: session.id,
+    snapshot: buildGatewaySessionContextUsageSnapshot(session),
+  };
 }
 
 export async function handleGatewayCommand(
@@ -9417,6 +9557,49 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'context': {
+        const { snapshot } = getGatewaySessionContextUsage(session.id);
+        if (!snapshot) {
+          return badCommand(
+            'Context Usage',
+            'Session not found or has no context usage recorded yet.',
+          );
+        }
+        const usedLabel =
+          snapshot.contextUsedTokens != null
+            ? formatCompactNumber(snapshot.contextUsedTokens)
+            : 'n/a';
+        const budgetLabel =
+          snapshot.contextBudgetTokens != null
+            ? formatCompactNumber(snapshot.contextBudgetTokens)
+            : 'unknown';
+        const percentLabel =
+          snapshot.contextUsagePercent == null ||
+          !Number.isFinite(snapshot.contextUsagePercent)
+            ? 'n/a'
+            : snapshot.contextUsagePercent > 100
+              ? `${Math.round(snapshot.contextUsagePercent)}%`
+              : formatPercent(snapshot.contextUsagePercent);
+        const remainingLabel =
+          snapshot.contextRemainingTokens != null
+            ? formatCompactNumber(snapshot.contextRemainingTokens)
+            : 'n/a';
+        const lines = [
+          `🧠 Model: ${formatModelForDisplay(snapshot.model)}`,
+          `📚 Context: ${usedLabel}/${budgetLabel} tokens (${percentLabel})`,
+          `🪽 Headroom: ${remainingLabel} tokens until the window fills`,
+          `🧹 Compaction: triggers at ${formatCompactNumber(snapshot.compactionMessageThreshold)} msgs or ${formatCompactNumber(snapshot.compactionTokenBudget)} tokens, keeping ${snapshot.compactionKeepRecent} recent · ran ${snapshot.compactionCount}×`,
+          `💬 Messages in session: ${formatCompactNumber(snapshot.messageCount)}`,
+        ];
+        if (snapshot.contextBudgetTokens == null) {
+          lines.push(
+            '',
+            'Tip: context window for this model is unknown, so the ring shows usage without a budget. Set a known model with `/model set <name>` to see headroom.',
+          );
+        }
+        return infoCommand('Context Usage', lines.join('\n'));
+      }
+
       case 'compact': {
         try {
           const result = await memoryService.compactSession(session.id);
@@ -9604,6 +9787,10 @@ export async function handleGatewayCommand(
           currentModel: sessionModel,
           modelContextWindowTokens,
         });
+        const contextSnapshot = buildGatewaySessionContextUsageSnapshot(
+          session,
+          metrics,
+        );
         const delegateModel = PROACTIVE_DELEGATION_MODEL.trim();
         const showDelegateSetup =
           delegateModel.length > 0 &&
@@ -9668,11 +9855,11 @@ export async function handleGatewayCommand(
           cacheKnown ? (metrics.cacheHitPercent ?? 0) : metrics.cacheHitPercent,
         );
         const contextLabel =
-          metrics.contextUsedTokens != null &&
-          metrics.contextBudgetTokens != null
-            ? `${formatCompactNumber(metrics.contextUsedTokens)}/${formatCompactNumber(metrics.contextBudgetTokens)} (${formatPercent(metrics.contextUsagePercent)})`
-            : metrics.contextUsedTokens != null
-              ? `${formatCompactNumber(metrics.contextUsedTokens)}/? (window unknown)`
+          contextSnapshot.contextUsedTokens != null &&
+          contextSnapshot.contextBudgetTokens != null
+            ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/${formatCompactNumber(contextSnapshot.contextBudgetTokens)} (${formatPercent(contextSnapshot.contextUsagePercent)})`
+            : contextSnapshot.contextUsedTokens != null
+              ? `${formatCompactNumber(contextSnapshot.contextUsedTokens)}/? (window unknown)`
               : 'n/a';
         const sandboxLabel = `${status.sandbox?.mode || 'container'} (${status.sandbox?.activeSessions ?? status.activeContainers} active)`;
         const activeSandboxSessionIds = status.sandbox?.activeSessionIds || [];
@@ -9689,7 +9876,7 @@ export async function handleGatewayCommand(
           cacheKnown
             ? `🗄️ Cache: ${cacheHitLabel} hit · ${formatCompactNumber(metrics.cacheReadTokens)} cached, ${formatCompactNumber(metrics.cacheWriteTokens)} new`
             : '🗄️ Cache: n/a (provider did not report cache stats)',
-          `📚 Context: ${contextLabel} · 🧹 Compactions: ${session.compaction_count}`,
+          `📚 Context: ${contextLabel} · 🧹 Compactions: ${contextSnapshot.compactionCount}`,
           `📊 Usage: uptime ${formatUptime(status.uptime)} · sessions ${status.sessions} · sandbox ${sandboxLabel}`,
           ...(activeSandboxSessionIds.length > 0
             ? [
@@ -10159,6 +10346,7 @@ export async function handleGatewayCommand(
           dataDir: DATA_DIR,
           gatewayBaseUrl: GATEWAY_BASE_URL,
           webApiToken: WEB_API_TOKEN,
+          gatewayApiToken: GATEWAY_API_TOKEN,
           effectiveAgentId: runtime.agentId,
           effectiveModel: runtime.model,
         });

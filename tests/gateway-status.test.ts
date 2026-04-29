@@ -57,6 +57,7 @@ function makeJwt(payload: Record<string, unknown>): string {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/plugins/plugin-manager.js');
@@ -130,6 +131,103 @@ function mockHealthProbes(options?: {
     checkAllBackends: vi.fn(async () => new Map()),
   }));
 }
+
+test('getGatewayStatus uses cached HybridAI health when probe exceeds deadline', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-test-gateway-status-timeout';
+  writeRuntimeConfig(homeDir);
+  vi.resetModules();
+
+  const hybridAIGet = vi.fn(() => new Promise<never>(() => {}));
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: hybridAIGet,
+      peek: vi.fn(() => ({
+        reachable: true,
+        latencyMs: 42,
+        modelCount: 7,
+      })),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => new Map()),
+      invalidate: vi.fn(),
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+
+  vi.useFakeTimers();
+  const statusPromise = getGatewayStatus();
+  await vi.advanceTimersByTimeAsync(750);
+  const status = await statusPromise;
+
+  expect(hybridAIGet).toHaveBeenCalledTimes(1);
+  expect(status.providerHealth?.hybridai).toMatchObject({
+    reachable: true,
+    latencyMs: 42,
+    modelCount: 7,
+  });
+});
+
+test('getGatewayStatus uses cached HybridAI health when probe rejects', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-test-gateway-status-reject';
+  writeRuntimeConfig(homeDir);
+  vi.resetModules();
+
+  const hybridAIGet = vi.fn(async () => {
+    throw new Error('probe failed');
+  });
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: hybridAIGet,
+      peek: vi.fn(() => ({
+        reachable: true,
+        latencyMs: 39,
+        modelCount: 6,
+      })),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => new Map()),
+      invalidate: vi.fn(),
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const status = await getGatewayStatus();
+
+  expect(hybridAIGet).toHaveBeenCalledTimes(1);
+  expect(status.providerHealth?.hybridai).toMatchObject({
+    reachable: true,
+    latencyMs: 39,
+    modelCount: 6,
+  });
+});
 
 test('getGatewayStatus includes Codex auth state', async () => {
   const homeDir = makeTempHome();
@@ -208,7 +306,7 @@ test('getGatewayStatus includes Codex auth state', async () => {
   expect(status.providerHealth?.codex).toMatchObject({
     kind: 'remote',
     reachable: true,
-    modelCount: 8,
+    modelCount: 9,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -308,7 +406,7 @@ test('getGatewayAdminModels discovers Codex models from the models endpoint', as
   const result = await getGatewayAdminModels();
 
   expect(result.providerStatus?.codex).toMatchObject({
-    modelCount: 8,
+    modelCount: 9,
   });
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({

@@ -13,10 +13,20 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentCv,
   DEFAULT_AGENT_ID,
+  hasSnakeCamelAlias,
   normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
+  validateAgentOrgChart,
 } from '../agents/agent-types.js';
-import type { SkillConfigChannelKind } from '../channels/channel.js';
-import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import type {
+  ChannelKind,
+  SkillConfigChannelKind,
+} from '../channels/channel.js';
+import {
+  normalizeChannelKind,
+  normalizeSkillConfigChannelKind,
+} from '../channels/channel-registry.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -62,11 +72,13 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
+import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
   normalizeOptionalTrimmedUniqueStringArray,
   normalizeTrimmedStringSet,
 } from '../utils/normalized-strings.js';
+import { expandHomePath } from '../utils/path.js';
 import {
   clearRuntimeAssetRevisions as clearTrackedRuntimeAssetRevisions,
   clearRuntimeConfigRevisions as clearTrackedRuntimeConfigRevisions,
@@ -95,7 +107,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 22;
+export const CONFIG_VERSION = 25;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -247,6 +259,7 @@ export type RuntimeDeploymentTunnelProvider =
 
 export interface RuntimeDeploymentTunnelConfig {
   provider?: RuntimeDeploymentTunnelProvider;
+  health_check_interval_ms: number;
 }
 
 export interface RuntimeDeploymentConfig {
@@ -591,6 +604,33 @@ export interface RuntimeSkillAutonomyConfig {
   rules: RuntimeSkillAutonomyRule[];
 }
 
+export interface RuntimeSkillCredentialManifest {
+  id: string;
+  env?: string;
+  description?: string;
+  required: boolean;
+}
+
+export type RuntimeSkillLifecycleStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'uninstalled';
+
+export interface RuntimeInstalledSkillManifest {
+  id: string;
+  name: string;
+  version: string;
+  source: string;
+  skillDir: string;
+  manifestPath: string;
+  status: RuntimeSkillLifecycleStatus;
+  capabilities: string[];
+  requiredCredentials: RuntimeSkillCredentialManifest[];
+  supportedChannels: ChannelKind[];
+  installedAt: string;
+  updatedAt: string;
+}
+
 type RuntimeSkillAutonomyRuleIndex = Map<
   string,
   Map<string, SkillAutonomyLevel>
@@ -611,6 +651,7 @@ export interface RuntimeConfig {
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
     autonomy: RuntimeSkillAutonomyConfig;
+    installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
     disabled: string[];
@@ -740,8 +781,10 @@ export interface RuntimeConfig {
     web_extract: RuntimeAuxiliaryModelPolicyConfig;
     session_search: RuntimeAuxiliaryModelPolicyConfig;
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
+    eval_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
     sandboxMode: ContainerSandboxMode;
@@ -935,6 +978,7 @@ const DEFAULT_CODEX_MODEL_LIST = [
   'openai-codex/gpt-5-codex',
   'openai-codex/gpt-5.3-codex',
   'openai-codex/gpt-5.4',
+  'openai-codex/gpt-5.5',
   'openai-codex/gpt-5.3-codex-spark',
   'openai-codex/gpt-5.2-codex',
   'openai-codex/gpt-5.1-codex-max',
@@ -979,6 +1023,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     public_url: '',
     tunnel: {
       provider: 'manual',
+      health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
     },
   },
   agents: {
@@ -994,6 +1039,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       defaultLevel: 'confirm-each',
       rules: [],
     },
+    installed: [],
   },
   tools: {
     disabled: [],
@@ -1010,6 +1056,18 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   adaptiveSkills: {
     enabled: false,
     observationEnabled: true,
+    cv: {
+      retentionDays: 90,
+      renderThrottleMs: 14_400_000,
+      batchDebounceMs: 30_000,
+      narrationDailyBudgetUsd: 0.005,
+    },
+    trajectoryCapture: {
+      enabledAgentIds: [],
+      storeDir: '',
+      retentionDays: 365,
+      retentionDaysByTenant: {},
+    },
     inspectionIntervalMs: 3_600_000,
     observationRetentionDays: 30,
     trailingWindowHours: 168,
@@ -1352,12 +1410,22 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       model: '',
       maxTokens: 0,
     },
+    eval_judge: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
     mcp: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
     },
     flush_memories: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    cv_narration: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -1693,6 +1761,25 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return fallback;
 }
 
+function normalizeRetentionDaysByTenant(
+  value: unknown,
+  fallback: Record<string, number>,
+  defaultRetentionDays: number,
+): Record<string, number> {
+  if (!isRecord(value)) return { ...fallback };
+  const normalized: Record<string, number> = {};
+  for (const [tenantId, rawDays] of Object.entries(value)) {
+    const normalizedTenantId = tenantId.trim();
+    if (!normalizedTenantId) continue;
+    normalized[normalizedTenantId] = normalizeInteger(
+      rawDays,
+      fallback[normalizedTenantId] ?? defaultRetentionDays,
+      { min: 0 },
+    );
+  }
+  return normalized;
+}
+
 function normalizeOptionalBaseUrl(value: unknown, fallback: string): string {
   const candidate = normalizeString(value, fallback, { allowEmpty: true });
   return candidate ? candidate.replace(/\/+$/, '') : '';
@@ -1747,7 +1834,14 @@ export function normalizeDeploymentConfig(
   return {
     mode: normalizeDeploymentMode(raw.mode, fallback.mode),
     public_url: normalizeOptionalBaseUrl(raw.public_url, fallback.public_url),
-    tunnel: tunnelProvider ? { provider: tunnelProvider } : {},
+    tunnel: {
+      ...(tunnelProvider ? { provider: tunnelProvider } : {}),
+      health_check_interval_ms: normalizeInteger(
+        rawTunnel.health_check_interval_ms,
+        fallback.tunnel.health_check_interval_ms,
+        { min: 1 },
+      ),
+    },
   };
 }
 
@@ -1854,6 +1948,117 @@ function normalizeSkillChannelDisabled(
     channelDisabled[channelKind] = normalizeStringArray(rawDisabled, []);
   }
   return channelDisabled;
+}
+
+function normalizeSkillLifecycleStatus(
+  value: unknown,
+): RuntimeSkillLifecycleStatus {
+  const normalized = normalizeString(value, 'enabled', {
+    allowEmpty: false,
+  }).toLowerCase();
+  return normalized === 'disabled' || normalized === 'uninstalled'
+    ? normalized
+    : 'enabled';
+}
+
+function normalizeRuntimeSkillCredentialManifests(
+  value: unknown,
+): RuntimeSkillCredentialManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const credentials: RuntimeSkillCredentialManifest[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const env = normalizeString(item.env, '', { allowEmpty: true });
+    const description = normalizeString(item.description, '', {
+      allowEmpty: true,
+    });
+    credentials.push({
+      id,
+      ...(env ? { env } : {}),
+      ...(description ? { description } : {}),
+      required: item.required === undefined ? true : item.required !== false,
+    });
+  }
+  return credentials;
+}
+
+function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
+  const channels: ChannelKind[] = [];
+  const seen = new Set<ChannelKind>();
+  for (const raw of normalizeStringArray(value, [])) {
+    const normalized =
+      raw.toLowerCase() === 'web' ? 'tui' : normalizeChannelKind(raw);
+    if (
+      !normalized ||
+      normalized === 'heartbeat' ||
+      normalized === 'scheduler'
+    ) {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    channels.push(normalized);
+  }
+  return channels;
+}
+
+function normalizeRuntimeInstalledSkillManifests(
+  value: unknown,
+): RuntimeInstalledSkillManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const manifestsById = new Map<string, RuntimeInstalledSkillManifest>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    const name = normalizeString(item.name, id, { allowEmpty: false });
+    if (!id || !name) continue;
+    const version = normalizeString(item.version, '0.0.0', {
+      allowEmpty: false,
+    });
+    const source = normalizeString(item.source, 'unknown', {
+      allowEmpty: false,
+    });
+    const skillDir = normalizeString(item.skillDir, '', {
+      allowEmpty: false,
+    });
+    const manifestPath = normalizeString(item.manifestPath, '', {
+      allowEmpty: false,
+    });
+    const installedAt = normalizeString(item.installedAt, '', {
+      allowEmpty: true,
+    });
+    const updatedAt = normalizeString(item.updatedAt, '', {
+      allowEmpty: true,
+    });
+    manifestsById.set(id, {
+      id,
+      name,
+      version,
+      source,
+      skillDir,
+      manifestPath,
+      status: normalizeSkillLifecycleStatus(item.status),
+      capabilities: normalizeStringArray(item.capabilities, []),
+      requiredCredentials: normalizeRuntimeSkillCredentialManifests(
+        item.requiredCredentials,
+      ),
+      supportedChannels: normalizeRuntimeSkillSupportedChannels(
+        item.supportedChannels,
+      ),
+      installedAt,
+      updatedAt,
+    });
+  }
+
+  return [...manifestsById.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
 }
 
 export function setRuntimeSkillScopeEnabled(
@@ -2036,9 +2241,33 @@ function normalizeAgentConfig(
   const role = normalizeString(value.role, fallback?.role ?? '', {
     allowEmpty: true,
   });
+  const reportsTo = normalizeString(
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
+    fallback?.reportsTo ?? '',
+    {
+      allowEmpty: true,
+    },
+  );
+  const delegatesTo = hasSnakeCamelAlias(value, 'delegatesTo', 'delegates_to')
+    ? normalizeOptionalTrimmedUniqueStringArray(
+        resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
+      )
+    : fallback?.delegatesTo
+      ? [...fallback.delegatesTo]
+      : undefined;
+  const peers = Object.hasOwn(value, 'peers')
+    ? normalizeOptionalTrimmedUniqueStringArray(value.peers)
+    : fallback?.peers
+      ? [...fallback.peers]
+      : undefined;
   const cv = Object.hasOwn(value, 'cv')
     ? normalizeAgentCv(value.cv)
     : cloneAgentCv(fallback?.cv);
+  const escalationTarget = Object.hasOwn(value, 'escalationTarget')
+    ? normalizeAgentEscalationTarget(value.escalationTarget)
+    : fallback?.escalationTarget
+      ? { ...fallback.escalationTarget }
+      : undefined;
   return {
     id,
     ...(name ? { name } : {}),
@@ -2050,7 +2279,11 @@ function normalizeAgentConfig(
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
@@ -2076,6 +2309,7 @@ function normalizeAgentsConfig(
     list.unshift({ id: DEFAULT_AGENT_ID });
     seen.add(DEFAULT_AGENT_ID);
   }
+  validateAgentOrgChart(list);
   const defaultAgentId = normalizeString(
     raw.defaultAgentId,
     fallback.defaultAgentId ?? DEFAULT_AGENT_ID,
@@ -2227,15 +2461,6 @@ function normalizeCodexModelArray(
 
 function normalizePathForCompare(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/').trim();
-}
-
-function expandHomePath(value: string): string {
-  const normalized = value.trim();
-  if (normalized === '~') return os.homedir();
-  if (normalized.startsWith('~/') || normalized.startsWith('~\\')) {
-    return path.join(os.homedir(), normalized.slice(2));
-  }
-  return normalized;
 }
 
 function isLegacyDefaultDbPath(value: string): boolean {
@@ -4262,6 +4487,12 @@ function normalizeRuntimeConfig(
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
     : {};
+  const rawAdaptiveSkillsCv = isRecord(rawAdaptiveSkills.cv)
+    ? rawAdaptiveSkills.cv
+    : {};
+  const rawTrajectoryCapture = isRecord(rawAdaptiveSkills.trajectoryCapture)
+    ? rawAdaptiveSkills.trajectoryCapture
+    : {};
   const rawChannelInstructions = isRecord(raw.channelInstructions)
     ? raw.channelInstructions
     : {};
@@ -4310,6 +4541,9 @@ function normalizeRuntimeConfig(
   const rawSkillsHubAuxiliaryModel = isRecord(rawAuxiliaryModels.skills_hub)
     ? rawAuxiliaryModels.skills_hub
     : {};
+  const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
+    ? rawAuxiliaryModels.eval_judge
+    : {};
   const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
     ? rawAuxiliaryModels.mcp
     : {};
@@ -4317,6 +4551,9 @@ function normalizeRuntimeConfig(
     rawAuxiliaryModels.flush_memories,
   )
     ? rawAuxiliaryModels.flush_memories
+    : {};
+  const rawCvNarrationAuxiliaryModel = isRecord(rawAuxiliaryModels.cv_narration)
+    ? rawAuxiliaryModels.cv_narration
     : {};
   const rawLocalBackends = isRecord(rawLocal.backends) ? rawLocal.backends : {};
   const rawOllamaBackend = isRecord(rawLocalBackends.ollama)
@@ -4571,6 +4808,11 @@ function normalizeRuntimeConfig(
     rawDiscord.commandMode,
     legacyCommandModeFallback,
   );
+  const normalizedTrajectoryRetentionDays = normalizeInteger(
+    rawTrajectoryCapture.retentionDays,
+    DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.retentionDays,
+    { min: 0 },
+  );
 
   return {
     version: CONFIG_VERSION,
@@ -4614,6 +4856,7 @@ function normalizeRuntimeConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,
       ),
+      installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },
     tools: {
       disabled: normalizeStringArray(
@@ -4646,6 +4889,47 @@ function normalizeRuntimeConfig(
         rawAdaptiveSkills.observationEnabled,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.observationEnabled,
       ),
+      cv: {
+        retentionDays: normalizeInteger(
+          rawAdaptiveSkillsCv.retentionDays,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.retentionDays,
+          { min: 0 },
+        ),
+        renderThrottleMs: normalizeInteger(
+          rawAdaptiveSkillsCv.renderThrottleMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.renderThrottleMs,
+          { min: 0 },
+        ),
+        batchDebounceMs: normalizeInteger(
+          rawAdaptiveSkillsCv.batchDebounceMs,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.batchDebounceMs,
+          { min: 0 },
+        ),
+        narrationDailyBudgetUsd: normalizeNumber(
+          rawAdaptiveSkillsCv.narrationDailyBudgetUsd,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.cv.narrationDailyBudgetUsd,
+          { min: 0 },
+        ),
+      },
+      trajectoryCapture: {
+        enabledAgentIds: normalizeStringArray(
+          rawTrajectoryCapture.enabledAgentIds,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .enabledAgentIds,
+        ),
+        storeDir: normalizeString(
+          rawTrajectoryCapture.storeDir,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture.storeDir,
+          { allowEmpty: true },
+        ),
+        retentionDays: normalizedTrajectoryRetentionDays,
+        retentionDaysByTenant: normalizeRetentionDaysByTenant(
+          rawTrajectoryCapture.retentionDaysByTenant,
+          DEFAULT_RUNTIME_CONFIG.adaptiveSkills.trajectoryCapture
+            .retentionDaysByTenant,
+          normalizedTrajectoryRetentionDays,
+        ),
+      },
       inspectionIntervalMs: normalizeInteger(
         rawAdaptiveSkills.inspectionIntervalMs,
         DEFAULT_RUNTIME_CONFIG.adaptiveSkills.inspectionIntervalMs,
@@ -5167,6 +5451,22 @@ function normalizeRuntimeConfig(
           { min: 0, max: 1_000_000 },
         ),
       },
+      eval_judge: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawEvalJudgeAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.provider,
+        ),
+        model: normalizeString(
+          rawEvalJudgeAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawEvalJudgeAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
       mcp: {
         provider: normalizeAuxiliaryProviderSelection(
           rawMcpAuxiliaryModel.provider,
@@ -5196,6 +5496,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      cv_narration: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawCvNarrationAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.provider,
+        ),
+        model: normalizeString(
+          rawCvNarrationAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawCvNarrationAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.cv_narration.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },
@@ -6387,6 +6703,14 @@ export function restoreRuntimeClassifierRevision(
   meta?: RuntimeConfigChangeMeta,
 ): string {
   return restoreRuntimeAssetRevision('classifier', assetPath, revisionId, meta);
+}
+
+export function restoreRuntimeTeamRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('team', assetPath, revisionId, meta);
 }
 
 export function runtimeConfigRevisionPath(): string {

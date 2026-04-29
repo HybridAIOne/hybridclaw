@@ -1,14 +1,20 @@
 import type { BaseMessageOptions } from 'discord.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
+import type {
+  AgentTeamStructureDiff,
+  AgentTeamStructureSnapshot,
+} from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
+  RuntimeDeploymentTunnelProvider,
   RuntimeDiscordChannelConfig,
   RuntimeMSTeamsChannelConfig,
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
+import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
   ArtifactMetadata,
@@ -166,6 +172,7 @@ export interface GatewayChatRequest {
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   onProactiveMessage?: (message: {
+    channelId?: string;
     text: string;
     artifacts?: ArtifactMetadata[];
   }) => void | Promise<void>;
@@ -580,9 +587,23 @@ export interface GatewayAdminModelUsageRow extends GatewayAdminUsageSummary {
   model: string;
 }
 
+export type GatewayAdminTunnelHealth = 'healthy' | 'reconnecting' | 'down';
+
+export interface GatewayAdminTunnelStatus {
+  provider: RuntimeDeploymentTunnelProvider | null;
+  publicUrl: string | null;
+  state: TunnelState;
+  health: GatewayAdminTunnelHealth;
+  reconnectSupported: boolean;
+  lastError: string | null;
+  lastCheckedAt: string | null;
+  nextReconnectAt: string | null;
+}
+
 export interface GatewayAdminOverview {
   status: GatewayStatus;
   configPath: string;
+  tunnel: GatewayAdminTunnelStatus;
   recentSessions: GatewayAdminSession[];
   usage: {
     daily: GatewayAdminUsageSummary;
@@ -849,6 +870,10 @@ export interface GatewayAdminAgent {
   skills: string[] | null;
   chatbotId: string | null;
   enableRag: boolean | null;
+  role: string | null;
+  reportsTo: string | null;
+  delegatesTo: string[] | null;
+  peers: string[] | null;
   workspace: string | null;
   workspacePath: string;
   markdownFiles: GatewayAdminAgentMarkdownFile[];
@@ -856,6 +881,28 @@ export interface GatewayAdminAgent {
 
 export interface GatewayAdminAgentsResponse {
   agents: GatewayAdminAgent[];
+}
+
+export interface GatewayAdminTeamStructureRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+  sizeBytes: number;
+  replacedByMd5: string | null;
+  changeCount: number;
+  diff: AgentTeamStructureDiff;
+}
+
+export interface GatewayAdminTeamStructureResponse {
+  snapshot: AgentTeamStructureSnapshot;
+  revisions: GatewayAdminTeamStructureRevision[];
+}
+
+export interface GatewayAdminTeamStructureRevisionResponse {
+  revision: GatewayAdminTeamStructureRevision;
 }
 
 export interface GatewayAdminAgentMarkdownFileResponse {

@@ -7,13 +7,28 @@ import type {
   AgentCv,
   AgentModelConfig,
 } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID, normalizeAgentCv } from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+  validateAgentOrgChart,
+} from '../agents/agent-types.js';
+import {
+  type AgentTeamStructureEntry,
+  serializeAgentTeamStructure,
+} from '../agents/team-structure.js';
+import { agentTeamStructureAssetPath } from '../agents/team-structure-revisions.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import {
+  type RuntimeConfigChangeMeta,
+  runtimeConfigRevisionStorePath,
+  syncRuntimeAssetRevisionStateInOpenDatabase,
+} from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import {
@@ -114,7 +129,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 24;
+export const DATABASE_SCHEMA_VERSION = 26;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -158,7 +173,11 @@ type AgentRow = {
   workspace: string | null;
   owner: string | null;
   role: string | null;
+  reports_to: string | null;
+  delegates_to: string | null;
+  peers: string | null;
   cv: string | null;
+  escalation_target: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -2036,6 +2055,53 @@ function migrateV24(
   recordMigration(database, 24, 'Persist assistant message artifacts');
 }
 
+function migrateV25(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'escalation_target',
+    ddl: 'escalation_target TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    25,
+    'Persist per-agent escalation targets for approval routing',
+  );
+}
+
+function migrateV26(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'reports_to',
+    ddl: 'reports_to TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'delegates_to',
+    ddl: 'delegates_to TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'peers',
+    ddl: 'peers TEXT',
+    quiet,
+  });
+  recordMigration(database, 26, 'Persist agent org-chart relationships');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2091,6 +2157,8 @@ function runMigrations(
   if (currentVersion < 24 || messageArtifactsNeedMigration(database)) {
     migrateV24(database, opts);
   }
+  if (currentVersion < 25) migrateV25(database, opts);
+  if (currentVersion < 26) migrateV26(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2214,6 +2282,68 @@ function serializeAgentCv(cv: AgentCv | undefined): string | null {
   return cv ? JSON.stringify(cv) : null;
 }
 
+function serializeAgentStringArray(
+  values: string[] | undefined,
+): string | null {
+  if (!Array.isArray(values)) return null;
+  return JSON.stringify(normalizeTrimmedUniqueStringArray(values));
+}
+
+const RUNTIME_REVISION_ATTACHMENT = 'runtime_revisions';
+
+function withRuntimeRevisionDatabaseAttached<T>(fn: () => T): T {
+  const revisionDbPath = runtimeConfigRevisionStorePath();
+  fs.mkdirSync(path.dirname(revisionDbPath), { recursive: true });
+  db.prepare(`ATTACH DATABASE ? AS ${RUNTIME_REVISION_ATTACHMENT}`).run(
+    revisionDbPath,
+  );
+  try {
+    return fn();
+  } finally {
+    db.exec(`DETACH DATABASE ${RUNTIME_REVISION_ATTACHMENT}`);
+  }
+}
+
+function syncAttachedTeamRevisionState(
+  agents: AgentConfig[],
+  meta: RuntimeConfigChangeMeta,
+): void {
+  syncRuntimeAssetRevisionStateInOpenDatabase(
+    db,
+    'team',
+    agentTeamStructureAssetPath(),
+    meta,
+    {
+      exists: true,
+      content: serializeAgentTeamStructure(agents, { validate: false }),
+    },
+    new Date().toISOString(),
+    {
+      schemaName: RUNTIME_REVISION_ATTACHMENT,
+    },
+  );
+}
+
+function parseAgentStringArray(
+  rawValues: string | null,
+  fieldName: string,
+): string[] | undefined {
+  const normalized = rawValues?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    return normalizeTrimmedUniqueStringArray(parsed);
+  } catch {
+    logger.warn(
+      { fieldName, payloadLength: normalized.length },
+      'Failed to parse persisted agent org-chart relationship list',
+    );
+    return undefined;
+  }
+}
+
 function parseAgentCv(rawCv: string | null): AgentCv | undefined {
   const normalized = rawCv?.trim() || '';
   if (!normalized) return undefined;
@@ -2229,6 +2359,29 @@ function parseAgentCv(rawCv: string | null): AgentCv | undefined {
   }
 }
 
+function serializeAgentEscalationTarget(
+  target: AgentConfig['escalationTarget'],
+): string | null {
+  return target ? JSON.stringify(target) : null;
+}
+
+function parseAgentEscalationTarget(
+  rawTarget: string | null,
+): AgentConfig['escalationTarget'] {
+  const normalized = rawTarget?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentEscalationTarget(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { targetLength: normalized.length },
+      'Failed to parse persisted agent escalation target',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -2239,7 +2392,11 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const workspace = row.workspace?.trim() || '';
   const owner = row.owner?.trim() || '';
   const role = row.role?.trim() || '';
+  const reportsTo = row.reports_to?.trim() || '';
+  const delegatesTo = parseAgentStringArray(row.delegates_to, 'delegates_to');
+  const peers = parseAgentStringArray(row.peers, 'peers');
   const cv = parseAgentCv(row.cv);
+  const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -2254,12 +2411,16 @@ function mapAgentRow(row: AgentRow): AgentConfig {
       : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, created_at, updated_at';
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2299,7 +2460,13 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedWorkspace = agent.workspace?.trim() || null;
   const normalizedOwner = agent.owner?.trim() || null;
   const normalizedRole = agent.role?.trim() || null;
+  const normalizedReportsTo = agent.reportsTo?.trim() || null;
+  const normalizedDelegatesTo = serializeAgentStringArray(agent.delegatesTo);
+  const normalizedPeers = serializeAgentStringArray(agent.peers);
   const normalizedCv = serializeAgentCv(agent.cv);
+  const normalizedEscalationTarget = serializeAgentEscalationTarget(
+    agent.escalationTarget,
+  );
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -2315,10 +2482,14 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        workspace,
        owner,
        role,
+       reports_to,
+       delegates_to,
+       peers,
        cv,
+       escalation_target,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -2330,7 +2501,11 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        workspace = excluded.workspace,
        owner = excluded.owner,
        role = excluded.role,
+       reports_to = excluded.reports_to,
+       delegates_to = excluded.delegates_to,
+       peers = excluded.peers,
        cv = excluded.cv,
+       escalation_target = excluded.escalation_target,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -2344,13 +2519,129 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedWorkspace,
     normalizedOwner,
     normalizedRole,
+    normalizedReportsTo,
+    normalizedDelegatesTo,
+    normalizedPeers,
     normalizedCv,
+    normalizedEscalationTarget,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {
     throw new Error(`Failed to read persisted agent: ${normalizedId}`);
   }
   return storedAgent;
+}
+
+export function upsertAgentWithTeamRevision(params: {
+  agent: AgentConfig;
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): AgentConfig {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const upsert = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
+      const stored = upsertAgent(params.agent);
+      syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      return stored;
+    });
+    return upsert();
+  });
+}
+
+export function upsertAgentsWithTeamRevision(params: {
+  agents: AgentConfig[];
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): AgentConfig[] {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const upsert = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
+      for (const agent of params.agents) {
+        upsertAgent(agent);
+      }
+      syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      return listAgents();
+    });
+    return upsert();
+  });
+}
+
+export function replaceAgentOrgChart(
+  entries: AgentTeamStructureEntry[],
+  revisionMeta?: RuntimeConfigChangeMeta,
+): AgentConfig[] {
+  const currentAgents = listAgents();
+  const currentAgentIds = new Set(currentAgents.map((agent) => agent.id));
+  const entriesById = new Map<string, AgentTeamStructureEntry>();
+  for (const entry of entries) {
+    const id = entry.id.trim();
+    if (!id) {
+      throw new Error('Team structure agent id is required.');
+    }
+    if (entriesById.has(id)) {
+      throw new Error(
+        `Team structure revision contains duplicate agent "${id}".`,
+      );
+    }
+    if (!currentAgentIds.has(id)) {
+      throw new Error(
+        `Cannot restore team structure because agent "${id}" does not exist.`,
+      );
+    }
+    entriesById.set(id, entry);
+  }
+
+  const nextAgentsById = new Map<string, AgentConfig>();
+  for (const agent of currentAgents) {
+    const entry = entriesById.get(agent.id);
+    nextAgentsById.set(agent.id, {
+      ...agent,
+      role: entry?.role,
+      reportsTo: entry?.reportsTo,
+      delegatesTo: entry?.delegatesTo ? [...entry.delegatesTo] : undefined,
+      peers: entry?.peers ? [...entry.peers] : undefined,
+    });
+  }
+  const nextAgents = Array.from(nextAgentsById.values());
+  validateAgentOrgChart(nextAgents);
+
+  const updateOrgChart = db.transaction(() => {
+    if (revisionMeta) {
+      syncAttachedTeamRevisionState(currentAgents, revisionMeta);
+    }
+    const statement = db.prepare(
+      `UPDATE agents
+       SET role = ?,
+           reports_to = ?,
+           delegates_to = ?,
+           peers = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
+    );
+    for (const agent of nextAgents) {
+      const result = statement.run(
+        agent.role?.trim() || null,
+        agent.reportsTo?.trim() || null,
+        serializeAgentStringArray(agent.delegatesTo),
+        serializeAgentStringArray(agent.peers),
+        agent.id,
+      );
+      if (result.changes !== 1) {
+        throw new Error(
+          `Cannot restore team structure because agent "${agent.id}" does not exist.`,
+        );
+      }
+    }
+    if (revisionMeta) {
+      syncAttachedTeamRevisionState(nextAgents, revisionMeta);
+    }
+  });
+  if (revisionMeta) {
+    withRuntimeRevisionDatabaseAttached(() => updateOrgChart());
+  } else {
+    updateOrgChart();
+  }
+  return listAgents();
 }
 
 export function deleteAgent(agentId: string): boolean {
@@ -2362,6 +2653,24 @@ export function deleteAgent(agentId: string): boolean {
     db.prepare('DELETE FROM agents WHERE id = ?').run(normalizedAgentId)
       .changes > 0
   );
+}
+
+export function deleteAgentWithTeamRevision(params: {
+  agentId: string;
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): boolean {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const deleteWithRevision = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
+      const deleted = deleteAgent(params.agentId);
+      if (deleted) {
+        syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      }
+      return deleted;
+    });
+    return deleteWithRevision();
+  });
 }
 
 type MemoryKvRow = Omit<StructuredMemoryEntry, 'value'> & {
@@ -2962,6 +3271,7 @@ export function getUsageTotals(params?: {
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
@@ -2972,16 +3282,20 @@ export function getUsageTotals(params?: {
     total_output_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
+    cost_per_call_usd: 0,
     call_count: 0,
     total_tool_calls: 0,
   };
 
+  const callCount = normalizeUsageNumber(row.call_count);
+  const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
-    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
-    call_count: normalizeUsageNumber(row.call_count),
+    total_cost_usd: totalCostUsd,
+    cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
+    call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
 }
@@ -3065,6 +3379,7 @@ export function getSessionUsageTotalsSince(
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
@@ -3078,16 +3393,20 @@ export function getSessionUsageTotalsSince(
     total_output_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
+    cost_per_call_usd: 0,
     call_count: 0,
     total_tool_calls: 0,
   };
 
+  const callCount = normalizeUsageNumber(row.call_count);
+  const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
-    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
-    call_count: normalizeUsageNumber(row.call_count),
+    total_cost_usd: totalCostUsd,
+    cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
+    call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
 }
@@ -5493,6 +5812,7 @@ export function getConversationHistoryPage(
 
   if (rows.length === 0) {
     return {
+      sessionId: resolvedSessionId,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -5526,6 +5846,7 @@ export function getConversationHistoryPage(
   }
 
   return {
+    sessionId: resolvedSessionId,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,

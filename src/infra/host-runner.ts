@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
 import type { ExecutorRequest } from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
@@ -47,7 +48,11 @@ import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import {
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
+} from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import {
   collectConfiguredDiscordChannelIds,
@@ -343,7 +348,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   if (!match) return null;
   try {
     const raw = Buffer.from(match[1], 'base64').toString('utf-8');
-    const parsed = JSON.parse(raw) as PendingApproval;
+    const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
+      escalationTarget?: unknown;
+    };
     if (
       !parsed ||
       typeof parsed !== 'object' ||
@@ -354,6 +361,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     ) {
       return null;
     }
+    const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
     return {
       approvalId: parsed.approvalId,
       prompt: redactCredentialSecrets(parsed.prompt),
@@ -367,6 +375,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
         Number.isFinite(parsed.expiresAt)
           ? parsed.expiresAt
           : null,
+      ...(escalationTarget ? { escalationTarget } : {}),
     };
   } catch {
     return null;
@@ -480,7 +489,7 @@ function getOrSpawnHostProcess(
   }
   const agentBrowserBin = resolveHostAgentBrowserBinary();
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...buildSanitizedEnv(process.env),
     HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,
     HYBRIDAI_MODEL,
@@ -499,9 +508,6 @@ function getOrSpawnHostProcess(
     ),
     HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     SEARXNG_BASE_URL: WEB_SEARCH_SEARXNG_BASE_URL,
-    BRAVE_API_KEY,
-    PERPLEXITY_API_KEY,
-    TAVILY_API_KEY,
     HYBRIDCLAW_AGENT_ID: agentId,
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
@@ -697,6 +703,7 @@ async function runHostProcessInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    escalationTarget,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
@@ -807,8 +814,12 @@ async function runHostProcessInner(
       cacheTtlMinutes: WEB_SEARCH_CACHE_TTL_MINUTES,
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
+      braveApiKey: BRAVE_API_KEY,
+      perplexityApiKey: PERPLEXITY_API_KEY,
+      tavilyApiKey: TAVILY_API_KEY,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
     agentId,

@@ -61,10 +61,11 @@ import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
 import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type {
-  ArtifactMetadata,
-  PendingApproval,
-  ToolProgressEvent,
+import {
+  type ArtifactMetadata,
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
@@ -305,7 +306,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   if (!match) return null;
   try {
     const raw = Buffer.from(match[1], 'base64').toString('utf-8');
-    const parsed = JSON.parse(raw) as PendingApproval;
+    const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
+      escalationTarget?: unknown;
+    };
     if (
       !parsed ||
       typeof parsed !== 'object' ||
@@ -316,6 +319,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     ) {
       return null;
     }
+    const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
     return {
       approvalId: parsed.approvalId,
       prompt: redactCredentialSecrets(parsed.prompt),
@@ -329,6 +333,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
         Number.isFinite(parsed.expiresAt)
           ? parsed.expiresAt
           : null,
+      ...(escalationTarget ? { escalationTarget } : {}),
     };
   } catch {
     return null;
@@ -619,15 +624,6 @@ function getOrSpawnContainer(
     'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
   ];
 
-  for (const [name, value] of [
-    ['BRAVE_API_KEY', BRAVE_API_KEY],
-    ['PERPLEXITY_API_KEY', PERPLEXITY_API_KEY],
-    ['TAVILY_API_KEY', TAVILY_API_KEY],
-  ] as const) {
-    if (!value) continue;
-    args.push('-e', `${name}=${value}`);
-  }
-
   // Run as host user so bind-mount file ownership matches
   const hostUid = process.getuid?.();
   const hostGid = process.getgid?.();
@@ -820,6 +816,7 @@ async function runContainerInner(
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    escalationTarget,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
@@ -924,8 +921,12 @@ async function runContainerInner(
       cacheTtlMinutes: WEB_SEARCH_CACHE_TTL_MINUTES,
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
+      braveApiKey: BRAVE_API_KEY,
+      perplexityApiKey: PERPLEXITY_API_KEY,
+      tavilyApiKey: TAVILY_API_KEY,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
