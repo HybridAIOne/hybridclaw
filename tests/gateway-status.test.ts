@@ -671,6 +671,47 @@ test('getGatewayAdminModels tags each row with its providerHealth key', async ()
   expect(byId['ollama/llama-3.1']).toBe('ollama');
 });
 
+test('getGatewayAdminModels treats hybridai-prefixed models as HybridAI without warning', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  mockHealthProbes();
+
+  const warnMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: { warn: warnMock },
+  }));
+  vi.doMock('../src/providers/model-catalog.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/model-catalog.js')
+    >('../src/providers/model-catalog.js');
+    return {
+      ...actual,
+      refreshAvailableModelCatalogs: vi.fn(async () => {}),
+      getAvailableModelList: vi.fn(() => [
+        'hybridai/o1-preview',
+        'hybridai/o3-mini',
+      ]),
+    };
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayAdminModels } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const result = await getGatewayAdminModels();
+
+  const byId = Object.fromEntries(result.models.map((m) => [m.id, m.provider]));
+  expect(byId['hybridai/o1-preview']).toBe('hybridai');
+  expect(byId['hybridai/o3-mini']).toBe('hybridai');
+  expect(warnMock).not.toHaveBeenCalledWith(
+    expect.anything(),
+    'Unknown provider prefix in model id; defaulting to hybridai',
+  );
+});
+
 test('getGatewayAdminModels populates context windows from provider discovery', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
