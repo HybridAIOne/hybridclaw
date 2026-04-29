@@ -981,6 +981,7 @@ function getOrSpawnContainer(
 
   if (entry.warm) {
     warmPool.add(entry);
+    getObservedContainerMemoryBytes();
   } else {
     pool.set(sessionId, entry);
   }

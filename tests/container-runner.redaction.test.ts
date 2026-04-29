@@ -441,7 +441,7 @@ test('ContainerExecutor stops and respawns a timed out pooled container', async 
 
   expect(secondOutput.status).toBe('success');
   const runCalls = spawn.mock.calls.filter(
-    (call) => Array.isArray(call[1]) && call[1][0] !== 'stop',
+    (call) => Array.isArray(call[1]) && call[1][0] === 'run',
   );
   const activeRunCalls = runCalls.filter((call) => {
     const args = call[1];

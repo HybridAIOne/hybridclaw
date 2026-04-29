@@ -836,6 +836,7 @@ function getOrSpawnHostProcess(
 
   if (entry.warm) {
     warmPool.add(entry);
+    getObservedHostProcessMemoryBytes();
   } else {
     pool.set(sessionId, entry);
   }

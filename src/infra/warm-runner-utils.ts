@@ -202,7 +202,7 @@ export function getCachedObservedMemoryBytes<
         params.setRefreshInFlight(false);
       });
   }
-  return currentCache ? currentCache.totalBytes : 0;
+  return currentCache?.totalBytes ?? params.cache?.totalBytes ?? 0;
 }
 
 export function claimWarmEntry<T extends WarmRunnerEntry>(params: {
