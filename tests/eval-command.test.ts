@@ -616,6 +616,7 @@ test('returns suite stub info without exposing tokens', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: 'secret-token',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'charly',
     effectiveModel: 'openai-codex/gpt-5.4',
   });
@@ -638,6 +639,7 @@ test('returns suite stub info without exposing tokens', async () => {
     'Session state: fresh transient OpenAI-compatible session per request',
   );
   expect(result.text).not.toContain('secret-token');
+  expect(result.text).not.toContain('gateway-token');
 });
 
 test('starts detached eval runs with injected OpenAI-compatible env', async () => {
@@ -655,6 +657,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -666,7 +669,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
   expect(result.title).toBe('Eval Started');
   expect(result.text).toContain('PID: 4321');
   expect(result.text).toContain('Base URL: http://127.0.0.1:9090/v1');
-  expect(result.text).toContain('loopback auth');
+  expect(result.text).toContain('GATEWAY_API_TOKEN injected automatically');
 
   expect(spawnMock).toHaveBeenCalledTimes(1);
   const [, , options] = spawnMock.mock.calls[0] as [
@@ -680,7 +683,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
   ];
   expect(options.detached).toBe(true);
   expect(options.env.OPENAI_BASE_URL).toBe('http://127.0.0.1:9090/v1');
-  expect(options.env.OPENAI_API_KEY).toBe('hybridclaw-local');
+  expect(options.env.OPENAI_API_KEY).toBe('gateway-token');
   expect(options.env.HYBRIDCLAW_EVAL_MODEL).toBe(
     'hybridai/gpt-4.1-mini__hc_eval=current-agent',
   );
@@ -698,7 +701,7 @@ test('starts detached eval runs with injected OpenAI-compatible env', async () =
     command: string;
   };
   expect(meta.pid).toBe(4321);
-  expect(meta.authMode).toBe('loopback');
+  expect(meta.authMode).toBe('gateway-token');
   expect(meta.openaiBaseUrl).toBe('http://127.0.0.1:9090/v1');
   expect(meta.model).toBe('hybridai/gpt-4.1-mini__hc_eval=current-agent');
   expect(meta.command).toBe('python -m swebench.harness.run_evaluation');
@@ -712,6 +715,7 @@ test('shows managed tau2 usage', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -735,6 +739,7 @@ test('shows managed locomo usage', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -771,6 +776,7 @@ test('starts detached tau2 setup', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -805,6 +811,7 @@ test('reports non-terminal suites as not implemented yet', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -834,6 +841,7 @@ test('starts detached locomo setup', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -882,6 +890,7 @@ test('runs managed locomo with question cap flag', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -934,6 +943,7 @@ test('runs managed locomo with current agent override', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'charly',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -955,6 +965,7 @@ test('rejects fresh-agent override for managed locomo', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'charly',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1005,6 +1016,7 @@ test('runs managed locomo with retrieval mode', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1050,6 +1062,7 @@ test('runs managed locomo retrieval matrix sweep', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1090,6 +1103,7 @@ test('runs managed locomo retrieval rerank matrix sweep', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1129,6 +1143,7 @@ test('runs managed locomo retrieval embedding matrix sweep', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1183,6 +1198,7 @@ test('does not apply memory config defaults to locomo retrieval flags', async ()
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1223,6 +1239,7 @@ test('starts detached terminal-bench setup', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1272,6 +1289,7 @@ test('runs managed terminal-bench with native HybridClaw runner defaults', async
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1339,6 +1357,7 @@ test('caps managed terminal-bench concurrency at 4 when configured maxConcurrent
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1371,6 +1390,7 @@ test('reserves one slot from configured terminal-bench concurrency defaults', as
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1409,6 +1429,7 @@ test('preserves explicit terminal-bench concurrency override', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1447,6 +1468,7 @@ test('reports fast tau2 setup failures inline with the reason', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1463,6 +1485,7 @@ test('reports gaia subcommands as not implemented yet', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1479,6 +1502,7 @@ test('rejects unknown suite prefixes instead of launching a raw eval command', a
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1568,6 +1592,7 @@ test('reports managed suite latest run in status output', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1637,6 +1662,7 @@ test('reports locomo latest run in status output', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1716,6 +1742,7 @@ test('reports locomo retrieval latest run in status output', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1784,6 +1811,7 @@ test('reports locomo in-flight progress in status output', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1846,6 +1874,7 @@ test('shows generic managed suite setup logs in results', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1907,6 +1936,7 @@ test('shows locomo run summary in results when a run exists', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -1989,6 +2019,7 @@ test('shows locomo retrieval summary in results when a run exists', async () => 
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2072,6 +2103,7 @@ test('shows locomo retrieval matrix summary table in results', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2148,6 +2180,7 @@ test('logs debug when locomo result json is malformed', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2211,6 +2244,7 @@ test('shows locomo run progress in results while a run is active', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2291,6 +2325,7 @@ test('shows locomo retrieval matrix progress in results while a run is active', 
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2391,6 +2426,7 @@ test('prefers locomo progress over completed summary while the run is still acti
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2506,6 +2542,7 @@ test('shows managed suite run summary in results when a run exists', async () =>
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2623,6 +2660,7 @@ test('does not count recovered terminal-bench task warnings as errors', async ()
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2730,6 +2768,7 @@ test('shows partial terminal-bench progress in results while a run is still acti
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2810,6 +2849,7 @@ test('shows managed suite log tails in logs view', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2873,6 +2913,7 @@ test('stops managed suite runs and marks the run metadata as terminated', async 
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2913,6 +2954,7 @@ test('requires tau2 setup before tau2 run', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -2976,6 +3018,7 @@ test('reports tau2 setup as still running before install completes', async () =>
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3015,6 +3058,7 @@ test('runs managed tau2 with default llms when installed', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3075,6 +3119,7 @@ test('queues an initial tau2 progress bar for tui sessions', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3127,6 +3172,7 @@ test('queues a tau2 setup completion notification for tui sessions', async () =>
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3190,6 +3236,7 @@ test('queues a tau2 setup failure notification for tui sessions', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3269,6 +3316,7 @@ test('queues a tau2 run completion notification without a duplicate generic fini
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3355,6 +3403,7 @@ test('queues a tau2 run failure notification with the reason', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3411,6 +3460,7 @@ test('preserves explicit tau2 llm flags', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3480,6 +3530,7 @@ test('reports tau2 install and latest run status', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3549,6 +3600,7 @@ test('reports tau2 success metric in status output for completed runs', async ()
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3613,6 +3665,7 @@ test('reports tau2 setup failure reason in status output', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3669,6 +3722,7 @@ test('stops the latest running tau2 process', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3755,6 +3809,7 @@ test('shows latest tau2 results from log tails', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3827,6 +3882,7 @@ test('shows setup logs in tau2 results when no run exists yet', async () => {
     dataDir,
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3851,6 +3907,7 @@ test('rejects the removed eval run syntax', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-run-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'hybridai/gpt-4.1-mini',
   });
@@ -3875,6 +3932,7 @@ test('encodes fresh-agent ablation options into the eval model', async () => {
     dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-eval-')),
     gatewayBaseUrl: 'http://127.0.0.1:9090',
     webApiToken: '',
+    gatewayApiToken: 'gateway-token',
     effectiveAgentId: 'main',
     effectiveModel: 'openai-codex/gpt-5.4',
   });

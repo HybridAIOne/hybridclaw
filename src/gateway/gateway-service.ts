@@ -92,6 +92,7 @@ import {
   DISCORD_TOKEN,
   EMAIL_PASSWORD,
   FULLAUTO_NEVER_APPROVE_TOOLS,
+  GATEWAY_API_TOKEN,
   GATEWAY_BASE_URL,
   HUGGINGFACE_API_KEY,
   HYBRIDAI_BASE_URL,
@@ -10229,6 +10230,7 @@ export async function handleGatewayCommand(
           dataDir: DATA_DIR,
           gatewayBaseUrl: GATEWAY_BASE_URL,
           webApiToken: WEB_API_TOKEN,
+          gatewayApiToken: GATEWAY_API_TOKEN,
           effectiveAgentId: runtime.agentId,
           effectiveModel: runtime.model,
         });
