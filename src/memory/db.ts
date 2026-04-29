@@ -2871,14 +2871,6 @@ function normalizeUsageCost(value: unknown): number {
   return 0;
 }
 
-function calculateUsageCostPerCall(
-  totalCostUsd: number,
-  callCount: number,
-): number {
-  if (callCount <= 0) return 0;
-  return normalizeUsageCost(totalCostUsd / callCount);
-}
-
 function applyUsageFilters(params: {
   whereClauses: string[];
   args: unknown[];
@@ -3048,9 +3040,7 @@ export function getUsageTotals(params?: {
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: totalCostUsd,
-    cost_per_call_usd:
-      normalizeUsageCost(row.cost_per_call_usd) ||
-      calculateUsageCostPerCall(totalCostUsd, callCount),
+    cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
     call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
@@ -3161,9 +3151,7 @@ export function getSessionUsageTotalsSince(
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
     total_cost_usd: totalCostUsd,
-    cost_per_call_usd:
-      normalizeUsageCost(row.cost_per_call_usd) ||
-      calculateUsageCostPerCall(totalCostUsd, callCount),
+    cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
     call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };

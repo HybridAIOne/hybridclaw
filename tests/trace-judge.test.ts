@@ -23,7 +23,11 @@ test('judgeTrace falls back when the cheapest model call fails', async () => {
     'Pass when the trace uses memory and produces the correct answer.',
     {
       model: 'cheap-json-model',
-      fallbackModels: ['fallback-json-model'],
+      fallbackModels: [
+        'cheap-json-model',
+        ' fallback-json-model ',
+        'fallback-json-model',
+      ],
       modelCaller: vi.fn(async ({ messages, model }) => {
         calls.push(model);
         const userMessage = messages.find((message) => message.role === 'user');

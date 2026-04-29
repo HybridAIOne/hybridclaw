@@ -236,31 +236,44 @@ function matchesProviderFilter(
   return provider === providerFilter;
 }
 
-function dedupeModelList(models: string[]): string[] {
+export function dedupeExplicitModelNames(
+  models: Array<string | null | undefined>,
+): string[] {
   const seen = new Set<string>();
   const deduped: string[] = [];
   for (const rawModel of models) {
-    const originalModel = String(rawModel || '').trim();
-    const model =
-      resolveModelProvider(originalModel) === 'hybridai' &&
-      !isLocalPrefixedModel(originalModel)
-        ? formatHybridAIModelForCatalog(originalModel)
-        : originalModel;
+    const model = rawModel?.trim() || null;
     if (!model || seen.has(model)) continue;
-    const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
-      ? resolveDiscoveredMistralModelCanonicalName(model)
-      : model;
-    if (!canonicalModel || seen.has(canonicalModel)) continue;
-    if (
-      hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
-      isDiscoveredDeprecatedMistralModel(canonicalModel)
-    ) {
-      continue;
-    }
-    seen.add(canonicalModel);
-    deduped.push(canonicalModel);
+    seen.add(model);
+    deduped.push(model);
   }
   return deduped;
+}
+
+function normalizeAvailableCatalogModel(rawModel: string): string | null {
+  const originalModel = String(rawModel || '').trim();
+  const model =
+    resolveModelProvider(originalModel) === 'hybridai' &&
+    !isLocalPrefixedModel(originalModel)
+      ? formatHybridAIModelForCatalog(originalModel)
+      : originalModel;
+  if (!model) return null;
+
+  const canonicalModel = hasModelPrefix(model, MISTRAL_MODEL_PREFIX)
+    ? resolveDiscoveredMistralModelCanonicalName(model)
+    : model;
+  if (!canonicalModel) return null;
+  if (
+    hasModelPrefix(canonicalModel, MISTRAL_MODEL_PREFIX) &&
+    isDiscoveredDeprecatedMistralModel(canonicalModel)
+  ) {
+    return null;
+  }
+  return canonicalModel;
+}
+
+function dedupeModelList(models: string[]): string[] {
+  return dedupeExplicitModelNames(models.map(normalizeAvailableCatalogModel));
 }
 
 function collectModelsForProvider(

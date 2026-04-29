@@ -4,6 +4,7 @@ import {
   callAuxiliaryModel,
 } from '../providers/auxiliary.js';
 import {
+  dedupeExplicitModelNames,
   getModelCatalogMetadata,
   type ModelCapabilityRequirements,
   refreshAvailableModelCatalogs,
@@ -62,18 +63,6 @@ const DEFAULT_JUDGE_CAPABILITIES: ModelCapabilityRequirements = {
 };
 const DEFAULT_JUDGE_MAX_TOKENS = 800;
 const DEFAULT_JUDGE_TIMEOUT_MS = 45_000;
-
-function uniqueModels(models: Array<string | null | undefined>): string[] {
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  for (const rawModel of models) {
-    const model = rawModel?.trim() || null;
-    if (!model || seen.has(model)) continue;
-    seen.add(model);
-    unique.push(model);
-  }
-  return unique;
-}
 
 function serializeJudgeInput(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -253,7 +242,7 @@ async function buildJudgeModelChain(
   if (options.refreshCatalog === true) {
     await refreshAvailableModelCatalogs({ includeHybridAI: true });
   }
-  const explicitModels = uniqueModels([
+  const explicitModels = dedupeExplicitModelNames([
     options.model,
     ...(options.fallbackModels || []),
   ]);
@@ -263,7 +252,7 @@ async function buildJudgeModelChain(
       excludeModels: explicitModels,
     },
   ).map((selection) => selection.model);
-  return uniqueModels([...explicitModels, ...catalogModels]);
+  return dedupeExplicitModelNames([...explicitModels, ...catalogModels]);
 }
 
 function recordJudgeUsage(params: {
