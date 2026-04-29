@@ -273,8 +273,13 @@ describe('runtime secrets', () => {
     const generatedToken = firstConfig.GATEWAY_API_TOKEN;
 
     expect(generatedToken).toMatch(/^[a-f0-9]{48}$/);
-
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    expect(
+      runtimeSecrets.readStoredRuntimeSecret('GATEWAY_API_TOKEN'),
+    ).toBeNull();
+
+    expect(firstConfig.ensureGatewayApiTokenPersisted()).toBe(generatedToken);
+
     expect(runtimeSecrets.readStoredRuntimeSecret('GATEWAY_API_TOKEN')).toBe(
       generatedToken,
     );

@@ -731,6 +731,7 @@ async function runGatewayForeground(
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
+  getConfigApi().ensureGatewayApiTokenPersisted();
   ensureGatewayRunDir();
   if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
     delete process.env[GATEWAY_LOG_FILE_ENV];
@@ -836,6 +837,7 @@ async function startGatewayBackend(
     commandName,
     requireCredentials: false,
   });
+  getConfigApi().ensureGatewayApiTokenPersisted();
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);

@@ -558,11 +558,17 @@ const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
 const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
 let internalGatewayApiToken = '';
 let internalGatewayApiTokenPersisted = false;
+let gatewayApiTokenUsesGeneratedFallback = false;
 function getInternalGatewayApiToken(): string {
   if (!internalGatewayApiToken) {
     internalGatewayApiToken = randomBytes(24).toString('hex');
   }
   return internalGatewayApiToken;
+}
+
+function getGeneratedGatewayApiTokenFallback(): string {
+  gatewayApiTokenUsesGeneratedFallback = true;
+  return getInternalGatewayApiToken();
 }
 
 function sleepSync(ms: number): void {
@@ -642,13 +648,18 @@ function acquireGatewayApiTokenLock(): () => void {
   }
 }
 
-function getOrPersistGatewayApiToken(): string {
-  if (internalGatewayApiTokenPersisted) return getInternalGatewayApiToken();
+export function ensureGatewayApiTokenPersisted(): string {
+  if (!gatewayApiTokenUsesGeneratedFallback) return GATEWAY_API_TOKEN;
+  if (internalGatewayApiTokenPersisted) return GATEWAY_API_TOKEN;
 
+  // Gateway startup persists generated fallbacks so separate local clients can
+  // authenticate. Plain config imports stay side-effect free.
   const existing = readStoredGatewayApiToken();
   if (existing) {
     internalGatewayApiToken = existing;
+    GATEWAY_API_TOKEN = existing;
     internalGatewayApiTokenPersisted = true;
+    gatewayApiTokenUsesGeneratedFallback = false;
     return existing;
   }
 
@@ -658,13 +669,16 @@ function getOrPersistGatewayApiToken(): string {
     const lockedExisting = readStoredGatewayApiToken();
     if (lockedExisting) {
       internalGatewayApiToken = lockedExisting;
+      GATEWAY_API_TOKEN = lockedExisting;
       internalGatewayApiTokenPersisted = true;
+      gatewayApiTokenUsesGeneratedFallback = false;
       return lockedExisting;
     }
 
     const token = getInternalGatewayApiToken();
     saveRuntimeSecrets({ GATEWAY_API_TOKEN: token });
     internalGatewayApiToken = readStoredGatewayApiToken() || token;
+    GATEWAY_API_TOKEN = internalGatewayApiToken;
     internalGatewayApiTokenPersisted = true;
   } catch (err) {
     logger.warn(
@@ -674,7 +688,7 @@ function getOrPersistGatewayApiToken(): string {
   } finally {
     releaseLock?.();
   }
-  return getInternalGatewayApiToken();
+  return GATEWAY_API_TOKEN;
 }
 export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = path.join(
@@ -1065,6 +1079,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(
       ['GATEWAY_API_TOKEN'],
@@ -1073,10 +1088,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
-    // Persist the generated fallback so separately launched local clients can
-    // authenticate to this gateway. Deleting credentials while the gateway is
-    // already running can still require a gateway restart to repersist the token.
-    getOrPersistGatewayApiToken();
+    getGeneratedGatewayApiTokenFallback();
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 
