@@ -180,6 +180,11 @@ export class NgrokTunnelProvider implements TunnelProvider {
       options.reconnectMaxBackoffMs,
       DEFAULT_RECONNECT_MAX_BACKOFF_MS,
     );
+    if (this.reconnectInitialBackoffMs > this.reconnectMaxBackoffMs) {
+      throw new Error(
+        `reconnectInitialBackoffMs (${this.reconnectInitialBackoffMs}) must be less than or equal to reconnectMaxBackoffMs (${this.reconnectMaxBackoffMs}).`,
+      );
+    }
     this.recordAuditEvent =
       options.recordAuditEvent === false
         ? null
@@ -195,6 +200,8 @@ export class NgrokTunnelProvider implements TunnelProvider {
       return { public_url: this.publicUrl };
     }
 
+    const startReason =
+      this.state === 'reconnecting' ? 'manual_reconnect' : 'started';
     this.clearTimer('healthTimer');
     this.clearTimer('reconnectTimer');
     this.updateStatus({
@@ -207,15 +214,20 @@ export class NgrokTunnelProvider implements TunnelProvider {
 
     try {
       const { listener, publicUrl } = await this.openTunnel();
-      await this.markTunnelUp(listener, publicUrl, 'started');
+      await this.markTunnelUp(listener, publicUrl, startReason);
       this.scheduleHealthCheck();
       return { public_url: publicUrl };
     } catch (error) {
+      const message = errorMessage(error);
       this.clearActiveTunnel({
-        lastError: errorMessage(error),
+        lastError: message,
         nextReconnectAt: null,
         reconnectAttempt: 0,
         state: 'down',
+      });
+      await this.recordTunnelAudit('tunnel.start_failed', {
+        error: message,
+        reason: startReason,
       });
       throw error;
     }
@@ -390,10 +402,10 @@ export class NgrokTunnelProvider implements TunnelProvider {
   }
 
   private async recordTunnelAudit(
-    type: 'tunnel.up' | 'tunnel.down',
+    type: 'tunnel.up' | 'tunnel.down' | 'tunnel.start_failed',
     details: {
       error?: string;
-      publicUrl: string;
+      publicUrl?: string;
       reason: string;
     },
   ): Promise<void> {
@@ -405,8 +417,8 @@ export class NgrokTunnelProvider implements TunnelProvider {
         event: {
           type,
           provider: 'ngrok',
-          public_url: details.publicUrl,
           reason: details.reason,
+          ...(details.publicUrl ? { public_url: details.publicUrl } : {}),
           ...(details.error ? { error: details.error } : {}),
         },
       });
