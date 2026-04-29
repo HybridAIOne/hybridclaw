@@ -3175,7 +3175,7 @@ function applyUsageFilters(params: {
   if (windowClause) params.whereClauses.push(windowClause);
 }
 
-export function recordUsageEvent(params: {
+export interface RecordUsageEventEntry {
   sessionId: string;
   agentId: string;
   model: string;
@@ -3185,54 +3185,88 @@ export function recordUsageEvent(params: {
   toolCalls?: number;
   costUsd?: number;
   timestamp?: string;
-}): void {
-  const sessionId = resolveSessionIdCompat(params.sessionId.trim());
-  const agentId = params.agentId.trim();
-  const model = params.model.trim() || 'unknown';
-  if (!sessionId || !agentId) return;
-  const inputTokens = normalizeUsageNumber(params.inputTokens);
-  const outputTokens = normalizeUsageNumber(params.outputTokens);
+}
+
+export interface RecordUsageEventBatchEntry extends RecordUsageEventEntry {
+  id?: string;
+  batchId?: string;
+  batchHash?: string;
+}
+
+type NormalizedUsageEventRow = {
+  id: string;
+  sessionId: string;
+  agentId: string;
+  timestamp: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  toolCalls: number;
+  batchId: string | null;
+  batchHash: string | null;
+};
+
+function normalizeUsageEntry(
+  entry: RecordUsageEventBatchEntry,
+): NormalizedUsageEventRow | null {
+  const sessionId = resolveSessionIdCompat(entry.sessionId.trim());
+  const agentId = entry.agentId.trim();
+  if (!sessionId || !agentId) return null;
+  const inputTokens = normalizeUsageNumber(entry.inputTokens);
+  const outputTokens = normalizeUsageNumber(entry.outputTokens);
   const totalTokens = normalizeUsageNumber(
-    params.totalTokens ?? inputTokens + outputTokens,
+    entry.totalTokens ?? inputTokens + outputTokens,
   );
-  const toolCalls = normalizeUsageNumber(params.toolCalls);
-  const costUsd = normalizeUsageCost(params.costUsd);
-  const timestamp =
-    typeof params.timestamp === 'string' && params.timestamp.trim()
-      ? params.timestamp.trim()
-      : new Date().toISOString();
+  return {
+    id:
+      typeof entry.id === 'string' && entry.id.trim()
+        ? entry.id.trim()
+        : randomUUID(),
+    sessionId,
+    agentId,
+    timestamp:
+      typeof entry.timestamp === 'string' && entry.timestamp.trim()
+        ? entry.timestamp.trim()
+        : new Date().toISOString(),
+    model: entry.model.trim() || 'unknown',
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: normalizeUsageCost(entry.costUsd),
+    toolCalls: normalizeUsageNumber(entry.toolCalls),
+    batchId:
+      typeof entry.batchId === 'string' && entry.batchId.trim()
+        ? entry.batchId.trim()
+        : null,
+    batchHash:
+      typeof entry.batchHash === 'string' && entry.batchHash.trim()
+        ? entry.batchHash.trim()
+        : null,
+  };
+}
+
+export function recordUsageEvent(params: RecordUsageEventEntry): void {
+  const row = normalizeUsageEntry(params);
+  if (!row) return;
 
   db.prepare(
     `INSERT INTO usage_events
       (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    randomUUID(),
-    sessionId,
-    agentId,
-    timestamp,
-    model,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    costUsd,
-    toolCalls,
+    row.id,
+    row.sessionId,
+    row.agentId,
+    row.timestamp,
+    row.model,
+    row.inputTokens,
+    row.outputTokens,
+    row.totalTokens,
+    row.costUsd,
+    row.toolCalls,
   );
-}
-
-export interface RecordUsageEventBatchEntry {
-  id?: string;
-  sessionId: string;
-  agentId: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens?: number;
-  toolCalls?: number;
-  costUsd?: number;
-  timestamp?: string;
-  batchId?: string;
-  batchHash?: string;
 }
 
 export interface UsageBatchHashRecord {
@@ -3262,57 +3296,10 @@ export function recordUsageEventBatch(
 ): void {
   if (!Array.isArray(entries) || entries.length === 0) return;
 
-  type NormalizedRow = {
-    id: string;
-    sessionId: string;
-    agentId: string;
-    timestamp: string;
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-    costUsd: number;
-    toolCalls: number;
-    batchId: string | null;
-    batchHash: string | null;
-  };
-
-  const normalized: NormalizedRow[] = [];
+  const normalized: NormalizedUsageEventRow[] = [];
   for (const entry of entries) {
-    const sessionId = resolveSessionIdCompat(entry.sessionId.trim());
-    const agentId = entry.agentId.trim();
-    if (!sessionId || !agentId) continue;
-    const inputTokens = normalizeUsageNumber(entry.inputTokens);
-    const outputTokens = normalizeUsageNumber(entry.outputTokens);
-    const totalTokens = normalizeUsageNumber(
-      entry.totalTokens ?? inputTokens + outputTokens,
-    );
-    normalized.push({
-      id:
-        typeof entry.id === 'string' && entry.id.trim()
-          ? entry.id.trim()
-          : randomUUID(),
-      sessionId,
-      agentId,
-      timestamp:
-        typeof entry.timestamp === 'string' && entry.timestamp.trim()
-          ? entry.timestamp.trim()
-          : new Date().toISOString(),
-      model: entry.model.trim() || 'unknown',
-      inputTokens,
-      outputTokens,
-      totalTokens,
-      costUsd: normalizeUsageCost(entry.costUsd),
-      toolCalls: normalizeUsageNumber(entry.toolCalls),
-      batchId:
-        typeof entry.batchId === 'string' && entry.batchId.trim()
-          ? entry.batchId.trim()
-          : null,
-      batchHash:
-        typeof entry.batchHash === 'string' && entry.batchHash.trim()
-          ? entry.batchHash.trim()
-          : null,
-    });
+    const row = normalizeUsageEntry(entry);
+    if (row) normalized.push(row);
   }
   if (normalized.length === 0) return;
 
@@ -3321,7 +3308,7 @@ export function recordUsageEventBatch(
       (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  const transaction = db.transaction((rows: NormalizedRow[]) => {
+  const transaction = db.transaction((rows: NormalizedUsageEventRow[]) => {
     for (const row of rows) {
       insert.run(
         row.id,

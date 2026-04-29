@@ -374,11 +374,14 @@ function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
   // batch attestation.
   for (const group of groups) {
     const { batchHash, batchId, events, sessionId } = group;
-    const inputTokens = sumInt(events, (e) => e.inputTokens);
-    const outputTokens = sumInt(events, (e) => e.outputTokens);
-    const totalTokens = sumInt(events, (e) => e.totalTokens);
-    const toolCalls = sumInt(events, (e) => e.toolCalls ?? 0);
-    const costUsd = events.reduce((acc, e) => acc + (e.costUsd ?? 0), 0);
+    const inputTokens = sumUsageNumber(events, (e) => e.inputTokens);
+    const outputTokens = sumUsageNumber(events, (e) => e.outputTokens);
+    const totalTokens = sumUsageNumber(events, (e) => e.totalTokens);
+    const toolCalls = sumUsageNumber(events, (e) => e.toolCalls);
+    const costUsd = events.reduce(
+      (acc, e) => acc + normalizeUsageCost(e.costUsd),
+      0,
+    );
     const models = Array.from(new Set(events.map((e) => e.model))).sort();
     const agents = Array.from(new Set(events.map((e) => e.agentId))).sort();
     const runId = group.auditRunId || makeAuditRunId('usage-batch');
@@ -403,16 +406,13 @@ function emitBatchAuditEvents(groups: PreparedUsageBatchGroup[]): void {
   }
 }
 
-function sumInt(
-  events: TokenUsageEvent[],
-  pick: (e: TokenUsageEvent) => number | undefined,
+function sumUsageNumber(
+  events: PreparedUsageEvent[],
+  pick: (e: PreparedUsageEvent) => number | undefined,
 ): number {
   let total = 0;
   for (const event of events) {
-    const value = pick(event);
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-      total += Math.floor(value);
-    }
+    total += normalizeUsageNumber(pick(event));
   }
   return total;
 }
