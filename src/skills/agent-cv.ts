@@ -177,7 +177,11 @@ function loadCvState(agentId: string): AgentCvState {
   }
 }
 
-function writeJsonAtomic(filePath: string, value: unknown): void {
+function writeFileAtomic(
+  filePath: string,
+  content: string,
+  options?: fs.WriteFileOptions,
+): void {
   const dir = path.dirname(filePath);
   const tempPath = path.join(
     dir,
@@ -185,10 +189,7 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
   );
   fs.mkdirSync(dir, { recursive: true });
   try {
-    fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
-      encoding: 'utf-8',
-      mode: 0o600,
-    });
+    fs.writeFileSync(tempPath, content, options);
     fs.renameSync(tempPath, filePath);
   } catch (error) {
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
@@ -196,20 +197,15 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
   }
 }
 
+function writeJsonAtomic(filePath: string, value: unknown): void {
+  writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+}
+
 function writeMarkdownAtomic(filePath: string, content: string): void {
-  const dir = path.dirname(filePath);
-  const tempPath = path.join(
-    dir,
-    `${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    fs.writeFileSync(tempPath, content, 'utf-8');
-    fs.renameSync(tempPath, filePath);
-  } catch (error) {
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    throw error;
-  }
+  writeFileAtomic(filePath, content, 'utf-8');
 }
 
 function sortCvEntries(entries: AgentCvEntry[]): AgentCvEntry[] {
@@ -533,7 +529,6 @@ async function narrateSkillRuns(input: {
     const result = await callAuxiliaryModel({
       task: 'cv_narration',
       model,
-      fallbackModel: model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
