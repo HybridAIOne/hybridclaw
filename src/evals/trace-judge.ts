@@ -103,16 +103,11 @@ function buildJudgeMessages(
   criteria: unknown,
   options: Pick<JudgeTraceOptions, 'maxInputChars' | 'tracePreparation'> = {},
 ): ChatMessage[] {
-  const prepared = prepareTraceJudgePrompt(trace, criteria, {
-    maxTraceTokens: options.tracePreparation?.maxTraceTokens,
-    maxToolCalls: options.tracePreparation?.maxToolCalls,
-    template: options.tracePreparation?.template,
-    templatePath: options.tracePreparation?.templatePath,
-    createTemplateIfMissing: options.tracePreparation?.createTemplateIfMissing,
-    syncTemplateRevision: options.tracePreparation?.syncTemplateRevision,
-    revisionMeta: options.tracePreparation?.revisionMeta,
-    confidentialRuleSet: options.tracePreparation?.confidentialRuleSet,
-  });
+  const prepared = prepareTraceJudgePrompt(
+    trace,
+    criteria,
+    options.tracePreparation ?? {},
+  );
   assertJudgeInputWithinLimit({
     criteriaText: prepared.criteriaText,
     traceText: prepared.traceText,

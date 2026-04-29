@@ -113,6 +113,15 @@ test('prepareTraceJudgePrompt tail-windows long traces without tool arrays', asy
   expect(prepared.traceText).not.toContain('start-');
 });
 
+test('serializeTracePreparationInput normalizes non-serializable values', async () => {
+  const { serializeTracePreparationInput } = await import(
+    '../src/evals/trace-preparation.js'
+  );
+
+  expect(serializeTracePreparationInput(undefined)).toBe('');
+  expect(serializeTracePreparationInput(Symbol('trace'))).toBe('Symbol(trace)');
+});
+
 test('prepareTraceJudgePrompt redacts trace and criteria with round-trip mappings', async () => {
   const { prepareTraceJudgePrompt } = await import(
     '../src/evals/trace-preparation.js'
@@ -157,6 +166,24 @@ clients:
   expect(prepared.redaction.rehydrate(prepared.traceText)).toContain(
     'Acme Medical',
   );
+});
+
+test('prepareTraceJudgePrompt rejects ambiguous inline and file templates', async () => {
+  const { prepareTraceJudgePrompt } = await import(
+    '../src/evals/trace-preparation.js'
+  );
+
+  expect(() =>
+    prepareTraceJudgePrompt({ answer: 'A' }, 'Pass.', {
+      confidentialRuleSet: null,
+      template: {
+        id: 'inline',
+        system: 'System',
+        user: '{{judge_input_json}}',
+      },
+      templatePath: path.join(tmpDir, 'templates', 'judge.json'),
+    }),
+  ).toThrow('Pass either trace prompt template or templatePath, not both.');
 });
 
 test('default prompt template is versioned as a runtime template asset', async () => {

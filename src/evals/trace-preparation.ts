@@ -131,7 +131,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function serializeTracePreparationInput(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   try {
-    return JSON.stringify(value);
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string'
+      ? serialized
+      : String(value || '').trim();
   } catch {
     return String(value || '').trim();
   }
@@ -435,6 +438,12 @@ function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
   template: TracePromptTemplate;
   templateStats: TracePreparationTemplateStats;
 } {
+  if (options.template && options.templatePath) {
+    throw new Error(
+      'Pass either trace prompt template or templatePath, not both.',
+    );
+  }
+
   if (options.template && !options.templatePath) {
     const template = options.template;
     return {
