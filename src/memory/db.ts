@@ -11,13 +11,24 @@ import {
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  validateAgentOrgChart,
 } from '../agents/agent-types.js';
+import {
+  type AgentTeamStructureEntry,
+  serializeAgentTeamStructure,
+} from '../agents/team-structure.js';
+import { agentTeamStructureAssetPath } from '../agents/team-structure-revisions.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import {
+  type RuntimeConfigChangeMeta,
+  runtimeConfigRevisionStorePath,
+  syncRuntimeAssetRevisionStateInOpenDatabase,
+} from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import {
@@ -2278,6 +2289,52 @@ function serializeAgentStringArray(
   return JSON.stringify(normalizeTrimmedUniqueStringArray(values));
 }
 
+const RUNTIME_REVISION_ATTACHMENT = 'runtime_revisions';
+
+function isRuntimeRevisionDatabaseAttached(): boolean {
+  return (
+    db.prepare('PRAGMA database_list').all() as Array<{ name: string }>
+  ).some((entry) => entry.name === RUNTIME_REVISION_ATTACHMENT);
+}
+
+function withRuntimeRevisionDatabaseAttached<T>(fn: () => T): T {
+  const alreadyAttached = isRuntimeRevisionDatabaseAttached();
+  if (!alreadyAttached) {
+    const revisionDbPath = runtimeConfigRevisionStorePath();
+    fs.mkdirSync(path.dirname(revisionDbPath), { recursive: true });
+    db.prepare(`ATTACH DATABASE ? AS ${RUNTIME_REVISION_ATTACHMENT}`).run(
+      revisionDbPath,
+    );
+  }
+  try {
+    return fn();
+  } finally {
+    if (!alreadyAttached) {
+      db.exec(`DETACH DATABASE ${RUNTIME_REVISION_ATTACHMENT}`);
+    }
+  }
+}
+
+function syncAttachedTeamRevisionState(
+  agents: AgentConfig[],
+  meta: RuntimeConfigChangeMeta,
+): void {
+  syncRuntimeAssetRevisionStateInOpenDatabase(
+    db,
+    'team',
+    agentTeamStructureAssetPath(),
+    meta,
+    {
+      exists: true,
+      content: serializeAgentTeamStructure(agents),
+    },
+    new Date().toISOString(),
+    {
+      schemaName: RUNTIME_REVISION_ATTACHMENT,
+    },
+  );
+}
+
 function parseAgentStringArray(
   rawValues: string | null,
   fieldName: string,
@@ -2486,6 +2543,120 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   return storedAgent;
 }
 
+export function upsertAgentWithTeamRevision(params: {
+  agent: AgentConfig;
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): AgentConfig {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const upsert = db.transaction(() => {
+      const stored = upsertAgent(params.agent);
+      syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      return stored;
+    });
+    return upsert();
+  });
+}
+
+export function upsertAgentsWithTeamRevision(params: {
+  agents: AgentConfig[];
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): AgentConfig[] {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const upsert = db.transaction(() => {
+      for (const agent of params.agents) {
+        upsertAgent(agent);
+      }
+      syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      return listAgents();
+    });
+    return upsert();
+  });
+}
+
+export function replaceAgentOrgChart(
+  entries: AgentTeamStructureEntry[],
+  revisionMeta?: RuntimeConfigChangeMeta,
+): AgentConfig[] {
+  const currentAgents = listAgents();
+  const entriesById = new Map<string, AgentTeamStructureEntry>();
+  for (const entry of entries) {
+    const id = entry.id.trim();
+    if (!id) {
+      throw new Error('Team structure agent id is required.');
+    }
+    if (entriesById.has(id)) {
+      throw new Error(
+        `Team structure revision contains duplicate agent "${id}".`,
+      );
+    }
+    entriesById.set(id, entry);
+  }
+
+  const nextAgentsById = new Map<string, AgentConfig>();
+  for (const agent of currentAgents) {
+    const entry = entriesById.get(agent.id);
+    nextAgentsById.set(agent.id, {
+      ...agent,
+      role: entry?.role,
+      reportsTo: entry?.reportsTo,
+      delegatesTo: entry?.delegatesTo ? [...entry.delegatesTo] : undefined,
+      peers: entry?.peers ? [...entry.peers] : undefined,
+    });
+  }
+  for (const entry of entries) {
+    if (nextAgentsById.has(entry.id)) continue;
+    nextAgentsById.set(entry.id, {
+      id: entry.id,
+      role: entry.role,
+      reportsTo: entry.reportsTo,
+      delegatesTo: entry.delegatesTo ? [...entry.delegatesTo] : undefined,
+      peers: entry.peers ? [...entry.peers] : undefined,
+    });
+  }
+  const nextAgents = Array.from(nextAgentsById.values());
+  validateAgentOrgChart(nextAgents);
+
+  const updateOrgChart = db.transaction(() => {
+    const statement = db.prepare(
+      `INSERT INTO agents (
+         id,
+         role,
+         reports_to,
+         delegates_to,
+         peers,
+         created_at,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         role = excluded.role,
+         reports_to = excluded.reports_to,
+         delegates_to = excluded.delegates_to,
+         peers = excluded.peers,
+         updated_at = datetime('now')`,
+    );
+    for (const agent of nextAgents) {
+      statement.run(
+        agent.id,
+        agent.role?.trim() || null,
+        agent.reportsTo?.trim() || null,
+        serializeAgentStringArray(agent.delegatesTo),
+        serializeAgentStringArray(agent.peers),
+      );
+    }
+    if (revisionMeta) {
+      syncAttachedTeamRevisionState(nextAgents, revisionMeta);
+    }
+  });
+  if (revisionMeta) {
+    withRuntimeRevisionDatabaseAttached(() => updateOrgChart());
+  } else {
+    updateOrgChart();
+  }
+  return listAgents();
+}
+
 export function deleteAgent(agentId: string): boolean {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId || normalizedAgentId === DEFAULT_AGENT_ID) {
@@ -2495,6 +2666,23 @@ export function deleteAgent(agentId: string): boolean {
     db.prepare('DELETE FROM agents WHERE id = ?').run(normalizedAgentId)
       .changes > 0
   );
+}
+
+export function deleteAgentWithTeamRevision(params: {
+  agentId: string;
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): boolean {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const deleteWithRevision = db.transaction(() => {
+      const deleted = deleteAgent(params.agentId);
+      if (deleted) {
+        syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      }
+      return deleted;
+    });
+    return deleteWithRevision();
+  });
 }
 
 type MemoryKvRow = Omit<StructuredMemoryEntry, 'value'> & {

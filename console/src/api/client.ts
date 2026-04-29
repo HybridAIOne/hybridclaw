@@ -33,6 +33,8 @@ import type {
   AdminSession,
   AdminSkillsResponse,
   AdminStatisticsResponse,
+  AdminTeamStructureResponse,
+  AdminTeamStructureRevisionResponse,
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
@@ -295,6 +297,37 @@ export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
     token,
   });
   return payload.agents;
+}
+
+export function fetchAdminTeamStructure(
+  token: string,
+): Promise<AdminTeamStructureResponse> {
+  return requestJson<AdminTeamStructureResponse>('/api/admin/team-structure', {
+    token,
+  });
+}
+
+export function fetchAdminTeamStructureRevision(
+  token: string,
+  revisionId: number,
+): Promise<AdminTeamStructureRevisionResponse> {
+  return requestJson<AdminTeamStructureRevisionResponse>(
+    `/api/admin/team-structure/revisions/${encodeURIComponent(String(revisionId))}`,
+    { token },
+  );
+}
+
+export function restoreAdminTeamStructureRevision(
+  token: string,
+  revisionId: number,
+): Promise<AdminTeamStructureResponse> {
+  return requestJson<AdminTeamStructureResponse>(
+    `/api/admin/team-structure/revisions/${encodeURIComponent(String(revisionId))}/restore`,
+    {
+      token,
+      method: 'POST',
+    },
+  );
 }
 
 export function fetchAdminAgentMarkdownFile(

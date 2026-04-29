@@ -21,6 +21,7 @@ export const RUNTIME_REVISION_ASSET_TYPES = [
   'cv',
   'classifier',
   'a2a',
+  'team',
 ] as const;
 
 export type RuntimeRevisionAssetType =
@@ -182,6 +183,16 @@ function normalizeChangeMeta(
 
 function computeMd5(content: string): string {
   return createHash('md5').update(content).digest('hex');
+}
+
+function quoteSqlIdentifier(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function revisionTableName(tableName: string, schemaName?: string): string {
+  return schemaName
+    ? `${quoteSqlIdentifier(schemaName)}.${quoteSqlIdentifier(tableName)}`
+    : tableName;
 }
 
 function isRuntimeRevisionAssetType(
@@ -374,131 +385,159 @@ export function syncRuntimeAssetRevisionState(
   return withRevisionDatabase((database) => {
     return database
       .transaction(() => {
-        const state = database
-          .prepare<[string, string], ConfigRevisionTrackedStateRow>(
-            `SELECT current_md5, current_content
-             FROM config_revision_state
-             WHERE asset_type = ? AND config_path = ?`,
-          )
-          .get(normalizedAssetType, assetPath);
-
-        const fileExists = observedFile?.exists ?? fs.existsSync(assetPath);
-        if (!fileExists) {
-          if (!state) {
-            return {
-              changed: false,
-              previousMd5: null,
-              currentMd5: null,
-            };
-          }
-
-          database
-            .prepare(
-              `INSERT INTO config_revisions (
-                 asset_type, config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            )
-            .run(
-              normalizedAssetType,
-              assetPath,
-              normalizedMeta.actor,
-              normalizedMeta.route,
-              normalizedMeta.source,
-              state.current_md5,
-              Buffer.byteLength(state.current_content, 'utf-8'),
-              state.current_content,
-              null,
-              timestamp,
-            );
-          database
-            .prepare(
-              `DELETE FROM config_revision_state WHERE asset_type = ? AND config_path = ?`,
-            )
-            .run(normalizedAssetType, assetPath);
-          return {
-            changed: true,
-            previousMd5: state.current_md5,
-            currentMd5: null,
-          };
-        }
-
-        const content =
-          observedFile?.content ?? fs.readFileSync(assetPath, 'utf-8');
-        const md5 = observedFile?.md5 ?? computeMd5(content);
-        if (!state) {
-          database
-            .prepare(
-              `INSERT INTO config_revision_state (
-                 asset_type, config_path, current_md5, current_content, actor, route, source, updated_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            )
-            .run(
-              normalizedAssetType,
-              assetPath,
-              md5,
-              content,
-              normalizedMeta.actor,
-              normalizedMeta.route,
-              normalizedMeta.source,
-              timestamp,
-            );
-          return {
-            changed: false,
-            previousMd5: null,
-            currentMd5: md5,
-          };
-        }
-
-        if (state.current_md5 === md5) {
-          return {
-            changed: false,
-            previousMd5: state.current_md5,
-            currentMd5: md5,
-          };
-        }
-
-        database
-          .prepare(
-            `INSERT INTO config_revisions (
-               asset_type, config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            normalizedAssetType,
-            assetPath,
-            normalizedMeta.actor,
-            normalizedMeta.route,
-            normalizedMeta.source,
-            state.current_md5,
-            Buffer.byteLength(state.current_content, 'utf-8'),
-            state.current_content,
-            md5,
-            timestamp,
-          );
-        database
-          .prepare(
-            `UPDATE config_revision_state
-             SET current_md5 = ?, current_content = ?, actor = ?, route = ?, source = ?, updated_at = ?
-             WHERE asset_type = ? AND config_path = ?`,
-          )
-          .run(
-            md5,
-            content,
-            normalizedMeta.actor,
-            normalizedMeta.route,
-            normalizedMeta.source,
-            timestamp,
-            normalizedAssetType,
-            assetPath,
-          );
-        return {
-          changed: true,
-          previousMd5: state.current_md5,
-          currentMd5: md5,
-        };
+        return syncRuntimeAssetRevisionStateInOpenDatabase(
+          database,
+          normalizedAssetType,
+          assetPath,
+          normalizedMeta,
+          observedFile,
+          timestamp,
+        );
       })
       .immediate();
   });
+}
+
+export function syncRuntimeAssetRevisionStateInOpenDatabase(
+  database: Database.Database,
+  assetType: RuntimeRevisionAssetType,
+  assetPath: string,
+  meta?: RuntimeConfigChangeMeta,
+  observedFile?: RuntimeConfigObservedFile,
+  timestamp = new Date().toISOString(),
+  options?: { schemaName?: string },
+): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
+  const normalizedAssetType = normalizeRevisionAssetType(assetType);
+  const normalizedMeta = normalizeChangeMeta(meta);
+  const revisionStateTable = revisionTableName(
+    'config_revision_state',
+    options?.schemaName,
+  );
+  const revisionsTable = revisionTableName(
+    'config_revisions',
+    options?.schemaName,
+  );
+  const state = database
+    .prepare<[string, string], ConfigRevisionTrackedStateRow>(
+      `SELECT current_md5, current_content
+       FROM ${revisionStateTable}
+       WHERE asset_type = ? AND config_path = ?`,
+    )
+    .get(normalizedAssetType, assetPath);
+
+  const fileExists = observedFile?.exists ?? fs.existsSync(assetPath);
+  if (!fileExists) {
+    if (!state) {
+      return {
+        changed: false,
+        previousMd5: null,
+        currentMd5: null,
+      };
+    }
+
+    database
+      .prepare(
+        `INSERT INTO ${revisionsTable} (
+           asset_type, config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        normalizedAssetType,
+        assetPath,
+        normalizedMeta.actor,
+        normalizedMeta.route,
+        normalizedMeta.source,
+        state.current_md5,
+        Buffer.byteLength(state.current_content, 'utf-8'),
+        state.current_content,
+        null,
+        timestamp,
+      );
+    database
+      .prepare(
+        `DELETE FROM ${revisionStateTable} WHERE asset_type = ? AND config_path = ?`,
+      )
+      .run(normalizedAssetType, assetPath);
+    return {
+      changed: true,
+      previousMd5: state.current_md5,
+      currentMd5: null,
+    };
+  }
+
+  const content = observedFile?.content ?? fs.readFileSync(assetPath, 'utf-8');
+  const md5 = observedFile?.md5 ?? computeMd5(content);
+  if (!state) {
+    database
+      .prepare(
+        `INSERT INTO ${revisionStateTable} (
+           asset_type, config_path, current_md5, current_content, actor, route, source, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        normalizedAssetType,
+        assetPath,
+        md5,
+        content,
+        normalizedMeta.actor,
+        normalizedMeta.route,
+        normalizedMeta.source,
+        timestamp,
+      );
+    return {
+      changed: false,
+      previousMd5: null,
+      currentMd5: md5,
+    };
+  }
+
+  if (state.current_md5 === md5) {
+    return {
+      changed: false,
+      previousMd5: state.current_md5,
+      currentMd5: md5,
+    };
+  }
+
+  database
+    .prepare(
+      `INSERT INTO ${revisionsTable} (
+         asset_type, config_path, actor, route, source, md5, byte_length, content, replaced_by_md5, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      normalizedAssetType,
+      assetPath,
+      normalizedMeta.actor,
+      normalizedMeta.route,
+      normalizedMeta.source,
+      state.current_md5,
+      Buffer.byteLength(state.current_content, 'utf-8'),
+      state.current_content,
+      md5,
+      timestamp,
+    );
+  database
+    .prepare(
+      `UPDATE ${revisionStateTable}
+       SET current_md5 = ?, current_content = ?, actor = ?, route = ?, source = ?, updated_at = ?
+       WHERE asset_type = ? AND config_path = ?`,
+    )
+    .run(
+      md5,
+      content,
+      normalizedMeta.actor,
+      normalizedMeta.route,
+      normalizedMeta.source,
+      timestamp,
+      normalizedAssetType,
+      assetPath,
+    );
+  return {
+    changed: true,
+    previousMd5: state.current_md5,
+    currentMd5: md5,
+  };
 }
 
 export function listRuntimeConfigRevisions(

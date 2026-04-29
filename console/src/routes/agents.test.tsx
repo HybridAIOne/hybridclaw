@@ -24,6 +24,9 @@ const fetchAdminAgentMarkdownRevisionMock =
       params: { agentId: string; fileName: string; revisionId: string },
     ) => Promise<AdminAgentMarkdownRevisionResponse>
   >();
+const fetchAdminTeamStructureMock = vi.fn();
+const fetchAdminTeamStructureRevisionMock = vi.fn();
+const restoreAdminTeamStructureRevisionMock = vi.fn();
 const restoreAdminAgentMarkdownRevisionMock = vi.fn();
 const saveAdminAgentMarkdownFileMock = vi.fn();
 const useAuthMock = vi.fn();
@@ -38,10 +41,16 @@ vi.mock('../api/client', () => ({
     token: string,
     params: { agentId: string; fileName: string; revisionId: string },
   ) => fetchAdminAgentMarkdownRevisionMock(token, params),
+  fetchAdminTeamStructure: (token: string) =>
+    fetchAdminTeamStructureMock(token),
+  fetchAdminTeamStructureRevision: (token: string, revisionId: number) =>
+    fetchAdminTeamStructureRevisionMock(token, revisionId),
   restoreAdminAgentMarkdownRevision: (
     token: string,
     params: { agentId: string; fileName: string; revisionId: string },
   ) => restoreAdminAgentMarkdownRevisionMock(token, params),
+  restoreAdminTeamStructureRevision: (token: string, revisionId: number) =>
+    restoreAdminTeamStructureRevisionMock(token, revisionId),
   saveAdminAgentMarkdownFile: (
     token: string,
     params: { agentId: string; fileName: string; content: string },
@@ -60,6 +69,10 @@ function makeAgent(overrides: Partial<AdminAgent>): AdminAgent {
     skills: null,
     chatbotId: null,
     enableRag: true,
+    role: null,
+    reportsTo: null,
+    delegatesTo: null,
+    peers: null,
     workspace: null,
     workspacePath: '/tmp/main/workspace',
     markdownFiles: [
@@ -136,11 +149,18 @@ describe('AgentFilesPage', () => {
     fetchAdminAgentsMock.mockReset();
     fetchAdminAgentMarkdownFileMock.mockReset();
     fetchAdminAgentMarkdownRevisionMock.mockReset();
+    fetchAdminTeamStructureMock.mockReset();
+    fetchAdminTeamStructureRevisionMock.mockReset();
+    restoreAdminTeamStructureRevisionMock.mockReset();
     restoreAdminAgentMarkdownRevisionMock.mockReset();
     saveAdminAgentMarkdownFileMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({
       token: 'test-token',
+    });
+    fetchAdminTeamStructureMock.mockResolvedValue({
+      snapshot: { version: 1, agents: [{ id: 'main' }] },
+      revisions: [],
     });
   });
 

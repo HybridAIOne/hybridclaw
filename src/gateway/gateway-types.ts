@@ -1,5 +1,9 @@
 import type { BaseMessageOptions } from 'discord.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
+import type {
+  AgentTeamStructureDiff,
+  AgentTeamStructureSnapshot,
+} from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import type {
   MSTeamsReplyStyle,
@@ -877,6 +881,33 @@ export interface GatewayAdminAgent {
 
 export interface GatewayAdminAgentsResponse {
   agents: GatewayAdminAgent[];
+}
+
+export interface GatewayAdminTeamStructureRevision {
+  id: number;
+  createdAt: string;
+  actor: string;
+  route: string;
+  source: string;
+  md5: string;
+  sizeBytes: number;
+  replacedByMd5: string | null;
+  changeCount: number;
+  diff: AgentTeamStructureDiff;
+}
+
+export interface GatewayAdminTeamStructureResponse {
+  snapshot: AgentTeamStructureSnapshot;
+  revisions: GatewayAdminTeamStructureRevision[];
+}
+
+export interface GatewayAdminTeamStructureRevisionResponse {
+  revision: GatewayAdminTeamStructureRevision & {
+    content: string;
+    snapshot: AgentTeamStructureSnapshot;
+    nextContent: string | null;
+    nextSnapshot: AgentTeamStructureSnapshot | null;
+  };
 }
 
 export interface GatewayAdminAgentMarkdownFileResponse {

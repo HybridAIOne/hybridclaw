@@ -6648,6 +6648,14 @@ export function restoreRuntimeClassifierRevision(
   return restoreRuntimeAssetRevision('classifier', assetPath, revisionId, meta);
 }
 
+export function restoreRuntimeTeamRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('team', assetPath, revisionId, meta);
+}
+
 export function runtimeConfigRevisionPath(): string {
   return runtimeConfigRevisionStorePath();
 }
