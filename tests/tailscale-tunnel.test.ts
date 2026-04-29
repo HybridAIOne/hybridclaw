@@ -219,6 +219,71 @@ describe('TailscaleTunnelProvider', () => {
     );
   });
 
+  it('marks the tunnel down when periodic Funnel status no longer reports a public URL', async () => {
+    vi.useFakeTimers();
+    try {
+      const runCommand = vi.fn(async (args: string[]) => {
+        if (args.join(' ') === 'status --json') {
+          return {
+            stdout: JSON.stringify({
+              Self: { DNSName: 'health.example.ts.net.' },
+            }),
+            stderr: '',
+          };
+        }
+        if (args.join(' ') === 'funnel --bg localhost:9090') {
+          return {
+            stdout:
+              'Available on the internet:\nhttps://health.example.ts.net\n',
+            stderr: '',
+          };
+        }
+        if (args.join(' ') === 'funnel status --json') {
+          return {
+            stdout: JSON.stringify({}),
+            stderr: '',
+          };
+        }
+        throw new Error(`unexpected command: ${args.join(' ')}`);
+      });
+      const recordAuditEvent = vi.fn();
+      const provider = new TailscaleTunnelProvider({
+        healthCheckIntervalMs: 250,
+        recordAuditEvent,
+        runCommand,
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(runCommand).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(runCommand).toHaveBeenCalledWith(
+        ['funnel', 'status', '--json'],
+        { timeoutMs: 5_000 },
+      );
+      expect(provider.status()).toMatchObject({
+        running: false,
+        public_url: null,
+        state: 'down',
+        last_error:
+          'Tailscale Funnel status did not report an active public URL.',
+      });
+      expect(provider.status().last_checked_at).toEqual(expect.any(String));
+      expect(
+        recordAuditEvent.mock.calls.map((call) => call[0].event.type),
+      ).toEqual(['tunnel.up', 'tunnel.down']);
+      expect(recordAuditEvent.mock.calls[1]?.[0].event).toMatchObject({
+        provider: 'tailscale',
+        public_url: 'https://health.example.ts.net',
+        reason: 'health_check_failed',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('clears local state and warns when stopping fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const runCommand = vi.fn(async (args: string[]) => {

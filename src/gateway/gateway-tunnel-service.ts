@@ -32,6 +32,14 @@ function tunnelHealthForState(state: TunnelState): GatewayAdminTunnelHealth {
   return 'down';
 }
 
+function formatTunnelTargetAddr(host: string, port: number): string {
+  const normalizedHost = host.trim() || '127.0.0.1';
+  const displayHost = normalizedHost.includes(':')
+    ? `[${normalizedHost.replace(/^\[|\]$/g, '')}]`
+    : normalizedHost;
+  return `${displayHost}:${port}`;
+}
+
 function managedProviderKeyFor(params: {
   addr: string;
   provider: RuntimeDeploymentTunnelProvider | undefined;
@@ -65,8 +73,12 @@ function getManagedTunnelProvider(): TunnelProvider | null {
     return null;
   }
 
+  const addr = formatTunnelTargetAddr(
+    config.ops.healthHost,
+    config.ops.healthPort,
+  );
   const key = managedProviderKeyFor({
-    addr: `localhost:${config.ops.healthPort}`,
+    addr,
     provider,
     healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
   });
@@ -75,7 +87,7 @@ function getManagedTunnelProvider(): TunnelProvider | null {
       stopStaleManagedProvider(managedProvider);
     }
     const options = {
-      addr: `localhost:${config.ops.healthPort}`,
+      addr,
       healthCheckIntervalMs: config.deployment.tunnel.health_check_interval_ms,
     };
     managedProvider =

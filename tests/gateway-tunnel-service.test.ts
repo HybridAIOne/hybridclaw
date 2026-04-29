@@ -7,11 +7,12 @@ import type {
 
 function makeRuntimeConfig(
   deployment: RuntimeConfig['deployment'],
-  options: { healthPort?: number } = {},
+  options: { healthHost?: string; healthPort?: number } = {},
 ): RuntimeConfig {
   return {
     deployment,
     ops: {
+      healthHost: options.healthHost ?? '127.0.0.1',
       healthPort: options.healthPort ?? 9090,
     },
   } as RuntimeConfig;
@@ -186,8 +187,37 @@ test('admin tunnel status creates a managed tailscale provider', async () => {
   });
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
   expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
-    addr: 'localhost:19090',
+    addr: '127.0.0.1:19090',
     healthCheckIntervalMs: 60_000,
+  });
+});
+
+test('admin tunnel status formats IPv6 tunnel target addresses', async () => {
+  const provider: TunnelProvider = {
+    status: vi.fn(() => downStatus),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig(
+      {
+        mode: 'local',
+        public_url: '',
+        tunnel: {
+          provider: 'tailscale',
+          health_check_interval_ms: 30_000,
+        },
+      },
+      { healthHost: '::1', healthPort: 9090 },
+    ),
+    provider,
+  });
+
+  service.getGatewayAdminTunnelStatus();
+
+  expect(service.createTailscaleTunnelProvider).toHaveBeenCalledWith({
+    addr: '[::1]:9090',
+    healthCheckIntervalMs: 30_000,
   });
 });
 
@@ -232,7 +262,7 @@ test('admin tunnel reconnect audits the action and restarts ngrok', async () => 
   });
 
   expect(service.createNgrokTunnelProvider).toHaveBeenCalledWith({
-    addr: 'localhost:9090',
+    addr: '127.0.0.1:9090',
     healthCheckIntervalMs: 45_000,
   });
   expect(provider.stop).toHaveBeenCalledTimes(1);
