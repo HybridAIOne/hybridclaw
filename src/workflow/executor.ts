@@ -88,11 +88,11 @@ function firstStepId(workflow: WorkflowDefinition): string {
   const targets = new Set(
     workflow.transitions.map((transition) => transition.to),
   );
-  return (
-    workflow.steps.find((step) => !targets.has(step.id))?.id ||
-    workflow.steps[0]?.id ||
-    ''
-  );
+  const rootStep = workflow.steps.find((step) => !targets.has(step.id));
+  if (!rootStep) {
+    throw new Error(`Workflow ${workflow.id} has no root step`);
+  }
+  return rootStep.id;
 }
 
 function nextStepId(
@@ -428,13 +428,13 @@ export async function executeWorkflow(
   input: ExecuteWorkflowInput,
 ): Promise<WorkflowRunState> {
   const workflow = parseWorkflow(input.workflow);
-  saveWorkflowDefinition(workflow, input.meta);
   const run = makeInitialRun({
     workflow,
     runId: input.runId,
     threadId: input.threadId,
     initiatorCoworkerId: input.initiatorCoworkerId,
   });
+  saveWorkflowDefinition(workflow, input.meta);
   saveWorkflowRunState(run, input.meta);
   return continueRun(run, input);
 }
@@ -527,7 +527,8 @@ export async function returnForRevision(
       (step) => step.id === stepId,
     );
     if (workflowIndex >= targetIndex) {
-      stepState.status = stepState.step_id === stepId ? 'pending' : 'pending';
+      stepState.status =
+        stepState.step_id === stepId ? 'pending' : 'revision_requested';
       delete stepState.started_at;
       delete stepState.completed_at;
       delete stepState.paused_at;

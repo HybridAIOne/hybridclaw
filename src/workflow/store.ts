@@ -8,6 +8,7 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { logger } from '../logger.js';
 import {
   validateWorkflowDefinition,
   type WorkflowDefinition,
@@ -150,18 +151,14 @@ function parseRunState(raw: string, expectedRunId: string): WorkflowRunState {
   const workflow = validateWorkflowDefinition(parsed.workflow);
   const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
   const events = Array.isArray(parsed.events) ? parsed.events : [];
+  const status = normalizeRunStatus(parsed.status);
   return {
     version: 1,
     id: expectedRunId,
     workflow,
     thread_id: String(parsed.thread_id || '').trim(),
     initiator_coworker_id: String(parsed.initiator_coworker_id || '').trim(),
-    status:
-      parsed.status === 'paused' ||
-      parsed.status === 'completed' ||
-      parsed.status === 'failed'
-        ? parsed.status
-        : 'running',
+    status,
     ...(typeof parsed.current_step_id === 'string' && parsed.current_step_id
       ? { current_step_id: parsed.current_step_id }
       : {}),
@@ -177,6 +174,20 @@ function parseRunState(raw: string, expectedRunId: string): WorkflowRunState {
     steps: steps.map(parseStepRunState),
     events: events.map(parseRunEvent),
   };
+}
+
+function normalizeRunStatus(value: unknown): WorkflowRunStatus {
+  if (
+    value === 'running' ||
+    value === 'paused' ||
+    value === 'completed' ||
+    value === 'failed'
+  ) {
+    return value;
+  }
+  throw new WorkflowRunStateError(
+    `workflow run status is invalid: ${String(value || '<missing>')}`,
+  );
 }
 
 function parseStepRunState(value: unknown): WorkflowStepRunState {
@@ -360,7 +371,20 @@ export function listWorkflowDefinitions(): WorkflowDefinition[] {
     'workflow',
     path.join(DEFAULT_RUNTIME_HOME_DIR, 'workflows', 'definitions'),
   )
-    .map((entry) => validateWorkflowDefinition(JSON.parse(entry.content)))
+    .flatMap((entry) => {
+      try {
+        return [validateWorkflowDefinition(JSON.parse(entry.content))];
+      } catch (error) {
+        logger.warn(
+          {
+            assetPath: entry.assetPath,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Skipping invalid workflow definition state',
+        );
+        return [];
+      }
+    })
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -395,9 +419,20 @@ export function listWorkflowRunStates(): WorkflowRunState[] {
     'workflow',
     path.join(DEFAULT_RUNTIME_HOME_DIR, 'workflows', 'runs'),
   )
-    .map((entry) => {
-      const parsed = JSON.parse(entry.content) as { id?: unknown };
-      return parseRunState(entry.content, String(parsed.id || '').trim());
+    .flatMap((entry) => {
+      try {
+        const parsed = JSON.parse(entry.content) as { id?: unknown };
+        return [parseRunState(entry.content, String(parsed.id || '').trim())];
+      } catch (error) {
+        logger.warn(
+          {
+            assetPath: entry.assetPath,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Skipping invalid workflow run state',
+        );
+        return [];
+      }
     })
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
 }

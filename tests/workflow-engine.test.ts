@@ -189,6 +189,113 @@ transitions:
     ]);
   });
 
+  test('rejects workflows without a root step', async () => {
+    await initRuntimeDatabase();
+    const { executeWorkflow } = await import('../src/workflow/executor.js');
+
+    await expect(
+      executeWorkflow({
+        workflow: {
+          id: 'cyclic_workflow',
+          name: 'Cyclic workflow',
+          steps: [
+            {
+              id: 'brief',
+              owner_coworker_id: 'briefing',
+              action: 'Brief the work.',
+            },
+            {
+              id: 'build',
+              owner_coworker_id: 'builder',
+              action: 'Build the work.',
+            },
+          ],
+          transitions: [
+            { from: 'brief', to: 'build' },
+            { from: 'build', to: 'brief' },
+          ],
+        },
+      }),
+    ).rejects.toThrow('has no root step');
+  });
+
+  test('workflow list helpers skip invalid persisted entries', async () => {
+    await initRuntimeDatabase();
+    const { syncRuntimeAssetRevisionState } = await import(
+      '../src/config/runtime-config-revisions.js'
+    );
+    const {
+      getWorkflowRunState,
+      listWorkflowDefinitions,
+      listWorkflowRunStates,
+      saveWorkflowDefinition,
+      workflowDefinitionAssetPath,
+      workflowRunAssetPath,
+    } = await import('../src/workflow/store.js');
+    const { executeWorkflow } = await import('../src/workflow/executor.js');
+
+    saveWorkflowDefinition({
+      id: 'valid_definition',
+      name: 'Valid definition',
+      steps: [
+        {
+          id: 'brief',
+          owner_coworker_id: 'briefing',
+          action: 'Brief the work.',
+        },
+      ],
+      transitions: [],
+    });
+    syncRuntimeAssetRevisionState(
+      'workflow',
+      workflowDefinitionAssetPath('bad_definition'),
+      { route: 'test', source: 'workflow-engine.test' },
+      { exists: true, content: '{not-json' },
+    );
+
+    const completed = await executeWorkflow({
+      workflow: {
+        id: 'valid_run_definition',
+        name: 'Valid run definition',
+        steps: [
+          {
+            id: 'brief',
+            owner_coworker_id: 'briefing',
+            action: 'Brief the work.',
+          },
+        ],
+        transitions: [],
+      },
+      runId: 'valid_run',
+      dispatchStep: ({ step }) => ({ artifact: { stepId: step.id } }),
+    });
+    syncRuntimeAssetRevisionState(
+      'workflow',
+      workflowRunAssetPath('bad_status_run'),
+      { route: 'test', source: 'workflow-engine.test' },
+      {
+        exists: true,
+        content: `${JSON.stringify(
+          {
+            ...completed,
+            id: 'bad_status_run',
+            status: 'future_status',
+          },
+          null,
+          2,
+        )}\n`,
+      },
+    );
+
+    expect(() => getWorkflowRunState('bad_status_run')).toThrow(
+      'workflow run status is invalid',
+    );
+    expect(listWorkflowDefinitions().map((definition) => definition.id)).toEqual(
+      ['valid_definition', 'valid_run_definition'],
+    );
+    expect(listWorkflowRunStates().map((run) => run.id)).toEqual(['valid_run']);
+  });
+
   test('service entrypoint registers pending approvals for escalated steps', async () => {
     await initRuntimeDatabase();
     const { getPendingApproval, clearPendingApproval } = await import(
