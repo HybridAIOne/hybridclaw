@@ -414,11 +414,13 @@ def run_backend_sql(args: argparse.Namespace, sql: str) -> list[dict[str, Any]]:
 
 
 def row_text(row: dict[str, Any], *keys: str) -> str:
-    lower = {str(key).lower(): value for key, value in row.items()}
     for key in keys:
         value = row.get(key)
-        if value is None:
-            value = lower.get(key.lower())
+        if value is not None:
+            return str(value)
+    lower = {str(key).lower(): value for key, value in row.items()}
+    for key in keys:
+        value = lower.get(key.lower())
         if value is not None:
             return str(value)
     return ""
@@ -524,6 +526,10 @@ def sqlite_schema(database: str) -> dict[str, Any]:
         ).fetchall()
         for table_row in table_rows:
             table_name = table_row["name"]
+            table_info_rows = [
+                dict(row)
+                for row in conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})")
+            ]
             columns = [
                 {
                     "name": row["name"],
@@ -532,14 +538,11 @@ def sqlite_schema(database: str) -> dict[str, Any]:
                     "default": row["dflt_value"],
                     "ordinal": row["cid"] + 1,
                 }
-                for row in conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})")
+                for row in table_info_rows
             ]
             primary_keys = [
                 column["name"]
-                for column in sorted(
-                    [dict(row) for row in conn.execute(f"PRAGMA table_info({quote_identifier(table_name)})")],
-                    key=lambda row: row["pk"],
-                )
+                for column in sorted(table_info_rows, key=lambda row: row["pk"])
                 if column["pk"]
             ]
             foreign_keys = [
