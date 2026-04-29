@@ -21,8 +21,7 @@ let managedProvider: TunnelProvider | null = null;
 let managedProviderKey: string | null = null;
 
 function normalizePublicUrl(value: string | null | undefined): string | null {
-  const normalized = value?.trim() || '';
-  return normalized || null;
+  return value?.trim() || null;
 }
 
 function tunnelHealthForState(state: TunnelState): GatewayAdminTunnelHealth {
