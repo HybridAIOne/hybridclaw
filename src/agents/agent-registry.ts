@@ -554,10 +554,8 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!normalized) {
     throw new Error('Agent id is required.');
   }
-  const nextAgentsById = new Map<string, AgentConfig>();
-  for (const existing of dbListAgents()) {
-    nextAgentsById.set(existing.id, existing);
-  }
+  ensureRegistryCurrent();
+  const nextAgentsById = new Map<string, AgentConfig>(registry);
   nextAgentsById.set(normalized.id, normalized);
   if (!nextAgentsById.has(DEFAULT_AGENT_ID)) {
     nextAgentsById.set(DEFAULT_AGENT_ID, {

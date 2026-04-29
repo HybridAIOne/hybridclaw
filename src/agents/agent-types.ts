@@ -187,20 +187,24 @@ export function validateAgentOrgChart(agents: AgentConfig[]): void {
     if (visited.has(agentId)) return;
     if (visiting.has(agentId)) {
       const cycleStart = path.indexOf(agentId);
-      const cyclePath = path.slice(Math.max(cycleStart, 0)).join(' -> ');
+      const cyclePath = [...path.slice(Math.max(cycleStart, 0)), agentId].join(
+        ' -> ',
+      );
       throw new Error(`Agent reports_to cycle detected: ${cyclePath}.`);
     }
 
     visiting.add(agentId);
+    path.push(agentId);
     const parentId = reportsToByAgent.get(agentId);
     if (parentId) {
-      visit(parentId, [...path, parentId]);
+      visit(parentId, path);
     }
+    path.pop();
     visiting.delete(agentId);
     visited.add(agentId);
   };
 
   for (const agentId of reportsToByAgent.keys()) {
-    visit(agentId, [agentId]);
+    visit(agentId, []);
   }
 }
