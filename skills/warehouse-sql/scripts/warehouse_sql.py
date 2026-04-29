@@ -610,13 +610,14 @@ def load_or_refresh_schema(args: argparse.Namespace) -> dict[str, Any]:
         age_seconds = now - path.stat().st_mtime
         if ttl_seconds == 0 or age_seconds <= ttl_seconds:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            payload["cache"] = {
-                "status": "hit",
-                "path": str(path),
-                "ageSeconds": int(age_seconds),
-                "ttlSeconds": ttl_seconds,
-            }
-            return payload
+            if payload.get("cacheVersion") == CACHE_VERSION:
+                payload["cache"] = {
+                    "status": "hit",
+                    "path": str(path),
+                    "ageSeconds": int(age_seconds),
+                    "ttlSeconds": ttl_seconds,
+                }
+                return payload
 
     if args.backend == "sqlite":
         payload = sqlite_schema(args.database)
@@ -741,12 +742,7 @@ def review_sql(
     )
 
 
-def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
-    result = review_sql(
-        sql,
-        allow_write=getattr(args, "allow_write", False),
-        write_grant=getattr(args, "write_grant", None),
-    )
+def review_payload_from_result(sql: str, result: ReviewResult) -> dict[str, Any]:
     return {
         "sql": sql.strip(),
         "review": {
@@ -767,6 +763,15 @@ def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
+    result = review_sql(
+        sql,
+        allow_write=getattr(args, "allow_write", False),
+        write_grant=getattr(args, "write_grant", None),
+    )
+    return review_payload_from_result(sql, result)
+
+
 def execute_sqlite_query(
     database: str,
     sql: str,
@@ -775,8 +780,13 @@ def execute_sqlite_query(
     parameters: list[Any] | None = None,
     allow_write: bool = False,
     write_grant: str | None = None,
+    review_result: ReviewResult | None = None,
 ) -> dict[str, Any]:
-    result = review_sql(sql, allow_write=allow_write, write_grant=write_grant)
+    result = review_result or review_sql(
+        sql,
+        allow_write=allow_write,
+        write_grant=write_grant,
+    )
     if result.status != "pass":
         raise WarehouseSqlError("SQL review blocked execution: " + "; ".join(result.findings))
     with connect_sqlite(database) as conn:
@@ -1045,7 +1055,12 @@ def handle_schedule_refresh(args: argparse.Namespace) -> Any:
 
 def handle_query(args: argparse.Namespace) -> Any:
     ensure_backend(args.backend)
-    payload = review_payload(args.sql, args)
+    review_result = review_sql(
+        args.sql,
+        allow_write=args.allow_write,
+        write_grant=args.write_grant,
+    )
+    payload = review_payload_from_result(args.sql, review_result)
     if not args.execute:
         payload["execution"] = {
             "status": "not-run",
@@ -1067,8 +1082,7 @@ def handle_query(args: argparse.Namespace) -> Any:
             args.sql,
             max_rows=args.max_rows,
             parameters=parameters,
-            allow_write=args.allow_write,
-            write_grant=args.write_grant,
+            review_result=review_result,
         )
         adapter = "python-stdlib sqlite3"
     else:

@@ -121,6 +121,31 @@ test('warehouse SQL helper caches SQLite schema introspection', () => {
   const secondPayload = JSON.parse(second.stdout);
   expect(secondPayload.cache.status).toBe('hit');
   expect(secondPayload.cache.path).toBe(firstPayload.cache.path);
+
+  const stalePayload = JSON.parse(
+    fs.readFileSync(secondPayload.cache.path, 'utf-8'),
+  );
+  stalePayload.cacheVersion = 0;
+  fs.writeFileSync(
+    secondPayload.cache.path,
+    `${JSON.stringify(stalePayload, null, 2)}\n`,
+  );
+
+  const versionMismatch = runHelper([
+    '--format',
+    'json',
+    'schema',
+    '--backend',
+    'sqlite',
+    '--database',
+    dbPath,
+    '--cache-dir',
+    cacheDir,
+  ]);
+  expect(versionMismatch.status).toBe(0);
+  const versionMismatchPayload = JSON.parse(versionMismatch.stdout);
+  expect(versionMismatchPayload.cache.status).toBe('miss');
+  expect(versionMismatchPayload.cacheVersion).toBe(firstPayload.cacheVersion);
 });
 
 test('warehouse SQL helper refreshes and executes non-SQLite backends through connector commands', () => {
