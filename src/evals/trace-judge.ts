@@ -1,4 +1,3 @@
-import { recordUsageEvent } from '../memory/db.js';
 import {
   type AuxiliaryModelUsage,
   callAuxiliaryModel,
@@ -16,6 +15,10 @@ import {
   estimateTokenCountFromText,
 } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
+import {
+  enqueueTokenUsage,
+  flushTokenUsageBuffer,
+} from '../usage/token-usage-buffer.js';
 import {
   normalizePositiveInteger,
   prepareTraceJudgePrompt,
@@ -296,13 +299,13 @@ async function buildJudgeModelChain(
   return dedupeJudgeModels([...explicitModels, ...catalogModels]);
 }
 
-function recordJudgeUsage(params: {
+async function recordJudgeUsage(params: {
   context: JudgeTraceUsageContext | undefined;
   model: string;
   messages: ChatMessage[];
   content: string;
   usage?: AuxiliaryModelUsage | null;
-}): void {
+}): Promise<void> {
   if (!params.context) return;
   const usage = estimateJudgeUsage({
     messages: params.messages,
@@ -317,7 +320,7 @@ function recordJudgeUsage(params: {
       outputTokens: usage.outputTokens,
     });
 
-  recordUsageEvent({
+  enqueueTokenUsage({
     sessionId: params.context.sessionId,
     agentId: params.context.agentId,
     model: params.model,
@@ -327,6 +330,7 @@ function recordJudgeUsage(params: {
     costUsd,
     timestamp: params.context.timestamp,
   });
+  await flushTokenUsageBuffer();
 }
 
 export async function judgeTrace(
@@ -353,7 +357,7 @@ export async function judgeTrace(
         temperature: options.temperature ?? 0,
         timeoutMs: options.timeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS,
       });
-      recordJudgeUsage({
+      await recordJudgeUsage({
         context: options.usageContext,
         model: formatModelForDisplay(response.model?.trim() || model),
         messages,
