@@ -2398,16 +2398,21 @@ function normalizeApiAdminAgentStringArray(
   return normalizeTrimmedUniqueStringArray(value);
 }
 
+function normalizeApiAdminNullableStringAlias(
+  value: object,
+  camelKey: string,
+  snakeKey: string,
+): string | null | undefined {
+  const input = resolveSnakeCamelAlias(value, camelKey, snakeKey);
+  if (typeof input === 'string') return input;
+  return input === null ? null : undefined;
+}
+
 async function readApiAdminAgentPayload(
   req: IncomingMessage,
   options?: { requireId?: boolean },
 ): Promise<ApiAdminAgentPayload> {
   const body = (await readJsonBody(req)) as ApiAdminAgentPayloadBody;
-  const reportsToInput = resolveSnakeCamelAlias(
-    body,
-    'reportsTo',
-    'reports_to',
-  );
   const delegatesToInput = resolveSnakeCamelAlias(
     body,
     'delegatesTo',
@@ -2421,12 +2426,11 @@ async function readApiAdminAgentPayload(
     chatbotId: typeof body.chatbotId === 'string' ? body.chatbotId : undefined,
     enableRag: typeof body.enableRag === 'boolean' ? body.enableRag : undefined,
     role: typeof body.role === 'string' ? body.role : undefined,
-    reportsTo:
-      typeof reportsToInput === 'string'
-        ? reportsToInput
-        : reportsToInput === null
-          ? null
-          : undefined,
+    reportsTo: normalizeApiAdminNullableStringAlias(
+      body,
+      'reportsTo',
+      'reports_to',
+    ),
     delegatesTo: normalizeApiAdminAgentStringArray(
       'delegatesTo',
       delegatesToInput,

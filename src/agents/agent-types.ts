@@ -148,6 +148,7 @@ export function validateAgentOrgChart(agents: AgentConfig[]): void {
         `Agent "${agent.id}" reports_to references unknown agent "${reportsTo}".`,
       );
     }
+    // Keep the direct self-reference error clearer than the generic DFS cycle.
     if (reportsTo === agent.id) {
       throw new Error(
         `Agent "${agent.id}" reports_to cannot reference itself.`,
