@@ -64,6 +64,42 @@ test('prepareTraceJudgePrompt keeps the last configured tool calls', async () =>
   });
 });
 
+test('prepareTraceJudgePrompt windows exported and OpenAI-style tool calls', async () => {
+  const { prepareTraceJudgePrompt } = await import(
+    '../src/evals/trace-preparation.js'
+  );
+
+  const exportedTrace = prepareTraceJudgePrompt(
+    {
+      steps: [
+        {
+          tool_calls: [
+            { tool_name: 'old_tool', arguments: '{}', result: 'old' },
+            { tool_name: 'new_tool', arguments: '{}', result: 'new' },
+          ],
+        },
+      ],
+    },
+    'Pass.',
+    { maxToolCalls: 1, confidentialRuleSet: null },
+  );
+  expect(exportedTrace.traceText).toContain('new_tool');
+  expect(exportedTrace.traceText).not.toContain('old_tool');
+
+  const openAiTrace = prepareTraceJudgePrompt(
+    {
+      tool_calls: [
+        { function: { name: 'older_tool', arguments: '{}' } },
+        { function: { name: 'newer_tool', arguments: '{}' } },
+      ],
+    },
+    'Pass.',
+    { maxToolCalls: 1, confidentialRuleSet: null },
+  );
+  expect(openAiTrace.traceText).toContain('newer_tool');
+  expect(openAiTrace.traceText).not.toContain('older_tool');
+});
+
 test('prepareTraceJudgePrompt trims additional tool calls to fit token budget', async () => {
   const { prepareTraceJudgePrompt } = await import(
     '../src/evals/trace-preparation.js'

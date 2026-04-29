@@ -155,14 +155,13 @@ function normalizePositiveInteger(
 function isToolCallLike(value: unknown): boolean {
   if (!isRecord(value)) return false;
   if (typeof value.name === 'string' && value.name.trim()) return true;
-  if (typeof value.toolName === 'string' && value.toolName.trim()) return true;
   if (typeof value.tool_name === 'string' && value.tool_name.trim()) {
     return true;
   }
   if (isRecord(value.function) && typeof value.function.name === 'string') {
     return true;
   }
-  return Object.hasOwn(value, 'arguments') || Object.hasOwn(value, 'result');
+  return false;
 }
 
 function findToolArray(
@@ -187,12 +186,7 @@ function findToolArray(
   }
   if (!isRecord(value)) return null;
 
-  for (const key of [
-    'toolExecutions',
-    'tool_executions',
-    'tools_used',
-    'tool_calls',
-  ]) {
+  for (const key of ['toolExecutions', 'tool_calls']) {
     if (!Object.hasOwn(value, key)) continue;
     const candidate = value[key];
     if (Array.isArray(candidate) && candidate.some(isToolCallLike)) {
@@ -444,7 +438,7 @@ function loadTracePromptTemplate(options: TracePromptTemplateOptions): {
     );
   }
 
-  if (options.template && !options.templatePath) {
+  if (options.template) {
     const template = options.template;
     return {
       template,
