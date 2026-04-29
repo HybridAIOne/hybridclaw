@@ -2455,7 +2455,8 @@ function sendApiAdminAgentError(res: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const isKnownNotFoundMessage =
     /^Agent ["`].+["`] was not found\.$/.test(message) ||
-    /^Revision ["`].+["`] was not found\.$/.test(message);
+    /^Revision ["`].+["`] was not found\.$/.test(message) ||
+    /^Team structure revision \d+ was not found\.$/.test(message);
   const status =
     error instanceof GatewayRequestError
       ? error.statusCode

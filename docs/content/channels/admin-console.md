@@ -35,9 +35,7 @@ and delete the current workspace network policy rules for a selected agent.
   runtime workspace
 - `/admin/agents` shows saved revisions for those markdown files and can
   restore an earlier version without opening the workspace directory manually
-- `/admin/agents` also shows org-chart/team-structure revisions, per-revision
-  diffs, and a restore action for rolling back role, reporting, delegation, and
-  peer relationships
+- `/admin/agents` also shows org-chart/team-structure revisions, per-revision diffs, and a restore action for rolling back role, reporting, delegation, and peer relationships
 - `/admin/approvals` shows unresolved approval prompts across sessions and the
   selected agent workspace's current `policy.yaml` network rules in one place
 - `/admin/approvals` can add, edit, and delete network rules without switching

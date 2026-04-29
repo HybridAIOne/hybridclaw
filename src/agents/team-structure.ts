@@ -1,3 +1,4 @@
+import { isRecord } from '../utils/type-guards.js';
 import type { AgentConfig } from './agent-types.js';
 import { validateAgentOrgChart } from './agent-types.js';
 
@@ -37,10 +38,6 @@ export interface AgentTeamStructureDiff {
   added: AgentTeamStructureEntry[];
   removed: AgentTeamStructureEntry[];
   changed: AgentTeamStructureAgentDiff[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function normalizeString(value: unknown): string {

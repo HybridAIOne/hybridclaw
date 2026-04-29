@@ -2580,6 +2580,7 @@ export function replaceAgentOrgChart(
   revisionMeta?: RuntimeConfigChangeMeta,
 ): AgentConfig[] {
   const currentAgents = listAgents();
+  const currentAgentIds = new Set(currentAgents.map((agent) => agent.id));
   const entriesById = new Map<string, AgentTeamStructureEntry>();
   for (const entry of entries) {
     const id = entry.id.trim();
@@ -2589,6 +2590,11 @@ export function replaceAgentOrgChart(
     if (entriesById.has(id)) {
       throw new Error(
         `Team structure revision contains duplicate agent "${id}".`,
+      );
+    }
+    if (!currentAgentIds.has(id)) {
+      throw new Error(
+        `Cannot restore team structure because agent "${id}" does not exist.`,
       );
     }
     entriesById.set(id, entry);
@@ -2603,16 +2609,6 @@ export function replaceAgentOrgChart(
       reportsTo: entry?.reportsTo,
       delegatesTo: entry?.delegatesTo ? [...entry.delegatesTo] : undefined,
       peers: entry?.peers ? [...entry.peers] : undefined,
-    });
-  }
-  for (const entry of entries) {
-    if (nextAgentsById.has(entry.id)) continue;
-    nextAgentsById.set(entry.id, {
-      id: entry.id,
-      role: entry.role,
-      reportsTo: entry.reportsTo,
-      delegatesTo: entry.delegatesTo ? [...entry.delegatesTo] : undefined,
-      peers: entry.peers ? [...entry.peers] : undefined,
     });
   }
   const nextAgents = Array.from(nextAgentsById.values());

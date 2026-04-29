@@ -1099,6 +1099,32 @@ async function importFreshHealth(options?: {
       },
     }),
   );
+  const getGatewayAdminTeamStructure = vi.fn(() => ({
+    revisions: [],
+  }));
+  const getGatewayAdminTeamStructureRevision = vi.fn((revisionId: number) => ({
+    revision: {
+      id: revisionId,
+      author: 'test',
+      updatedAt: new Date(0).toISOString(),
+      changeCount: 0,
+      diff: { added: [], removed: [], changed: [] },
+      snapshot: { version: 1, agents: [] },
+    },
+  }));
+  const restoreGatewayAdminTeamStructureRevision = vi.fn(
+    (revisionId: number) => ({
+      revision: {
+        id: revisionId,
+        author: 'test',
+        updatedAt: new Date(0).toISOString(),
+        changeCount: 0,
+        diff: { added: [], removed: [], changed: [] },
+        snapshot: { version: 1, agents: [] },
+      },
+      agents: [],
+    }),
+  );
   const getGatewayAdminSessions = vi.fn(() => []);
   const getGatewayAdminScheduler = vi.fn(() => ({
     jobs: [],
@@ -1595,6 +1621,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    getGatewayAdminTeamStructure,
+    getGatewayAdminTeamStructureRevision,
     applyGatewayAdminPolicyPreset,
     deleteGatewayAdminPolicyRule,
     deleteGatewayAdminEmailMessage,
@@ -1623,6 +1651,7 @@ async function importFreshHealth(options?: {
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
+    restoreGatewayAdminTeamStructureRevision,
     saveGatewayAdminConfig,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
@@ -1724,6 +1753,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminTeamStructure,
+    getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
     saveGatewayAdminPolicyDefault,
     applyGatewayAdminPolicyPreset,
@@ -1751,6 +1782,7 @@ async function importFreshHealth(options?: {
     createGatewayAdminAgent,
     createGatewayAdminSkill,
     restoreGatewayAdminAgentMarkdownRevision,
+    restoreGatewayAdminTeamStructureRevision,
     updateGatewayAdminAgent,
     saveGatewayAdminAgentMarkdownFile,
     deleteGatewayAdminAgent,
@@ -5021,6 +5053,25 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Revision "missing-rev" was not found.',
+    });
+  });
+
+  test('returns 404 for known admin team structure revision not-found errors', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminTeamStructureRevision.mockImplementationOnce(() => {
+      throw new Error('Team structure revision 999 was not found.');
+    });
+    const req = makeRequest({
+      url: '/api/admin/team-structure/revisions/999',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Team structure revision 999 was not found.',
     });
   });
 

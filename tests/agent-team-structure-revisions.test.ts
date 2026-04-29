@@ -119,6 +119,41 @@ test('team rollback rejects missing revisions before mutating agents', async () 
   });
 });
 
+test('team rollback rejects deleted agents before mutating agents', async () => {
+  setupHome();
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await configureAgent({
+    id: 'support',
+    role: 'Support Lead',
+    reports_to: 'main',
+  });
+  await configureAgent({
+    id: 'support',
+    role: 'Support Manager',
+    reports_to: 'main',
+  });
+
+  const {
+    getGatewayAdminTeamStructure,
+    restoreGatewayAdminTeamStructureRevision,
+  } = await import('../src/gateway/gateway-service.ts');
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  const { deleteAgent } = await import('../src/memory/db.ts');
+  const revision = getGatewayAdminTeamStructure().revisions.find((entry) =>
+    entry.diff.changed.some((change) => change.agentId === 'support'),
+  );
+  if (!revision) {
+    throw new Error('Expected support org-chart revision.');
+  }
+
+  expect(deleteAgent('support')).toBe(true);
+  expect(() => restoreGatewayAdminTeamStructureRevision(revision.id)).toThrow(
+    'Cannot restore team structure because agent "support" does not exist.',
+  );
+  expect(getAgentById('support')).toBeNull();
+});
+
 test('runtime config org-chart sync creates team revisions', async () => {
   setupHome();
 
