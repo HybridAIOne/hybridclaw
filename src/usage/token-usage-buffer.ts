@@ -76,7 +76,6 @@ interface BufferState {
   flushIntervalMs: number;
   maxBatchSize: number;
   maxQueueSize: number;
-  inFlight: Promise<void> | null;
   totalEnqueued: number;
   totalFlushed: number;
   totalDropped: number;
@@ -121,7 +120,6 @@ const state: BufferState = {
   flushIntervalMs: DEFAULT_FLUSH_INTERVAL_MS,
   maxBatchSize: DEFAULT_MAX_BATCH_SIZE,
   maxQueueSize: DEFAULT_MAX_QUEUE_SIZE,
-  inFlight: null,
   totalEnqueued: 0,
   totalFlushed: 0,
   totalDropped: 0,
@@ -175,8 +173,8 @@ export function startTokenUsageBuffer(
 
 /**
  * Stop the periodic flush timer and drain any remaining events. Safe to
- * call from process shutdown handlers — performs a final synchronous-ish
- * flush so chargeback never loses an in-flight event.
+ * call from process shutdown handlers — performs a final flush so chargeback
+ * never loses a queued event.
  */
 export async function stopTokenUsageBuffer(): Promise<void> {
   if (state.flushTimer) {
@@ -184,17 +182,9 @@ export async function stopTokenUsageBuffer(): Promise<void> {
     state.flushTimer = null;
   }
   state.started = false;
-  // Drain any in-flight flush before triggering the final one.
-  if (state.inFlight) {
-    try {
-      await state.inFlight;
-    } catch {
-      // Already logged inside flushTokenUsageBuffer.
-    }
-  }
   if (state.queue.length > 0) {
     try {
-      await flushTokenUsageBuffer({ force: true });
+      await flushTokenUsageBuffer();
     } catch (err) {
       logger.warn({ err }, 'token_usage: final flush failed');
     }
@@ -218,7 +208,6 @@ export function _resetTokenUsageBufferForTests(): void {
     state.flushTimer = null;
   }
   state.queue = [];
-  state.inFlight = null;
   state.totalEnqueued = 0;
   state.totalFlushed = 0;
   state.totalDropped = 0;
@@ -275,83 +264,60 @@ export function enqueueTokenUsage(event: TokenUsageEvent): void {
  * Drain queued events to the SQLite chargeback table and emit one
  * `usage.batch_flushed` audit event per affected session, anchoring the
  * batch into the hash chain.
- *
- * Concurrent calls are serialized — the second caller awaits the first
- * (and re-flushes only if `force` is set, to ensure post-shutdown drains
- * always run).
  */
-export async function flushTokenUsageBuffer(opts?: {
-  force?: boolean;
-}): Promise<void> {
-  if (state.inFlight) {
-    try {
-      await state.inFlight;
-    } catch {
-      // The first caller already logged.
-    }
-    if (!opts?.force) return;
-  }
+export async function flushTokenUsageBuffer(): Promise<void> {
   if (state.queue.length === 0) return;
 
-  const flushPromise = (async () => {
-    const batch = state.queue.splice(0, state.queue.length);
-    try {
-      const groups = prepareUsageBatchGroups(batch);
-      emitBatchAuditEvents(groups);
-      recordUsageEventBatch(
-        groups.flatMap((group) =>
-          group.events.map((event) => ({
-            id: event.id,
-            sessionId: event.sessionId,
-            agentId: event.agentId,
-            model: event.model,
-            inputTokens: event.inputTokens,
-            outputTokens: event.outputTokens,
-            totalTokens: event.totalTokens,
-            toolCalls: event.toolCalls,
-            costUsd: event.costUsd,
-            timestamp: event.timestamp,
-            batchId: event.batchId,
-            batchHash: event.batchHash,
-          })),
-        ),
-      );
-      state.totalFlushed += batch.length;
-      state.flushCount += 1;
-      state.lastFlushAt = new Date().toISOString();
-      state.lastError = null;
-    } catch (err) {
-      // Re-queue the events at the head so we don't lose them. Bound the
-      // re-queue to maxQueueSize so a persistently failing DB doesn't
-      // unbounded-grow memory.
-      const requeueCount = Math.min(
-        batch.length,
-        Math.max(0, state.maxQueueSize - state.queue.length),
-      );
-      if (requeueCount > 0) {
-        state.queue.unshift(...batch.slice(0, requeueCount));
-      }
-      const dropped = batch.length - requeueCount;
-      if (dropped > 0) state.totalDropped += dropped;
-      state.lastError = err instanceof Error ? err.message : String(err);
-      logger.warn(
-        {
-          err,
-          batchSize: batch.length,
-          requeued: requeueCount,
-          dropped,
-        },
-        'token_usage: failed to flush batch to chargeback',
-      );
-      throw err;
-    }
-  })();
-
-  state.inFlight = flushPromise;
+  const batch = state.queue.splice(0, state.queue.length);
   try {
-    await flushPromise;
-  } finally {
-    state.inFlight = null;
+    const groups = prepareUsageBatchGroups(batch);
+    emitBatchAuditEvents(groups);
+    recordUsageEventBatch(
+      groups.flatMap((group) =>
+        group.events.map((event) => ({
+          id: event.id,
+          sessionId: event.sessionId,
+          agentId: event.agentId,
+          model: event.model,
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          totalTokens: event.totalTokens,
+          toolCalls: event.toolCalls,
+          costUsd: event.costUsd,
+          timestamp: event.timestamp,
+          batchId: event.batchId,
+          batchHash: event.batchHash,
+        })),
+      ),
+    );
+    state.totalFlushed += batch.length;
+    state.flushCount += 1;
+    state.lastFlushAt = new Date().toISOString();
+    state.lastError = null;
+  } catch (err) {
+    // Re-queue the events at the head so we don't lose them. Bound the
+    // re-queue to maxQueueSize so a persistently failing DB doesn't
+    // unbounded-grow memory.
+    const requeueCount = Math.min(
+      batch.length,
+      Math.max(0, state.maxQueueSize - state.queue.length),
+    );
+    if (requeueCount > 0) {
+      state.queue.unshift(...batch.slice(0, requeueCount));
+    }
+    const dropped = batch.length - requeueCount;
+    if (dropped > 0) state.totalDropped += dropped;
+    state.lastError = err instanceof Error ? err.message : String(err);
+    logger.warn(
+      {
+        err,
+        batchSize: batch.length,
+        requeued: requeueCount,
+        dropped,
+      },
+      'token_usage: failed to flush batch to chargeback',
+    );
+    throw err;
   }
 }
 
