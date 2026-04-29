@@ -131,6 +131,52 @@ function mockHealthProbes(options?: {
   }));
 }
 
+test('getGatewayStatus uses cached HybridAI health when probe exceeds deadline', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-test-gateway-status-timeout';
+  writeRuntimeConfig(homeDir);
+  vi.resetModules();
+
+  const hybridAIGet = vi.fn(() => new Promise<never>(() => {}));
+  vi.doMock('../src/providers/hybridai-health.js', () => ({
+    hybridAIProbe: {
+      get: hybridAIGet,
+      peek: vi.fn(() => ({
+        reachable: true,
+        latencyMs: 42,
+        modelCount: 7,
+      })),
+      invalidate: vi.fn(),
+    },
+  }));
+  vi.doMock('../src/providers/local-health.js', () => ({
+    localBackendsProbe: {
+      get: vi.fn(async () => new Map()),
+      peek: vi.fn(() => new Map()),
+      invalidate: vi.fn(),
+    },
+    checkConnection: vi.fn(),
+    checkModelConnection: vi.fn(),
+    checkAllBackends: vi.fn(async () => new Map()),
+  }));
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayStatus } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  initDatabase({ quiet: true });
+
+  const status = await getGatewayStatus({ providerProbeTimeoutMs: 1 });
+
+  expect(hybridAIGet).toHaveBeenCalledTimes(1);
+  expect(status.providerHealth?.hybridai).toMatchObject({
+    reachable: true,
+    latencyMs: 42,
+    modelCount: 7,
+  });
+});
+
 test('getGatewayStatus includes Codex auth state', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

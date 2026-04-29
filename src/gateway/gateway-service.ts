@@ -225,13 +225,7 @@ import {
   fetchHybridAIBots,
   HybridAIBotFetchError,
 } from '../providers/hybridai-bots.js';
-import { getDiscoveredHybridAIModelNames } from '../providers/hybridai-discovery.js';
-import {
-  type HybridAIHealthResult,
-  hybridAIProbe,
-} from '../providers/hybridai-health.js';
 import { getLocalModelInfo } from '../providers/local-discovery.js';
-import { localBackendsProbe } from '../providers/local-health.js';
 import {
   discoverMistralModels,
   getDiscoveredMistralModelNames,
@@ -364,6 +358,13 @@ import {
   formatCompactNumber,
   formatRalphIterations,
 } from './gateway-formatting.js';
+import {
+  buildGatewayHybridAIProviderEntry,
+  type GatewayHealthOptions,
+  invalidateGatewayProviderHealth,
+  resolveGatewayHybridAIHealth,
+  resolveGatewayLocalBackendsHealth,
+} from './gateway-health-service.js';
 import { GATEWAY_LOG_REQUESTS_ENV } from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import {
@@ -1592,29 +1593,12 @@ function getAdminChannelDisabledSkills(
   );
 }
 
-function buildHybridAIProviderEntry(
-  probe: HybridAIHealthResult,
-): GatewayProviderHealthEntry {
-  const discoveredModelCount = dedupeStrings(
-    getDiscoveredHybridAIModelNames(),
-  ).length;
-
-  return {
-    kind: 'remote',
-    reachable: probe.reachable,
-    ...(probe.error ? { error: probe.error } : {}),
-    latencyMs: probe.latencyMs,
-    modelCount: probe.modelCount ?? discoveredModelCount,
-    detail: probe.reachable
-      ? `${probe.latencyMs}ms`
-      : probe.error || 'unreachable',
-  };
-}
+export type GatewayStatusOptions = GatewayHealthOptions;
 
 function buildGatewayProviderHealth(params: {
   localBackends: GatewayStatus['localBackends'];
   codex: ReturnType<typeof getCodexAuthStatus>;
-  hybridaiHealth: HybridAIHealthResult;
+  hybridaiHealth: GatewayProviderHealthEntry;
 }): NonNullable<GatewayStatus['providerHealth']> {
   const runtimeConfig = getRuntimeConfig();
   const anthropicStatus = getAnthropicAuthStatus();
@@ -1623,7 +1607,7 @@ function buildGatewayProviderHealth(params: {
     runtimeConfig.anthropic.method,
   );
   const providerHealth: NonNullable<GatewayStatus['providerHealth']> = {
-    hybridai: buildHybridAIProviderEntry(params.hybridaiHealth),
+    hybridai: params.hybridaiHealth,
     codex: {
       kind: 'remote',
       reachable: params.codex.authenticated && !params.codex.reloginRequired,
@@ -1719,8 +1703,7 @@ async function getGatewayStatusForModelSubcommand(
   if (subcommand === 'list' || subcommand === 'info') {
     // These commands are expected to reflect the current live provider state,
     // not a recently cached health snapshot.
-    localBackendsProbe.invalidate();
-    hybridAIProbe.invalidate();
+    invalidateGatewayProviderHealth();
   }
   return await getGatewayStatus();
 }
@@ -3703,15 +3686,18 @@ export function buildTokenUsageAuditPayload(
   };
 }
 
-export async function getGatewayStatus(): Promise<GatewayStatus> {
+export async function getGatewayStatus(
+  options: GatewayStatusOptions = {},
+): Promise<GatewayStatus> {
   const codex = getCodexAuthStatus();
   const hybridai = getHybridAIAuthStatus();
+  const refreshProviderHealth = options.refreshProviderHealth ?? true;
   const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
     await Promise.allSettled([
-      localBackendsProbe.get(),
-      hybridAIProbe.get(),
+      resolveGatewayLocalBackendsHealth(options),
+      resolveGatewayHybridAIHealth(options),
       getWhatsAppAuthStatus(),
-      codex.authenticated && !codex.reloginRequired
+      refreshProviderHealth && codex.authenticated && !codex.reloginRequired
         ? discoverCodexModels()
         : Promise.resolve([]),
     ]);
@@ -3721,10 +3707,15 @@ export async function getGatewayStatus(): Promise<GatewayStatus> {
     localBackendsResult.status === 'fulfilled'
       ? localBackendsResult.value
       : new Map();
-  const hybridaiHealth: HybridAIHealthResult =
+  const hybridaiHealth = buildGatewayHybridAIProviderEntry(
     hybridaiResult.status === 'fulfilled'
       ? hybridaiResult.value
-      : { reachable: false, error: 'probe failed', latencyMs: 0 };
+      : {
+          reachable: false,
+          error: 'probe failed',
+          latencyMs: 0,
+        },
+  );
   const whatsappAuth =
     whatsappAuthResult.status === 'fulfilled'
       ? whatsappAuthResult.value
