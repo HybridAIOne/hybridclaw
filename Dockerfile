@@ -91,7 +91,9 @@ ENV HYBRIDCLAW_DATA_DIR=/workspace/.data
 # security trust model in headless mode (e.g. docker run -e HYBRIDCLAW_ACCEPT_TRUST=true).
 RUN mkdir -p /workspace/.data
 
+# Use node:http (not global fetch/undici) and an explicit per-request timeout
+# so a hung server destroys the request instead of leaking the probe process.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const r=require('http').get('http://127.0.0.1:9090/livez',{timeout:3000},x=>{x.resume();process.exit(x.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.on('timeout',()=>{r.destroy();process.exit(1)})"
 
 CMD ["node", "dist/cli.js", "gateway", "start", "--foreground"]

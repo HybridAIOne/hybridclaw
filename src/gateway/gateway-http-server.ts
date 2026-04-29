@@ -3730,17 +3730,45 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     const url = new URL(req.url || '/', 'http://localhost');
     const pathname = url.pathname;
 
+    // Liveness — local-only, no awaits. Used by Docker HEALTHCHECK so a
+    // wedged event loop is detectable without depending on /health, which
+    // fans out to external services and can fail for non-fatal reasons.
+    if (
+      (pathname === '/livez' || pathname === '/healthz') &&
+      method === 'GET'
+    ) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('ok');
+      return;
+    }
+
     if (pathname === '/health' && method === 'GET') {
-      void getGatewayStatus().then(
-        (status) => sendJson(res, 200, status),
-        (err) => {
-          logger.error({ err }, 'Health check failed');
-          sendJson(res, 503, {
-            status: 'error',
-            error: err instanceof Error ? err.message : String(err),
-          });
-        },
-      );
+      // Outer timeout so a never-settling sub-probe in getGatewayStatus()
+      // can't hold this handler (and the response socket) open indefinitely.
+      const HEALTH_TIMEOUT_MS = 8000;
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(
+          reject,
+          HEALTH_TIMEOUT_MS,
+          new Error(`health check timed out after ${HEALTH_TIMEOUT_MS}ms`),
+        );
+        timeoutHandle.unref();
+      });
+      void Promise.race([getGatewayStatus(), timeout])
+        .finally(() => {
+          if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+        })
+        .then(
+          (s) => sendJson(res, 200, s),
+          (err) => {
+            logger.error({ err }, 'Health check failed');
+            sendJson(res, 503, {
+              status: 'error',
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        );
       return;
     }
 
