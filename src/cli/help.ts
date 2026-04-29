@@ -8,6 +8,7 @@ export function printMainUsage(): void {
   Commands:
   agent      Configure agents or manage portable agent archives
   auth       Unified provider login/logout/status
+  backup     Create or restore a full-state backup of ~/.hybridclaw
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
@@ -710,6 +711,25 @@ Notes:
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
 }
 
+export function printBackupUsage(): void {
+  console.log(`Usage: hybridclaw backup [options]
+       hybridclaw backup restore <archive.zip> [--force]
+
+Commands:
+  hybridclaw backup                       Create a timestamped backup of the HybridClaw runtime home
+  hybridclaw backup --output <path>       Write the backup archive to a specific path
+  hybridclaw backup restore <archive>     Restore the runtime home from a backup archive
+  hybridclaw backup restore <archive> --force   Overwrite without prompting
+
+Notes:
+  - Backups include everything under the HybridClaw runtime home (default: ~/.hybridclaw, or $HYBRIDCLAW_DATA_DIR when set).
+  - SQLite databases are snapshotted via the SQLite backup API, so WAL-mode databases produce consistent copies.
+  - Ephemeral state is excluded: WAL/SHM sidecars, cache/, container-image-state/, evals/, migration-backups/, gateway.pid, cron.pid, node_modules, and .git.
+  - The archive name defaults to hybridclaw-backup-YYYYMMDD-HHMMSS.zip in the current directory.
+  - \`backup restore\` prompts before overwriting an existing runtime home; pass \`--force\` to skip the prompt (for scripts and non-interactive shells).
+  - Restore validates an embedded manifest plus \`config.json\` and \`credentials.json\` marker files before replacing any data.`);
+}
+
 export function printSecretUsage(): void {
   console.log(`Usage: hybridclaw secret <command>
 
@@ -782,6 +802,7 @@ export function printHelpUsage(): void {
 Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
+  backup      Help for full-state backup and restore commands
   gateway     Help for gateway lifecycle and passthrough commands
   eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
@@ -853,6 +874,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'auth':
       printAuthUsage();
+      return true;
+    case 'backup':
+      printBackupUsage();
       return true;
     case 'gateway':
       printGatewayUsage();
