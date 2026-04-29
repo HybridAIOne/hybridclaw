@@ -136,7 +136,7 @@ Interactive slash commands inside TUI:
   /compact
   /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
   /eval [list|env|<suite>|<command...>]
-  /config   /config check   /config reload   /config get <key>   /config set <key> <value>   /config revisions
+  /config   /config check   /config reload   /config get <key>   /config set <key> <value>
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
