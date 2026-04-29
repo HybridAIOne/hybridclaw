@@ -247,6 +247,7 @@ import {
   formatHybridAIModelForCatalog,
   formatModelCountSuffix,
   formatModelForDisplay,
+  HYBRIDAI_MODEL_PREFIX,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
 } from '../providers/model-names.js';
@@ -4980,6 +4981,7 @@ export async function getGatewayAdminTools(): Promise<GatewayAdminToolsResponse>
 }
 
 const MODEL_PROVIDER_KEY_BY_PREFIX: Array<[string, GatewayModelProviderKey]> = [
+  [HYBRIDAI_MODEL_PREFIX, 'hybridai'],
   ['openai-codex/', 'codex'],
   ['anthropic/', 'anthropic'],
   ['openrouter/', 'openrouter'],
