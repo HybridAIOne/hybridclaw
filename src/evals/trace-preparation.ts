@@ -136,7 +136,7 @@ export function serializeTracePreparationInput(value: unknown): string {
   }
 }
 
-function normalizePositiveInteger(
+export function normalizePositiveInteger(
   value: number | undefined,
   fallback: number,
   label: string,
@@ -371,6 +371,7 @@ function fitTraceToTokenBudget(
 
   const match = findToolArray(candidate);
   let tokenDroppedToolCalls = 0;
+  let includedToolCallCount = match?.items.length ?? 0;
   if (match && match.items.length > 1) {
     let included = match.items;
     while (included.length > 1 && estimatedTraceTokens > maxTraceTokens) {
@@ -380,6 +381,7 @@ function fitTraceToTokenBudget(
       traceText = serializeTracePreparationInput(candidate);
       estimatedTraceTokens = estimateTokenCountFromText(traceText);
     }
+    includedToolCallCount = included.length;
   }
 
   let truncatedSerializedTrace = false;
@@ -389,10 +391,9 @@ function fitTraceToTokenBudget(
     truncatedSerializedTrace = true;
   }
 
-  const finalMatch = findToolArray(candidate);
   return {
     traceText,
-    includedToolCallCount: finalMatch?.items.length ?? 0,
+    includedToolCallCount,
     droppedToolCallCount: initialDroppedToolCallCount + tokenDroppedToolCalls,
     estimatedTraceTokens,
     truncatedByTokens: tokenDroppedToolCalls > 0 || truncatedSerializedTrace,

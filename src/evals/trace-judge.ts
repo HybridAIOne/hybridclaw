@@ -17,6 +17,7 @@ import {
 } from '../session/token-efficiency.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  normalizePositiveInteger,
   prepareTraceJudgePrompt,
   type TracePreparationOptions,
 } from './trace-preparation.js';
@@ -72,14 +73,6 @@ const DEFAULT_JUDGE_MAX_TOKENS = 800;
 const DEFAULT_JUDGE_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_JUDGE_INPUT_CHARS = 120_000;
 
-function normalizeMaxInputChars(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_MAX_JUDGE_INPUT_CHARS;
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error('Judge maxInputChars must be a positive number.');
-  }
-  return Math.floor(value);
-}
-
 function assertJudgeInputWithinLimit(params: {
   criteriaText: string;
   traceText: string;
@@ -111,7 +104,11 @@ function buildJudgeMessages(
   assertJudgeInputWithinLimit({
     criteriaText: prepared.criteriaText,
     traceText: prepared.traceText,
-    maxInputChars: normalizeMaxInputChars(options.maxInputChars),
+    maxInputChars: normalizePositiveInteger(
+      options.maxInputChars,
+      DEFAULT_MAX_JUDGE_INPUT_CHARS,
+      'Judge maxInputChars',
+    ),
   });
   return prepared.messages;
 }
