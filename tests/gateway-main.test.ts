@@ -715,6 +715,8 @@ describe('gateway bootstrap', () => {
         coldStartBudgetMs: 200,
         warmScope:
           'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
+        warmFill:
+          'filled after recent traffic for an agent; gateway startup does not pre-spawn workers',
         disableConfig: 'container.warmPool.enabled=false',
       },
       'Warm process pool enabled; idle workers prewarm runtime process startup only',
