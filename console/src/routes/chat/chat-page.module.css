@@ -218,7 +218,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
   flex-shrink: 0;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  z-index: 50;
 }
 
 .mobileQrButton {

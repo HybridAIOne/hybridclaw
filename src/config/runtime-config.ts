@@ -6713,6 +6713,14 @@ export function restoreRuntimeTeamRevision(
   return restoreRuntimeAssetRevision('team', assetPath, revisionId, meta);
 }
 
+export function restoreRuntimeTemplateRevision(
+  assetPath: string,
+  revisionId: number,
+  meta?: RuntimeConfigChangeMeta,
+): string {
+  return restoreRuntimeAssetRevision('template', assetPath, revisionId, meta);
+}
+
 export function runtimeConfigRevisionPath(): string {
   return runtimeConfigRevisionStorePath();
 }
