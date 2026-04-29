@@ -61,7 +61,7 @@ export interface NgrokTunnelProviderOptions {
   readSecret?: (secretName: string) => string | null;
   reconnectInitialBackoffMs?: number;
   reconnectMaxBackoffMs?: number;
-  recordAuditEvent?: TunnelAuditRecorder | false;
+  recordAuditEvent?: TunnelAuditRecorder;
   schemes?: string[];
   tokenSecretName?: string;
   loadNgrok?: () => Promise<NgrokClient>;
@@ -137,7 +137,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
   private readonly readSecret: (secretName: string) => string | null;
   private readonly reconnectInitialBackoffMs: number;
   private readonly reconnectMaxBackoffMs: number;
-  private readonly recordAuditEvent: TunnelAuditRecorder | null;
+  private readonly recordAuditEvent: TunnelAuditRecorder;
   private readonly schemes?: string[];
   private readonly tokenSecretName: string;
   private readonly loadNgrok: () => Promise<NgrokClient>;
@@ -185,10 +185,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
         `reconnectInitialBackoffMs (${this.reconnectInitialBackoffMs}) must be less than or equal to reconnectMaxBackoffMs (${this.reconnectMaxBackoffMs}).`,
       );
     }
-    this.recordAuditEvent =
-      options.recordAuditEvent === false
-        ? null
-        : (options.recordAuditEvent ?? defaultRecordAuditEvent);
+    this.recordAuditEvent = options.recordAuditEvent ?? defaultRecordAuditEvent;
     this.schemes = options.schemes;
     this.tokenSecretName =
       options.tokenSecretName?.trim() || NGROK_AUTHTOKEN_SECRET;
@@ -409,7 +406,6 @@ export class NgrokTunnelProvider implements TunnelProvider {
       reason: string;
     },
   ): Promise<void> {
-    if (!this.recordAuditEvent) return;
     try {
       await this.recordAuditEvent({
         sessionId: this.auditSessionId,
