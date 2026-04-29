@@ -1,3 +1,4 @@
+import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
@@ -29,26 +30,7 @@ export interface MediaContextItem {
   filename: string;
 }
 
-export interface WebSearchConfig {
-  provider:
-    | 'auto'
-    | 'brave'
-    | 'perplexity'
-    | 'tavily'
-    | 'duckduckgo'
-    | 'searxng';
-  fallbackProviders: (
-    | 'brave'
-    | 'perplexity'
-    | 'tavily'
-    | 'duckduckgo'
-    | 'searxng'
-  )[];
-  defaultCount: number;
-  cacheTtlMinutes: number;
-  searxngBaseUrl: string;
-  tavilySearchDepth: 'basic' | 'advanced';
-}
+export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
 export interface ContainerInput {
   sessionId: string;
