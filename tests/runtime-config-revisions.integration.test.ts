@@ -368,6 +368,7 @@ describe('runtime config revisions integration', () => {
     ['cv', 'agents/charly/CV.md'],
     ['classifier', 'classifiers/nda/weights.json'],
     ['team', 'agents/team-structure.json'],
+    ['template', 'templates/judge.json'],
   ] as const)('restores %s runtime asset revisions', (assetType, relativePath) => {
     const restoreRevision = {
       skill: configMod.restoreRuntimeSkillRevision,
@@ -375,6 +376,7 @@ describe('runtime config revisions integration', () => {
       cv: configMod.restoreRuntimeCvRevision,
       classifier: configMod.restoreRuntimeClassifierRevision,
       team: configMod.restoreRuntimeTeamRevision,
+      template: configMod.restoreRuntimeTemplateRevision,
     }[assetType];
     const assetPath = path.join(tmpDir, relativePath);
     fs.mkdirSync(path.dirname(assetPath), { recursive: true });

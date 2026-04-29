@@ -20,6 +20,7 @@ export const RUNTIME_REVISION_ASSET_TYPES = [
   'knowledge',
   'cv',
   'classifier',
+  'template',
   'a2a',
   'team',
 ] as const;
