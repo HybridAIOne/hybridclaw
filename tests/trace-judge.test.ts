@@ -13,15 +13,23 @@ function createTempDbPath(): string {
 
 test('judgeTrace falls back when the cheapest model call fails', async () => {
   const calls: string[] = [];
+  const fetchMock = vi.fn(async () => {
+    throw new Error('network refresh should not run by default');
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
   const result = await judgeTrace(
     { steps: [{ action: 'used-memory', output: 'correct' }] },
     'Pass when the trace uses memory and produces the correct answer.',
     {
       model: 'cheap-json-model',
       fallbackModels: ['fallback-json-model'],
-      refreshCatalog: false,
-      modelCaller: vi.fn(async ({ model }) => {
+      modelCaller: vi.fn(async ({ messages, model }) => {
         calls.push(model);
+        const userMessage = messages.find((message) => message.role === 'user');
+        expect(userMessage?.content).toContain(
+          '{"steps":[{"action":"used-memory","output":"correct"}]}',
+        );
         if (model === 'cheap-json-model') {
           throw new Error('rate limited');
         }
@@ -37,6 +45,7 @@ test('judgeTrace falls back when the cheapest model call fails', async () => {
   );
 
   expect(calls).toEqual(['cheap-json-model', 'fallback-json-model']);
+  expect(fetchMock).not.toHaveBeenCalled();
   expect(result).toEqual({
     score: 0.9,
     reasoning: 'The trace used memory and reached the expected answer.',

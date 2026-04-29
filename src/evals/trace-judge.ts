@@ -1,6 +1,7 @@
 import { recordUsageEvent } from '../memory/db.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
+  getModelCatalogMetadata,
   type ModelCapabilityRequirements,
   refreshAvailableModelCatalogs,
   selectModelsByCapabilityAndCost,
@@ -94,7 +95,7 @@ function uniqueModels(models: Array<string | null | undefined>): string[] {
 function serializeJudgeInput(value: unknown): string {
   if (typeof value === 'string') return value.trim();
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(value);
   } catch {
     return String(value || '').trim();
   }
@@ -244,14 +245,7 @@ function estimateCatalogCostUsd(params: {
   inputTokens: number;
   outputTokens: number;
 }): number {
-  const selection = selectModelsByCapabilityAndCost(
-    {},
-    {
-      models: [params.model],
-    },
-  )[0];
-  const pricing = selection?.metadata.pricingUsdPerToken;
-  if (!pricing) return 0;
+  const pricing = getModelCatalogMetadata(params.model).pricingUsdPerToken;
   return (
     params.inputTokens * (pricing.input ?? 0) +
     params.outputTokens * (pricing.output ?? 0)
@@ -281,7 +275,7 @@ async function defaultJudgeModelCaller(
 async function buildJudgeModelChain(
   options: JudgeTraceOptions,
 ): Promise<string[]> {
-  if (options.refreshCatalog !== false) {
+  if (options.refreshCatalog === true) {
     await refreshAvailableModelCatalogs({ includeHybridAI: true });
   }
   const explicitModels = uniqueModels([
