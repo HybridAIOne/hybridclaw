@@ -73,45 +73,12 @@ test('warehouse SQL helper --help exits cleanly', () => {
   const result = runHelper(['--help']);
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain('Natural-language warehouse SQL');
+  expect(result.stdout).toContain('Warehouse SQL schema cache');
   expect(result.stdout).toContain('schema');
   expect(result.stdout).toContain('review');
   expect(result.stdout).toContain('query');
   expect(result.stdout).toContain('eval-scenarios');
-});
-
-test('warehouse SQL helper plans and reviews read-only SQL', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'plan',
-    'top customers by revenue',
-  ]);
-
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
-  expect(payload.command).toBe('plan');
-  expect(payload.sql).toContain('JOIN lineitem');
-  expect(payload.sql).toContain('revenue');
-  expect(payload.parameters).toEqual([]);
-  expect(payload.review.status).toBe('pass');
-  expect(payload.review.readOnly).toBe(true);
-  expect(payload.review.modelReview.required).toBe(true);
-});
-
-test('warehouse SQL helper emits parameters for planned customer filters', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'plan',
-    'orders for Customer#000000101',
-  ]);
-
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
-  expect(payload.sql).toContain('WHERE c.c_name = ?');
-  expect(payload.sql).not.toContain('Customer#000000101');
-  expect(payload.parameters).toEqual(['Customer#000000101']);
+  expect(result.stdout).not.toContain(' plan ');
 });
 
 test('warehouse SQL helper caches SQLite schema introspection', () => {
@@ -384,7 +351,7 @@ test('warehouse SQL helper eval suite covers TPC-H-style scenarios', () => {
   });
 });
 
-test('warehouse SQL helper emits backend contracts and schedule refresh commands', () => {
+test('warehouse SQL helper emits backend contracts', () => {
   const contract = runHelper([
     '--format',
     'json',
@@ -397,24 +364,6 @@ test('warehouse SQL helper emits backend contracts and schedule refresh commands
   expect(contractPayload.execution).toContain('operator-approved');
   expect(contractPayload.introspection.tables).toContain(
     'information_schema.tables',
-  );
-
-  const schedule = runHelper([
-    '--format',
-    'json',
-    'schedule-command',
-    '--backend',
-    'postgres',
-    '--profile',
-    'analytics',
-    '--every',
-    '0 */6 * * *',
-  ]);
-  expect(schedule.status).toBe(0);
-  const schedulePayload = JSON.parse(schedule.stdout);
-  expect(schedulePayload.command).toContain('--refresh');
-  expect(schedulePayload.hybridclawExample).toContain(
-    'hybridclaw schedule create',
   );
 });
 

@@ -250,7 +250,7 @@ SOQL rows with a bundled Python helper. Read-only by default.
 
 ## warehouse-sql
 
-Plan, review, and run read-only natural-language SQL against a customer data
+Review and run read-only natural-language SQL against a customer data
 warehouse with cached schema introspection. SQLite execution is bundled for the
 reproducible TPC-H-style eval suite; Postgres, ClickHouse, BigQuery, and
 Snowflake can run through optional Python drivers or operator-approved
@@ -276,7 +276,7 @@ connector commands.
 
 > 🎯 **Try it yourself**
 >
-> `Plan SQL for the top customers by revenue`
+> `Draft and review SQL for the top customers by revenue`
 >
 > `Review this query before running it: SELECT c_name FROM customer LIMIT 10`
 >
@@ -286,8 +286,8 @@ connector commands.
 
 **Troubleshooting**
 
-- **No deterministic plan matched** — write or ask the model to draft SQL, then
-  pass it through `review` before execution.
+- **SQL review fails** — revise the generated SQL, refresh the schema cache,
+  and pass the revised query through `review` before execution.
 - **Production backend does not execute** — install the relevant Python driver
   or set `HYBRIDCLAW_WAREHOUSE_SQL_<BACKEND>_COMMAND` to a connector command
   that reads SQL on stdin and emits JSON or CSV rows.

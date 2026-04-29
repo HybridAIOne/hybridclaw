@@ -1,6 +1,6 @@
 ---
 name: warehouse-sql
-description: "Plan, review, and run read-only natural-language SQL against a customer data warehouse with cached schema introspection and explicit write grants."
+description: "Review and run read-only natural-language SQL against a customer data warehouse with cached schema introspection and explicit write grants."
 user-invocable: true
 requires:
   bins:
@@ -29,29 +29,25 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
 - schema introspection for SQLite eval databases and pluggable Postgres,
   ClickHouse, BigQuery, and Snowflake backends
 - cached schema summaries with explicit refresh commands for scheduled runs
-- natural-language SQL planning for reproducible TPC-H-style evaluation cases
+- reproducible TPC-H-style evaluation cases for generated SQL
 - deterministic SQL safety review before execution
 - read-only execution by default
 - write detection and explicit per-skill grant checks before any mutation
 
 ## Default Workflow
 
-1. Refresh or read cached schema before planning SQL:
+1. Refresh or read cached schema before asking the model to draft SQL:
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json schema --backend sqlite --database ./warehouse.db
    ```
-2. Plan SQL from the user's question and inspect the generated SQL:
-   ```bash
-   python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json plan "top customers by revenue"
-   ```
-3. Review SQL before execution:
+2. Have the model draft SQL using the cached schema, then review it before execution:
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json review "SELECT c_name FROM customer LIMIT 10"
    ```
-4. Return the SQL to the user before execution when the user asks for review,
+3. Return the SQL to the user before execution when the user asks for review,
    when the query is broad, or when the result could expose sensitive business
    data.
-5. Execute only after the SQL review passes:
+4. Execute only after the SQL review passes:
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json query --backend sqlite --database ./warehouse.db --execute "SELECT c_name FROM customer LIMIT 10"
    ```
@@ -61,7 +57,7 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
 Supported backend names:
 
 - `sqlite` — executable through Python stdlib; used by the bundled eval suite
-- `postgres` — `psycopg` / `psycopg2` driver, or a connector command
+- `postgres` — `psycopg` driver, or a connector command
 - `clickhouse` — `clickhouse-connect` driver, or a connector command
 - `bigquery` — `google-cloud-bigquery` driver, or a connector command
 - `snowflake` — `snowflake-connector-python` driver, or a connector command
@@ -129,7 +125,7 @@ python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json eval-scenari
 The fixture at `evals/tpch_tiny.sql` contains a tiny public-schema-compatible
 dataset using TPC-H-style tables (`customer`, `orders`, `lineitem`, `supplier`,
 `part`, `nation`). The scenario file at `evals/tpch_scenarios.json` verifies
-planning, read-only review, and execution against deterministic answers.
+read-only review and execution against deterministic answers.
 
 ## Validation
 

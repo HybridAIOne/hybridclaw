@@ -2,10 +2,8 @@
 # ruff: noqa: INP001
 """Natural-language warehouse SQL helper.
 
-The helper owns deterministic planning for the bundled TPC-H-style eval suite,
-schema-cache management, SQL safety review, and SQLite execution for
-reproducible tests. Production warehouses should execute through an operator
-approved CLI, MCP server, or gateway integration.
+The helper owns schema-cache management, SQL safety review, warehouse execution,
+scheduler registration, and the bundled TPC-H-style eval runner.
 """
 
 from __future__ import annotations
@@ -73,7 +71,7 @@ MUTATING_KEYWORDS = {
     "vacuum",
 }
 
-BACKEND_INTROSPECTION_SQL: dict[str, dict[str, str]] = {
+BACKEND_INTROSPECTION_SQL: dict[str, dict[str, str | None]] = {
     "postgres": {
         "tables": """
 SELECT table_schema, table_name, table_type
@@ -117,7 +115,7 @@ FROM system.columns
 WHERE database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
 ORDER BY database, table, position;
 """.strip(),
-        "foreignKeys": "ClickHouse does not expose relational foreign keys in system tables.",
+        "foreignKeys": None,
     },
     "bigquery": {
         "tables": """
@@ -130,7 +128,7 @@ SELECT table_schema, table_name, column_name, data_type, is_nullable, ordinal_po
 FROM `<project>.<dataset>.INFORMATION_SCHEMA.COLUMNS`
 ORDER BY table_schema, table_name, ordinal_position;
 """.strip(),
-        "foreignKeys": "BigQuery key constraints are dataset-specific; inspect INFORMATION_SCHEMA.TABLE_CONSTRAINTS when enabled.",
+        "foreignKeys": None,
     },
     "snowflake": {
         "tables": """
@@ -181,12 +179,6 @@ class ReviewResult:
     statements: list[str]
     findings: list[str]
     requires_write_grant: bool
-
-
-@dataclass
-class SqlPlan:
-    sql: str
-    parameters: list[Any]
 
 
 def utc_now() -> str:
@@ -287,8 +279,6 @@ def parse_rows_payload(raw: str) -> list[dict[str, Any]]:
         rows = parsed.get("rows")
         if isinstance(rows, list):
             return [row for row in rows if isinstance(row, dict)]
-        if isinstance(parsed.get("data"), list):
-            return [row for row in parsed["data"] if isinstance(row, dict)]
     raise WarehouseSqlError("Backend command must emit a JSON row array, {'rows': [...]}, or CSV with headers.")
 
 
@@ -327,28 +317,16 @@ def run_postgres_driver(args: argparse.Namespace, sql: str) -> list[dict[str, An
     try:
         import psycopg  # type: ignore
         from psycopg.rows import dict_row  # type: ignore
+    except ImportError as exc:
+        raise WarehouseSqlError("Postgres driver not installed. Install psycopg or configure a backend command.") from exc
 
-        with psycopg.connect(dsn, row_factory=dict_row) as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql)
-                if cur.description is None:
-                    conn.commit()
-                    return [{"affected_rows": cur.rowcount}]
-                return [dict(row) for row in cur.fetchall()]
-    except ImportError:
-        try:
-            import psycopg2  # type: ignore
-            import psycopg2.extras  # type: ignore
-        except ImportError as exc:
-            raise WarehouseSqlError("Postgres driver not installed. Install psycopg/psycopg2 or configure a backend command.") from exc
-
-        with psycopg2.connect(dsn) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql)
-                if cur.description is None:
-                    conn.commit()
-                    return [{"affected_rows": cur.rowcount}]
-                return [dict(row) for row in cur.fetchall()]
+    with psycopg.connect(dsn, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            if cur.description is None:
+                conn.commit()
+                return [{"affected_rows": cur.rowcount}]
+            return [dict(row) for row in cur.fetchall()]
 
 
 def run_clickhouse_driver(args: argparse.Namespace, sql: str) -> list[dict[str, Any]]:
@@ -465,7 +443,7 @@ def normalize_backend_schema(args: argparse.Namespace) -> dict[str, Any]:
     table_rows = run_backend_sql(args, BACKEND_INTROSPECTION_SQL[args.backend]["tables"])
     column_rows = run_backend_sql(args, BACKEND_INTROSPECTION_SQL[args.backend]["columns"])
     fk_sql = BACKEND_INTROSPECTION_SQL[args.backend]["foreignKeys"]
-    fk_rows = [] if "\n" not in fk_sql and "SELECT" not in fk_sql.upper() else run_backend_sql(args, fk_sql)
+    fk_rows = run_backend_sql(args, fk_sql) if fk_sql is not None else []
 
     tables: dict[tuple[str, str], dict[str, Any]] = {}
     for row in table_rows:
@@ -759,7 +737,13 @@ def review_sql(
         elif expected_grant and not write_grant_matches(write_grant, expected_grant):
             findings.append("Provided write grant does not match the per-skill grant.")
 
-    status = "pass" if (read_only or (requires_write_grant and allow_write and write_grant_matches(write_grant, os.environ.get(WRITE_GRANT_ENV, "")))) and len(statements) == 1 else "block"
+    write_approved = (
+        requires_write_grant
+        and allow_write
+        and write_grant_matches(write_grant, os.environ.get(WRITE_GRANT_ENV, ""))
+    )
+    single_statement = len(statements) == 1
+    status = "pass" if (read_only or write_approved) and single_statement else "block"
     return ReviewResult(
         status=status,
         read_only=read_only,
@@ -792,143 +776,6 @@ def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
                 ],
             },
         },
-    }
-
-
-def normalize_question(question: str) -> str:
-    return re.sub(r"\s+", " ", question.strip().lower())
-
-
-def extract_customer_name(question: str) -> str | None:
-    match = re.search(r"customer#\d+", question, flags=re.I)
-    return match.group(0) if match else None
-
-
-def plan_sql(question: str, *, limit: int = 10) -> dict[str, Any]:
-    q = normalize_question(question)
-    customer = extract_customer_name(question)
-    capped_limit = max(1, min(limit, DEFAULT_MAX_ROWS))
-    parameters: list[Any] = []
-
-    if "top customer" in q and "revenue" in q:
-        sql = f"""
-SELECT c.c_name, ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS revenue
-FROM customer c
-JOIN orders o ON o.o_custkey = c.c_custkey
-JOIN lineitem l ON l.l_orderkey = o.o_orderkey
-GROUP BY c.c_name
-ORDER BY revenue DESC
-LIMIT {capped_limit}
-""".strip()
-    elif "revenue by nation" in q:
-        sql = f"""
-SELECT n.n_name, ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS revenue
-FROM nation n
-JOIN customer c ON c.c_nationkey = n.n_nationkey
-JOIN orders o ON o.o_custkey = c.c_custkey
-JOIN lineitem l ON l.l_orderkey = o.o_orderkey
-GROUP BY n.n_name
-ORDER BY revenue DESC
-LIMIT {capped_limit}
-""".strip()
-    elif "late shipment" in q:
-        sql = f"""
-SELECT l_orderkey, l_partkey, l_suppkey, l_commitdate, l_receiptdate
-FROM lineitem
-WHERE l_receiptdate > l_commitdate
-ORDER BY l_receiptdate
-LIMIT {capped_limit}
-""".strip()
-    elif "open order" in q and "status" in q:
-        sql = """
-SELECT o_orderstatus, COUNT(*) AS order_count
-FROM orders
-WHERE o_orderstatus = 'O'
-GROUP BY o_orderstatus
-ORDER BY order_count DESC, o_orderstatus
-LIMIT 10
-""".strip()
-    elif customer and "order" in q:
-        parameters = [customer]
-        sql = f"""
-SELECT o.o_orderkey, o.o_orderdate, o.o_orderstatus, o.o_totalprice
-FROM orders o
-JOIN customer c ON c.c_custkey = o.o_custkey
-WHERE c.c_name = ?
-ORDER BY o.o_orderdate
-LIMIT {capped_limit}
-""".strip()
-    elif "discount" in q and "brand" in q:
-        sql = """
-SELECT p.p_brand, ROUND(AVG(l.l_discount), 4) AS avg_discount
-FROM part p
-JOIN lineitem l ON l.l_partkey = p.p_partkey
-GROUP BY p.p_brand
-ORDER BY p.p_brand
-LIMIT 10
-""".strip()
-    elif "supplier" in q and "revenue" in q:
-        sql = f"""
-SELECT s.s_name, ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS revenue
-FROM supplier s
-JOIN lineitem l ON l.l_suppkey = s.s_suppkey
-GROUP BY s.s_name
-ORDER BY revenue DESC
-LIMIT {capped_limit}
-""".strip()
-    elif "customer count" in q and ("segment" in q or "market" in q):
-        sql = """
-SELECT c_mktsegment, COUNT(*) AS customer_count
-FROM customer
-GROUP BY c_mktsegment
-ORDER BY customer_count DESC, c_mktsegment
-LIMIT 10
-""".strip()
-    elif "part" in q and "brand" in q:
-        sql = """
-SELECT p_brand, COUNT(*) AS part_count
-FROM part
-GROUP BY p_brand
-ORDER BY part_count DESC, p_brand
-LIMIT 10
-""".strip()
-    elif "daily" in q and "order" in q:
-        sql = """
-SELECT o_orderdate, ROUND(SUM(o_totalprice), 2) AS order_total
-FROM orders
-GROUP BY o_orderdate
-ORDER BY o_orderdate
-LIMIT 50
-""".strip()
-    elif "revenue" in q and "march" in q and "1995" in q:
-        sql = """
-SELECT ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS revenue
-FROM orders o
-JOIN lineitem l ON l.l_orderkey = o.o_orderkey
-WHERE o.o_orderdate >= '1995-03-01'
-  AND o.o_orderdate < '1995-04-01'
-""".strip()
-    elif "largest order" in q:
-        sql = f"""
-SELECT o_orderkey, o_orderdate, o_totalprice
-FROM orders
-ORDER BY o_totalprice DESC
-LIMIT {capped_limit}
-""".strip()
-    else:
-        raise WarehouseSqlError(
-            "No deterministic TPC-H-style plan matched this question. Use review/query with model-authored SQL."
-        )
-
-    review = review_payload(sql, argparse.Namespace(allow_write=False, write_grant=None))
-    return {
-        "command": "plan",
-        "question": question,
-        "dialect": "ansi-sql",
-        "sql": sql,
-        "parameters": parameters,
-        "review": review["review"],
-        "schemaAssumption": "TPC-H-style customer/orders/lineitem/supplier/part/nation schema",
     }
 
 
@@ -997,6 +844,19 @@ def load_scenarios() -> list[dict[str, Any]]:
     return json.loads(EVAL_SCENARIOS_PATH.read_text(encoding="utf-8"))
 
 
+def plan_eval_sql(question: str) -> dict[str, Any]:
+    sys.path.insert(0, str(SKILL_DIR / "evals"))
+    try:
+        from tpch_eval_planner import plan_eval_sql as eval_planner  # type: ignore
+
+        return eval_planner(question)
+    finally:
+        try:
+            sys.path.remove(str(SKILL_DIR / "evals"))
+        except ValueError:
+            pass
+
+
 def first_cell(rows: list[dict[str, Any]]) -> Any:
     if not rows:
         return None
@@ -1023,7 +883,7 @@ def run_eval_scenarios() -> dict[str, Any]:
                 "findings": [],
             }
             try:
-                plan = plan_sql(str(scenario["question"]))
+                plan = plan_eval_sql(str(scenario["question"]))
                 sql = plan["sql"]
                 for expected in scenario.get("expectedSqlContains", []):
                     if str(expected).lower() not in sql.lower():
@@ -1087,29 +947,6 @@ def handle_backend_contract(args: argparse.Namespace) -> Any:
         "backend": args.backend,
         "execution": "operator-approved connector required",
         "introspection": BACKEND_INTROSPECTION_SQL[args.backend],
-    }
-
-
-def handle_schedule_command(args: argparse.Namespace) -> Any:
-    ensure_backend(args.backend)
-    command = [
-        "python3",
-        "skills/warehouse-sql/scripts/warehouse_sql.py",
-        "--format",
-        "json",
-        "schema",
-        "--backend",
-        args.backend,
-        "--profile",
-        args.profile,
-        "--refresh",
-    ]
-    if args.database:
-        command.extend(["--database", args.database])
-    return {
-        "schedule": args.every,
-        "command": " ".join(command),
-        "hybridclawExample": f"hybridclaw schedule create --cron '{args.every}' -- {' '.join(command)}",
     }
 
 
@@ -1260,7 +1097,7 @@ def handle_query(args: argparse.Namespace) -> Any:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Natural-language warehouse SQL planner, schema cache, safety review, and eval helper."
+        description="Warehouse SQL schema cache, safety review, execution, scheduler, and eval helper."
     )
     parser.add_argument("--format", choices=["text", "json"], default="text")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1280,13 +1117,6 @@ def build_parser() -> argparse.ArgumentParser:
     contract.add_argument("--backend", choices=sorted(BACKENDS), required=True)
     contract.set_defaults(func=handle_backend_contract)
 
-    schedule = subparsers.add_parser("schedule-command", help="Emit a scheduled schema refresh command.")
-    schedule.add_argument("--backend", choices=sorted(BACKENDS), required=True)
-    schedule.add_argument("--database", help="SQLite database path for sqlite backend.")
-    schedule.add_argument("--profile", default="default")
-    schedule.add_argument("--every", default="0 */6 * * *", help="Cron expression.")
-    schedule.set_defaults(func=handle_schedule_command)
-
     schedule_refresh = subparsers.add_parser("schedule-refresh", help="Register a gateway scheduler job that refreshes schema cache.")
     schedule_refresh.add_argument("--backend", choices=sorted(BACKENDS), required=True)
     schedule_refresh.add_argument("--database", help="SQLite database path for sqlite backend.")
@@ -1303,11 +1133,6 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_refresh.add_argument("--timeout-seconds", type=int, default=30)
     schedule_refresh.add_argument("--dry-run", action="store_true")
     schedule_refresh.set_defaults(func=handle_schedule_refresh)
-
-    plan = subparsers.add_parser("plan", help="Plan SQL for a natural-language TPC-H-style question.")
-    plan.add_argument("question")
-    plan.add_argument("--limit", type=int, default=10)
-    plan.set_defaults(func=lambda args: plan_sql(args.question, limit=args.limit))
 
     review = subparsers.add_parser("review", help="Review SQL safety without execution.")
     review.add_argument("sql")
