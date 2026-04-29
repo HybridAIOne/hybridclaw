@@ -66,6 +66,7 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
+import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
@@ -416,8 +417,11 @@ async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | n
     if (health.sandbox) {
       return health.sandbox.mode === 'host' ? 'host' : null;
     }
-  } catch {
-    // Fall back to authenticated status, then the local runtime config.
+  } catch (err) {
+    logger.debug(
+      { err },
+      'TUI preflight gateway health lookup failed; falling back to authenticated status.',
+    );
   }
 
   try {
