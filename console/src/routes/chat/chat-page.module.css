@@ -887,31 +887,51 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
-.agentSelectWrap {
+/* Shared pill chrome used by the agent <select> wrapper and the model
+   <SelectTrigger> so the two switchers sitting side-by-side in the composer
+   stay visually in lockstep. */
+.composerPill {
   position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   height: 36px;
-  max-width: 180px;
+  max-width: 220px;
+  border: none;
   border-radius: 999px;
+  background: transparent;
   color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 36px;
+  padding: 0 16px;
+  outline: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition:
     background 0.12s,
     color 0.12s;
 }
 
-.agentSelectWrap::after {
-  content: "";
-  position: absolute;
-  right: 16px;
-  width: 7px;
-  height: 7px;
-  border-right: 1.7px solid currentColor;
-  border-bottom: 1.7px solid currentColor;
-  pointer-events: none;
-  transform: translateY(-3px) rotate(45deg);
+.composerPill:hover:not(:disabled):not([data-disabled]),
+.composerPill:focus,
+.composerPill:focus-within,
+.composerPill[data-state="open"] {
+  background: var(--chat-hover-bg);
+  color: var(--text);
 }
 
+.composerPill:disabled,
+.composerPill[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The agent component is a native <select> wrapped in this pill. The select
+   itself stays transparent and inherits the pill's typography. */
 .agentSelect {
   max-width: 180px;
   height: 36px;
@@ -920,10 +940,10 @@ aside[data-state="collapsed"] .chatSidebarContent {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 500;
+  font-size: inherit;
+  font-weight: inherit;
   line-height: 36px;
-  padding: 0 42px 0 20px;
+  padding: 0;
   outline: none;
   cursor: pointer;
   overflow: hidden;
@@ -931,20 +951,21 @@ aside[data-state="collapsed"] .chatSidebarContent {
   white-space: nowrap;
 }
 
-.agentSelect:hover:not(:disabled),
-.agentSelect:focus {
-  color: var(--text);
-}
-
-.agentSelectWrap:has(.agentSelect:hover:not(:disabled)),
-.agentSelectWrap:has(.agentSelect:focus) {
-  background: var(--chat-hover-bg);
-  color: var(--text);
-}
-
 .agentSelect:disabled {
-  opacity: 0.55;
   cursor: default;
+}
+
+.composerPillChevron {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 0.16s ease;
+}
+
+.composerPill[data-state="open"] .composerPillChevron {
+  transform: rotate(180deg);
+  opacity: 1;
 }
 
 .sendButton {

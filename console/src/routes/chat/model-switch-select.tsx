@@ -1,7 +1,7 @@
 import {
   type ButtonHTMLAttributes,
+  type ComponentType,
   type InputHTMLAttributes,
-  type ReactElement,
   type ReactNode,
   useMemo,
   useState,
@@ -14,6 +14,32 @@ import {
   Search as SearchIcon,
   Server as ServerIcon,
 } from '../../components/icons';
+import {
+  AlibabaLogo,
+  AnthropicLogo,
+  CodexLogo,
+  DashScopeLogo,
+  DeepSeekLogo,
+  GeminiLogo,
+  HuggingFaceLogo,
+  HybridAILogo,
+  KiloLogo,
+  KimiLogo,
+  LMStudioLogo,
+  LlamaCppLogo,
+  MetaLogo,
+  MicrosoftLogo,
+  MiniMaxLogo,
+  MistralLogo,
+  OllamaLogo,
+  OpenAILogo,
+  OpenRouterLogo,
+  type ProviderLogoProps,
+  VLLMLogo,
+  XaiLogo,
+  XiaomiLogo,
+  ZaiLogo,
+} from '../../components/icons/providers';
 import {
   Select,
   SelectContent,
@@ -31,6 +57,7 @@ import {
 } from '../../components/select';
 import { cx } from '../../lib/cx';
 import { formatCompactNumber } from '../../lib/format';
+import css from './chat-page.module.css';
 import chrome from './model-switch-select.module.css';
 
 export type ModelSwitchEntry = ChatModel;
@@ -192,41 +219,61 @@ function railKeyOf(model: ParsedModel): string {
   return model.provider;
 }
 
-function HybridAIIcon() {
-  return (
-    <img
-      src="/icons/hybridai.png"
-      alt=""
-      width="20"
-      height="20"
-      style={{ display: 'block', objectFit: 'contain' }}
-    />
-  );
-}
+type LogoComponent = ComponentType<ProviderLogoProps>;
 
-function CodexIcon() {
-  return (
-    <img
-      src="/icons/codex.svg"
-      alt=""
-      width="18"
-      height="18"
-      style={{ display: 'block', objectFit: 'contain' }}
-    />
-  );
-}
-
-const PROVIDER_ICONS: Partial<Record<KnownProvider, () => ReactElement>> = {
-  HybridAI: HybridAIIcon,
-  'OpenAI Codex': CodexIcon,
-  Local: () => <LocalIcon width="18" height="18" />,
+const PROVIDER_LOGOS: Partial<Record<KnownProvider, LogoComponent>> = {
+  HybridAI: HybridAILogo,
+  'OpenAI Codex': CodexLogo,
+  Anthropic: AnthropicLogo,
+  OpenRouter: OpenRouterLogo,
+  Mistral: MistralLogo,
+  'Hugging Face': HuggingFaceLogo,
+  Gemini: GeminiLogo,
+  DeepSeek: DeepSeekLogo,
+  xAI: XaiLogo,
+  'Z.ai': ZaiLogo,
+  Kimi: KimiLogo,
+  MiniMax: MiniMaxLogo,
+  DashScope: DashScopeLogo,
+  Xiaomi: XiaomiLogo,
+  Kilo: KiloLogo,
+  Ollama: OllamaLogo,
+  'LM Studio': LMStudioLogo,
+  'llama.cpp': LlamaCppLogo,
+  vLLM: VLLMLogo,
+  Local: LocalIcon as LogoComponent,
 };
 
-function ProviderIcon({ provider }: { provider: string }) {
-  const Icon =
-    PROVIDER_ICONS[provider as KnownProvider] ??
-    (() => <ServerIcon width="18" height="18" />);
-  return <Icon />;
+const VENDOR_LOGOS: Record<string, LogoComponent> = {
+  Anthropic: AnthropicLogo,
+  OpenAI: OpenAILogo,
+  Google: GeminiLogo,
+  Mistral: MistralLogo,
+  Meta: MetaLogo,
+  DeepSeek: DeepSeekLogo,
+  xAI: XaiLogo,
+  Alibaba: AlibabaLogo,
+  Microsoft: MicrosoftLogo,
+};
+
+function ProviderIcon({ provider, size = 18 }: { provider: string; size?: number }) {
+  const Logo = PROVIDER_LOGOS[provider as KnownProvider];
+  if (Logo) return <Logo width={size} height={size} />;
+  return <ServerIcon width={size} height={size} />;
+}
+
+function VendorIcon({
+  vendor,
+  fallbackProvider,
+  size = 18,
+}: {
+  vendor: string | null;
+  fallbackProvider: string;
+  size?: number;
+}) {
+  const Logo = vendor ? VENDOR_LOGOS[vendor] : undefined;
+  if (Logo) return <Logo width={size} height={size} />;
+  return <ProviderIcon provider={fallbackProvider} size={size} />;
 }
 
 interface SearchProps
@@ -468,7 +515,20 @@ export function ModelSwitchSelect(props: {
         props.onSwitch(next);
       }}
     >
-      <SelectTrigger aria-label="Switch model" title="Switch model">
+      <SelectTrigger
+        aria-label="Switch model"
+        title="Switch model"
+        className={cx(css.composerPill, chrome.triggerPill)}
+      >
+        {selected ? (
+          <span aria-hidden="true" className={chrome.triggerLogo}>
+            <VendorIcon
+              vendor={selected.vendor}
+              fallbackProvider={selected.provider}
+              size={16}
+            />
+          </span>
+        ) : null}
         <SelectValue placeholder="Select model">
           {selected ? selected.displayName : ''}
         </SelectValue>
@@ -521,6 +581,13 @@ export function ModelSwitchSelect(props: {
                     value={model.id}
                     textValue={`${model.displayName} ${model.groupLabel}`}
                   >
+                    <span aria-hidden="true" className={chrome.itemLogo}>
+                      <VendorIcon
+                        vendor={model.vendor}
+                        fallbackProvider={model.provider}
+                        size={18}
+                      />
+                    </span>
                     <SelectItemBody>
                       <SelectItemText>{model.displayName}</SelectItemText>
                       {subtitle ? (

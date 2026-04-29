@@ -81,3 +81,37 @@
 .railItem[data-active] .railGlyph {
   color: var(--text);
 }
+
+/* When the SelectTrigger is wearing the composer pill, override the Select
+   primitive's default trigger chrome (border, background, height, padding) so
+   the pill geometry from .composerPill is what actually renders. Restated
+   explicitly to stay resilient to CSS source-order shifts. */
+.triggerPill {
+  border-color: transparent;
+  background-color: transparent;
+  height: 36px;
+  padding: 0 16px;
+}
+
+.triggerPill:hover:not([data-disabled]),
+.triggerPill[data-state="open"] {
+  border-color: transparent;
+  background-color: var(--chat-hover-bg);
+}
+
+.triggerLogo {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.itemLogo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+}
