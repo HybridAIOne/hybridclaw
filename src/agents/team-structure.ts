@@ -1,3 +1,4 @@
+import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { isRecord } from '../utils/type-guards.js';
 import type { AgentConfig } from './agent-types.js';
 import { validateAgentOrgChart } from './agent-types.js';
@@ -44,27 +45,16 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const entry of value) {
-    const normalizedEntry = normalizeString(entry);
-    if (!normalizedEntry || seen.has(normalizedEntry)) continue;
-    seen.add(normalizedEntry);
-    normalized.push(normalizedEntry);
-  }
-  return normalized.length > 0 ? normalized : undefined;
-}
-
 function normalizeTeamEntry(value: unknown): AgentTeamStructureEntry | null {
   if (!isRecord(value)) return null;
   const id = normalizeString(value.id);
   if (!id) return null;
   const role = normalizeString(value.role);
   const reportsTo = normalizeString(value.reportsTo);
-  const delegatesTo = normalizeStringArray(value.delegatesTo);
-  const peers = normalizeStringArray(value.peers);
+  const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
+    value.delegatesTo,
+  );
+  const peers = normalizeOptionalTrimmedUniqueStringArray(value.peers);
   return {
     id,
     ...(role ? { role } : {}),
@@ -87,8 +77,10 @@ function toAgentConfig(entry: AgentTeamStructureEntry): AgentConfig {
 function snapshotEntry(agent: AgentConfig): AgentTeamStructureEntry {
   const role = normalizeString(agent.role);
   const reportsTo = normalizeString(agent.reportsTo);
-  const delegatesTo = normalizeStringArray(agent.delegatesTo);
-  const peers = normalizeStringArray(agent.peers);
+  const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
+    agent.delegatesTo,
+  );
+  const peers = normalizeOptionalTrimmedUniqueStringArray(agent.peers);
   return {
     id: agent.id.trim(),
     ...(role ? { role } : {}),

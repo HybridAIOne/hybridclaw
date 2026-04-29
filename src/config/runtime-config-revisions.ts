@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
+import { md5Hex } from '../utils/hash.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 const CONFIG_REVISION_DB_PATH = path.join(
@@ -179,10 +179,6 @@ function normalizeChangeMeta(
     route: explicitRoute || detectedRoute || 'runtime-config.unspecified',
     source: String(meta?.source || '').trim() || 'internal',
   };
-}
-
-function computeMd5(content: string): string {
-  return createHash('md5').update(content).digest('hex');
 }
 
 function quoteSqlIdentifier(value: string): string {
@@ -466,7 +462,7 @@ export function syncRuntimeAssetRevisionStateInOpenDatabase(
   }
 
   const content = observedFile?.content ?? fs.readFileSync(assetPath, 'utf-8');
-  const md5 = observedFile?.md5 ?? computeMd5(content);
+  const md5 = observedFile?.md5 ?? md5Hex(content);
   if (!state) {
     database
       .prepare(

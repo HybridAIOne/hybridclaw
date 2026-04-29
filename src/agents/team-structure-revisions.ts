@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -10,6 +9,7 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { md5Hex } from '../utils/hash.js';
 import type { AgentConfig } from './agent-types.js';
 import {
   type AgentTeamStructureDiff,
@@ -31,16 +31,14 @@ export interface AgentTeamStructureRevision
   snapshot: AgentTeamStructureSnapshot;
 }
 
+const AGENT_TEAM_STRUCTURE_ASSET_PATH = path.join(
+  DEFAULT_RUNTIME_HOME_DIR,
+  'agents',
+  'team-structure.json',
+);
+
 export function agentTeamStructureAssetPath(): string {
-  return path.join(DEFAULT_RUNTIME_HOME_DIR, 'agents', 'team-structure.json');
-}
-
-function md5(content: string): string {
-  return createHash('md5').update(content).digest('hex');
-}
-
-function currentTeamStructureContent(agents: AgentConfig[]): string {
-  return serializeAgentTeamStructure(agents);
+  return AGENT_TEAM_STRUCTURE_ASSET_PATH;
 }
 
 function revisionNextContent(params: {
@@ -50,7 +48,7 @@ function revisionNextContent(params: {
 }): string | null {
   if (!params.revision.replacedByMd5) return null;
   // Runtime revisions link forward by storing the MD5 of the content that replaced this revision.
-  if (md5(params.currentContent) === params.revision.replacedByMd5) {
+  if (md5Hex(params.currentContent) === params.revision.replacedByMd5) {
     return params.currentContent;
   }
   const nextRevision = params.revisions.find(
@@ -59,7 +57,7 @@ function revisionNextContent(params: {
   if (!nextRevision) return null;
   const record = getRuntimeAssetRevision(
     'team',
-    agentTeamStructureAssetPath(),
+    AGENT_TEAM_STRUCTURE_ASSET_PATH,
     nextRevision.id,
   );
   return record?.content ?? null;
@@ -72,7 +70,7 @@ function summarizeRevision(params: {
 }): AgentTeamStructureRevisionSummary {
   const record = getRuntimeAssetRevision(
     'team',
-    agentTeamStructureAssetPath(),
+    AGENT_TEAM_STRUCTURE_ASSET_PATH,
     params.revision.id,
   );
   if (!record) {
@@ -97,10 +95,10 @@ export function syncAgentTeamStructureRevisionState(
   agents: AgentConfig[],
   meta?: RuntimeConfigChangeMeta,
 ): { changed: boolean; previousMd5: string | null; currentMd5: string | null } {
-  const content = currentTeamStructureContent(agents);
+  const content = serializeAgentTeamStructure(agents);
   return syncRuntimeAssetRevisionState(
     'team',
-    agentTeamStructureAssetPath(),
+    AGENT_TEAM_STRUCTURE_ASSET_PATH,
     meta,
     {
       exists: true,
@@ -114,11 +112,11 @@ export function listAgentTeamStructureRevisions(
 ): AgentTeamStructureRevisionSummary[] {
   const revisions = listRuntimeAssetRevisions(
     'team',
-    agentTeamStructureAssetPath(),
+    AGENT_TEAM_STRUCTURE_ASSET_PATH,
   );
   const currentContent =
-    getRuntimeAssetRevisionState('team', agentTeamStructureAssetPath())
-      ?.content ?? currentTeamStructureContent(currentAgents);
+    getRuntimeAssetRevisionState('team', AGENT_TEAM_STRUCTURE_ASSET_PATH)
+      ?.content ?? serializeAgentTeamStructure(currentAgents);
   return revisions.map((revision) =>
     summarizeRevision({ revision, revisions, currentContent }),
   );
@@ -130,7 +128,7 @@ export function getAgentTeamStructureRevision(
 ): AgentTeamStructureRevision {
   const revisions = listRuntimeAssetRevisions(
     'team',
-    agentTeamStructureAssetPath(),
+    AGENT_TEAM_STRUCTURE_ASSET_PATH,
   );
   const summary = revisions.find((revision) => revision.id === revisionId);
   if (!summary) {
@@ -138,15 +136,15 @@ export function getAgentTeamStructureRevision(
   }
   const record = getRuntimeAssetRevision(
     'team',
-    agentTeamStructureAssetPath(),
+    AGENT_TEAM_STRUCTURE_ASSET_PATH,
     revisionId,
   );
   if (!record) {
     throw new Error(`Team structure revision ${revisionId} was not found.`);
   }
   const currentContent =
-    getRuntimeAssetRevisionState('team', agentTeamStructureAssetPath())
-      ?.content ?? currentTeamStructureContent(currentAgents);
+    getRuntimeAssetRevisionState('team', AGENT_TEAM_STRUCTURE_ASSET_PATH)
+      ?.content ?? serializeAgentTeamStructure(currentAgents);
   const nextContent = revisionNextContent({
     revision: summary,
     revisions,
