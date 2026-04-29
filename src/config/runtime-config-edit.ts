@@ -80,5 +80,5 @@ export function getRuntimeConfigValueAtPath(
 }
 
 export function formatRuntimeConfigValue(value: unknown): string {
-  return JSON.stringify(value, null, 2) ?? String(value);
+  return JSON.stringify(value, null, 2);
 }
