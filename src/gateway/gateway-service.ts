@@ -324,6 +324,7 @@ import type {
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
+import { normalizeOptionalTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import { sleep } from '../utils/sleep.js';
 import { formatDurationMs } from '../utils/text-format.js';
 import {
@@ -1120,6 +1121,12 @@ function mapGatewayAdminAgent(
     chatbotId: resolved.chatbotId || null,
     enableRag:
       typeof resolved.enableRag === 'boolean' ? resolved.enableRag : null,
+    role: resolved.role || null,
+    reportsTo: resolved.reportsTo || null,
+    delegatesTo: Array.isArray(resolved.delegatesTo)
+      ? [...resolved.delegatesTo]
+      : null,
+    peers: Array.isArray(resolved.peers) ? [...resolved.peers] : null,
     workspace: resolved.workspace || null,
     workspacePath,
     markdownFiles: ADMIN_AGENT_MARKDOWN_FILES.map(
@@ -4176,6 +4183,10 @@ export function createGatewayAdminAgent(params: {
   skills?: string[] | null;
   chatbotId?: string | null;
   enableRag?: boolean | null;
+  role?: string | null;
+  reportsTo?: string | null;
+  delegatesTo?: string[] | null;
+  peers?: string[] | null;
   workspace?: string | null;
 }): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const saved = upsertRegisteredAgent({
@@ -4188,6 +4199,24 @@ export function createGatewayAdminAgent(params: {
     ...(params.chatbotId?.trim() ? { chatbotId: params.chatbotId.trim() } : {}),
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
+      : {}),
+    ...(params.role?.trim() ? { role: params.role.trim() } : {}),
+    ...(params.reportsTo?.trim() ? { reportsTo: params.reportsTo.trim() } : {}),
+    ...(params.delegatesTo !== undefined
+      ? {
+          delegatesTo:
+            params.delegatesTo == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
+        }
+      : {}),
+    ...(params.peers !== undefined
+      ? {
+          peers:
+            params.peers == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
+        }
       : {}),
     ...(params.workspace?.trim() ? { workspace: params.workspace.trim() } : {}),
   });
@@ -4204,6 +4233,10 @@ export function updateGatewayAdminAgent(
     skills?: string[] | null;
     chatbotId?: string | null;
     enableRag?: boolean | null;
+    role?: string | null;
+    reportsTo?: string | null;
+    delegatesTo?: string[] | null;
+    peers?: string[] | null;
     workspace?: string | null;
   },
 ): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
@@ -4230,6 +4263,28 @@ export function updateGatewayAdminAgent(
       : {}),
     ...(typeof params.enableRag === 'boolean'
       ? { enableRag: params.enableRag }
+      : {}),
+    ...(params.role !== undefined
+      ? { role: params.role?.trim() || undefined }
+      : {}),
+    ...(params.reportsTo !== undefined
+      ? { reportsTo: params.reportsTo?.trim() || undefined }
+      : {}),
+    ...(params.delegatesTo !== undefined
+      ? {
+          delegatesTo:
+            params.delegatesTo == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.delegatesTo),
+        }
+      : {}),
+    ...(params.peers !== undefined
+      ? {
+          peers:
+            params.peers == null
+              ? undefined
+              : normalizeOptionalTrimmedUniqueStringArray(params.peers),
+        }
       : {}),
   });
   return {

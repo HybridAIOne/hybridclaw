@@ -31,6 +31,7 @@ import {
   DEFAULT_AGENT_ID,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  validateAgentOrgChart,
 } from './agent-types.js';
 
 const LEGACY_WORKSPACE_DIRS = [
@@ -160,6 +161,17 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   );
   const owner = normalizeString((value as { owner?: unknown }).owner);
   const role = normalizeString((value as { role?: unknown }).role);
+  const reportsTo = normalizeString(
+    (value as { reportsTo?: unknown; reports_to?: unknown }).reportsTo ??
+      (value as { reports_to?: unknown }).reports_to,
+  );
+  const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { delegatesTo?: unknown; delegates_to?: unknown }).delegatesTo ??
+      (value as { delegates_to?: unknown }).delegates_to,
+  );
+  const peers = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { peers?: unknown }).peers,
+  );
   const cv = normalizeAgentCv((value as { cv?: unknown }).cv);
   const escalationTarget = normalizeAgentEscalationTarget(
     (value as { escalationTarget?: unknown }).escalationTarget,
@@ -175,6 +187,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
   };
@@ -223,6 +238,9 @@ function fingerprintAgent(agent: AgentConfig): string {
     typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
     fingerprintString(agent.owner),
     fingerprintString(agent.role),
+    fingerprintString(agent.reportsTo),
+    fingerprintStringArray(agent.delegatesTo),
+    fingerprintStringArray(agent.peers),
     fingerprintCv(agent.cv),
     fingerprintString(agent.escalationTarget?.channel),
     fingerprintString(agent.escalationTarget?.recipient),
@@ -264,6 +282,7 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
     list.unshift({ id: DEFAULT_AGENT_ID, name: 'Main Agent' });
     seen.add(DEFAULT_AGENT_ID);
   }
+  validateAgentOrgChart(list);
   const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
   const fingerprint = fingerprintAgentsConfig({
     defaultAgentId,
@@ -296,6 +315,9 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
     ...(agent.owner ? { owner: agent.owner } : {}),
     ...(agent.role ? { role: agent.role } : {}),
+    ...(agent.reportsTo ? { reportsTo: agent.reportsTo } : {}),
+    ...(agent.delegatesTo ? { delegatesTo: [...agent.delegatesTo] } : {}),
+    ...(agent.peers ? { peers: [...agent.peers] } : {}),
     ...(agent.cv ? { cv: agent.cv } : {}),
     ...(agent.escalationTarget
       ? { escalationTarget: { ...agent.escalationTarget } }
@@ -327,6 +349,7 @@ function rebuildRegistryFromDatabase(): void {
       name: 'Main Agent',
     });
   }
+  validateAgentOrgChart(Array.from(registry.values()));
 }
 
 function syncConfiguredAgentsToDatabase(): void {
@@ -353,6 +376,9 @@ function syncConfiguredAgentsToDatabase(): void {
       enableRag: agent.enableRag,
       owner: agent.owner,
       role: agent.role,
+      reportsTo: agent.reportsTo,
+      delegatesTo: agent.delegatesTo,
+      peers: agent.peers,
       cv: cloneAgentCv(agent.cv),
       escalationTarget: agent.escalationTarget,
     });
@@ -527,6 +553,18 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!normalized) {
     throw new Error('Agent id is required.');
   }
+  const nextAgentsById = new Map<string, AgentConfig>();
+  for (const existing of dbListAgents()) {
+    nextAgentsById.set(existing.id, existing);
+  }
+  nextAgentsById.set(normalized.id, normalized);
+  if (!nextAgentsById.has(DEFAULT_AGENT_ID)) {
+    nextAgentsById.set(DEFAULT_AGENT_ID, {
+      id: DEFAULT_AGENT_ID,
+      name: 'Main Agent',
+    });
+  }
+  validateAgentOrgChart(Array.from(nextAgentsById.values()));
   dbUpsertAgent(normalized);
   rebuildRegistryFromDatabase();
   registryInitialized = true;

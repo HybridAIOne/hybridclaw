@@ -118,7 +118,7 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 
-export const DATABASE_SCHEMA_VERSION = 25;
+export const DATABASE_SCHEMA_VERSION = 26;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -162,6 +162,9 @@ type AgentRow = {
   workspace: string | null;
   owner: string | null;
   role: string | null;
+  reports_to: string | null;
+  delegates_to: string | null;
+  peers: string | null;
   cv: string | null;
   escalation_target: string | null;
   created_at: string;
@@ -2059,6 +2062,35 @@ function migrateV25(
   );
 }
 
+function migrateV26(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'reports_to',
+    ddl: 'reports_to TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'delegates_to',
+    ddl: 'delegates_to TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'peers',
+    ddl: 'peers TEXT',
+    quiet,
+  });
+  recordMigration(database, 26, 'Persist agent org-chart relationships');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2115,6 +2147,7 @@ function runMigrations(
     migrateV24(database, opts);
   }
   if (currentVersion < 25) migrateV25(database, opts);
+  if (currentVersion < 26) migrateV26(database, opts);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2238,6 +2271,33 @@ function serializeAgentCv(cv: AgentCv | undefined): string | null {
   return cv ? JSON.stringify(cv) : null;
 }
 
+function serializeAgentStringArray(
+  values: string[] | undefined,
+): string | null {
+  if (!Array.isArray(values)) return null;
+  return JSON.stringify(normalizeTrimmedUniqueStringArray(values));
+}
+
+function parseAgentStringArray(
+  rawValues: string | null,
+  fieldName: string,
+): string[] | undefined {
+  const normalized = rawValues?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    return normalizeTrimmedUniqueStringArray(parsed);
+  } catch {
+    logger.warn(
+      { fieldName, payloadLength: normalized.length },
+      'Failed to parse persisted agent org-chart relationship list',
+    );
+    return undefined;
+  }
+}
+
 function parseAgentCv(rawCv: string | null): AgentCv | undefined {
   const normalized = rawCv?.trim() || '';
   if (!normalized) return undefined;
@@ -2286,6 +2346,9 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const workspace = row.workspace?.trim() || '';
   const owner = row.owner?.trim() || '';
   const role = row.role?.trim() || '';
+  const reportsTo = row.reports_to?.trim() || '';
+  const delegatesTo = parseAgentStringArray(row.delegates_to, 'delegates_to');
+  const peers = parseAgentStringArray(row.peers, 'peers');
   const cv = parseAgentCv(row.cv);
   const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   return {
@@ -2302,13 +2365,16 @@ function mapAgentRow(row: AgentRow): AgentConfig {
       : {}),
     ...(owner ? { owner } : {}),
     ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, cv, escalation_target, created_at, updated_at';
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2348,6 +2414,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedWorkspace = agent.workspace?.trim() || null;
   const normalizedOwner = agent.owner?.trim() || null;
   const normalizedRole = agent.role?.trim() || null;
+  const normalizedReportsTo = agent.reportsTo?.trim() || null;
+  const normalizedDelegatesTo = serializeAgentStringArray(agent.delegatesTo);
+  const normalizedPeers = serializeAgentStringArray(agent.peers);
   const normalizedCv = serializeAgentCv(agent.cv);
   const normalizedEscalationTarget = serializeAgentEscalationTarget(
     agent.escalationTarget,
@@ -2367,11 +2436,14 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        workspace,
        owner,
        role,
+       reports_to,
+       delegates_to,
+       peers,
        cv,
        escalation_target,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -2383,6 +2455,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        workspace = excluded.workspace,
        owner = excluded.owner,
        role = excluded.role,
+       reports_to = excluded.reports_to,
+       delegates_to = excluded.delegates_to,
+       peers = excluded.peers,
        cv = excluded.cv,
        escalation_target = excluded.escalation_target,
        updated_at = datetime('now')`,
@@ -2398,6 +2473,9 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedWorkspace,
     normalizedOwner,
     normalizedRole,
+    normalizedReportsTo,
+    normalizedDelegatesTo,
+    normalizedPeers,
     normalizedCv,
     normalizedEscalationTarget,
   );

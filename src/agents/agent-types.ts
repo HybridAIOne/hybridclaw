@@ -38,6 +38,9 @@ export interface AgentConfig {
   enableRag?: boolean;
   owner?: string;
   role?: string;
+  reportsTo?: string;
+  delegatesTo?: string[];
+  peers?: string[];
   cv?: AgentCv;
   escalationTarget?: EscalationTarget;
 }
@@ -111,4 +114,52 @@ export function agentCvEquals(a?: AgentCv, b?: AgentCv): boolean {
   const bCaps = b.capabilities ?? [];
   if (aCaps.length !== bCaps.length) return false;
   return aCaps.every((entry, index) => entry === bCaps[index]);
+}
+
+export function validateAgentOrgChart(agents: AgentConfig[]): void {
+  const agentIds = new Set<string>();
+  for (const agent of agents) {
+    agentIds.add(agent.id);
+  }
+
+  const reportsToByAgent = new Map<string, string>();
+  for (const agent of agents) {
+    const reportsTo = normalizeTrimmedString(agent.reportsTo);
+    if (!reportsTo) continue;
+    if (!agentIds.has(reportsTo)) {
+      throw new Error(
+        `Agent "${agent.id}" reports_to references unknown agent "${reportsTo}".`,
+      );
+    }
+    if (reportsTo === agent.id) {
+      throw new Error(
+        `Agent "${agent.id}" reports_to cannot reference itself.`,
+      );
+    }
+    reportsToByAgent.set(agent.id, reportsTo);
+  }
+
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+
+  const visit = (agentId: string, path: string[]): void => {
+    if (visited.has(agentId)) return;
+    if (visiting.has(agentId)) {
+      const cycleStart = path.indexOf(agentId);
+      const cyclePath = path.slice(Math.max(cycleStart, 0)).join(' -> ');
+      throw new Error(`Agent reports_to cycle detected: ${cyclePath}.`);
+    }
+
+    visiting.add(agentId);
+    const parentId = reportsToByAgent.get(agentId);
+    if (parentId) {
+      visit(parentId, [...path, parentId]);
+    }
+    visiting.delete(agentId);
+    visited.add(agentId);
+  };
+
+  for (const agentId of reportsToByAgent.keys()) {
+    visit(agentId, [agentId]);
+  }
 }

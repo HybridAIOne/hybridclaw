@@ -36,6 +36,9 @@ function sameAgentConfig(a: AgentConfig | undefined, b: AgentConfig): boolean {
     a.enableRag === b.enableRag &&
     a.owner === b.owner &&
     a.role === b.role &&
+    a.reportsTo === b.reportsTo &&
+    sameStringArray(a.delegatesTo, b.delegatesTo) &&
+    sameStringArray(a.peers, b.peers) &&
     agentCvEquals(a.cv, b.cv) &&
     agentEscalationTargetEquals(a.escalationTarget, b.escalationTarget)
   );

@@ -14,6 +14,7 @@ import { activateAgentInRuntimeConfig } from './agent-runtime-config.js';
 import {
   type AgentConfig,
   type AgentModelConfig,
+  normalizeAgentCv,
   normalizeAgentEscalationTarget,
 } from './agent-types.js';
 
@@ -216,6 +217,58 @@ function applyAgentConfigFieldUpdates(
       delete next.enableRag;
     } else {
       throw new Error('`enableRag` must be a boolean or null.');
+    }
+  }
+  if (Object.hasOwn(updates, 'role')) {
+    const role = normalizeOptionalStringField('role', updates.role);
+    if (role) next.role = role;
+    else delete next.role;
+  }
+  const reportsToValue = Object.hasOwn(updates, 'reportsTo')
+    ? updates.reportsTo
+    : Object.hasOwn(updates, 'reports_to')
+      ? updates.reports_to
+      : undefined;
+  if (
+    Object.hasOwn(updates, 'reportsTo') ||
+    Object.hasOwn(updates, 'reports_to')
+  ) {
+    const reportsTo = normalizeOptionalStringField('reportsTo', reportsToValue);
+    if (reportsTo) next.reportsTo = reportsTo;
+    else delete next.reportsTo;
+  }
+  const delegatesToValue = Object.hasOwn(updates, 'delegatesTo')
+    ? updates.delegatesTo
+    : Object.hasOwn(updates, 'delegates_to')
+      ? updates.delegates_to
+      : undefined;
+  if (
+    Object.hasOwn(updates, 'delegatesTo') ||
+    Object.hasOwn(updates, 'delegates_to')
+  ) {
+    const delegatesTo = normalizeOptionalStringArrayField(
+      'delegatesTo',
+      delegatesToValue,
+    );
+    if (delegatesTo !== undefined) next.delegatesTo = delegatesTo;
+    else delete next.delegatesTo;
+  }
+  if (Object.hasOwn(updates, 'peers')) {
+    const peers = normalizeOptionalStringArrayField('peers', updates.peers);
+    if (peers !== undefined) next.peers = peers;
+    else delete next.peers;
+  }
+  if (Object.hasOwn(updates, 'cv')) {
+    if (updates.cv === null) {
+      delete next.cv;
+    } else {
+      const cv = normalizeAgentCv(updates.cv);
+      if (!cv) {
+        throw new Error(
+          '`cv` must include at least one populated summary, background, capabilities, or asset field, or null.',
+        );
+      }
+      next.cv = cv;
     }
   }
   if (Object.hasOwn(updates, 'escalationTarget')) {
