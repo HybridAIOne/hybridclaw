@@ -122,15 +122,12 @@ function logTrajectoryCaptureEnabledOnce(input: {
   const configKey = `${input.storeDir}\0${input.agentIds.join('\0')}`;
   if (loggedTrajectoryCaptureConfigKey === configKey) return;
   loggedTrajectoryCaptureConfigKey = configKey;
-  const loggedAgentIds = input.agentIds.map((agentId) =>
-    redactSecrets(agentId),
-  );
   logger.info(
     {
-      agentIds: loggedAgentIds,
+      agentCount: input.agentIds.length,
       storeDir: input.storeDir,
     },
-    `Trajectory capture enabled for agents: [${loggedAgentIds.join(', ')}] -> ${
+    `Trajectory capture enabled for ${input.agentIds.length} agent(s) -> ${
       input.storeDir
     }`,
   );
@@ -309,6 +306,7 @@ function getTrajectoryConfidentialRuleSet(): ConfidentialRuleSet | null {
 function scrubSkillRunTrajectoryRecord(record: SkillRunTrajectoryRecord): {
   record: SkillRunTrajectoryRecord;
   hits: number;
+  confidentialEnabled: boolean;
   placeholderCount: number;
   redactedStringCount: number;
   rulesSource: string | null;
@@ -324,6 +322,7 @@ function scrubSkillRunTrajectoryRecord(record: SkillRunTrajectoryRecord): {
       tenant_id: trajectoryStorageTenantId(record.tenant_id, ruleSet),
     },
     hits: stats.hits,
+    confidentialEnabled: ruleSet != null,
     placeholderCount: mappings.byPlaceholder.size,
     redactedStringCount: stats.redactedStrings,
     rulesSource: ruleSet?.sourcePath ?? null,
@@ -331,17 +330,23 @@ function scrubSkillRunTrajectoryRecord(record: SkillRunTrajectoryRecord): {
 }
 
 function recordTrajectoryScrubAudit(input: {
+  sessionId: string;
+  parentRunId: string;
   record: SkillRunTrajectoryRecord;
   filePath: string;
+  confidentialEnabled: boolean;
   hits: number;
   placeholderCount: number;
   redactedStringCount: number;
   rulesSource: string | null;
 }): void {
+  const redactors = input.confidentialEnabled
+    ? ['confidential-redact', 'redact-secrets']
+    : ['redact-secrets'];
   recordAuditEvent({
-    sessionId: input.record.session_id,
+    sessionId: input.sessionId,
     runId: makeAuditRunId('trajectory_scrub'),
-    parentRunId: input.record.run_id,
+    parentRunId: input.parentRunId,
     event: {
       type: 'skill.trajectory.scrub',
       skillName: input.record.skill_id,
@@ -350,8 +355,10 @@ function recordTrajectoryScrubAudit(input: {
       trajectoryDate: input.record.date,
       trajectoryFile: path.basename(input.filePath),
       schemaVersion: input.record.schema_version,
-      redactor: 'confidential-redact',
-      placeholderFormat: '«CONF:<RULE_ID>»',
+      redactor: redactors.join('+'),
+      redactors,
+      confidentialEnabled: input.confidentialEnabled,
+      placeholderFormat: input.confidentialEnabled ? '«CONF:<RULE_ID>»' : null,
       matches: input.hits,
       placeholderCount: input.placeholderCount,
       redactedStringCount: input.redactedStringCount,
@@ -395,8 +402,11 @@ export function recordSkillRunTrajectory(event: SkillRunEvent): void {
       mode: 0o600,
     });
     recordTrajectoryScrubAudit({
+      sessionId: builtRecord.session_id,
+      parentRunId: builtRecord.run_id,
       record,
       filePath,
+      confidentialEnabled: scrubbed.confidentialEnabled,
       hits: scrubbed.hits,
       placeholderCount: scrubbed.placeholderCount,
       redactedStringCount: scrubbed.redactedStringCount,

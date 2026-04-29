@@ -146,17 +146,10 @@ saved revision history directly.
 - `proactive.delegation.model` for pinning delegated subagent work to a
   dedicated model while the parent turn keeps its own session or agent model;
   leave it empty to use the parent model
-- `adaptiveSkills.*` for skill observation, amendment staging, rollback, and
-  opt-in trajectory capture via
-  `adaptiveSkills.trajectoryCapture.enabledAgentIds`; captured trajectories run
-  through PII/secret redaction, and configured confidential-info rules preserve
-  the documented `«CONF:<RULE_ID>»` placeholder format before the trajectories
-  are written; when `adaptiveSkills.trajectoryCapture.storeDir` is empty,
-  trajectories are stored beside the runtime database, absolute paths are
-  used as-is, and relative paths resolve under the runtime home directory;
-  trajectory retention defaults to
-  `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden
-  per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
+- `adaptiveSkills.*` for skill observation, amendment staging, rollback, and opt-in trajectory capture via `adaptiveSkills.trajectoryCapture.enabledAgentIds`
+- Captured trajectories run through PII/secret redaction, and configured confidential-info rules preserve the documented `«CONF:<RULE_ID>»` placeholder format before trajectories are written
+- `adaptiveSkills.trajectoryCapture.storeDir` controls trajectory storage; empty stores beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory
+- Trajectory retention defaults to `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config

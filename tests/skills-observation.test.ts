@@ -7,12 +7,15 @@ import type { AdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-s
 import { createAdaptiveSkillsTestContext } from './helpers/adaptive-skills-test-setup.ts';
 
 let context: AdaptiveSkillsTestContext | null = null;
+let resetConfidentialRulesForTesting: (() => void) | null = null;
 
 function hashedTrajectoryTenantId(raw: string): string {
   return `agent_${createHash('sha256').update(raw).digest('hex').slice(0, 16)}`;
 }
 
 afterEach(() => {
+  resetConfidentialRulesForTesting?.();
+  resetConfidentialRulesForTesting = null;
   context?.cleanup();
   context = null;
 });
@@ -804,10 +807,10 @@ test('captures opt-in skill_run trajectories in append-only files keyed by date 
   expect(infoSpy).toHaveBeenCalledTimes(1);
   expect(infoSpy).toHaveBeenCalledWith(
     {
-      agentIds: ['agent-1'],
+      agentCount: 1,
       storeDir,
     },
-    `Trajectory capture enabled for agents: [agent-1] -> ${storeDir}`,
+    `Trajectory capture enabled for 1 agent(s) -> ${storeDir}`,
   );
   infoSpy.mockRestore();
   if (process.platform !== 'win32') {
@@ -831,6 +834,8 @@ test('scrubs confidential trajectory batches and records audit metadata', async 
   const { setConfidentialRuleSetForTesting } = await import(
     '../src/security/confidential-runtime.ts'
   );
+  resetConfidentialRulesForTesting = () =>
+    setConfidentialRuleSetForTesting(null);
   setConfidentialRuleSetForTesting(
     parseConfidentialYaml(
       `
@@ -913,7 +918,9 @@ people:
     trajectoryDate: date,
     trajectoryFile: 'agent-scrub.jsonl',
     schemaVersion: 2,
-    redactor: 'confidential-redact',
+    redactor: 'confidential-redact+redact-secrets',
+    redactors: ['confidential-redact', 'redact-secrets'],
+    confidentialEnabled: true,
     placeholderFormat: '«CONF:<RULE_ID>»',
     rulesSource: 'memory:test-confidential',
   });
@@ -947,8 +954,8 @@ test('uses non-PII tenant storage keys for PII-like trajectory agent ids', async
 
   recordSkillExecution({
     skillName: context.skillName,
-    sessionId: 'session-trajectory-alice',
-    runId: 'run-trajectory-alice',
+    sessionId: aliceAgentId,
+    runId: `run-${aliceAgentId}`,
     agentId: aliceAgentId,
     toolExecutions: [],
     outcome: 'success',
@@ -1000,6 +1007,28 @@ test('uses non-PII tenant storage keys for PII-like trajectory agent ids', async
   });
   expect(JSON.stringify(aliceRow)).not.toContain(aliceAgentId);
   expect(JSON.stringify(bobRow)).not.toContain(bobAgentId);
+
+  const aliceAuditRows =
+    context.dbModule.getStructuredAuditForSession(aliceAgentId);
+  const aliceScrubAudit = aliceAuditRows.find(
+    (entry) => entry.event_type === 'skill.trajectory.scrub',
+  );
+  expect(aliceScrubAudit).toBeTruthy();
+  const aliceScrubPayload = JSON.parse(
+    aliceScrubAudit?.payload || '{}',
+  ) as Record<string, unknown>;
+  expect(aliceScrubPayload).toMatchObject({
+    redactor: 'redact-secrets',
+    redactors: ['redact-secrets'],
+    confidentialEnabled: false,
+    placeholderFormat: null,
+    rulesSource: null,
+  });
+  expect(
+    context.dbModule
+      .getStructuredAuditForSession('***EMAIL_REDACTED***')
+      .some((entry) => entry.event_type === 'skill.trajectory.scrub'),
+  ).toBe(false);
 });
 
 test('skill_run subscriber failures do not block observation persistence', async () => {
