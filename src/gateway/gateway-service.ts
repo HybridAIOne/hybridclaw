@@ -3681,17 +3681,27 @@ export async function getGatewayStatus(
   const codex = getCodexAuthStatus();
   const hybridai = getHybridAIAuthStatus();
   const refreshProviderHealth = options.refreshProviderHealth ?? true;
-  const [localBackendsResult, hybridaiResult, whatsappAuthResult] =
-    await Promise.allSettled([
-      resolveGatewayLocalBackendsHealth(options),
-      resolveGatewayHybridAIHealth(options),
-      getWhatsAppAuthStatus(),
-      // Warm the Codex model cache for provider counts; the status payload
-      // reads discovered names after all probes settle.
-      refreshProviderHealth && codex.authenticated && !codex.reloginRequired
-        ? discoverCodexModels()
-        : Promise.resolve([]),
-    ]);
+  const [
+    localBackendsResult,
+    hybridaiResult,
+    whatsappAuthResult,
+    codexDiscoveryResult,
+  ] = await Promise.allSettled([
+    resolveGatewayLocalBackendsHealth(options),
+    resolveGatewayHybridAIHealth(options),
+    getWhatsAppAuthStatus(),
+    // Warm the Codex model cache for provider counts; the status payload
+    // reads discovered names after all probes settle.
+    refreshProviderHealth && codex.authenticated && !codex.reloginRequired
+      ? discoverCodexModels()
+      : Promise.resolve([]),
+  ]);
+  if (codexDiscoveryResult.status === 'rejected') {
+    logger.debug(
+      { err: codexDiscoveryResult.reason },
+      'Codex model cache warmup failed during gateway status',
+    );
+  }
   const runtimeConfig = getRuntimeConfig();
   const storedSecrets = readStoredRuntimeSecrets();
   const localBackendsMap =
