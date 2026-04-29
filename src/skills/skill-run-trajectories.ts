@@ -77,18 +77,6 @@ function hashedTenantId(raw: string): string {
   return `agent_${createHash('sha256').update(raw).digest('hex').slice(0, 16)}`;
 }
 
-function trajectoryStorageTenantId(
-  rawAgentId: string,
-  ruleSet: ConfidentialRuleSet | null,
-): string {
-  const confidentialScrubbed = ruleSet
-    ? dehydrateConfidential(rawAgentId, ruleSet, createPlaceholderMap()).text
-    : rawAgentId;
-  const scrubbed = redactSecrets(confidentialScrubbed);
-  if (scrubbed !== rawAgentId) return hashedTenantId(rawAgentId);
-  return safeFilePart(rawAgentId);
-}
-
 export function resolveSkillRunTrajectoryStoreDir(
   config: RuntimeConfig,
 ): string {
@@ -311,7 +299,10 @@ function scrubSkillRunTrajectoryRecord(record: SkillRunTrajectoryRecord): {
   return {
     record: {
       ...scrubbedRecord,
-      tenant_id: trajectoryStorageTenantId(record.tenant_id, ruleSet),
+      tenant_id:
+        scrubbedRecord.tenant_id !== record.tenant_id
+          ? hashedTenantId(record.tenant_id)
+          : safeFilePart(record.tenant_id),
     },
     hits: stats.hits,
     confidentialEnabled: ruleSet != null,
