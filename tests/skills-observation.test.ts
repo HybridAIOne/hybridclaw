@@ -918,12 +918,12 @@ people:
     trajectoryDate: date,
     trajectoryFile: 'agent-scrub.jsonl',
     schemaVersion: 2,
-    redactor: 'confidential-redact+redact-secrets',
     redactors: ['confidential-redact', 'redact-secrets'],
     confidentialEnabled: true,
-    placeholderFormat: '«CONF:<RULE_ID>»',
     rulesSource: 'memory:test-confidential',
   });
+  expect(payload).not.toHaveProperty('redactor');
+  expect(payload).not.toHaveProperty('placeholderFormat');
   expect(payload.matches).toEqual(expect.any(Number));
   expect(payload.placeholderCount).toEqual(expect.any(Number));
   expect(payload.redactedStringCount).toEqual(expect.any(Number));
@@ -1018,12 +1018,12 @@ test('uses non-PII tenant storage keys for PII-like trajectory agent ids', async
     aliceScrubAudit?.payload || '{}',
   ) as Record<string, unknown>;
   expect(aliceScrubPayload).toMatchObject({
-    redactor: 'redact-secrets',
     redactors: ['redact-secrets'],
     confidentialEnabled: false,
-    placeholderFormat: null,
     rulesSource: null,
   });
+  expect(aliceScrubPayload).not.toHaveProperty('redactor');
+  expect(aliceScrubPayload).not.toHaveProperty('placeholderFormat');
   expect(
     context.dbModule
       .getStructuredAuditForSession('***EMAIL_REDACTED***')
