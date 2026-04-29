@@ -36,6 +36,7 @@ export const TASK_MODEL_KEYS = [
   'web_extract',
   'session_search',
   'skills_hub',
+  'eval_judge',
   'mcp',
   'flush_memories',
 ] as const;
