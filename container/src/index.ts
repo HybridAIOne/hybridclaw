@@ -13,7 +13,7 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
-import { waitForInput, writeOutput } from './ipc.js';
+import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -1858,6 +1858,15 @@ async function main(): Promise<void> {
       console.error('[hybridclaw-agent] idle timeout, exiting');
       await shutdownAgentProcess(0, 'idle timeout');
       return;
+    }
+    if (input.healthCheck?.nonce) {
+      writeHealthOutput({
+        status: 'success',
+        result: `HEALTH_OK:${input.healthCheck.nonce}`,
+        toolsUsed: [],
+        toolExecutions: [],
+      });
+      continue;
     }
 
     applyRuntimeEnv(input.runtimeEnv);

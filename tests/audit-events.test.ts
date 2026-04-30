@@ -75,6 +75,50 @@ test('does not emit approval events for auto-approved read-only tools', async ()
   );
 });
 
+test('reads recent structured audit rows for multiple sessions with a per-session cap', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    getRecentStructuredAuditForSessions,
+    initDatabase,
+    logStructuredAuditEvent,
+  } = await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  for (const sessionId of ['session-a', 'session-b']) {
+    for (let seq = 1; seq <= 3; seq += 1) {
+      logStructuredAuditEvent({
+        version: '2.0',
+        seq,
+        timestamp: `2026-04-29T12:0${seq}:00.000Z`,
+        runId: `${sessionId}-run-${seq}`,
+        sessionId,
+        event: {
+          type: seq === 3 ? 'error' : 'tool.result',
+        },
+        _prevHash: `prev-${sessionId}-${seq}`,
+        _hash: `hash-${sessionId}-${seq}`,
+      });
+    }
+  }
+
+  const events = getRecentStructuredAuditForSessions(
+    ['session-a', 'session-b'],
+    2,
+  );
+
+  expect(events).toHaveLength(4);
+  expect(
+    events.filter((event) => event.session_id === 'session-a'),
+  ).toHaveLength(2);
+  expect(
+    events.filter((event) => event.session_id === 'session-b'),
+  ).toHaveLength(2);
+  expect(events.map((event) => event.seq)).toEqual([3, 2, 3, 2]);
+});
+
 test('emits approval request and response events for pending red actions', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

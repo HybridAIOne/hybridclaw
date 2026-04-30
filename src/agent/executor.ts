@@ -16,7 +16,10 @@ import {
   parseBindSpecs,
   parseLegacyAdditionalMounts,
 } from '../security/mount-config.js';
-import type { Executor } from './executor-types.js';
+import type {
+  Executor,
+  ExecutorSessionHealthSnapshot,
+} from './executor-types.js';
 
 export interface SandboxDiagnostics {
   mode: 'container' | 'host';
@@ -90,6 +93,20 @@ export function getActiveExecutorSessionIds(): string[] {
   return Array.from(new Set(active)).sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+export async function getExecutorSessionHealthSnapshots(): Promise<
+  ExecutorSessionHealthSnapshot[]
+> {
+  const executors = initializedExecutors();
+  const snapshots = await Promise.all(
+    (executors.length === 0 ? [getExecutor()] : executors).map((executor) =>
+      executor.getSessionHealthSnapshots(),
+    ),
+  );
+  return snapshots
+    .flat()
+    .sort((left, right) => left.sessionId.localeCompare(right.sessionId));
 }
 
 export function stopSessionExecution(sessionId: string): boolean {

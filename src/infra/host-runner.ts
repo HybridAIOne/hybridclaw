@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
-import type { ExecutorRequest } from '../agent/executor-types.js';
+import type {
+  ExecutorRequest,
+  ExecutorSessionHealthSnapshot,
+} from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
@@ -89,6 +92,7 @@ import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
   enforceWarmPoolPressure,
+  formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
   getTotalWarmProcessCount,
   IDLE_TIMEOUT_MS,
@@ -97,10 +101,10 @@ import {
   maintainWarmPool,
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
+  pingWarmRunnerHealthEntry,
   rememberStderrLine,
   removeWarmPoolEntry,
   stopWarmEntries as stopWarmPoolEntries,
-  summarizeExit,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -190,6 +194,7 @@ interface PoolEntry extends WarmRunnerEntry {
   onApprovalProgress?: (approval: PendingApproval) => void;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
   activity?: import('./ipc.js').ActivityTracker;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
 const pool = new Map<string, PoolEntry>();
@@ -198,40 +203,6 @@ const warmPool = new WarmProcessPool<PoolEntry>(
 );
 let hostMemorySample: MemorySample | null = null;
 let hostMemoryRefreshInFlight = false;
-
-function formatHostAgentTerminalError(
-  entry: PoolEntry,
-  params?: {
-    code?: number | null;
-    signal?: NodeJS.Signals | null;
-  },
-): string {
-  const stderrText = entry.stderrHistory.join('\n');
-  const missingPackageMatch = stderrText.match(
-    /Cannot find package '([^']+)' imported from /,
-  );
-  const status = summarizeExit(
-    params?.code ?? entry.process.exitCode,
-    params?.signal ?? null,
-  );
-
-  if (missingPackageMatch) {
-    return [
-      `Host agent process exited before producing output (${status}).`,
-      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
-    ].join('\n');
-  }
-
-  const detail = entry.stderrHistory
-    .slice(-4)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return detail
-    ? `Host agent process exited before producing output (${status}). ${detail}`
-    : `Host agent process exited before producing output (${status}). Check the gateway log for stderr details.`;
-}
 
 function interruptedHostOutput(): ContainerOutput {
   return {
@@ -287,6 +258,19 @@ function isStdinWriteInterrupt(
 export function getActiveHostSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
+  );
+}
+
+export async function getActiveHostSessionHealthSnapshots(): Promise<
+  ExecutorSessionHealthSnapshot[]
+> {
+  const snapshots = await Promise.all(
+    Array.from(pool.values()).map((entry) =>
+      pingWarmRunnerHealthEntry('host', entry),
+    ),
+  );
+  return snapshots.sort((left, right) =>
+    left.sessionId.localeCompare(right.sessionId),
   );
 }
 
@@ -809,7 +793,11 @@ function getOrSpawnHostProcess(
         entry.stderrBuffer = '';
       }
     }
-    entry.terminalError = formatHostAgentTerminalError(entry, { code, signal });
+    entry.terminalError = formatWarmRunnerTerminalError(
+      entry,
+      'Host agent process',
+      { code, signal },
+    );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);
     });
@@ -1218,5 +1206,9 @@ export class HostExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveHostSessionIds();
+  }
+
+  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
+    return getActiveHostSessionHealthSnapshots();
   }
 }

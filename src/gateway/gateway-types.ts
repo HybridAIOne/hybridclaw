@@ -473,6 +473,7 @@ export interface GatewayStatus {
       }
     >
   >;
+  coworkerLiveness?: GatewayCoworkerLivenessSummary;
   pluginCommands?: GatewayPluginCommandSummary[];
 }
 
@@ -683,6 +684,40 @@ export interface GatewaySessionCard {
   output: string[];
 }
 
+export type GatewayCoworkerLivenessState = 'green' | 'amber' | 'red';
+
+export interface GatewayCoworkerLivenessCheck {
+  ok: boolean;
+  code: string;
+  detail: string;
+  observedAt: string | null;
+}
+
+export interface GatewayCoworkerLivenessProbe {
+  agentId: string;
+  state: GatewayCoworkerLivenessState;
+  reasonCodes: string[];
+  checkedAt: string;
+  process: GatewayCoworkerLivenessCheck & {
+    activeSessions: number;
+    responsiveSessions: number;
+    busySessions: number;
+  };
+  recentSkillRun: GatewayCoworkerLivenessCheck & {
+    skillName: string | null;
+    outcome: string | null;
+  };
+  escalatingErrors: GatewayCoworkerLivenessCheck & {
+    count: number;
+  };
+}
+
+export interface GatewayCoworkerLivenessSummary {
+  checkedAt: string;
+  totals: Record<GatewayCoworkerLivenessState, number>;
+  probes: GatewayCoworkerLivenessProbe[];
+}
+
 export interface GatewayLogicalAgentCard {
   id: string;
   name: string | null;
@@ -705,6 +740,7 @@ export interface GatewayLogicalAgentCard {
   toolCalls: number;
   recentSessionId: string | null;
   status: 'active' | 'idle' | 'stopped' | 'unused';
+  liveness?: GatewayCoworkerLivenessProbe;
 }
 
 export interface GatewayCollectionTotals {
@@ -735,6 +771,7 @@ export interface GatewayAgentsResponse {
     agents: GatewayLogicalAgentTotals;
     sessions: GatewayCollectionTotals;
   };
+  liveness?: GatewayCoworkerLivenessSummary;
   agents: GatewayLogicalAgentCard[];
   sessions: GatewaySessionCard[];
 }

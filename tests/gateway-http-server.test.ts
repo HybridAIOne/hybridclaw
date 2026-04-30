@@ -1870,6 +1870,7 @@ describe('gateway HTTP server', () => {
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
     expect(state.getGatewayStatus).toHaveBeenCalledWith({
+      includeCoworkerLiveness: false,
       refreshProviderHealth: false,
     });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });

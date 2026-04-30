@@ -3778,7 +3778,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     const pathname = url.pathname;
 
     if (pathname === '/health' && method === 'GET') {
-      void getGatewayStatus({ refreshProviderHealth: false }).then(
+      void getGatewayStatus({
+        includeCoworkerLiveness: false,
+        refreshProviderHealth: false,
+      }).then(
         (status) => sendJson(res, 200, status),
         (err) => {
           logger.error({ err }, 'Health check failed');

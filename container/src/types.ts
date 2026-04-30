@@ -181,6 +181,9 @@ export interface ScheduledTaskInput {
 export type { WebSearchConfig } from '../shared/web-search-config.js';
 
 export interface ContainerInput {
+  healthCheck?: {
+    nonce: string;
+  };
   sessionId: string;
   messages: ChatMessage[];
   chatbotId: string;

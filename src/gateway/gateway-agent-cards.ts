@@ -25,6 +25,7 @@ import { dedupeStrings } from '../utils/normalized-strings.js';
 import { isFullAutoEnabled } from './fullauto-runtime.js';
 import { formatRelativeTimeFromMs, parseTimestamp } from './gateway-time.js';
 import type {
+  GatewayCoworkerLivenessProbe,
   GatewayLogicalAgentCard,
   GatewaySessionCard,
 } from './gateway-types.js';
@@ -404,6 +405,7 @@ export function mapLogicalAgentCard(params: {
   sessions: GatewaySessionCard[];
   usage?: GatewaySessionUsageSummary;
   monthlySpendUsd?: number;
+  liveness?: GatewayCoworkerLivenessProbe;
 }): GatewayLogicalAgentCard {
   const resolved = resolveAgentConfig(params.agent.id);
   const sessions = [...params.sessions].sort((left, right) => {
@@ -443,5 +445,6 @@ export function mapLogicalAgentCard(params: {
     toolCalls: usage?.total_tool_calls || 0,
     recentSessionId: sessions[0]?.sessionId || null,
     status,
+    ...(params.liveness ? { liveness: params.liveness } : {}),
   };
 }

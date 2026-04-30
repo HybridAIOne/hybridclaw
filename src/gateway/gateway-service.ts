@@ -344,6 +344,7 @@ import {
 } from './chat-result.js';
 import { handleConciergeCommand } from './concierge-commands.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
+import { getCoworkerLivenessSummary } from './coworker-liveness.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -3756,6 +3757,10 @@ export async function getGatewayStatus(
     codex,
     hybridaiHealth,
   });
+  const includeCoworkerLiveness = options.includeCoworkerLiveness ?? true;
+  const coworkerLiveness = includeCoworkerLiveness
+    ? await getCoworkerLivenessSummary()
+    : undefined;
   const discordCredential = resolveRuntimeCredentialStatus(
     'DISCORD_TOKEN',
     [DISCORD_TOKEN],
@@ -3875,6 +3880,7 @@ export async function getGatewayStatus(
     },
     providerHealth,
     localBackends,
+    ...(coworkerLiveness ? { coworkerLiveness } : {}),
     pluginCommands: listLoadedPluginCommands(),
   };
 }
@@ -4366,6 +4372,12 @@ export function deleteGatewayAdminAgent(agentId: string): {
 export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
+  const livenessSummary = status.coworkerLiveness;
+  const livenessByAgent = new Map(
+    (livenessSummary?.probes ?? []).map(
+      (probe) => [probe.agentId, probe] as const,
+    ),
+  );
   const usageByAgent = new Map(
     listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),
   );
@@ -4412,6 +4424,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
         sessions: sessionsByAgent.get(agentId) ?? [],
         usage,
         monthlySpendUsd: usage?.monthly_cost_usd,
+        liveness: livenessByAgent.get(agentId),
       });
     })
     .sort((left, right) => {
@@ -4484,6 +4497,7 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
         ),
       },
     },
+    liveness: livenessSummary,
     agents,
     sessions,
   };
@@ -9895,6 +9909,18 @@ export async function handleGatewayCommand(
           ? `on (${fullAutoState?.turns ?? 0} turns, ${fullAutoState?.consecutiveErrors ?? 0} errors)`
           : 'off';
         const showMode = normalizeSessionShowMode(session.show_mode);
+        const liveness = status.coworkerLiveness;
+        const unhealthyLiveness =
+          liveness?.probes.filter((probe) => probe.state !== 'green') ?? [];
+        const coworkerHealthLabel = liveness
+          ? `${liveness.totals.green} green / ${liveness.totals.amber} amber / ${liveness.totals.red} red`
+          : 'unavailable';
+        const coworkerHealthLines =
+          unhealthyLiveness.length > 0
+            ? unhealthyLiveness.slice(0, 5).map((probe) => {
+                return `  ${probe.agentId}: ${probe.state} (${probe.reasonCodes.join(', ')})`;
+              })
+            : [];
         const lines = [
           `🦞 HybridClaw v${status.version}${commitShort ? ` (${commitShort})` : ''}`,
           `🧠 Model: ${formatModelForDisplay(sessionModel)}${showDelegateSetup ? ` (delegate: ${formatModelForDisplay(delegateModel)})` : ''}`,
@@ -9930,6 +9956,8 @@ export async function handleGatewayCommand(
           `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
+          `🩺 Coworkers: ${coworkerHealthLabel}`,
+          ...coworkerHealthLines,
         ];
         return infoCommand('Status', lines.join('\n'));
       }

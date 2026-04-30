@@ -54,4 +54,18 @@ export interface Executor {
   stopAll(): void;
   getActiveSessionCount(): number;
   getActiveSessionIds(): string[];
+  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]>;
+}
+
+export interface ExecutorSessionHealthSnapshot {
+  mode: 'container' | 'host';
+  sessionId: string;
+  agentId: string;
+  responsive: boolean;
+  startedAt: number;
+  lastUsedAt: number;
+  readyForInputAt: number | null;
+  busy: boolean;
+  terminalError: string | null;
+  healthError: string | null;
 }
