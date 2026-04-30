@@ -1904,11 +1904,33 @@ describe('gateway HTTP server', () => {
     process.env.HYBRIDCLAW_DATA_DIR = dataDir;
     process.env.HOME = dataDir;
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+    process.env.HYBRIDCLAW_AUTH_SECRET = 'a2a-test-secret';
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    const stubASession = `hybridclaw_session=${signAuthPayload(
+      {
+        exp: expiresAt,
+        sub: 'stub-a',
+        typ: 'session',
+      },
+      'a2a-test-secret',
+    )}`;
+    const stubBSession = `hybridclaw_session=${signAuthPayload(
+      {
+        exp: expiresAt,
+        sub: 'stub-b',
+        typ: 'session',
+      },
+      'a2a-test-secret',
+    )}`;
 
-    const state = await importFreshHealth({ dataDir });
+    const state = await importFreshHealth({
+      authSecret: 'a2a-test-secret',
+      dataDir,
+    });
     const sendReq = makeRequest({
       method: 'POST',
       url: '/api/a2a/sendMessage',
+      headers: { cookie: stubASession },
       body: {
         envelope: {
           id: 'msg-1',
@@ -1953,8 +1975,52 @@ describe('gateway HTTP server', () => {
       source: 'gateway-http',
     });
 
+    const forgedSendReq = makeRequest({
+      method: 'POST',
+      url: '/api/a2a/sendMessage',
+      headers: { cookie: stubBSession },
+      body: {
+        envelope: {
+          id: 'msg-forged',
+          sender_coworker_id: 'stub-a',
+          recipient_coworker_id: 'stub-b',
+          thread_id: 'thread-1',
+          intent: 'chat',
+          content: 'Forged.',
+          created_at: '2026-04-29T10:01:00.000Z',
+        },
+      },
+    });
+    const forgedSendRes = makeResponse();
+
+    state.handler(forgedSendReq as never, forgedSendRes as never);
+    await waitForResponse(forgedSendRes, (response) => response.writableEnded);
+
+    expect(forgedSendRes.statusCode).toBe(403);
+    expect(JSON.parse(forgedSendRes.body)).toEqual({
+      error: 'A2A sender does not match the authenticated session.',
+    });
+
+    const forbiddenInboxReq = makeRequest({
+      url: '/api/a2a/inbox?coworkerId=stub-b',
+      headers: { cookie: stubASession },
+    });
+    const forbiddenInboxRes = makeResponse();
+
+    state.handler(forbiddenInboxReq as never, forbiddenInboxRes as never);
+    await waitForResponse(
+      forbiddenInboxRes,
+      (response) => response.writableEnded,
+    );
+
+    expect(forbiddenInboxRes.statusCode).toBe(403);
+    expect(JSON.parse(forbiddenInboxRes.body)).toEqual({
+      error: 'A2A coworker identity does not match the authenticated session.',
+    });
+
     const inboxReq = makeRequest({
       url: '/api/a2a/inbox?coworkerId=stub-b',
+      headers: { cookie: stubBSession },
     });
     const inboxRes = makeResponse();
 

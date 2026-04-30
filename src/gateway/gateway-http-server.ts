@@ -6,6 +6,7 @@ import {
   A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
 } from '../a2a/envelope.js';
+import { resolveA2AAgentId } from '../a2a/identity.js';
 import {
   inbox as readA2AInbox,
   sendMessage as sendA2AMessage,
@@ -1967,12 +1968,51 @@ function readRuntimeEnvelope(body: unknown): unknown {
   return body;
 }
 
-function resolveA2AEnvelopeActor(envelope: unknown): string | undefined {
-  if (!isRecord(envelope)) return undefined;
+interface A2ARequestPrincipal {
+  coworkerId: string;
+  agentId: string;
+}
+
+function resolveA2ARequestPrincipal(req: IncomingMessage): A2ARequestPrincipal {
+  const coworkerId = resolveSessionAuthenticatedUserId(req);
+  if (!coworkerId) {
+    throw new GatewayRequestError(
+      403,
+      'A2A runtime API requires an authenticated coworker session.',
+    );
+  }
+
+  try {
+    return {
+      coworkerId,
+      agentId: resolveA2AAgentId(coworkerId),
+    };
+  } catch (error) {
+    mapA2AError(error);
+  }
+}
+
+function resolveA2ARequestCoworkerId(value: string): string {
+  try {
+    return resolveA2AAgentId(value);
+  } catch (error) {
+    mapA2AError(error);
+  }
+}
+
+function assertA2APrincipalMatchesCoworker(
+  principal: A2ARequestPrincipal,
+  coworkerId: string,
+): void {
+  if (principal.agentId === resolveA2ARequestCoworkerId(coworkerId)) return;
+  throw new GatewayRequestError(
+    403,
+    'A2A coworker identity does not match the authenticated session.',
+  );
+}
+
+function resolveA2AEnvelopeSenderId(envelope: Record<string, unknown>): string {
   return (
-    normalizeOptionalString(
-      typeof envelope.actor === 'string' ? envelope.actor : undefined,
-    ) ||
     normalizeOptionalString(
       typeof envelope.sender_coworker_id === 'string'
         ? envelope.sender_coworker_id
@@ -1988,11 +2028,33 @@ function resolveA2AEnvelopeActor(envelope: unknown): string | undefined {
         ? envelope.senderCoworkerId
         : undefined,
     ) ||
-    normalizeOptionalString(
-      typeof envelope.from === 'string' ? envelope.from : undefined,
-    ) ||
-    undefined
+    ''
   );
+}
+
+function bindA2AEnvelopeSenderToPrincipal(
+  envelope: unknown,
+  principal: A2ARequestPrincipal,
+): unknown {
+  if (!isRecord(envelope)) return envelope;
+  const requestedSenderId = resolveA2AEnvelopeSenderId(envelope);
+  if (
+    requestedSenderId &&
+    resolveA2ARequestCoworkerId(requestedSenderId) !== principal.agentId
+  ) {
+    throw new GatewayRequestError(
+      403,
+      'A2A sender does not match the authenticated session.',
+    );
+  }
+
+  const boundEnvelope: Record<string, unknown> = {
+    ...envelope,
+    sender_agent_id: principal.agentId,
+  };
+  delete boundEnvelope.sender_coworker_id;
+  delete boundEnvelope.senderCoworkerId;
+  return boundEnvelope;
 }
 
 async function handleApiA2ASendMessage(
@@ -2001,9 +2063,11 @@ async function handleApiA2ASendMessage(
 ): Promise<void> {
   const body = await readJsonBody(req);
   const envelope = readRuntimeEnvelope(body);
+  const principal = resolveA2ARequestPrincipal(req);
+  const boundEnvelope = bindA2AEnvelopeSenderToPrincipal(envelope, principal);
   try {
-    const confirmation = sendA2AMessage(envelope, {
-      actor: resolveA2AEnvelopeActor(envelope),
+    const confirmation = sendA2AMessage(boundEnvelope, {
+      actor: principal.coworkerId,
       route: 'api.a2a.sendMessage',
       source: 'gateway-http',
     });
@@ -2013,7 +2077,11 @@ async function handleApiA2ASendMessage(
   }
 }
 
-function handleApiA2AInbox(res: ServerResponse, url: URL): void {
+function handleApiA2AInbox(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): void {
   const coworkerId =
     normalizeOptionalString(url.searchParams.get('coworkerId')) ||
     normalizeOptionalString(url.searchParams.get('coworker_id'));
@@ -2023,6 +2091,8 @@ function handleApiA2AInbox(res: ServerResponse, url: URL): void {
       'Missing required query parameter: coworkerId',
     );
   }
+  const principal = resolveA2ARequestPrincipal(req);
+  assertA2APrincipalMatchesCoworker(principal, coworkerId);
 
   try {
     sendJson(res, 200, {
@@ -4248,7 +4318,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/a2a/inbox' && method === 'GET') {
-            handleApiA2AInbox(res, url);
+            handleApiA2AInbox(req, res, url);
             return;
           }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
