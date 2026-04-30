@@ -68,19 +68,19 @@ describe('A2A runtime API', () => {
       message_id: 'msg-1',
       thread_id: 'thread-1',
       recipient_agent_id: 'stub-b@team@local-dev',
-      envelope: {
-        id: 'msg-1',
-        sender_agent_id: 'stub-a@team@local-dev',
-        recipient_agent_id: 'stub-b@team@local-dev',
-        thread_id: 'thread-1',
-        intent: 'handoff',
-        content: 'Please take over the customer brief.',
-        created_at: '2026-04-29T10:00:00.000Z',
-      },
     });
     expect(Date.parse(confirmation.delivered_at)).not.toBeNaN();
 
+    const deliveredEnvelope = {
+      id: 'msg-1',
+      sender_agent_id: 'stub-a@team@local-dev',
+      recipient_agent_id: 'stub-b@team@local-dev',
+      thread_id: 'thread-1',
+      intent: 'handoff',
+      content: 'Please take over the customer brief.',
+      created_at: '2026-04-29T10:00:00.000Z',
+    };
     expect(runtime.inbox('stub-a')).toEqual([]);
-    expect(runtime.inbox('stub-b')).toEqual([confirmation.envelope]);
+    expect(runtime.inbox('stub-b')).toEqual([deliveredEnvelope]);
   });
 });

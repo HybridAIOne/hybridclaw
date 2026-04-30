@@ -3,13 +3,13 @@ import type { A2AEnvelope } from './envelope.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
 import { isRecord } from './utils.js';
 
+// Public server-side A2A runtime API required by roadmap #425.
 export interface A2ADeliveryConfirmation {
   delivered: true;
   message_id: string;
   thread_id: string;
   recipient_agent_id: string;
   delivered_at: string;
-  envelope: A2AEnvelope;
 }
 
 function sendMessageMeta(
@@ -56,7 +56,6 @@ export function sendMessage(
     thread_id: deliveredEnvelope.thread_id,
     recipient_agent_id: deliveredEnvelope.recipient_agent_id,
     delivered_at: new Date().toISOString(),
-    envelope: deliveredEnvelope,
   };
 }
 

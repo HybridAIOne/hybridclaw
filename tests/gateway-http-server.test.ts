@@ -1955,13 +1955,16 @@ describe('gateway HTTP server', () => {
       message_id: 'msg-1',
       thread_id: 'thread-1',
       recipient_agent_id: 'stub-b@team@local-dev',
-      envelope: {
-        id: 'msg-1',
-        sender_agent_id: 'stub-a@team@local-dev',
-        recipient_agent_id: 'stub-b@team@local-dev',
-        thread_id: 'thread-1',
-      },
     });
+    const deliveredEnvelope = {
+      id: 'msg-1',
+      sender_agent_id: 'stub-a@team@local-dev',
+      recipient_agent_id: 'stub-b@team@local-dev',
+      thread_id: 'thread-1',
+      intent: 'handoff',
+      content: 'Please take over the customer brief.',
+      created_at: '2026-04-29T10:00:00.000Z',
+    };
     const a2aStore = await import('../src/a2a/store.ts');
     const revisions = await import('../src/config/runtime-config-revisions.ts');
     expect(
@@ -2030,7 +2033,7 @@ describe('gateway HTTP server', () => {
     expect(inboxRes.statusCode).toBe(200);
     expect(JSON.parse(inboxRes.body)).toEqual({
       coworkerId: 'stub-b',
-      envelopes: [confirmation.envelope],
+      envelopes: [deliveredEnvelope],
     });
   });
 

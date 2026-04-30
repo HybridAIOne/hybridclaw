@@ -182,23 +182,6 @@ function threadIdFromAssetPath(assetPath: string): string | null {
   }
 }
 
-export function listA2AEnvelopes(): A2AEnvelope[] {
-  const envelopes: A2AEnvelope[] = [];
-  for (const state of listRuntimeAssetRevisionStates('a2a')) {
-    const threadId = threadIdFromAssetPath(state.assetPath);
-    if (!threadId) continue;
-    envelopes.push(
-      ...parsePersistedThreadState(state.content, threadId).envelopes,
-    );
-  }
-
-  return envelopes.sort((left, right) => {
-    const createdAtOrder = left.created_at.localeCompare(right.created_at);
-    if (createdAtOrder !== 0) return createdAtOrder;
-    return left.id.localeCompare(right.id);
-  });
-}
-
 export function listA2AInboxEnvelopes(coworkerId: string): A2AEnvelope[] {
   const recipientAgentId = resolveA2AAgentId(coworkerId);
   const envelopes: A2AEnvelope[] = [];
