@@ -149,6 +149,12 @@ saved revision history directly.
 - `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
 - `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
 - `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
+- `auxiliaryModels.session_title` controls optional AI-generated session
+  titles. When enabled, HybridClaw forwards up to 500 characters from the first
+  user message to the configured auxiliary provider. Set
+  `auxiliaryModels.session_title.provider` to `"disabled"` to skip this
+  forwarding and leave recent-session titles derived locally from conversation
+  previews.
 - `adaptiveSkills.*` for skill observation, amendment staging, rollback, and opt-in trajectory capture via `adaptiveSkills.trajectoryCapture.enabledAgentIds`
 - Captured trajectories run through PII/secret redaction, and configured confidential-info rules preserve the documented `«CONF:<RULE_ID>»` placeholder format before trajectories are written
 - `adaptiveSkills.trajectoryCapture.storeDir` controls trajectory storage; empty stores beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory

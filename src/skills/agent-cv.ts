@@ -10,7 +10,10 @@ import {
   findCheapestModelMeetingCapabilities,
   getModelCatalogMetadata,
 } from '../providers/model-catalog.js';
-import { normalizeAuxiliaryProviderModel } from '../providers/task-routing.js';
+import {
+  isAuxiliaryTaskDisabled,
+  normalizeAuxiliaryProviderModel,
+} from '../providers/task-routing.js';
 import {
   type ConfidentialPlaceholderMap,
   createPlaceholderMap,
@@ -600,6 +603,7 @@ function normalizeUsageCostUsd(value: unknown): number | null {
 function configuredCvNarrationModelForBudget(): string | null {
   const config = getRuntimeConfig().auxiliaryModels.cv_narration;
   const model = config.model.trim();
+  if (config.provider === 'disabled') return null;
   if (config.provider === 'auto') return model || null;
   try {
     return normalizeAuxiliaryProviderModel({
@@ -624,6 +628,9 @@ async function narrateSkillRuns(input: {
     jsonMode: true,
   });
   if (!fallbackModel || input.remainingBudgetUsd <= 0) {
+    return { narrations: events.map(fallbackNarration), costUsd: 0 };
+  }
+  if (isAuxiliaryTaskDisabled('cv_narration')) {
     return { narrations: events.map(fallbackNarration), costUsd: 0 };
   }
 

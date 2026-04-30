@@ -27,7 +27,11 @@ export interface Session {
   last_active: string;
   reset_count: number;
   reset_at: string | null;
+  title: string | null;
+  title_source: SessionTitleSource | null;
 }
+
+export type SessionTitleSource = 'auto';
 
 export interface StoredMessage {
   id: number;
