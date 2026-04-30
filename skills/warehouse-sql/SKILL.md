@@ -44,6 +44,11 @@ warehouse, analytics database, or TPC-H-style reporting dataset.
    ```bash
    python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json review "SELECT c_name FROM customer LIMIT 10"
    ```
+   To make the helper invoke HybridClaw's OpenAI-compatible gateway for the
+   business-meaning review, pass `--model-review` with the original question:
+   ```bash
+   python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json review --model-review --question "Show the first 10 customers" "SELECT c_name FROM customer LIMIT 10"
+   ```
 3. Return the SQL to the user before execution when the user asks for review,
    when the query is broad, or when the result could expose sensitive business
    data.
@@ -121,7 +126,17 @@ Before execution, check:
 - date and tenant filters are present when the question implies scope
 
 The helper emits a `review` object with safety status and findings. Treat that
-as a deterministic guardrail; still perform model review for business meaning.
+as a deterministic guardrail. Pass `--model-review` on `review` or `query` to
+have the helper invoke the configured OpenAI-compatible model endpoint and add
+that verdict to `review.modelReview`; execution is blocked unless both the
+deterministic guardrail and requested model review pass.
+
+Model review defaults to `HYBRIDCLAW_GATEWAY_URL` / `GATEWAY_BASE_URL` plus
+`/v1/chat/completions`, with authentication from
+`HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN`, `HYBRIDCLAW_GATEWAY_TOKEN`, or
+`GATEWAY_API_TOKEN`. Use `--model-review-url`, `--model-review-model`,
+`--schema-cache`, and `--question` to make the review explicit in tests or
+operator workflows.
 
 ## Eval Suite
 

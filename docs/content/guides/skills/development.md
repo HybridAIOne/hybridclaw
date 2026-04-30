@@ -274,6 +274,9 @@ offline SQL-generation coverage, not a TPC-H benchmark run.
 > Use `review` before `query --execute`; the helper blocks mutating SQL unless
 > an explicit per-skill write grant is provided.
 >
+> Pass `--model-review --question "<business question>"` when the helper should
+> invoke HybridClaw's OpenAI-compatible gateway for business-meaning review.
+>
 > Run `schedule-refresh` to register recurring schema-cache refreshes with the
 > HybridClaw gateway scheduler.
 

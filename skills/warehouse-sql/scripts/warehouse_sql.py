@@ -32,6 +32,7 @@ DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 DEFAULT_MAX_ROWS = 200
 WRITE_GRANT_ENV = "HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:9090"
+DEFAULT_MODEL_REVIEW_MODEL = "gpt-5"
 CONNECTOR_ENV_PASSTHROUGH = {
     "HOME",
     "LANG",
@@ -735,6 +736,24 @@ def write_grant_matches(write_grant: str | None, expected_grant: str) -> bool:
     return hmac.compare_digest(write_grant, expected_grant)
 
 
+def resolve_gateway_url(args: argparse.Namespace) -> str:
+    return (
+        str(getattr(args, "gateway_url", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_GATEWAY_URL", "").strip()
+        or os.environ.get("GATEWAY_BASE_URL", "").strip()
+        or DEFAULT_GATEWAY_URL
+    )
+
+
+def resolve_gateway_token(args: argparse.Namespace) -> str:
+    return (
+        str(getattr(args, "gateway_token", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_GATEWAY_TOKEN", "").strip()
+        or os.environ.get("GATEWAY_API_TOKEN", "").strip()
+        or ""
+    )
+
+
 def review_sql(
     sql: str,
     *,
@@ -805,24 +824,182 @@ def review_sql(
     )
 
 
-def review_payload_from_result(sql: str, result: ReviewResult) -> dict[str, Any]:
+def default_model_review_payload() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "status": "not-run",
+        "instructions": [
+            "Check that the SQL answers the user's business question.",
+            "Confirm joins and filters against the schema cache.",
+            "Return SQL before execution when the user asked to review it or scope is broad.",
+        ],
+    }
+
+
+def review_payload_from_result(
+    sql: str,
+    result: ReviewResult,
+    model_review: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    findings = list(result.findings)
+    status = result.status
+    if model_review and model_review.get("status") != "pass":
+        status = "block"
+        findings.append("Model review blocked execution.")
     return {
         "sql": sql.strip(),
         "review": {
+            "status": status,
+            "readOnly": result.read_only,
+            "statementCount": len(result.statements),
+            "requiresWriteGrant": result.requires_write_grant,
+            "findings": findings,
+            "modelReview": model_review or default_model_review_payload(),
+        },
+    }
+
+
+def resolve_model_review_url(args: argparse.Namespace) -> str:
+    explicit = str(getattr(args, "model_review_url", "") or "").strip()
+    if explicit:
+        return explicit
+    env_url = os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_URL", "").strip()
+    if env_url:
+        return env_url
+    return f"{resolve_gateway_url(args).rstrip('/')}/v1/chat/completions"
+
+
+def resolve_model_review_token(args: argparse.Namespace) -> str:
+    return (
+        os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN", "").strip()
+        or resolve_gateway_token(args)
+    )
+
+
+def resolve_model_review_model(args: argparse.Namespace) -> str:
+    return (
+        str(getattr(args, "model_review_model", "") or "").strip()
+        or os.environ.get("HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_MODEL", "").strip()
+        or DEFAULT_MODEL_REVIEW_MODEL
+    )
+
+
+def model_review_schema_context(args: argparse.Namespace) -> str:
+    path_raw = str(getattr(args, "schema_cache", "") or "").strip()
+    if not path_raw:
+        return ""
+    path = Path(path_raw).expanduser()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WarehouseSqlError(f"Model review schema cache could not be read: {path}") from exc
+    return text[:20000]
+
+
+def parse_model_review_content(content: str) -> dict[str, Any]:
+    stripped = content.strip()
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start < 0 or end <= start:
+            raise WarehouseSqlError("Model review response was not JSON.")
+        try:
+            parsed = json.loads(stripped[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise WarehouseSqlError("Model review response was not valid JSON.") from exc
+    if not isinstance(parsed, dict):
+        raise WarehouseSqlError("Model review response must be a JSON object.")
+    status = str(parsed.get("status", "")).strip().lower()
+    if status not in {"pass", "block"}:
+        raise WarehouseSqlError("Model review response status must be 'pass' or 'block'.")
+    findings_raw = parsed.get("findings", [])
+    if not isinstance(findings_raw, list):
+        raise WarehouseSqlError("Model review response findings must be a JSON array.")
+    return {
+        "status": status,
+        "summary": str(parsed.get("summary", "") or "").strip(),
+        "findings": [str(item) for item in findings_raw],
+    }
+
+
+def run_model_review(
+    sql: str,
+    args: argparse.Namespace,
+    result: ReviewResult,
+) -> dict[str, Any]:
+    url = resolve_model_review_url(args)
+    model = resolve_model_review_model(args)
+    question = str(getattr(args, "question", "") or "").strip()
+    schema_context = model_review_schema_context(args)
+    prompt = {
+        "question": question,
+        "sql": sql.strip(),
+        "deterministicReview": {
             "status": result.status,
             "readOnly": result.read_only,
             "statementCount": len(result.statements),
             "requiresWriteGrant": result.requires_write_grant,
             "findings": result.findings,
-            "modelReview": {
-                "required": True,
-                "instructions": [
-                    "Check that the SQL answers the user's business question.",
-                    "Confirm joins and filters against the schema cache.",
-                    "Return SQL before execution when the user asked to review it or scope is broad.",
-                ],
-            },
         },
+        "schemaCache": schema_context,
+    }
+    body = json.dumps(
+        {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You review warehouse SQL for business meaning and schema fit. "
+                        "Return only JSON with status 'pass' or 'block', summary, and findings array. "
+                        "Block SQL that does not answer the question, references absent schema, "
+                        "uses unsafe scope, or should be shown to the user before execution."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt, sort_keys=True),
+                },
+            ],
+        }
+    ).encode("utf-8")
+    req = request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    token = resolve_model_review_token(args)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        timeout_seconds = max(1, int(getattr(args, "model_review_timeout_seconds", 60)))
+        with request.urlopen(req, timeout=timeout_seconds) as response:
+            raw = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise WarehouseSqlError(f"Model review failed ({exc.code}): {detail}") from exc
+    except error.URLError as exc:
+        raise WarehouseSqlError(f"Model review failed: {exc.reason}") from exc
+
+    try:
+        payload = json.loads(raw)
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise WarehouseSqlError("Model review response did not match OpenAI-compatible chat completion shape.") from exc
+    if not isinstance(content, str):
+        raise WarehouseSqlError("Model review response content must be a string.")
+    parsed = parse_model_review_content(content)
+    return {
+        "enabled": True,
+        "provider": "openai-compatible",
+        "model": model,
+        "status": parsed["status"],
+        "summary": parsed["summary"],
+        "findings": parsed["findings"],
     }
 
 
@@ -832,7 +1009,37 @@ def review_payload(sql: str, args: argparse.Namespace) -> dict[str, Any]:
         allow_write=getattr(args, "allow_write", False),
         write_grant=getattr(args, "write_grant", None),
     )
-    return review_payload_from_result(sql, result)
+    model_review = (
+        run_model_review(sql, args, result)
+        if getattr(args, "model_review", False)
+        else None
+    )
+    return review_payload_from_result(sql, result, model_review)
+
+
+def add_model_review_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--model-review",
+        action="store_true",
+        help="Invoke the OpenAI-compatible gateway for model review.",
+    )
+    parser.add_argument(
+        "--model-review-url",
+        help="OpenAI-compatible chat completions URL for model review.",
+    )
+    parser.add_argument(
+        "--model-review-model",
+        help=f"Model id for model review (default: {DEFAULT_MODEL_REVIEW_MODEL}).",
+    )
+    parser.add_argument("--model-review-timeout-seconds", type=int, default=60)
+    parser.add_argument(
+        "--question",
+        help="Natural-language business question the SQL should answer.",
+    )
+    parser.add_argument(
+        "--schema-cache",
+        help="Schema cache JSON file to include in model review context.",
+    )
 
 
 def execute_sqlite_query(
@@ -1011,24 +1218,6 @@ def handle_backend_contract(args: argparse.Namespace) -> Any:
     }
 
 
-def resolve_gateway_url(args: argparse.Namespace) -> str:
-    return (
-        str(getattr(args, "gateway_url", "") or "").strip()
-        or os.environ.get("HYBRIDCLAW_GATEWAY_URL", "").strip()
-        or os.environ.get("GATEWAY_BASE_URL", "").strip()
-        or DEFAULT_GATEWAY_URL
-    )
-
-
-def resolve_gateway_token(args: argparse.Namespace) -> str:
-    return (
-        str(getattr(args, "gateway_token", "") or "").strip()
-        or os.environ.get("HYBRIDCLAW_GATEWAY_TOKEN", "").strip()
-        or os.environ.get("GATEWAY_API_TOKEN", "").strip()
-        or ""
-    )
-
-
 def build_refresh_command(args: argparse.Namespace) -> list[str]:
     command = [
         "python3",
@@ -1146,7 +1335,10 @@ def handle_query(args: argparse.Namespace) -> Any:
         allow_write=args.allow_write,
         write_grant=args.write_grant,
     )
-    payload = review_payload_from_result(args.sql, review_result)
+    model_review = (
+        run_model_review(args.sql, args, review_result) if args.model_review else None
+    )
+    payload = review_payload_from_result(args.sql, review_result, model_review)
     if not args.execute:
         payload["execution"] = {
             "status": "not-run",
@@ -1237,6 +1429,7 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("sql")
     review.add_argument("--allow-write", action="store_true")
     review.add_argument("--write-grant")
+    add_model_review_arguments(review)
     review.set_defaults(func=lambda args: review_payload(args.sql, args))
 
     query = subparsers.add_parser("query", help="Review SQL and optionally execute it.")
@@ -1250,6 +1443,7 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--params", help="JSON array of SQLite parameters for positional placeholders.")
     query.add_argument("--allow-write", action="store_true")
     query.add_argument("--write-grant")
+    add_model_review_arguments(query)
     query.add_argument("sql")
     query.set_defaults(func=handle_query)
 

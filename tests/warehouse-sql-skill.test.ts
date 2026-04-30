@@ -406,6 +406,106 @@ test('warehouse SQL helper blocks writes unless the per-skill grant matches', ()
   );
 });
 
+test('warehouse SQL helper invokes model review through an OpenAI-compatible endpoint', async () => {
+  const received = await new Promise<{
+    body: string;
+    authorization: string | undefined;
+    result: { status: number | null; stdout: string; stderr: string };
+    url: string | undefined;
+  }>((resolve, reject) => {
+    let requestBody = '';
+    let authorization: string | undefined;
+    let url: string | undefined;
+    const server = http.createServer((req, res) => {
+      let body = '';
+      authorization = req.headers.authorization;
+      url = req.url;
+      req.setEncoding('utf8');
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        requestBody = body;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    status: 'pass',
+                    summary: 'SQL answers the customer lookup question.',
+                    findings: [],
+                  }),
+                },
+              },
+            ],
+          }),
+        );
+      });
+    });
+    server.listen(0, '127.0.0.1', async () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Expected TCP test server address.'));
+        return;
+      }
+      try {
+        const result = await runHelperAsync(
+          [
+            '--format',
+            'json',
+            'review',
+            '--model-review',
+            '--model-review-url',
+            `http://127.0.0.1:${address.port}/v1/chat/completions`,
+            '--model-review-model',
+            'test-model',
+            '--question',
+            'Which customer is first alphabetically?',
+            'SELECT c_name FROM customer ORDER BY c_name LIMIT 1',
+          ],
+          { HYBRIDCLAW_WAREHOUSE_SQL_MODEL_REVIEW_TOKEN: 'model-token' },
+        );
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({
+            body: requestBody,
+            authorization,
+            result,
+            url,
+          });
+        });
+      } catch (error) {
+        server.close(() => {
+          reject(error);
+        });
+      }
+    });
+  });
+
+  expect(received.result.status).toBe(0);
+  expect(received.url).toBe('/v1/chat/completions');
+  expect(received.authorization).toBe('Bearer model-token');
+  const requestPayload = JSON.parse(received.body);
+  expect(requestPayload.model).toBe('test-model');
+  expect(requestPayload.messages[1].content).toContain(
+    'Which customer is first alphabetically?',
+  );
+  const payload = JSON.parse(received.result.stdout);
+  expect(payload.review.status).toBe('pass');
+  expect(payload.review.modelReview).toMatchObject({
+    enabled: true,
+    model: 'test-model',
+    provider: 'openai-compatible',
+    status: 'pass',
+    summary: 'SQL answers the customer lookup question.',
+  });
+});
+
 test('warehouse SQL helper honors write grants during SQLite execution', () => {
   const dbPath = createFixtureDb();
   const result = runHelper(
