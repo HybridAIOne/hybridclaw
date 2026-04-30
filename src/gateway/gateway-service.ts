@@ -4372,10 +4372,11 @@ export function deleteGatewayAdminAgent(agentId: string): {
 export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
   const status = await getGatewayStatus();
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
-  const livenessSummary =
-    status.coworkerLiveness ?? (await getCoworkerLivenessSummary());
+  const livenessSummary = status.coworkerLiveness;
   const livenessByAgent = new Map(
-    livenessSummary.probes.map((probe) => [probe.agentId, probe] as const),
+    (livenessSummary?.probes ?? []).map(
+      (probe) => [probe.agentId, probe] as const,
+    ),
   );
   const usageByAgent = new Map(
     listUsageByAgentRollups().map((row) => [row.agent_id, row] as const),

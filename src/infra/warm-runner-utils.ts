@@ -36,7 +36,7 @@ export interface WarmRunnerEntry extends WarmProcessPoolEntry {
 export type WarmRunnerMode = 'container' | 'host';
 
 export interface WarmRunnerHealthEntry extends WarmRunnerEntry {
-  process: Pick<ChildProcess, 'exitCode' | 'killed' | 'pid'>;
+  process: Pick<ChildProcess, 'exitCode' | 'killed'>;
   ipcSessionId: string;
   agentId: string;
   startedAt: number;
@@ -130,7 +130,6 @@ function buildRunnerHealthSnapshot(
     mode,
     sessionId: entry.sessionId,
     agentId: entry.agentId,
-    pid: typeof entry.process.pid === 'number' ? entry.process.pid : null,
     responsive:
       params?.responsive ??
       (processAlive && !entry.terminalError && Boolean(entry.activity)),

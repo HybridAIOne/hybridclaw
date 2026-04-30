@@ -61,7 +61,6 @@ export interface ExecutorSessionHealthSnapshot {
   mode: 'container' | 'host';
   sessionId: string;
   agentId: string;
-  pid: number | null;
   responsive: boolean;
   startedAt: number;
   lastUsedAt: number;
