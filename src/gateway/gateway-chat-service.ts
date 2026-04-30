@@ -647,7 +647,6 @@ async function handleGatewayMessageInner(
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: conciergeUserContent,
-      assistantContent: conciergeTurn.resultText,
     });
     return attachSessionIdentity({
       status: 'success',
@@ -834,7 +833,6 @@ async function handleGatewayMessageInner(
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: req.content,
-      assistantContent: resultText,
     });
     return attachSessionIdentity(result);
   }
@@ -1560,7 +1558,6 @@ async function handleGatewayMessageInner(
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: storedUserContent,
-      assistantContent: resultText,
     });
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({

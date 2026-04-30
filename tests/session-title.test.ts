@@ -88,7 +88,6 @@ describe('generateSessionTitle', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: 'Help me ship the deploy.',
-      assistantContent: 'Sure, here are the steps.',
     });
 
     expect(title).toBe('Deploy Plan');
@@ -110,7 +109,6 @@ describe('generateSessionTitle', () => {
         chatbotId: null,
         model: 'gpt-5',
         userContent: 'Help me ship the deploy.',
-        assistantContent: 'Sure, here are the steps.',
       }),
     ).rejects.toThrow('boom');
   });
@@ -128,7 +126,6 @@ describe('generateSessionTitle', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: ` ${'u'.repeat(600)} `,
-      assistantContent: ` ${'a'.repeat(600)} `,
     });
 
     expect(mockedAuxiliary).toHaveBeenCalledWith(
@@ -136,7 +133,7 @@ describe('generateSessionTitle', () => {
         messages: expect.arrayContaining([
           expect.objectContaining({
             role: 'user',
-            content: `User: ${'u'.repeat(500)}\n\nAssistant: ${'a'.repeat(500)}`,
+            content: `User: ${'u'.repeat(500)}`,
           }),
         ]),
       }),
@@ -152,7 +149,6 @@ describe('generateSessionTitle', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: '   ',
-      assistantContent: 'Sure.',
     });
 
     expect(title).toBeNull();
@@ -168,7 +164,6 @@ describe('generateSessionTitle', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: 'Help me ship the deploy.',
-      assistantContent: 'Sure.',
     });
 
     expect(title).toBeNull();
@@ -191,7 +186,6 @@ describe('maybeAutoTitleSession', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: 'second turn',
-      assistantContent: 'reply',
       isFirstTurn: false,
     });
     await flushMicrotasks();
@@ -209,7 +203,6 @@ describe('maybeAutoTitleSession', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: 'first',
-      assistantContent: 'reply',
       isFirstTurn: true,
     });
     await flushMicrotasks();
@@ -231,7 +224,6 @@ describe('maybeAutoTitleSession', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: 'help me deploy',
-      assistantContent: 'sure',
       isFirstTurn: true,
     });
     await flushMicrotasks();
@@ -253,7 +245,6 @@ describe('maybeAutoTitleSession', () => {
       chatbotId: null,
       model: 'gpt-5',
       userContent: 'help me deploy',
-      assistantContent: 'sure',
       isFirstTurn: true,
     });
     await flushMicrotasks();

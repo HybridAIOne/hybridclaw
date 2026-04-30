@@ -7,7 +7,7 @@ import { SESSION_TITLE_MAX_CHARS } from './session-title-constants.js';
 
 export { SESSION_TITLE_MAX_CHARS };
 
-const TITLE_INPUT_TRUNC = 500;
+const TITLE_USER_INPUT_TRUNC = 500;
 
 const TITLE_SYSTEM_PROMPT = [
   'You generate short titles for chat sessions.',
@@ -42,16 +42,14 @@ export interface GenerateSessionTitleParams {
   chatbotId: string | null;
   model: string;
   userContent: string;
-  assistantContent: string;
 }
 
 export async function generateSessionTitle(
   params: GenerateSessionTitleParams,
 ): Promise<string | null> {
-  const userSnippet = params.userContent.trim().slice(0, TITLE_INPUT_TRUNC);
-  const assistantSnippet = params.assistantContent
+  const userSnippet = params.userContent
     .trim()
-    .slice(0, TITLE_INPUT_TRUNC);
+    .slice(0, TITLE_USER_INPUT_TRUNC);
   if (!userSnippet) return null;
   if (isAuxiliaryTaskDisabled('session_title')) return null;
 
@@ -69,7 +67,7 @@ export async function generateSessionTitle(
           { role: 'system', content: TITLE_SYSTEM_PROMPT },
           {
             role: 'user',
-            content: `User: ${userSnippet}\n\nAssistant: ${assistantSnippet}`,
+            content: `User: ${userSnippet}`,
           },
         ],
       }),
