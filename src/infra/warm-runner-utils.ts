@@ -1,6 +1,14 @@
-import { randomBytes } from 'node:crypto';
+import type { ChildProcess } from 'node:child_process';
+import { randomBytes, randomUUID } from 'node:crypto';
+import type { ExecutorSessionHealthSnapshot } from '../agent/executor-types.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
-import type { ContainerOutput } from '../types/container.js';
+import type { ContainerInput, ContainerOutput } from '../types/container.js';
+import {
+  cleanupHealthIpc,
+  ensureSessionDirs,
+  readHealthOutput,
+  writeHealthInput,
+} from './ipc.js';
 import {
   normalizeWarmProcessPoolConfig,
   type WarmProcessPool,
@@ -23,6 +31,18 @@ export interface WarmRunnerEntry extends WarmProcessPoolEntry {
   pendingColdStartProbeStartedAt: number | null;
   stderrHistory: string[];
   activity?: import('./ipc.js').ActivityTracker;
+}
+
+export type WarmRunnerMode = 'container' | 'host';
+
+export interface WarmRunnerHealthEntry extends WarmRunnerEntry {
+  process: Pick<ChildProcess, 'exitCode' | 'killed' | 'pid'>;
+  ipcSessionId: string;
+  agentId: string;
+  startedAt: number;
+  lastUsedAt: number;
+  terminalError: string | null;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
 export interface WarmPoolEligibilityParams {
@@ -60,6 +80,134 @@ export function summarizeExit(
   if (typeof code === 'number') return `exit code ${code}`;
   if (signal) return `signal ${signal}`;
   return 'unknown exit status';
+}
+
+export function formatWarmRunnerTerminalError(
+  entry: Pick<WarmRunnerHealthEntry, 'process' | 'stderrHistory'>,
+  runtimeLabel: string,
+  params?: {
+    code?: number | null;
+    signal?: NodeJS.Signals | null;
+  },
+): string {
+  const stderrText = entry.stderrHistory.join('\n');
+  const missingPackageMatch = stderrText.match(
+    /Cannot find package '([^']+)' imported from /,
+  );
+  const status = summarizeExit(
+    params?.code ?? entry.process.exitCode,
+    params?.signal ?? null,
+  );
+
+  if (missingPackageMatch) {
+    return [
+      `${runtimeLabel} exited before producing output (${status}).`,
+      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
+      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
+    ].join('\n');
+  }
+
+  const detail = entry.stderrHistory
+    .slice(-4)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return detail
+    ? `${runtimeLabel} exited before producing output (${status}). ${detail}`
+    : `${runtimeLabel} exited before producing output (${status}). Check the gateway log for stderr details.`;
+}
+
+function buildRunnerHealthSnapshot(
+  mode: WarmRunnerMode,
+  entry: WarmRunnerHealthEntry,
+  params?: {
+    responsive?: boolean;
+    healthError?: string | null;
+  },
+): ExecutorSessionHealthSnapshot {
+  const processAlive = !entry.process.killed && entry.process.exitCode === null;
+  return {
+    mode,
+    sessionId: entry.sessionId,
+    agentId: entry.agentId,
+    pid: typeof entry.process.pid === 'number' ? entry.process.pid : null,
+    responsive:
+      params?.responsive ??
+      (processAlive && !entry.terminalError && Boolean(entry.activity)),
+    startedAt: entry.startedAt,
+    lastUsedAt: entry.lastUsedAt,
+    readyForInputAt: entry.readyForInputAt,
+    busy: Boolean(entry.activity),
+    terminalError: entry.terminalError,
+    healthError: params?.healthError ?? null,
+  };
+}
+
+async function pingIdleRunnerEntry(
+  mode: WarmRunnerMode,
+  entry: WarmRunnerHealthEntry,
+): Promise<ExecutorSessionHealthSnapshot> {
+  const nonce = randomUUID();
+  const input: ContainerInput = {
+    healthCheck: { nonce },
+    sessionId: entry.sessionId,
+    messages: [],
+    chatbotId: '',
+    enableRag: false,
+    apiKey: '',
+    baseUrl: '',
+    model: '',
+    channelId: '',
+  };
+
+  try {
+    cleanupHealthIpc(entry.ipcSessionId);
+    ensureSessionDirs(entry.ipcSessionId);
+    writeHealthInput(entry.ipcSessionId, input);
+    const output = await readHealthOutput(entry.ipcSessionId, 1_000, {
+      terminalError: () => entry.terminalError,
+    });
+    const expected = `HEALTH_OK:${nonce}`;
+    const responsive =
+      output.status === 'success' && output.result === expected;
+    return buildRunnerHealthSnapshot(mode, entry, {
+      responsive,
+      healthError: responsive
+        ? null
+        : output.error ||
+          `unexpected health response: ${output.result || output.status}`,
+    });
+  } catch (error) {
+    return buildRunnerHealthSnapshot(mode, entry, {
+      responsive: false,
+      healthError: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function pingWarmRunnerHealthEntry(
+  mode: WarmRunnerMode,
+  entry: WarmRunnerHealthEntry,
+): Promise<ExecutorSessionHealthSnapshot> {
+  if (entry.healthProbe) return entry.healthProbe;
+  if (entry.activity) return buildRunnerHealthSnapshot(mode, entry);
+  if (
+    entry.process.killed ||
+    entry.process.exitCode !== null ||
+    entry.terminalError
+  ) {
+    return buildRunnerHealthSnapshot(mode, entry, { responsive: false });
+  }
+
+  const probe = pingIdleRunnerEntry(mode, entry);
+  entry.healthProbe = probe;
+  try {
+    return await probe;
+  } finally {
+    if (entry.healthProbe === probe) {
+      entry.healthProbe = undefined;
+    }
+  }
 }
 
 export function observeAgentLifecycleLine<T extends WarmRunnerEntry>(

@@ -58,6 +58,16 @@ function redactWebSearchSecrets(
   };
 }
 
+function buildRedactedInput(input: ContainerInput): ContainerInput {
+  return {
+    ...input,
+    apiKey: '',
+    requestHeaders: {},
+    taskModels: redactTaskModelSecrets(input.taskModels),
+    webSearch: redactWebSearchSecrets(input.webSearch),
+  };
+}
+
 export function agentWorkspaceDir(agentId: string): string {
   return path.join(agentDir(agentId), 'workspace');
 }
@@ -88,15 +98,7 @@ export function writeInput(
   opts?: { omitApiKey?: boolean },
 ): string {
   const inputPath = ipcFilePath(sessionId, 'input.json');
-  const toWrite = opts?.omitApiKey
-    ? {
-        ...input,
-        apiKey: '',
-        requestHeaders: {},
-        taskModels: redactTaskModelSecrets(input.taskModels),
-        webSearch: redactWebSearchSecrets(input.webSearch),
-      }
-    : input;
+  const toWrite = opts?.omitApiKey ? buildRedactedInput(input) : input;
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
     mode: 0o600,
   });
@@ -109,13 +111,7 @@ export function writeHealthInput(
   input: ContainerInput,
 ): string {
   const inputPath = ipcFilePath(sessionId, 'health-input.json');
-  const toWrite = {
-    ...input,
-    apiKey: '',
-    requestHeaders: {},
-    taskModels: redactTaskModelSecrets(input.taskModels),
-    webSearch: redactWebSearchSecrets(input.webSearch),
-  };
+  const toWrite = buildRedactedInput(input);
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
     mode: 0o600,
   });

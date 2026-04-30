@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -70,15 +69,12 @@ import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
-  cleanupHealthIpc,
   cleanupIpc,
   createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
-  readHealthOutput,
   readOutput,
-  writeHealthInput,
   writeInput,
 } from './ipc.js';
 import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
@@ -96,6 +92,7 @@ import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
   enforceWarmPoolPressure,
+  formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
   getTotalWarmProcessCount,
   IDLE_TIMEOUT_MS,
@@ -104,10 +101,10 @@ import {
   maintainWarmPool,
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
+  pingWarmRunnerHealthEntry,
   rememberStderrLine,
   removeWarmPoolEntry,
   stopWarmEntries as stopWarmPoolEntries,
-  summarizeExit,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -207,40 +204,6 @@ const warmPool = new WarmProcessPool<PoolEntry>(
 let hostMemorySample: MemorySample | null = null;
 let hostMemoryRefreshInFlight = false;
 
-function formatHostAgentTerminalError(
-  entry: PoolEntry,
-  params?: {
-    code?: number | null;
-    signal?: NodeJS.Signals | null;
-  },
-): string {
-  const stderrText = entry.stderrHistory.join('\n');
-  const missingPackageMatch = stderrText.match(
-    /Cannot find package '([^']+)' imported from /,
-  );
-  const status = summarizeExit(
-    params?.code ?? entry.process.exitCode,
-    params?.signal ?? null,
-  );
-
-  if (missingPackageMatch) {
-    return [
-      `Host agent process exited before producing output (${status}).`,
-      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
-    ].join('\n');
-  }
-
-  const detail = entry.stderrHistory
-    .slice(-4)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return detail
-    ? `Host agent process exited before producing output (${status}). ${detail}`
-    : `Host agent process exited before producing output (${status}). Check the gateway log for stderr details.`;
-}
-
 function interruptedHostOutput(): ContainerOutput {
   return {
     status: 'error',
@@ -298,101 +261,13 @@ export function getActiveHostSessionIds(): string[] {
   );
 }
 
-function baseHostHealthSnapshot(
-  entry: PoolEntry,
-  params?: {
-    responsive?: boolean;
-    healthError?: string | null;
-  },
-): ExecutorSessionHealthSnapshot {
-  const processAlive = !entry.process.killed && entry.process.exitCode === null;
-  return {
-    mode: 'host',
-    sessionId: entry.sessionId,
-    agentId: entry.agentId,
-    pid: typeof entry.process.pid === 'number' ? entry.process.pid : null,
-    responsive:
-      params?.responsive ??
-      (processAlive && !entry.terminalError && Boolean(entry.activity)),
-    startedAt: entry.startedAt,
-    lastUsedAt: entry.lastUsedAt,
-    readyForInputAt: entry.readyForInputAt,
-    busy: Boolean(entry.activity),
-    terminalError: entry.terminalError,
-    healthError: params?.healthError ?? null,
-  };
-}
-
-async function pingHostEntry(
-  entry: PoolEntry,
-): Promise<ExecutorSessionHealthSnapshot> {
-  if (entry.healthProbe) return entry.healthProbe;
-  if (entry.activity) return baseHostHealthSnapshot(entry);
-  if (
-    entry.process.killed ||
-    entry.process.exitCode !== null ||
-    entry.terminalError
-  ) {
-    return baseHostHealthSnapshot(entry, { responsive: false });
-  }
-
-  const probe = pingIdleHostEntry(entry);
-  entry.healthProbe = probe;
-  try {
-    return await probe;
-  } finally {
-    if (entry.healthProbe === probe) {
-      entry.healthProbe = undefined;
-    }
-  }
-}
-
-async function pingIdleHostEntry(
-  entry: PoolEntry,
-): Promise<ExecutorSessionHealthSnapshot> {
-  const nonce = randomUUID();
-  const input: ContainerInput = {
-    healthCheck: { nonce },
-    sessionId: entry.sessionId,
-    messages: [],
-    chatbotId: '',
-    enableRag: false,
-    apiKey: '',
-    baseUrl: '',
-    model: '',
-    channelId: '',
-  };
-
-  try {
-    cleanupHealthIpc(entry.ipcSessionId);
-    ensureSessionDirs(entry.ipcSessionId);
-    writeHealthInput(entry.ipcSessionId, input);
-    const output = await readHealthOutput(entry.ipcSessionId, 1_000, {
-      terminalError: () => entry.terminalError,
-    });
-    const expected = `HEALTH_OK:${nonce}`;
-    const responsive =
-      output.status === 'success' && output.result === expected;
-    return baseHostHealthSnapshot(entry, {
-      responsive,
-      healthError: responsive
-        ? null
-        : output.error ||
-          `unexpected health response: ${output.result || output.status}`,
-    });
-  } catch (error) {
-    return baseHostHealthSnapshot(entry, {
-      responsive: false,
-      healthError: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 export async function getActiveHostSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {
   const snapshots = await Promise.all(
-    Array.from(pool.values()).map((entry) => pingHostEntry(entry)),
+    Array.from(pool.values()).map((entry) =>
+      pingWarmRunnerHealthEntry('host', entry),
+    ),
   );
   return snapshots.sort((left, right) =>
     left.sessionId.localeCompare(right.sessionId),
@@ -918,7 +793,11 @@ function getOrSpawnHostProcess(
         entry.stderrBuffer = '';
       }
     }
-    entry.terminalError = formatHostAgentTerminalError(entry, { code, signal });
+    entry.terminalError = formatWarmRunnerTerminalError(
+      entry,
+      'Host agent process',
+      { code, signal },
+    );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ sessionId }, message);
     });

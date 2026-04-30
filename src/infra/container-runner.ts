@@ -3,7 +3,6 @@
  * Containers stay alive between requests and exit after an idle timeout.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type {
@@ -78,15 +77,12 @@ import type { AdditionalMount } from '../types/security.js';
 import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
   agentWorkspaceDir,
-  cleanupHealthIpc,
   cleanupIpc,
   createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
-  readHealthOutput,
   readOutput,
-  writeHealthInput,
   writeInput,
 } from './ipc.js';
 import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
@@ -104,6 +100,7 @@ import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
   enforceWarmPoolPressure,
+  formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
   getTotalWarmProcessCount,
   IDLE_TIMEOUT_MS,
@@ -112,10 +109,10 @@ import {
   maintainWarmPool,
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
+  pingWarmRunnerHealthEntry,
   rememberStderrLine,
   removeWarmPoolEntry,
   stopWarmEntries as stopWarmPoolEntries,
-  summarizeExit,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -203,40 +200,6 @@ export function resolveDiscordMediaCacheHostDir(): string {
 }
 
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
-
-function formatContainerTerminalError(
-  entry: PoolEntry,
-  params?: {
-    code?: number | null;
-    signal?: NodeJS.Signals | null;
-  },
-): string {
-  const stderrText = entry.stderrHistory.join('\n');
-  const missingPackageMatch = stderrText.match(
-    /Cannot find package '([^']+)' imported from /,
-  );
-  const status = summarizeExit(
-    params?.code ?? entry.process.exitCode,
-    params?.signal ?? null,
-  );
-
-  if (missingPackageMatch) {
-    return [
-      `Container runtime exited before producing output (${status}).`,
-      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
-    ].join('\n');
-  }
-
-  const detail = entry.stderrHistory
-    .slice(-4)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return detail
-    ? `Container runtime exited before producing output (${status}). ${detail}`
-    : `Container runtime exited before producing output (${status}). Check the gateway log for stderr details.`;
-}
 
 export function resolveBrowserProfileHostDir(): string {
   return path.resolve(getBrowserProfileDir(DATA_DIR));
@@ -381,101 +344,13 @@ export function getActiveContainerSessionIds(): string[] {
   );
 }
 
-function baseContainerHealthSnapshot(
-  entry: PoolEntry,
-  params?: {
-    responsive?: boolean;
-    healthError?: string | null;
-  },
-): ExecutorSessionHealthSnapshot {
-  const processAlive = !entry.process.killed && entry.process.exitCode === null;
-  return {
-    mode: 'container',
-    sessionId: entry.sessionId,
-    agentId: entry.agentId,
-    pid: typeof entry.process.pid === 'number' ? entry.process.pid : null,
-    responsive:
-      params?.responsive ??
-      (processAlive && !entry.terminalError && Boolean(entry.activity)),
-    startedAt: entry.startedAt,
-    lastUsedAt: entry.lastUsedAt,
-    readyForInputAt: entry.readyForInputAt,
-    busy: Boolean(entry.activity),
-    terminalError: entry.terminalError,
-    healthError: params?.healthError ?? null,
-  };
-}
-
-async function pingContainerEntry(
-  entry: PoolEntry,
-): Promise<ExecutorSessionHealthSnapshot> {
-  if (entry.healthProbe) return entry.healthProbe;
-  if (entry.activity) return baseContainerHealthSnapshot(entry);
-  if (
-    entry.process.killed ||
-    entry.process.exitCode !== null ||
-    entry.terminalError
-  ) {
-    return baseContainerHealthSnapshot(entry, { responsive: false });
-  }
-
-  const probe = pingIdleContainerEntry(entry);
-  entry.healthProbe = probe;
-  try {
-    return await probe;
-  } finally {
-    if (entry.healthProbe === probe) {
-      entry.healthProbe = undefined;
-    }
-  }
-}
-
-async function pingIdleContainerEntry(
-  entry: PoolEntry,
-): Promise<ExecutorSessionHealthSnapshot> {
-  const nonce = randomUUID();
-  const input: ContainerInput = {
-    healthCheck: { nonce },
-    sessionId: entry.sessionId,
-    messages: [],
-    chatbotId: '',
-    enableRag: false,
-    apiKey: '',
-    baseUrl: '',
-    model: '',
-    channelId: '',
-  };
-
-  try {
-    cleanupHealthIpc(entry.ipcSessionId);
-    ensureSessionDirs(entry.ipcSessionId);
-    writeHealthInput(entry.ipcSessionId, input);
-    const output = await readHealthOutput(entry.ipcSessionId, 1_000, {
-      terminalError: () => entry.terminalError,
-    });
-    const expected = `HEALTH_OK:${nonce}`;
-    const responsive =
-      output.status === 'success' && output.result === expected;
-    return baseContainerHealthSnapshot(entry, {
-      responsive,
-      healthError: responsive
-        ? null
-        : output.error ||
-          `unexpected health response: ${output.result || output.status}`,
-    });
-  } catch (error) {
-    return baseContainerHealthSnapshot(entry, {
-      responsive: false,
-      healthError: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 export async function getActiveContainerSessionHealthSnapshots(): Promise<
   ExecutorSessionHealthSnapshot[]
 > {
   const snapshots = await Promise.all(
-    Array.from(pool.values()).map((entry) => pingContainerEntry(entry)),
+    Array.from(pool.values()).map((entry) =>
+      pingWarmRunnerHealthEntry('container', entry),
+    ),
   );
   return snapshots.sort((left, right) =>
     left.sessionId.localeCompare(right.sessionId),
@@ -1074,7 +949,11 @@ function getOrSpawnContainer(
         entry.stderrBuffer = '';
       }
     }
-    entry.terminalError = formatContainerTerminalError(entry, { code, signal });
+    entry.terminalError = formatWarmRunnerTerminalError(
+      entry,
+      'Container runtime',
+      { code, signal },
+    );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
     });
