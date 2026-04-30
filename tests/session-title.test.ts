@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 vi.mock('../src/memory/db.js', () => ({
-  getSessionTitle: vi.fn(() => ({ title: null, source: null })),
   setSessionTitle: vi.fn(),
 }));
 
@@ -18,9 +17,7 @@ vi.mock('../src/providers/auxiliary.js', () => ({
   callAuxiliaryModel: vi.fn(),
 }));
 
-const { getSessionTitle, setSessionTitle } = await import(
-  '../src/memory/db.js'
-);
+const { setSessionTitle } = await import('../src/memory/db.js');
 const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
 const {
   generateSessionTitle,
@@ -30,7 +27,6 @@ const {
 } = await import('../src/session/session-title.js');
 
 const mockedAuxiliary = vi.mocked(callAuxiliaryModel);
-const mockedGetTitle = vi.mocked(getSessionTitle);
 const mockedSetTitle = vi.mocked(setSessionTitle);
 
 function flushMicrotasks(): Promise<void> {
@@ -94,20 +90,49 @@ describe('generateSessionTitle', () => {
     );
   });
 
-  test('returns null when the auxiliary model throws', async () => {
+  test('propagates auxiliary model errors', async () => {
     mockedAuxiliary.mockRejectedValueOnce(new Error('boom'));
 
-    const title = await generateSessionTitle({
+    await expect(
+      generateSessionTitle({
+        sessionId: 's1',
+        agentId: 'main',
+        chatbotId: null,
+        enableRag: true,
+        model: 'gpt-5',
+        userContent: 'Help me ship the deploy.',
+        assistantContent: 'Sure, here are the steps.',
+      }),
+    ).rejects.toThrow('boom');
+  });
+
+  test('truncates title input before calling the auxiliary model', async () => {
+    mockedAuxiliary.mockResolvedValueOnce({
+      provider: 'hybridai',
+      model: 'cheap',
+      content: 'Deploy Plan',
+    });
+
+    await generateSessionTitle({
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
       enableRag: true,
       model: 'gpt-5',
-      userContent: 'Help me ship the deploy.',
-      assistantContent: 'Sure, here are the steps.',
+      userContent: ` ${'u'.repeat(600)} `,
+      assistantContent: ` ${'a'.repeat(600)} `,
     });
 
-    expect(title).toBeNull();
+    expect(mockedAuxiliary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'user',
+            content: `User: ${'u'.repeat(500)}\n\nAssistant: ${'a'.repeat(500)}`,
+          }),
+        ]),
+      }),
+    );
   });
 
   test('skips the model call when user content is empty', async () => {
@@ -132,8 +157,6 @@ describe('maybeAutoTitleSession', () => {
   beforeEach(() => {
     mockedAuxiliary.mockReset();
     mockedSetTitle.mockReset();
-    mockedGetTitle.mockReset();
-    mockedGetTitle.mockReturnValue({ title: null, source: null });
   });
 
   test('skips when isFirstTurn is false', async () => {
@@ -153,8 +176,8 @@ describe('maybeAutoTitleSession', () => {
     expect(mockedSetTitle).not.toHaveBeenCalled();
   });
 
-  test('skips when a title already exists', async () => {
-    mockedGetTitle.mockReturnValue({ title: 'Already Set', source: 'user' });
+  test('swallows generation errors and leaves the title unset', async () => {
+    mockedAuxiliary.mockRejectedValueOnce(new Error('boom'));
 
     maybeAutoTitleSession({
       sessionId: 's1',
@@ -168,7 +191,7 @@ describe('maybeAutoTitleSession', () => {
     });
     await flushMicrotasks();
 
-    expect(mockedAuxiliary).not.toHaveBeenCalled();
+    expect(mockedAuxiliary).toHaveBeenCalledTimes(1);
     expect(mockedSetTitle).not.toHaveBeenCalled();
   });
 

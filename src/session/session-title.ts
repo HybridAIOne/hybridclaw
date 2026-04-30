@@ -1,8 +1,7 @@
 import { logger } from '../logger.js';
-import { getSessionTitle, setSessionTitle } from '../memory/db.js';
+import { setSessionTitle } from '../memory/db.js';
 import { withSpan } from '../observability/otel.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
-import { trimSessionPreviewText } from './session-preview.js';
 
 export const SESSION_TITLE_MAX_CHARS = 80;
 const TITLE_INPUT_TRUNC = 500;
@@ -47,44 +46,32 @@ export interface GenerateSessionTitleParams {
 export async function generateSessionTitle(
   params: GenerateSessionTitleParams,
 ): Promise<string | null> {
-  const userSnippet = trimSessionPreviewText(
-    params.userContent,
-    TITLE_INPUT_TRUNC,
-  );
-  const assistantSnippet = trimSessionPreviewText(
-    params.assistantContent,
-    TITLE_INPUT_TRUNC,
-  );
+  const userSnippet = params.userContent.trim().slice(0, TITLE_INPUT_TRUNC);
+  const assistantSnippet = params.assistantContent
+    .trim()
+    .slice(0, TITLE_INPUT_TRUNC);
   if (!userSnippet) return null;
 
-  try {
-    const result = await withSpan(
-      'hybridclaw.session.title',
-      { sessionId: params.sessionId, agentId: params.agentId },
-      () =>
-        callAuxiliaryModel({
-          task: 'session_title',
-          agentId: params.agentId,
-          fallbackModel: params.model,
-          fallbackChatbotId: params.chatbotId ?? undefined,
-          fallbackEnableRag: params.enableRag,
-          messages: [
-            { role: 'system', content: TITLE_SYSTEM_PROMPT },
-            {
-              role: 'user',
-              content: `User: ${userSnippet}\n\nAssistant: ${assistantSnippet}`,
-            },
-          ],
-        }),
-    );
-    return normalizeSessionTitle(result.content);
-  } catch (err) {
-    logger.warn(
-      { sessionId: params.sessionId, err },
-      'Session title generation failed',
-    );
-    return null;
-  }
+  const result = await withSpan(
+    'hybridclaw.session.title',
+    { sessionId: params.sessionId, agentId: params.agentId },
+    () =>
+      callAuxiliaryModel({
+        task: 'session_title',
+        agentId: params.agentId,
+        fallbackModel: params.model,
+        fallbackChatbotId: params.chatbotId ?? undefined,
+        fallbackEnableRag: params.enableRag,
+        messages: [
+          { role: 'system', content: TITLE_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `User: ${userSnippet}\n\nAssistant: ${assistantSnippet}`,
+          },
+        ],
+      }),
+  );
+  return normalizeSessionTitle(result.content);
 }
 
 export interface MaybeAutoTitleSessionParams
@@ -97,7 +84,6 @@ export function maybeAutoTitleSession(
 ): void {
   if (!params.isFirstTurn) return;
   if (!params.userContent.trim()) return;
-  if (getSessionTitle(params.sessionId).title) return;
 
   void (async () => {
     try {
