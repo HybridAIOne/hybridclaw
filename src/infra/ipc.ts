@@ -20,6 +20,10 @@ function ipcDir(sessionId: string): string {
   return path.join(sessionDir(sessionId), 'ipc');
 }
 
+function ipcFilePath(sessionId: string, filename: string): string {
+  return path.join(ipcDir(sessionId), filename);
+}
+
 function agentDir(agentId: string): string {
   const workspaceId = resolveAgentWorkspaceId(agentId);
   const safe = workspaceId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -54,6 +58,16 @@ function redactWebSearchSecrets(
   };
 }
 
+function buildRedactedInput(input: ContainerInput): ContainerInput {
+  return {
+    ...input,
+    apiKey: '',
+    requestHeaders: {},
+    taskModels: redactTaskModelSecrets(input.taskModels),
+    webSearch: redactWebSearchSecrets(input.webSearch),
+  };
+}
+
 export function agentWorkspaceDir(agentId: string): string {
   return path.join(agentDir(agentId), 'workspace');
 }
@@ -83,21 +97,25 @@ export function writeInput(
   input: ContainerInput,
   opts?: { omitApiKey?: boolean },
 ): string {
-  const dir = ipcDir(sessionId);
-  const inputPath = path.join(dir, 'input.json');
-  const toWrite = opts?.omitApiKey
-    ? {
-        ...input,
-        apiKey: '',
-        requestHeaders: {},
-        taskModels: redactTaskModelSecrets(input.taskModels),
-        webSearch: redactWebSearchSecrets(input.webSearch),
-      }
-    : input;
+  const inputPath = ipcFilePath(sessionId, 'input.json');
+  const toWrite = opts?.omitApiKey ? buildRedactedInput(input) : input;
   fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
     mode: 0o600,
   });
   logger.debug({ sessionId, path: inputPath }, 'Wrote IPC input');
+  return inputPath;
+}
+
+export function writeHealthInput(
+  sessionId: string,
+  input: ContainerInput,
+): string {
+  const inputPath = ipcFilePath(sessionId, 'health-input.json');
+  const toWrite = buildRedactedInput(input);
+  fs.writeFileSync(inputPath, JSON.stringify(toWrite, null, 2), {
+    mode: 0o600,
+  });
+  logger.debug({ sessionId, path: inputPath }, 'Wrote IPC health input');
   return inputPath;
 }
 
@@ -183,8 +201,21 @@ export async function readOutput(
     terminalError?: () => string | null;
   },
 ): Promise<ContainerOutput> {
-  const dir = ipcDir(sessionId);
-  const outputPath = path.join(dir, 'output.json');
+  return readOutputFile(sessionId, 'output.json', timeoutMs, opts);
+}
+
+async function readOutputFile(
+  sessionId: string,
+  filename: string,
+  timeoutMs: number | null | undefined,
+  opts?: {
+    signal?: AbortSignal;
+    activity?: ActivityTracker;
+    maxWallClockMs?: number | null;
+    terminalError?: () => string | null;
+  },
+): Promise<ContainerOutput> {
+  const outputPath = ipcFilePath(sessionId, filename);
   const signal = opts?.signal;
   const activity = opts?.activity;
 
@@ -281,12 +312,32 @@ export async function readOutput(
   };
 }
 
+export function readHealthOutput(
+  sessionId: string,
+  timeoutMs: number | null | undefined,
+  opts?: {
+    terminalError?: () => string | null;
+  },
+): Promise<ContainerOutput> {
+  return readOutputFile(sessionId, 'health-output.json', timeoutMs, opts);
+}
+
 /**
  * Clean up IPC files for a session.
  */
 export function cleanupIpc(sessionId: string): void {
   const dir = ipcDir(sessionId);
   for (const file of ['input.json', 'output.json', 'history.json']) {
+    const filePath = path.join(dir, file);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+}
+
+export function cleanupHealthIpc(sessionId: string): void {
+  const dir = ipcDir(sessionId);
+  for (const file of ['health-input.json', 'health-output.json']) {
     const filePath = path.join(dir, file);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);

@@ -33,6 +33,9 @@ export interface MediaContextItem {
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
 export interface ContainerInput {
+  healthCheck?: {
+    nonce: string;
+  };
   sessionId: string;
   messages: ChatMessage[];
   chatbotId: string;

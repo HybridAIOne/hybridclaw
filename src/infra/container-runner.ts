@@ -5,7 +5,10 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ExecutorRequest } from '../agent/executor-types.js';
+import type {
+  ExecutorRequest,
+  ExecutorSessionHealthSnapshot,
+} from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
@@ -97,6 +100,7 @@ import { WarmProcessPool } from './warm-process-pool.js';
 import {
   claimWarmEntry,
   enforceWarmPoolPressure,
+  formatWarmRunnerTerminalError,
   getCachedObservedMemoryBytes,
   getTotalWarmProcessCount,
   IDLE_TIMEOUT_MS,
@@ -105,10 +109,10 @@ import {
   maintainWarmPool,
   normalizeWarmProcessPoolRuntimeConfig,
   observeAgentLifecycleLine,
+  pingWarmRunnerHealthEntry,
   rememberStderrLine,
   removeWarmPoolEntry,
   stopWarmEntries as stopWarmPoolEntries,
-  summarizeExit,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
@@ -144,6 +148,7 @@ interface PoolEntry extends WarmRunnerEntry {
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   activity?: import('./ipc.js').ActivityTracker;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
 interface ContainerPathAliasMount {
@@ -195,40 +200,6 @@ export function resolveDiscordMediaCacheHostDir(): string {
 }
 
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
-
-function formatContainerTerminalError(
-  entry: PoolEntry,
-  params?: {
-    code?: number | null;
-    signal?: NodeJS.Signals | null;
-  },
-): string {
-  const stderrText = entry.stderrHistory.join('\n');
-  const missingPackageMatch = stderrText.match(
-    /Cannot find package '([^']+)' imported from /,
-  );
-  const status = summarizeExit(
-    params?.code ?? entry.process.exitCode,
-    params?.signal ?? null,
-  );
-
-  if (missingPackageMatch) {
-    return [
-      `Container runtime exited before producing output (${status}).`,
-      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
-    ].join('\n');
-  }
-
-  const detail = entry.stderrHistory
-    .slice(-4)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return detail
-    ? `Container runtime exited before producing output (${status}). ${detail}`
-    : `Container runtime exited before producing output (${status}). Check the gateway log for stderr details.`;
-}
 
 export function resolveBrowserProfileHostDir(): string {
   return path.resolve(getBrowserProfileDir(DATA_DIR));
@@ -370,6 +341,19 @@ export function getActiveContainerCount(): number {
 export function getActiveContainerSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
+  );
+}
+
+export async function getActiveContainerSessionHealthSnapshots(): Promise<
+  ExecutorSessionHealthSnapshot[]
+> {
+  const snapshots = await Promise.all(
+    Array.from(pool.values()).map((entry) =>
+      pingWarmRunnerHealthEntry('container', entry),
+    ),
+  );
+  return snapshots.sort((left, right) =>
+    left.sessionId.localeCompare(right.sessionId),
   );
 }
 
@@ -965,7 +949,11 @@ function getOrSpawnContainer(
         entry.stderrBuffer = '';
       }
     }
-    entry.terminalError = formatContainerTerminalError(entry, { code, signal });
+    entry.terminalError = formatWarmRunnerTerminalError(
+      entry,
+      'Container runtime',
+      { code, signal },
+    );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
     });
@@ -1377,5 +1365,9 @@ export class ContainerExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveContainerSessionIds();
+  }
+
+  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
+    return getActiveContainerSessionHealthSnapshots();
   }
 }
