@@ -82,8 +82,10 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_close',
 ];
 
-let timer: ReturnType<typeof setInterval> | null = null;
-let running = false;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let livenessPagingTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatRunning = false;
+let livenessPagingRunning = false;
 const lastPagedLivenessStateByAgent = new Map<string, string>();
 
 function isHeartbeatOk(text: string): boolean {
@@ -106,29 +108,62 @@ async function pageRedCoworkerLivenessTransitions(
   }
 }
 
+function startCoworkerLivenessPaging(
+  interval: number,
+  onMessage: (text: string) => void,
+): void {
+  if (livenessPagingTimer) {
+    clearInterval(livenessPagingTimer);
+    livenessPagingTimer = null;
+  }
+
+  livenessPagingTimer = setInterval(async () => {
+    if (livenessPagingRunning) {
+      logger.debug('Coworker liveness paging skipped — previous still running');
+      return;
+    }
+    livenessPagingRunning = true;
+    try {
+      await pageRedCoworkerLivenessTransitions(onMessage);
+    } catch (error) {
+      logger.warn({ error }, 'Coworker liveness paging failed');
+    } finally {
+      livenessPagingRunning = false;
+    }
+  }, interval);
+}
+
 export function startHeartbeat(
   agentId: string,
   interval: number,
   onMessage: (text: string) => void,
 ): void {
-  if (!HEARTBEAT_ENABLED) {
-    logger.info('Heartbeat disabled via HEARTBEAT_ENABLED=false');
-    return;
-  }
-
-  logger.info({ interval }, 'Heartbeat started');
   registerChannel({
     kind: 'heartbeat',
     id: HEARTBEAT_CHANNEL || 'heartbeat',
     capabilities: SYSTEM_CAPABILITIES,
   });
+  startCoworkerLivenessPaging(interval, onMessage);
 
-  timer = setInterval(async () => {
-    if (running) {
+  if (!HEARTBEAT_ENABLED) {
+    logger.info(
+      'Heartbeat disabled via HEARTBEAT_ENABLED=false; coworker liveness paging remains active',
+    );
+    return;
+  }
+
+  logger.info({ interval }, 'Heartbeat started');
+
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  heartbeatTimer = setInterval(async () => {
+    if (heartbeatRunning) {
       logger.debug('Heartbeat skipped — previous still running');
       return;
     }
-    running = true;
+    heartbeatRunning = true;
 
     const sessionId = buildSessionKey(
       agentId,
@@ -142,11 +177,6 @@ export function startHeartbeat(
     let turnIndex = 1;
 
     try {
-      try {
-        await pageRedCoworkerLivenessTransitions(onMessage);
-      } catch (error) {
-        logger.warn({ error }, 'Coworker liveness paging failed');
-      }
       if (!isWithinActiveHours()) {
         logger.debug(
           { activeHours: proactiveWindowLabel() },
@@ -454,16 +484,25 @@ export function startHeartbeat(
         },
       });
     } finally {
-      running = false;
+      heartbeatRunning = false;
     }
   }, interval);
 }
 
 export function stopHeartbeat(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
     logger.info('Heartbeat stopped');
   }
+  if (livenessPagingTimer) {
+    clearInterval(livenessPagingTimer);
+    livenessPagingTimer = null;
+    logger.info('Coworker liveness paging stopped');
+  }
+  heartbeatRunning = false;
+  livenessPagingRunning = false;
+  // In-process edge state is intentionally cleared so a still-red coworker
+  // pages again after gateway restart or scheduler restart.
   lastPagedLivenessStateByAgent.clear();
 }
