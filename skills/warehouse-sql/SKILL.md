@@ -133,8 +133,10 @@ python3 skills/warehouse-sql/scripts/warehouse_sql.py --format json eval-scenari
 
 The fixture at `evals/tpch_tiny.sql` contains a tiny public-schema-compatible
 dataset using TPC-H-style tables (`customer`, `orders`, `lineitem`, `supplier`,
-`part`, `nation`). The scenario file at `evals/tpch_scenarios.json` verifies
-read-only review and execution against deterministic answers.
+`part`, `nation`). It is an offline deterministic fixture for SQL generation
+coverage, not a TPC-H benchmark run. The scenario file at
+`evals/tpch_scenarios.json` verifies read-only review and execution against
+deterministic answers.
 
 ## Validation
 

@@ -628,7 +628,7 @@ def write_private_json(path: Path, payload: dict[str, Any]) -> None:
     fd = os.open(tmp_path, flags, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+            json.dump(payload, handle, separators=(",", ":"), sort_keys=True)
             handle.write("\n")
         os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, path)

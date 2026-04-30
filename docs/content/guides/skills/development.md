@@ -256,6 +256,9 @@ reproducible TPC-H-style eval suite; Postgres, ClickHouse, BigQuery, and
 Snowflake can run through optional Python drivers or operator-approved
 connector commands.
 
+The bundled eval fixture is a tiny deterministic TPC-H-style dataset for
+offline SQL-generation coverage, not a TPC-H benchmark run.
+
 **Prerequisites**
 
 | Dependency | Purpose | Install |
