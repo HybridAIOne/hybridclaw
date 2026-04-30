@@ -5510,11 +5510,19 @@ export function getSessionTitle(sessionId: string): {
   return { title: row.title, source };
 }
 
+function normalizeSessionTitleForStorage(title: string): string | null {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) return null;
+  return normalizedTitle.slice(0, RECENT_CHAT_SESSION_TITLE_MAX_LENGTH);
+}
+
 export function setSessionTitle(sessionId: string, title: string): void {
+  const normalizedTitle = normalizeSessionTitleForStorage(title);
+  if (!normalizedTitle) return;
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
   db.prepare(
     'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
-  ).run(title, 'auto', resolvedSessionId);
+  ).run(normalizedTitle, 'auto', resolvedSessionId);
 }
 
 export function getAllSessions(options?: {

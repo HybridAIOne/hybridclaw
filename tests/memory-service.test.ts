@@ -46,6 +46,7 @@ import {
 } from '../src/memory/memory-service.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../src/providers/model-metadata.js';
 import { normalizeRecentChatSearchQuery } from '../src/session/recent-chat-search.js';
+import { RECENT_CHAT_SESSION_TITLE_MAX_LENGTH } from '../src/session/session-preview.js';
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,
@@ -1602,7 +1603,13 @@ describe.sequential('schema migrations', () => {
     initDatabase({ quiet: true, dbPath });
 
     getOrCreateSession('title-session', null, 'web');
-    setSessionTitle('title-session', 'Deploy Plan');
+    setSessionTitle('title-session', '   ');
+    expect(getSessionTitle('title-session')).toEqual({
+      title: null,
+      source: null,
+    });
+
+    setSessionTitle('title-session', '  Deploy Plan  ');
 
     expect(getSessionTitle('title-session')).toEqual({
       title: 'Deploy Plan',
@@ -1627,6 +1634,21 @@ describe.sequential('schema migrations', () => {
     setSessionTitle('title-session', 'Second Pick');
 
     expect(getSessionTitle('title-session').title).toBe('First Pick');
+  });
+
+  test('setSessionTitle caps stored title length', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle(
+      'title-session',
+      `${'A'.repeat(RECENT_CHAT_SESSION_TITLE_MAX_LENGTH)} extra`,
+    );
+
+    expect(getSessionTitle('title-session').title).toBe(
+      'A'.repeat(RECENT_CHAT_SESSION_TITLE_MAX_LENGTH),
+    );
   });
 
   test('getRecentSessionsForUser prefers the stored title over the derived preview', () => {
