@@ -27,7 +27,7 @@ export interface WorkflowDefinition {
 
 export const WORKFLOW_DEFINITION_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
-  $id: 'https://hybridclaw.local/schemas/workflow-definition.schema.json',
+  $id: 'urn:hybridclaw:schema:workflow-definition',
   title: 'HybridClaw workflow definition',
   type: 'object',
   additionalProperties: false,
