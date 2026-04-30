@@ -93,7 +93,6 @@ const workflowDefinitionValidator = new Ajv({
   allErrors: true,
   removeAdditional: false,
   strictSchema: true,
-  strictTypes: false,
 }).compile<WorkflowDefinition>(WORKFLOW_DEFINITION_SCHEMA);
 
 function formatJsonSchemaError(error: ErrorObject): string {
@@ -152,16 +151,13 @@ export function validateWorkflowDefinition(value: unknown): WorkflowDefinition {
   return value;
 }
 
-export function parseWorkflowDefinitionYaml(
-  raw: string,
-  sourceName = 'workflow YAML',
-): WorkflowDefinition {
+export function parseWorkflowDefinitionYaml(raw: string): WorkflowDefinition {
   let parsed: unknown;
   try {
     parsed = parseYaml(raw);
   } catch (error) {
     throw new Error(
-      `Invalid ${sourceName}: ${
+      `Invalid workflow YAML: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );

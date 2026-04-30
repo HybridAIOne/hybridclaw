@@ -71,10 +71,7 @@ describe('workflow definition schema', () => {
       'utf-8',
     );
 
-    const workflow = parseWorkflowDefinitionYaml(
-      fixture,
-      'launch-package.workflow.yaml',
-    );
+    const workflow = parseWorkflowDefinitionYaml(fixture);
 
     expect(workflow.id).toBe('workflow_launch_package');
     expect(workflow.steps.map((step) => step.owner_coworker_id)).toEqual([
