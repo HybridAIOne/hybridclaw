@@ -1958,11 +1958,14 @@ function mapA2AError(error: unknown): never {
   throw error;
 }
 
-function readRuntimeEnvelope(body: unknown): unknown {
-  if (isRecord(body) && Object.hasOwn(body, 'envelope')) {
-    return body.envelope;
+function readA2ASendMessageEnvelope(body: unknown): unknown {
+  if (!isRecord(body) || !Object.hasOwn(body, 'envelope')) {
+    throw new GatewayRequestError(
+      400,
+      'Missing required request body field: envelope',
+    );
   }
-  return body;
+  return body.envelope;
 }
 
 interface A2ARequestPrincipal {
@@ -2059,7 +2062,7 @@ async function handleApiA2ASendMessage(
   res: ServerResponse,
 ): Promise<void> {
   const body = await readJsonBody(req);
-  const envelope = readRuntimeEnvelope(body);
+  const envelope = readA2ASendMessageEnvelope(body);
   const principal = resolveA2ARequestPrincipal(req);
   const boundEnvelope = bindA2AEnvelopeSenderToPrincipal(envelope, principal);
   try {

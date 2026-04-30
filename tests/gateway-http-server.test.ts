@@ -2004,6 +2004,33 @@ describe('gateway HTTP server', () => {
       error: 'A2A sender does not match the authenticated session.',
     });
 
+    const bareEnvelopeReq = makeRequest({
+      method: 'POST',
+      url: '/api/a2a/sendMessage',
+      headers: { cookie: stubASession },
+      body: {
+        id: 'msg-bare',
+        sender_coworker_id: 'stub-a',
+        recipient_coworker_id: 'stub-b',
+        thread_id: 'thread-1',
+        intent: 'chat',
+        content: 'Bare envelope.',
+        created_at: '2026-04-29T10:02:00.000Z',
+      },
+    });
+    const bareEnvelopeRes = makeResponse();
+
+    state.handler(bareEnvelopeReq as never, bareEnvelopeRes as never);
+    await waitForResponse(
+      bareEnvelopeRes,
+      (response) => response.writableEnded,
+    );
+
+    expect(bareEnvelopeRes.statusCode).toBe(400);
+    expect(JSON.parse(bareEnvelopeRes.body)).toEqual({
+      error: 'Missing required request body field: envelope',
+    });
+
     const forbiddenInboxReq = makeRequest({
       url: '/api/a2a/inbox?coworkerId=stub-b',
       headers: { cookie: stubASession },

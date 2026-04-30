@@ -12,16 +12,6 @@ export interface A2ADeliveryConfirmation {
   delivered_at: string;
 }
 
-function sendMessageMeta(
-  meta?: RuntimeConfigChangeMeta,
-): RuntimeConfigChangeMeta {
-  return {
-    actor: meta?.actor,
-    route: meta?.route || 'a2a.sendMessage',
-    source: meta?.source || 'a2a-runtime',
-  };
-}
-
 function normalizeRuntimeEnvelope(envelope: unknown): unknown {
   if (!isRecord(envelope)) return envelope;
   const normalized = { ...envelope };
@@ -48,7 +38,11 @@ export function sendMessage(
 ): A2ADeliveryConfirmation {
   const deliveredEnvelope = saveA2AEnvelope(
     normalizeRuntimeEnvelope(envelope),
-    sendMessageMeta(meta),
+    {
+      actor: meta?.actor,
+      route: meta?.route || 'a2a.sendMessage',
+      source: meta?.source || 'a2a-runtime',
+    },
   );
   return {
     delivered: true,
