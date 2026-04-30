@@ -64,7 +64,7 @@ Key settings:
 - Captured trajectories run through PII/secret redaction plus the confidential-info redactor before they are written. Confidential placeholders keep the documented `«CONF:<RULE_ID>»` format so downstream training data preserves the masking convention.
 - `trajectoryCapture.storeDir`: optional trajectory store location; empty uses a `trajectories/` directory beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory
 - `trajectoryCapture.retentionDays`: trajectory JSONL retention window; default is 365 days and `0` disables trajectory pruning
-- `trajectoryCapture.retentionDaysByTenant`: optional per-coworker retention overrides keyed by tenant ID; trajectory tenants map to agent IDs unless that value would be redacted, in which case a stable non-PII hash key is used
+- `trajectoryCapture.retentionDaysByTenant`: optional per-agent retention overrides keyed by tenant ID; trajectory tenants map to agent IDs unless that value would be redacted, in which case a stable non-PII hash key is used
 
 Legacy `skillCognee` config input is still normalized into `adaptiveSkills` for
 backward compatibility.
