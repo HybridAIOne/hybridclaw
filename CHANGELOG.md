@@ -2,11 +2,81 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.15.0) - 2026-04-29
+
 ### Added
 
-- **Tunnel health checks**: The built-in ngrok tunnel provider health-checks
-  active tunnels on a configurable interval, records tunnel up/down audit
-  events, and reconnects failed tunnels with capped exponential backoff.
+- **Backup and restore CLI**: `hybridclaw backup` creates WAL-safe runtime-home
+  archives and `hybridclaw backup restore` validates manifests before
+  rehydrating `~/.hybridclaw` on a fresh or recovered host.
+- **Brand-voice output guard**: A repo-shipped `brand-voice` plugin can flag,
+  rewrite, or block off-brand final responses using configured voice rules,
+  banned phrases or patterns, required phrases, and optional classifier/rewriter
+  models. The bundled `brand-voice` skill helps agents draft within those rules
+  before the output guard fires.
+- **Production Salesforce skill**: The bundled Salesforce skill now ships a
+  fuller read-only helper, metadata/query references, eval scenarios, and
+  server-side secret placeholder handling for inspecting org schema and SOQL
+  records without writing credentials to disk.
+- **Tailscale Funnel tunnel provider and admin status**: Local deployments can
+  use `deployment.tunnel.provider=tailscale`, with `TS_AUTHKEY` resolved from
+  encrypted runtime secrets when needed and kept out of process arguments. The
+  admin console surfaces public URL and tunnel status alongside the existing
+  gateway controls.
+- **Web chat model switcher**: The chat composer can switch models from the
+  browser using discovered provider catalogs, provider icons, model capability
+  metadata, and the same active-session routing used by local slash commands.
+- **Agent org chart, team revisions, and chronological CVs**: Agent metadata
+  can model role, reporting, delegation, and peer relationships; admin agent
+  pages keep restorable team-structure revisions; observed skill history can
+  refresh per-agent CV output.
+- **Warm process pool**: Host and container runners can keep a bounded adaptive
+  pool of idle runtime processes for recently active agents, reducing cold-start
+  latency while respecting max-idle, startup-claim, config-change, and
+  memory-pressure limits.
+- **Trace judge and trace preparation**: Local eval workflows can prepare
+  redacted traces and dispatch them through an auxiliary judge model for skill,
+  leak, and output-quality evaluation foundations.
+- **Config value inspection**: `hybridclaw config get <key>` and `/config get
+  <key>` return one resolved runtime config value without dumping the full
+  config file.
+- **GPT-5.5 model support**: Static and Codex-discovered model catalogs include
+  `gpt-5.5`, `gpt-5.5-pro`, and `openai-codex/gpt-5.5`.
+
+### Changed
+
+- **Gateway health is less fragile**: Gateway status and health endpoints rely
+  on cached provider checks instead of blocking on live model-provider probes,
+  so transient provider failures no longer make the local gateway look down.
+- **Token usage recording is buffered**: Usage events are normalized,
+  size-capped, and batch-flushed asynchronously to reduce hot-path overhead
+  while preserving audit records.
+- **Runtime secrets are scrubbed more consistently**: Host/container agent
+  runtimes share sensitive environment filtering and web-search credential
+  injection so Brave, Perplexity, and Tavily keys are passed only through the
+  intended secret channels.
+- **Trajectory capture is stricter**: Stored skill trajectories run through
+  PII, secret, and confidential-info redaction, and retention can be capped
+  globally or per tenant.
+- **Docs are consolidated under `docs/content`**: The duplicate legacy
+  `docs/development` tree was removed after the content moved into the current
+  docs hierarchy.
+
+### Fixed
+
+- **Loopback API auth is no longer bypassed**: Local OpenAI-compatible API
+  requests require `WEB_API_TOKEN` or `GATEWAY_API_TOKEN`; loopback address
+  alone is not treated as authentication.
+- **Local TUI and gateway token handling is safer**: Generated gateway tokens
+  are persisted once with serialized creation, shared with local TUI/eval
+  clients, and no longer rewritten during later config reloads.
+- **Ngrok tunnel reconnects are quieter**: Reconnect errors are deduplicated by
+  normalized cause, audit run ids are correlated, and tunnel health checks stay
+  enabled by default.
+- **HybridAI-prefixed model names resolve cleanly**: Provider prefix handling
+  recognizes `hybridai/...` model ids without noisy warnings.
+- **Context ring popovers render correctly**: The web chat context usage ring
+  once again shows its detail popover.
 
 ## [0.14.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.14.0) - 2026-04-28
 

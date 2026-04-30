@@ -6,6 +6,43 @@ sidebar_position: 4
 
 # Communication Skills
 
+## brand-voice
+
+Draft external-facing replies in the configured brand voice before the
+`brand-voice` output guard has to rewrite or block the final message.
+
+**Prerequisites** — optional `brand-voice` plugin configuration for enforced
+rules. Without plugin config, the skill still defaults to clear neutral
+business prose.
+
+> 💡 **Tips & Tricks**
+>
+> Run `/brand-voice` first when the plugin is installed so the current banned
+> phrases, required phrases, and mode are visible before drafting.
+>
+> Treat the plugin as the safety net: the highest-fidelity result is still an
+> on-brand first draft.
+>
+> Preserve facts, links, code blocks, numbers, and citations when adjusting
+> tone.
+
+> 🎯 **Try it yourself**
+>
+> `Draft a customer update about the delayed launch in our brand voice`
+>
+> `Rewrite this sales follow-up so it stays direct, specific, and avoids hype`
+>
+> `Review this support reply for banned phrases before I send it`
+
+**Troubleshooting**
+
+- **Output gets blocked** — inspect `/brand-voice`, remove banned phrases or
+  missing required language, and draft again.
+- **Unexpected rewrites** — check whether the plugin is in `rewrite` mode and
+  whether classifier or rewriter model credentials are configured.
+
+---
+
 ## discord
 
 Read, send, react to, edit, pin, and thread Discord messages using HybridClaw's

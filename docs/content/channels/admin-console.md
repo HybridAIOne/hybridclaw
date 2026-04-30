@@ -46,6 +46,8 @@ and delete the current workspace network policy rules for a selected agent.
   browser
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
+- `/admin/gateway` shows the configured public URL and current tunnel provider
+  status for managed ngrok or Tailscale Funnel exposure
 - `/admin/statistics` shows activity trends, token totals, cost estimates, and
   channel breakdowns across selectable date ranges
 - `/admin/agent-scoreboard` shows observed agent skill scores, best skills,
@@ -78,6 +80,8 @@ scoped to the built-in allowlist and is not a general workspace file browser.
 - you want explicit browser confirmation before destructive operator actions
 - you want to reload runtime config and secrets from `/admin/gateway` without
   switching back to the CLI
+- you want to verify the active public URL or tunnel state before sharing a
+  remote access link
 - you want to monitor usage, cost, and channel activity without querying the
   database directly
 - you want to compare agents by observed skill performance before assigning
