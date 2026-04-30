@@ -2,15 +2,6 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
-import {
-  A2AEnvelopeDuplicateError,
-  A2AEnvelopeValidationError,
-} from '../a2a/envelope.js';
-import { resolveA2AAgentId } from '../a2a/identity.js';
-import {
-  inbox as readA2AInbox,
-  sendMessage as sendA2AMessage,
-} from '../a2a/runtime.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import {
@@ -92,7 +83,6 @@ import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
-import { isRecord } from '../utils/type-guards.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -1945,149 +1935,6 @@ async function handleApiPluginTool(
       500,
       error instanceof Error ? error.message : String(error),
     );
-  }
-}
-
-function mapA2AError(error: unknown): never {
-  if (error instanceof A2AEnvelopeDuplicateError) {
-    throw new GatewayRequestError(409, error.message);
-  }
-  if (error instanceof A2AEnvelopeValidationError) {
-    throw new GatewayRequestError(400, error.message);
-  }
-  throw error;
-}
-
-function readA2ASendMessageEnvelope(body: unknown): unknown {
-  if (!isRecord(body) || !Object.hasOwn(body, 'envelope')) {
-    throw new GatewayRequestError(
-      400,
-      'Missing required request body field: envelope',
-    );
-  }
-  return body.envelope;
-}
-
-interface A2ARequestPrincipal {
-  localAgentId: string;
-  agentId: string;
-}
-
-function resolveA2ARequestPrincipal(req: IncomingMessage): A2ARequestPrincipal {
-  const localAgentId = resolveSessionAuthenticatedUserId(req);
-  if (!localAgentId) {
-    throw new GatewayRequestError(
-      403,
-      'A2A runtime API requires an authenticated agent session.',
-    );
-  }
-
-  try {
-    return {
-      localAgentId,
-      agentId: resolveA2AAgentId(localAgentId),
-    };
-  } catch (error) {
-    mapA2AError(error);
-  }
-}
-
-function resolveA2ARequestAgentId(value: string): string {
-  try {
-    return resolveA2AAgentId(value);
-  } catch (error) {
-    mapA2AError(error);
-  }
-}
-
-function assertA2APrincipalMatchesAgent(
-  principal: A2ARequestPrincipal,
-  agentId: string,
-): void {
-  if (principal.agentId === resolveA2ARequestAgentId(agentId)) return;
-  throw new GatewayRequestError(
-    403,
-    'A2A agent identity does not match the authenticated session.',
-  );
-}
-
-function resolveA2AEnvelopeSenderId(envelope: Record<string, unknown>): string {
-  return (
-    normalizeOptionalString(
-      typeof envelope.sender_agent_id === 'string'
-        ? envelope.sender_agent_id
-        : undefined,
-    ) || ''
-  );
-}
-
-function bindA2AEnvelopeSenderToPrincipal(
-  envelope: unknown,
-  principal: A2ARequestPrincipal,
-): unknown {
-  if (!isRecord(envelope)) return envelope;
-  const requestedSenderId = resolveA2AEnvelopeSenderId(envelope);
-  if (
-    requestedSenderId &&
-    resolveA2ARequestAgentId(requestedSenderId) !== principal.agentId
-  ) {
-    throw new GatewayRequestError(
-      403,
-      'A2A sender does not match the authenticated session.',
-    );
-  }
-
-  const boundEnvelope: Record<string, unknown> = {
-    ...envelope,
-    sender_agent_id: principal.agentId,
-  };
-  return boundEnvelope;
-}
-
-async function handleApiA2ASendMessage(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const body = await readJsonBody(req);
-  const envelope = readA2ASendMessageEnvelope(body);
-  const principal = resolveA2ARequestPrincipal(req);
-  const boundEnvelope = bindA2AEnvelopeSenderToPrincipal(envelope, principal);
-  try {
-    const confirmation = sendA2AMessage(boundEnvelope, {
-      actor: principal.localAgentId,
-      route: 'api.a2a.sendMessage',
-      source: 'gateway-http',
-    });
-    sendJson(res, 201, confirmation);
-  } catch (error) {
-    mapA2AError(error);
-  }
-}
-
-function handleApiA2AInbox(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): void {
-  const agentId =
-    normalizeOptionalString(url.searchParams.get('agentId')) ||
-    normalizeOptionalString(url.searchParams.get('agent_id'));
-  if (!agentId) {
-    throw new GatewayRequestError(
-      400,
-      'Missing required query parameter: agentId',
-    );
-  }
-  const principal = resolveA2ARequestPrincipal(req);
-  assertA2APrincipalMatchesAgent(principal, agentId);
-
-  try {
-    sendJson(res, 200, {
-      agentId,
-      envelopes: readA2AInbox(agentId),
-    });
-  } catch (error) {
-    mapA2AError(error);
   }
 }
 
@@ -4304,10 +4151,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiProactivePull(res, url);
             return;
           }
-          if (pathname === '/api/a2a/inbox' && method === 'GET') {
-            handleApiA2AInbox(req, res, url);
-            return;
-          }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
             handleApiShutdown(res);
             return;
@@ -4335,10 +4178,6 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/command' && method === 'POST') {
             await handleApiCommand(req, res);
-            return;
-          }
-          if (pathname === '/api/a2a/sendMessage' && method === 'POST') {
-            await handleApiA2ASendMessage(req, res);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {

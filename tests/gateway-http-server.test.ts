@@ -546,16 +546,16 @@ async function importFreshHealth(options?: {
         }
       : null,
   );
-  const a2aAgents = [
+  const testAgents = [
     { id: 'main', name: 'Main Agent', owner: 'team' },
     { id: 'stub-a', name: 'Stub Agent A', owner: 'team' },
     { id: 'stub-b', name: 'Stub Agent B', owner: 'team' },
   ];
   const findAgentConfig = vi.fn(
     (agentId?: string | null) =>
-      a2aAgents.find((agent) => agent.id === agentId?.trim()) || null,
+      testAgents.find((agent) => agent.id === agentId?.trim()) || null,
   );
-  const listAgents = vi.fn(() => a2aAgents);
+  const listAgents = vi.fn(() => testAgents);
   const resolveAgentConfig = vi.fn((agentId?: string | null) => ({
     id: agentId?.trim() || 'main',
     name: 'Main Agent',
@@ -1897,200 +1897,6 @@ describe('gateway HTTP server', () => {
       refreshProviderHealth: false,
     });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
-  });
-
-  test('routes A2A sendMessage and inbox through the runtime API', async () => {
-    const dataDir = makeTempDataDir();
-    process.env.HYBRIDCLAW_DATA_DIR = dataDir;
-    process.env.HOME = dataDir;
-    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    process.env.HYBRIDCLAW_AUTH_SECRET = 'a2a-test-secret';
-    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-    const stubASession = `hybridclaw_session=${signAuthPayload(
-      {
-        exp: expiresAt,
-        sub: 'stub-a',
-        typ: 'session',
-      },
-      'a2a-test-secret',
-    )}`;
-    const stubBSession = `hybridclaw_session=${signAuthPayload(
-      {
-        exp: expiresAt,
-        sub: 'stub-b',
-        typ: 'session',
-      },
-      'a2a-test-secret',
-    )}`;
-
-    const state = await importFreshHealth({
-      authSecret: 'a2a-test-secret',
-      dataDir,
-    });
-    const sendReq = makeRequest({
-      method: 'POST',
-      url: '/api/a2a/sendMessage',
-      headers: { cookie: stubASession },
-      body: {
-        envelope: {
-          id: 'msg-1',
-          sender_agent_id: 'stub-a',
-          recipient_agent_id: 'stub-b',
-          thread_id: 'thread-1',
-          intent: 'handoff',
-          content: 'Please take over the customer brief.',
-          created_at: '2026-04-29T10:00:00.000Z',
-        },
-      },
-    });
-    const sendRes = makeResponse();
-
-    state.handler(sendReq as never, sendRes as never);
-    await waitForResponse(sendRes, (response) => response.writableEnded);
-
-    expect(sendRes.statusCode).toBe(201);
-    const confirmation = JSON.parse(sendRes.body);
-    expect(confirmation).toMatchObject({
-      delivered: true,
-      message_id: 'msg-1',
-      thread_id: 'thread-1',
-      recipient_agent_id: 'stub-b@team@local-dev',
-    });
-    const deliveredEnvelope = {
-      id: 'msg-1',
-      sender_agent_id: 'stub-a@team@local-dev',
-      recipient_agent_id: 'stub-b@team@local-dev',
-      thread_id: 'thread-1',
-      intent: 'handoff',
-      content: 'Please take over the customer brief.',
-      created_at: '2026-04-29T10:00:00.000Z',
-    };
-    const a2aStore = await import('../src/a2a/store.ts');
-    const revisions = await import('../src/config/runtime-config-revisions.ts');
-    expect(
-      revisions.getRuntimeAssetRevisionStateMetadata(
-        'a2a',
-        a2aStore.a2aThreadAssetPath('thread-1'),
-      ),
-    ).toMatchObject({
-      actor: 'stub-a',
-      route: 'api.a2a.sendMessage',
-      source: 'gateway-http',
-    });
-
-    const forgedSendReq = makeRequest({
-      method: 'POST',
-      url: '/api/a2a/sendMessage',
-      headers: { cookie: stubBSession },
-      body: {
-        envelope: {
-          id: 'msg-forged',
-          sender_agent_id: 'stub-a',
-          recipient_agent_id: 'stub-b',
-          thread_id: 'thread-1',
-          intent: 'chat',
-          content: 'Forged.',
-          created_at: '2026-04-29T10:01:00.000Z',
-        },
-      },
-    });
-    const forgedSendRes = makeResponse();
-
-    state.handler(forgedSendReq as never, forgedSendRes as never);
-    await waitForResponse(forgedSendRes, (response) => response.writableEnded);
-
-    expect(forgedSendRes.statusCode).toBe(403);
-    expect(JSON.parse(forgedSendRes.body)).toEqual({
-      error: 'A2A sender does not match the authenticated session.',
-    });
-
-    const bareEnvelopeReq = makeRequest({
-      method: 'POST',
-      url: '/api/a2a/sendMessage',
-      headers: { cookie: stubASession },
-      body: {
-        id: 'msg-bare',
-        sender_agent_id: 'stub-a',
-        recipient_agent_id: 'stub-b',
-        thread_id: 'thread-1',
-        intent: 'chat',
-        content: 'Bare envelope.',
-        created_at: '2026-04-29T10:02:00.000Z',
-      },
-    });
-    const bareEnvelopeRes = makeResponse();
-
-    state.handler(bareEnvelopeReq as never, bareEnvelopeRes as never);
-    await waitForResponse(
-      bareEnvelopeRes,
-      (response) => response.writableEnded,
-    );
-
-    expect(bareEnvelopeRes.statusCode).toBe(400);
-    expect(JSON.parse(bareEnvelopeRes.body)).toEqual({
-      error: 'Missing required request body field: envelope',
-    });
-
-    const aliasEnvelopeReq = makeRequest({
-      method: 'POST',
-      url: '/api/a2a/sendMessage',
-      headers: { cookie: stubASession },
-      body: {
-        envelope: {
-          id: 'msg-alias',
-          sender_coworker_id: 'stub-a',
-          recipient_coworker_id: 'stub-b',
-          thread_id: 'thread-1',
-          intent: 'chat',
-          content: 'Old terminology.',
-          created_at: '2026-04-29T10:03:00.000Z',
-        },
-      },
-    });
-    const aliasEnvelopeRes = makeResponse();
-
-    state.handler(aliasEnvelopeReq as never, aliasEnvelopeRes as never);
-    await waitForResponse(
-      aliasEnvelopeRes,
-      (response) => response.writableEnded,
-    );
-
-    expect(aliasEnvelopeRes.statusCode).toBe(400);
-    expect(JSON.parse(aliasEnvelopeRes.body).error).toContain(
-      'unexpected field: sender_coworker_id',
-    );
-
-    const forbiddenInboxReq = makeRequest({
-      url: '/api/a2a/inbox?agentId=stub-b',
-      headers: { cookie: stubASession },
-    });
-    const forbiddenInboxRes = makeResponse();
-
-    state.handler(forbiddenInboxReq as never, forbiddenInboxRes as never);
-    await waitForResponse(
-      forbiddenInboxRes,
-      (response) => response.writableEnded,
-    );
-
-    expect(forbiddenInboxRes.statusCode).toBe(403);
-    expect(JSON.parse(forbiddenInboxRes.body)).toEqual({
-      error: 'A2A agent identity does not match the authenticated session.',
-    });
-
-    const inboxReq = makeRequest({
-      url: '/api/a2a/inbox?agentId=stub-b',
-      headers: { cookie: stubBSession },
-    });
-    const inboxRes = makeResponse();
-
-    state.handler(inboxReq as never, inboxRes as never);
-    await waitForResponse(inboxRes, (response) => response.writableEnded);
-
-    expect(inboxRes.statusCode).toBe(200);
-    expect(JSON.parse(inboxRes.body)).toEqual({
-      agentId: 'stub-b',
-      envelopes: [deliveredEnvelope],
-    });
   });
 
   test('routes voice webhooks using the configured webhookPath', async () => {
