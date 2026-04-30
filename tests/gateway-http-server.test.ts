@@ -548,8 +548,8 @@ async function importFreshHealth(options?: {
   );
   const a2aAgents = [
     { id: 'main', name: 'Main Agent', owner: 'team' },
-    { id: 'stub-a', name: 'Stub Coworker A', owner: 'team' },
-    { id: 'stub-b', name: 'Stub Coworker B', owner: 'team' },
+    { id: 'stub-a', name: 'Stub Agent A', owner: 'team' },
+    { id: 'stub-b', name: 'Stub Agent B', owner: 'team' },
   ];
   const findAgentConfig = vi.fn(
     (agentId?: string | null) =>
@@ -1934,8 +1934,8 @@ describe('gateway HTTP server', () => {
       body: {
         envelope: {
           id: 'msg-1',
-          sender_coworker_id: 'stub-a',
-          recipient_coworker_id: 'stub-b',
+          sender_agent_id: 'stub-a',
+          recipient_agent_id: 'stub-b',
           thread_id: 'thread-1',
           intent: 'handoff',
           content: 'Please take over the customer brief.',
@@ -1985,8 +1985,8 @@ describe('gateway HTTP server', () => {
       body: {
         envelope: {
           id: 'msg-forged',
-          sender_coworker_id: 'stub-a',
-          recipient_coworker_id: 'stub-b',
+          sender_agent_id: 'stub-a',
+          recipient_agent_id: 'stub-b',
           thread_id: 'thread-1',
           intent: 'chat',
           content: 'Forged.',
@@ -2010,8 +2010,8 @@ describe('gateway HTTP server', () => {
       headers: { cookie: stubASession },
       body: {
         id: 'msg-bare',
-        sender_coworker_id: 'stub-a',
-        recipient_coworker_id: 'stub-b',
+        sender_agent_id: 'stub-a',
+        recipient_agent_id: 'stub-b',
         thread_id: 'thread-1',
         intent: 'chat',
         content: 'Bare envelope.',
@@ -2031,8 +2031,37 @@ describe('gateway HTTP server', () => {
       error: 'Missing required request body field: envelope',
     });
 
+    const aliasEnvelopeReq = makeRequest({
+      method: 'POST',
+      url: '/api/a2a/sendMessage',
+      headers: { cookie: stubASession },
+      body: {
+        envelope: {
+          id: 'msg-alias',
+          sender_coworker_id: 'stub-a',
+          recipient_coworker_id: 'stub-b',
+          thread_id: 'thread-1',
+          intent: 'chat',
+          content: 'Old terminology.',
+          created_at: '2026-04-29T10:03:00.000Z',
+        },
+      },
+    });
+    const aliasEnvelopeRes = makeResponse();
+
+    state.handler(aliasEnvelopeReq as never, aliasEnvelopeRes as never);
+    await waitForResponse(
+      aliasEnvelopeRes,
+      (response) => response.writableEnded,
+    );
+
+    expect(aliasEnvelopeRes.statusCode).toBe(400);
+    expect(JSON.parse(aliasEnvelopeRes.body).error).toContain(
+      'unexpected field: sender_coworker_id',
+    );
+
     const forbiddenInboxReq = makeRequest({
-      url: '/api/a2a/inbox?coworkerId=stub-b',
+      url: '/api/a2a/inbox?agentId=stub-b',
       headers: { cookie: stubASession },
     });
     const forbiddenInboxRes = makeResponse();
@@ -2045,11 +2074,11 @@ describe('gateway HTTP server', () => {
 
     expect(forbiddenInboxRes.statusCode).toBe(403);
     expect(JSON.parse(forbiddenInboxRes.body)).toEqual({
-      error: 'A2A coworker identity does not match the authenticated session.',
+      error: 'A2A agent identity does not match the authenticated session.',
     });
 
     const inboxReq = makeRequest({
-      url: '/api/a2a/inbox?coworkerId=stub-b',
+      url: '/api/a2a/inbox?agentId=stub-b',
       headers: { cookie: stubBSession },
     });
     const inboxRes = makeResponse();
@@ -2059,7 +2088,7 @@ describe('gateway HTTP server', () => {
 
     expect(inboxRes.statusCode).toBe(200);
     expect(JSON.parse(inboxRes.body)).toEqual({
-      coworkerId: 'stub-b',
+      agentId: 'stub-b',
       envelopes: [deliveredEnvelope],
     });
   });

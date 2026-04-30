@@ -49,11 +49,22 @@ describe('A2A runtime API', () => {
       envelope.A2AEnvelopeValidationError,
     );
     expect(() => runtime.inbox('  ')).toThrow(
-      'Invalid A2A envelope: coworkerId is required',
+      'Invalid A2A envelope: agentId is required',
     );
+    expect(() =>
+      runtime.sendMessage({
+        id: 'msg-alias',
+        sender_coworker_id: 'stub-a',
+        recipient_coworker_id: 'stub-b',
+        thread_id: 'thread-1',
+        intent: 'chat',
+        content: 'Old terminology.',
+        created_at: '2026-04-29T10:00:00.000Z',
+      }),
+    ).toThrow('unexpected field: sender_coworker_id');
   });
 
-  test('delivers a message from stub coworker A to stub coworker B inbox', async () => {
+  test('delivers a message from stub agent A to stub agent B inbox', async () => {
     const runtimeConfig = await import('../src/config/runtime-config.ts');
     const runtime = await import('../src/a2a/runtime.ts');
 
@@ -67,8 +78,8 @@ describe('A2A runtime API', () => {
     const confirmation = runtime.sendMessage(
       {
         id: 'msg-1',
-        sender_coworker_id: 'stub-a',
-        recipient_coworker_id: 'stub-b',
+        sender_agent_id: 'stub-a',
+        recipient_agent_id: 'stub-b',
         thread_id: 'thread-1',
         intent: 'handoff',
         content: 'Please take over the customer brief.',

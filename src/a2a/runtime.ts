@@ -16,22 +16,7 @@ function normalizeRuntimeEnvelope(envelope: unknown): unknown {
   if (!isRecord(envelope)) {
     throw new A2AEnvelopeValidationError(['envelope must be an object']);
   }
-  const normalized = { ...envelope };
-  if (
-    normalized.sender_agent_id === undefined &&
-    normalized.sender_coworker_id !== undefined
-  ) {
-    normalized.sender_agent_id = normalized.sender_coworker_id;
-  }
-  if (
-    normalized.recipient_agent_id === undefined &&
-    normalized.recipient_coworker_id !== undefined
-  ) {
-    normalized.recipient_agent_id = normalized.recipient_coworker_id;
-  }
-  delete normalized.sender_coworker_id;
-  delete normalized.recipient_coworker_id;
-  return normalized;
+  return envelope;
 }
 
 export function sendMessage(
@@ -55,9 +40,9 @@ export function sendMessage(
   };
 }
 
-export function inbox(coworkerId: string): A2AEnvelope[] {
-  if (!coworkerId.trim()) {
-    throw new A2AEnvelopeValidationError(['coworkerId is required']);
+export function inbox(agentId: string): A2AEnvelope[] {
+  if (!agentId.trim()) {
+    throw new A2AEnvelopeValidationError(['agentId is required']);
   }
-  return listA2AInboxEnvelopes(coworkerId);
+  return listA2AInboxEnvelopes(agentId);
 }

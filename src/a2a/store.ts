@@ -182,8 +182,8 @@ function threadIdFromAssetPath(assetPath: string): string | null {
   }
 }
 
-export function listA2AInboxEnvelopes(coworkerId: string): A2AEnvelope[] {
-  const recipientAgentId = resolveA2AAgentId(coworkerId);
+export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
+  const recipientAgentId = resolveA2AAgentId(agentId);
   const envelopes: A2AEnvelope[] = [];
   for (const state of listRuntimeAssetRevisionStates('a2a')) {
     const threadId = threadIdFromAssetPath(state.assetPath);

@@ -1969,30 +1969,30 @@ function readA2ASendMessageEnvelope(body: unknown): unknown {
 }
 
 interface A2ARequestPrincipal {
-  coworkerId: string;
+  localAgentId: string;
   agentId: string;
 }
 
 function resolveA2ARequestPrincipal(req: IncomingMessage): A2ARequestPrincipal {
-  const coworkerId = resolveSessionAuthenticatedUserId(req);
-  if (!coworkerId) {
+  const localAgentId = resolveSessionAuthenticatedUserId(req);
+  if (!localAgentId) {
     throw new GatewayRequestError(
       403,
-      'A2A runtime API requires an authenticated coworker session.',
+      'A2A runtime API requires an authenticated agent session.',
     );
   }
 
   try {
     return {
-      coworkerId,
-      agentId: resolveA2AAgentId(coworkerId),
+      localAgentId,
+      agentId: resolveA2AAgentId(localAgentId),
     };
   } catch (error) {
     mapA2AError(error);
   }
 }
 
-function resolveA2ARequestCoworkerId(value: string): string {
+function resolveA2ARequestAgentId(value: string): string {
   try {
     return resolveA2AAgentId(value);
   } catch (error) {
@@ -2000,35 +2000,24 @@ function resolveA2ARequestCoworkerId(value: string): string {
   }
 }
 
-function assertA2APrincipalMatchesCoworker(
+function assertA2APrincipalMatchesAgent(
   principal: A2ARequestPrincipal,
-  coworkerId: string,
+  agentId: string,
 ): void {
-  if (principal.agentId === resolveA2ARequestCoworkerId(coworkerId)) return;
+  if (principal.agentId === resolveA2ARequestAgentId(agentId)) return;
   throw new GatewayRequestError(
     403,
-    'A2A coworker identity does not match the authenticated session.',
+    'A2A agent identity does not match the authenticated session.',
   );
 }
 
 function resolveA2AEnvelopeSenderId(envelope: Record<string, unknown>): string {
   return (
     normalizeOptionalString(
-      typeof envelope.sender_coworker_id === 'string'
-        ? envelope.sender_coworker_id
-        : undefined,
-    ) ||
-    normalizeOptionalString(
       typeof envelope.sender_agent_id === 'string'
         ? envelope.sender_agent_id
         : undefined,
-    ) ||
-    normalizeOptionalString(
-      typeof envelope.senderCoworkerId === 'string'
-        ? envelope.senderCoworkerId
-        : undefined,
-    ) ||
-    ''
+    ) || ''
   );
 }
 
@@ -2040,7 +2029,7 @@ function bindA2AEnvelopeSenderToPrincipal(
   const requestedSenderId = resolveA2AEnvelopeSenderId(envelope);
   if (
     requestedSenderId &&
-    resolveA2ARequestCoworkerId(requestedSenderId) !== principal.agentId
+    resolveA2ARequestAgentId(requestedSenderId) !== principal.agentId
   ) {
     throw new GatewayRequestError(
       403,
@@ -2052,8 +2041,6 @@ function bindA2AEnvelopeSenderToPrincipal(
     ...envelope,
     sender_agent_id: principal.agentId,
   };
-  delete boundEnvelope.sender_coworker_id;
-  delete boundEnvelope.senderCoworkerId;
   return boundEnvelope;
 }
 
@@ -2067,7 +2054,7 @@ async function handleApiA2ASendMessage(
   const boundEnvelope = bindA2AEnvelopeSenderToPrincipal(envelope, principal);
   try {
     const confirmation = sendA2AMessage(boundEnvelope, {
-      actor: principal.coworkerId,
+      actor: principal.localAgentId,
       route: 'api.a2a.sendMessage',
       source: 'gateway-http',
     });
@@ -2082,22 +2069,22 @@ function handleApiA2AInbox(
   res: ServerResponse,
   url: URL,
 ): void {
-  const coworkerId =
-    normalizeOptionalString(url.searchParams.get('coworkerId')) ||
-    normalizeOptionalString(url.searchParams.get('coworker_id'));
-  if (!coworkerId) {
+  const agentId =
+    normalizeOptionalString(url.searchParams.get('agentId')) ||
+    normalizeOptionalString(url.searchParams.get('agent_id'));
+  if (!agentId) {
     throw new GatewayRequestError(
       400,
-      'Missing required query parameter: coworkerId',
+      'Missing required query parameter: agentId',
     );
   }
   const principal = resolveA2ARequestPrincipal(req);
-  assertA2APrincipalMatchesCoworker(principal, coworkerId);
+  assertA2APrincipalMatchesAgent(principal, agentId);
 
   try {
     sendJson(res, 200, {
-      coworkerId,
-      envelopes: readA2AInbox(coworkerId),
+      agentId,
+      envelopes: readA2AInbox(agentId),
     });
   } catch (error) {
     mapA2AError(error);
