@@ -47,6 +47,13 @@ import {
 import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
 import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
+  initSignal,
+  type SignalReplyFn,
+  sendToSignalChat,
+  shutdownSignal,
+} from '../channels/signal/runtime.js';
+import { isSignalChannelId } from '../channels/signal/target.js';
+import {
   initSlack,
   sendSlackFileToTarget,
   sendToSlackTarget,
@@ -96,6 +103,7 @@ import {
   SLACK_BOT_TOKEN,
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
+import type { RuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
   deleteQueuedProactiveMessage,
@@ -120,10 +128,19 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import {
+  type ArtifactMetadata,
+  type EscalationTarget,
+  normalizeEscalationTarget,
+} from '../types/execution.js';
+import {
+  startTokenUsageBuffer,
+  stopTokenUsageBuffer,
+} from '../usage/token-usage-buffer.js';
 import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
+  type ApprovalPresentation,
   createApprovalPresentation,
   getApprovalPromptText,
   getApprovalVisibleText,
@@ -152,7 +169,11 @@ import {
   handleGatewayCommand,
   resumeEnabledFullAutoSessions,
 } from './gateway-service.js';
-import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
+import type {
+  GatewayChatApprovalEvent,
+  GatewayChatRequest,
+  GatewayChatResult,
+} from './gateway-types.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
 import {
   getDreamTimezone,
@@ -227,6 +248,24 @@ function hasTelegramConfigChanged(
   );
 }
 
+function hasSignalConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['signal'],
+  prev: ReturnType<typeof getConfigSnapshot>['signal'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.daemonUrl !== prev.daemonUrl ||
+    next.account !== prev.account ||
+    next.dmPolicy !== prev.dmPolicy ||
+    next.groupPolicy !== prev.groupPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    !equalStringSets(next.groupAllowFrom, prev.groupAllowFrom) ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.reconnectIntervalMs !== prev.reconnectIntervalMs ||
+    next.outboundDelayMs !== prev.outboundDelayMs
+  );
+}
+
 function hasSlackConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['slack'],
   prev: ReturnType<typeof getConfigSnapshot>['slack'],
@@ -268,6 +307,87 @@ const DISCORD_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const SLACK_APPROVAL_PRESENTATION = createApprovalPresentation('buttons');
 const TEAMS_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
+function formatRoutedApprovalNotice(
+  approval: { approvalId: string },
+  target: EscalationTarget,
+): string {
+  return `Escalation routed to ${target.recipient} on ${target.channel}. Approval ID: ${approval.approvalId}`;
+}
+
+type ApprovalNotificationSender = (params: {
+  approval: Pick<GatewayChatApprovalEvent, 'approvalId' | 'prompt' | 'summary'>;
+  presentation: ApprovalPresentation;
+  userId: string;
+}) => Promise<{ disableButtons: () => Promise<void> } | null>;
+
+async function handlePendingApprovalRouting(params: {
+  pendingApproval: GatewayChatApprovalEvent;
+  responseText: string;
+  sessionId: string;
+  userId: string;
+  channelId: string;
+  buttonPresentation: ApprovalPresentation;
+  sendApprovalNotification?: ApprovalNotificationSender;
+  sendText: (text: string) => Promise<void>;
+  formatTextPrompt?: (input: {
+    approval: GatewayChatApprovalEvent;
+    approvalUserId: string;
+    responseText: string;
+    storedPrompt: string;
+  }) => string;
+}): Promise<{ cleanup: { disableButtons: () => Promise<void> } | null }> {
+  const escalationTarget = normalizeEscalationTarget(
+    params.pendingApproval.escalationTarget,
+  );
+  const approvalUserId = escalationTarget?.recipient || params.userId;
+  const routedTarget =
+    escalationTarget && escalationTarget.channel !== params.channelId
+      ? escalationTarget
+      : null;
+  const storedPrompt = getApprovalPromptText(
+    params.pendingApproval,
+    params.responseText,
+  );
+  const presentation =
+    params.sendApprovalNotification && !routedTarget
+      ? params.buttonPresentation
+      : createApprovalPresentation('text');
+  let cleanup: { disableButtons: () => Promise<void> } | null = null;
+
+  if (params.sendApprovalNotification && !routedTarget) {
+    cleanup = await params.sendApprovalNotification({
+      approval: params.pendingApproval,
+      presentation,
+      userId: approvalUserId,
+    });
+  } else if (routedTarget) {
+    await params.sendText(
+      formatRoutedApprovalNotice(params.pendingApproval, routedTarget),
+    );
+  } else {
+    await params.sendText(
+      params.formatTextPrompt?.({
+        approval: params.pendingApproval,
+        approvalUserId,
+        responseText: params.responseText,
+        storedPrompt,
+      }) ?? storedPrompt,
+    );
+  }
+
+  await rememberPendingApproval({
+    sessionId: params.sessionId,
+    approvalId: params.pendingApproval.approvalId,
+    prompt: storedPrompt,
+    userId: approvalUserId,
+    expiresAt: params.pendingApproval.expiresAt,
+    presentation,
+    disableButtons: cleanup?.disableButtons ?? null,
+  });
+
+  return { cleanup };
+}
+
 function scheduleNextMemoryConsolidationRun(): void {
   if (!isMemoryConsolidationEnabled()) {
     logger.info('Memory consolidation scheduler disabled');
@@ -302,6 +422,7 @@ function logGatewayStartup(params: {
   channels: {
     discord: boolean;
     msteams: boolean;
+    signal: boolean;
     slack: boolean;
     email: boolean;
     imessage: boolean;
@@ -831,6 +952,41 @@ async function sendProactiveMessageNow(
     return;
   }
 
+  if (isSignalChannelId(channelId)) {
+    const signalConfig = getConfigSnapshot().signal;
+    if (
+      !signalConfig.enabled ||
+      !signalConfig.daemonUrl ||
+      !signalConfig.account
+    ) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Signal message suppressed: Signal channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToSignalChat(channelId, text);
+      }
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'Signal channel does not yet support proactive attachments; dropping artifacts',
+        );
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Signal chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
   if (isTelegramChannelId(channelId)) {
     const telegramConfig = getConfigSnapshot().telegram;
     const hasBotToken = hasTelegramBotToken();
@@ -1035,7 +1191,7 @@ async function startDiscordIntegration(): Promise<boolean> {
                 },
                 onProactiveMessage: async (message) => {
                   await deliverProactiveMessage(
-                    channelId,
+                    message.channelId || channelId,
                     message.text,
                     'delegate',
                     message.artifacts,
@@ -1087,31 +1243,17 @@ async function startDiscordIntegration(): Promise<boolean> {
             result.memoryCitations,
           );
           if (pendingApproval) {
-            const storedPrompt = getApprovalPromptText(
+            const { cleanup } = await handlePendingApprovalRouting({
               pendingApproval,
               responseText,
-            );
-            const approvalPresentation = context.sendApprovalNotification
-              ? DISCORD_APPROVAL_PRESENTATION
-              : createApprovalPresentation('text');
-            let cleanup: { disableButtons: () => Promise<void> } | null = null;
-            if (context.sendApprovalNotification) {
-              cleanup = await context.sendApprovalNotification({
-                approval: pendingApproval,
-                presentation: approvalPresentation,
-                userId,
-              });
-            } else {
-              await context.stream.finalize(`<@${userId}> ${storedPrompt}`);
-            }
-            await rememberPendingApproval({
               sessionId: effectiveSessionId,
-              approvalId: pendingApproval.approvalId,
-              prompt: storedPrompt,
               userId,
-              expiresAt: pendingApproval.expiresAt,
-              presentation: approvalPresentation,
-              disableButtons: cleanup?.disableButtons ?? null,
+              channelId,
+              buttonPresentation: DISCORD_APPROVAL_PRESENTATION,
+              sendApprovalNotification: context.sendApprovalNotification,
+              sendText: (text) => context.stream.finalize(text),
+              formatTextPrompt: ({ approvalUserId, storedPrompt }) =>
+                `<@${approvalUserId}> ${storedPrompt}`,
             });
             if (cleanup) {
               await context.stream.discard();
@@ -1330,26 +1472,23 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           : '';
         const pendingApproval = extractGatewayChatApprovalEvent(result);
         if (pendingApproval) {
-          const storedPrompt = getApprovalPromptText(
+          await handlePendingApprovalRouting({
             pendingApproval,
             responseText,
-          );
-          const visiblePrompt = getApprovalVisibleText(
-            pendingApproval,
-            TEAMS_APPROVAL_PRESENTATION,
-            responseText,
-          );
-          await rememberPendingApproval({
             sessionId: effectiveSessionId,
-            approvalId: pendingApproval.approvalId,
-            prompt: storedPrompt,
             userId,
-            expiresAt: pendingApproval.expiresAt,
-            presentation: TEAMS_APPROVAL_PRESENTATION,
+            channelId,
+            buttonPresentation: TEAMS_APPROVAL_PRESENTATION,
+            sendText: (text) => context.stream.finalize(text),
+            formatTextPrompt: ({ approval, responseText }) => {
+              const visiblePrompt = getApprovalVisibleText(
+                approval,
+                TEAMS_APPROVAL_PRESENTATION,
+                responseText,
+              );
+              return `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`;
+            },
           });
-          await context.stream.finalize(
-            `${visiblePrompt}\n\nApproval required. Reply \`1\` to allow once, \`2\` to allow for this session, \`3\` to allow for this agent, \`4\` to allow for all, or \`5\` to deny. You can also use \`/approve view\` or \`/approve [1|2|3|4|5]\`.`,
-          );
           return;
         }
 
@@ -1483,7 +1622,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -1634,7 +1773,7 @@ async function startEmailIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -1803,7 +1942,7 @@ async function startTelegramIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -1876,6 +2015,156 @@ async function startTelegramIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startSignalIntegration(): Promise<boolean> {
+  const signalConfig = getConfigSnapshot().signal;
+  const hasInboundPolicy =
+    signalConfig.dmPolicy !== 'disabled' ||
+    signalConfig.groupPolicy !== 'disabled';
+
+  if (!signalConfig.enabled) {
+    logger.info('Signal integration disabled: signal.enabled=false');
+    return false;
+  }
+  if (!hasInboundPolicy) {
+    logger.info('Signal integration disabled: transport is off');
+    return false;
+  }
+  if (!signalConfig.daemonUrl) {
+    logger.info('Signal integration disabled: signal.daemonUrl is not set');
+    return false;
+  }
+  if (!signalConfig.account) {
+    logger.info('Signal integration disabled: signal.account is not set');
+    return false;
+  }
+
+  try {
+    await initSignal(
+      async (
+        sessionId,
+        guildId,
+        channelId,
+        userId,
+        username,
+        content,
+        reply: SignalReplyFn,
+        context,
+      ) => {
+        try {
+          const implicitApprovalArgs = resolveImplicitNumericApprovalArgs({
+            sessionId,
+            userId,
+            content,
+          });
+          if (implicitApprovalArgs) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            await handleTextChannelCommand({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              args: implicitApprovalArgs,
+              reply: bridgedReply,
+            });
+            return;
+          }
+
+          const slashCommands = resolveTextChannelSlashCommands(content);
+          if (slashCommands) {
+            const bridgedReply: ReplyFn = async (message) => {
+              await reply(message);
+            };
+            for (const args of slashCommands) {
+              await handleTextChannelCommand({
+                sessionId,
+                guildId,
+                channelId,
+                userId,
+                username,
+                args,
+                reply: bridgedReply,
+              });
+            }
+            return;
+          }
+
+          const result = normalizePlaceholderToolReply(
+            await handleGatewayMessage({
+              sessionId,
+              guildId,
+              channelId,
+              userId,
+              username,
+              content,
+              onProactiveMessage: async (message) => {
+                await deliverProactiveMessage(
+                  message.channelId || channelId,
+                  message.text,
+                  'delegate',
+                  message.artifacts,
+                );
+              },
+              abortSignal: context.abortSignal,
+              source: 'signal',
+            }),
+          );
+          if (result.status === 'error') {
+            await reply(formatChannelGatewayFailure(result.error));
+            return;
+          }
+
+          const cleanedResultText = stripSilentToken(
+            String(result.result || ''),
+          );
+          const artifacts = result.artifacts || [];
+          if (isSilentReply(result.result)) {
+            return;
+          }
+          if (!cleanedResultText.trim() && artifacts.length === 0) {
+            return;
+          }
+
+          const effectiveSessionId = result.sessionId || sessionId;
+          const showMode = normalizeSessionShowMode(
+            memoryService.getSessionById(effectiveSessionId)?.show_mode,
+          );
+          if (cleanedResultText.trim()) {
+            const responseText = buildResponseText(
+              cleanedResultText,
+              sessionShowModeShowsTools(showMode)
+                ? result.toolsUsed
+                : undefined,
+            );
+            await reply(responseText);
+          }
+          if (artifacts.length > 0) {
+            logger.warn(
+              { channelId, artifactCount: artifacts.length },
+              'Signal channel does not yet support outbound artifacts; dropping',
+            );
+          }
+        } catch (error) {
+          const text = error instanceof Error ? error.message : String(error);
+          logger.error(
+            { error, sessionId, channelId },
+            'Signal message handling failed',
+          );
+          await reply(formatChannelGatewayFailure(text));
+        }
+      },
+    );
+  } catch (error) {
+    logger.warn({ error }, 'Signal integration failed to start');
+    return false;
+  }
+
+  logger.info('Signal integration started inside gateway');
+  return true;
+}
+
 function trimValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
@@ -1926,7 +2215,7 @@ async function startSlackIntegration(): Promise<boolean> {
             reply: textReply,
             onProactiveMessage: async (message) => {
               await deliverProactiveMessage(
-                channelId,
+                message.channelId || channelId,
                 message.text,
                 'delegate',
                 message.artifacts,
@@ -1981,31 +2270,15 @@ async function startSlackIntegration(): Promise<boolean> {
               )
             : '';
           if (pendingApproval) {
-            const storedPrompt = getApprovalPromptText(
+            await handlePendingApprovalRouting({
               pendingApproval,
               responseText,
-            );
-            const approvalPresentation = context.sendApprovalNotification
-              ? SLACK_APPROVAL_PRESENTATION
-              : createApprovalPresentation('text');
-            let cleanup: { disableButtons: () => Promise<void> } | null = null;
-            if (context.sendApprovalNotification) {
-              cleanup = await context.sendApprovalNotification({
-                approval: pendingApproval,
-                presentation: approvalPresentation,
-                userId,
-              });
-            } else {
-              await reply(storedPrompt);
-            }
-            await rememberPendingApproval({
               sessionId: effectiveSessionId,
-              approvalId: pendingApproval.approvalId,
-              prompt: storedPrompt,
               userId,
-              expiresAt: pendingApproval.expiresAt,
-              presentation: approvalPresentation,
-              disableButtons: cleanup?.disableButtons ?? null,
+              channelId,
+              buttonPresentation: SLACK_APPROVAL_PRESENTATION,
+              sendApprovalNotification: context.sendApprovalNotification,
+              sendText: reply,
             });
             return;
           }
@@ -2106,6 +2379,31 @@ async function refreshTelegramIntegrationForConfigChange(
     );
   });
   await startTelegramIntegration();
+}
+
+async function refreshSignalIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasSignalConfigChanged(next.signal, prev.signal)) return;
+
+  logger.info(
+    {
+      enabled: next.signal.enabled,
+      daemonUrl: next.signal.daemonUrl,
+      account: next.signal.account,
+      dmPolicy: next.signal.dmPolicy,
+      groupPolicy: next.signal.groupPolicy,
+    },
+    'Config changed, restarting Signal integration',
+  );
+  await shutdownSignal().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Signal runtime during config-change restart',
+    );
+  });
+  await startSignalIntegration();
 }
 
 async function refreshSlackIntegrationForConfigChange(
@@ -2409,7 +2707,7 @@ async function startIMessageIntegration(): Promise<boolean> {
               media,
               onProactiveMessage: async (message) => {
                 await deliverProactiveMessage(
-                  channelId,
+                  message.channelId || channelId,
                   message.text,
                   'delegate',
                   message.artifacts,
@@ -2486,6 +2784,42 @@ async function startIMessageIntegration(): Promise<boolean> {
   return true;
 }
 
+const SHUTDOWN_STEP_TIMEOUT_MS = 5_000;
+
+async function runShutdownStep(
+  step: string,
+  run: () => Promise<void> | void,
+  timeoutMs = SHUTDOWN_STEP_TIMEOUT_MS,
+): Promise<void> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const operation = Promise.resolve()
+    .then(run)
+    .then(
+      () => ({ status: 'done' as const }),
+      (error) => ({ status: 'error' as const, error }),
+    );
+  const timeout = new Promise<{ status: 'timeout' }>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([operation, timeout]);
+    if (result.status === 'error') {
+      logger.debug(
+        { error: result.error, step },
+        'Gateway shutdown step failed',
+      );
+    } else if (result.status === 'timeout') {
+      logger.warn(
+        { step, timeoutMs },
+        'Gateway shutdown step timed out; continuing',
+      );
+    }
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 function setupShutdown(broadcastShutdown: () => void): void {
   let shuttingDown = false;
   const shutdown = async (opts?: { drain?: boolean }) => {
@@ -2496,39 +2830,19 @@ function setupShutdown(broadcastShutdown: () => void): void {
       detachConfigListener();
       detachConfigListener = null;
     }
-    await setDiscordMaintenancePresence().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to set Discord maintenance presence during shutdown',
-      );
-    });
-    await shutdownEmail().catch((error) => {
-      logger.debug({ error }, 'Failed to stop email runtime during shutdown');
-    });
-    await shutdownSlack().catch((error) => {
-      logger.debug({ error }, 'Failed to stop Slack runtime during shutdown');
-    });
-    await shutdownTelegram().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop Telegram runtime during shutdown',
-      );
-    });
-    await shutdownWhatsApp().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop WhatsApp runtime during shutdown',
-      );
-    });
-    await shutdownVoice({ drain: opts?.drain }).catch((error) => {
-      logger.debug({ error }, 'Failed to stop Voice runtime during shutdown');
-    });
-    await shutdownIMessage().catch((error) => {
-      logger.debug(
-        { error },
-        'Failed to stop iMessage runtime during shutdown',
-      );
-    });
+    await runShutdownStep(
+      'set Discord maintenance presence',
+      setDiscordMaintenancePresence,
+    );
+    await runShutdownStep('stop email runtime', shutdownEmail);
+    await runShutdownStep('stop Signal runtime', shutdownSignal);
+    await runShutdownStep('stop Slack runtime', shutdownSlack);
+    await runShutdownStep('stop Telegram runtime', shutdownTelegram);
+    await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
+    await runShutdownStep('stop Voice runtime', () =>
+      shutdownVoice({ drain: opts?.drain }),
+    );
+    await runShutdownStep('stop iMessage runtime', shutdownIMessage);
     if (opts?.drain) {
       broadcastShutdown();
       stopAllExecutions();
@@ -2541,21 +2855,22 @@ function setupShutdown(broadcastShutdown: () => void): void {
         );
       }
     }
-    await runManagedMediaCleanup('shutdown');
+    await runShutdownStep('run managed media cleanup', () =>
+      runManagedMediaCleanup('shutdown'),
+    );
     stopHeartbeat();
     stopObservabilityIngest();
+    await stopTokenUsageBuffer().catch((error) => {
+      logger.debug({ error }, 'Failed to drain token usage buffer at shutdown');
+    });
     stopDiscoveryLoop();
     if (!opts?.drain) {
       stopAllExecutions();
     }
-    await stopGatewayPlugins().catch((error) => {
-      logger.debug({ error }, 'Failed to stop plugins during shutdown');
-    });
+    await runShutdownStep('stop gateway plugins', stopGatewayPlugins);
     stopScheduler();
     stopMemoryConsolidationScheduler();
-    await shutdownOtel().catch((error) => {
-      logger.debug({ error }, 'Failed to shut down OTel during shutdown');
-    });
+    await runShutdownStep('shut down OTel', shutdownOtel);
     if (proactiveFlushTimer) {
       clearInterval(proactiveFlushTimer);
       proactiveFlushTimer = null;
@@ -2739,9 +3054,34 @@ function startOrRestartMemoryConsolidationScheduler(): void {
   scheduleNextMemoryConsolidationRun();
 }
 
+function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
+  const warmPool = config.warmPool;
+  if (!warmPool.enabled || warmPool.maxIdlePerAgent <= 0) return;
+  logger.warn(
+    {
+      sandboxMode: config.sandboxMode,
+      minIdlePerActiveAgent: warmPool.minIdlePerActiveAgent,
+      maxIdlePerAgent: warmPool.maxIdlePerAgent,
+      effectiveMinIdlePerActiveAgent: Math.min(
+        warmPool.minIdlePerActiveAgent,
+        warmPool.maxIdlePerAgent,
+      ),
+      memoryPressureRssMb: warmPool.memoryPressureRssMb,
+      coldStartBudgetMs: warmPool.coldStartBudgetMs,
+      warmScope:
+        'runtime process only; request-specific MCP, plugin, media, and model setup still runs after input',
+      warmFill:
+        'filled after recent traffic for an agent; gateway startup does not pre-spawn workers',
+      disableConfig: 'container.warmPool.enabled=false',
+    },
+    'Warm process pool enabled; idle workers prewarm runtime process startup only',
+  );
+}
+
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  logWarmProcessPoolStartup(getConfigSnapshot().container);
   validateGatewayPromptEnvDefaults();
   initDatabase();
   listAgents();
@@ -2754,6 +3094,7 @@ async function main(): Promise<void> {
   setupShutdown(httpServer.broadcastShutdown.bind(httpServer));
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
+  const signalActive = await startSignalIntegration();
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
@@ -2763,6 +3104,7 @@ async function main(): Promise<void> {
 
   startOrRestartHeartbeat();
   startObservabilityIngest();
+  startTokenUsageBuffer();
   startDiscoveryLoop();
   void localBackendsProbe.get().catch((err) => {
     logger.warn({ err }, 'Startup warm-up of local backends probe failed');
@@ -2785,6 +3127,12 @@ async function main(): Promise<void> {
         );
       },
     );
+    void refreshSignalIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Signal integration restart failed after config change',
+      );
+    });
     void refreshSlackIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -2877,6 +3225,7 @@ async function main(): Promise<void> {
     channels: {
       discord: discordActive,
       msteams: msteamsActive,
+      signal: signalActive,
       slack: slackActive,
       email: emailActive,
       imessage: imessageActive,

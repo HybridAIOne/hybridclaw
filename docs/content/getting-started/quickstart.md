@@ -69,6 +69,8 @@ With the gateway running locally:
 - chat UI: `http://127.0.0.1:9090/chat`
 - agent/session dashboard: `http://127.0.0.1:9090/agents`
 - admin console: `http://127.0.0.1:9090/admin`
+- statistics: `http://127.0.0.1:9090/admin/statistics`
+- agent scoreboard: `http://127.0.0.1:9090/admin/agent-scoreboard`
 - docs: `http://127.0.0.1:9090/docs`
 
 If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
@@ -78,11 +80,17 @@ For access from another machine, keep the gateway on loopback and follow
 The `/chat` sidebar keeps recent conversations and can search session titles
 with contextual snippets, so you can jump back into older browser sessions
 without scrolling through the default recent list.
+The chat header also shows a live context-usage ring. Use `/context` for the
+full context snapshot, and use `/compact` when the ring shows that a long
+session is approaching its model window.
 
 Use `/admin/channels` for transport setup, per-channel instructions, and
 managed channel secrets, and `/admin/agents` when you need to edit an agent's
 allowlisted workspace markdown files, inspect saved revisions, or restore an
 earlier version.
+Use `/admin/statistics` for activity and cost trends, and
+`/admin/agent-scoreboard` to review observed skill scores, reliability, timing,
+and CV links.
 
 ## Ground A Prompt With Files Or Repo Context
 
@@ -109,6 +117,8 @@ The gateway auto-connects configured channels:
   `MSTEAMS_APP_PASSWORD` is saved
 - Discord when `DISCORD_TOKEN` is set
 - Telegram when `telegram.enabled` is true and `TELEGRAM_BOT_TOKEN` is set
+- Signal when `signal.enabled` is true and a reachable `signal-cli` compatible
+  daemon plus account are configured
 - Email when `email.enabled` is true and an email password is configured,
   typically through the stored `EMAIL_PASSWORD` secret
 - WhatsApp when linked auth exists under `~/.hybridclaw/credentials/whatsapp`

@@ -8,6 +8,7 @@ export function printMainUsage(): void {
   Commands:
   agent      Configure agents or manage portable agent archives
   auth       Unified provider login/logout/status
+  backup     Create or restore a full-state backup of ~/.hybridclaw
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
@@ -15,7 +16,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Slack, Telegram, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, Signal, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -135,7 +136,7 @@ Interactive slash commands inside TUI:
   /compact
   /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
   /eval [list|env|<suite>|<command...>]
-  /config   /config check   /config reload   /config set <key> <value>   /config revisions
+  /config   /config check   /config reload   /config get <key>   /config set <key> <value>
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
@@ -287,6 +288,7 @@ Commands:
   hybridclaw channels slack manifest [--format <yaml|json>]
   hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
+  hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
@@ -297,6 +299,7 @@ Notes:
   - Telegram setup stores \`TELEGRAM_BOT_TOKEN\` only when \`--token\` is provided or pasted interactively.
   - Telegram defaults to inbound deny-by-default: without \`--allow-from\` or \`--dm-policy open\`, DMs stay disabled.
   - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
+  - Signal setup uses a signal-cli linked device; link with \`signal-cli link -n HybridClaw\`, start the daemon, then configure HybridClaw to connect to it.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
@@ -537,6 +540,12 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
+  verify-usage-batch <batchId>       Verify a token-usage batch hash
+  scan-leaks [sessionId] [--quiet|--all] [--level <sev>] [--type <list>] [--json]
+                                     Scan audit logs for confidential-info leaks. Verbosity: --quiet | (default) | --all.
+                                     Filters: --level critical|high|medium|low (≥ floor),
+                                              --type in,out,tool,url (allowlist).
+                                     Rules from ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global).
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
@@ -587,7 +596,12 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <source>
   hybridclaw skill install <skill-name> <dependency>
+  hybridclaw skill upgrade <source>
+  hybridclaw skill uninstall <skill-name>
+  hybridclaw skill revisions <skill-name>
+  hybridclaw skill rollback <skill-name> <revision-id>
   hybridclaw skill setup <skill-name>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
@@ -599,7 +613,9 @@ Commands:
 
 Notes:
   - \`list\` shows declared dependency ids from skill frontmatter.
-  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
+  - \`install <source>\` installs a packaged skill into \`~/.hybridclaw/skills\`, records a package manifest, and snapshots it for rollback.
+  - \`install <skill> <dependency>\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter.
+  - \`upgrade\`, \`uninstall\`, \`revisions\`, and \`rollback\` manage packaged skills through audited lifecycle records.
   - \`setup\` installs every declared dependency for a skill in order.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
@@ -610,8 +626,7 @@ Notes:
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
-  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
+  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.`);
 }
 
 export function printToolUsage(): void {
@@ -669,12 +684,13 @@ Notes:
 }
 
 export function printConfigUsage(): void {
-  console.log(`Usage: hybridclaw config [check|reload|set <key> <value>]
+  console.log(`Usage: hybridclaw config [check|reload|get <key>|set <key> <value>]
 
 Commands:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
+  hybridclaw config get <key>
   hybridclaw config set <key> <value>
   hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 
@@ -682,6 +698,7 @@ Examples:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
+  hybridclaw config get hybridai.maxTokens
   hybridclaw config set hybridai.maxTokens 8192
   hybridclaw config revisions
   hybridclaw config revisions rollback 12
@@ -692,9 +709,29 @@ Notes:
   - \`config\` prints the current runtime config from ${runtimeConfigPath()}.
   - \`check\` validates only the runtime config file itself.
   - \`reload\` forces an immediate in-process hot reload from disk, then runs a config check.
+  - \`get\` prints one existing dotted key path from the current runtime config.
   - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
   - \`revisions\` lists saved config snapshots, including the actor and route that caused each tracked change.
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
+}
+
+export function printBackupUsage(): void {
+  console.log(`Usage: hybridclaw backup [options]
+       hybridclaw backup restore <archive.zip> [--force]
+
+Commands:
+  hybridclaw backup                       Create a timestamped backup of the HybridClaw runtime home
+  hybridclaw backup --output <path>       Write the backup archive to a specific path
+  hybridclaw backup restore <archive>     Restore the runtime home from a backup archive
+  hybridclaw backup restore <archive> --force   Overwrite without prompting
+
+Notes:
+  - Backups include everything under the HybridClaw runtime home (default: ~/.hybridclaw, or $HYBRIDCLAW_DATA_DIR when set).
+  - SQLite databases are snapshotted via the SQLite backup API, so WAL-mode databases produce consistent copies.
+  - Ephemeral state is excluded: WAL/SHM sidecars, cache/, container-image-state/, evals/, migration-backups/, gateway.pid, cron.pid, node_modules, and .git.
+  - The archive name defaults to hybridclaw-backup-YYYYMMDD-HHMMSS.zip in the current directory.
+  - \`backup restore\` prompts before overwriting an existing runtime home; pass \`--force\` to skip the prompt (for scripts and non-interactive shells).
+  - Restore validates an embedded manifest plus \`config.json\` and \`credentials.json\` marker files before replacing any data.`);
 }
 
 export function printSecretUsage(): void {
@@ -769,6 +806,7 @@ export function printHelpUsage(): void {
 Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
+  backup      Help for full-state backup and restore commands
   gateway     Help for gateway lifecycle and passthrough commands
   eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
@@ -840,6 +878,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'auth':
       printAuthUsage();
+      return true;
+    case 'backup':
+      printBackupUsage();
       return true;
     case 'gateway':
       printGatewayUsage();

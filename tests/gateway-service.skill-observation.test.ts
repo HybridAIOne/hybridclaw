@@ -25,6 +25,9 @@ test('handleGatewayMessage records observations for implicitly activated single-
   const { updateRuntimeConfig } = await import(
     '../src/config/runtime-config.ts'
   );
+  const { subscribeSkillRunEvents } = await import(
+    '../src/skills/skill-run-events.ts'
+  );
   const { handleGatewayMessage } = await import(
     '../src/gateway/gateway-chat-service.ts'
   );
@@ -32,6 +35,11 @@ test('handleGatewayMessage records observations for implicitly activated single-
   initDatabase({ quiet: true });
   updateRuntimeConfig((draft) => {
     draft.adaptiveSkills.observationEnabled = true;
+  });
+
+  const receivedEvents: unknown[] = [];
+  const unsubscribe = subscribeSkillRunEvents((event) => {
+    receivedEvents.push(event);
   });
 
   runAgentMock.mockResolvedValue({
@@ -48,19 +56,39 @@ test('handleGatewayMessage records observations for implicitly activated single-
         isError: true,
       },
     ],
+    tokenUsage: {
+      modelCalls: 1,
+      apiUsageAvailable: true,
+      apiPromptTokens: 12,
+      apiCompletionTokens: 5,
+      apiTotalTokens: 17,
+      apiCacheUsageAvailable: false,
+      apiCacheReadTokens: 0,
+      apiCacheWriteTokens: 0,
+      estimatedPromptTokens: 10,
+      estimatedCompletionTokens: 4,
+      estimatedTotalTokens: 14,
+      costUsd: 0.00042,
+    },
     error: 'resolved the wrong album',
   });
 
-  const result = await handleGatewayMessage({
-    sessionId: 'session-implicit-apple-music',
-    guildId: null,
-    channelId: 'web',
-    userId: 'user-1',
-    username: 'alice',
-    content: 'Play ... But Seriously by Phil Collins',
-    model: 'test-model',
-    chatbotId: 'bot-1',
-  });
+  let result!: Awaited<ReturnType<typeof handleGatewayMessage>>;
+  try {
+    result = await handleGatewayMessage({
+      sessionId: 'session-implicit-apple-music',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'alice',
+      content: 'Play ... But Seriously by Phil Collins',
+      model: 'test-model',
+      chatbotId: 'bot-1',
+      agentId: 'agent-alice',
+    });
+  } finally {
+    unsubscribe();
+  }
 
   expect(result.status).toBe('error');
   expect(getSkillObservationSummary({ skillName: 'apple-music' })).toEqual([
@@ -70,6 +98,33 @@ test('handleGatewayMessage records observations for implicitly activated single-
       failure_count: 1,
       tool_calls_attempted: 1,
       tool_calls_failed: 1,
+    }),
+  ]);
+  expect(receivedEvents).toEqual([
+    expect.objectContaining({
+      type: 'skill_run',
+      skill_id: 'apple-music',
+      agent_id: 'agent-alice',
+      session_id: 'session-implicit-apple-music',
+      model: 'test-model',
+      latency_ms: expect.any(Number),
+      cost_usd: 0.00042,
+      errors: ['resolved the wrong album'],
+      tokens: expect.objectContaining({
+        prompt: 12,
+        completion: 5,
+        total: 17,
+        modelCalls: 1,
+        apiUsageAvailable: true,
+      }),
+      input: {
+        content: expect.stringContaining('Phil Collins'),
+        truncated: false,
+      },
+      output: {
+        content: '{"status":"error","result":null}',
+        truncated: false,
+      },
     }),
   ]);
 });

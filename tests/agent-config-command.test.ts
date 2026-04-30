@@ -36,6 +36,10 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
       model: 'gpt-5.4-mini',
       chatbotId: 'bot-felix',
       enableRag: true,
+      role: 'Support Lead',
+      reports_to: 'main',
+      delegates_to: ['main', 'main'],
+      peers: ['main'],
       skills: ['memory', 'memory', 'docs'],
       markdown: {
         'IDENTITY.md': '# Felix\n',
@@ -52,6 +56,10 @@ test('agent config command accepts direct JSON and overwrites markdown files', a
     model: 'gpt-5.4-mini',
     chatbotId: 'bot-felix',
     enableRag: true,
+    role: 'Support Lead',
+    reportsTo: 'main',
+    delegatesTo: ['main'],
+    peers: ['main'],
     skills: ['memory', 'docs'],
   });
   expect(
@@ -220,7 +228,62 @@ test('agent config command rejects invalid field types without clearing existing
     enableRag: true,
   });
 
+  await expect(
+    handleAgentPackageCommand([
+      'config',
+      JSON.stringify({
+        id: 'felix',
+        delegates_to: 'triage',
+      }),
+    ]),
+  ).rejects.toThrow('`delegatesTo` must be an array of strings or null.');
+  expect(getAgentById('felix')).toMatchObject({
+    id: 'felix',
+    name: 'Felix',
+    enableRag: true,
+  });
+
   logSpy.mockRestore();
+});
+
+test('agent config command rejects reports_to cycles before persisting', async () => {
+  setupHome();
+
+  const { handleAgentPackageCommand } = await import(
+    '../src/cli/agent-command.ts'
+  );
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await handleAgentPackageCommand([
+    'config',
+    JSON.stringify({
+      id: 'ops',
+      reports_to: 'main',
+    }),
+  ]);
+
+  await handleAgentPackageCommand([
+    'config',
+    JSON.stringify({
+      id: 'design',
+      reports_to: 'ops',
+    }),
+  ]);
+
+  await expect(
+    handleAgentPackageCommand([
+      'config',
+      JSON.stringify({
+        id: 'ops',
+        reports_to: 'design',
+      }),
+    ]),
+  ).rejects.toThrow(
+    'Agent reports_to cycle detected: design -> ops -> design.',
+  );
+
+  expect(getAgentById('ops')?.reportsTo).toBe('main');
 });
 
 test('agent config command rejects duplicate JSON payload inputs', async () => {

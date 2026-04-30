@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
+  createChatMobileQr,
   fetchAppStatus,
   fetchChatRecent,
   uploadMedia,
@@ -9,8 +10,11 @@ import {
 import type {
   BranchVariant,
   ChatMessage,
+  ChatMobileQrResponse,
   MediaItem,
 } from '../../api/chat-types';
+import { fetchAgentList, fetchModels } from '../../api/client';
+import type { ChatModel } from '../../api/types';
 import { useAuth } from '../../auth';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
@@ -34,6 +38,7 @@ import css from './chat-page.module.css';
 import { ChatSidebarPanel, ChatSidebarProvider } from './chat-sidebar';
 import type { ChatUiMessage } from './chat-ui-message';
 import { Composer } from './composer';
+import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
@@ -44,6 +49,7 @@ type BranchInfo = {
 };
 
 const EMPTY_MESSAGES: ChatUiMessage[] = [];
+const EMPTY_MODELS: ChatModel[] = [];
 
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
@@ -77,6 +83,12 @@ export function ChatPage() {
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
+  const [mobileQrBusy, setMobileQrBusy] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState(
+    defaultAgentIdRef.current,
+  );
+  const [selectedModelId, setSelectedModelId] = useState('');
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const debouncedSessionSearchQuery = useDebouncedValue(
@@ -87,6 +99,42 @@ export function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageAreaRef = useRef<HTMLDivElement>(null);
+  const mobileQrDialogRef = useRef<HTMLDivElement>(null);
+  const mobileQrCloseRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const setVisualViewportHeight = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      if (!Number.isFinite(height) || height <= 0) return;
+      document.documentElement.style.setProperty(
+        '--chat-visual-viewport-height',
+        `${Math.round(height)}px`,
+      );
+      document.scrollingElement?.scrollTo({ left: 0 });
+      document.body.scrollLeft = 0;
+      document.documentElement.scrollLeft = 0;
+    };
+    setVisualViewportHeight();
+    window.addEventListener('resize', setVisualViewportHeight);
+    window.addEventListener('orientationchange', setVisualViewportHeight);
+    window.visualViewport?.addEventListener('resize', setVisualViewportHeight);
+    window.visualViewport?.addEventListener('scroll', setVisualViewportHeight);
+    return () => {
+      window.removeEventListener('resize', setVisualViewportHeight);
+      window.removeEventListener('orientationchange', setVisualViewportHeight);
+      window.visualViewport?.removeEventListener(
+        'resize',
+        setVisualViewportHeight,
+      );
+      window.visualViewport?.removeEventListener(
+        'scroll',
+        setVisualViewportHeight,
+      );
+      document.documentElement.style.removeProperty(
+        '--chat-visual-viewport-height',
+      );
+    };
+  }, []);
 
   const getDefaultAgentId = useCallback(() => defaultAgentIdRef.current, []);
   const {
@@ -124,12 +172,38 @@ export function ChatPage() {
     staleTime: Infinity,
   });
 
+  const agentsQuery = useQuery({
+    queryKey: ['agents-list', auth.token],
+    queryFn: () => fetchAgentList(auth.token),
+    staleTime: 30_000,
+  });
+
+  const modelsQuery = useQuery({
+    queryKey: ['models', auth.token],
+    queryFn: () => fetchModels(auth.token),
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
     const id = appStatusQuery.data?.defaultAgentId;
     if (id) {
-      defaultAgentIdRef.current = id.trim().toLowerCase();
+      const normalized = id.trim().toLowerCase();
+      defaultAgentIdRef.current = normalized;
+      setSelectedAgentId((current) =>
+        !current || current === DEFAULT_AGENT_ID ? normalized : current,
+      );
     }
   }, [appStatusQuery.data?.defaultAgentId]);
+
+  // /model set is session-scoped on the gateway, so re-seed the local selection
+  // to the gateway default whenever the session changes. We don't know what
+  // model the new session was last set to, so the default is the best guess
+  // until the user picks again.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is intentionally a re-fire trigger, not read inside the body
+  useEffect(() => {
+    const id = appStatusQuery.data?.defaultModel?.trim() ?? '';
+    setSelectedModelId(id);
+  }, [sessionId, appStatusQuery.data?.defaultModel]);
 
   useEffect(() => {
     if (!appStatusQuery.error) return;
@@ -141,6 +215,15 @@ export function ChatPage() {
       'Failed to load the default agent. New chats will use main until gateway status loads.',
     );
   }, [appStatusQuery.error]);
+
+  useEffect(() => {
+    if (!modelsQuery.error) return;
+    console.error(
+      'Failed to load models list for chat page',
+      modelsQuery.error,
+    );
+    setError('Failed to load the model list. Model switching is unavailable.');
+  }, [modelsQuery.error]);
 
   const recentQuery = useQuery({
     queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
@@ -157,6 +240,15 @@ export function ChatPage() {
     staleTime: 10_000,
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
+  const agentOptions = useMemo(
+    () =>
+      (agentsQuery.data ?? []).map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+      })),
+    [agentsQuery.data],
+  );
+  const modelOptions = modelsQuery.data?.models ?? EMPTY_MODELS;
 
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
@@ -177,6 +269,49 @@ export function ChatPage() {
     setError(getErrorMessage(historyQuery.error));
   }, [historyQuery.error]);
 
+  useEffect(() => {
+    if (!mobileQr) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousActiveElement = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    mobileQrCloseRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMobileQr(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        mobileQrDialogRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not(:disabled)',
+        ) ?? [],
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (previousActiveElement instanceof HTMLElement) {
+        previousActiveElement.focus();
+      }
+    };
+  }, [mobileQr]);
+
   // Server may resolve to a canonical branch id; keep the URL in sync.
   useEffect(() => {
     const resolved = historyQuery.data?.resolvedSessionId;
@@ -188,6 +323,16 @@ export function ChatPage() {
     () => buildBranchInfoMap(messages, branchFamilies),
     [messages, branchFamilies],
   );
+
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !stream.isStreaming && sessionId) {
+      void queryClient.invalidateQueries({
+        queryKey: ['chat-context', auth.token, sessionId],
+      });
+    }
+    wasStreamingRef.current = stream.isStreaming;
+  }, [stream.isStreaming, queryClient, auth.token, sessionId]);
 
   const scrollRafRef = useRef(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
@@ -301,6 +446,53 @@ export function ChatPage() {
     [ensureSessionForSend, stream.sendMessage],
   );
 
+  const sendSlashSwitch = useCallback(
+    async (
+      command: string,
+      value: string,
+      onAccepted: (value: string) => void,
+      busyMessage: string,
+    ) => {
+      if (!value || /\s/.test(value)) return;
+      ensureSessionForSend();
+      try {
+        const accepted = await stream.sendMessage(`${command} ${value}`, [], {
+          hideUser: true,
+        });
+        if (accepted) {
+          onAccepted(value);
+        } else {
+          setError(busyMessage);
+        }
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [ensureSessionForSend, stream.sendMessage],
+  );
+
+  const handleAgentSwitch = useCallback(
+    (agentId: string) =>
+      sendSlashSwitch(
+        '/agent switch',
+        agentId,
+        setSelectedAgentId,
+        'Could not switch agent — stop the current run and try again.',
+      ),
+    [sendSlashSwitch],
+  );
+
+  const handleModelSwitch = useCallback(
+    (modelId: string) =>
+      sendSlashSwitch(
+        '/model set',
+        modelId,
+        setSelectedModelId,
+        'Could not switch model — stop the current run and try again.',
+      ),
+    [sendSlashSwitch],
+  );
+
   const handleOpenSession = useCallback(
     (targetId: string) => {
       if (stream.isActive()) {
@@ -323,6 +515,34 @@ export function ChatPage() {
     },
     [queryClient, auth.token, getSessionId],
   );
+
+  const handleRefreshRecent = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+    });
+  }, [queryClient, auth.token, userId, trimmedSessionSearchQuery]);
+
+  const handleOpenMobileQr = useCallback(async () => {
+    const activeSessionId = getSessionId();
+    if (!activeSessionId) {
+      setError('Open or send a chat before creating a mobile QR code.');
+      return;
+    }
+    setMobileQrBusy(true);
+    try {
+      setMobileQr(
+        await createChatMobileQr(auth.token, {
+          userId,
+          sessionId: activeSessionId,
+          baseUrl: window.location.origin,
+        }),
+      );
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setMobileQrBusy(false);
+    }
+  }, [auth.token, getSessionId, userId]);
 
   const handleEditOpen = useCallback((m: ChatMessage) => {
     setEditingId(m.id);
@@ -360,6 +580,7 @@ export function ChatPage() {
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
     isLoading: recentQuery.isFetching,
+    onRefreshRecent: handleRefreshRecent,
   } as const;
 
   return (
@@ -370,8 +591,57 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
+            <ContextRing sessionId={sessionId} />
+            <button
+              type="button"
+              className={css.mobileQrButton}
+              onClick={() => void handleOpenMobileQr()}
+              disabled={mobileQrBusy}
+              aria-label="Show mobile QR code"
+              title="Show mobile QR code"
+            >
+              <span aria-hidden="true" className={css.mobileQrIcon}>
+                <span />
+                <span />
+                <span />
+                <span />
+              </span>
+            </button>
             <ViewSwitchNav />
           </div>
+          {mobileQr ? (
+            <div className={css.mobileQrOverlay}>
+              <div
+                ref={mobileQrDialogRef}
+                className={css.mobileQrDialog}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="mobile-qr-title"
+              >
+                <div className={css.mobileQrHeader}>
+                  <h2 id="mobile-qr-title">Open on mobile</h2>
+                  <button
+                    ref={mobileQrCloseRef}
+                    type="button"
+                    className={css.mobileQrClose}
+                    onClick={() => setMobileQr(null)}
+                    aria-label="Close mobile QR code"
+                  >
+                    x
+                  </button>
+                </div>
+                <div className={css.mobileQrImage}>
+                  <img
+                    src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(mobileQr.qrSvg)}`}
+                    alt="Mobile session QR code"
+                  />
+                </div>
+                <a className={css.mobileQrLink} href={mobileQr.launchUrl}>
+                  Open link
+                </a>
+              </div>
+            </div>
+          ) : null}
           {isEmpty ? (
             <div className={css.emptyState}>
               <h1 className={css.greeting}>
@@ -421,6 +691,12 @@ export function ChatPage() {
             onStop={() => void stream.stopRequest()}
             onUploadFiles={handleUploadFiles}
             token={auth.token}
+            agents={agentOptions}
+            selectedAgentId={selectedAgentId}
+            onAgentSwitch={(agentId) => void handleAgentSwitch(agentId)}
+            models={modelOptions}
+            selectedModelId={selectedModelId}
+            onModelSwitch={(modelId) => void handleModelSwitch(modelId)}
           />
         </div>
       </div>

@@ -121,7 +121,9 @@ test('skill list groups skills by category in the gateway command output', async
   expect(result.text).not.toContain('deliberately long description');
   expect(result.text).toContain('Memory:\n  obsidian* [disabled]');
   expect(result.text).toContain('Office:\n  pdf [bin:node]');
-  expect(result.text).toContain('* foreign skill source');
+  expect(result.text).toContain(
+    '* external source label, not verified provenance',
+  );
 });
 
 test('skill inspect command reports observed skill health', async () => {

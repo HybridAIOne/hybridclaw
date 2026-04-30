@@ -1,6 +1,6 @@
 # Salesforce Query Patterns
 
-Use the bundled helper for read-only org inspection:
+Use the bundled helper for CRM reads, safe writes, and org inspection:
 
 ```bash
 python3 skills/salesforce/scripts/salesforce_query.py ...
@@ -46,13 +46,21 @@ hybridclaw secret set SF_DOMAIN login
 Do not include `https://` or `.salesforce.com` in `SF_DOMAIN`.
 
 Configure the helper using the secret refs above. All secrets are resolved
-server-side by the gateway proxy at request time.
+server-side by the gateway proxy at request time. OAuth responses are captured
+into the encrypted runtime secret store, and bearer tokens are injected by the
+gateway on later API calls.
 
 ## Which Command To Use
 
 - `objects`: list available sObjects and filter by search term
 - `describe <Object>`: inspect fields, required flags, reference targets, and child relationships
 - `relations <Object>`: focus on parent lookup/master-detail links plus incoming child relationships
+- `find leads|contacts|opportunities`: search CRM business records
+- `update-opportunity <id-or-name>`: update Opportunity `StageName` and/or `Probability`
+- `log-activity call|email|meeting <target>`: create Task/Event activity records
+- `plan "<request>"`: inspect a supported natural-language CRM workflow without auth
+- `run "<request>"`: execute a supported natural-language CRM workflow
+- `eval-scenarios`: run the offline 30-scenario planner eval suite
 - `query "<SOQL>"`: fetch record rows through the standard query API
 - `tooling-query "<SOQL>"`: query metadata objects through the Tooling API
 
@@ -100,6 +108,18 @@ Emit JSON:
 python3 skills/salesforce/scripts/salesforce_query.py --format json query "SELECT Id, Name FROM Account LIMIT 5"
 ```
 
+Move a deal and log a call:
+
+```bash
+python3 skills/salesforce/scripts/salesforce_query.py run "Move the Acme deal to Closed Won and log a call from today"
+```
+
+Log an activity directly:
+
+```bash
+python3 skills/salesforce/scripts/salesforce_query.py log-activity call "Acme Renewal" --object opportunity --subject "Discovery follow-up" --date today
+```
+
 ## Query Hygiene
 
 - Start with explicit column lists. Avoid `SELECT *` style thinking; SOQL does not support it anyway.
@@ -107,3 +127,5 @@ python3 skills/salesforce/scripts/salesforce_query.py --format json query "SELEC
 - Prefer `describe` before building joins against unfamiliar objects.
 - Use `tooling-query` for metadata records, not business rows.
 - Keep `--keep-attributes` off unless you explicitly need Salesforce record type metadata in the response.
+- Resolve write targets by Salesforce id when possible. Name resolution fails closed on ambiguity.
+- Cost per assistant run is measured by HybridClaw `UsageTotals`; helper payloads include a `costMeasurement` block that names that accounting source.

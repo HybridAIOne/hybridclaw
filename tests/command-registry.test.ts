@@ -329,6 +329,18 @@ test('registers config as a local slash/text command', async () => {
       commandName: 'config',
       getString: (name) =>
         name === 'action'
+          ? 'get'
+          : name === 'key'
+            ? 'hybridai.maxTokens'
+            : null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['config', 'get', 'hybridai.maxTokens']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'config',
+      getString: (name) =>
+        name === 'action'
           ? 'set'
           : name === 'key'
             ? 'hybridai.maxTokens'
@@ -347,6 +359,9 @@ test('registers config as a local slash/text command', async () => {
     'config',
     'reload',
   ]);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['config', 'get', 'hybridai.maxTokens']),
+  ).toEqual(['config', 'get', 'hybridai.maxTokens']);
   expect(
     mapCanonicalCommandToGatewayArgs([
       'config',
@@ -725,7 +740,7 @@ test('builds local session help entries from the registry with surface filtering
         command: '/auth status <provider>',
       }),
       expect.objectContaining({
-        command: '/config [check|reload|set <key> <value>]',
+        command: '/config [check|reload|get <key>|set <key> <value>]',
       }),
       expect.objectContaining({
         command: '/paste',
@@ -741,7 +756,7 @@ test('builds local session help entries from the registry with surface filtering
         command: '/auth status <provider>',
       }),
       expect.objectContaining({
-        command: '/config [check|reload|set <key> <value>]',
+        command: '/config [check|reload|get <key>|set <key> <value>]',
       }),
     ]),
   );
@@ -826,4 +841,34 @@ test('registers policy as a local-only slash command and parses slash args', asy
     'policy',
     'list',
   ]);
+});
+
+test('registers context as a canonical slash/text command', async () => {
+  const {
+    buildCanonicalSlashCommandDefinitions,
+    buildTuiSlashCommandDefinitions,
+    isRegisteredTextCommandName,
+    mapCanonicalCommandToGatewayArgs,
+    parseCanonicalSlashCommandArgs,
+  } = await importCommandRegistry();
+
+  expect(isRegisteredTextCommandName('context')).toBe(true);
+  expect(
+    buildCanonicalSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'context',
+    ),
+  ).toBe(true);
+  expect(
+    buildTuiSlashCommandDefinitions([]).some(
+      (definition) => definition.name === 'context',
+    ),
+  ).toBe(true);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'context',
+      getString: () => null,
+      getSubcommand: () => null,
+    }),
+  ).toEqual(['context']);
+  expect(mapCanonicalCommandToGatewayArgs(['context'])).toEqual(['context']);
 });

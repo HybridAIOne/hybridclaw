@@ -13,6 +13,8 @@ These pages focus on common operator workflows after the base install works.
 - [Local Providers](./local-providers.md) for LM Studio, Ollama, and vLLM
 - [Remote Access](./remote-access.md) for SSH tunnels, Tailscale, and
   persistent macOS LaunchAgent forwarding
+- [Tailscale Funnel](./tailscale-funnel.md) for managed public `*.ts.net`
+  gateway URLs
 - [TUI MCP Quickstart](./tui-mcp.md) for host-mode MCP server setup
 - [Bundled Skills](./bundled-skills.md) for notable built-in skills and
   install helpers

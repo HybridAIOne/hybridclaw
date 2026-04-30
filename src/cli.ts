@@ -45,6 +45,8 @@ import {
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import {
+  formatRuntimeConfigValue,
+  getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from './config/runtime-config-edit.js';
@@ -66,6 +68,7 @@ import {
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
+import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
@@ -407,16 +410,29 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
 }
 
 async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | null> {
-  const { gatewayStatus } = await import('./gateway/gateway-client.js');
+  const { gatewayHealth, gatewayStatus } = await import(
+    './gateway/gateway-client.js'
+  );
+
+  try {
+    const health = await gatewayHealth();
+    if (health.sandbox) {
+      return health.sandbox.mode === 'host' ? 'host' : null;
+    }
+  } catch (err) {
+    logger.debug(
+      { err },
+      'TUI preflight gateway health lookup failed; falling back to authenticated status.',
+    );
+  }
 
   try {
     const status = await gatewayStatus();
-    const runtimeSandboxMode = status.sandbox?.mode;
-    if (runtimeSandboxMode === 'host') {
-      return runtimeSandboxMode;
+    if (status.sandbox?.mode === 'host') {
+      return status.sandbox.mode;
     }
   } catch {
-    // Fall back to the local runtime config when the gateway is not reachable.
+    // Fall back to the local runtime config when gateway status is unavailable.
   }
 
   return null;
@@ -717,6 +733,7 @@ async function runGatewayForeground(
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
+  getConfigApi().ensureGatewayApiTokenPersisted();
   ensureGatewayRunDir();
   if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
     delete process.env[GATEWAY_LOG_FILE_ENV];
@@ -822,6 +839,7 @@ async function startGatewayBackend(
     commandName,
     requireCredentials: false,
   });
+  getConfigApi().ensureGatewayApiTokenPersisted();
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);
@@ -1317,9 +1335,20 @@ async function handleConfigCommand(args: string[]): Promise<void> {
     await runRuntimeConfigFileCheck();
     return;
   }
+  if (sub === 'get') {
+    const key = (normalized[1] || '').trim();
+    if (!key || normalized.length > 2) {
+      throw new Error('Usage: `hybridclaw config get <key>`');
+    }
+    const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
+    console.log(`Active config: ${runtimeConfigPath()}`);
+    console.log(`Key: ${key}`);
+    console.log(formatRuntimeConfigValue(value));
+    return;
+  }
   if (sub !== 'set') {
     throw new Error(
-      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
     );
   }
 
@@ -1327,7 +1356,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   const rawValue = normalized.slice(2).join(' ').trim();
   if (!key || !rawValue) {
     throw new Error(
-      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
+      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
     );
   }
 
@@ -1518,6 +1547,11 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
   await cliAgent.handleAgentPackageCommand(args);
 }
 
+async function handleBackupCommand(args: string[]): Promise<void> {
+  const cliBackup = await import('./cli/backup-command.js');
+  await cliBackup.handleBackupCommand(args);
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -1551,6 +1585,9 @@ export async function main(
       break;
     case 'auth':
       await handleAuthCommand(subargs);
+      break;
+    case 'backup':
+      await handleBackupCommand(subargs);
       break;
     case 'config':
       await handleConfigCommand(subargs);

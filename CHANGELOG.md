@@ -2,6 +2,176 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.15.0) - 2026-04-29
+
+### Added
+
+- **Backup and restore CLI**: `hybridclaw backup` creates WAL-safe runtime-home
+  archives and `hybridclaw backup restore` validates manifests before
+  rehydrating `~/.hybridclaw` on a fresh or recovered host.
+- **Brand-voice output guard**: A repo-shipped `brand-voice` plugin can flag,
+  rewrite, or block off-brand final responses using configured voice rules,
+  banned phrases or patterns, required phrases, and optional classifier/rewriter
+  models. The bundled `brand-voice` skill helps agents draft within those rules
+  before the output guard fires.
+- **Production Salesforce skill**: The bundled Salesforce skill now ships a
+  fuller read-only helper, metadata/query references, eval scenarios, and
+  server-side secret placeholder handling for inspecting org schema and SOQL
+  records without writing credentials to disk.
+- **Tailscale Funnel tunnel provider and admin status**: Local deployments can
+  use `deployment.tunnel.provider=tailscale`, with `TS_AUTHKEY` resolved from
+  encrypted runtime secrets when needed and kept out of process arguments. The
+  admin console surfaces public URL and tunnel status alongside the existing
+  gateway controls.
+- **Web chat model switcher**: The chat composer can switch models from the
+  browser using discovered provider catalogs, provider icons, model capability
+  metadata, and the same active-session routing used by local slash commands.
+- **Agent org chart, team revisions, and chronological CVs**: Agent metadata
+  can model role, reporting, delegation, and peer relationships; admin agent
+  pages keep restorable team-structure revisions; observed skill history can
+  refresh per-agent CV output.
+- **Warm process pool**: Host and container runners can keep a bounded adaptive
+  pool of idle runtime processes for recently active agents, reducing cold-start
+  latency while respecting max-idle, startup-claim, config-change, and
+  memory-pressure limits.
+- **Trace judge and trace preparation**: Local eval workflows can prepare
+  redacted traces and dispatch them through an auxiliary judge model for skill,
+  leak, and output-quality evaluation foundations.
+- **Config value inspection**: `hybridclaw config get <key>` and `/config get
+  <key>` return one resolved runtime config value without dumping the full
+  config file.
+- **GPT-5.5 model support**: Static and Codex-discovered model catalogs include
+  `gpt-5.5`, `gpt-5.5-pro`, and `openai-codex/gpt-5.5`.
+
+### Changed
+
+- **Gateway health is less fragile**: Gateway status and health endpoints rely
+  on cached provider checks instead of blocking on live model-provider probes,
+  so transient provider failures no longer make the local gateway look down.
+- **Token usage recording is buffered**: Usage events are normalized,
+  size-capped, and batch-flushed asynchronously to reduce hot-path overhead
+  while preserving audit records.
+- **Runtime secrets are scrubbed more consistently**: Host/container agent
+  runtimes share sensitive environment filtering and web-search credential
+  injection so Brave, Perplexity, and Tavily keys are passed only through the
+  intended secret channels.
+- **Trajectory capture is stricter**: Stored skill trajectories run through
+  PII, secret, and confidential-info redaction, and retention can be capped
+  globally or per tenant.
+- **Docs are consolidated under `docs/content`**: The duplicate legacy
+  `docs/development` tree was removed after the content moved into the current
+  docs hierarchy.
+
+### Fixed
+
+- **Loopback API auth is no longer bypassed**: Local OpenAI-compatible API
+  requests require `WEB_API_TOKEN` or `GATEWAY_API_TOKEN`; loopback address
+  alone is not treated as authentication.
+- **Local TUI and gateway token handling is safer**: Generated gateway tokens
+  are persisted once with serialized creation, shared with local TUI/eval
+  clients, and no longer rewritten during later config reloads.
+- **Ngrok tunnel reconnects are quieter**: Reconnect errors are deduplicated by
+  normalized cause, audit run ids are correlated, and tunnel health checks stay
+  enabled by default.
+- **HybridAI-prefixed model names resolve cleanly**: Provider prefix handling
+  recognizes `hybridai/...` model ids without noisy warnings.
+- **Context ring popovers render correctly**: The web chat context usage ring
+  once again shows its detail popover.
+
+## [0.14.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.14.0) - 2026-04-28
+
+### Added
+
+- **Signal channel**: HybridClaw can connect to Signal through a
+  `signal-cli` compatible daemon, with private-by-default DM and group
+  policies, outbound chunk pacing, reconnect handling, admin QR linking, and a
+  full setup guide.
+- **Confidential-info filter and audit leak scanner**: Operators can define
+  NDA-class client, project, person, keyword, and regex rules in
+  `.confidential.yml`; prompts are redacted before model calls, responses are
+  rehydrated for the user, and `hybridclaw audit scan-leaks` can inspect
+  historic audit logs with severity and type filters.
+- **Admin statistics and agent scoreboard**: The admin console adds
+  `/admin/statistics` for session, message, token, cost, and channel trends,
+  plus `/admin/agent-scoreboard` for per-agent skill scores, best skills,
+  reliability, timing, and CV links.
+- **Live context usage controls**: Web chat shows a live context-usage ring,
+  local sessions support `/context`, and compaction headroom is visible before
+  long-running chats hit the model window.
+- **Packaged skill lifecycle**: Production skills can declare manifests with
+  package id, version, capabilities, required credentials, and supported
+  channels. Operators can install, upgrade, uninstall, list revisions, and roll
+  back managed skills with audited snapshots.
+- **Skill autonomy and stakes policy foundations**: `skills.autonomy` records
+  per-agent skill autonomy levels, the container approval policy can classify
+  high-stakes actions, and conditional skill availability can be routed through
+  the generalized policy engine.
+- **Deployment config and ngrok tunnel provider**: Runtime config now declares
+  local or cloud deployment mode, public URLs, tunnel provider intent, and a
+  built-in ngrok tunnel provider backed by the encrypted `NGROK_AUTHTOKEN`
+  secret.
+- **Nix and Homebrew packaging groundwork**: The repo ships a multi-arch Nix
+  flake, NixOS service module, contributor dev shell, packaging notes, and a
+  preview Homebrew formula for future tap publication.
+- **Model metadata, pricing, and monthly usage rollups**: `/model info`,
+  `/usage`, and the admin Models page surface discovered context windows,
+  output limits, capabilities, pricing, and monthly per-model spend when
+  providers expose that metadata.
+- **Headful browser control**: Browser tools can run a visible Chrome session
+  when a user explicitly asks for headed/headful control, while shared browser
+  login profiles stay reusable for automation.
+- **Agent-to-agent and trajectory persistence foundations**: The runtime can
+  persist A2A envelopes and opt-in redacted skill-run trajectories, creating
+  the data trail needed for multi-agent handoffs, skill evaluation, and future
+  workflow tuning.
+
+### Changed
+
+- **Browser chat is more operational**: Chat navigation is session-id driven,
+  recent sessions keep richer snippets, the composer can switch agents, slash
+  result streams render correctly, and context-ring data is shared with the
+  `/context` command.
+- **Agent terminology and profile data are consistent**: The UI and internal
+  persistence moved from coworker compatibility naming to agent naming, while
+  agent configs gained owner, role, and CV fields.
+- **Model and provider status is discovery-led**: Provider catalogs cache
+  runtime discovery, merge pinned entries with discovered models, remove stale
+  static pricing assumptions, and keep status/model-info output focused on the
+  active model.
+- **Approval and policy evaluation is more explicit**: Approval tiers can be
+  influenced by autonomy level and stakes classification, invalid policy
+  regexes and thresholds warn early, and unsafe realpath inspection during
+  approval classification is avoided.
+- **Local diagnostics are more precise**: Gateway debug startup flags can
+  capture raw model responses and last prompts for local troubleshooting, and
+  `doctor` resource hygiene can reclaim stale gateway artifacts more safely.
+- **TUI and status reporting are quieter and more useful**: Proactive polling
+  runs less often, streamed TUI responses preserve visible text, transient tool
+  lines truncate cleanly, and status output includes tokens-per-second and
+  time-to-first-token aware metrics.
+
+### Fixed
+
+- **Web fetch is guarded against SSRF**: Plain HTTP retrieval now enforces
+  private-network protections more consistently before escalating to browser
+  tools.
+- **Headful browser launches require system Chrome**: Visible browser control
+  refuses unstable headed macOS fallback launches and reports the required
+  Chrome executable setup instead.
+- **Voice turns survive relay reconnects**: Twilio voice relay reconnects no
+  longer lose the active turn state while the gateway is handling a call.
+- **Chat history and streaming edge cases are closed**: Result-only slash
+  streams render, tool-call sentinels are stripped before storage, regenerated
+  replies include tools used, context rings stay visible, and `/chat.html`
+  redirects preserve query strings.
+- **Skill lifecycle and manifest handling are stricter**: Managed skill
+  installs require installed status records, validate snapshot entries, cap
+  restored file modes, preserve unknown deployment tunnel providers, and reject
+  upgrades for uninstalled packages.
+- **Channel runtimes shut down more predictably**: WhatsApp and voice shutdown
+  paths cancel stale work, Signal delivery validates daemon/account state, and
+  channel send tools remain scoped to active transports.
+
 ## [0.13.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.1) - 2026-04-24
 
 ### Added

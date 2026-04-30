@@ -212,6 +212,287 @@ test('agent skill allowlists persist through runtime config normalization and th
   expect(getAgentById('silent')?.skills).toEqual([]);
 });
 
+test('agent owner, role, and CV persist through runtime config and registry', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig, getRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { getAgentById, initAgentRegistry, resolveAgentConfig } = await import(
+    '../src/agents/agent-registry.ts'
+  );
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'analyst',
+        reportsTo: 'main',
+      },
+      {
+        id: 'writer',
+        reportsTo: 'main',
+      },
+      {
+        id: 'charly',
+        name: 'Charly',
+        owner: '  benedikt  ',
+        role: ' Researcher ',
+        reportsTo: ' main ',
+        delegatesTo: [' analyst ', 'analyst', ''],
+        peers: ['writer', ' writer '],
+        cv: {
+          summary: '  Senior coworker  ',
+          capabilities: [' research ', 'writing', 'research'],
+          asset: 'agents/charly/CV.md',
+        },
+        escalationTarget: {
+          channel: ' slack:COPS ',
+          recipient: ' ops-lead ',
+        },
+      },
+    ];
+  });
+
+  // Runtime config normalization should trim strings and dedupe capability list.
+  const persistedConfig = getRuntimeConfig().agents.list?.find(
+    (entry) => entry.id === 'charly',
+  );
+  expect(persistedConfig?.owner).toBe('benedikt');
+  expect(persistedConfig?.role).toBe('Researcher');
+  expect(persistedConfig?.reportsTo).toBe('main');
+  expect(persistedConfig?.delegatesTo).toEqual(['analyst']);
+  expect(persistedConfig?.peers).toEqual(['writer']);
+  expect(persistedConfig?.cv).toEqual({
+    summary: 'Senior coworker',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+  expect(persistedConfig?.escalationTarget).toEqual({
+    channel: 'slack:COPS',
+    recipient: 'ops-lead',
+  });
+
+  initAgentRegistry({
+    list: [
+      {
+        id: 'main',
+        name: 'Main Agent',
+      },
+      {
+        id: 'analyst',
+        reportsTo: 'main',
+      },
+      {
+        id: 'writer',
+        reportsTo: 'main',
+      },
+      {
+        id: 'charly',
+        name: 'Charly',
+        owner: 'benedikt',
+        role: 'Researcher',
+        reportsTo: 'main',
+        delegatesTo: ['analyst'],
+        peers: ['writer'],
+        cv: {
+          summary: 'Senior coworker',
+          capabilities: ['research', 'writing'],
+          asset: 'agents/charly/CV.md',
+        },
+        escalationTarget: {
+          channel: 'slack:COPS',
+          recipient: 'ops-lead',
+        },
+      },
+    ],
+  });
+
+  const resolved = resolveAgentConfig('charly');
+  expect(resolved.owner).toBe('benedikt');
+  expect(resolved.role).toBe('Researcher');
+  expect(resolved.reportsTo).toBe('main');
+  expect(resolved.delegatesTo).toEqual(['analyst']);
+  expect(resolved.peers).toEqual(['writer']);
+  expect(resolved.cv).toEqual({
+    summary: 'Senior coworker',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+  expect(resolved.escalationTarget).toEqual({
+    channel: 'slack:COPS',
+    recipient: 'ops-lead',
+  });
+
+  // Round-trip through SQLite confirms persistence.
+  const stored = getAgentById('charly');
+  expect(stored?.owner).toBe('benedikt');
+  expect(stored?.role).toBe('Researcher');
+  expect(stored?.reportsTo).toBe('main');
+  expect(stored?.delegatesTo).toEqual(['analyst']);
+  expect(stored?.peers).toEqual(['writer']);
+  expect(stored?.cv).toEqual({
+    summary: 'Senior coworker',
+    capabilities: ['research', 'writing'],
+    asset: 'agents/charly/CV.md',
+  });
+  expect(stored?.escalationTarget).toEqual({
+    channel: 'slack:COPS',
+    recipient: 'ops-lead',
+  });
+});
+
+test('agent registry rejects cyclic reports_to relationships', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { initAgentRegistry } = await import('../src/agents/agent-registry.ts');
+
+  initDatabase({ quiet: true });
+  expect(() =>
+    initAgentRegistry({
+      list: [
+        { id: 'main', name: 'Main Agent' },
+        { id: 'design', reportsTo: 'ops' },
+        { id: 'ops', reportsTo: 'design' },
+      ],
+    }),
+  ).toThrow('Agent reports_to cycle detected: design -> ops -> design.');
+});
+
+test('agent registry rejects deleting agents still referenced by org-chart fields', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const { deleteRegisteredAgent, getAgentById, initAgentRegistry } =
+    await import('../src/agents/agent-registry.ts');
+
+  const agents = [
+    { id: 'main', name: 'Main Agent' },
+    { id: 'lead', name: 'Lead Agent', reportsTo: 'main' },
+    { id: 'worker', reportsTo: 'lead' },
+    { id: 'support', delegatesTo: ['lead'] },
+    { id: 'reviewer', peers: ['lead'] },
+  ];
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = agents;
+  });
+  initAgentRegistry({ list: agents });
+
+  expect(() => deleteRegisteredAgent('lead')).toThrow(
+    'Cannot delete agent "lead" because it is still referenced by: reviewer.peers, support.delegates_to, worker.reports_to.',
+  );
+  expect(getAgentById('lead')).toMatchObject({
+    id: 'lead',
+    name: 'Lead Agent',
+  });
+});
+
+test('legacy agents without org-chart fields load cleanly after migration v26', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const dbPath = path.join(homeDir, 'data', 'hybridclaw.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+  const legacyDb = new Database(dbPath);
+  legacyDb.exec(`
+    CREATE TABLE agents (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      display_name TEXT,
+      image_asset TEXT,
+      model TEXT,
+      skills TEXT,
+      chatbot_id TEXT,
+      enable_rag INTEGER DEFAULT 1,
+      workspace TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  legacyDb
+    .prepare(
+      `INSERT INTO agents (id, name, display_name)
+       VALUES (?, ?, ?)`,
+    )
+    .run('charly', 'Charly', 'Charly the Coworker');
+  legacyDb.pragma('user_version = 20');
+  legacyDb.close();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  initDatabase({ quiet: true, dbPath });
+
+  const migratedDb = new Database(dbPath, { readonly: true });
+  const columns = migratedDb.pragma('table_info(agents)') as Array<{
+    name: string;
+  }>;
+  expect(columns.some((column) => column.name === 'owner')).toBe(true);
+  expect(columns.some((column) => column.name === 'role')).toBe(true);
+  expect(columns.some((column) => column.name === 'cv')).toBe(true);
+  expect(columns.some((column) => column.name === 'escalation_target')).toBe(
+    true,
+  );
+  expect(columns.some((column) => column.name === 'reports_to')).toBe(true);
+  expect(columns.some((column) => column.name === 'delegates_to')).toBe(true);
+  expect(columns.some((column) => column.name === 'peers')).toBe(true);
+
+  const userVersion = migratedDb.pragma('user_version', { simple: true });
+  expect(userVersion).toBeGreaterThanOrEqual(26);
+
+  const charly = migratedDb
+    .prepare(
+      'SELECT id, name, owner, role, reports_to, delegates_to, peers, cv, escalation_target FROM agents WHERE id = ?',
+    )
+    .get('charly') as {
+    id: string;
+    name: string;
+    owner: string | null;
+    role: string | null;
+    reports_to: string | null;
+    delegates_to: string | null;
+    peers: string | null;
+    cv: string | null;
+    escalation_target: string | null;
+  };
+  expect(charly).toMatchObject({
+    id: 'charly',
+    name: 'Charly',
+    owner: null,
+    role: null,
+    reports_to: null,
+    delegates_to: null,
+    peers: null,
+    cv: null,
+    escalation_target: null,
+  });
+  migratedDb.close();
+
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+  expect(getAgentById('charly')).toMatchObject({
+    id: 'charly',
+    name: 'Charly',
+    displayName: 'Charly the Coworker',
+  });
+});
+
 test('warns and ignores malformed persisted agent skill allowlists', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
@@ -261,6 +542,59 @@ test('warns and ignores malformed persisted agent skill allowlists', async () =>
     { rawSkills: '{broken-json' },
     'Failed to parse persisted agent skills configuration',
   );
+});
+
+test('warns without logging malformed persisted agent CV payloads', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const warnMock = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: warnMock,
+      info: vi.fn(),
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      trace: vi.fn(),
+      child: vi.fn(() => ({
+        warn: warnMock,
+        info: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+        fatal: vi.fn(),
+        trace: vi.fn(),
+      })),
+    },
+  }));
+
+  const dbPath = path.join(homeDir, 'data', 'hybridclaw.db');
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getAgentById } = await import('../src/agents/agent-registry.ts');
+
+  initDatabase({ quiet: true, dbPath });
+  const rawCv = '{"summary":"Benedikt lives at Example Street"';
+  const rawDb = new Database(dbPath);
+  rawDb
+    .prepare(
+      `INSERT INTO agents (id, name, cv, created_at, updated_at)
+       VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+    )
+    .run('researcher', 'Researcher Agent', rawCv);
+  rawDb.close();
+
+  const agent = getAgentById('researcher');
+  expect(agent).toMatchObject({
+    id: 'researcher',
+    name: 'Researcher Agent',
+  });
+  expect(agent?.cv).toBeUndefined();
+  expect(warnMock).toHaveBeenCalledWith(
+    { cvLength: rawCv.length },
+    'Failed to parse persisted agent CV configuration',
+  );
+  expect(JSON.stringify(warnMock.mock.calls)).not.toContain('Benedikt');
 });
 
 test('initAgentRegistry migrates the first legacy workspace to main', async () => {
