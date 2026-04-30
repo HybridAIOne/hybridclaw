@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
@@ -78,12 +77,9 @@ describe('workflow definition schema', () => {
 
   test('parses a fixture workflow with a high-stakes step', () => {
     const fixture = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        'tests',
-        'fixtures',
-        'workflows',
-        'launch-package.workflow.yaml',
+      new URL(
+        './fixtures/workflows/launch-package.workflow.yaml',
+        import.meta.url,
       ),
       'utf-8',
     );
