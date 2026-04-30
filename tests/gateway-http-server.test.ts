@@ -15,6 +15,8 @@ const OPENAI_EXECUTION_SESSION_ID_RE =
 const DEFAULT_TEST_GATEWAY_API_TOKEN = 'gateway-token';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
+const ORIGINAL_INSTANCE_ID = process.env.HYBRIDCLAW_INSTANCE_ID;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
 const makeTempDocsRoot = useTempDir('hybridclaw-health-');
 
@@ -544,6 +546,16 @@ async function importFreshHealth(options?: {
         }
       : null,
   );
+  const a2aAgents = [
+    { id: 'main', name: 'Main Agent', owner: 'team' },
+    { id: 'stub-a', name: 'Stub Coworker A', owner: 'team' },
+    { id: 'stub-b', name: 'Stub Coworker B', owner: 'team' },
+  ];
+  const findAgentConfig = vi.fn(
+    (agentId?: string | null) =>
+      a2aAgents.find((agent) => agent.id === agentId?.trim()) || null,
+  );
+  const listAgents = vi.fn(() => a2aAgents);
   const resolveAgentConfig = vi.fn((agentId?: string | null) => ({
     id: agentId?.trim() || 'main',
     name: 'Main Agent',
@@ -1595,7 +1607,9 @@ async function importFreshHealth(options?: {
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
+    findAgentConfig,
     getAgentById,
+    listAgents,
     resolveAgentConfig,
     resolveAgentWorkspaceId,
   }));
@@ -1833,6 +1847,16 @@ useCleanMocks({
     } else {
       process.env.HOME = ORIGINAL_HOME;
     }
+    if (ORIGINAL_DATA_DIR === undefined) {
+      delete process.env.HYBRIDCLAW_DATA_DIR;
+    } else {
+      process.env.HYBRIDCLAW_DATA_DIR = ORIGINAL_DATA_DIR;
+    }
+    if (ORIGINAL_INSTANCE_ID === undefined) {
+      delete process.env.HYBRIDCLAW_INSTANCE_ID;
+    } else {
+      process.env.HYBRIDCLAW_INSTANCE_ID = ORIGINAL_INSTANCE_ID;
+    }
   },
   resetModules: true,
   unmock: [
@@ -1873,6 +1897,63 @@ describe('gateway HTTP server', () => {
       refreshProviderHealth: false,
     });
     expect(JSON.parse(res.body)).toEqual({ status: 'ok', sessions: 2 });
+  });
+
+  test('routes A2A sendMessage and inbox through the runtime API', async () => {
+    const dataDir = makeTempDataDir();
+    process.env.HYBRIDCLAW_DATA_DIR = dataDir;
+    process.env.HOME = dataDir;
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+
+    const state = await importFreshHealth({ dataDir });
+    const sendReq = makeRequest({
+      method: 'POST',
+      url: '/api/a2a/sendMessage',
+      body: {
+        envelope: {
+          id: 'msg-1',
+          sender_coworker_id: 'stub-a',
+          recipient_coworker_id: 'stub-b',
+          thread_id: 'thread-1',
+          intent: 'handoff',
+          content: 'Please take over the customer brief.',
+          created_at: '2026-04-29T10:00:00.000Z',
+        },
+      },
+    });
+    const sendRes = makeResponse();
+
+    state.handler(sendReq as never, sendRes as never);
+    await waitForResponse(sendRes, (response) => response.writableEnded);
+
+    expect(sendRes.statusCode).toBe(201);
+    const confirmation = JSON.parse(sendRes.body);
+    expect(confirmation).toMatchObject({
+      delivered: true,
+      message_id: 'msg-1',
+      thread_id: 'thread-1',
+      recipient_coworker_id: 'stub-b@team@local-dev',
+      envelope: {
+        id: 'msg-1',
+        sender_agent_id: 'stub-a@team@local-dev',
+        recipient_agent_id: 'stub-b@team@local-dev',
+        thread_id: 'thread-1',
+      },
+    });
+
+    const inboxReq = makeRequest({
+      url: '/api/a2a/inbox?coworkerId=stub-b',
+    });
+    const inboxRes = makeResponse();
+
+    state.handler(inboxReq as never, inboxRes as never);
+    await waitForResponse(inboxRes, (response) => response.writableEnded);
+
+    expect(inboxRes.statusCode).toBe(200);
+    expect(JSON.parse(inboxRes.body)).toEqual({
+      coworkerId: 'stub-b',
+      envelopes: [confirmation.envelope],
+    });
   });
 
   test('routes voice webhooks using the configured webhookPath', async () => {

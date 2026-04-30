@@ -1,0 +1,86 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
+const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_INSTANCE_ID = process.env.HYBRIDCLAW_INSTANCE_ID;
+
+let tmpDir: string;
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-a2a-runtime-'));
+  process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
+  process.env.HOME = tmpDir;
+  process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+  vi.resetModules();
+});
+
+afterEach(() => {
+  restoreEnvVar('HYBRIDCLAW_DATA_DIR', ORIGINAL_DATA_DIR);
+  restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', ORIGINAL_INSTANCE_ID);
+  vi.resetModules();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('A2A runtime API', () => {
+  test('delivers a message from stub coworker A to stub coworker B inbox', async () => {
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        { id: 'stub-a', owner: 'team' },
+        { id: 'stub-b', owner: 'team' },
+      ];
+    });
+
+    const confirmation = runtime.sendMessage(
+      {
+        id: 'msg-1',
+        sender_coworker_id: 'stub-a',
+        recipient_coworker_id: 'stub-b',
+        thread_id: 'thread-1',
+        intent: 'handoff',
+        content: 'Please take over the customer brief.',
+        created_at: '2026-04-29T10:00:00.000Z',
+      },
+      {
+        actor: 'stub-a',
+        route: 'test.a2a.send',
+        source: 'integration-test',
+      },
+    );
+
+    expect(confirmation).toMatchObject({
+      delivered: true,
+      message_id: 'msg-1',
+      thread_id: 'thread-1',
+      recipient_coworker_id: 'stub-b@team@local-dev',
+      envelope: {
+        id: 'msg-1',
+        sender_agent_id: 'stub-a@team@local-dev',
+        recipient_agent_id: 'stub-b@team@local-dev',
+        thread_id: 'thread-1',
+        intent: 'handoff',
+        content: 'Please take over the customer brief.',
+        created_at: '2026-04-29T10:00:00.000Z',
+      },
+    });
+    expect(Date.parse(confirmation.delivered_at)).not.toBeNaN();
+
+    expect(runtime.inbox('stub-a')).toEqual([]);
+    expect(runtime.inbox('stub-b')).toEqual([confirmation.envelope]);
+  });
+});

@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import {
+  A2AEnvelopeDuplicateError,
+  A2AEnvelopeValidationError,
+} from '../a2a/envelope.js';
+import {
+  inbox as readA2AInbox,
+  sendMessage as sendA2AMessage,
+} from '../a2a/runtime.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import {
@@ -258,6 +266,10 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
   'text/plain',
   'text/xml',
 ]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
@@ -1935,6 +1947,60 @@ async function handleApiPluginTool(
       500,
       error instanceof Error ? error.message : String(error),
     );
+  }
+}
+
+function mapA2AError(error: unknown): never {
+  if (error instanceof A2AEnvelopeDuplicateError) {
+    throw new GatewayRequestError(409, error.message);
+  }
+  if (error instanceof A2AEnvelopeValidationError) {
+    throw new GatewayRequestError(400, error.message);
+  }
+  throw error;
+}
+
+function readRuntimeEnvelope(body: unknown): unknown {
+  if (isRecord(body) && Object.hasOwn(body, 'envelope')) {
+    return body.envelope;
+  }
+  return body;
+}
+
+async function handleApiA2ASendMessage(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = await readJsonBody(req);
+  try {
+    const confirmation = sendA2AMessage(readRuntimeEnvelope(body), {
+      route: 'api.a2a.sendMessage',
+      source: 'gateway-http',
+    });
+    sendJson(res, 201, confirmation);
+  } catch (error) {
+    mapA2AError(error);
+  }
+}
+
+function handleApiA2AInbox(res: ServerResponse, url: URL): void {
+  const coworkerId =
+    normalizeOptionalString(url.searchParams.get('coworkerId')) ||
+    normalizeOptionalString(url.searchParams.get('coworker_id'));
+  if (!coworkerId) {
+    throw new GatewayRequestError(
+      400,
+      'Missing required query parameter: coworkerId',
+    );
+  }
+
+  try {
+    sendJson(res, 200, {
+      coworkerId,
+      envelopes: readA2AInbox(coworkerId),
+    });
+  } catch (error) {
+    mapA2AError(error);
   }
 }
 
@@ -4151,6 +4217,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiProactivePull(res, url);
             return;
           }
+          if (pathname === '/api/a2a/inbox' && method === 'GET') {
+            handleApiA2AInbox(res, url);
+            return;
+          }
           if (pathname === '/api/admin/shutdown' && method === 'POST') {
             handleApiShutdown(res);
             return;
@@ -4178,6 +4248,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/command' && method === 'POST') {
             await handleApiCommand(req, res);
+            return;
+          }
+          if (pathname === '/api/a2a/sendMessage' && method === 'POST') {
+            await handleApiA2ASendMessage(req, res);
             return;
           }
           if (pathname === '/api/message/action' && method === 'POST') {
