@@ -44,13 +44,11 @@ type CoworkerLivenessSummaryCache = {
 let coworkerLivenessSummaryCache: CoworkerLivenessSummaryCache | null = null;
 
 function uniqueStrings(values: Iterable<string | null | undefined>): string[] {
-  return Array.from(
-    new Set(
-      Array.from(values)
-        .map((value) => (value || '').trim())
-        .filter(Boolean),
+  return [
+    ...new Set(
+      [...values].map((value) => (value || '').trim()).filter(Boolean),
     ),
-  ).sort((left, right) => left.localeCompare(right));
+  ].sort((left, right) => left.localeCompare(right));
 }
 
 function newestTimestamp(
@@ -317,28 +315,28 @@ function deriveReasonCodes(params: {
 function buildProbe(params: {
   agentId: string;
   sessions: Session[];
-  executorSnapshots: ExecutorHealthSnapshot[];
+  agentSnapshots: ExecutorHealthSnapshot[];
   skillRunsByAgent: Map<string, SkillObservation[]>;
   auditEventsBySession: Map<string, StructuredAuditEntry[]>;
   checkedAt: string;
   now: number;
 }): GatewayCoworkerLivenessProbe {
-  const executorSnapshots = params.executorSnapshots;
   const skillRuns = params.skillRunsByAgent.get(params.agentId) ?? [];
   const process = buildProcessCheck({
-    activeSessions: executorSnapshots.length,
-    responsiveSessions: executorSnapshots.filter(
+    activeSessions: params.agentSnapshots.length,
+    responsiveSessions: params.agentSnapshots.filter(
       (snapshot) => snapshot.responsive,
     ).length,
-    busySessions: executorSnapshots.filter((snapshot) => snapshot.busy).length,
-    terminalErrors: executorSnapshots
+    busySessions: params.agentSnapshots.filter((snapshot) => snapshot.busy)
+      .length,
+    terminalErrors: params.agentSnapshots
       .map((snapshot) => snapshot.terminalError)
       .filter((value): value is string => Boolean(value)),
-    healthErrors: executorSnapshots
+    healthErrors: params.agentSnapshots
       .map((snapshot) => snapshot.healthError)
       .filter((value): value is string => Boolean(value)),
     lastObservedAt: newestTimestamp(
-      executorSnapshots.map((snapshot) =>
+      params.agentSnapshots.map((snapshot) =>
         snapshot.lastUsedAt > 0
           ? new Date(snapshot.lastUsedAt).toISOString()
           : null,
@@ -432,7 +430,7 @@ async function buildCoworkerLivenessSummary(
     buildProbe({
       agentId,
       sessions: sessionsByAgent.get(agentId) ?? [],
-      executorSnapshots: executorSnapshotsByAgent.get(agentId) ?? [],
+      agentSnapshots: executorSnapshotsByAgent.get(agentId) ?? [],
       skillRunsByAgent,
       auditEventsBySession,
       checkedAt,
