@@ -1,9 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildSanitizedEnv } from '../../container/shared/sensitive-env.js';
-import type { ExecutorRequest } from '../agent/executor-types.js';
+import type {
+  ExecutorRequest,
+  ExecutorSessionHealthSnapshot,
+} from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
@@ -287,6 +291,92 @@ function isStdinWriteInterrupt(
 export function getActiveHostSessionIds(): string[] {
   return Array.from(pool.keys()).sort((left, right) =>
     left.localeCompare(right),
+  );
+}
+
+function baseHostHealthSnapshot(
+  entry: PoolEntry,
+  params?: {
+    responsive?: boolean;
+    healthError?: string | null;
+  },
+): ExecutorSessionHealthSnapshot {
+  const processAlive = !entry.process.killed && entry.process.exitCode === null;
+  return {
+    mode: 'host',
+    sessionId: entry.sessionId,
+    agentId: entry.agentId,
+    pid: typeof entry.process.pid === 'number' ? entry.process.pid : null,
+    responsive:
+      params?.responsive ??
+      (processAlive && !entry.terminalError && Boolean(entry.activity)),
+    startedAt: entry.startedAt,
+    lastUsedAt: entry.lastUsedAt,
+    readyForInputAt: entry.readyForInputAt,
+    busy: Boolean(entry.activity),
+    terminalError: entry.terminalError,
+    healthError: params?.healthError ?? null,
+  };
+}
+
+async function pingHostEntry(
+  entry: PoolEntry,
+): Promise<ExecutorSessionHealthSnapshot> {
+  if (entry.activity) return baseHostHealthSnapshot(entry);
+  if (
+    entry.process.killed ||
+    entry.process.exitCode !== null ||
+    entry.terminalError
+  ) {
+    return baseHostHealthSnapshot(entry, { responsive: false });
+  }
+
+  const nonce = randomUUID();
+  const input: ContainerInput = {
+    healthCheck: { nonce },
+    sessionId: entry.sessionId,
+    messages: [],
+    chatbotId: '',
+    enableRag: false,
+    apiKey: '',
+    baseUrl: '',
+    model: '',
+    channelId: '',
+  };
+
+  try {
+    cleanupIpc(entry.ipcSessionId);
+    ensureSessionDirs(entry.ipcSessionId);
+    writeInput(entry.ipcSessionId, input, { omitApiKey: true });
+    const output = await readOutput(entry.ipcSessionId, 1_000, {
+      terminalError: () => entry.terminalError,
+    });
+    const expected = `HEALTH_OK:${nonce}`;
+    const responsive =
+      output.status === 'success' && output.result === expected;
+    return baseHostHealthSnapshot(entry, {
+      responsive,
+      healthError: responsive
+        ? null
+        : output.error ||
+          `unexpected health response: ${output.result || output.status}`,
+    });
+  } catch (error) {
+    return baseHostHealthSnapshot(entry, {
+      responsive: false,
+      healthError: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function getActiveHostSessionHealthSnapshots(): Promise<
+  ExecutorSessionHealthSnapshot[]
+> {
+  const snapshots = await Promise.all(
+    Array.from(pool.values()).map((entry) => pingHostEntry(entry)),
+  );
+  return snapshots.sort((left, right) =>
+    left.sessionId.localeCompare(right.sessionId),
   );
 }
 
@@ -1218,5 +1308,9 @@ export class HostExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveHostSessionIds();
+  }
+
+  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
+    return getActiveHostSessionHealthSnapshots();
   }
 }

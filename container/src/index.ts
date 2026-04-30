@@ -1859,6 +1859,15 @@ async function main(): Promise<void> {
       await shutdownAgentProcess(0, 'idle timeout');
       return;
     }
+    if (input.healthCheck?.nonce) {
+      writeOutput({
+        status: 'success',
+        result: `HEALTH_OK:${input.healthCheck.nonce}`,
+        toolsUsed: [],
+        toolExecutions: [],
+      });
+      continue;
+    }
 
     applyRuntimeEnv(input.runtimeEnv);
 

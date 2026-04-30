@@ -27,6 +27,11 @@ const mocks = vi.hoisted(() => ({
   processSideEffects: vi.fn(),
   proactiveWindowLabel: vi.fn(() => 'always-on'),
   recordAuditEvent: vi.fn(),
+  formatCoworkerLivenessPage: vi.fn(
+    (probe: { agentId: string; state: string }) =>
+      `Coworker liveness ${probe.state}: ${probe.agentId}`,
+  ),
+  getCoworkerLivenessSummary: vi.fn(() => ({ probes: [] })),
   resolveAgentForRequest: vi.fn(() => ({
     agentId: 'vllm',
     model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
@@ -69,6 +74,11 @@ vi.mock('../src/config/config.js', () => ({
   HYBRIDAI_CHATBOT_ID: '',
   HYBRIDAI_ENABLE_RAG: false,
   HYBRIDAI_MODEL: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+}));
+
+vi.mock('../src/gateway/coworker-liveness.js', () => ({
+  formatCoworkerLivenessPage: mocks.formatCoworkerLivenessPage,
+  getCoworkerLivenessSummary: mocks.getCoworkerLivenessSummary,
 }));
 
 vi.mock('../src/infra/ipc.js', () => ({
@@ -176,4 +186,35 @@ test('delivers substantive heartbeat messages', async () => {
   expect(mocks.memoryService.storeTurn).toHaveBeenCalledTimes(1);
   expect(mocks.appendSessionTranscript).toHaveBeenCalledTimes(2);
   expect(mocks.maybeCompactSession).toHaveBeenCalledTimes(1);
+});
+
+test('pages red coworker liveness transitions through heartbeat delivery', async () => {
+  vi.useFakeTimers();
+  mocks.runAgent.mockResolvedValue({
+    status: 'success',
+    result: 'HEARTBEAT_OK',
+    toolExecutions: [],
+  });
+  mocks.getCoworkerLivenessSummary.mockReturnValue({
+    probes: [
+      {
+        agentId: 'ops',
+        state: 'red',
+        reasonCodes: ['process_unresponsive'],
+      },
+    ],
+  });
+
+  const { startHeartbeat, stopHeartbeat } = await import(
+    '../src/scheduler/heartbeat.ts'
+  );
+  const onMessage = vi.fn();
+
+  startHeartbeat('vllm', 1_000, onMessage);
+  await vi.advanceTimersByTimeAsync(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  stopHeartbeat();
+
+  expect(onMessage).toHaveBeenCalledTimes(1);
+  expect(onMessage).toHaveBeenCalledWith('Coworker liveness red: ops');
 });

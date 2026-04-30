@@ -23,6 +23,10 @@ import {
   HEARTBEAT_ENABLED,
   HYBRIDAI_CHATBOT_ID,
 } from '../config/config.js';
+import {
+  formatCoworkerLivenessPage,
+  getCoworkerLivenessSummary,
+} from '../gateway/coworker-liveness.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getTasksForSession } from '../memory/db.js';
@@ -80,6 +84,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+const lastPagedLivenessStateByAgent = new Map<string, string>();
 
 function isHeartbeatOk(text: string): boolean {
   const normalized = text
@@ -87,6 +92,18 @@ function isHeartbeatOk(text: string): boolean {
     .replace(/[^a-z]/gi, '')
     .toUpperCase();
   return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
+}
+
+async function pageRedCoworkerLivenessTransitions(
+  onMessage: (text: string) => void,
+): Promise<void> {
+  const liveness = await getCoworkerLivenessSummary();
+  for (const probe of liveness.probes) {
+    const previous = lastPagedLivenessStateByAgent.get(probe.agentId);
+    lastPagedLivenessStateByAgent.set(probe.agentId, probe.state);
+    if (probe.state !== 'red' || previous === 'red') continue;
+    onMessage(formatCoworkerLivenessPage(probe));
+  }
 }
 
 export function startHeartbeat(
@@ -111,13 +128,6 @@ export function startHeartbeat(
       logger.debug('Heartbeat skipped — previous still running');
       return;
     }
-    if (!isWithinActiveHours()) {
-      logger.debug(
-        { activeHours: proactiveWindowLabel() },
-        'Heartbeat skipped — outside active hours window',
-      );
-      return;
-    }
     running = true;
 
     const sessionId = buildSessionKey(
@@ -132,6 +142,19 @@ export function startHeartbeat(
     let turnIndex = 1;
 
     try {
+      try {
+        await pageRedCoworkerLivenessTransitions(onMessage);
+      } catch (error) {
+        logger.warn({ error }, 'Coworker liveness paging failed');
+      }
+      if (!isWithinActiveHours()) {
+        logger.debug(
+          { activeHours: proactiveWindowLabel() },
+          'Heartbeat skipped — outside active hours window',
+        );
+        return;
+      }
+
       const session = memoryService.getOrCreateSession(
         sessionId,
         null,
@@ -442,4 +465,5 @@ export function stopHeartbeat(): void {
     timer = null;
     logger.info('Heartbeat stopped');
   }
+  lastPagedLivenessStateByAgent.clear();
 }
