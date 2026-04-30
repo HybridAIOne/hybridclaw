@@ -17,8 +17,15 @@ vi.mock('../src/providers/auxiliary.js', () => ({
   callAuxiliaryModel: vi.fn(),
 }));
 
+vi.mock('../src/providers/task-routing.js', () => ({
+  isAuxiliaryTaskDisabled: vi.fn(() => false),
+}));
+
 const { setSessionTitle } = await import('../src/memory/db.js');
 const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+const { isAuxiliaryTaskDisabled } = await import(
+  '../src/providers/task-routing.js'
+);
 const {
   generateSessionTitle,
   maybeAutoTitleSession,
@@ -27,6 +34,7 @@ const {
 } = await import('../src/session/session-title.js');
 
 const mockedAuxiliary = vi.mocked(callAuxiliaryModel);
+const mockedIsAuxiliaryTaskDisabled = vi.mocked(isAuxiliaryTaskDisabled);
 const mockedSetTitle = vi.mocked(setSessionTitle);
 
 function flushMicrotasks(): Promise<void> {
@@ -78,7 +86,6 @@ describe('generateSessionTitle', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: 'Help me ship the deploy.',
       assistantContent: 'Sure, here are the steps.',
@@ -86,7 +93,10 @@ describe('generateSessionTitle', () => {
 
     expect(title).toBe('Deploy Plan');
     expect(mockedAuxiliary).toHaveBeenCalledWith(
-      expect.objectContaining({ task: 'session_title' }),
+      expect.objectContaining({
+        task: 'session_title',
+        fallbackEnableRag: false,
+      }),
     );
   });
 
@@ -98,7 +108,6 @@ describe('generateSessionTitle', () => {
         sessionId: 's1',
         agentId: 'main',
         chatbotId: null,
-        enableRag: true,
         model: 'gpt-5',
         userContent: 'Help me ship the deploy.',
         assistantContent: 'Sure, here are the steps.',
@@ -117,7 +126,6 @@ describe('generateSessionTitle', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: ` ${'u'.repeat(600)} `,
       assistantContent: ` ${'a'.repeat(600)} `,
@@ -142,9 +150,24 @@ describe('generateSessionTitle', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: '   ',
+      assistantContent: 'Sure.',
+    });
+
+    expect(title).toBeNull();
+    expect(mockedAuxiliary).not.toHaveBeenCalled();
+  });
+
+  test('skips the model call when session title generation is disabled', async () => {
+    mockedIsAuxiliaryTaskDisabled.mockReturnValueOnce(true);
+
+    const title = await generateSessionTitle({
+      sessionId: 's1',
+      agentId: 'main',
+      chatbotId: null,
+      model: 'gpt-5',
+      userContent: 'Help me ship the deploy.',
       assistantContent: 'Sure.',
     });
 
@@ -156,6 +179,8 @@ describe('generateSessionTitle', () => {
 describe('maybeAutoTitleSession', () => {
   beforeEach(() => {
     mockedAuxiliary.mockReset();
+    mockedIsAuxiliaryTaskDisabled.mockReset();
+    mockedIsAuxiliaryTaskDisabled.mockReturnValue(false);
     mockedSetTitle.mockReset();
   });
 
@@ -164,7 +189,6 @@ describe('maybeAutoTitleSession', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: 'second turn',
       assistantContent: 'reply',
@@ -183,7 +207,6 @@ describe('maybeAutoTitleSession', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: 'first',
       assistantContent: 'reply',
@@ -206,7 +229,6 @@ describe('maybeAutoTitleSession', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: 'help me deploy',
       assistantContent: 'sure',
@@ -215,7 +237,7 @@ describe('maybeAutoTitleSession', () => {
     await flushMicrotasks();
 
     expect(mockedAuxiliary).toHaveBeenCalledTimes(1);
-    expect(mockedSetTitle).toHaveBeenCalledWith('s1', 'Deploy Plan', 'auto');
+    expect(mockedSetTitle).toHaveBeenCalledWith('s1', 'Deploy Plan');
   });
 
   test('does not call setSessionTitle when generation returns null', async () => {
@@ -229,7 +251,6 @@ describe('maybeAutoTitleSession', () => {
       sessionId: 's1',
       agentId: 'main',
       chatbotId: null,
-      enableRag: true,
       model: 'gpt-5',
       userContent: 'help me deploy',
       assistantContent: 'sure',

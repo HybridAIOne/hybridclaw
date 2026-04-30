@@ -693,6 +693,9 @@ describe.sequential('schema migrations', () => {
         content TEXT NOT NULL,
         created_at TEXT DEFAULT (datetime('now'))
       );
+
+      INSERT INTO sessions (id, channel_id, title, title_source)
+      VALUES ('branch-title-session', 'web', 'Branch Title', 'auto');
     `);
     legacy.pragma('user_version = 20');
     legacy.close();
@@ -707,6 +710,16 @@ describe.sequential('schema migrations', () => {
     const sessionColumns = inspect.pragma('table_info(sessions)') as Array<{
       name: string;
     }>;
+    const sessionSql = inspect
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get() as { sql: string } | undefined;
+    expect(() =>
+      inspect
+        .prepare("UPDATE sessions SET title_source = 'user' WHERE id = ?")
+        .run('branch-title-session'),
+    ).toThrow();
     inspect.close();
 
     expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
@@ -717,6 +730,8 @@ describe.sequential('schema migrations', () => {
     expect(
       sessionColumns.some((column) => column.name === 'title_source'),
     ).toBe(true);
+    expect(sessionSql?.sql).toContain('CHECK');
+    expect(sessionSql?.sql).toContain("'auto'");
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -1587,37 +1602,31 @@ describe.sequential('schema migrations', () => {
     initDatabase({ quiet: true, dbPath });
 
     getOrCreateSession('title-session', null, 'web');
-    setSessionTitle('title-session', 'Deploy Plan', 'auto');
+    setSessionTitle('title-session', 'Deploy Plan');
 
     expect(getSessionTitle('title-session')).toEqual({
       title: 'Deploy Plan',
       source: 'auto',
     });
+
+    const inspect = new Database(dbPath);
+    expect(() =>
+      inspect
+        .prepare("UPDATE sessions SET title_source = 'user' WHERE id = ?")
+        .run('title-session'),
+    ).toThrow();
+    inspect.close();
   });
 
-  test('setSessionTitle with auto source does not overwrite an existing title', () => {
+  test('setSessionTitle does not overwrite an existing title', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
 
     getOrCreateSession('title-session', null, 'web');
-    setSessionTitle('title-session', 'First Pick', 'auto');
-    setSessionTitle('title-session', 'Second Pick', 'auto');
+    setSessionTitle('title-session', 'First Pick');
+    setSessionTitle('title-session', 'Second Pick');
 
     expect(getSessionTitle('title-session').title).toBe('First Pick');
-  });
-
-  test('setSessionTitle with user source overrides an existing auto title', () => {
-    const dbPath = createTempDbPath();
-    initDatabase({ quiet: true, dbPath });
-
-    getOrCreateSession('title-session', null, 'web');
-    setSessionTitle('title-session', 'Auto Pick', 'auto');
-    setSessionTitle('title-session', 'User Pick', 'user');
-
-    expect(getSessionTitle('title-session')).toEqual({
-      title: 'User Pick',
-      source: 'user',
-    });
   });
 
   test('getRecentSessionsForUser prefers the stored title over the derived preview', () => {
@@ -1646,7 +1655,7 @@ describe.sequential('schema migrations', () => {
       .run(1, '2026-04-25T10:00:00.000Z', 'stored-title-session');
     inspect.close();
 
-    setSessionTitle('stored-title-session', 'Custom Stored Title', 'auto');
+    setSessionTitle('stored-title-session', 'Custom Stored Title');
 
     expect(
       getRecentSessionsForUser({

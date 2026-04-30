@@ -2,6 +2,7 @@ import { logger } from '../logger.js';
 import { setSessionTitle } from '../memory/db.js';
 import { withSpan } from '../observability/otel.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { isAuxiliaryTaskDisabled } from '../providers/task-routing.js';
 import { SESSION_TITLE_MAX_CHARS } from './session-title-constants.js';
 
 export { SESSION_TITLE_MAX_CHARS };
@@ -39,7 +40,6 @@ export interface GenerateSessionTitleParams {
   sessionId: string;
   agentId: string;
   chatbotId: string | null;
-  enableRag: boolean;
   model: string;
   userContent: string;
   assistantContent: string;
@@ -53,6 +53,7 @@ export async function generateSessionTitle(
     .trim()
     .slice(0, TITLE_INPUT_TRUNC);
   if (!userSnippet) return null;
+  if (isAuxiliaryTaskDisabled('session_title')) return null;
 
   const result = await withSpan(
     'hybridclaw.session.title',
@@ -63,7 +64,7 @@ export async function generateSessionTitle(
         agentId: params.agentId,
         fallbackModel: params.model,
         fallbackChatbotId: params.chatbotId ?? undefined,
-        fallbackEnableRag: params.enableRag,
+        fallbackEnableRag: false,
         messages: [
           { role: 'system', content: TITLE_SYSTEM_PROMPT },
           {
@@ -91,7 +92,7 @@ export function maybeAutoTitleSession(
     try {
       const title = await generateSessionTitle(params);
       if (!title) return;
-      setSessionTitle(params.sessionId, title, 'auto');
+      setSessionTitle(params.sessionId, title);
     } catch (err) {
       logger.warn(
         { sessionId: params.sessionId, err },

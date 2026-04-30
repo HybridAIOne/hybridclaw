@@ -31,7 +31,7 @@ export interface Session {
   title_source: SessionTitleSource | null;
 }
 
-export type SessionTitleSource = 'auto' | 'user';
+export type SessionTitleSource = 'auto';
 
 export interface StoredMessage {
   id: number;

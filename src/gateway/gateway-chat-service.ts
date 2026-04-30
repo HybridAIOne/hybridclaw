@@ -590,11 +590,12 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
+  // Each success path returns after scheduling title work, so one turn enqueues
+  // at most one title request.
   const autoTitleParams = () => ({
     sessionId: req.sessionId,
     agentId,
     chatbotId,
-    enableRag,
     model,
     isFirstTurn: turnIndex === 1,
   });

@@ -131,7 +131,7 @@ let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 28;
+export const DATABASE_SCHEMA_VERSION = 29;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -161,6 +161,14 @@ interface InitDatabaseOptions {
 
 interface TableInfoRow {
   name: string;
+}
+
+interface ColumnInfoRow {
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
 }
 
 type AgentRow = {
@@ -393,6 +401,10 @@ function getTableSql(database: Database.Database, table: string): string {
   return row?.sql || '';
 }
 
+function quoteSqlIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
 function columnExists(
   database: Database.Database,
   table: string,
@@ -519,11 +531,16 @@ function messageArtifactsNeedMigration(database: Database.Database): boolean {
   );
 }
 
-function sessionTitlesNeedMigration(database: Database.Database): boolean {
+function sessionTitleSourceConstraintNeedMigration(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'sessions')) return false;
+  if (!columnExists(database, 'sessions', 'title_source')) return false;
+  const definition = getTableSql(database, 'sessions').toLowerCase();
   return (
-    tableExists(database, 'sessions') &&
-    (!columnExists(database, 'sessions', 'title') ||
-      !columnExists(database, 'sessions', 'title_source'))
+    !definition.includes('check') ||
+    !definition.includes('title_source') ||
+    !definition.includes("'auto'")
   );
 }
 
@@ -2175,10 +2192,130 @@ function migrateV28(
     database,
     table: 'sessions',
     column: 'title_source',
-    ddl: 'title_source TEXT',
+    ddl: "title_source TEXT CHECK (title_source IS NULL OR title_source = 'auto')",
     quiet,
   });
   recordMigration(database, 28, 'Persist per-session AI-generated titles');
+}
+
+function buildSessionColumnDefinition(column: ColumnInfoRow): string {
+  if (column.name === 'title_source') {
+    const quotedName = quoteSqlIdentifier(column.name);
+    return `${quotedName} TEXT CHECK (${quotedName} IS NULL OR ${quotedName} = 'auto')`;
+  }
+
+  const parts = [quoteSqlIdentifier(column.name)];
+  const type = column.type.trim();
+  if (type) parts.push(type);
+  if (column.pk > 0) parts.push('PRIMARY KEY');
+  if (column.notnull !== 0) parts.push('NOT NULL');
+  if (column.dflt_value !== null) {
+    parts.push(`DEFAULT ${normalizeSqlColumnDefault(column.dflt_value)}`);
+  }
+  return parts.join(' ');
+}
+
+function normalizeSqlColumnDefault(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith('(')) return trimmed;
+  if (/^CURRENT_(TIME|DATE|TIMESTAMP)$/i.test(trimmed)) return trimmed;
+  return `(${trimmed})`;
+}
+
+function recreateSessionIndexes(database: Database.Database): void {
+  if (columnExists(database, 'sessions', 'agent_id')) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id)',
+    );
+  }
+  if (columnExists(database, 'sessions', 'legacy_session_id')) {
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_legacy_session_id
+        ON sessions(legacy_session_id)
+        WHERE legacy_session_id IS NOT NULL;
+    `);
+  }
+  if (columnExists(database, 'sessions', 'session_key')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_key ON sessions(session_key);
+    `);
+    if (columnExists(database, 'sessions', 'is_current')) {
+      database.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_current_key
+          ON sessions(session_key)
+          WHERE is_current = 1;
+      `);
+    }
+  }
+  if (columnExists(database, 'sessions', 'main_session_key')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_main_key
+        ON sessions(main_session_key);
+    `);
+  }
+  migrateV22(database);
+}
+
+function migrateV29(database: Database.Database): void {
+  if (!sessionTitleSourceConstraintNeedMigration(database)) {
+    recordMigration(
+      database,
+      29,
+      'Constrain session title sources to automatic titles',
+    );
+    return;
+  }
+
+  const backupTable = 'sessions_v29_backup';
+  if (!tableExists(database, backupTable)) {
+    database.exec(`
+      DROP INDEX IF EXISTS idx_sessions_agent;
+      DROP INDEX IF EXISTS idx_sessions_legacy_session_id;
+      DROP INDEX IF EXISTS idx_sessions_key;
+      DROP INDEX IF EXISTS idx_sessions_current_key;
+      DROP INDEX IF EXISTS idx_sessions_main_key;
+      DROP INDEX IF EXISTS idx_sessions_created_at;
+      DROP INDEX IF EXISTS idx_sessions_last_active;
+      DROP INDEX IF EXISTS idx_sessions_channel_last_active;
+      ALTER TABLE sessions RENAME TO ${backupTable};
+    `);
+  }
+
+  const columns = queryAll<ColumnInfoRow>(
+    database,
+    `PRAGMA table_info(${backupTable})`,
+  );
+  if (columns.length === 0) {
+    throw new Error('Unable to migrate sessions title source constraint.');
+  }
+
+  const columnNames = columns.map((column) => quoteSqlIdentifier(column.name));
+  const selectColumns = columns.map((column) =>
+    column.name === 'title_source'
+      ? `CASE WHEN ${quoteSqlIdentifier(column.name)} = 'auto' THEN ${quoteSqlIdentifier(column.name)} ELSE NULL END`
+      : quoteSqlIdentifier(column.name),
+  );
+
+  database.exec(`
+    DROP TABLE IF EXISTS sessions;
+
+    CREATE TABLE sessions (
+      ${columns.map(buildSessionColumnDefinition).join(',\n      ')}
+    );
+
+    INSERT INTO sessions (${columnNames.join(', ')})
+    SELECT ${selectColumns.join(', ')}
+    FROM ${backupTable};
+
+    DROP TABLE ${backupTable};
+  `);
+  recreateSessionIndexes(database);
+  recordMigration(
+    database,
+    29,
+    'Constrain session title sources to automatic titles',
+  );
 }
 
 function runMigrations(
@@ -2241,8 +2378,12 @@ function runMigrations(
   if (currentVersion < 25) migrateV25(database, opts);
   if (currentVersion < 26) migrateV26(database, opts);
   if (currentVersion < 27) migrateV27(database, opts);
-  if (currentVersion < 28 || sessionTitlesNeedMigration(database)) {
-    migrateV28(database, opts);
+  if (currentVersion < 28) migrateV28(database, opts);
+  if (
+    currentVersion < 29 ||
+    sessionTitleSourceConstraintNeedMigration(database)
+  ) {
+    migrateV29(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -5365,28 +5506,15 @@ export function getSessionTitle(sessionId: string): {
     resolvedSessionId,
   );
   if (!row) return { title: null, source: null };
-  const source =
-    row.title_source === 'auto' || row.title_source === 'user'
-      ? row.title_source
-      : null;
+  const source = row.title_source === 'auto' ? row.title_source : null;
   return { title: row.title, source };
 }
 
-export function setSessionTitle(
-  sessionId: string,
-  title: string,
-  source: SessionTitleSource,
-): void {
+export function setSessionTitle(sessionId: string, title: string): void {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
-  if (source === 'auto') {
-    db.prepare(
-      'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
-    ).run(title, source, resolvedSessionId);
-    return;
-  }
   db.prepare(
-    'UPDATE sessions SET title = ?, title_source = ? WHERE id = ?',
-  ).run(title, source, resolvedSessionId);
+    'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
+  ).run(title, 'auto', resolvedSessionId);
 }
 
 export function getAllSessions(options?: {
