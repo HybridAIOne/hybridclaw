@@ -169,16 +169,24 @@ export function MicrosoftLogo(props: ProviderLogoProps) {
   );
 }
 
-export function HybridAILogo(props: ProviderLogoProps) {
+export function HybridAILogo({
+  width = 18,
+  height = 18,
+  className,
+  style,
+}: ProviderLogoProps) {
   return (
-    <Frame viewBox="0 0 64 64" {...props}>
-      <image
-        href="/icons/hybridai.png"
-        width="64"
-        height="64"
-        preserveAspectRatio="xMidYMid meet"
-      />
-    </Frame>
+    <img
+      aria-hidden="true"
+      src="/icons/hybridai.png"
+      width={width}
+      height={height}
+      className={className}
+      style={style}
+      alt=""
+      draggable={false}
+      decoding="async"
+    />
   );
 }
 
