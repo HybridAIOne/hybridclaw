@@ -112,6 +112,11 @@ describe('config reload integration', () => {
           model: 'openai/gpt-5-nano',
           maxTokens: '500',
         },
+        session_title: {
+          provider: 'disabled',
+          model: 'openrouter/openai/gpt-5-nano',
+          maxTokens: '80',
+        },
       },
     });
 
@@ -126,6 +131,11 @@ describe('config reload integration', () => {
       provider: 'openrouter',
       model: 'openai/gpt-5-nano',
       maxTokens: 500,
+    });
+    expect(cfg.auxiliaryModels.session_title).toEqual({
+      provider: 'disabled',
+      model: 'openrouter/openai/gpt-5-nano',
+      maxTokens: 80,
     });
     expect(cfg.adaptiveSkills.trajectoryCapture.retentionDays).toBe(90);
     expect(cfg.adaptiveSkills.trajectoryCapture.retentionDaysByTenant).toEqual({

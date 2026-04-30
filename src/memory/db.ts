@@ -100,6 +100,7 @@ import type {
   ForkSessionBranchResult,
   Session,
   SessionShowMode,
+  SessionTitleSource,
   StoredMessage,
 } from '../types/session.js';
 import type {
@@ -130,7 +131,7 @@ let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 27;
+export const DATABASE_SCHEMA_VERSION = 29;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -160,6 +161,14 @@ interface InitDatabaseOptions {
 
 interface TableInfoRow {
   name: string;
+}
+
+interface ColumnInfoRow {
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
 }
 
 type AgentRow = {
@@ -392,6 +401,10 @@ function getTableSql(database: Database.Database, table: string): string {
   return row?.sql || '';
 }
 
+function quoteSqlIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
 function columnExists(
   database: Database.Database,
   table: string,
@@ -455,6 +468,15 @@ function agentSkillScoresNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'agent_skill_scores');
 }
 
+function messageAgentIdentityNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'messages') &&
+    !columnExists(database, 'messages', 'agent_id')
+  );
+}
+
 function adminStatisticsIndexesNeedMigration(
   database: Database.Database,
 ): boolean {
@@ -506,6 +528,19 @@ function messageArtifactsNeedMigration(database: Database.Database): boolean {
   return (
     tableExists(database, 'messages') &&
     !columnExists(database, 'messages', 'artifacts_json')
+  );
+}
+
+function sessionTitleSourceConstraintNeedMigration(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'sessions')) return false;
+  if (!columnExists(database, 'sessions', 'title_source')) return false;
+  const definition = getTableSql(database, 'sessions').toLowerCase();
+  return (
+    !definition.includes('check') ||
+    !definition.includes('title_source') ||
+    !definition.includes("'auto'")
   );
 }
 
@@ -2141,6 +2176,148 @@ function migrateV27(
   );
 }
 
+function migrateV28(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'title',
+    ddl: 'title TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'title_source',
+    ddl: "title_source TEXT CHECK (title_source IS NULL OR title_source = 'auto')",
+    quiet,
+  });
+  recordMigration(database, 28, 'Persist per-session AI-generated titles');
+}
+
+function buildSessionColumnDefinition(column: ColumnInfoRow): string {
+  if (column.name === 'title_source') {
+    const quotedName = quoteSqlIdentifier(column.name);
+    return `${quotedName} TEXT CHECK (${quotedName} IS NULL OR ${quotedName} = 'auto')`;
+  }
+
+  const parts = [quoteSqlIdentifier(column.name)];
+  const type = column.type.trim();
+  if (type) parts.push(type);
+  if (column.pk > 0) parts.push('PRIMARY KEY');
+  if (column.notnull !== 0) parts.push('NOT NULL');
+  if (column.dflt_value !== null) {
+    parts.push(`DEFAULT ${normalizeSqlColumnDefault(column.dflt_value)}`);
+  }
+  return parts.join(' ');
+}
+
+function normalizeSqlColumnDefault(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith('(')) return trimmed;
+  if (/^CURRENT_(TIME|DATE|TIMESTAMP)$/i.test(trimmed)) return trimmed;
+  return `(${trimmed})`;
+}
+
+function recreateSessionIndexes(database: Database.Database): void {
+  if (columnExists(database, 'sessions', 'agent_id')) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id)',
+    );
+  }
+  if (columnExists(database, 'sessions', 'legacy_session_id')) {
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_legacy_session_id
+        ON sessions(legacy_session_id)
+        WHERE legacy_session_id IS NOT NULL;
+    `);
+  }
+  if (columnExists(database, 'sessions', 'session_key')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_key ON sessions(session_key);
+    `);
+    if (columnExists(database, 'sessions', 'is_current')) {
+      database.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_current_key
+          ON sessions(session_key)
+          WHERE is_current = 1;
+      `);
+    }
+  }
+  if (columnExists(database, 'sessions', 'main_session_key')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_main_key
+        ON sessions(main_session_key);
+    `);
+  }
+  migrateV22(database);
+}
+
+function migrateV29(database: Database.Database): void {
+  if (!sessionTitleSourceConstraintNeedMigration(database)) {
+    recordMigration(
+      database,
+      29,
+      'Constrain session title sources to automatic titles',
+    );
+    return;
+  }
+
+  const backupTable = 'sessions_v29_backup';
+  if (!tableExists(database, backupTable)) {
+    database.exec(`
+      DROP INDEX IF EXISTS idx_sessions_agent;
+      DROP INDEX IF EXISTS idx_sessions_legacy_session_id;
+      DROP INDEX IF EXISTS idx_sessions_key;
+      DROP INDEX IF EXISTS idx_sessions_current_key;
+      DROP INDEX IF EXISTS idx_sessions_main_key;
+      DROP INDEX IF EXISTS idx_sessions_created_at;
+      DROP INDEX IF EXISTS idx_sessions_last_active;
+      DROP INDEX IF EXISTS idx_sessions_channel_last_active;
+      ALTER TABLE sessions RENAME TO ${backupTable};
+    `);
+  }
+
+  const columns = queryAll<ColumnInfoRow>(
+    database,
+    `PRAGMA table_info(${backupTable})`,
+  );
+  if (columns.length === 0) {
+    throw new Error('Unable to migrate sessions title source constraint.');
+  }
+
+  const columnNames = columns.map((column) => quoteSqlIdentifier(column.name));
+  const selectColumns = columns.map((column) =>
+    column.name === 'title_source'
+      ? `CASE WHEN ${quoteSqlIdentifier(column.name)} = 'auto' THEN ${quoteSqlIdentifier(column.name)} ELSE NULL END`
+      : quoteSqlIdentifier(column.name),
+  );
+
+  database.exec(`
+    DROP TABLE IF EXISTS sessions;
+
+    CREATE TABLE sessions (
+      ${columns.map(buildSessionColumnDefinition).join(',\n      ')}
+    );
+
+    INSERT INTO sessions (${columnNames.join(', ')})
+    SELECT ${selectColumns.join(', ')}
+    FROM ${backupTable};
+
+    DROP TABLE ${backupTable};
+  `);
+  recreateSessionIndexes(database);
+  recordMigration(
+    database,
+    29,
+    'Constrain session title sources to automatic titles',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2181,7 +2358,9 @@ function runMigrations(
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
-  if (currentVersion < 20) migrateV20(database, opts);
+  if (currentVersion < 20 || messageAgentIdentityNeedMigration(database)) {
+    migrateV20(database, opts);
+  }
   if (currentVersion < 21) migrateV21(database, opts);
   if (currentVersion < 22 || adminStatisticsIndexesNeedMigration(database)) {
     migrateV22(database);
@@ -2199,6 +2378,13 @@ function runMigrations(
   if (currentVersion < 25) migrateV25(database, opts);
   if (currentVersion < 26) migrateV26(database, opts);
   if (currentVersion < 27) migrateV27(database, opts);
+  if (currentVersion < 28) migrateV28(database, opts);
+  if (
+    currentVersion < 29 ||
+    sessionTitleSourceConstraintNeedMigration(database)
+  ) {
+    migrateV29(database);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -5309,6 +5495,36 @@ export function updateSessionShowMode(
   );
 }
 
+export function getSessionTitle(sessionId: string): {
+  title: string | null;
+  source: SessionTitleSource | null;
+} {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const row = queryOne<{ title: string | null; title_source: string | null }>(
+    db,
+    'SELECT title, title_source FROM sessions WHERE id = ?',
+    resolvedSessionId,
+  );
+  if (!row) return { title: null, source: null };
+  const source = row.title_source === 'auto' ? row.title_source : null;
+  return { title: row.title, source };
+}
+
+function normalizeSessionTitleForStorage(title: string): string | null {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) return null;
+  return normalizedTitle.slice(0, RECENT_CHAT_SESSION_TITLE_MAX_LENGTH);
+}
+
+export function setSessionTitle(sessionId: string, title: string): void {
+  const normalizedTitle = normalizeSessionTitleForStorage(title);
+  if (!normalizedTitle) return;
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  db.prepare(
+    'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
+  ).run(normalizedTitle, 'auto', resolvedSessionId);
+}
+
 export function getAllSessions(options?: {
   limit?: number;
   warnLabel?: string;
@@ -5389,6 +5605,7 @@ interface RecentUserSessionRow {
   last_active: string;
   last_message_at: string | null;
   message_count: number;
+  title: string | null;
 }
 
 interface RecentSessionBoundaryRow {
@@ -5560,11 +5777,14 @@ function buildRecentSessionSummaries(params: {
       boundary?.last_content && !shouldHideApprovalPrompt
         ? boundary.last_content
         : null;
-    const title = buildSessionBoundaryPreview({
-      firstMessage,
-      lastMessage,
-      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-    });
+    const storedTitle = (row.title || '').trim();
+    const title =
+      storedTitle ||
+      buildSessionBoundaryPreview({
+        firstMessage,
+        lastMessage,
+        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+      });
     const rawSearchSnippet = params.searchQuery
       ? buildSessionSearchSnippet(
           contentMatchesBySessionId.get(row.id) || null,
@@ -5617,6 +5837,7 @@ export function getRecentSessionsForUser(params: {
            s.id,
            s.last_active,
            s.message_count,
+           s.title,
            (
              SELECT MAX(all_messages.created_at)
                FROM messages all_messages
@@ -5637,6 +5858,7 @@ export function getRecentSessionsForUser(params: {
            s.id,
            s.last_active,
            s.message_count,
+           s.title,
            (
              SELECT MAX(all_messages.created_at)
                FROM messages all_messages
@@ -5677,6 +5899,7 @@ export function getRecentSessionsForChannel(params: {
        s.id,
        s.last_active,
        s.message_count,
+       s.title,
        MAX(m.created_at) AS last_message_at
        FROM sessions s
        INNER JOIN messages m
