@@ -174,7 +174,8 @@ test('reports red when an attached runtime fails the health ping', async () => {
       readyForInputAt: Date.now() - 20_000,
       busy: false,
       terminalError: null,
-      healthError: 'health probe timed out after 1000ms',
+      healthError:
+        'health probe failed with OPENAI_API_KEY=sk-1234567890abcdefghijklmnop',
     },
   ]);
   mocks.getSkillObservations.mockReturnValue([
@@ -210,10 +211,64 @@ test('reports red when an attached runtime fails the health ping', async () => {
     reasonCodes: ['process_unresponsive'],
     process: {
       code: 'process_unresponsive',
-      detail: 'health probe timed out after 1000ms',
+      detail: 'health probe failed with OPENAI_API_KEY=sk-123...mnop',
       activeSessions: 1,
       responsiveSessions: 0,
       busySessions: 0,
+    },
+  });
+});
+
+test('redacts terminal errors before exposing liveness details', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-29T12:00:00.000Z'));
+  mocks.getExecutorSessionHealthSnapshots.mockResolvedValue([
+    {
+      mode: 'host',
+      sessionId: 'session-main',
+      agentId: 'main',
+      responsive: false,
+      startedAt: Date.now() - 30_000,
+      lastUsedAt: Date.now() - 1_000,
+      readyForInputAt: Date.now() - 20_000,
+      busy: false,
+      terminalError:
+        'Host agent exited with OPENAI_API_KEY=sk-1234567890abcdefghijklmnop',
+      healthError: null,
+    },
+  ]);
+  mocks.getSkillObservations.mockReturnValue([
+    {
+      id: 1,
+      skill_name: 'development',
+      agent_id: 'main',
+      session_id: 'session-main',
+      run_id: 'run-1',
+      outcome: 'success',
+      error_category: null,
+      error_detail: null,
+      tool_calls_attempted: 1,
+      tool_calls_failed: 0,
+      duration_ms: 1000,
+      user_feedback: null,
+      feedback_sentiment: null,
+      created_at: '2026-04-29T11:55:00.000Z',
+    },
+  ]);
+
+  const { getCoworkerLivenessSummary } = await import(
+    '../src/gateway/coworker-liveness.js'
+  );
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main'],
+    forceRefresh: true,
+  });
+
+  expect(summary.probes[0]).toMatchObject({
+    state: 'red',
+    process: {
+      code: 'process_terminal_error',
+      detail: 'Host agent exited with OPENAI_API_KEY=sk-123...mnop',
     },
   });
 });

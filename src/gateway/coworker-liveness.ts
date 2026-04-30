@@ -6,6 +6,7 @@ import {
   getRecentStructuredAuditForSessions,
   getSkillObservations,
 } from '../memory/db.js';
+import { redactCredentialSecrets } from '../security/redact.js';
 import type { SkillObservation } from '../skills/adaptive-skills-types.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session } from '../types/session.js';
@@ -68,6 +69,14 @@ function newestTimestamp(
   return newest;
 }
 
+function redactRuntimeErrorDetail(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const detail = (value || '').trim() || fallback;
+  return redactCredentialSecrets(detail);
+}
+
 function buildProcessCheck(params: {
   activeSessions: number;
   responsiveSessions: number;
@@ -80,7 +89,10 @@ function buildProcessCheck(params: {
     return {
       ok: false,
       code: 'process_terminal_error',
-      detail: params.terminalErrors[0] || 'runtime reported a terminal error',
+      detail: redactRuntimeErrorDetail(
+        params.terminalErrors[0],
+        'runtime reported a terminal error',
+      ),
       observedAt: params.lastObservedAt,
       activeSessions: params.activeSessions,
       responsiveSessions: params.responsiveSessions,
@@ -94,9 +106,10 @@ function buildProcessCheck(params: {
     return {
       ok: false,
       code: 'process_unresponsive',
-      detail:
-        params.healthErrors[0] ||
+      detail: redactRuntimeErrorDetail(
+        params.healthErrors[0],
         'active runtime process is not accepting work',
+      ),
       observedAt: params.lastObservedAt,
       activeSessions: params.activeSessions,
       responsiveSessions: params.responsiveSessions,
