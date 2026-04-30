@@ -6,26 +6,57 @@ import { describe, expect, test } from 'vitest';
 import {
   parseWorkflowDefinitionYaml,
   validateWorkflowDefinition,
-  WORKFLOW_DEFINITION_SCHEMA,
 } from '../src/workflow/schema.js';
 
 describe('workflow definition schema', () => {
-  test('defines the required declarative workflow fields', () => {
-    expect(WORKFLOW_DEFINITION_SCHEMA.required).toEqual([
-      'id',
-      'name',
-      'steps',
-      'transitions',
-    ]);
-    expect(WORKFLOW_DEFINITION_SCHEMA.properties.steps.items.required).toEqual([
-      'id',
-      'owner_coworker_id',
-      'action',
-    ]);
-    expect(
-      WORKFLOW_DEFINITION_SCHEMA.properties.steps.items.properties
-        .stakes_threshold.enum,
-    ).toEqual(['low', 'medium', 'high']);
+  test('rejects workflow documents missing required fields', () => {
+    expect(() =>
+      validateWorkflowDefinition({
+        id: 'workflow_missing_name',
+        steps: [
+          {
+            id: 'brief',
+            owner_coworker_id: 'coworker_briefing',
+            action: 'Prepare the brief.',
+          },
+        ],
+        transitions: [],
+      }),
+    ).toThrow(/must include name/u);
+  });
+
+  test('rejects steps missing required ownership fields', () => {
+    expect(() =>
+      validateWorkflowDefinition({
+        id: 'workflow_missing_owner',
+        name: 'Missing owner workflow',
+        steps: [
+          {
+            id: 'brief',
+            action: 'Prepare the brief.',
+          },
+        ],
+        transitions: [],
+      }),
+    ).toThrow(/must include owner_coworker_id/u);
+  });
+
+  test('rejects unsupported stakes thresholds', () => {
+    expect(() =>
+      validateWorkflowDefinition({
+        id: 'workflow_invalid_stakes',
+        name: 'Invalid stakes workflow',
+        steps: [
+          {
+            id: 'brief',
+            owner_coworker_id: 'coworker_briefing',
+            action: 'Prepare the brief.',
+            stakes_threshold: 'critical',
+          },
+        ],
+        transitions: [],
+      }),
+    ).toThrow(/stakes_threshold.*allowed values/u);
   });
 
   test('parses a fixture workflow with a high-stakes step', () => {

@@ -167,13 +167,5 @@ export function parseWorkflowDefinitionYaml(
     );
   }
 
-  try {
-    return validateWorkflowDefinition(parsed);
-  } catch (error) {
-    throw new Error(
-      `Invalid ${sourceName}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
+  return validateWorkflowDefinition(parsed);
 }
