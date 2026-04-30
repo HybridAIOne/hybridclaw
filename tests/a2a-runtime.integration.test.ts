@@ -67,7 +67,7 @@ describe('A2A runtime API', () => {
       delivered: true,
       message_id: 'msg-1',
       thread_id: 'thread-1',
-      recipient_coworker_id: 'stub-b@team@local-dev',
+      recipient_agent_id: 'stub-b@team@local-dev',
       envelope: {
         id: 'msg-1',
         sender_agent_id: 'stub-a@team@local-dev',

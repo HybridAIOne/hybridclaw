@@ -1967,13 +1967,43 @@ function readRuntimeEnvelope(body: unknown): unknown {
   return body;
 }
 
+function resolveA2AEnvelopeActor(envelope: unknown): string | undefined {
+  if (!isRecord(envelope)) return undefined;
+  return (
+    normalizeOptionalString(
+      typeof envelope.actor === 'string' ? envelope.actor : undefined,
+    ) ||
+    normalizeOptionalString(
+      typeof envelope.sender_coworker_id === 'string'
+        ? envelope.sender_coworker_id
+        : undefined,
+    ) ||
+    normalizeOptionalString(
+      typeof envelope.sender_agent_id === 'string'
+        ? envelope.sender_agent_id
+        : undefined,
+    ) ||
+    normalizeOptionalString(
+      typeof envelope.senderCoworkerId === 'string'
+        ? envelope.senderCoworkerId
+        : undefined,
+    ) ||
+    normalizeOptionalString(
+      typeof envelope.from === 'string' ? envelope.from : undefined,
+    ) ||
+    undefined
+  );
+}
+
 async function handleApiA2ASendMessage(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
   const body = await readJsonBody(req);
+  const envelope = readRuntimeEnvelope(body);
   try {
-    const confirmation = sendA2AMessage(readRuntimeEnvelope(body), {
+    const confirmation = sendA2AMessage(envelope, {
+      actor: resolveA2AEnvelopeActor(envelope),
       route: 'api.a2a.sendMessage',
       source: 'gateway-http',
     });

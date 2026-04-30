@@ -1932,13 +1932,25 @@ describe('gateway HTTP server', () => {
       delivered: true,
       message_id: 'msg-1',
       thread_id: 'thread-1',
-      recipient_coworker_id: 'stub-b@team@local-dev',
+      recipient_agent_id: 'stub-b@team@local-dev',
       envelope: {
         id: 'msg-1',
         sender_agent_id: 'stub-a@team@local-dev',
         recipient_agent_id: 'stub-b@team@local-dev',
         thread_id: 'thread-1',
       },
+    });
+    const a2aStore = await import('../src/a2a/store.ts');
+    const revisions = await import('../src/config/runtime-config-revisions.ts');
+    expect(
+      revisions.getRuntimeAssetRevisionStateMetadata(
+        'a2a',
+        a2aStore.a2aThreadAssetPath('thread-1'),
+      ),
+    ).toMatchObject({
+      actor: 'stub-a',
+      route: 'api.a2a.sendMessage',
+      source: 'gateway-http',
     });
 
     const inboxReq = makeRequest({

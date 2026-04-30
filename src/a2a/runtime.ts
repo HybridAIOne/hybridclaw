@@ -7,7 +7,7 @@ export interface A2ADeliveryConfirmation {
   delivered: true;
   message_id: string;
   thread_id: string;
-  recipient_coworker_id: string;
+  recipient_agent_id: string;
   delivered_at: string;
   envelope: A2AEnvelope;
 }
@@ -54,7 +54,7 @@ export function sendMessage(
     delivered: true,
     message_id: deliveredEnvelope.id,
     thread_id: deliveredEnvelope.thread_id,
-    recipient_coworker_id: deliveredEnvelope.recipient_agent_id,
+    recipient_agent_id: deliveredEnvelope.recipient_agent_id,
     delivered_at: new Date().toISOString(),
     envelope: deliveredEnvelope,
   };

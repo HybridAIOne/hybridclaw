@@ -201,9 +201,22 @@ export function listA2AEnvelopes(): A2AEnvelope[] {
 
 export function listA2AInboxEnvelopes(coworkerId: string): A2AEnvelope[] {
   const recipientAgentId = resolveA2AAgentId(coworkerId);
-  return listA2AEnvelopes().filter(
-    (envelope) => envelope.recipient_agent_id === recipientAgentId,
-  );
+  const envelopes: A2AEnvelope[] = [];
+  for (const state of listRuntimeAssetRevisionStates('a2a')) {
+    const threadId = threadIdFromAssetPath(state.assetPath);
+    if (!threadId) continue;
+    envelopes.push(
+      ...parsePersistedThreadState(state.content, threadId).envelopes.filter(
+        (envelope) => envelope.recipient_agent_id === recipientAgentId,
+      ),
+    );
+  }
+
+  return envelopes.sort((left, right) => {
+    const createdAtOrder = left.created_at.localeCompare(right.created_at);
+    if (createdAtOrder !== 0) return createdAtOrder;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export function getA2AEnvelope(
