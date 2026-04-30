@@ -208,7 +208,8 @@ Once the gateway is running, open HybridClaw locally:
   credentials, supported channels, and per-agent autonomy policy.
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
-  brand-voice drafting, and editable Excalidraw diagram creation.
+  natural-language warehouse SQL (`warehouse-sql`), brand-voice drafting, and
+  editable Excalidraw diagram creation.
 - The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
   responses that violate configured voice rules before they reach users.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled

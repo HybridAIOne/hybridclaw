@@ -1,0 +1,20 @@
+id: workflow_launch_package
+name: Launch package workflow
+steps:
+  - id: brief
+    owner_coworker_id: coworker_briefing
+    action: Prepare the launch brief from approved source notes.
+    stakes_threshold: medium
+  - id: build
+    owner_coworker_id: coworker_builder
+    action: Draft the launch package artifacts.
+    stakes_threshold: medium
+  - id: review
+    owner_coworker_id: coworker_reviewer
+    action: Review the package before any client-visible update.
+    stakes_threshold: high
+transitions:
+  - from: brief
+    to: build
+  - from: build
+    to: review

@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # Skills Catalog
 
-HybridClaw ships **37 bundled skills** across eight categories. Each page below
+HybridClaw ships **38 bundled skills** across eight categories. Each page below
 covers every skill in its category with prerequisites, install commands,
 tips & tricks, ready-to-try example prompts, and troubleshooting.
 
@@ -28,7 +28,7 @@ For production package requirements see
 | Category | Skills | Page |
 |---|---|---|
 | Office | pdf, xlsx, docx, pptx, office-workflows | [Office Skills](./office.md) |
-| Development | code-review, gh-issues, github-pr-workflow, salesforce, skill-creator | [Development Skills](./development.md) |
+| Development | code-review, gh-issues, github-pr-workflow, salesforce, skill-creator, warehouse-sql | [Development Skills](./development.md) |
 | Communication | discord, channel-catchup | [Communication Skills](./communication.md) |
 | Apple | apple-calendar, apple-music, apple-passwords | [Apple Skills](./apple.md) |
 | Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |

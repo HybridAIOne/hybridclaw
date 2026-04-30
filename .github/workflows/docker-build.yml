@@ -31,7 +31,7 @@ jobs:
             scope: hybridclaw-gateway
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
 
       - name: Resolve image tags
         id: meta
@@ -72,4 +72,4 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.scope }}
+          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.scope }}

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { validateWorkflowDefinition } from '../src/workflow/schema.js';
 import {
   requireTestAgent,
   requireTestClientOrg,
@@ -80,19 +81,19 @@ describe('trusted agents test fixtures', () => {
       steps: [
         {
           id: 'brief',
-          owner_agent_id: requireTestAgent('agent_briefing').id,
+          owner_coworker_id: requireTestAgent('agent_briefing').id,
           action: `Brief ${clientOrg.launchCodename}`,
           stakes_threshold: 'medium',
         },
         {
           id: 'build',
-          owner_agent_id: requireTestAgent('agent_builder').id,
+          owner_coworker_id: requireTestAgent('agent_builder').id,
           action: 'Build approved artifact',
           stakes_threshold: 'medium',
         },
         {
           id: 'review',
-          owner_agent_id: requireTestAgent('agent_reviewer').id,
+          owner_coworker_id: requireTestAgent('agent_reviewer').id,
           action: 'Review output before client update',
           stakes_threshold: 'high',
         },
@@ -105,15 +106,16 @@ describe('trusted agents test fixtures', () => {
     const agentIds = new Set(
       trustedAgentsFixtures.agents.map((agent) => agent.id),
     );
+    const validatedWorkflow = validateWorkflowDefinition(workflow);
 
     expect(
-      workflow.steps.every((step) => agentIds.has(step.owner_agent_id)),
+      validatedWorkflow.steps.every((step) =>
+        agentIds.has(step.owner_coworker_id),
+      ),
     ).toBe(true);
-    expect(workflow.steps.map((step) => step.owner_agent_id)).toEqual([
-      'agent_briefing',
-      'agent_builder',
-      'agent_reviewer',
-    ]);
-    expect(workflow.steps[2].stakes_threshold).toBe('high');
+    expect(
+      validatedWorkflow.steps.map((step) => step.owner_coworker_id),
+    ).toEqual(['agent_briefing', 'agent_builder', 'agent_reviewer']);
+    expect(validatedWorkflow.steps[2].stakes_threshold).toBe('high');
   });
 });
