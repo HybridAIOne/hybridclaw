@@ -92,6 +92,7 @@ import {
   normalizeOptionalTrimmedString as normalizeOptionalString,
   normalizeTrimmedUniqueStringArray,
 } from '../utils/normalized-strings.js';
+import { isRecord } from '../utils/type-guards.js';
 import {
   AdminTerminalCapacityError,
   type AdminTerminalStartOptions,
@@ -267,10 +268,6 @@ const ALLOWED_MEDIA_UPLOAD_MIME_TYPES = new Set([
   'text/plain',
   'text/xml',
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 type ApiChatRequestBody = GatewayChatRequestBody & { stream?: boolean };
 type ApiChatBranchRequestBody = Partial<GatewayChatBranchRequestBody>;
