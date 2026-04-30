@@ -70,12 +70,15 @@ import { ensureHostRuntimeReady } from './host-runtime-setup.js';
 import { resolveInstallRoot } from './install-root.js';
 import {
   agentWorkspaceDir,
+  cleanupHealthIpc,
   cleanupIpc,
   createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
+  readHealthOutput,
   readOutput,
+  writeHealthInput,
   writeInput,
 } from './ipc.js';
 import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
@@ -194,6 +197,7 @@ interface PoolEntry extends WarmRunnerEntry {
   onApprovalProgress?: (approval: PendingApproval) => void;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
   activity?: import('./ipc.js').ActivityTracker;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
 const pool = new Map<string, PoolEntry>();
@@ -322,6 +326,7 @@ function baseHostHealthSnapshot(
 async function pingHostEntry(
   entry: PoolEntry,
 ): Promise<ExecutorSessionHealthSnapshot> {
+  if (entry.healthProbe) return entry.healthProbe;
   if (entry.activity) return baseHostHealthSnapshot(entry);
   if (
     entry.process.killed ||
@@ -331,6 +336,20 @@ async function pingHostEntry(
     return baseHostHealthSnapshot(entry, { responsive: false });
   }
 
+  const probe = pingIdleHostEntry(entry);
+  entry.healthProbe = probe;
+  try {
+    return await probe;
+  } finally {
+    if (entry.healthProbe === probe) {
+      entry.healthProbe = undefined;
+    }
+  }
+}
+
+async function pingIdleHostEntry(
+  entry: PoolEntry,
+): Promise<ExecutorSessionHealthSnapshot> {
   const nonce = randomUUID();
   const input: ContainerInput = {
     healthCheck: { nonce },
@@ -345,10 +364,10 @@ async function pingHostEntry(
   };
 
   try {
-    cleanupIpc(entry.ipcSessionId);
+    cleanupHealthIpc(entry.ipcSessionId);
     ensureSessionDirs(entry.ipcSessionId);
-    writeInput(entry.ipcSessionId, input, { omitApiKey: true });
-    const output = await readOutput(entry.ipcSessionId, 1_000, {
+    writeHealthInput(entry.ipcSessionId, input);
+    const output = await readHealthOutput(entry.ipcSessionId, 1_000, {
       terminalError: () => entry.terminalError,
     });
     const expected = `HEALTH_OK:${nonce}`;

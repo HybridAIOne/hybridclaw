@@ -279,16 +279,14 @@ function buildProbe(params: {
   executorSnapshots: Awaited<
     ReturnType<typeof getExecutorSessionHealthSnapshots>
   >;
+  skillRunsByAgent: Map<string, SkillObservation[]>;
   checkedAt: string;
   now: number;
 }): GatewayCoworkerLivenessProbe {
   const executorSnapshots = params.executorSnapshots.filter(
     (snapshot) => snapshot.agentId === params.agentId,
   );
-  const skillRuns = getSkillObservations({
-    agentId: params.agentId,
-    limit: 50,
-  });
+  const skillRuns = params.skillRunsByAgent.get(params.agentId) ?? [];
   const process = buildProcessCheck({
     activeSessions: executorSnapshots.length,
     responsiveSessions: executorSnapshots.filter(
@@ -359,12 +357,22 @@ export async function getCoworkerLivenessSummary(params?: {
     existing.push(session);
     sessionsByAgent.set(agentId, existing);
   }
+  const skillRunsByAgent = new Map<string, SkillObservation[]>();
+  for (const run of getSkillObservations({ limit: 1_000 })) {
+    const agentId = (run.agent_id || DEFAULT_AGENT_ID).trim();
+    if (!agentIds.includes(agentId)) continue;
+    const existing = skillRunsByAgent.get(agentId) ?? [];
+    if (existing.length >= 50) continue;
+    existing.push(run);
+    skillRunsByAgent.set(agentId, existing);
+  }
 
   const probes = agentIds.map((agentId) =>
     buildProbe({
       agentId,
       sessions: sessionsByAgent.get(agentId) ?? [],
       executorSnapshots,
+      skillRunsByAgent,
       checkedAt,
       now,
     }),

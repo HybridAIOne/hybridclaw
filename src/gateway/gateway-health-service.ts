@@ -14,6 +14,7 @@ import type { GatewayProviderHealthEntry } from './gateway-types.js';
 const GATEWAY_STATUS_PROVIDER_PROBE_TIMEOUT_MS = 750;
 
 export interface GatewayHealthOptions {
+  includeCoworkerLiveness?: boolean;
   refreshProviderHealth?: boolean;
 }
 

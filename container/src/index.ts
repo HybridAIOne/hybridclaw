@@ -13,7 +13,7 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
-import { waitForInput, writeOutput } from './ipc.js';
+import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -1860,7 +1860,7 @@ async function main(): Promise<void> {
       return;
     }
     if (input.healthCheck?.nonce) {
-      writeOutput({
+      writeHealthOutput({
         status: 'success',
         result: `HEALTH_OK:${input.healthCheck.nonce}`,
         toolsUsed: [],

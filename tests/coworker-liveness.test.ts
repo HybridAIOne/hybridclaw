@@ -206,3 +206,60 @@ test('reports red when an attached runtime fails the health ping', async () => {
     },
   });
 });
+
+test('loads skill observations once for all probed coworkers', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-29T12:00:00.000Z'));
+  mocks.listAgents.mockReturnValue([
+    { id: 'main', name: 'Main Agent' },
+    { id: 'ops', name: 'Ops Agent' },
+  ]);
+  mocks.getExecutorSessionHealthSnapshots.mockResolvedValue([
+    {
+      mode: 'host',
+      sessionId: 'session-ops',
+      agentId: 'ops',
+      pid: 1234,
+      responsive: true,
+      startedAt: Date.now() - 30_000,
+      lastUsedAt: Date.now() - 1_000,
+      readyForInputAt: Date.now() - 20_000,
+      busy: false,
+      terminalError: null,
+      healthError: null,
+    },
+  ]);
+  mocks.getSkillObservations.mockReturnValue([
+    {
+      id: 1,
+      skill_name: 'development',
+      agent_id: 'ops',
+      session_id: 'session-ops',
+      run_id: 'run-1',
+      outcome: 'success',
+      error_category: null,
+      error_detail: null,
+      tool_calls_attempted: 1,
+      tool_calls_failed: 0,
+      duration_ms: 1000,
+      user_feedback: null,
+      feedback_sentiment: null,
+      created_at: '2026-04-29T11:55:00.000Z',
+    },
+  ]);
+
+  const { getCoworkerLivenessSummary } = await import(
+    '../src/gateway/coworker-liveness.js'
+  );
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main', 'ops'],
+  });
+
+  expect(mocks.getSkillObservations).toHaveBeenCalledTimes(1);
+  expect(mocks.getSkillObservations).toHaveBeenCalledWith({ limit: 1_000 });
+  expect(summary.probes.find((probe) => probe.agentId === 'ops')).toMatchObject(
+    {
+      recentSkillRun: { code: 'recent_successful_skill_run' },
+    },
+  );
+});

@@ -3757,7 +3757,10 @@ export async function getGatewayStatus(
     codex,
     hybridaiHealth,
   });
-  const coworkerLiveness = await getCoworkerLivenessSummary();
+  const includeCoworkerLiveness = options.includeCoworkerLiveness ?? true;
+  const coworkerLiveness = includeCoworkerLiveness
+    ? await getCoworkerLivenessSummary()
+    : undefined;
   const discordCredential = resolveRuntimeCredentialStatus(
     'DISCORD_TOKEN',
     [DISCORD_TOKEN],
@@ -3877,7 +3880,7 @@ export async function getGatewayStatus(
     },
     providerHealth,
     localBackends,
-    coworkerLiveness,
+    ...(coworkerLiveness ? { coworkerLiveness } : {}),
     pluginCommands: listLoadedPluginCommands(),
   };
 }

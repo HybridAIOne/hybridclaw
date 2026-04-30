@@ -78,12 +78,15 @@ import type { AdditionalMount } from '../types/security.js';
 import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
   agentWorkspaceDir,
+  cleanupHealthIpc,
   cleanupIpc,
   createActivityTracker,
   ensureAgentDirs,
   ensureSessionDirs,
   getSessionPaths,
+  readHealthOutput,
   readOutput,
+  writeHealthInput,
   writeInput,
 } from './ipc.js';
 import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
@@ -148,6 +151,7 @@ interface PoolEntry extends WarmRunnerEntry {
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   activity?: import('./ipc.js').ActivityTracker;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
 interface ContainerPathAliasMount {
@@ -405,6 +409,7 @@ function baseContainerHealthSnapshot(
 async function pingContainerEntry(
   entry: PoolEntry,
 ): Promise<ExecutorSessionHealthSnapshot> {
+  if (entry.healthProbe) return entry.healthProbe;
   if (entry.activity) return baseContainerHealthSnapshot(entry);
   if (
     entry.process.killed ||
@@ -414,6 +419,20 @@ async function pingContainerEntry(
     return baseContainerHealthSnapshot(entry, { responsive: false });
   }
 
+  const probe = pingIdleContainerEntry(entry);
+  entry.healthProbe = probe;
+  try {
+    return await probe;
+  } finally {
+    if (entry.healthProbe === probe) {
+      entry.healthProbe = undefined;
+    }
+  }
+}
+
+async function pingIdleContainerEntry(
+  entry: PoolEntry,
+): Promise<ExecutorSessionHealthSnapshot> {
   const nonce = randomUUID();
   const input: ContainerInput = {
     healthCheck: { nonce },
@@ -428,10 +447,10 @@ async function pingContainerEntry(
   };
 
   try {
-    cleanupIpc(entry.ipcSessionId);
+    cleanupHealthIpc(entry.ipcSessionId);
     ensureSessionDirs(entry.ipcSessionId);
-    writeInput(entry.ipcSessionId, input, { omitApiKey: true });
-    const output = await readOutput(entry.ipcSessionId, 1_000, {
+    writeHealthInput(entry.ipcSessionId, input);
+    const output = await readHealthOutput(entry.ipcSessionId, 1_000, {
       terminalError: () => entry.terminalError,
     });
     const expected = `HEALTH_OK:${nonce}`;
