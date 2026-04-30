@@ -149,7 +149,7 @@ function readThreadState(threadId: string): A2AThreadState {
 }
 
 function serializeThreadState(state: A2AThreadState): string {
-  return `${JSON.stringify(state, null, 2)}\n`;
+  return JSON.stringify(state);
 }
 
 export function listA2AThreadEnvelopes(threadId: string): A2AEnvelope[] {
@@ -188,11 +188,12 @@ export function listA2AInboxEnvelopes(coworkerId: string): A2AEnvelope[] {
   for (const state of listRuntimeAssetRevisionStates('a2a')) {
     const threadId = threadIdFromAssetPath(state.assetPath);
     if (!threadId) continue;
-    envelopes.push(
-      ...parsePersistedThreadState(state.content, threadId).envelopes.filter(
-        (envelope) => envelope.recipient_agent_id === recipientAgentId,
-      ),
-    );
+    for (const envelope of parsePersistedThreadState(state.content, threadId)
+      .envelopes) {
+      if (envelope.recipient_agent_id === recipientAgentId) {
+        envelopes.push(envelope);
+      }
+    }
   }
 
   return envelopes.sort((left, right) => {
