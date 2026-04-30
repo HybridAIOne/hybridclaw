@@ -87,8 +87,6 @@ describe('A2A runtime API', () => {
       },
       {
         actor: 'stub-a',
-        route: 'test.a2a.send',
-        source: 'integration-test',
       },
     );
 
