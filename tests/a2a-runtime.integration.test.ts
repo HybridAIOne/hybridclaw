@@ -98,7 +98,7 @@ describe('A2A runtime API', () => {
       thread_id: 'thread-1',
       recipient_agent_id: 'stub-b@team@local-dev',
     });
-    expect(Date.parse(confirmation.delivered_at)).not.toBeNaN();
+    expect(confirmation).not.toHaveProperty('delivered_at');
 
     const deliveredEnvelope = {
       id: 'msg-1',

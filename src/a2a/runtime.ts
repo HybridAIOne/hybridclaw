@@ -9,7 +9,6 @@ export interface A2ADeliveryConfirmation {
   message_id: string;
   thread_id: string;
   recipient_agent_id: string;
-  delivered_at: string;
 }
 
 function normalizeRuntimeEnvelope(envelope: unknown): unknown {
@@ -36,7 +35,6 @@ export function sendMessage(
     message_id: deliveredEnvelope.id,
     thread_id: deliveredEnvelope.thread_id,
     recipient_agent_id: deliveredEnvelope.recipient_agent_id,
-    delivered_at: new Date().toISOString(),
   };
 }
 
