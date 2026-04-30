@@ -152,7 +152,7 @@ saved revision history directly.
 - `adaptiveSkills.*` for skill observation, amendment staging, rollback, and opt-in trajectory capture via `adaptiveSkills.trajectoryCapture.enabledAgentIds`
 - Captured trajectories run through PII/secret redaction, and configured confidential-info rules preserve the documented `«CONF:<RULE_ID>»` placeholder format before trajectories are written
 - `adaptiveSkills.trajectoryCapture.storeDir` controls trajectory storage; empty stores beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory
-- Trajectory retention defaults to `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden per coworker with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
+- Trajectory retention defaults to `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden per agent with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
