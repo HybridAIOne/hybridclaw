@@ -70,6 +70,7 @@ export const WORKFLOW_DEFINITION_SCHEMA = {
     },
     transitions: {
       type: 'array',
+      minItems: 1,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -126,7 +127,16 @@ function assertTransitionTargets(definition: WorkflowDefinition): void {
     stepIds.add(step.id);
   }
 
+  const transitionIds = new Set<string>();
   for (const transition of definition.transitions) {
+    const transitionId = `${transition.from}\u0000${transition.to}`;
+    if (transitionIds.has(transitionId)) {
+      throw new Error(
+        `Invalid workflow definition: duplicate transition "${transition.from}" to "${transition.to}".`,
+      );
+    }
+    transitionIds.add(transitionId);
+
     if (!stepIds.has(transition.from)) {
       throw new Error(
         `Invalid workflow definition: transition references unknown from step "${transition.from}".`,

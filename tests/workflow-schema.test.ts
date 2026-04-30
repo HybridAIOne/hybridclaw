@@ -20,7 +20,7 @@ describe('workflow definition schema', () => {
             action: 'Prepare the brief.',
           },
         ],
-        transitions: [],
+        transitions: [{ from: 'brief', to: 'brief' }],
       }),
     ).toThrow(/must include name/u);
   });
@@ -36,7 +36,7 @@ describe('workflow definition schema', () => {
             action: 'Prepare the brief.',
           },
         ],
-        transitions: [],
+        transitions: [{ from: 'brief', to: 'brief' }],
       }),
     ).toThrow(/must include owner_coworker_id/u);
   });
@@ -54,9 +54,26 @@ describe('workflow definition schema', () => {
             stakes_threshold: 'critical',
           },
         ],
-        transitions: [],
+        transitions: [{ from: 'brief', to: 'brief' }],
       }),
     ).toThrow(/stakes_threshold.*allowed values/u);
+  });
+
+  test('rejects workflow documents without transitions', () => {
+    expect(() =>
+      validateWorkflowDefinition({
+        id: 'workflow_without_transitions',
+        name: 'Workflow without transitions',
+        steps: [
+          {
+            id: 'brief',
+            owner_coworker_id: 'coworker_briefing',
+            action: 'Prepare the brief.',
+          },
+        ],
+        transitions: [],
+      }),
+    ).toThrow(/transitions.*fewer than 1 items/u);
   });
 
   test('parses a fixture workflow with a high-stakes step', () => {
@@ -119,5 +136,30 @@ transitions: []
         transitions: [{ from: 'brief', to: 'missing' }],
       }),
     ).toThrow(/unknown to step "missing"/u);
+  });
+
+  test('rejects duplicate transitions', () => {
+    expect(() =>
+      validateWorkflowDefinition({
+        id: 'workflow_duplicate_transition',
+        name: 'Duplicate transition workflow',
+        steps: [
+          {
+            id: 'brief',
+            owner_coworker_id: 'coworker_briefing',
+            action: 'Prepare the brief.',
+          },
+          {
+            id: 'build',
+            owner_coworker_id: 'coworker_builder',
+            action: 'Build the artifact.',
+          },
+        ],
+        transitions: [
+          { from: 'brief', to: 'build' },
+          { from: 'brief', to: 'build' },
+        ],
+      }),
+    ).toThrow(/duplicate transition "brief" to "build"/u);
   });
 });

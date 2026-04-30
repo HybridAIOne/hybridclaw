@@ -20,7 +20,7 @@ Required top-level fields:
 | `id` | string | Stable workflow identifier |
 | `name` | string | Human-readable workflow name |
 | `steps` | array | One or more coworker-owned actions |
-| `transitions` | array | Directed edges between step IDs |
+| `transitions` | array | One or more directed edges between step IDs |
 
 Step fields:
 
