@@ -590,6 +590,14 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
+  const autoTitleParams = () => ({
+    sessionId: req.sessionId,
+    agentId,
+    chatbotId,
+    enableRag,
+    model,
+    isFirstTurn: turnIndex === 1,
+  });
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
@@ -636,14 +644,9 @@ async function handleGatewayMessageInner(
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
     });
     maybeAutoTitleSession({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
+      ...autoTitleParams(),
       userContent: conciergeUserContent,
       assistantContent: conciergeTurn.resultText,
-      isFirstTurn: turnIndex === 1,
     });
     return attachSessionIdentity({
       status: 'success',
@@ -828,14 +831,9 @@ async function handleGatewayMessageInner(
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     maybeAutoTitleSession({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
+      ...autoTitleParams(),
       userContent: req.content,
       assistantContent: resultText,
-      isFirstTurn: turnIndex === 1,
     });
     return attachSessionIdentity(result);
   }
@@ -1559,14 +1557,9 @@ async function handleGatewayMessageInner(
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
     maybeAutoTitleSession({
-      sessionId: req.sessionId,
-      agentId,
-      chatbotId,
-      enableRag,
-      model,
+      ...autoTitleParams(),
       userContent: storedUserContent,
       assistantContent: resultText,
-      isFirstTurn: turnIndex === 1,
     });
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({

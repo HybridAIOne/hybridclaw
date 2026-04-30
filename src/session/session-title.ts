@@ -2,8 +2,10 @@ import { logger } from '../logger.js';
 import { setSessionTitle } from '../memory/db.js';
 import { withSpan } from '../observability/otel.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
+import { SESSION_TITLE_MAX_CHARS } from './session-title-constants.js';
 
-export const SESSION_TITLE_MAX_CHARS = 80;
+export { SESSION_TITLE_MAX_CHARS };
+
 const TITLE_INPUT_TRUNC = 500;
 
 const TITLE_SYSTEM_PROMPT = [
