@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { validateWorkflowDefinition } from '../src/workflow/schema.js';
 import {
   requireTestAgent,
   requireTestClientOrg,
@@ -105,15 +106,16 @@ describe('trusted agents test fixtures', () => {
     const agentIds = new Set(
       trustedAgentsFixtures.agents.map((agent) => agent.id),
     );
+    const validatedWorkflow = validateWorkflowDefinition(workflow);
 
     expect(
-      workflow.steps.every((step) => agentIds.has(step.owner_coworker_id)),
+      validatedWorkflow.steps.every((step) =>
+        agentIds.has(step.owner_coworker_id),
+      ),
     ).toBe(true);
-    expect(workflow.steps.map((step) => step.owner_coworker_id)).toEqual([
-      'agent_briefing',
-      'agent_builder',
-      'agent_reviewer',
-    ]);
-    expect(workflow.steps[2].stakes_threshold).toBe('high');
+    expect(
+      validatedWorkflow.steps.map((step) => step.owner_coworker_id),
+    ).toEqual(['agent_briefing', 'agent_builder', 'agent_reviewer']);
+    expect(validatedWorkflow.steps[2].stakes_threshold).toBe('high');
   });
 });
