@@ -15,8 +15,6 @@ const OPENAI_EXECUTION_SESSION_ID_RE =
 const DEFAULT_TEST_GATEWAY_API_TOKEN = 'gateway-token';
 
 const ORIGINAL_HOME = process.env.HOME;
-const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
-const ORIGINAL_INSTANCE_ID = process.env.HYBRIDCLAW_INSTANCE_ID;
 const ORIGINAL_HYBRIDCLAW_AUTH_SECRET = process.env.HYBRIDCLAW_AUTH_SECRET;
 const makeTempDocsRoot = useTempDir('hybridclaw-health-');
 
@@ -546,16 +544,6 @@ async function importFreshHealth(options?: {
         }
       : null,
   );
-  const testAgents = [
-    { id: 'main', name: 'Main Agent', owner: 'team' },
-    { id: 'stub-a', name: 'Stub Agent A', owner: 'team' },
-    { id: 'stub-b', name: 'Stub Agent B', owner: 'team' },
-  ];
-  const findAgentConfig = vi.fn(
-    (agentId?: string | null) =>
-      testAgents.find((agent) => agent.id === agentId?.trim()) || null,
-  );
-  const listAgents = vi.fn(() => testAgents);
   const resolveAgentConfig = vi.fn((agentId?: string | null) => ({
     id: agentId?.trim() || 'main',
     name: 'Main Agent',
@@ -1607,9 +1595,7 @@ async function importFreshHealth(options?: {
     },
   }));
   vi.doMock('../src/agents/agent-registry.js', () => ({
-    findAgentConfig,
     getAgentById,
-    listAgents,
     resolveAgentConfig,
     resolveAgentWorkspaceId,
   }));
@@ -1846,16 +1832,6 @@ useCleanMocks({
       delete process.env.HOME;
     } else {
       process.env.HOME = ORIGINAL_HOME;
-    }
-    if (ORIGINAL_DATA_DIR === undefined) {
-      delete process.env.HYBRIDCLAW_DATA_DIR;
-    } else {
-      process.env.HYBRIDCLAW_DATA_DIR = ORIGINAL_DATA_DIR;
-    }
-    if (ORIGINAL_INSTANCE_ID === undefined) {
-      delete process.env.HYBRIDCLAW_INSTANCE_ID;
-    } else {
-      process.env.HYBRIDCLAW_INSTANCE_ID = ORIGINAL_INSTANCE_ID;
     }
   },
   resetModules: true,
