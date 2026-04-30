@@ -35,6 +35,24 @@ afterEach(() => {
 });
 
 describe('A2A runtime API', () => {
+  test('fails fast for invalid runtime boundary inputs', async () => {
+    const runtime = await import('../src/a2a/runtime.ts');
+    const envelope = await import('../src/a2a/envelope.ts');
+
+    expect(() => runtime.sendMessage(null)).toThrow(
+      envelope.A2AEnvelopeValidationError,
+    );
+    expect(() => runtime.sendMessage(null)).toThrow(
+      'Invalid A2A envelope: envelope must be an object',
+    );
+    expect(() => runtime.inbox('  ')).toThrow(
+      envelope.A2AEnvelopeValidationError,
+    );
+    expect(() => runtime.inbox('  ')).toThrow(
+      'Invalid A2A envelope: coworkerId is required',
+    );
+  });
+
   test('delivers a message from stub coworker A to stub coworker B inbox', async () => {
     const runtimeConfig = await import('../src/config/runtime-config.ts');
     const runtime = await import('../src/a2a/runtime.ts');

@@ -1,5 +1,5 @@
 import type { RuntimeConfigChangeMeta } from '../config/runtime-config-revisions.js';
-import type { A2AEnvelope } from './envelope.js';
+import { type A2AEnvelope, A2AEnvelopeValidationError } from './envelope.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
 import { isRecord } from './utils.js';
 
@@ -13,7 +13,9 @@ export interface A2ADeliveryConfirmation {
 }
 
 function normalizeRuntimeEnvelope(envelope: unknown): unknown {
-  if (!isRecord(envelope)) return envelope;
+  if (!isRecord(envelope)) {
+    throw new A2AEnvelopeValidationError(['envelope must be an object']);
+  }
   const normalized = { ...envelope };
   if (
     normalized.sender_agent_id === undefined &&
@@ -54,5 +56,8 @@ export function sendMessage(
 }
 
 export function inbox(coworkerId: string): A2AEnvelope[] {
+  if (!coworkerId.trim()) {
+    throw new A2AEnvelopeValidationError(['coworkerId is required']);
+  }
   return listA2AInboxEnvelopes(coworkerId);
 }
