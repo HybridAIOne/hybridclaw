@@ -5337,6 +5337,45 @@ export function getAllSessions(options?: {
   return rows;
 }
 
+export function getRecentSessionsForAgents(
+  agentIds: readonly string[],
+  perAgentLimit = 8,
+): Session[] {
+  ensureDatabaseReady();
+  const normalizedAgentIds = Array.from(
+    new Set(
+      agentIds
+        .map((agentId) => (agentId || DEFAULT_AGENT_ID).trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+  if (normalizedAgentIds.length === 0) return [];
+  const limit = Math.max(1, Math.min(64, Math.trunc(perAgentLimit || 8)));
+  const placeholders = normalizedAgentIds.map(() => '?').join(', ');
+  const currentWhere = hasSessionCurrentColumn(db) ? 'is_current = 1 AND ' : '';
+  return queryAll<Session, Array<string | number>>(
+    db,
+    `WITH ranked_sessions AS (
+       SELECT
+         *,
+         ROW_NUMBER() OVER (
+           PARTITION BY COALESCE(NULLIF(TRIM(agent_id), ''), ?)
+           ORDER BY last_active DESC, id DESC
+         ) AS liveness_rank
+       FROM sessions
+       WHERE ${currentWhere}COALESCE(NULLIF(TRIM(agent_id), ''), ?) IN (${placeholders})
+     )
+     SELECT *
+     FROM ranked_sessions
+     WHERE liveness_rank <= ?
+     ORDER BY last_active DESC, id DESC`,
+    DEFAULT_AGENT_ID,
+    DEFAULT_AGENT_ID,
+    ...normalizedAgentIds,
+    limit,
+  );
+}
+
 export interface RecentUserSessionSummary {
   sessionId: string;
   lastActive: string;
@@ -8432,6 +8471,38 @@ export function getRecentStructuredAuditForSession(
     orderBy: 'seq',
     sortDirection: 'DESC',
   });
+}
+
+export function getRecentStructuredAuditForSessions(
+  sessionIds: readonly string[],
+  perSessionLimit = 20,
+): StructuredAuditEntry[] {
+  ensureDatabaseReady();
+  const normalizedSessionIds = Array.from(
+    new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
+  if (normalizedSessionIds.length === 0) return [];
+  const limit = Math.max(1, Math.min(200, Math.trunc(perSessionLimit || 20)));
+  const placeholders = normalizedSessionIds.map(() => '?').join(', ');
+  return queryAll<StructuredAuditEntry, Array<string | number>>(
+    db,
+    `WITH ranked_events AS (
+       SELECT
+         ${STRUCTURED_AUDIT_SELECT_COLUMNS},
+         ROW_NUMBER() OVER (
+           PARTITION BY session_id
+           ORDER BY seq DESC
+         ) AS liveness_rank
+       FROM audit_events
+       WHERE session_id IN (${placeholders})
+     )
+     SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM ranked_events
+     WHERE liveness_rank <= ?
+     ORDER BY session_id ASC, seq DESC`,
+    ...normalizedSessionIds,
+    limit,
+  );
 }
 
 export function listStructuredAuditSessionIdsByPrefix(

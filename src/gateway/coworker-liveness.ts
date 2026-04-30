@@ -2,11 +2,12 @@ import { getExecutorSessionHealthSnapshots } from '../agent/executor.js';
 import { listAgents } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
-  getAllSessions,
-  getRecentStructuredAuditForSession,
+  getRecentSessionsForAgents,
+  getRecentStructuredAuditForSessions,
   getSkillObservations,
 } from '../memory/db.js';
 import type { SkillObservation } from '../skills/adaptive-skills-types.js';
+import type { StructuredAuditEntry } from '../types/audit.js';
 import type { Session } from '../types/session.js';
 import { getFullAutoRuntimeState } from './fullauto-runtime.js';
 import { parseTimestampMs } from './gateway-time.js';
@@ -20,8 +21,26 @@ import type {
 const RECENT_SUCCESSFUL_SKILL_RUN_MS = 7 * 24 * 60 * 60 * 1000;
 const RECENT_ESCALATING_ERROR_MS = 2 * 60 * 60 * 1000;
 const ESCALATING_ERROR_COUNT = 3;
+const RECENT_SESSIONS_PER_AGENT = 8;
+const RECENT_AUDIT_EVENTS_PER_SESSION = 20;
+const COWORKER_LIVENESS_CACHE_TTL_MS = 15_000;
 
 type Check = GatewayCoworkerLivenessCheck;
+type ExecutorHealthSnapshot = Awaited<
+  ReturnType<typeof getExecutorSessionHealthSnapshots>
+>[number];
+type CoworkerLivenessSummaryParams = {
+  agentIds?: readonly string[];
+  forceRefresh?: boolean;
+};
+type CoworkerLivenessSummaryCache = {
+  key: string;
+  expiresAt: number;
+  summary?: GatewayCoworkerLivenessSummary;
+  promise?: Promise<GatewayCoworkerLivenessSummary>;
+};
+
+let coworkerLivenessSummaryCache: CoworkerLivenessSummaryCache | null = null;
 
 function uniqueStrings(values: Iterable<string | null | undefined>): string[] {
   return Array.from(
@@ -178,10 +197,14 @@ function countLeadingRecentSkillFailures(
   return count;
 }
 
-function countRecentAuditErrors(sessions: Session[], now: number): number {
+function countRecentAuditErrors(
+  sessions: Session[],
+  now: number,
+  auditEventsBySession: Map<string, StructuredAuditEntry[]>,
+): number {
   let count = 0;
-  for (const session of sessions.slice(0, 8)) {
-    const rows = getRecentStructuredAuditForSession(session.id, 20);
+  for (const session of sessions.slice(0, RECENT_SESSIONS_PER_AGENT)) {
+    const rows = auditEventsBySession.get(session.id) ?? [];
     for (const row of rows) {
       if (row.event_type !== 'error') continue;
       const timestampMs = parseTimestampMs(row.timestamp || row.created_at);
@@ -196,6 +219,7 @@ function countRecentAuditErrors(sessions: Session[], now: number): number {
 function buildEscalatingErrorsCheck(params: {
   sessions: Session[];
   skillRuns: SkillObservation[];
+  auditEventsBySession: Map<string, StructuredAuditEntry[]>;
   now: number;
 }): GatewayCoworkerLivenessProbe['escalatingErrors'] {
   const recentSkillFailures = countLeadingRecentSkillFailures(
@@ -226,7 +250,11 @@ function buildEscalatingErrorsCheck(params: {
     }
   }
 
-  const auditErrors = countRecentAuditErrors(params.sessions, params.now);
+  const auditErrors = countRecentAuditErrors(
+    params.sessions,
+    params.now,
+    params.auditEventsBySession,
+  );
   if (auditErrors >= ESCALATING_ERROR_COUNT) {
     return {
       ok: false,
@@ -276,16 +304,13 @@ function deriveReasonCodes(params: {
 function buildProbe(params: {
   agentId: string;
   sessions: Session[];
-  executorSnapshots: Awaited<
-    ReturnType<typeof getExecutorSessionHealthSnapshots>
-  >;
+  executorSnapshots: ExecutorHealthSnapshot[];
   skillRunsByAgent: Map<string, SkillObservation[]>;
+  auditEventsBySession: Map<string, StructuredAuditEntry[]>;
   checkedAt: string;
   now: number;
 }): GatewayCoworkerLivenessProbe {
-  const executorSnapshots = params.executorSnapshots.filter(
-    (snapshot) => snapshot.agentId === params.agentId,
-  );
+  const executorSnapshots = params.executorSnapshots;
   const skillRuns = params.skillRunsByAgent.get(params.agentId) ?? [];
   const process = buildProcessCheck({
     activeSessions: executorSnapshots.length,
@@ -311,6 +336,7 @@ function buildProbe(params: {
   const escalatingErrors = buildEscalatingErrorsCheck({
     sessions: params.sessions,
     skillRuns,
+    auditEventsBySession: params.auditEventsBySession,
     now: params.now,
   });
   const state = deriveState({ process, recentSkillRun, escalatingErrors });
@@ -331,31 +357,53 @@ function buildProbe(params: {
   };
 }
 
-export async function getCoworkerLivenessSummary(params?: {
-  agentIds?: readonly string[];
-}): Promise<GatewayCoworkerLivenessSummary> {
+function coworkerLivenessCacheKey(
+  params?: CoworkerLivenessSummaryParams,
+): string {
+  const requestedIds = uniqueStrings(params?.agentIds ?? []);
+  return requestedIds.length > 0 ? requestedIds.join('\n') : '*';
+}
+
+async function buildCoworkerLivenessSummary(
+  params?: CoworkerLivenessSummaryParams,
+): Promise<GatewayCoworkerLivenessSummary> {
   const checkedAt = new Date().toISOString();
   const now = Date.now();
-  const sessions = getAllSessions({
-    limit: 1_000,
-    warnLabel: 'coworker-liveness',
-  });
   const configuredAgents = listAgents() as AgentConfig[];
   const requestedIds = params?.agentIds ? [...params.agentIds] : [];
   const executorSnapshots = await getExecutorSessionHealthSnapshots();
   const agentIds = uniqueStrings([
     DEFAULT_AGENT_ID,
     ...configuredAgents.map((agent) => agent.id),
-    ...sessions.map((session) => session.agent_id),
     ...executorSnapshots.map((snapshot) => snapshot.agentId),
     ...requestedIds,
   ]);
+  const sessions = getRecentSessionsForAgents(
+    agentIds,
+    RECENT_SESSIONS_PER_AGENT,
+  );
   const sessionsByAgent = new Map<string, Session[]>();
   for (const session of sessions) {
     const agentId = (session.agent_id || DEFAULT_AGENT_ID).trim();
     const existing = sessionsByAgent.get(agentId) ?? [];
     existing.push(session);
     sessionsByAgent.set(agentId, existing);
+  }
+  const executorSnapshotsByAgent = new Map<string, ExecutorHealthSnapshot[]>();
+  for (const snapshot of executorSnapshots) {
+    const agentId = (snapshot.agentId || DEFAULT_AGENT_ID).trim();
+    const existing = executorSnapshotsByAgent.get(agentId) ?? [];
+    existing.push(snapshot);
+    executorSnapshotsByAgent.set(agentId, existing);
+  }
+  const auditEventsBySession = new Map<string, StructuredAuditEntry[]>();
+  for (const row of getRecentStructuredAuditForSessions(
+    sessions.map((session) => session.id),
+    RECENT_AUDIT_EVENTS_PER_SESSION,
+  )) {
+    const existing = auditEventsBySession.get(row.session_id) ?? [];
+    existing.push(row);
+    auditEventsBySession.set(row.session_id, existing);
   }
   const skillRunsByAgent = new Map<string, SkillObservation[]>();
   for (const run of getSkillObservations({ limit: 1_000 })) {
@@ -371,8 +419,9 @@ export async function getCoworkerLivenessSummary(params?: {
     buildProbe({
       agentId,
       sessions: sessionsByAgent.get(agentId) ?? [],
-      executorSnapshots,
+      executorSnapshots: executorSnapshotsByAgent.get(agentId) ?? [],
       skillRunsByAgent,
+      auditEventsBySession,
       checkedAt,
       now,
     }),
@@ -390,6 +439,46 @@ export async function getCoworkerLivenessSummary(params?: {
     totals,
     probes,
   };
+}
+
+export async function getCoworkerLivenessSummary(
+  params?: CoworkerLivenessSummaryParams,
+): Promise<GatewayCoworkerLivenessSummary> {
+  const key = coworkerLivenessCacheKey(params);
+  const now = Date.now();
+  if (
+    !params?.forceRefresh &&
+    coworkerLivenessSummaryCache?.key === key &&
+    coworkerLivenessSummaryCache.expiresAt > now
+  ) {
+    if (coworkerLivenessSummaryCache.summary) {
+      return coworkerLivenessSummaryCache.summary;
+    }
+    if (coworkerLivenessSummaryCache.promise) {
+      return coworkerLivenessSummaryCache.promise;
+    }
+  }
+
+  const promise = buildCoworkerLivenessSummary(params);
+  coworkerLivenessSummaryCache = {
+    key,
+    expiresAt: now + COWORKER_LIVENESS_CACHE_TTL_MS,
+    promise,
+  };
+  try {
+    const summary = await promise;
+    coworkerLivenessSummaryCache = {
+      key,
+      expiresAt: Date.now() + COWORKER_LIVENESS_CACHE_TTL_MS,
+      summary,
+    };
+    return summary;
+  } catch (error) {
+    if (coworkerLivenessSummaryCache?.promise === promise) {
+      coworkerLivenessSummaryCache = null;
+    }
+    throw error;
+  }
 }
 
 export function formatCoworkerLivenessPage(

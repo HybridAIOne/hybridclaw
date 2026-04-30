@@ -4,8 +4,8 @@ const mocks = vi.hoisted(() => ({
   getExecutorSessionHealthSnapshots: vi.fn(() => []),
   getFullAutoRuntimeState: vi.fn(() => undefined),
   listAgents: vi.fn(() => [{ id: 'main', name: 'Main Agent' }]),
-  getAllSessions: vi.fn(() => []),
-  getRecentStructuredAuditForSession: vi.fn(() => []),
+  getRecentSessionsForAgents: vi.fn(() => []),
+  getRecentStructuredAuditForSessions: vi.fn(() => []),
   getSkillObservations: vi.fn(() => []),
 }));
 
@@ -18,8 +18,9 @@ vi.mock('../src/agents/agent-registry.js', () => ({
 }));
 
 vi.mock('../src/memory/db.js', () => ({
-  getAllSessions: mocks.getAllSessions,
-  getRecentStructuredAuditForSession: mocks.getRecentStructuredAuditForSession,
+  getRecentSessionsForAgents: mocks.getRecentSessionsForAgents,
+  getRecentStructuredAuditForSessions:
+    mocks.getRecentStructuredAuditForSessions,
   getSkillObservations: mocks.getSkillObservations,
 }));
 
@@ -31,8 +32,8 @@ beforeEach(() => {
   mocks.getExecutorSessionHealthSnapshots.mockReturnValue([]);
   mocks.getFullAutoRuntimeState.mockReturnValue(undefined);
   mocks.listAgents.mockReturnValue([{ id: 'main', name: 'Main Agent' }]);
-  mocks.getAllSessions.mockReturnValue([]);
-  mocks.getRecentStructuredAuditForSession.mockReturnValue([]);
+  mocks.getRecentSessionsForAgents.mockReturnValue([]);
+  mocks.getRecentStructuredAuditForSessions.mockReturnValue([]);
   mocks.getSkillObservations.mockReturnValue([]);
 });
 
@@ -80,7 +81,10 @@ test('reports green when process, recent skill, and error probes pass', async ()
   const { getCoworkerLivenessSummary } = await import(
     '../src/gateway/coworker-liveness.js'
   );
-  const summary = await getCoworkerLivenessSummary({ agentIds: ['main'] });
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main'],
+    forceRefresh: true,
+  });
 
   expect(summary.probes[0]).toMatchObject({
     agentId: 'main',
@@ -99,7 +103,10 @@ test('reports amber when no successful skill run has been observed', async () =>
   const { getCoworkerLivenessSummary } = await import(
     '../src/gateway/coworker-liveness.js'
   );
-  const summary = await getCoworkerLivenessSummary({ agentIds: ['main'] });
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main'],
+    forceRefresh: true,
+  });
 
   expect(summary.probes[0]).toMatchObject({
     agentId: 'main',
@@ -134,7 +141,10 @@ test('reports red when recent failures are escalating', async () => {
   const { getCoworkerLivenessSummary } = await import(
     '../src/gateway/coworker-liveness.js'
   );
-  const summary = await getCoworkerLivenessSummary({ agentIds: ['main'] });
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main'],
+    forceRefresh: true,
+  });
 
   expect(summary.probes[0]).toMatchObject({
     agentId: 'main',
@@ -189,7 +199,10 @@ test('reports red when an attached runtime fails the health ping', async () => {
   const { getCoworkerLivenessSummary } = await import(
     '../src/gateway/coworker-liveness.js'
   );
-  const summary = await getCoworkerLivenessSummary({ agentIds: ['main'] });
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main'],
+    forceRefresh: true,
+  });
 
   expect(summary.probes[0]).toMatchObject({
     agentId: 'main',
@@ -201,6 +214,93 @@ test('reports red when an attached runtime fails the health ping', async () => {
       activeSessions: 1,
       responsiveSessions: 0,
       busySessions: 0,
+    },
+  });
+});
+
+test('reports red when recent audit errors are escalating from batched rows', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-29T12:00:00.000Z'));
+  mocks.getRecentSessionsForAgents.mockReturnValue([
+    {
+      id: 'session-main',
+      session_key: 'session-main',
+      main_session_key: 'session-main',
+      is_current: 1,
+      guild_id: null,
+      channel_id: 'channel-1',
+      agent_id: 'main',
+      chatbot_id: null,
+      model: null,
+      enable_rag: 1,
+      message_count: 1,
+      session_summary: null,
+      summary_updated_at: null,
+      compaction_count: 0,
+      memory_flush_at: null,
+      full_auto_enabled: 0,
+      full_auto_prompt: null,
+      full_auto_started_at: null,
+      show_mode: 'all',
+      created_at: '2026-04-29T10:00:00.000Z',
+      last_active: '2026-04-29T11:59:00.000Z',
+      reset_count: 0,
+      reset_at: null,
+    },
+  ]);
+  mocks.getRecentStructuredAuditForSessions.mockReturnValue(
+    [1, 2, 3].map((id) => ({
+      id,
+      session_id: 'session-main',
+      seq: id,
+      event_type: 'error',
+      timestamp: `2026-04-29T11:5${id}:00.000Z`,
+      run_id: `run-${id}`,
+      parent_run_id: null,
+      payload: '{}',
+      wire_hash: `hash-${id}`,
+      wire_prev_hash: `prev-${id}`,
+      created_at: `2026-04-29T11:5${id}:00.000Z`,
+    })),
+  );
+  mocks.getSkillObservations.mockReturnValue([
+    {
+      id: 1,
+      skill_name: 'development',
+      agent_id: 'main',
+      session_id: 'session-main',
+      run_id: 'run-1',
+      outcome: 'success',
+      error_category: null,
+      error_detail: null,
+      tool_calls_attempted: 1,
+      tool_calls_failed: 0,
+      duration_ms: 1000,
+      user_feedback: null,
+      feedback_sentiment: null,
+      created_at: '2026-04-29T11:55:00.000Z',
+    },
+  ]);
+
+  const { getCoworkerLivenessSummary } = await import(
+    '../src/gateway/coworker-liveness.js'
+  );
+  const summary = await getCoworkerLivenessSummary({
+    agentIds: ['main'],
+    forceRefresh: true,
+  });
+
+  expect(mocks.getRecentStructuredAuditForSessions).toHaveBeenCalledTimes(1);
+  expect(mocks.getRecentStructuredAuditForSessions).toHaveBeenCalledWith(
+    ['session-main'],
+    20,
+  );
+  expect(summary.probes[0]).toMatchObject({
+    state: 'red',
+    reasonCodes: ['recent_turn_errors_escalating'],
+    escalatingErrors: {
+      code: 'recent_turn_errors_escalating',
+      count: 3,
     },
   });
 });
@@ -250,6 +350,7 @@ test('loads skill observations once for all probed coworkers', async () => {
   );
   const summary = await getCoworkerLivenessSummary({
     agentIds: ['main', 'ops'],
+    forceRefresh: true,
   });
 
   expect(mocks.getSkillObservations).toHaveBeenCalledTimes(1);
@@ -259,4 +360,21 @@ test('loads skill observations once for all probed coworkers', async () => {
       recentSkillRun: { code: 'recent_successful_skill_run' },
     },
   );
+});
+
+test('reuses the liveness summary within the cache ttl', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-29T12:00:00.000Z'));
+
+  const { getCoworkerLivenessSummary } = await import(
+    '../src/gateway/coworker-liveness.js'
+  );
+  const first = await getCoworkerLivenessSummary({ forceRefresh: true });
+  const second = await getCoworkerLivenessSummary();
+
+  expect(second).toBe(first);
+  expect(mocks.getExecutorSessionHealthSnapshots).toHaveBeenCalledTimes(1);
+  expect(mocks.getRecentSessionsForAgents).toHaveBeenCalledTimes(1);
+  expect(mocks.getRecentStructuredAuditForSessions).toHaveBeenCalledTimes(1);
+  expect(mocks.getSkillObservations).toHaveBeenCalledTimes(1);
 });
