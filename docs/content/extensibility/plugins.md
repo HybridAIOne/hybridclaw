@@ -84,10 +84,10 @@ or change one top-level `plugins.list[].config` key without editing
   turns back into MemPalace, and can route prompt-time retrieval through CLI
   helpers or an active `mempalace` MCP server
 - `qmd-memory` injects external markdown retrieval context into prompts
-- `brand-voice` registers an output guard that checks final responses against
-  configured voice guidance, banned phrases or regexes, required phrases, and
-  optional classifier/rewriter models. It can flag, rewrite, or block
-  off-brand output before the message is returned to the user.
+- `brand-voice` registers `post_receive` middleware that checks final
+  responses against configured voice guidance, banned phrases or regexes,
+  required phrases, and optional classifier/rewriter models. It can flag,
+  rewrite, or block off-brand output before the message is returned to the user.
 - `brevo-email` provides per-agent email addresses through a Brevo inbound
   webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
   `BREVO_WEBHOOK_SECRET`, and optional config keys such as `domain`,
@@ -254,6 +254,7 @@ Currently wired runtime surfaces:
 
 - memory layers
 - prompt hooks
+- classifier middleware with `pre_send` and `post_receive` hooks
 - plugin tools
 - inbound webhooks on fixed plugin-owned routes
 - lifecycle hooks for session, gateway, compaction, and plugin-tool execution
@@ -282,6 +283,47 @@ To hand a normalized inbound event back into the standard assistant turn flow,
 plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat
 result so the plugin can deliver the reply through its own transport.
+
+Classifier middleware uses one decision shape for both inbound prompt
+preparation and outbound response inspection:
+
+```ts
+api.registerMiddleware({
+  id: 'classifier-demo',
+  priority: 100,
+  async pre_send(context) {
+    return { action: 'allow' };
+  },
+  async post_receive(context) {
+    if (!context.resultText?.includes('forbidden phrase')) {
+      return { action: 'allow' };
+    }
+    return {
+      action: 'transform',
+      payload: context.resultText.replaceAll('forbidden phrase', '[redacted]'),
+      reason: 'Removed blocked wording.',
+    };
+  },
+});
+```
+
+Middleware decisions are `allow`, `warn`, `block`, `transform`, or `escalate`.
+The manager runs middleware in ascending `priority` order, then by `id`.
+Legacy `registerOutputGuard(...)` plugins are adapted into `post_receive`
+middleware for compatibility. `post_receive` contexts include final response
+text and the turn's `toolExecutions`, including F8 stakes metadata populated by
+the approval policy.
+
+Bundled skills can declare their middleware hooks in `SKILL.md` frontmatter so
+skill discovery can expose the same contract alongside plugin registration:
+
+```yaml
+metadata:
+  hybridclaw:
+    middleware:
+      pre_send: true
+      post_receive: true
+```
 
 ## Webhook Example
 

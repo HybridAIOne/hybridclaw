@@ -82,7 +82,7 @@ test('brand-voice rules detect banned phrases, banned patterns, and missing requ
   expect(onBrand).toEqual([]);
 });
 
-test('brand-voice plugin registers an output guard via PluginManager', async () => {
+test('brand-voice plugin registers post-receive middleware via PluginManager', async () => {
   const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
   const cwd = makeTempDir('hybridclaw-brand-voice-project-');
   installBundledPlugin(cwd);
@@ -108,6 +108,7 @@ test('brand-voice plugin registers an output guard via PluginManager', async () 
 
   await manager.ensureInitialized();
 
+  expect(manager.hasMiddleware('post_receive')).toBe(true);
   expect(manager.hasOutputGuards()).toBe(true);
   expect(manager.getLoadedPlugins()).toEqual([
     expect.objectContaining({

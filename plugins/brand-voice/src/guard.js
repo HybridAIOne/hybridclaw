@@ -196,3 +196,38 @@ export function createBrandVoiceGuard({ api, config }) {
     },
   };
 }
+
+export function createBrandVoiceMiddleware({ api, config }) {
+  const guard = createBrandVoiceGuard({ api, config });
+
+  return {
+    id: 'brand-voice',
+    priority: guard.priority,
+    async post_receive(context) {
+      const decision = await guard.inspect({
+        sessionId: context.sessionId,
+        userId: context.userId,
+        agentId: context.agentId,
+        channelId: context.channelId,
+        model: context.model,
+        userContent: context.userContent,
+        resultText: context.resultText || '',
+      });
+      if (!decision || decision.action === 'allow') {
+        return { action: 'allow' };
+      }
+      if (decision.action === 'rewrite') {
+        return {
+          action: 'transform',
+          payload: decision.text,
+          reason: decision.reason || 'Brand-voice middleware rewrote output.',
+        };
+      }
+      return {
+        action: 'block',
+        reason: decision.reason,
+        ...(decision.replacement ? { payload: decision.replacement } : {}),
+      };
+    },
+  };
+}

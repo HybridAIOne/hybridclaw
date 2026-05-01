@@ -615,6 +615,11 @@ export interface RuntimeSkillCredentialManifest {
   required: boolean;
 }
 
+export interface RuntimeSkillMiddlewareManifest {
+  preSend: boolean;
+  postReceive: boolean;
+}
+
 export type RuntimeSkillLifecycleStatus =
   | 'enabled'
   | 'disabled'
@@ -629,6 +634,7 @@ export interface RuntimeInstalledSkillManifest {
   manifestPath: string;
   status: RuntimeSkillLifecycleStatus;
   capabilities: string[];
+  middleware: RuntimeSkillMiddlewareManifest;
   requiredCredentials: RuntimeSkillCredentialManifest[];
   supportedChannels: ChannelKind[];
   installedAt: string;
@@ -2013,6 +2019,19 @@ function normalizeRuntimeSkillCredentialManifests(
   return credentials;
 }
 
+function normalizeRuntimeSkillMiddlewareManifest(
+  value: unknown,
+): RuntimeSkillMiddlewareManifest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { preSend: false, postReceive: false };
+  }
+  const raw = value as { preSend?: unknown; postReceive?: unknown };
+  return {
+    preSend: raw.preSend === true,
+    postReceive: raw.postReceive === true,
+  };
+}
+
 function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
   const channels: ChannelKind[] = [];
   const seen = new Set<ChannelKind>();
@@ -2071,6 +2090,7 @@ function normalizeRuntimeInstalledSkillManifests(
       manifestPath,
       status: normalizeSkillLifecycleStatus(item.status),
       capabilities: normalizeStringArray(item.capabilities, []),
+      middleware: normalizeRuntimeSkillMiddlewareManifest(item.middleware),
       requiredCredentials: normalizeRuntimeSkillCredentialManifests(
         item.requiredCredentials,
       ),

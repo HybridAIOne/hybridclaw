@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
+import type {
+  AgentTurnContext,
+  ClassifierMiddlewareSkill,
+  MiddlewareDecision,
+} from '../agent/middleware.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
@@ -15,7 +20,8 @@ export type PluginKind =
   | 'channel'
   | 'tool'
   | 'prompt-hook'
-  | 'output-guard';
+  | 'output-guard'
+  | 'middleware';
 
 export type PluginRegistrationMode = 'full' | 'discovery';
 export type PluginDiscoverySource = 'home' | 'project' | 'config';
@@ -352,6 +358,30 @@ export interface PluginOutputGuardOutcome {
   events: PluginOutputGuardEvent[];
 }
 
+export type PluginAgentTurnContext = AgentTurnContext & {
+  userId: string;
+};
+
+export type PluginMiddlewareDecision = MiddlewareDecision;
+
+export interface PluginMiddlewareSkill
+  extends Omit<ClassifierMiddlewareSkill, 'pre_send' | 'post_receive'> {
+  pre_send?: (
+    context: PluginAgentTurnContext,
+  ) =>
+    | Promise<PluginMiddlewareDecision | null | undefined>
+    | PluginMiddlewareDecision
+    | null
+    | undefined;
+  post_receive?: (
+    context: PluginAgentTurnContext,
+  ) =>
+    | Promise<PluginMiddlewareDecision | null | undefined>
+    | PluginMiddlewareDecision
+    | null
+    | undefined;
+}
+
 export interface MemoryLayerPlugin {
   id: string;
   priority: number;
@@ -456,6 +486,7 @@ export interface HybridClawPluginApi {
   registerChannel(channel: ChannelInfo): void;
   registerTool(tool: PluginToolDefinition): void;
   registerPromptHook(hook: PluginPromptHook): void;
+  registerMiddleware(middleware: PluginMiddlewareSkill): void;
   registerOutputGuard(guard: PluginOutputGuard): void;
   registerCommand(cmd: PluginCommandDefinition): void;
   registerService(svc: PluginService): void;

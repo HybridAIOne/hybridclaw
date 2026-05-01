@@ -53,6 +53,13 @@ const {
     handleInboundWebhook: vi.fn(async () => false),
     notifySessionStart: vi.fn(async () => {}),
     listPluginSummary: vi.fn(() => []),
+    hasMiddleware: vi.fn(() => false),
+    applyMiddleware: vi.fn(async () => ({
+      userContent: '',
+      resultText: '',
+      blocked: false,
+      events: [],
+    })),
     hasOutputGuards: vi.fn(() => false),
     applyOutputGuards: vi.fn(async (context: { resultText: string }) => ({
       resultText: context.resultText,

@@ -20,12 +20,15 @@ import {
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
 import {
-  classifyStakes,
   createStakesClassifier,
   type StakesClassifier,
   type StakesLevel,
   type StakesScore,
 } from './stakes-classifier.js';
+import {
+  evaluateStakesMiddleware,
+  type StakesMiddlewareResult,
+} from './stakes-middleware.js';
 import { normalizeText } from './text-normalization.js';
 import {
   type ChatMessage,
@@ -141,6 +144,7 @@ export interface ToolApprovalEvaluation {
   autonomyLevel: AutonomyLevel;
   stakes: StakesLevel;
   stakesScore: StakesScore;
+  stakesMiddlewareDecision: StakesMiddlewareResult['decision'];
   escalationRoute: EscalationRoute;
   escalationTarget?: EscalationTarget;
   decision: ApprovalDecision;
@@ -1317,7 +1321,7 @@ export class TrustedAgentApprovalRuntime {
     });
     const safetyTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
-    const stakesScore = classifyStakes(
+    const stakesMiddleware = evaluateStakesMiddleware(
       {
         toolName: params.toolName,
         args,
@@ -1333,6 +1337,7 @@ export class TrustedAgentApprovalRuntime {
       },
       this.stakesClassifier,
     );
+    const stakesScore = stakesMiddleware.stakesScore;
     const stakes = stakesScore.level;
     const escalationTarget = normalizeEscalationTarget(params.escalationTarget);
 
@@ -1362,6 +1367,7 @@ export class TrustedAgentApprovalRuntime {
           autonomyLevel,
           stakes,
           stakesScore,
+          stakesMiddlewareDecision: stakesMiddleware.decision,
           escalationRoute: 'policy_denial',
           ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'denied',
@@ -1425,6 +1431,7 @@ export class TrustedAgentApprovalRuntime {
             autonomyLevel,
             stakes,
             stakesScore,
+            stakesMiddlewareDecision: stakesMiddleware.decision,
             escalationRoute: 'policy_denial',
             ...(escalationTarget ? { escalationTarget } : {}),
             decision: 'denied',
@@ -1456,6 +1463,7 @@ export class TrustedAgentApprovalRuntime {
           autonomyLevel,
           stakes,
           stakesScore,
+          stakesMiddlewareDecision: stakesMiddleware.decision,
           escalationRoute: 'approval_request',
           ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'required',
@@ -1504,6 +1512,7 @@ export class TrustedAgentApprovalRuntime {
       autonomyLevel,
       stakes,
       stakesScore,
+      stakesMiddlewareDecision: stakesMiddleware.decision,
       escalationRoute: escalationRouteForDecision(decision, tier),
       ...(escalationTarget ? { escalationTarget } : {}),
       decision,

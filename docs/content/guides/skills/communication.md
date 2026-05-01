@@ -9,7 +9,8 @@ sidebar_position: 4
 ## brand-voice
 
 Draft external-facing replies in the configured brand voice before the
-`brand-voice` output guard has to rewrite or block the final message.
+`brand-voice` post-receive middleware has to rewrite or block the final
+message.
 
 **Prerequisites** — optional `brand-voice` plugin configuration for enforced
 rules. Without plugin config, the skill still defaults to clear neutral

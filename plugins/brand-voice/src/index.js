@@ -1,5 +1,5 @@
 import { resolveBrandVoiceConfig } from './config.js';
-import { createBrandVoiceGuard } from './guard.js';
+import { createBrandVoiceMiddleware } from './guard.js';
 
 export default {
   id: 'brand-voice',
@@ -14,7 +14,7 @@ export default {
       api.logger.info({}, 'brand-voice plugin disabled by config');
       return;
     }
-    api.registerOutputGuard(createBrandVoiceGuard({ api, config }));
+    api.registerMiddleware(createBrandVoiceMiddleware({ api, config }));
 
     api.registerCommand({
       name: 'brand-voice',

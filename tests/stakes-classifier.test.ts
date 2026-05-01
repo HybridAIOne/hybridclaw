@@ -9,6 +9,7 @@ import {
   type StakesClassifier,
   type StakesLevel,
 } from '../container/src/stakes-classifier.js';
+import { evaluateStakesMiddleware } from '../container/src/stakes-middleware.js';
 
 interface StakesEvalExample {
   label: string;
@@ -452,5 +453,33 @@ describe('stakes classifier', () => {
     }).classify(makeInput({ toolName: 'read', actionKey: 'read' }));
     expect(ignored?.level).toBe('low');
     expect(ignored?.classifier).toBe('rules:v1');
+  });
+
+  test('stakes middleware exposes classifier decisions through middleware actions', () => {
+    const classifier = createStakesClassifier();
+
+    const low = evaluateStakesMiddleware(
+      makeInput({ toolName: 'read', actionKey: 'read' }),
+      classifier,
+    );
+    expect(low.decision).toEqual({ action: 'allow' });
+    expect(low.stakesScore.level).toBe('low');
+
+    const high = evaluateStakesMiddleware(
+      makeInput({
+        toolName: 'delete',
+        actionKey: 'delete:workspace',
+        intent: 'delete workspace',
+        target: 'delete workspace',
+        approvalTier: 'red',
+        writeIntent: true,
+      }),
+      classifier,
+    );
+    expect(high.decision).toMatchObject({
+      action: 'escalate',
+      route: 'approval_request',
+    });
+    expect(high.stakesScore.level).toBe('high');
   });
 });

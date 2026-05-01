@@ -2259,6 +2259,67 @@ test('plugin manager applies output guards in priority order and short-circuits 
   });
 });
 
+test('plugin manager applies registered pre-send middleware', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'pre-send-demo');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: pre-send-demo\nname: pre-send-demo\nkind: middleware\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'pre-send-demo',",
+      "  kind: 'middleware',",
+      '  register(api) {',
+      '    api.registerMiddleware({',
+      "      id: 'pre-send-demo',",
+      '      pre_send(context) {',
+      "        return { action: 'transform', payload: context.userContent + ' [scoped]', reason: 'scoped' };",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyMiddleware('pre_send', {
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    messages: [{ role: 'user', content: 'hello' }],
+    userContent: 'hello',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.userContent).toBe('hello [scoped]');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      skillId: 'pre-send-demo:pre-send-demo',
+      action: 'transform',
+      reason: 'scoped',
+    }),
+  ]);
+});
+
 test('plugin manager swallows errors from output guards and keeps original output', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');

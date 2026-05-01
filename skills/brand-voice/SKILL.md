@@ -1,18 +1,20 @@
 ---
 name: brand-voice
-description: Author replies in the configured brand voice and pre-empt the brand-voice output guard so messages don't get rewritten or blocked downstream.
+description: Author replies in the configured brand voice and pre-empt the brand-voice post_receive middleware so messages don't get rewritten or blocked downstream.
 metadata:
   hybridclaw:
     category: communication
     short_description: "Stay on-brand before the guard intervenes."
+    middleware:
+      post_receive: true
 ---
 
 # Brand Voice
 
-This skill complements the `brand-voice` plugin. The plugin runs as an
-**output gate** after the assistant finishes a turn: it inspects the final
-text against banned phrases, banned patterns, required phrases, and an
-optional LLM classifier, then either allows, rewrites, or blocks the
+This skill complements the `brand-voice` plugin. The plugin runs as
+**post_receive middleware** after the assistant finishes a turn: it inspects
+the final text against banned phrases, banned patterns, required phrases, and
+an optional LLM classifier, then either allows, rewrites, or blocks the
 response.
 
 The plugin is a safety net. This skill is the up-front discipline that keeps
