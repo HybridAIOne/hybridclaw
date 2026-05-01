@@ -8,14 +8,19 @@ export type EscalationRoute =
 
 export type MiddlewareDecision =
   | { action: 'allow' }
-  | { action: 'block'; reason: string; payload?: string }
+  | { action: 'block'; reason: string }
   | { action: 'warn'; reason: string }
   | { action: 'transform'; payload: string; reason: string }
   | { action: 'escalate'; route: EscalationRoute; reason: string };
 
-export interface ClassifierMiddlewareSkill<TContext> {
+export type MiddlewarePredicate<TContext> =
+  | ((context: TContext) => Promise<boolean> | boolean)
+  | undefined;
+
+export interface ClassifierMiddlewareSkill<TContext = unknown> {
   id: string;
   priority?: number;
+  predicate?: MiddlewarePredicate<TContext>;
   pre_send?: (
     context: TContext,
   ) =>

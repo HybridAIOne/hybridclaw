@@ -151,7 +151,9 @@ test('brand-voice guard blocks responses with banned phrases when mode=block', a
   });
 
   expect(outcome.blocked).toBe(true);
-  expect(outcome.resultText).toBe('Response held by brand-voice guard.');
+  expect(outcome.resultText).toBe(
+    'Brand-voice violations: banned phrases: "stupid"',
+  );
   expect(outcome.events).toHaveLength(1);
   expect(outcome.events[0]).toMatchObject({
     pluginId: 'brand-voice',
@@ -317,7 +319,7 @@ test('brand-voice guard falls back to block when rewriter is unconfigured', asyn
   expect(outcome.events[0]).toMatchObject({ action: 'block' });
 });
 
-test('brand-voice guard remains transparent when mode=flag', async () => {
+test('brand-voice guard warns and leaves output unchanged when mode=flag', async () => {
   const homeDir = makeTempDir('hybridclaw-brand-voice-home-');
   const cwd = makeTempDir('hybridclaw-brand-voice-project-');
   installBundledPlugin(cwd);
@@ -349,4 +351,12 @@ test('brand-voice guard remains transparent when mode=flag', async () => {
 
   expect(outcome.blocked).toBe(false);
   expect(outcome.resultText).toBe('That is a stupid question.');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      action: 'warn',
+      pluginId: 'brand-voice',
+      guardId: 'brand-voice',
+      reason: 'Brand-voice violations: banned phrases: "stupid"',
+    }),
+  ]);
 });

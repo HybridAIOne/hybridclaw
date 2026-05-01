@@ -9,7 +9,7 @@ import {
   type StakesClassifier,
   type StakesLevel,
 } from '../container/src/stakes-classifier.js';
-import { evaluateStakesMiddleware } from '../container/src/stakes-middleware.js';
+import { createStakesMiddlewareSkill } from '../container/src/stakes-middleware.js';
 
 interface StakesEvalExample {
   label: string;
@@ -457,15 +457,24 @@ describe('stakes classifier', () => {
 
   test('stakes middleware exposes classifier decisions through middleware actions', () => {
     const classifier = createStakesClassifier();
+    const middleware = createStakesMiddlewareSkill(classifier);
+    const evaluate = (input: StakesClassificationInput) => {
+      let stakesScore: ReturnType<typeof classifyStakes> | null = null;
+      const decision = middleware.pre_send?.({
+        ...input,
+        recordStakesScore(score) {
+          stakesScore = score;
+        },
+      });
+      if (!stakesScore) throw new Error('Expected stakes score.');
+      return { decision, stakesScore };
+    };
 
-    const low = evaluateStakesMiddleware(
-      makeInput({ toolName: 'read', actionKey: 'read' }),
-      classifier,
-    );
+    const low = evaluate(makeInput({ toolName: 'read', actionKey: 'read' }));
     expect(low.decision).toEqual({ action: 'allow' });
     expect(low.stakesScore.level).toBe('low');
 
-    const high = evaluateStakesMiddleware(
+    const high = evaluate(
       makeInput({
         toolName: 'delete',
         actionKey: 'delete:workspace',
@@ -474,7 +483,6 @@ describe('stakes classifier', () => {
         approvalTier: 'red',
         writeIntent: true,
       }),
-      classifier,
     );
     expect(high.decision).toMatchObject({
       action: 'escalate',

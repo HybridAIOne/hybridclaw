@@ -106,7 +106,6 @@ export function createBrandVoiceGuard({ api, config }) {
             return {
               action: 'block',
               reason: 'Brand-voice classifier unavailable.',
-              replacement: config.blockMessage,
             };
           }
         }
@@ -129,13 +128,12 @@ export function createBrandVoiceGuard({ api, config }) {
       );
 
       if (config.mode === 'flag') {
-        return { action: 'allow' };
+        return { action: 'warn', reason };
       }
       if (config.mode === 'block') {
         return {
           action: 'block',
           reason,
-          replacement: config.blockMessage,
         };
       }
       // mode === 'rewrite'
@@ -147,7 +145,6 @@ export function createBrandVoiceGuard({ api, config }) {
         return {
           action: 'block',
           reason,
-          replacement: config.blockMessage,
         };
       }
       try {
@@ -174,7 +171,6 @@ export function createBrandVoiceGuard({ api, config }) {
           return {
             action: 'block',
             reason: `Rewrite still violated brand voice (${summarizeViolations(remainingViolations)}).`,
-            replacement: config.blockMessage,
           };
         }
         return {
@@ -188,7 +184,6 @@ export function createBrandVoiceGuard({ api, config }) {
           return {
             action: 'block',
             reason: 'Brand-voice rewriter unavailable.',
-            replacement: config.blockMessage,
           };
         }
         return { action: 'allow' };
@@ -223,10 +218,15 @@ export function createBrandVoiceMiddleware({ api, config }) {
           reason: decision.reason || 'Brand-voice middleware rewrote output.',
         };
       }
+      if (decision.action === 'warn') {
+        return {
+          action: 'warn',
+          reason: decision.reason || 'Brand-voice middleware flagged output.',
+        };
+      }
       return {
         action: 'block',
         reason: decision.reason,
-        ...(decision.replacement ? { payload: decision.replacement } : {}),
       };
     },
   };

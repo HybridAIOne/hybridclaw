@@ -2,13 +2,20 @@ import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ToolExecution } from '../types/execution.js';
 
-export type MiddlewarePhase = 'pre_send' | 'post_receive';
+export type {
+  ClassifierMiddlewareSkill,
+  EscalationRoute,
+  MiddlewareDecision,
+  MiddlewarePhase,
+  MiddlewarePredicate,
+} from '../../container/shared/middleware-contract.js';
 
-export type EscalationRoute =
-  | 'operator'
-  | 'security'
-  | 'approval_request'
-  | 'policy_denial';
+import type {
+  ClassifierMiddlewareSkill,
+  EscalationRoute,
+  MiddlewareDecision,
+  MiddlewarePhase,
+} from '../../container/shared/middleware-contract.js';
 
 export interface AgentTurnContext {
   sessionId: string;
@@ -21,32 +28,13 @@ export interface AgentTurnContext {
   userContent: string;
   resultText?: string;
   toolExecutions?: ToolExecution[];
-}
-
-export type MiddlewareDecision =
-  | { action: 'allow' }
-  | { action: 'block'; reason: string; payload?: string }
-  | { action: 'warn'; reason: string }
-  | { action: 'transform'; payload: string; reason: string }
-  | { action: 'escalate'; route: EscalationRoute; reason: string };
-
-export interface ClassifierMiddlewareSkill<TContext = AgentTurnContext> {
-  id: string;
-  priority?: number;
-  pre_send?: (
-    context: TContext,
-  ) =>
-    | Promise<MiddlewareDecision | null | undefined>
-    | MiddlewareDecision
-    | null
-    | undefined;
-  post_receive?: (
-    context: TContext,
-  ) =>
-    | Promise<MiddlewareDecision | null | undefined>
-    | MiddlewareDecision
-    | null
-    | undefined;
+  skill?: {
+    name: string;
+    middleware?: {
+      preSend: boolean;
+      postReceive: boolean;
+    };
+  };
 }
 
 export interface MiddlewareEvent {
@@ -137,7 +125,7 @@ function safeText(value: unknown): string {
 
 function normalizeDecision(
   value: unknown,
-  skill: ClassifierMiddlewareSkill,
+  skill: ClassifierMiddlewareSkill<AgentTurnContext>,
   phase: MiddlewarePhase,
 ): MiddlewareDecision | null {
   if (!value) return null;
@@ -154,10 +142,7 @@ function normalizeDecision(
       return { action: 'allow' };
     case 'block': {
       const reason = safeText(value.reason);
-      const payload = safeText(value.payload);
-      return reason
-        ? { action: 'block', reason, ...(payload ? { payload } : {}) }
-        : null;
+      return reason ? { action: 'block', reason } : null;
     }
     case 'warn': {
       const reason = safeText(value.reason);
@@ -190,9 +175,26 @@ function normalizeDecision(
   return null;
 }
 
+async function shouldRunMiddleware(
+  skill: ClassifierMiddlewareSkill<AgentTurnContext>,
+  context: AgentTurnContext,
+  phase: MiddlewarePhase,
+): Promise<boolean> {
+  if (!skill.predicate) return true;
+  try {
+    return Boolean(await skill.predicate(context));
+  } catch (error) {
+    logger.warn(
+      { skillId: skill.id, phase, error },
+      'Middleware predicate failed; skipping middleware',
+    );
+    return false;
+  }
+}
+
 export async function applyClassifierMiddleware(
   phase: MiddlewarePhase,
-  skills: readonly ClassifierMiddlewareSkill[],
+  skills: readonly ClassifierMiddlewareSkill<AgentTurnContext>[],
   context: AgentTurnContext,
 ): Promise<MiddlewareOutcome> {
   const events: MiddlewareEvent[] = [];
@@ -210,6 +212,8 @@ export async function applyClassifierMiddleware(
       userContent,
       resultText,
     };
+    if (!(await shouldRunMiddleware(skill, currentContext, phase))) continue;
+
     const decision = normalizeDecision(
       await handler(currentContext),
       skill,
@@ -258,22 +262,18 @@ export async function applyClassifierMiddleware(
       continue;
     }
 
-    const replacement =
-      decision.action === 'block' && decision.payload
-        ? decision.payload
-        : decision.reason;
     events.push({
       skillId: skill.id,
       phase,
       action: decision.action,
       reason: decision.reason,
       before: eventText(before),
-      after: eventText(replacement),
+      after: eventText(decision.reason),
       route: decision.action === 'escalate' ? decision.route : undefined,
     });
     return {
       userContent,
-      resultText: replacement,
+      resultText: decision.reason,
       blocked: true,
       events,
     };

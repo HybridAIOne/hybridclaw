@@ -328,12 +328,14 @@ export interface PluginOutputGuardContext {
   userContent: string;
   resultText: string;
   toolExecutions?: ToolExecution[];
+  skill?: AgentTurnContext['skill'];
 }
 
 export type PluginOutputGuardDecision =
   | { action: 'allow' }
+  | { action: 'warn'; reason: string }
   | { action: 'rewrite'; text: string; reason?: string }
-  | { action: 'block'; reason: string; replacement?: string };
+  | { action: 'block'; reason: string };
 
 export interface PluginOutputGuard {
   id: string;
@@ -350,7 +352,7 @@ export interface PluginOutputGuard {
 export interface PluginOutputGuardEvent {
   pluginId: string;
   guardId: string;
-  action: 'allow' | 'rewrite' | 'block';
+  action: 'allow' | 'rewrite' | 'block' | 'warn';
   reason?: string;
   before?: string;
   after?: string;

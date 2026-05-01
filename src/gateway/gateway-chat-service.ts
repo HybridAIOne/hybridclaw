@@ -1010,6 +1010,12 @@ async function handleGatewayMessageInner(
       )
     : effectiveUserTurnContentExpanded;
   const explicitSkillName = explicitSkillInvocation?.skill.name || null;
+  const activeSkill = explicitSkillInvocation
+    ? {
+        name: explicitSkillInvocation.skill.name,
+        middleware: explicitSkillInvocation.skill.manifest.middleware,
+      }
+    : undefined;
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
@@ -1029,6 +1035,7 @@ async function handleGatewayMessageInner(
         },
       ],
       userContent: agentUserContent,
+      skill: activeSkill,
     });
     for (const event of preSendOutcome.events) {
       if (event.action === 'allow') continue;
@@ -1485,6 +1492,7 @@ async function handleGatewayMessageInner(
           userContent: storedUserContent,
           resultText,
           toolExecutions,
+          skill: activeSkill,
         });
         if (guardOutcome.events.length > 0) {
           for (const event of guardOutcome.events) {

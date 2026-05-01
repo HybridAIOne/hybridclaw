@@ -2151,7 +2151,6 @@ function writeOutputGuardPlugin(
     behavior: 'allow' | 'rewrite' | 'block' | 'throw';
     rewriteText?: string;
     blockReason?: string;
-    blockReplacement?: string;
   },
 ): void {
   const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', pluginId);
@@ -2169,7 +2168,7 @@ function writeOutputGuardPlugin(
       : options.behavior === 'rewrite'
         ? `{ action: 'rewrite', text: ${JSON.stringify(options.rewriteText || 'rewritten')} }`
         : options.behavior === 'block'
-          ? `{ action: 'block', reason: ${JSON.stringify(options.blockReason || 'blocked')}, replacement: ${JSON.stringify(options.blockReplacement || 'BLOCKED')} }`
+          ? `{ action: 'block', reason: ${JSON.stringify(options.blockReason || 'blocked')} }`
           : "(() => { throw new Error('boom'); })()";
   fs.writeFileSync(
     path.join(pluginDir, 'index.ts'),
@@ -2193,7 +2192,7 @@ function writeOutputGuardPlugin(
   );
 }
 
-test('plugin manager applies output guards in priority order and short-circuits on block', async () => {
+test('plugin manager applies output guards in declared order and short-circuits on block', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');
   writeOutputGuardPlugin(cwd, 'guard-allow', {
@@ -2209,7 +2208,6 @@ test('plugin manager applies output guards in priority order and short-circuits 
     priority: 30,
     behavior: 'block',
     blockReason: 'unsafe',
-    blockReplacement: 'BLOCKED',
   });
   writeOutputGuardPlugin(cwd, 'guard-after-block', {
     priority: 40,
@@ -2218,7 +2216,12 @@ test('plugin manager applies output guards in priority order and short-circuits 
   });
 
   const config = loadRuntimeConfig();
-  config.plugins.list = [];
+  config.plugins.list = [
+    { id: 'guard-allow', enabled: true, config: {} },
+    { id: 'guard-rewrite', enabled: true, config: {} },
+    { id: 'guard-block', enabled: true, config: {} },
+    { id: 'guard-after-block', enabled: true, config: {} },
+  ];
 
   const { PluginManager } = await import('../src/plugins/plugin-manager.js');
   const manager = new PluginManager({
@@ -2240,7 +2243,7 @@ test('plugin manager applies output guards in priority order and short-circuits 
   });
 
   expect(outcome.blocked).toBe(true);
-  expect(outcome.resultText).toBe('BLOCKED');
+  expect(outcome.resultText).toBe('unsafe');
   expect(outcome.events.map((event) => event.action)).toEqual([
     'allow',
     'rewrite',
@@ -2254,7 +2257,7 @@ test('plugin manager applies output guards in priority order and short-circuits 
   expect(outcome.events[2]).toMatchObject({
     pluginId: 'guard-block',
     before: 'cleaned-up output',
-    after: 'BLOCKED',
+    after: 'unsafe',
     reason: 'unsafe',
   });
 });

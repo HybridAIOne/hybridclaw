@@ -109,12 +109,17 @@ type RuntimePluginConfigEntryLike = {
 function comparePluginCandidates(
   left: PluginCandidate,
   right: PluginCandidate,
-  configuredIds: ReadonlySet<string>,
+  configuredOrder: ReadonlyMap<string, number>,
 ): number {
-  const leftConfigured = configuredIds.has(left.id);
-  const rightConfigured = configuredIds.has(right.id);
+  const leftOrder = configuredOrder.get(left.id);
+  const rightOrder = configuredOrder.get(right.id);
+  const leftConfigured = leftOrder !== undefined;
+  const rightConfigured = rightOrder !== undefined;
   if (leftConfigured !== rightConfigured) {
     return leftConfigured ? -1 : 1;
+  }
+  if (leftOrder !== undefined && rightOrder !== undefined) {
+    return leftOrder - rightOrder;
   }
   return left.id.localeCompare(right.id);
 }
@@ -138,41 +143,6 @@ type RegisteredMiddleware = {
   pluginId: string;
   middleware: PluginMiddlewareSkill;
 };
-
-function comparePriorityThenId(
-  leftId: string,
-  leftPriority: number | undefined,
-  rightId: string,
-  rightPriority: number | undefined,
-): number {
-  const priorityDiff = (leftPriority ?? 0) - (rightPriority ?? 0);
-  if (priorityDiff !== 0) return priorityDiff;
-  return leftId.localeCompare(rightId);
-}
-
-function compareOutputGuards(
-  left: RegisteredOutputGuard,
-  right: RegisteredOutputGuard,
-): number {
-  return comparePriorityThenId(
-    `${left.pluginId}:${left.guard.id}`,
-    left.guard.priority,
-    `${right.pluginId}:${right.guard.id}`,
-    right.guard.priority,
-  );
-}
-
-function compareMiddlewares(
-  left: RegisteredMiddleware,
-  right: RegisteredMiddleware,
-): number {
-  return comparePriorityThenId(
-    `${left.pluginId}:${left.middleware.id}`,
-    left.middleware.priority,
-    `${right.pluginId}:${right.middleware.id}`,
-    right.middleware.priority,
-  );
-}
 
 type RegisteredTool = {
   pluginId: string;
@@ -986,12 +956,13 @@ export class PluginManager {
     config: RuntimeConfig = this.getConfig(),
   ): Promise<PluginCandidate[]> {
     const configuredEntries = toPluginConfigEntries(config);
-    const configuredIds = new Set(
-      configuredEntries
-        .filter((entry) => entry.enabled)
-        .map((entry) => String(entry.id || '').trim())
-        .filter((entry) => entry.length > 0),
-    );
+    const configuredOrder = new Map<string, number>();
+    configuredEntries.forEach((entry, index) => {
+      if (!entry.enabled) return;
+      const id = String(entry.id || '').trim();
+      if (!id || configuredOrder.has(id)) return;
+      configuredOrder.set(id, index);
+    });
     const discovered = new Map<string, PluginCandidate>();
     for (const candidate of this.scanDirectory(
       path.join(this.homeDir, 'plugins'),
@@ -1049,7 +1020,7 @@ export class PluginManager {
       }
     }
     return [...selected.values()].sort((left, right) =>
-      comparePluginCandidates(left, right, configuredIds),
+      comparePluginCandidates(left, right, configuredOrder),
     );
   }
 
@@ -1385,7 +1356,6 @@ export class PluginManager {
         id: middlewareId,
       },
     });
-    this.middlewares.sort(compareMiddlewares);
     this.recomputeMiddlewareFlags();
   }
 
@@ -1401,7 +1371,6 @@ export class PluginManager {
         id: guardId,
       },
     });
-    this.outputGuards.sort(compareOutputGuards);
     this.recomputeMiddlewareFlags();
   }
 
@@ -1988,103 +1957,139 @@ export class PluginManager {
     };
   }
 
+  private wrapPluginMiddlewarePredicate(
+    entry: RegisteredMiddleware,
+  ): ((context: AgentTurnContext) => Promise<boolean>) | undefined {
+    const predicate = entry.middleware.predicate;
+    if (!predicate) return undefined;
+    return async (context) => {
+      try {
+        return Boolean(
+          await predicate({
+            ...context,
+            userId: context.userId || '',
+          }),
+        );
+      } catch (error) {
+        this.logger.warn(
+          {
+            pluginId: entry.pluginId,
+            middlewareId: entry.middleware.id,
+            error,
+          },
+          'Plugin middleware predicate failed; skipping middleware',
+        );
+        return false;
+      }
+    };
+  }
+
   private collectClassifierMiddleware(
     phase: MiddlewarePhase,
-  ): ClassifierMiddlewareSkill[] {
-    const middlewares: ClassifierMiddlewareSkill[] = this.middlewares.map(
-      (entry) => ({
+  ): ClassifierMiddlewareSkill<AgentTurnContext>[] {
+    const middlewares: ClassifierMiddlewareSkill<AgentTurnContext>[] =
+      this.middlewares.map((entry) => ({
         id: `${entry.pluginId}:${entry.middleware.id}`,
         priority: entry.middleware.priority,
+        predicate: this.wrapPluginMiddlewarePredicate(entry),
         pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
         post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
-      }),
-    );
+      }));
 
     if (phase !== 'post_receive') return middlewares;
 
     return [
       ...middlewares,
-      ...this.outputGuards.map<ClassifierMiddlewareSkill>((entry) => ({
-        id: `${entry.pluginId}:${entry.guard.id}`,
-        priority: entry.guard.priority,
-        post_receive: async (context) => {
-          try {
-            const value = await entry.guard.inspect({
-              sessionId: context.sessionId,
-              userId: context.userId || '',
-              agentId: context.agentId,
-              channelId: context.channelId,
-              model: context.model,
-              workspacePath: context.workspacePath,
-              messages: context.messages,
-              userContent: context.userContent,
-              resultText: context.resultText || '',
-              toolExecutions: context.toolExecutions,
-            });
-            if (!value || typeof value !== 'object' || !('action' in value)) {
-              return { action: 'allow' };
-            }
-            const action = (value as { action?: unknown }).action;
-            if (action === 'allow') return { action: 'allow' };
-            if (action === 'rewrite') {
-              const text = String(
-                (value as PluginOutputGuardDecision & { action: 'rewrite' })
-                  .text || '',
-              ).trim();
-              if (!text) {
-                this.logger.warn(
-                  {
-                    pluginId: entry.pluginId,
-                    guardId: entry.guard.id,
-                  },
-                  'Plugin output guard returned empty rewrite; allowing original output',
-                );
-                return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
+      ...this.outputGuards.map<ClassifierMiddlewareSkill<AgentTurnContext>>(
+        (entry) => ({
+          id: `${entry.pluginId}:${entry.guard.id}`,
+          priority: entry.guard.priority,
+          post_receive: async (context) => {
+            try {
+              const value = await entry.guard.inspect({
+                sessionId: context.sessionId,
+                userId: context.userId || '',
+                agentId: context.agentId,
+                channelId: context.channelId,
+                model: context.model,
+                workspacePath: context.workspacePath,
+                messages: context.messages,
+                userContent: context.userContent,
+                resultText: context.resultText || '',
+                toolExecutions: context.toolExecutions,
+                skill: context.skill,
+              });
+              if (!value || typeof value !== 'object' || !('action' in value)) {
+                return { action: 'allow' };
               }
-              return {
-                action: 'transform',
-                payload: text,
-                reason:
+              const action = (value as { action?: unknown }).action;
+              if (action === 'allow') return { action: 'allow' };
+              if (action === 'warn') {
+                return {
+                  action: 'warn',
+                  reason:
+                    (value as PluginOutputGuardDecision & { action: 'warn' })
+                      .reason || 'Output flagged by plugin guard.',
+                };
+              }
+              if (action === 'rewrite') {
+                const text = String(
                   (value as PluginOutputGuardDecision & { action: 'rewrite' })
-                    .reason || 'Output rewritten by plugin guard.',
-              };
+                    .text || '',
+                ).trim();
+                if (!text) {
+                  this.logger.warn(
+                    {
+                      pluginId: entry.pluginId,
+                      guardId: entry.guard.id,
+                    },
+                    'Plugin output guard returned empty rewrite; allowing original output',
+                  );
+                  return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
+                }
+                return {
+                  action: 'transform',
+                  payload: text,
+                  reason:
+                    (value as PluginOutputGuardDecision & { action: 'rewrite' })
+                      .reason || 'Output rewritten by plugin guard.',
+                };
+              }
+              if (action === 'block') {
+                const decision = value as PluginOutputGuardDecision & {
+                  action: 'block';
+                };
+                const reason =
+                  String(decision.reason || '').trim() ||
+                  'Output blocked by plugin guard.';
+                return {
+                  action: 'block',
+                  reason,
+                };
+              }
+              this.logger.warn(
+                {
+                  pluginId: entry.pluginId,
+                  guardId: entry.guard.id,
+                  action,
+                },
+                'Plugin output guard returned unknown action; treating as allow',
+              );
+              return { action: 'allow' };
+            } catch (error) {
+              this.logger.error(
+                {
+                  pluginId: entry.pluginId,
+                  guardId: entry.guard.id,
+                  error,
+                },
+                'Plugin output guard failed; allowing original output',
+              );
+              return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
             }
-            if (action === 'block') {
-              const decision = value as PluginOutputGuardDecision & {
-                action: 'block';
-              };
-              const reason =
-                String(decision.reason || '').trim() ||
-                'Output blocked by plugin guard.';
-              const replacement = String(decision.replacement || '').trim();
-              return {
-                action: 'block',
-                reason,
-                ...(replacement ? { payload: replacement } : {}),
-              };
-            }
-            this.logger.warn(
-              {
-                pluginId: entry.pluginId,
-                guardId: entry.guard.id,
-                action,
-              },
-              'Plugin output guard returned unknown action; treating as allow',
-            );
-            return { action: 'allow' };
-          } catch (error) {
-            this.logger.error(
-              {
-                pluginId: entry.pluginId,
-                guardId: entry.guard.id,
-                error,
-              },
-              'Plugin output guard failed; allowing original output',
-            );
-            return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
-          }
-        },
-      })),
+          },
+        }),
+      ),
     ];
   }
 
@@ -2122,6 +2127,7 @@ export class PluginManager {
       userContent: context.userContent,
       resultText: context.resultText,
       toolExecutions: context.toolExecutions,
+      skill: context.skill,
     });
     const events: PluginOutputGuardEvent[] = outcome.events
       .filter((event) => event.reason !== SKIP_OUTPUT_GUARD_EVENT)
@@ -2134,9 +2140,11 @@ export class PluginManager {
           action:
             event.action === 'transform'
               ? 'rewrite'
-              : event.action === 'block' || event.action === 'escalate'
-                ? 'block'
-                : 'allow',
+              : event.action === 'warn'
+                ? 'warn'
+                : event.action === 'block' || event.action === 'escalate'
+                  ? 'block'
+                  : 'allow',
           reason: event.reason,
           before: event.before,
           after: event.after,

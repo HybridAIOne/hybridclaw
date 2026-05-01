@@ -4,7 +4,10 @@ import {
   scanForLeaks,
 } from '../security/confidential-redact.js';
 import type { ConfidentialRuleSet } from '../security/confidential-rules.js';
-import type { ClassifierMiddlewareSkill } from './middleware.js';
+import type {
+  AgentTurnContext,
+  ClassifierMiddlewareSkill,
+} from './middleware.js';
 
 function summarizeSafeFindings(
   findings: readonly ConfidentialFinding[],
@@ -22,7 +25,7 @@ function summarizeSafeFindings(
 
 export function createConfidentialLeakMiddlewareSkill(
   ruleSet: ConfidentialRuleSet | null | undefined,
-): ClassifierMiddlewareSkill | null {
+): ClassifierMiddlewareSkill<AgentTurnContext> | null {
   if (!ruleSet || ruleSet.rules.length === 0) return null;
 
   return {
@@ -38,6 +41,12 @@ export function createConfidentialLeakMiddlewareSkill(
         return {
           action: 'escalate',
           route: 'security',
+          reason,
+        };
+      }
+      if (scan.severity === 'high') {
+        return {
+          action: 'block',
           reason,
         };
       }

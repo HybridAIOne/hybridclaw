@@ -1,7 +1,7 @@
 import type {
   ClassifierMiddlewareSkill,
   MiddlewareDecision,
-} from './middleware-contract.js';
+} from '../shared/middleware-contract.js';
 import {
   classifyStakes,
   type StakesClassificationInput,
@@ -13,6 +13,10 @@ export interface StakesMiddlewareResult {
   decision: MiddlewareDecision;
   stakesScore: StakesScore;
 }
+
+export type StakesMiddlewareContext = StakesClassificationInput & {
+  recordStakesScore?: (score: StakesScore) => void;
+};
 
 function decisionForStakes(score: StakesScore): MiddlewareDecision {
   const reason =
@@ -37,12 +41,13 @@ function decisionForStakes(score: StakesScore): MiddlewareDecision {
 
 export function createStakesMiddlewareSkill(
   classifier: StakesClassifier,
-): ClassifierMiddlewareSkill<StakesClassificationInput> {
+): ClassifierMiddlewareSkill<StakesMiddlewareContext> {
   return {
     id: 'stakes',
-    priority: 0,
     pre_send(context) {
-      return classifyStakesMiddleware(context, classifier).decision;
+      const result = classifyStakesMiddleware(context, classifier);
+      context.recordStakesScore?.(result.stakesScore);
+      return result.decision;
     },
   };
 }
@@ -56,11 +61,4 @@ function classifyStakesMiddleware(
     decision: decisionForStakes(stakesScore),
     stakesScore,
   };
-}
-
-export function evaluateStakesMiddleware(
-  context: StakesClassificationInput,
-  classifier: StakesClassifier,
-): StakesMiddlewareResult {
-  return classifyStakesMiddleware(context, classifier);
 }
