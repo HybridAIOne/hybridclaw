@@ -84,6 +84,41 @@ export function getLatestUserTextContent(
   return '';
 }
 
+function replaceMessageTextContent(
+  message: ChatMessage,
+  text: string,
+): ChatMessage {
+  if (!Array.isArray(message.content)) {
+    return { ...message, content: text };
+  }
+  let replaced = false;
+  const content = message.content.map((part) => {
+    if (part.type !== 'text' || replaced) return part;
+    replaced = true;
+    return { ...part, text };
+  });
+  return {
+    ...message,
+    content: replaced ? content : [{ type: 'text', text }, ...content],
+  };
+}
+
+function syncMessagesForMiddleware(
+  phase: MiddlewarePhase,
+  messages: readonly ChatMessage[],
+  text: string,
+): ChatMessage[] {
+  const role = phase === 'pre_send' ? 'user' : 'assistant';
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== role) continue;
+    const next = messages.slice();
+    next[index] = replaceMessageTextContent(message, text);
+    return next;
+  }
+  return [...messages, { role, content: text }];
+}
+
 function normalizeDecision(value: unknown): MiddlewareDecision | null {
   if (!value || typeof value !== 'object') return null;
   const action = (value as { action?: unknown }).action;
@@ -132,6 +167,7 @@ export async function applyClassifierMiddleware(
   const events: MiddlewareEvent[] = [];
   let userContent = context.userContent;
   let resultText = context.resultText || '';
+  let messages = context.messages.slice();
 
   for (const skill of ordered) {
     const handler = skill[phase];
@@ -139,6 +175,7 @@ export async function applyClassifierMiddleware(
 
     const currentContext: AgentTurnContext = {
       ...context,
+      messages,
       userContent,
       resultText,
     };
@@ -170,8 +207,10 @@ export async function applyClassifierMiddleware(
       }
       if (phase === 'pre_send') {
         userContent = decision.payload;
+        messages = syncMessagesForMiddleware(phase, messages, userContent);
       } else {
         resultText = decision.payload;
+        messages = syncMessagesForMiddleware(phase, messages, resultText);
       }
       events.push({
         skillId: skill.id,

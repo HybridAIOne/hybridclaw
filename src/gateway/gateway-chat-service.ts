@@ -1480,8 +1480,11 @@ async function handleGatewayMessageInner(
           agentId,
           channelId: req.channelId,
           model: model || undefined,
+          workspacePath,
+          messages: [...messages, { role: 'assistant', content: resultText }],
           userContent: storedUserContent,
           resultText,
+          toolExecutions,
         });
         if (guardOutcome.events.length > 0) {
           for (const event of guardOutcome.events) {

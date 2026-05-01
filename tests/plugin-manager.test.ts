@@ -2320,6 +2320,89 @@ test('plugin manager applies registered pre-send middleware', async () => {
   ]);
 });
 
+test('plugin manager applies post-receive middleware with turn context through output guard compatibility', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(
+    cwd,
+    '.hybridclaw',
+    'plugins',
+    'post-receive-demo',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: post-receive-demo\nname: post-receive-demo\nkind: middleware\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'post-receive-demo',",
+      "  kind: 'middleware',",
+      '  register(api) {',
+      '    api.registerMiddleware({',
+      "      id: 'post-receive-demo',",
+      '      post_receive(context) {',
+      '        const last = context.messages[context.messages.length - 1];',
+      '        if (context.workspacePath !== "/workspace/project") return { action: "block", reason: "missing workspace" };',
+      '        if (!context.toolExecutions?.some((tool) => tool.name === "shell")) return { action: "block", reason: "missing tools" };',
+      '        return { action: "transform", payload: `${context.resultText} (${last.role})`, reason: "scoped" };',
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    workspacePath: '/workspace/project',
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'draft' },
+    ],
+    userContent: 'hi',
+    resultText: 'draft',
+    toolExecutions: [
+      {
+        name: 'shell',
+        arguments: '{}',
+        result: 'ok',
+        durationMs: 1,
+      },
+    ],
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe('draft (assistant)');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'post-receive-demo',
+      guardId: 'post-receive-demo',
+      action: 'rewrite',
+      reason: 'scoped',
+    }),
+  ]);
+});
+
 test('plugin manager swallows errors from output guards and keeps original output', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');

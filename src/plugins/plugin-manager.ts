@@ -1973,8 +1973,11 @@ export class PluginManager {
               agentId: context.agentId,
               channelId: context.channelId,
               model: context.model,
+              workspacePath: context.workspacePath,
+              messages: context.messages,
               userContent: context.userContent,
               resultText: context.resultText || '',
+              toolExecutions: context.toolExecutions,
             });
             if (!value || typeof value !== 'object' || !('action' in value)) {
               return { action: 'allow' };
@@ -2072,9 +2075,11 @@ export class PluginManager {
       agentId: context.agentId,
       channelId: context.channelId,
       model: context.model,
-      messages: [],
+      workspacePath: context.workspacePath,
+      messages: context.messages || [],
       userContent: context.userContent,
       resultText: context.resultText,
+      toolExecutions: context.toolExecutions,
     });
     const events: PluginOutputGuardEvent[] = outcome.events
       .filter((event) => event.reason !== SKIP_OUTPUT_GUARD_EVENT)

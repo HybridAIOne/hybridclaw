@@ -45,6 +45,45 @@ describe('agent middleware', () => {
     ]);
   });
 
+  test('keeps message snapshots in sync across transforms', async () => {
+    const observedMessages: string[] = [];
+    const outcome = await applyClassifierMiddleware(
+      'pre_send',
+      [
+        {
+          id: 'first',
+          priority: 10,
+          pre_send: () => ({
+            action: 'transform',
+            payload: 'rewritten prompt',
+            reason: 'rewrite',
+          }),
+        },
+        {
+          id: 'second',
+          priority: 20,
+          pre_send: (context) => {
+            const latestUser = [...context.messages]
+              .reverse()
+              .find((message) => message.role === 'user');
+            observedMessages.push(String(latestUser?.content || ''));
+            return { action: 'allow' };
+          },
+        },
+      ],
+      {
+        sessionId: 'session-1',
+        agentId: 'main',
+        channelId: 'tui',
+        messages: [{ role: 'user', content: 'original prompt' }],
+        userContent: 'original prompt',
+      },
+    );
+
+    expect(outcome.userContent).toBe('rewritten prompt');
+    expect(observedMessages).toEqual(['rewritten prompt']);
+  });
+
   test('confidential leak middleware redacts outbound matches', async () => {
     const ruleSet = parseConfidentialYaml(`
 clients:
@@ -73,6 +112,8 @@ clients:
     expect(outcome.events[0]).toMatchObject({
       skillId: 'confidential-leak',
       action: 'transform',
+      reason:
+        'Confidential output matched 1 high client rule (high, 1 match).',
     });
   });
 
@@ -103,6 +144,9 @@ clients:
       skillId: 'confidential-leak',
       action: 'escalate',
       route: 'security',
+      reason:
+        'Confidential output matched 1 critical client rule (critical, 1 match).',
     });
+    expect(outcome.events[0]?.reason).not.toContain('Serviceplan');
   });
 });

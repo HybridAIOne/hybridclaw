@@ -1,14 +1,23 @@
 import {
+  type ConfidentialFinding,
   dehydrateConfidential,
   scanForLeaks,
 } from '../security/confidential-redact.js';
 import type { ConfidentialRuleSet } from '../security/confidential-rules.js';
 import type { ClassifierMiddlewareSkill } from './middleware.js';
 
-function summarizeFindings(labels: readonly string[]): string {
-  if (labels.length === 0) return 'confidential content';
-  if (labels.length <= 3) return labels.join(', ');
-  return `${labels.slice(0, 3).join(', ')} and ${labels.length - 3} more`;
+function summarizeSafeFindings(
+  findings: readonly ConfidentialFinding[],
+): string {
+  if (findings.length === 0) return 'confidential content';
+  const counts = new Map<string, number>();
+  for (const finding of findings) {
+    const key = `${finding.sensitivity} ${finding.kind}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([key, count]) => `${count} ${key} rule${count === 1 ? '' : 's'}`)
+    .join(', ');
 }
 
 export function createConfidentialLeakMiddlewareSkill(
@@ -24,10 +33,7 @@ export function createConfidentialLeakMiddlewareSkill(
       const scan = scanForLeaks(text, ruleSet);
       if (scan.totalMatches === 0) return { action: 'allow' };
 
-      const labels = [
-        ...new Set(scan.findings.map((finding) => finding.label)),
-      ];
-      const reason = `Confidential output matched ${summarizeFindings(labels)} (${scan.severity}, ${scan.totalMatches} match${scan.totalMatches === 1 ? '' : 'es'}).`;
+      const reason = `Confidential output matched ${summarizeSafeFindings(scan.findings)} (${scan.severity}, ${scan.totalMatches} match${scan.totalMatches === 1 ? '' : 'es'}).`;
       if (scan.severity === 'critical') {
         return {
           action: 'escalate',

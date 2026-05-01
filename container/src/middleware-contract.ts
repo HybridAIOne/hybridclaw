@@ -16,6 +16,18 @@ export type MiddlewareDecision =
 export interface ClassifierMiddlewareSkill<TContext> {
   id: string;
   priority?: number;
-  pre_send?: (context: TContext) => MiddlewareDecision;
-  post_receive?: (context: TContext) => MiddlewareDecision;
+  pre_send?: (
+    context: TContext,
+  ) =>
+    | Promise<MiddlewareDecision | null | undefined>
+    | MiddlewareDecision
+    | null
+    | undefined;
+  post_receive?: (
+    context: TContext,
+  ) =>
+    | Promise<MiddlewareDecision | null | undefined>
+    | MiddlewareDecision
+    | null
+    | undefined;
 }

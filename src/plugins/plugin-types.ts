@@ -9,8 +9,9 @@ import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { AIProvider } from '../providers/types.js';
+import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 
@@ -322,8 +323,11 @@ export interface PluginOutputGuardContext {
   agentId: string;
   channelId: string;
   model?: string;
+  workspacePath?: string;
+  messages?: ChatMessage[];
   userContent: string;
   resultText: string;
+  toolExecutions?: ToolExecution[];
 }
 
 export type PluginOutputGuardDecision =
