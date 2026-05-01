@@ -37,9 +37,10 @@ import {
   validateAgentOrgChart,
 } from './agent-types.js';
 import {
-  escalationChain as resolveOrgChartEscalationChain,
-  managerOf as resolveOrgChartManager,
-  peersOf as resolveOrgChartPeers,
+  hasAgentReference,
+  escalation_chain as resolveOrgChartEscalationChain,
+  manager_of as resolveOrgChartManager,
+  peers_of as resolveOrgChartPeers,
 } from './org-chart.js';
 import {
   type AgentTeamStructureRevision,
@@ -617,25 +618,19 @@ export function resolveAgentEscalationTarget(
   agentId?: string | null,
 ): AgentConfig['escalationTarget'] {
   ensureRegistryCurrent();
-  const agents = currentTeamStructureAgents();
   const normalizedId = normalizeString(agentId) || DEFAULT_AGENT_ID;
-  const agent = agents.find((entry) => entry.id === normalizedId);
+  const storedAgent = registry.get(normalizedId);
+  const agent = storedAgent ? applyDefaults(storedAgent) : null;
   if (agent?.escalationTarget) {
     return { ...agent.escalationTarget };
   }
+  const agents = currentTeamStructureAgents();
   for (const manager of resolveOrgChartEscalationChain(normalizedId, agents)) {
     if (manager.escalationTarget) {
       return { ...manager.escalationTarget };
     }
   }
   return undefined;
-}
-
-function hasAgentReference(
-  values: readonly string[] | undefined,
-  agentId: string,
-): boolean {
-  return values?.some((value) => normalizeString(value) === agentId) ?? false;
 }
 
 function collectAgentDeletionBlockers(agentId: string): string[] {

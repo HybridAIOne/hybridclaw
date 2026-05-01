@@ -19,7 +19,7 @@ function agentById(
   return agents.find((entry) => entry.id === agentId) ?? null;
 }
 
-function hasAgentReference(
+export function hasAgentReference(
   values: readonly string[] | undefined,
   agentId: string,
 ): boolean {
