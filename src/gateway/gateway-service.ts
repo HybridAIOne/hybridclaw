@@ -150,6 +150,7 @@ import { logger } from '../logger.js';
 import { isAudioMediaItem } from '../media/audio-transcription.js';
 import { summarizeMediaFilenames } from '../media/media-summary.js';
 import { NoCompactableMessagesError } from '../memory/compaction.js';
+import { runMemoryConsolidation } from '../memory/consolidation-runner.js';
 import {
   createFreshSessionInstance,
   createTask,
@@ -196,7 +197,6 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
-import { runMemoryConsolidation } from '../memory/memory-consolidation-runner.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   ensurePluginManagerInitialized,
