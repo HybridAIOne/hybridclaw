@@ -195,10 +195,6 @@ class ContainerSecretHandle {
     return this.#buffer.toString('utf-8');
   }
 
-  get byteLength(): number {
-    return this.#buffer?.length ?? 0;
-  }
-
   get characterLength(): number {
     return [...this.unsafeReadStringForInjection()].length;
   }
