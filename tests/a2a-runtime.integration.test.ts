@@ -129,4 +129,88 @@ describe('A2A runtime API', () => {
       'recipient_escalation_chain: main (lead)',
     );
   });
+
+  test('audits and escalates when a peer transport has no adapter', async () => {
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const escalation = await import('../src/gateway/interactive-escalation.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+
+    initDatabase({ quiet: true });
+
+    expect(() =>
+      runtime.sendMessage(
+        {
+          id: 'msg-remote',
+          sender_agent_id: 'main',
+          recipient_agent_id: 'remote@team@peer-instance',
+          thread_id: 'thread-remote',
+          intent: 'chat',
+          content: 'Can your peer agent receive this?',
+          created_at: '2026-05-01T10:00:00.000Z',
+        },
+        {
+          sessionId: 'session-a2a-transport',
+          auditRunId: 'run-a2a-transport',
+          peerDescriptor: {
+            transport: 'a2a',
+            agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+          },
+          escalationTarget: {
+            channel: 'slack:COPS',
+            recipient: 'ops-lead',
+          },
+        },
+      ),
+    ).toThrow(transport.TransportRegistryError);
+
+    const events = getRecentStructuredAuditForSession(
+      'session-a2a-transport',
+      10,
+    );
+    expect(events.map((event) => event.event_type)).toEqual([
+      'approval.request',
+      'escalation.decision',
+      'authorization.check',
+    ]);
+    const escalationEvent = events.find(
+      (event) => event.event_type === 'escalation.decision',
+    );
+    expect(JSON.parse(escalationEvent?.payload || '{}')).toEqual(
+      expect.objectContaining({
+        type: 'escalation.decision',
+        action: 'a2a.transport:a2a',
+        escalationRoute: 'approval_request',
+        target: {
+          channel: 'slack:COPS',
+          recipient: 'ops-lead',
+        },
+        approvalDecision: 'required',
+      }),
+    );
+    const suspended = escalation.getSuspendedSession(
+      'a2a-transport:a2a:thread-remote:msg-remote',
+    );
+    expect(suspended).toMatchObject({
+      approvalId: 'a2a-transport-a2a-msg-remote',
+      status: 'pending',
+      modality: 'push',
+      expectedReturnKinds: ['approved', 'declined', 'timeout'],
+      skillId: 'a2a.transport-registry',
+      escalationTarget: {
+        channel: 'slack:COPS',
+        recipient: 'ops-lead',
+      },
+    });
+    expect(suspended?.prompt).toContain('no adapter is registered for "a2a"');
+    const f14Events = getRecentStructuredAuditForSession(
+      'a2a-transport:a2a:thread-remote:msg-remote',
+      10,
+    );
+    expect(f14Events.map((event) => event.event_type)).toEqual([
+      'escalation.interaction_needed',
+    ]);
+  });
 });

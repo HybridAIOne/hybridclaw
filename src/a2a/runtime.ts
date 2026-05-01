@@ -1,6 +1,11 @@
+import type { EscalationTarget } from '../types/execution.js';
 import { type A2AEnvelope, A2AEnvelopeValidationError } from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
+import {
+  encodeForRegisteredTransport,
+  type TransportRegistry,
+} from './transport-registry.js';
 import { isRecord } from './utils.js';
 
 // Public server-side A2A runtime API required by roadmap #425.
@@ -13,6 +18,11 @@ export interface A2ADeliveryConfirmation {
 
 export interface A2ASendMessageMeta {
   actor?: string;
+  peerDescriptor?: unknown;
+  transportRegistry?: TransportRegistry;
+  sessionId?: string;
+  auditRunId?: string;
+  escalationTarget?: EscalationTarget;
 }
 
 function normalizeRuntimeEnvelope(envelope: unknown): unknown {
@@ -30,14 +40,19 @@ export function sendMessage(
   envelope: unknown,
   meta?: A2ASendMessageMeta,
 ): A2ADeliveryConfirmation {
-  const deliveredEnvelope = saveA2AEnvelope(
-    attachA2AHandoffContext(normalizeRuntimeEnvelope(envelope)),
-    {
-      actor: meta?.actor,
-      route: 'a2a.sendMessage',
-      source: 'a2a-runtime',
-    },
-  );
+  const encodedEnvelope = encodeForRegisteredTransport({
+    envelope: attachA2AHandoffContext(normalizeRuntimeEnvelope(envelope)),
+    peerDescriptor: meta?.peerDescriptor,
+    registry: meta?.transportRegistry,
+    sessionId: meta?.sessionId,
+    runId: meta?.auditRunId,
+    escalationTarget: meta?.escalationTarget,
+  });
+  const deliveredEnvelope = saveA2AEnvelope(encodedEnvelope, {
+    actor: meta?.actor,
+    route: 'a2a.sendMessage',
+    source: 'a2a-runtime',
+  });
   return {
     delivered: true,
     message_id: deliveredEnvelope.id,
