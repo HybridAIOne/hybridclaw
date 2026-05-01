@@ -19,7 +19,6 @@ import {
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type {
   ChannelKind,
   SkillConfigChannelKind,
@@ -57,7 +56,6 @@ import {
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
 import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
-import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
   parseSecretInput,
@@ -4120,46 +4118,7 @@ function resolveConfiguredSecretInput(
     path: opts.path,
     required: opts.required,
     reason: `resolve runtime config secret ${opts.path}`,
-    audit: (handle, reason) =>
-      auditConfiguredSecretUnsafeEscape(handle, reason, opts.path),
-  });
-}
-
-function auditConfiguredSecretUnsafeEscape(
-  handle: SecretHandle,
-  reason: string,
-  path: RuntimeConfigSecretInputPath,
-): void {
-  recordAuditEvent({
-    sessionId: 'secret-resolution',
-    runId: makeAuditRunId('secret'),
-    event: {
-      type: 'secret.resolved',
-      skill: null,
-      secretRef: {
-        source: handle.ref.source,
-        id: handle.ref.id,
-      },
-      sinkKind: handle.sinkKind,
-      host: null,
-      selector: path,
-    },
-  });
-  recordAuditEvent({
-    sessionId: 'secret-resolution',
-    runId: makeAuditRunId('secret-escape'),
-    event: {
-      type: 'secret.unsafe_escape',
-      skill: null,
-      secretRef: {
-        source: handle.ref.source,
-        id: handle.ref.id,
-      },
-      sinkKind: handle.sinkKind,
-      host: null,
-      selector: path,
-      reason,
-    },
+    audit: () => undefined,
   });
 }
 
