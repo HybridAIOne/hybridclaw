@@ -864,19 +864,6 @@ function tuiCharacterWidth(symbol: string): number {
   if (code < 32 || (code >= 0x7f && code < 0xa0)) return 0;
   if (
     (code >= 0x300 && code <= 0x36f) ||
-    (code >= 0x483 && code <= 0x489) ||
-    (code >= 0x591 && code <= 0x5bd) ||
-    code === 0x5bf ||
-    (code >= 0x5c1 && code <= 0x5c2) ||
-    (code >= 0x5c4 && code <= 0x5c5) ||
-    code === 0x5c7 ||
-    (code >= 0x610 && code <= 0x61a) ||
-    (code >= 0x64b && code <= 0x65f) ||
-    code === 0x670 ||
-    (code >= 0x6d6 && code <= 0x6dc) ||
-    (code >= 0x6df && code <= 0x6e4) ||
-    (code >= 0x6e7 && code <= 0x6e8) ||
-    (code >= 0x6ea && code <= 0x6ed) ||
     (code >= 0x200b && code <= 0x200f) ||
     code === 0x200d ||
     (code >= 0xfe00 && code <= 0xfe0f) ||
@@ -904,11 +891,38 @@ function tuiCharacterWidth(symbol: string): number {
   return 1;
 }
 
-function visibleTuiLength(value: string): number {
-  return [...stripAnsiTui(value)].reduce(
-    (sum, symbol) => sum + tuiCharacterWidth(symbol),
-    0,
-  );
+function nextTuiSymbol(
+  source: string,
+  index: number,
+): { symbol: string; nextIndex: number } {
+  const code = source.codePointAt(index);
+  const symbol =
+    code == null ? source[index] || '' : String.fromCodePoint(code);
+  return {
+    symbol,
+    nextIndex: index + (symbol.length || 1),
+  };
+}
+
+export function visibleTuiLength(value: string): number {
+  const source = String(value || '');
+  let width = 0;
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+
+    const next = nextTuiSymbol(source, index);
+    width += tuiCharacterWidth(next.symbol);
+    index = next.nextIndex;
+  }
+  return width;
 }
 
 function padAnsiTuiEnd(value: string, width: number): string {
@@ -934,9 +948,9 @@ function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
       tokens.push({ kind: 'ansi', value: source.slice(start, index) });
       continue;
     }
-    const symbol = [...source.slice(index)][0] || source[index] || '';
-    tokens.push({ kind: 'char', value: symbol });
-    index += symbol.length || 1;
+    const next = nextTuiSymbol(source, index);
+    tokens.push({ kind: 'char', value: next.symbol });
+    index = next.nextIndex;
   }
   return tokens;
 }
@@ -1055,17 +1069,15 @@ function truncateAnsiTuiEnd(value: string, width: number): string {
       output += source.slice(start, index);
       continue;
     }
-    const code = source.codePointAt(index);
-    const symbol =
-      code == null ? source[index] || '' : String.fromCodePoint(code);
-    const symbolWidth = tuiCharacterWidth(symbol);
-    if (visibleCount + symbolWidth + 1 > width) {
+    const next = nextTuiSymbol(source, index);
+    const symbolWidth = tuiCharacterWidth(next.symbol);
+    if (symbolWidth > 0 && visibleCount + symbolWidth + 1 > width) {
       output += '…';
       return output.endsWith(RESET) ? output : `${output}${RESET}`;
     }
-    output += symbol;
+    output += next.symbol;
     visibleCount += symbolWidth;
-    index += symbol.length || 1;
+    index = next.nextIndex;
   }
   return output;
 }
@@ -1385,7 +1397,7 @@ export function formatTuiToolActivityLine(params: {
     ? ` ${MUTED}${params.preview}${RESET}`
     : '';
   const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${previewText}`;
-  const safeColumns = Math.max(1, Math.floor(params.columns) - 1);
+  const safeColumns = Math.max(1, params.columns - 1);
   return truncateAnsiTuiEnd(body, safeColumns);
 }
 

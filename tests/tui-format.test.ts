@@ -6,6 +6,7 @@ import {
   nextActiveDelegateToolCount,
   parseTuiSectionCards,
   renderTuiEvalResultsPanel,
+  visibleTuiLength,
 } from '../src/tui.ts';
 
 function stripAnsi(value: string): string {
@@ -13,14 +14,6 @@ function stripAnsi(value: string): string {
     new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, 'g'),
     '',
   );
-}
-
-function displayWidth(value: string): number {
-  return [...stripAnsi(value)].reduce((sum, symbol) => {
-    const code = symbol.codePointAt(0) || 0;
-    if (code >= 0x1f300 && code <= 0x1faff) return sum + 2;
-    return sum + 1;
-  }, 0);
 }
 
 test('formats titled command blocks with the standard left gutter', () => {
@@ -50,7 +43,19 @@ test('tool activity line preserves emoji and leaves room for terminal repaint', 
 
   expect(plain).toContain('🪼');
   expect(plain).not.toContain('�');
-  expect(displayWidth(line)).toBeLessThanOrEqual(39);
+  expect(visibleTuiLength(line)).toBeLessThanOrEqual(39);
+});
+
+test('tool activity width uses production wide and zero-width handling', () => {
+  const line = formatTuiToolActivityLine({
+    toolName: 'bash',
+    preview: 'run shell command `printf "界é"`',
+    columns: 28,
+    frameIndex: 0,
+  });
+
+  expect(visibleTuiLength(line)).toBeLessThanOrEqual(27);
+  expect(stripAnsi(line)).not.toContain('�');
 });
 
 test('reflows locomo variant tables to the live tui width without splitting rows', () => {
