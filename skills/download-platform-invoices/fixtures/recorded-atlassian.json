@@ -15,5 +15,31 @@
       "source_url": "https://my.atlassian.com/billing",
       "pdf_base64": "JVBERiBhdGxhc3NpYW4="
     }
-  ]
+  ],
+  "recorded_session": {
+    "recorded_at": "2026-05-01T00:00:00.000Z",
+    "sanitized": true,
+    "recorder": "hybridclaw-invoice-fixture-v1",
+    "steps": [
+      {
+        "kind": "login",
+        "url": "fixture://atlassian/login",
+        "status": 200
+      },
+      {
+        "kind": "list",
+        "url": "fixture://atlassian/billing",
+        "status": 200
+      },
+      {
+        "kind": "download",
+        "url": "fixture://atlassian/invoice.pdf",
+        "status": 200
+      }
+    ],
+    "evidence": {
+      "http_trace_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "dom_snapshot": "<main data-hc-provider=\"atlassian\"><div data-hc-invoice-row><span data-hc-invoice-no>AT-2026-03-001</span></div></main>"
+    }
+  }
 }

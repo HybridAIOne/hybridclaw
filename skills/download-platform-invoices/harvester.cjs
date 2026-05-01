@@ -3,6 +3,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { emitInvoiceFetchedAudit, makeAuditRunId } = require('./helpers/audit.cjs');
+const {
+  hasRotatableInvoiceCredentials,
+  resolveInvoiceCredentials,
+  rollbackInvoiceCredentialRotations,
+  rotateInvoiceCredentials,
+} = require('./helpers/config.cjs');
+const { isInvoiceOperatorEscalation } = require('./helpers/escalation.cjs');
 const { validateInvoiceRecord } = require('./helpers/schema.cjs');
 
 function sha256(bytes) {
@@ -200,6 +207,7 @@ async function runMonthlyInvoiceRun(input) {
   const adaptersById = new Map(input.adapters.map((adapter) => [adapter.id, adapter]));
   const providerResults = [];
   const providerErrors = [];
+  const operatorEscalations = [];
   const invoiceRoots = [];
   const providers = input.config.providers.filter(
     (provider) => provider.enabled !== false,
@@ -209,10 +217,31 @@ async function runMonthlyInvoiceRun(input) {
     const adapter = adaptersById.get(provider.id);
     if (!adapter) throw new Error(`Invoice adapter ${provider.id} is not registered.`);
     const outputDir = provider.outputDir || input.config.outputDir;
+    const credentialRefs = provider.credentials || {};
     try {
-      const result = await harvestProviderInvoices({
+      const credentials = resolveInvoiceCredentials(provider.id, credentialRefs, {
+        required: adapter.requiredCredentials || [],
+        credentialStore: input.credentialStore,
+        audit: (secretRef, action) =>
+          audit({
+            sessionId: input.sessionId,
+            runId,
+            event: {
+              type: 'invoice.credential_resolved',
+              provider: provider.id,
+              secret: {
+                source: secretRef.source,
+                id: secretRef.id,
+              },
+              action,
+            },
+          }),
+      });
+      const result = await harvestProviderInvoicesWithRotation({
         adapter,
-        credentials: provider.credentials || {},
+        credentials,
+        credentialRefs,
+        credentialStore: input.credentialStore,
         outputDir,
         manifestPath: path.join(outputDir, 'manifest.json'),
         listOptions: { since: provider.since },
@@ -231,7 +260,28 @@ async function runMonthlyInvoiceRun(input) {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      providerErrors.push({ providerId: provider.id, error: message });
+      if (isInvoiceOperatorEscalation(error)) {
+        operatorEscalations.push({
+          providerId: provider.id,
+          reason: error.reason,
+          escalation: error.escalation,
+        });
+        providerErrors.push({
+          providerId: provider.id,
+          error: message,
+          suspended: true,
+        });
+        audit({
+          sessionId: input.sessionId,
+          runId,
+          event: {
+            ...error.escalation,
+            type: 'invoice.operator_escalation_required',
+          },
+        });
+      } else {
+        providerErrors.push({ providerId: provider.id, error: message });
+      }
       audit({
         sessionId: input.sessionId,
         runId,
@@ -268,7 +318,82 @@ async function runMonthlyInvoiceRun(input) {
     });
   }
 
-  return { runId, providerResults, providerErrors, datevUploaded: shouldUpload };
+  return {
+    runId,
+    providerResults,
+    providerErrors,
+    operatorEscalations,
+    datevUploaded: shouldUpload,
+  };
+}
+
+async function harvestProviderInvoicesWithRotation(input) {
+  try {
+    return await harvestProviderInvoices(input);
+  } catch (error) {
+    if (!shouldRotateInvoiceCredentials(error, input.credentialRefs)) throw error;
+    const rotated = await rotateInvoiceCredentials(input.adapter.id, input.credentialRefs, {
+      credentialStore: input.credentialStore,
+      reason: 'invoice_auth_failed',
+      audit: (secretRef, action) =>
+        input.recordAudit?.({
+          sessionId: input.sessionId,
+          runId: input.runId,
+          event: {
+            type: 'invoice.credential_rotation',
+            provider: input.adapter.id,
+            secret: {
+              source: secretRef.source,
+              id: secretRef.id,
+              revision: secretRef.revision || null,
+            },
+            action,
+          },
+        }),
+    });
+    try {
+      return await harvestProviderInvoices({
+        ...input,
+        credentials: { ...input.credentials, ...rotated.credentials },
+      });
+    } catch (retryError) {
+      await rollbackInvoiceCredentialRotations(
+        input.adapter.id,
+        rotated.rotations,
+        {
+          credentialStore: input.credentialStore,
+          reason: 'invoice_rotation_retry_failed',
+          audit: (secretRef, action) =>
+            input.recordAudit?.({
+              sessionId: input.sessionId,
+              runId: input.runId,
+              event: {
+                type: 'invoice.credential_rollback',
+                provider: input.adapter.id,
+                secret: {
+                  source: secretRef.source,
+                  id: secretRef.id,
+                  revision: secretRef.revision || null,
+                },
+                action,
+              },
+            }),
+        },
+      );
+      throw retryError;
+    }
+  }
+}
+
+function shouldRotateInvoiceCredentials(error, credentialRefs) {
+  if (!hasRotatableInvoiceCredentials(credentialRefs)) return false;
+  if (!error) return false;
+  const code = typeof error === 'object' ? error.code : null;
+  if (code === 'AUTH_FAILED' || code === 'UNAUTHORIZED') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(401|403|auth|credential|unauthorized|forbidden|invalid token)\b/iu.test(
+    message,
+  );
 }
 
 module.exports = {
@@ -281,4 +406,5 @@ module.exports = {
   loadInvoiceManifest,
   runMonthlyInvoiceRun,
   saveInvoiceManifest,
+  shouldRotateInvoiceCredentials,
 };

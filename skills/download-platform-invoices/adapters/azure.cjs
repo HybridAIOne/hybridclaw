@@ -9,6 +9,7 @@ const {
 class AzureInvoiceAdapter {
   id = 'azure';
   displayName = 'Azure';
+  requiredCredentials = ['accessToken', 'billingAccountId'];
 
   constructor(options = {}) {
     this.fetch = options.fetch || fetch;

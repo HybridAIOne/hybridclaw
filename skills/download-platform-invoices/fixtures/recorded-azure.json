@@ -15,5 +15,31 @@
       "source_url": "https://portal.azure.com/#view/Microsoft_Azure_Billing",
       "pdf_base64": "JVBERiBhenVyZQ=="
     }
-  ]
+  ],
+  "recorded_session": {
+    "recorded_at": "2026-05-01T00:00:00.000Z",
+    "sanitized": true,
+    "recorder": "hybridclaw-invoice-fixture-v1",
+    "steps": [
+      {
+        "kind": "login",
+        "url": "fixture://azure/login",
+        "status": 200
+      },
+      {
+        "kind": "list",
+        "url": "fixture://azure/billing",
+        "status": 200
+      },
+      {
+        "kind": "download",
+        "url": "fixture://azure/invoice.pdf",
+        "status": 200
+      }
+    ],
+    "evidence": {
+      "http_trace_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "dom_snapshot": "<main data-hc-provider=\"azure\"><div data-hc-invoice-row><span data-hc-invoice-no>AZ-2026-03-001</span></div></main>"
+    }
+  }
 }

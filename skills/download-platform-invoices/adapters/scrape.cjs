@@ -1,18 +1,9 @@
 const { parseInvoiceMoneyText, sinceTimestamp } = require('../helpers/money.cjs');
 const { generateTotp } = require('../helpers/totp.cjs');
-
-const tablePlan = {
-  invoiceRowSelector: '[data-hc-invoice-row], table tbody tr',
-  invoiceNoSelector: '[data-hc-invoice-no], td:nth-child(1)',
-  issueDateSelector: '[data-hc-issue-date], td:nth-child(2)',
-  dueDateSelector: '[data-hc-due-date], td:nth-child(3)',
-  periodSelector: '[data-hc-period], td:nth-child(4)',
-  netSelector: '[data-hc-net], td:nth-child(5)',
-  vatSelector: '[data-hc-vat], td:nth-child(6)',
-  grossSelector: '[data-hc-gross], td:nth-child(7)',
-  currencySelector: '[data-hc-currency], td:nth-child(8)',
-  pdfLinkSelector: 'a[href*="invoice"], a[href$=".pdf"]',
-};
+const {
+  createCaptchaEscalation,
+  createPushMfaEscalation,
+} = require('../helpers/escalation.cjs');
 
 const totpSelector =
   'input[autocomplete="one-time-code"], input[name*="totp" i], input[name*="otp" i]';
@@ -26,7 +17,24 @@ const INVOICE_SCRAPE_PLANS = {
     submitSelector: 'input[type="submit"], button[type="submit"]',
     totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
-    ...tablePlan,
+    pushMfaSelector: '[data-testid="two-factor-app"], .two-factor-app, #webauthn-form',
+    invoiceRowSelector:
+      '[data-hc-provider="github"] [data-hc-invoice-row], [data-testid="billing-history-row"], [data-targets*="billing"] tr, table[aria-label*="billing" i] tbody tr',
+    invoiceNoSelector:
+      '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="/settings/billing/history/"], td:nth-of-type(1)',
+    issueDateSelector:
+      '[data-hc-issue-date], [datetime], relative-time, td:nth-of-type(2)',
+    dueDateSelector:
+      '[data-hc-due-date], [data-testid="due-date"], td:nth-of-type(3)',
+    periodSelector:
+      '[data-hc-period], [data-testid="billing-period"], td:nth-of-type(4)',
+    netSelector: '[data-hc-net], [data-testid="subtotal"], td:nth-of-type(5)',
+    vatSelector: '[data-hc-vat], [data-testid="tax"], td:nth-of-type(6)',
+    grossSelector: '[data-hc-gross], [data-testid="total"], td:nth-of-type(7)',
+    currencySelector:
+      '[data-hc-currency], [data-testid="currency"], [data-testid="total"], td:nth-of-type(7)',
+    pdfLinkSelector:
+      'a[href*="/settings/billing/history/"], a[href*="invoice"], a[href$=".pdf"]',
   },
   openai: {
     loginUrl: 'https://platform.openai.com/login',
@@ -36,7 +44,28 @@ const INVOICE_SCRAPE_PLANS = {
     submitSelector: 'button[type="submit"]',
     totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
-    ...tablePlan,
+    pushMfaSelector:
+      '[data-testid*="mfa" i], [data-testid*="challenge" i], input[name="code"]',
+    invoiceRowSelector:
+      '[data-hc-provider="openai"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], div[role="row"][data-testid*="invoice" i]',
+    invoiceNoSelector:
+      '[data-hc-invoice-no], [data-testid="invoice-number"], [data-testid="invoice-id"], [role="gridcell"]:nth-of-type(1)',
+    issueDateSelector:
+      '[data-hc-issue-date], [data-testid="invoice-date"], time, [role="gridcell"]:nth-of-type(2)',
+    dueDateSelector:
+      '[data-hc-due-date], [data-testid="due-date"], [role="gridcell"]:nth-of-type(3)',
+    periodSelector:
+      '[data-hc-period], [data-testid="invoice-period"], [role="gridcell"]:nth-of-type(4)',
+    netSelector:
+      '[data-hc-net], [data-testid="invoice-subtotal"], [role="gridcell"]:nth-of-type(5)',
+    vatSelector:
+      '[data-hc-vat], [data-testid="invoice-tax"], [role="gridcell"]:nth-of-type(6)',
+    grossSelector:
+      '[data-hc-gross], [data-testid="invoice-total"], [role="gridcell"]:nth-of-type(7)',
+    currencySelector:
+      '[data-hc-currency], [data-testid="invoice-currency"], [data-testid="invoice-total"], [role="gridcell"]:nth-of-type(7)',
+    pdfLinkSelector:
+      'a[href*="/account/billing/invoice"], a[href*="invoice"], a[href$=".pdf"]',
   },
   anthropic: {
     loginUrl: 'https://console.anthropic.com/login',
@@ -46,7 +75,27 @@ const INVOICE_SCRAPE_PLANS = {
     submitSelector: 'button[type="submit"]',
     totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
-    ...tablePlan,
+    pushMfaSelector:
+      '[data-testid*="mfa" i], [data-testid*="challenge" i], input[name="code"]',
+    invoiceRowSelector:
+      '[data-hc-provider="anthropic"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], div[role="row"][data-testid*="invoice" i]',
+    invoiceNoSelector:
+      '[data-hc-invoice-no], [data-testid="invoice-number"], [data-testid="invoice-id"], [role="gridcell"]:nth-of-type(1)',
+    issueDateSelector:
+      '[data-hc-issue-date], [data-testid="invoice-date"], time, [role="gridcell"]:nth-of-type(2)',
+    dueDateSelector:
+      '[data-hc-due-date], [data-testid="due-date"], [role="gridcell"]:nth-of-type(3)',
+    periodSelector:
+      '[data-hc-period], [data-testid="billing-period"], [role="gridcell"]:nth-of-type(4)',
+    netSelector:
+      '[data-hc-net], [data-testid="subtotal"], [role="gridcell"]:nth-of-type(5)',
+    vatSelector: '[data-hc-vat], [data-testid="tax"], [role="gridcell"]:nth-of-type(6)',
+    grossSelector:
+      '[data-hc-gross], [data-testid="total"], [role="gridcell"]:nth-of-type(7)',
+    currencySelector:
+      '[data-hc-currency], [data-testid="currency"], [data-testid="total"], [role="gridcell"]:nth-of-type(7)',
+    pdfLinkSelector:
+      'a[href*="/settings/billing"], a[href*="invoice"], a[href$=".pdf"]',
   },
   atlassian: {
     loginUrl: 'https://id.atlassian.com/login',
@@ -56,7 +105,25 @@ const INVOICE_SCRAPE_PLANS = {
     submitSelector: 'button[type="submit"]',
     totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
-    ...tablePlan,
+    pushMfaSelector:
+      '[data-testid*="mfa" i], [data-testid*="two-step" i], input[name="verificationCode"]',
+    invoiceRowSelector:
+      '[data-hc-provider="atlassian"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], table[data-testid*="invoice" i] tbody tr',
+    invoiceNoSelector:
+      '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="invoice"], td:nth-of-type(2)',
+    issueDateSelector:
+      '[data-hc-issue-date], [data-testid="invoice-date"], time, td:nth-of-type(1)',
+    dueDateSelector:
+      '[data-hc-due-date], [data-testid="due-date"], td:nth-of-type(3)',
+    periodSelector:
+      '[data-hc-period], [data-testid="billing-period"], td:nth-of-type(4)',
+    netSelector: '[data-hc-net], [data-testid="subtotal"], td:nth-of-type(5)',
+    vatSelector: '[data-hc-vat], [data-testid="tax"], td:nth-of-type(6)',
+    grossSelector: '[data-hc-gross], [data-testid="total"], td:nth-of-type(7)',
+    currencySelector:
+      '[data-hc-currency], [data-testid="currency"], [data-testid="total"], td:nth-of-type(7)',
+    pdfLinkSelector:
+      'a[href*="invoice"], a[href*="billing"], a[download][href$=".pdf"]',
   },
   linkedin: {
     loginUrl: 'https://www.linkedin.com/login',
@@ -66,17 +133,25 @@ const INVOICE_SCRAPE_PLANS = {
     submitSelector: 'button[type="submit"]',
     totpSelector,
     captchaSelector: '[data-test-id="captcha"], iframe[src*="captcha"]',
-    ...tablePlan,
-  },
-  gcp: {
-    loginUrl: 'https://accounts.google.com/',
-    billingUrl: 'https://console.cloud.google.com/billing/documents',
-    usernameSelector: 'input[type="email"]',
-    passwordSelector: 'input[type="password"]',
-    submitSelector: 'button[type="submit"], #identifierNext, #passwordNext',
-    totpSelector,
-    captchaSelector: 'iframe[src*="captcha"], [aria-label*="captcha" i]',
-    ...tablePlan,
+    pushMfaSelector:
+      '[data-test-id*="challenge" i], [data-test-id*="mfa" i], input[name="pin"]',
+    invoiceRowSelector:
+      '[data-hc-provider="linkedin"] [data-hc-invoice-row], [data-test-id="billing-history-row"], [data-control-name*="invoice" i], table tbody tr',
+    invoiceNoSelector:
+      '[data-hc-invoice-no], [data-test-id="invoice-number"], a[href*="invoice"], td:nth-of-type(1)',
+    issueDateSelector:
+      '[data-hc-issue-date], [data-test-id="invoice-date"], time, td:nth-of-type(2)',
+    dueDateSelector:
+      '[data-hc-due-date], [data-test-id="due-date"], td:nth-of-type(3)',
+    periodSelector:
+      '[data-hc-period], [data-test-id="billing-period"], td:nth-of-type(4)',
+    netSelector: '[data-hc-net], [data-test-id="subtotal"], td:nth-of-type(5)',
+    vatSelector: '[data-hc-vat], [data-test-id="tax"], td:nth-of-type(6)',
+    grossSelector: '[data-hc-gross], [data-test-id="total"], td:nth-of-type(7)',
+    currencySelector:
+      '[data-hc-currency], [data-test-id="currency"], [data-test-id="total"], td:nth-of-type(7)',
+    pdfLinkSelector:
+      'a[href*="invoice"], a[href*="billing"], a[download][href$=".pdf"]',
   },
 };
 
@@ -88,6 +163,7 @@ class DashboardScrapeInvoiceAdapter {
     this.displayName = options.displayName;
     this.loginUrl = plan.loginUrl;
     this.driver = options.driver;
+    this.requiredCredentials = ['username', 'password'];
   }
 
   async login(credentials, context) {
@@ -136,29 +212,30 @@ class PlaywrightScrapeInvoiceDriver {
     await this.page.fill(this.plan.usernameSelector, credentials.username);
     await this.page.fill(this.plan.passwordSelector, credentials.password);
     await this.page.click(this.plan.submitSelector);
-    if (this.plan.captchaSelector) {
-      try {
-        await this.page.waitForSelector(this.plan.captchaSelector, {
-          timeout: 1000,
-        });
-        throw new Error(
-          'Captcha detected during invoice portal login; operator escalation required.',
-        );
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message.includes('operator escalation required')
-        ) {
-          throw error;
-        }
-      }
-    }
+    await this.detectEscalationBlockers();
     if (this.plan.totpSelector && credentials.totpSecret) {
       await this.page.waitForSelector(this.plan.totpSelector);
       await this.page.fill(this.plan.totpSelector, generateTotp(credentials.totpSecret));
       await this.page.click(this.plan.submitSelector);
+      await this.detectEscalationBlockers();
     }
     await this.page.goto(this.plan.billingUrl, { waitUntil: 'domcontentloaded' });
+  }
+
+  async detectEscalationBlockers() {
+    if (!this.page || !this.providerId) return;
+    if (
+      this.plan.captchaSelector &&
+      (await selectorAppears(this.page, this.plan.captchaSelector))
+    ) {
+      throw createCaptchaEscalation(this.providerId, this.plan.captchaSelector);
+    }
+    if (
+      this.plan.pushMfaSelector &&
+      (await selectorAppears(this.page, this.plan.pushMfaSelector))
+    ) {
+      throw createPushMfaEscalation(this.providerId, this.plan.pushMfaSelector);
+    }
   }
 
   async listInvoices(options = {}) {
@@ -288,6 +365,15 @@ function createScrapeAdapter(id, displayName, options = {}) {
   });
 }
 
+async function selectorAppears(page, selector) {
+  try {
+    await page.waitForSelector(selector, { timeout: 1000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   DashboardScrapeInvoiceAdapter,
   INVOICE_SCRAPE_PLANS,
@@ -296,7 +382,6 @@ module.exports = {
     createScrapeAdapter('anthropic', 'Anthropic', options),
   createAtlassianInvoiceAdapter: (options) =>
     createScrapeAdapter('atlassian', 'Atlassian', options),
-  createGcpInvoiceAdapter: (options) => createScrapeAdapter('gcp', 'GCP', options),
   createGitHubInvoiceAdapter: (options) =>
     createScrapeAdapter('github', 'GitHub', options),
   createLinkedInInvoiceAdapter: (options) =>

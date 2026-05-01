@@ -17,6 +17,7 @@ const {
   harvestProviderInvoices,
   INVOICE_PROVIDER_DEFINITIONS,
   INVOICE_SCRAPE_PLANS,
+  InvoiceOperatorEscalationError,
   loadInvoiceManifest,
   parseInvoiceMoneyText,
   RecordedFixtureInvoiceAdapter,
@@ -31,6 +32,7 @@ const {
 type InvoiceAdapter<Session = unknown> = {
   id: string;
   displayName: string;
+  requiredCredentials?: string[];
   login(credentials: Record<string, string>, context: unknown): Promise<Session>;
   listInvoices(session: Session, options: unknown): Promise<InvoiceMeta[]>;
   download(session: Session, invoice: InvoiceMeta): Promise<Uint8Array>;
@@ -126,6 +128,26 @@ describe('invoice credentials', () => {
       expect.objectContaining({ id: 'HYBRIDCLAW_INVOICE_TEST_SECRET' }),
       'resolve stripe invoice credential apiKey',
     );
+  });
+
+  test('resolves store-backed refs through the injected credential store', () => {
+    const credentialStore = {
+      get: vi.fn(() => ({ value: 'rotatable-secret' })),
+    };
+
+    const credentials = resolveInvoiceCredentials(
+      'stripe',
+      {
+        apiKey: {
+          source: 'store',
+          id: 'STRIPE_INVOICE_API_KEY',
+        },
+      },
+      { required: ['apiKey'], credentialStore },
+    );
+
+    expect(credentials).toEqual({ apiKey: 'rotatable-secret' });
+    expect(credentialStore.get).toHaveBeenCalledWith('STRIPE_INVOICE_API_KEY');
   });
 });
 
@@ -270,12 +292,18 @@ describe('reference invoice adapters', () => {
     expect(Object.keys(INVOICE_SCRAPE_PLANS).sort()).toEqual([
       'anthropic',
       'atlassian',
-      'gcp',
       'github',
       'linkedin',
       'openai',
     ]);
     expect(INVOICE_SCRAPE_PLANS.openai?.captchaSelector).toContain('captcha');
+    expect(
+      new Set(
+        Object.values(INVOICE_SCRAPE_PLANS).map(
+          (plan: { invoiceRowSelector: string }) => plan.invoiceRowSelector,
+        ),
+      ).size,
+    ).toBe(Object.keys(INVOICE_SCRAPE_PLANS).length);
   });
 
   test('maps Stripe API invoices and downloads the official PDF', async () => {
@@ -604,23 +632,67 @@ describe('reference invoice adapters', () => {
     expect(new TextDecoder().decode(pdf)).toBe('%PDF azure');
   });
 
-  test('GCP adapter uses the browser scrape path for Cloud Billing documents', async () => {
-    const driver: ScrapeInvoiceDriver = {
-      login: vi.fn(async () => undefined),
-      listInvoices: vi.fn(async () => [{ ...invoiceMeta, vendor: 'gcp' }]),
-      downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF gcp')),
-    };
-    const adapter = createGcpInvoiceAdapter({ driver });
+  test('GCP adapter verifies Cloud Billing access and downloads billing document PDFs', async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('cloudbilling.googleapis.com')) {
+        expect(url).toContain('/billingAccounts/ABCDEF-123456-789ABC');
+        return new Response(
+          JSON.stringify({
+            name: 'billingAccounts/ABCDEF-123456-789ABC',
+            displayName: 'Example Billing',
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes('gcp-documents.example/list')) {
+        expect(url).toContain('issueYear=2026');
+        expect(url).toContain('issueMonth=03');
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                type: 'INVOICE',
+                invoiceNumber: 'GCP-2026-03-001',
+                issueDate: '2026-04-01',
+                dueDate: '2026-04-15',
+                servicePeriodStart: '2026-03-01',
+                netAmount: { value: 100 },
+                taxAmount: { value: 19 },
+                totalAmount: { value: 119, currencyCode: 'EUR' },
+                pdfUrl: 'https://gcp-documents.example/pdf-1',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('%PDF gcp', { status: 200 });
+    });
+    const adapter = createGcpInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+      documentEndpoint: 'https://gcp-documents.example/list',
+    });
     const session = await adapter.login(
-      { username: 'user_a', password: 'password' },
+      {
+        accessToken: 'token',
+        billingAccountId: 'ABCDEF-123456-789ABC',
+      },
       { providerId: 'gcp', profileDir: '/tmp/gcp-profile' },
     );
 
-    const invoices = await adapter.listInvoices(session, {});
+    const invoices = await adapter.listInvoices(session, { since: '2026-03-01' });
+    const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
+
     expect(invoices[0]?.vendor).toBe('gcp');
-    await expect(
-      adapter.download(session, invoices[0] as InvoiceMeta),
-    ).resolves.toBeInstanceOf(Uint8Array);
+    expect(invoices[0]).toMatchObject({
+      invoice_no: 'GCP-2026-03-001',
+      period: '2026-03',
+      net: 100,
+      vat: 19,
+      gross: 119,
+    });
+    expect(new TextDecoder().decode(pdf)).toBe('%PDF gcp');
   });
 });
 
@@ -653,6 +725,12 @@ describe('recorded invoice eval fixtures', () => {
 
     expect(invoices).toHaveLength(1);
     expect(invoices[0]?.vendor).toBe(id);
+    expect(session.fixture.recorded_session.steps).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'download' })]),
+    );
+    expect(session.fixture.recorded_session.evidence.dom_snapshot).toContain(
+      'data-hc-invoice-row',
+    );
     expect(new TextDecoder().decode(pdf)).toContain('%PDF');
   });
 
@@ -787,6 +865,169 @@ describe('invoice harvester config and monthly workflow', () => {
         records: expect.arrayContaining([
           expect.objectContaining({ invoice_no: 'ST-2026-03-001' }),
         ]),
+      }),
+    );
+  });
+
+  test('rotates store credentials once through F4-style rollback hooks after auth failure', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-'));
+    let loginCount = 0;
+    const adapter: InvoiceAdapter<undefined> = {
+      id: 'stripe',
+      displayName: 'Stripe',
+      requiredCredentials: ['apiKey'],
+      async login(credentials) {
+        loginCount += 1;
+        if (credentials.apiKey === 'old-secret') {
+          const error = new Error('401 unauthorized');
+          (error as Error & { code?: string }).code = 'AUTH_FAILED';
+          throw error;
+        }
+        return undefined;
+      },
+      async listInvoices() {
+        return [invoiceMeta];
+      },
+      async download() {
+        return new TextEncoder().encode('%PDF rotated');
+      },
+    };
+    const credentialStore = {
+      get: vi.fn(() => 'old-secret'),
+      rotate: vi.fn(() => ({ value: 'new-secret', revision: 'rev-2' })),
+      rollback: vi.fn(),
+    };
+    const recordAudit = vi.fn();
+
+    const result = await runMonthlyInvoiceRun({
+      sessionId: 'session-monthly-invoice-test',
+      adapters: [adapter],
+      credentialStore,
+      recordAudit,
+      config: {
+        outputDir,
+        providers: [
+          {
+            id: 'stripe',
+            credentials: {
+              apiKey: { source: 'store', id: 'STRIPE_INVOICE_API_KEY' },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.providerResults).toHaveLength(1);
+    expect(loginCount).toBe(2);
+    expect(credentialStore.rotate).toHaveBeenCalledWith(
+      'STRIPE_INVOICE_API_KEY',
+      expect.objectContaining({ providerId: 'stripe', key: 'apiKey' }),
+    );
+    expect(credentialStore.rollback).not.toHaveBeenCalled();
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({ type: 'invoice.credential_rotation' }),
+      }),
+    );
+  });
+
+  test('rolls back rotated credentials when the retry still fails', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-'));
+    const adapter: InvoiceAdapter<undefined> = {
+      id: 'stripe',
+      displayName: 'Stripe',
+      requiredCredentials: ['apiKey'],
+      async login() {
+        throw new Error('401 unauthorized');
+      },
+      async listInvoices() {
+        return [];
+      },
+      async download() {
+        return new Uint8Array();
+      },
+    };
+    const credentialStore = {
+      get: vi.fn(() => 'old-secret'),
+      rotate: vi.fn(() => ({ value: 'new-secret', revision: 'rev-2' })),
+      rollback: vi.fn(),
+    };
+
+    const result = await runMonthlyInvoiceRun({
+      sessionId: 'session-monthly-invoice-test',
+      adapters: [adapter],
+      credentialStore,
+      config: {
+        outputDir,
+        providers: [
+          {
+            id: 'stripe',
+            credentials: {
+              apiKey: { source: 'store', id: 'STRIPE_INVOICE_API_KEY' },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result.providerErrors).toEqual([
+      { providerId: 'stripe', error: '401 unauthorized' },
+    ]);
+    expect(credentialStore.rollback).toHaveBeenCalledWith(
+      'STRIPE_INVOICE_API_KEY',
+      expect.objectContaining({ revision: 'rev-2' }),
+    );
+  });
+
+  test('emits an F8 operator escalation event instead of treating captcha as a plain scrape error', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-'));
+    const adapter: InvoiceAdapter<undefined> = {
+      id: 'github',
+      displayName: 'GitHub',
+      async login() {
+        throw new InvoiceOperatorEscalationError({
+          providerId: 'github',
+          reason: 'captcha',
+          modality: 'captcha',
+          message: 'captcha blocked login',
+        });
+      },
+      async listInvoices() {
+        return [];
+      },
+      async download() {
+        return new Uint8Array();
+      },
+    };
+    const recordAudit = vi.fn();
+
+    const result = await runMonthlyInvoiceRun({
+      sessionId: 'session-monthly-invoice-test',
+      adapters: [adapter],
+      recordAudit,
+      config: {
+        outputDir,
+        providers: [{ id: 'github', credentials: {} }],
+      },
+    });
+
+    expect(result.operatorEscalations).toEqual([
+      expect.objectContaining({ providerId: 'github', reason: 'captcha' }),
+    ]);
+    expect(result.providerErrors).toEqual([
+      {
+        providerId: 'github',
+        error: 'captcha blocked login',
+        suspended: true,
+      },
+    ]);
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: 'invoice.operator_escalation_required',
+          provider: 'github',
+          reason: 'captcha',
+        }),
       }),
     );
   });

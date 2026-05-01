@@ -20,6 +20,7 @@ function taxAmount(invoice) {
 class StripeInvoiceAdapter {
   id = 'stripe';
   displayName = 'Stripe';
+  requiredCredentials = ['apiKey'];
 
   constructor(options = {}) {
     this.fetch = options.fetch || fetch;

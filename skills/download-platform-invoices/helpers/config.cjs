@@ -67,7 +67,7 @@ function resolveInvoiceCredentials(providerId, inputs, opts = {}) {
   const resolved = {};
   for (const [key, value] of Object.entries(inputs || {})) {
     if (value === undefined) continue;
-    const secret = resolveSecretInput(providerId, key, value);
+    const secret = resolveSecretInput(providerId, key, value, opts);
     if (secret) {
       resolved[key] = secret;
       opts.audit?.(
@@ -84,9 +84,18 @@ function resolveInvoiceCredentials(providerId, inputs, opts = {}) {
   return resolved;
 }
 
-function resolveSecretInput(providerId, key, value) {
+function resolveSecretInput(providerId, key, value, opts = {}) {
   const id = secretId(value);
   if (!id) return null;
+  if (isStoreSecretRef(value)) {
+    const secret = readCredentialStore(opts.credentialStore, id);
+    if (!secret) {
+      throw new Error(
+        `Missing ${providerId} invoice credential ${key}: credential store secret ${id} is not set.`,
+      );
+    }
+    return secret;
+  }
   const secret = process.env[id];
   if (!secret) {
     throw new Error(
@@ -94,6 +103,92 @@ function resolveSecretInput(providerId, key, value) {
     );
   }
   return secret;
+}
+
+async function rotateInvoiceCredentials(providerId, inputs, opts = {}) {
+  const refs = rotatableCredentialRefs(inputs);
+  if (refs.length === 0) return null;
+  if (!opts.credentialStore || typeof opts.credentialStore.rotate !== 'function') {
+    throw new Error(
+      `Cannot rotate ${providerId} invoice credentials: credentialStore.rotate is not configured.`,
+    );
+  }
+  const rotated = {};
+  const rotations = [];
+  for (const ref of refs) {
+    const result = await opts.credentialStore.rotate(ref.id, {
+      providerId,
+      key: ref.key,
+      reason: opts.reason || 'invoice_auth_failed',
+    });
+    const secret = normalizeCredentialStoreResult(result);
+    if (!secret) {
+      throw new Error(
+        `Credential store did not return a rotated ${providerId} invoice credential ${ref.key}.`,
+      );
+    }
+    rotated[ref.key] = secret;
+    rotations.push({ key: ref.key, id: ref.id, revision: result?.revision || null });
+    opts.audit?.(
+      { source: 'store', id: ref.id, revision: result?.revision || null },
+      `rotate ${providerId} invoice credential ${ref.key}`,
+    );
+  }
+  return { credentials: rotated, rotations };
+}
+
+async function rollbackInvoiceCredentialRotations(providerId, rotations, opts = {}) {
+  if (!rotations || rotations.length === 0) return;
+  if (!opts.credentialStore || typeof opts.credentialStore.rollback !== 'function') {
+    throw new Error(
+      `Cannot rollback ${providerId} invoice credentials: credentialStore.rollback is not configured.`,
+    );
+  }
+  for (const rotation of rotations) {
+    await opts.credentialStore.rollback(rotation.id, {
+      providerId,
+      key: rotation.key,
+      revision: rotation.revision,
+      reason: opts.reason || 'invoice_rotation_retry_failed',
+    });
+    opts.audit?.(
+      { source: 'store', id: rotation.id, revision: rotation.revision || null },
+      `rollback ${providerId} invoice credential ${rotation.key}`,
+    );
+  }
+}
+
+function hasRotatableInvoiceCredentials(inputs) {
+  return rotatableCredentialRefs(inputs).length > 0;
+}
+
+function rotatableCredentialRefs(inputs) {
+  return Object.entries(inputs || {})
+    .filter(([, value]) => isStoreSecretRef(value))
+    .map(([key, value]) => ({ key, id: value.id }));
+}
+
+function isStoreSecretRef(value) {
+  return Boolean(value && typeof value === 'object' && value.source === 'store');
+}
+
+function readCredentialStore(store, id) {
+  if (!store) return process.env[id] || null;
+  if (typeof store.get === 'function') return normalizeCredentialStoreResult(store.get(id));
+  if (typeof store.read === 'function') return normalizeCredentialStoreResult(store.read(id));
+  if (typeof store.resolve === 'function') return normalizeCredentialStoreResult(store.resolve(id));
+  throw new Error('Credential store must expose get(id), read(id), or resolve(id).');
+}
+
+function normalizeCredentialStoreResult(result) {
+  if (typeof result === 'string') return result;
+  if (result && typeof result === 'object' && typeof result.value === 'string') {
+    return result.value;
+  }
+  if (result && typeof result === 'object' && typeof result.secret === 'string') {
+    return result.secret;
+  }
+  return null;
 }
 
 function secretId(value) {
@@ -108,7 +203,10 @@ function secretId(value) {
 }
 
 module.exports = {
+  hasRotatableInvoiceCredentials,
   INVOICE_PROVIDER_IDS,
   resolveInvoiceCredentials,
+  rollbackInvoiceCredentialRotations,
+  rotateInvoiceCredentials,
   validateInvoiceHarvesterConfig,
 };

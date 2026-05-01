@@ -4,6 +4,7 @@ const { invoiceIssuePeriod, isoDate, moneyFromDecimal, vatRate } = require('../h
 class AwsInvoiceAdapter {
   id = 'aws';
   displayName = 'AWS';
+  requiredCredentials = ['accessKeyId', 'secretAccessKey', 'accountId'];
 
   constructor(options = {}) {
     this.fetch = options.fetch || fetch;

@@ -61,8 +61,9 @@ The runtime implementation is colocated with this skill:
 
 - Stripe API adapter
 - browser-driver scrape adapters for GitHub, OpenAI, Anthropic, Atlassian,
-  LinkedIn, and GCP Cloud Billing documents
-- native API adapters for Google Ads InvoiceService, AWS Invoicing, and Azure
+  and LinkedIn
+- native API adapters for Google Ads InvoiceService, AWS Invoicing, GCP Cloud
+  Billing account access with configured billing-document export, and Azure
   Billing invoices
 - browser-driver DATEV Unternehmen Online upload handoff
 - manifest-based idempotency using `(vendor, invoice_no)` and
@@ -82,8 +83,12 @@ The runtime implementation is colocated with this skill:
   `{ "source": "store", "id": "PROVIDER_SECRET_NAME" }`. Runtime config
   revisions track the references, while encrypted secret values stay out of
   revision content.
+- When a provider fails with an auth/401/403 class error, the monthly runner
+  asks the injected credential store to rotate the referenced secret once and
+  rolls that revision back if the retry still fails.
 - TOTP is supported when a provider driver uses a `totpSecret` credential.
-- Push MFA and captchas must stop the run and escalate to the operator.
+- Push MFA and captchas must stop the provider run and emit
+  `invoice.operator_escalation_required` for F8 operator routing.
 
 ## Run Discipline
 

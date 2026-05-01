@@ -8,6 +8,12 @@ const {
 class GoogleAdsInvoiceAdapter {
   id = 'google-ads';
   displayName = 'Google Ads';
+  requiredCredentials = [
+    'accessToken',
+    'developerToken',
+    'customerId',
+    'billingSetup',
+  ];
 
   constructor(options = {}) {
     this.fetch = options.fetch || fetch;
