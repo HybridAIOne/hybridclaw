@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   getRuntimeAssetRevisionState,
+  listRuntimeAssetRevisionStates,
   type RuntimeConfigChangeMeta,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
@@ -12,7 +13,7 @@ import {
   isA2AOpaqueId,
   validateA2AEnvelope,
 } from './envelope.js';
-import { resolveA2AEnvelopeAgentIds } from './identity.js';
+import { resolveA2AAgentId, resolveA2AEnvelopeAgentIds } from './identity.js';
 import { isRecord } from './utils.js';
 
 const A2A_THREAD_STATE_VERSION = 1;
@@ -148,11 +149,58 @@ function readThreadState(threadId: string): A2AThreadState {
 }
 
 function serializeThreadState(state: A2AThreadState): string {
-  return `${JSON.stringify(state, null, 2)}\n`;
+  return JSON.stringify(state);
 }
 
 export function listA2AThreadEnvelopes(threadId: string): A2AEnvelope[] {
   return readThreadState(threadId).envelopes;
+}
+
+function threadIdFromAssetPath(assetPath: string): string | null {
+  const threadsDir = path.join(DEFAULT_RUNTIME_HOME_DIR, 'a2a', 'threads');
+  const relativePath = path.relative(threadsDir, assetPath);
+  if (
+    relativePath.startsWith('..') ||
+    path.isAbsolute(relativePath) ||
+    path.dirname(relativePath) !== '.' ||
+    path.extname(relativePath) !== '.json'
+  ) {
+    return null;
+  }
+
+  try {
+    return normalizeThreadId(
+      decodeURIComponent(path.basename(relativePath, '.json')),
+    );
+  } catch (error) {
+    if (error instanceof URIError) {
+      throw new A2AEnvelopeValidationError([
+        `thread asset path is not URI-decodable: ${assetPath}`,
+      ]);
+    }
+    throw error;
+  }
+}
+
+export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
+  const recipientAgentId = resolveA2AAgentId(agentId);
+  const envelopes: A2AEnvelope[] = [];
+  for (const state of listRuntimeAssetRevisionStates('a2a')) {
+    const threadId = threadIdFromAssetPath(state.assetPath);
+    if (!threadId) continue;
+    for (const envelope of parsePersistedThreadState(state.content, threadId)
+      .envelopes) {
+      if (envelope.recipient_agent_id === recipientAgentId) {
+        envelopes.push(envelope);
+      }
+    }
+  }
+
+  return envelopes.sort((left, right) => {
+    const createdAtOrder = left.created_at.localeCompare(right.created_at);
+    if (createdAtOrder !== 0) return createdAtOrder;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export function getA2AEnvelope(
