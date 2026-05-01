@@ -363,7 +363,7 @@ autonomy:
   });
 
   test('content creation tools are green and write into the workspace', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
