@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { generateKeyPairSync } from 'node:crypto';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,10 +10,12 @@ const require = createRequire(import.meta.url);
 const {
   createAwsInvoiceAdapter,
   createAzureInvoiceAdapter,
+  createGcpServiceAccountJwt,
   createGcpInvoiceAdapter,
   createGitHubInvoiceAdapter,
   createGoogleAdsInvoiceAdapter,
   DatevUnternehmenOnlineUploadAdapter,
+  DATEV_UNTERNEHMEN_ONLINE_UPLOAD_PLAN,
   generateTotp,
   harvestProviderInvoices,
   INVOICE_PROVIDER_DEFINITIONS,
@@ -21,12 +24,14 @@ const {
   loadInvoiceManifest,
   parseInvoiceMoneyText,
   RecordedFixtureInvoiceAdapter,
+  recordedSessionHash,
   resolveInvoiceCredentials,
   runMonthlyInvoiceRun,
   StripeInvoiceAdapter,
   saveInvoiceManifest,
   validateInvoiceHarvesterConfig,
   validateInvoiceRecord,
+  verifyDatevUploadPlanAgainstSnapshot,
 } = require('../skills/download-platform-invoices/index.cjs');
 
 type InvoiceAdapter<Session = unknown> = {
@@ -304,6 +309,8 @@ describe('reference invoice adapters', () => {
         ),
       ).size,
     ).toBe(Object.keys(INVOICE_SCRAPE_PLANS).length);
+    expect(JSON.stringify(INVOICE_SCRAPE_PLANS)).not.toMatch(/nth-of-type/u);
+    expect(JSON.stringify(INVOICE_SCRAPE_PLANS)).toContain('headerAliases');
   });
 
   test('maps Stripe API invoices and downloads the official PDF', async () => {
@@ -632,7 +639,7 @@ describe('reference invoice adapters', () => {
     expect(new TextDecoder().decode(pdf)).toBe('%PDF azure');
   });
 
-  test('GCP adapter verifies Cloud Billing access and downloads billing document PDFs', async () => {
+  test('GCP adapter verifies Cloud Billing access and uses browser driver for billing documents', async () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url.includes('cloudbilling.googleapis.com')) {
@@ -645,33 +652,32 @@ describe('reference invoice adapters', () => {
           { status: 200 },
         );
       }
-      if (url.includes('gcp-documents.example/list')) {
-        expect(url).toContain('issueYear=2026');
-        expect(url).toContain('issueMonth=03');
-        return new Response(
-          JSON.stringify({
-            documents: [
-              {
-                type: 'INVOICE',
-                invoiceNumber: 'GCP-2026-03-001',
-                issueDate: '2026-04-01',
-                dueDate: '2026-04-15',
-                servicePeriodStart: '2026-03-01',
-                netAmount: { value: 100 },
-                taxAmount: { value: 19 },
-                totalAmount: { value: 119, currencyCode: 'EUR' },
-                pdfUrl: 'https://gcp-documents.example/pdf-1',
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-      return new Response('%PDF gcp', { status: 200 });
+      throw new Error(`Unexpected URL ${url}`);
     });
+    const documentSession = { page: 'gcp-documents' };
+    const documentDriver = {
+      login: vi.fn(async () => documentSession),
+      listInvoices: vi.fn(async () => [
+        {
+          vendor: 'gcp',
+          invoice_no: 'GCP-2026-03-001',
+          period: '2026-03',
+          issue_date: '2026-04-01',
+          due_date: '2026-04-15',
+          net: 100,
+          vat_rate: 0.19,
+          vat: 19,
+          gross: 119,
+          currency: 'EUR',
+          source_url: 'https://console.cloud.google.com/billing/documents/redacted.pdf',
+        },
+      ]),
+      downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF gcp')),
+      close: vi.fn(async () => undefined),
+    };
     const adapter = createGcpInvoiceAdapter({
       fetch: fetchMock as typeof fetch,
-      documentEndpoint: 'https://gcp-documents.example/list',
+      documentDriver,
     });
     const session = await adapter.login(
       {
@@ -693,6 +699,71 @@ describe('reference invoice adapters', () => {
       gross: 119,
     });
     expect(new TextDecoder().decode(pdf)).toBe('%PDF gcp');
+    expect(documentDriver.login).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'token' }),
+      expect.objectContaining({
+        billingAccountId: 'billingAccounts/ABCDEF-123456-789ABC',
+      }),
+    );
+    expect(documentDriver.listInvoices).toHaveBeenCalledWith(
+      documentSession,
+      expect.objectContaining({
+        billingAccountId: 'billingAccounts/ABCDEF-123456-789ABC',
+      }),
+    );
+  });
+
+  test('GCP adapter obtains OAuth tokens from refresh-token credentials', async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('oauth2.googleapis.com')) {
+        expect(String(init?.body)).toContain('grant_type=refresh_token');
+        return new Response(JSON.stringify({ access_token: 'oauth-token' }), {
+          status: 200,
+        });
+      }
+      expect(init?.headers).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer oauth-token' }),
+      );
+      return new Response(JSON.stringify({ name: 'billingAccounts/ABC' }), {
+        status: 200,
+      });
+    });
+    const adapter = createGcpInvoiceAdapter({ fetch: fetchMock as typeof fetch });
+
+    await expect(
+      adapter.login(
+        {
+          billingAccountId: 'ABC',
+          refreshToken: 'refresh-token',
+          clientId: 'client-id',
+          clientSecret: 'client-secret',
+        },
+        { providerId: 'gcp' },
+      ),
+    ).resolves.toMatchObject({
+      accountName: 'billingAccounts/ABC',
+    });
+  });
+
+  test('GCP service-account JWTs are signed for Google OAuth token exchange', () => {
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const jwt = createGcpServiceAccountJwt({
+      clientEmail: 'billing@example.iam.gserviceaccount.com',
+      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      tokenEndpoint: 'https://oauth2.googleapis.com/token',
+      now: 1_777_777_777_000,
+    });
+
+    const parts = jwt.split('.');
+    expect(parts).toHaveLength(3);
+    expect(
+      JSON.parse(Buffer.from(parts[1] as string, 'base64url').toString('utf8')),
+    ).toMatchObject({
+      iss: 'billing@example.iam.gserviceaccount.com',
+      aud: 'https://oauth2.googleapis.com/token',
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+    });
   });
 });
 
@@ -728,6 +799,14 @@ describe('recorded invoice eval fixtures', () => {
     expect(session.fixture.recorded_session.steps).toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: 'download' })]),
     );
+    expect(
+      session.fixture.recorded_session.steps.every((step: { url: string }) =>
+        step.url.startsWith('https://'),
+      ),
+    ).toBe(true);
+    expect(session.fixture.recorded_session.evidence.http_trace_sha256).toBe(
+      recordedSessionHash(session.fixture),
+    );
     expect(session.fixture.recorded_session.evidence.dom_snapshot).toContain(
       'data-hc-invoice-row',
     );
@@ -749,6 +828,38 @@ describe('recorded invoice eval fixtures', () => {
           fixturePath,
         }),
     ).toThrow(new RegExp(`Invalid recorded invoice fixture at ${fixturePath}`));
+  });
+
+  test('rejects cosmetic recorded fixtures without real replay metadata', () => {
+    const fixturePath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'hc-recorded-fixture-')),
+      'cosmetic.json',
+    );
+    fs.writeFileSync(
+      fixturePath,
+      JSON.stringify({
+        provider: 'stripe',
+        invoices: [],
+        recorded_session: {
+          steps: [{ kind: 'download', url: 'fixture://stripe/invoice.pdf' }],
+          evidence: {
+            http_trace_sha256:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+            dom_snapshot: '<main />',
+          },
+        },
+      }),
+      'utf-8',
+    );
+
+    expect(
+      () =>
+        new RecordedFixtureInvoiceAdapter({
+          id: 'stripe',
+          displayName: 'Stripe',
+          fixturePath,
+        }),
+    ).toThrow(/recorded step URL must be https/u);
   });
 });
 
@@ -1079,6 +1190,114 @@ describe('invoice harvester config and monthly workflow', () => {
       pdfPath,
     });
     expect(driver.close).toHaveBeenCalledWith(session);
+  });
+
+  test('DATEV uploader prefers an existing API client before browser fallback', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-api-'));
+    const pdfPath = path.join(
+      outputDir,
+      'runs',
+      '2026-03',
+      'stripe',
+      'ST-2026-03-001.pdf',
+    );
+    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+    fs.writeFileSync(pdfPath, '%PDF stripe');
+    const record = validateInvoiceRecord({
+      ...invoiceMeta,
+      vendor: 'stripe',
+      invoice_no: 'ST-2026-03-001',
+      pdf_path: 'runs/2026-03/stripe/ST-2026-03-001.pdf',
+      checksum_sha256:
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    });
+    const apiClient = { uploadInvoice: vi.fn(async () => undefined) };
+    const driver = { login: vi.fn(async () => undefined) };
+    const adapter = new DatevUnternehmenOnlineUploadAdapter({
+      credentials: { username: 'datev-user', password: 'datev-password' },
+      profileDir: '/tmp/datev-profile',
+      apiClient,
+      driver,
+    });
+
+    await adapter.uploadInvoices({
+      workflowId: 'workflow_monthly_invoice_run',
+      records: [record],
+      outputDir,
+      invoiceRoots: [],
+    });
+
+    expect(apiClient.uploadInvoice).toHaveBeenCalledWith({
+      record,
+      pdfPath,
+      workflowId: 'workflow_monthly_invoice_run',
+    });
+    expect(driver.login).not.toHaveBeenCalled();
+  });
+
+  test('DATEV uploader can use an existing MCP attachment tool before browser fallback', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-mcp-'));
+    const pdfPath = path.join(
+      outputDir,
+      'runs',
+      '2026-03',
+      'stripe',
+      'ST-2026-03-001.pdf',
+    );
+    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+    fs.writeFileSync(pdfPath, '%PDF stripe');
+    const record = validateInvoiceRecord({
+      ...invoiceMeta,
+      vendor: 'stripe',
+      invoice_no: 'ST-2026-03-001',
+      pdf_path: 'runs/2026-03/stripe/ST-2026-03-001.pdf',
+      checksum_sha256:
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    });
+    const mcpClient = { callTool: vi.fn(async () => undefined) };
+    const adapter = new DatevUnternehmenOnlineUploadAdapter({
+      credentials: { username: 'datev-user', password: 'datev-password' },
+      profileDir: '/tmp/datev-profile',
+      mcpClient,
+    });
+
+    await adapter.uploadInvoices({
+      workflowId: 'workflow_monthly_invoice_run',
+      records: [record],
+      outputDir,
+      invoiceRoots: [],
+    });
+
+    expect(mcpClient.callTool).toHaveBeenCalledWith(
+      'accounting_attachments_add',
+      expect.objectContaining({
+        file_path: pdfPath,
+        mime_type: 'application/pdf',
+        metadata: expect.objectContaining({ invoice_no: 'ST-2026-03-001' }),
+      }),
+    );
+  });
+
+  test('DATEV upload plan is checked against the recorded DATEV upload label snapshot', () => {
+    const snapshot = JSON.parse(
+      fs.readFileSync(
+        new URL(
+          '../skills/download-platform-invoices/fixtures/datev-unternehmen-online-upload.json',
+          import.meta.url,
+        ),
+        'utf-8',
+      ),
+    );
+
+    expect(
+      verifyDatevUploadPlanAgainstSnapshot(
+        DATEV_UNTERNEHMEN_ONLINE_UPLOAD_PLAN,
+        snapshot,
+      ),
+    ).toBe(true);
+    expect(DATEV_UNTERNEHMEN_ONLINE_UPLOAD_PLAN.uploadButtonSelector).toContain(
+      'Belege hochladen',
+    );
   });
 
   test('keeps monthly runs going after one provider fails', async () => {

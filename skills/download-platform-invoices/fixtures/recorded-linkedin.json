@@ -13,33 +13,75 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://www.linkedin.com/campaignmanager/accounts",
-      "pdf_base64": "JVBERiBsaW5rZWRpbg=="
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgbGlua2VkaW4gaW52b2ljZSByZXBsYXkgZml4dHVyZQoxIDAgb2JqIDw8IC9UeXBlIC9DYXRhbG9nID4+IGVuZG9iagolJUVPRgo="
     }
   ],
   "recorded_session": {
     "recorded_at": "2026-05-01T00:00:00.000Z",
     "sanitized": true,
-    "recorder": "hybridclaw-invoice-fixture-v1",
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
     "steps": [
       {
-        "kind": "login",
-        "url": "fixture://linkedin/login",
-        "status": 200
+        "kind": "authenticate_or_list",
+        "url": "https://www.linkedin.com/login",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "43c8ef98d9472b343b504b3bae78a58a2945cbfa732c27cb7ea85e3dfb235be5"
+        }
       },
       {
         "kind": "list",
-        "url": "fixture://linkedin/billing",
-        "status": 200
+        "url": "https://www.linkedin.com/campaignmanager/accounts",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "0a9cd1489a823c9b6a95eb6d4f7e94de60d06e265dac0c564039b8d68f27b22e"
+        }
       },
       {
         "kind": "download",
-        "url": "fixture://linkedin/invoice.pdf",
-        "status": 200
+        "url": "https://www.linkedin.com/campaignmanager/invoice/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "c3c72ac21a7a33857d4635bd37d89c183330fd99a92548dad0159aec5c185575"
+        }
       }
     ],
     "evidence": {
-      "http_trace_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "dom_snapshot": "<main data-hc-provider=\"linkedin\"><div data-hc-invoice-row><span data-hc-invoice-no>LI-2026-03-001</span></div></main>"
+      "dom_snapshot": "<main data-hc-provider=\"linkedin\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>LI-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://www.linkedin.com/campaignmanager/invoice/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "f2a97f5d93878cb2611b612b0ef086fcd346f7972d7ff0156bc1811edaa1f73b"
     }
   }
 }

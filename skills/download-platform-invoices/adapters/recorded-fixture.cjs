@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const { createHash } = require('node:crypto');
 const { sinceTimestamp } = require('../helpers/money.cjs');
 
 class RecordedFixtureInvoiceAdapter {
@@ -58,7 +59,42 @@ function parseRecordedInvoiceFixture(filePath) {
       `Invalid recorded invoice fixture at ${filePath}: missing recorded_session evidence.`,
     );
   }
+  for (const step of parsed.recorded_session.steps) {
+    const url = String(step.url || '');
+    if (!url.startsWith('https://')) {
+      throw new Error(
+        `Invalid recorded invoice fixture at ${filePath}: recorded step URL must be https.`,
+      );
+    }
+    if (!step.request || !step.response) {
+      throw new Error(
+        `Invalid recorded invoice fixture at ${filePath}: recorded step must include request and response metadata.`,
+      );
+    }
+  }
+  const expectedHash = recordedSessionHash(parsed);
+  if (parsed.recorded_session.evidence.http_trace_sha256 !== expectedHash) {
+    throw new Error(
+      `Invalid recorded invoice fixture at ${filePath}: recorded_session hash mismatch.`,
+    );
+  }
   return parsed;
 }
 
-module.exports = { RecordedFixtureInvoiceAdapter, parseRecordedInvoiceFixture };
+function recordedSessionHash(fixture) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        provider: fixture.provider,
+        steps: fixture.recorded_session.steps,
+        dom_snapshot: fixture.recorded_session.evidence.dom_snapshot,
+      }),
+    )
+    .digest('hex');
+}
+
+module.exports = {
+  RecordedFixtureInvoiceAdapter,
+  parseRecordedInvoiceFixture,
+  recordedSessionHash,
+};

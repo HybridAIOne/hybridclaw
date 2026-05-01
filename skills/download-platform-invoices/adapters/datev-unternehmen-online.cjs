@@ -2,21 +2,31 @@ const path = require('node:path');
 
 const DATEV_UNTERNEHMEN_ONLINE_UPLOAD_PLAN = {
   loginUrl: 'https://apps.datev.de/mydatev',
-  documentsUrl: 'https://apps.datev.de/mydatev',
+  documentsUrl: 'https://duo.datev.de/duo/',
   usernameSelector: 'input[name="username"], input[type="email"]',
   passwordSelector: 'input[name="password"], input[type="password"]',
   submitSelector: 'button[type="submit"]',
   uploadButtonSelector:
-    'button:has-text("Belege hochladen"), button:has-text("Upload")',
-  fileInputSelector: 'input[type="file"]',
-  uploadSubmitSelector: 'button[type="submit"], button:has-text("Hochladen")',
-  successSelector: '[data-upload-success], text=/hochgeladen|uploaded/i',
+    '[aria-label*="Belege hochladen" i], button:has-text("Belege hochladen"), a:has-text("Belege hochladen"), button:has-text("Upload")',
+  fileInputSelector:
+    'input[type="file"][accept*="pdf" i], input[type="file"][accept*="tif" i], input[type="file"]',
+  uploadSubmitSelector:
+    '[aria-label*="Hochladen" i], button[type="submit"], button:has-text("Hochladen"), button:has-text("Upload")',
+  successSelector:
+    '[data-upload-success], [role="status"]:has-text("hochgeladen"), text=/hochgeladen|uploaded/i',
+  evidence: {
+    sourceUrl:
+      'https://www.datev.de/web/de/steuerberatung/loesungen/rechnungswesen/belege-und-daten-digital-in-die-kanzlei-uebertragen/digital-zusammenarbeiten/belege-mit-mandanten-austauschen',
+    requiredLabels: ['Belege hochladen'],
+  },
 };
 
 class DatevUnternehmenOnlineUploadAdapter {
   constructor(options) {
     this.credentials = options.credentials;
     this.profileDir = options.profileDir;
+    this.apiClient = options.apiClient || options.dataServiceClient || null;
+    this.mcpClient = options.mcpClient || null;
     this.driver =
       options.driver ||
       new PlaywrightDatevUnternehmenOnlineUploadDriver(
@@ -25,6 +35,12 @@ class DatevUnternehmenOnlineUploadAdapter {
   }
 
   async uploadInvoices(params) {
+    if (this.apiClient) {
+      return uploadInvoicesViaDatevApiClient(this.apiClient, params);
+    }
+    if (this.mcpClient) {
+      return uploadInvoicesViaDatevMcpClient(this.mcpClient, params);
+    }
     const session = await this.driver.login({
       credentials: this.credentials,
       profileDir: this.profileDir,
@@ -50,6 +66,55 @@ class DatevUnternehmenOnlineUploadAdapter {
   }
 }
 
+async function uploadInvoicesViaDatevApiClient(client, params) {
+  for (const record of params.records) {
+    const pdfPath = resolveInvoicePdfPath({
+      record,
+      outputDir: params.outputDir,
+      invoiceRoots: params.invoiceRoots,
+    });
+    if (typeof client.uploadInvoice === 'function') {
+      await client.uploadInvoice({ record, pdfPath, workflowId: params.workflowId });
+    } else if (typeof client.uploadDocument === 'function') {
+      await client.uploadDocument({ record, pdfPath, workflowId: params.workflowId });
+    } else if (typeof client.createAttachment === 'function') {
+      await client.createAttachment({ record, pdfPath, workflowId: params.workflowId });
+    } else {
+      throw new Error(
+        'DATEV API client must expose uploadInvoice, uploadDocument, or createAttachment.',
+      );
+    }
+  }
+}
+
+async function uploadInvoicesViaDatevMcpClient(client, params) {
+  if (typeof client.callTool !== 'function') {
+    throw new Error('DATEV MCP client must expose callTool(name, args).');
+  }
+  for (const record of params.records) {
+    const pdfPath = resolveInvoicePdfPath({
+      record,
+      outputDir: params.outputDir,
+      invoiceRoots: params.invoiceRoots,
+    });
+    await client.callTool('accounting_attachments_add', {
+      workflowId: params.workflowId,
+      file_path: pdfPath,
+      file_name: `${record.vendor}-${record.invoice_no}.pdf`,
+      mime_type: 'application/pdf',
+      metadata: {
+        vendor: record.vendor,
+        invoice_no: record.invoice_no,
+        period: record.period,
+        issue_date: record.issue_date,
+        due_date: record.due_date,
+        gross: record.gross,
+        currency: record.currency,
+      },
+    });
+  }
+}
+
 function resolveInvoicePdfPath(input) {
   const root =
     input.invoiceRoots.find(
@@ -65,6 +130,18 @@ function resolveInvoicePdfPath(input) {
     );
   }
   return targetPath;
+}
+
+function verifyDatevUploadPlanAgainstSnapshot(plan, snapshot) {
+  const text = String(snapshot?.text || snapshot || '');
+  const labels = plan.evidence?.requiredLabels || [];
+  const missing = labels.filter((label) => !text.includes(label));
+  if (missing.length > 0) {
+    throw new Error(
+      `DATEV upload plan snapshot is missing labels: ${missing.join(', ')}`,
+    );
+  }
+  return true;
 }
 
 class PlaywrightDatevUnternehmenOnlineUploadDriver {
@@ -121,4 +198,7 @@ module.exports = {
   DatevUnternehmenOnlineUploadAdapter,
   PlaywrightDatevUnternehmenOnlineUploadDriver,
   resolveInvoicePdfPath,
+  uploadInvoicesViaDatevApiClient,
+  uploadInvoicesViaDatevMcpClient,
+  verifyDatevUploadPlanAgainstSnapshot,
 };

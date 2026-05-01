@@ -13,33 +13,75 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://console.cloud.google.com/billing",
-      "pdf_base64": "JVBERiBnY3A="
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgZ2NwIGludm9pY2UgcmVwbGF5IGZpeHR1cmUKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKJSVFT0YK"
     }
   ],
   "recorded_session": {
     "recorded_at": "2026-05-01T00:00:00.000Z",
     "sanitized": true,
-    "recorder": "hybridclaw-invoice-fixture-v1",
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
     "steps": [
       {
-        "kind": "login",
-        "url": "fixture://gcp/login",
-        "status": 200
+        "kind": "authenticate_or_list",
+        "url": "https://cloudbilling.googleapis.com/v1/billingAccounts/ABCDEF-123456-789ABC",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "cceda08909484eff750954591ca251052a80324896935470028ee5f98aaec056"
+        }
       },
       {
         "kind": "list",
-        "url": "fixture://gcp/billing",
-        "status": 200
+        "url": "https://console.cloud.google.com/billing/ABCDEF-123456-789ABC/documents",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "2bbfe06c103e739ed4932e9b79ae31372004cacdf708184b9b69eb667ea4ae0a"
+        }
       },
       {
         "kind": "download",
-        "url": "fixture://gcp/invoice.pdf",
-        "status": 200
+        "url": "https://console.cloud.google.com/billing/ABCDEF-123456-789ABC/documents/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "ebd53f7899f595b6569fa858d1c5dd7d1a04ae613c06a4b19b5f4dd42f0e767d"
+        }
       }
     ],
     "evidence": {
-      "http_trace_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "dom_snapshot": "<main data-hc-provider=\"gcp\"><div data-hc-invoice-row><span data-hc-invoice-no>GCP-2026-03-001</span></div></main>"
+      "dom_snapshot": "<main data-hc-provider=\"gcp\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>GCP-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://console.cloud.google.com/billing/ABCDEF-123456-789ABC/documents/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "6ccad695f10291f26d3bcb93a50469feb388c7554d13b7acd558311a374ebe84"
     }
   }
 }

@@ -21,20 +21,27 @@ const INVOICE_SCRAPE_PLANS = {
     invoiceRowSelector:
       '[data-hc-provider="github"] [data-hc-invoice-row], [data-testid="billing-history-row"], [data-targets*="billing"] tr, table[aria-label*="billing" i] tbody tr',
     invoiceNoSelector:
-      '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="/settings/billing/history/"], td:nth-of-type(1)',
-    issueDateSelector:
-      '[data-hc-issue-date], [datetime], relative-time, td:nth-of-type(2)',
-    dueDateSelector:
-      '[data-hc-due-date], [data-testid="due-date"], td:nth-of-type(3)',
-    periodSelector:
-      '[data-hc-period], [data-testid="billing-period"], td:nth-of-type(4)',
-    netSelector: '[data-hc-net], [data-testid="subtotal"], td:nth-of-type(5)',
-    vatSelector: '[data-hc-vat], [data-testid="tax"], td:nth-of-type(6)',
-    grossSelector: '[data-hc-gross], [data-testid="total"], td:nth-of-type(7)',
+      '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="/settings/billing/history/"]',
+    issueDateSelector: '[data-hc-issue-date], [datetime], relative-time',
+    dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
+    periodSelector: '[data-hc-period], [data-testid="billing-period"]',
+    netSelector: '[data-hc-net], [data-testid="subtotal"]',
+    vatSelector: '[data-hc-vat], [data-testid="tax"]',
+    grossSelector: '[data-hc-gross], [data-testid="total"]',
     currencySelector:
-      '[data-hc-currency], [data-testid="currency"], [data-testid="total"], td:nth-of-type(7)',
+      '[data-hc-currency], [data-testid="currency"], [data-testid="total"]',
     pdfLinkSelector:
       'a[href*="/settings/billing/history/"], a[href*="invoice"], a[href$=".pdf"]',
+    headerAliases: {
+      invoiceNo: ['invoice', 'number', 'receipt'],
+      issueDate: ['date', 'issued', 'created'],
+      dueDate: ['due', 'payment'],
+      period: ['period', 'billing period'],
+      net: ['subtotal', 'net'],
+      vat: ['tax', 'vat'],
+      gross: ['total', 'amount'],
+      currency: ['currency', 'total', 'amount'],
+    },
   },
   openai: {
     loginUrl: 'https://platform.openai.com/login',
@@ -49,23 +56,29 @@ const INVOICE_SCRAPE_PLANS = {
     invoiceRowSelector:
       '[data-hc-provider="openai"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], div[role="row"][data-testid*="invoice" i]',
     invoiceNoSelector:
-      '[data-hc-invoice-no], [data-testid="invoice-number"], [data-testid="invoice-id"], [role="gridcell"]:nth-of-type(1)',
+      '[data-hc-invoice-no], [data-testid="invoice-number"], [data-testid="invoice-id"]',
     issueDateSelector:
-      '[data-hc-issue-date], [data-testid="invoice-date"], time, [role="gridcell"]:nth-of-type(2)',
-    dueDateSelector:
-      '[data-hc-due-date], [data-testid="due-date"], [role="gridcell"]:nth-of-type(3)',
+      '[data-hc-issue-date], [data-testid="invoice-date"], time',
+    dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
     periodSelector:
-      '[data-hc-period], [data-testid="invoice-period"], [role="gridcell"]:nth-of-type(4)',
-    netSelector:
-      '[data-hc-net], [data-testid="invoice-subtotal"], [role="gridcell"]:nth-of-type(5)',
-    vatSelector:
-      '[data-hc-vat], [data-testid="invoice-tax"], [role="gridcell"]:nth-of-type(6)',
-    grossSelector:
-      '[data-hc-gross], [data-testid="invoice-total"], [role="gridcell"]:nth-of-type(7)',
+      '[data-hc-period], [data-testid="invoice-period"]',
+    netSelector: '[data-hc-net], [data-testid="invoice-subtotal"]',
+    vatSelector: '[data-hc-vat], [data-testid="invoice-tax"]',
+    grossSelector: '[data-hc-gross], [data-testid="invoice-total"]',
     currencySelector:
-      '[data-hc-currency], [data-testid="invoice-currency"], [data-testid="invoice-total"], [role="gridcell"]:nth-of-type(7)',
+      '[data-hc-currency], [data-testid="invoice-currency"], [data-testid="invoice-total"]',
     pdfLinkSelector:
       'a[href*="/account/billing/invoice"], a[href*="invoice"], a[href$=".pdf"]',
+    headerAliases: {
+      invoiceNo: ['invoice', 'number', 'id'],
+      issueDate: ['date', 'issued'],
+      dueDate: ['due'],
+      period: ['period'],
+      net: ['subtotal', 'net'],
+      vat: ['tax', 'vat'],
+      gross: ['total', 'amount'],
+      currency: ['currency', 'total', 'amount'],
+    },
   },
   anthropic: {
     loginUrl: 'https://console.anthropic.com/login',
@@ -80,22 +93,29 @@ const INVOICE_SCRAPE_PLANS = {
     invoiceRowSelector:
       '[data-hc-provider="anthropic"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], div[role="row"][data-testid*="invoice" i]',
     invoiceNoSelector:
-      '[data-hc-invoice-no], [data-testid="invoice-number"], [data-testid="invoice-id"], [role="gridcell"]:nth-of-type(1)',
+      '[data-hc-invoice-no], [data-testid="invoice-number"], [data-testid="invoice-id"]',
     issueDateSelector:
-      '[data-hc-issue-date], [data-testid="invoice-date"], time, [role="gridcell"]:nth-of-type(2)',
-    dueDateSelector:
-      '[data-hc-due-date], [data-testid="due-date"], [role="gridcell"]:nth-of-type(3)',
+      '[data-hc-issue-date], [data-testid="invoice-date"], time',
+    dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
     periodSelector:
-      '[data-hc-period], [data-testid="billing-period"], [role="gridcell"]:nth-of-type(4)',
-    netSelector:
-      '[data-hc-net], [data-testid="subtotal"], [role="gridcell"]:nth-of-type(5)',
-    vatSelector: '[data-hc-vat], [data-testid="tax"], [role="gridcell"]:nth-of-type(6)',
-    grossSelector:
-      '[data-hc-gross], [data-testid="total"], [role="gridcell"]:nth-of-type(7)',
+      '[data-hc-period], [data-testid="billing-period"]',
+    netSelector: '[data-hc-net], [data-testid="subtotal"]',
+    vatSelector: '[data-hc-vat], [data-testid="tax"]',
+    grossSelector: '[data-hc-gross], [data-testid="total"]',
     currencySelector:
-      '[data-hc-currency], [data-testid="currency"], [data-testid="total"], [role="gridcell"]:nth-of-type(7)',
+      '[data-hc-currency], [data-testid="currency"], [data-testid="total"]',
     pdfLinkSelector:
       'a[href*="/settings/billing"], a[href*="invoice"], a[href$=".pdf"]',
+    headerAliases: {
+      invoiceNo: ['invoice', 'number', 'id'],
+      issueDate: ['date', 'issued'],
+      dueDate: ['due'],
+      period: ['period'],
+      net: ['subtotal', 'net'],
+      vat: ['tax', 'vat'],
+      gross: ['total', 'amount'],
+      currency: ['currency', 'total', 'amount'],
+    },
   },
   atlassian: {
     loginUrl: 'https://id.atlassian.com/login',
@@ -110,20 +130,27 @@ const INVOICE_SCRAPE_PLANS = {
     invoiceRowSelector:
       '[data-hc-provider="atlassian"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], table[data-testid*="invoice" i] tbody tr',
     invoiceNoSelector:
-      '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="invoice"], td:nth-of-type(2)',
-    issueDateSelector:
-      '[data-hc-issue-date], [data-testid="invoice-date"], time, td:nth-of-type(1)',
-    dueDateSelector:
-      '[data-hc-due-date], [data-testid="due-date"], td:nth-of-type(3)',
-    periodSelector:
-      '[data-hc-period], [data-testid="billing-period"], td:nth-of-type(4)',
-    netSelector: '[data-hc-net], [data-testid="subtotal"], td:nth-of-type(5)',
-    vatSelector: '[data-hc-vat], [data-testid="tax"], td:nth-of-type(6)',
-    grossSelector: '[data-hc-gross], [data-testid="total"], td:nth-of-type(7)',
+      '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="invoice"]',
+    issueDateSelector: '[data-hc-issue-date], [data-testid="invoice-date"], time',
+    dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
+    periodSelector: '[data-hc-period], [data-testid="billing-period"]',
+    netSelector: '[data-hc-net], [data-testid="subtotal"]',
+    vatSelector: '[data-hc-vat], [data-testid="tax"]',
+    grossSelector: '[data-hc-gross], [data-testid="total"]',
     currencySelector:
-      '[data-hc-currency], [data-testid="currency"], [data-testid="total"], td:nth-of-type(7)',
+      '[data-hc-currency], [data-testid="currency"], [data-testid="total"]',
     pdfLinkSelector:
       'a[href*="invoice"], a[href*="billing"], a[download][href$=".pdf"]',
+    headerAliases: {
+      invoiceNo: ['invoice', 'number'],
+      issueDate: ['date', 'issued'],
+      dueDate: ['due'],
+      period: ['period'],
+      net: ['subtotal', 'net'],
+      vat: ['tax', 'vat', 'gst'],
+      gross: ['total', 'amount'],
+      currency: ['currency', 'total', 'amount'],
+    },
   },
   linkedin: {
     loginUrl: 'https://www.linkedin.com/login',
@@ -138,20 +165,27 @@ const INVOICE_SCRAPE_PLANS = {
     invoiceRowSelector:
       '[data-hc-provider="linkedin"] [data-hc-invoice-row], [data-test-id="billing-history-row"], [data-control-name*="invoice" i], table tbody tr',
     invoiceNoSelector:
-      '[data-hc-invoice-no], [data-test-id="invoice-number"], a[href*="invoice"], td:nth-of-type(1)',
-    issueDateSelector:
-      '[data-hc-issue-date], [data-test-id="invoice-date"], time, td:nth-of-type(2)',
-    dueDateSelector:
-      '[data-hc-due-date], [data-test-id="due-date"], td:nth-of-type(3)',
-    periodSelector:
-      '[data-hc-period], [data-test-id="billing-period"], td:nth-of-type(4)',
-    netSelector: '[data-hc-net], [data-test-id="subtotal"], td:nth-of-type(5)',
-    vatSelector: '[data-hc-vat], [data-test-id="tax"], td:nth-of-type(6)',
-    grossSelector: '[data-hc-gross], [data-test-id="total"], td:nth-of-type(7)',
+      '[data-hc-invoice-no], [data-test-id="invoice-number"], a[href*="invoice"]',
+    issueDateSelector: '[data-hc-issue-date], [data-test-id="invoice-date"], time',
+    dueDateSelector: '[data-hc-due-date], [data-test-id="due-date"]',
+    periodSelector: '[data-hc-period], [data-test-id="billing-period"]',
+    netSelector: '[data-hc-net], [data-test-id="subtotal"]',
+    vatSelector: '[data-hc-vat], [data-test-id="tax"]',
+    grossSelector: '[data-hc-gross], [data-test-id="total"]',
     currencySelector:
-      '[data-hc-currency], [data-test-id="currency"], [data-test-id="total"], td:nth-of-type(7)',
+      '[data-hc-currency], [data-test-id="currency"], [data-test-id="total"]',
     pdfLinkSelector:
       'a[href*="invoice"], a[href*="billing"], a[download][href$=".pdf"]',
+    headerAliases: {
+      invoiceNo: ['invoice', 'number'],
+      issueDate: ['date', 'issued'],
+      dueDate: ['due'],
+      period: ['period'],
+      net: ['subtotal', 'net'],
+      vat: ['tax', 'vat'],
+      gross: ['total', 'amount'],
+      currency: ['currency', 'total', 'amount'],
+    },
   },
 };
 
@@ -249,6 +283,29 @@ class PlaywrightScrapeInvoiceDriver {
       (rows, plan) => {
         const textContent = (root, selector) =>
           (root.querySelector(selector)?.textContent || '').trim();
+        const fieldText = (row, field) => {
+          const explicit = textContent(row, plan[`${field}Selector`]);
+          if (explicit) return explicit;
+          const table = row.closest('table');
+          const headers = Array.from(
+            table?.querySelectorAll('thead th, [role="columnheader"]') || [],
+          ).map((header) =>
+            (header.textContent || '').trim().toLowerCase().replace(/\s+/gu, ' '),
+          );
+          const aliases = plan.headerAliases[field] || [];
+          const index = headers.findIndex((header) =>
+            aliases.some((alias) => header.includes(alias)),
+          );
+          if (index < 0) {
+            throw new Error(`Unable to extract ${field} for ${plan.vendor} invoice row.`);
+          }
+          const cells = Array.from(row.querySelectorAll('td, [role="gridcell"]'));
+          const value = (cells[index]?.textContent || '').trim();
+          if (!value) {
+            throw new Error(`Unable to extract ${field} for ${plan.vendor} invoice row.`);
+          }
+          return value;
+        };
         const numberFromText = (value) => {
           const compact = value.replace(/[^0-9,.-]/g, '');
           if (!/\d/u.test(compact)) {
@@ -271,21 +328,21 @@ class PlaywrightScrapeInvoiceDriver {
           throw new Error(`Unable to parse invoice currency value: ${value}`);
         };
         return rows.map((row) => {
-          const invoiceNo = textContent(row, plan.invoiceNoSelector);
-          const net = numberFromText(textContent(row, plan.netSelector));
-          const vat = numberFromText(textContent(row, plan.vatSelector));
-          const gross = numberFromText(textContent(row, plan.grossSelector));
+          const invoiceNo = fieldText(row, 'invoiceNo');
+          const net = numberFromText(fieldText(row, 'net'));
+          const vat = numberFromText(fieldText(row, 'vat'));
+          const gross = numberFromText(fieldText(row, 'gross'));
           return {
             vendor: plan.vendor,
             invoice_no: invoiceNo,
-            period: textContent(row, plan.periodSelector),
-            issue_date: textContent(row, plan.issueDateSelector),
-            due_date: textContent(row, plan.dueDateSelector),
+            period: fieldText(row, 'period'),
+            issue_date: fieldText(row, 'issueDate'),
+            due_date: fieldText(row, 'dueDate'),
             net,
             vat_rate: net > 0 ? Number((vat / net).toFixed(4)) : 0,
             vat,
             gross,
-            currency: currencyFromText(textContent(row, plan.currencySelector)),
+            currency: currencyFromText(fieldText(row, 'currency')),
             source_url:
               row.querySelector(plan.pdfLinkSelector)?.href || plan.billingUrl,
           };

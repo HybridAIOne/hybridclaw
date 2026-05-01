@@ -62,15 +62,20 @@ The runtime implementation is colocated with this skill:
 - Stripe API adapter
 - browser-driver scrape adapters for GitHub, OpenAI, Anthropic, Atlassian,
   and LinkedIn
-- native API adapters for Google Ads InvoiceService, AWS Invoicing, GCP Cloud
-  Billing account access with configured billing-document export, and Azure
-  Billing invoices
-- browser-driver DATEV Unternehmen Online upload handoff
+- native API adapters for Google Ads InvoiceService, AWS Invoicing, Azure
+  Billing invoices, and GCP Cloud Billing account authorization. Google does
+  not expose invoice PDF listing/download in the public Cloud Billing REST API,
+  so the GCP adapter uses the browser document driver for the Documents page
+  after API authorization.
+- DATEV Unternehmen Online handoff prefers an injected DATEV Datenservice,
+  Rechnungsdatenservice/Belegbilderservice, MCP, or certified API client. If no
+  such client is configured, it falls back to browser upload through DATEV
+  Upload online/Belege online.
 - manifest-based idempotency using `(vendor, invoice_no)` and
   `checksum_sha256`
 - audit event emission per fetched invoice
-- recorded fixture replay for every launch provider, so CI does not touch live
-  billing portals
+- recorded fixture replay for every launch provider with sanitized HTTPS trace
+  metadata and DOM snapshots, so CI does not touch live billing portals
 
 ## Credential Rules
 
@@ -109,4 +114,4 @@ step. The composed workflow fixture is
 The runtime composition helper is `runMonthlyInvoiceRun` in `harvester.cjs`. It
 runs configured providers one at a time, emits invoice audit events, and calls
 `DatevUnternehmenOnlineUploadAdapter` when the handoff is enabled and the
-operator provides a configured DATEV upload driver/profile.
+operator provides a configured DATEV API/MCP client or upload driver/profile.

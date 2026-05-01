@@ -13,33 +13,75 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://console.anthropic.com/settings/billing",
-      "pdf_base64": "JVBERiBhbnRocm9waWM="
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgYW50aHJvcGljIGludm9pY2UgcmVwbGF5IGZpeHR1cmUKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKJSVFT0YK"
     }
   ],
   "recorded_session": {
     "recorded_at": "2026-05-01T00:00:00.000Z",
     "sanitized": true,
-    "recorder": "hybridclaw-invoice-fixture-v1",
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
     "steps": [
       {
-        "kind": "login",
-        "url": "fixture://anthropic/login",
-        "status": 200
+        "kind": "authenticate_or_list",
+        "url": "https://console.anthropic.com/login",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "cd2ae94fa2cc797044ebaa3d6a54da36292440407f03f89f797e392ba4b5056c"
+        }
       },
       {
         "kind": "list",
-        "url": "fixture://anthropic/billing",
-        "status": 200
+        "url": "https://console.anthropic.com/settings/billing",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "da4a4ad4ce5a4bde868933ed031d9fd0a364181baca246ae365cd20d9e5db0d9"
+        }
       },
       {
         "kind": "download",
-        "url": "fixture://anthropic/invoice.pdf",
-        "status": 200
+        "url": "https://console.anthropic.com/settings/billing/invoices/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "dc9c2023179e3c2a7d9cd6b79ee775392bfc1f2a979ec4bcedff42ce3a8bd07b"
+        }
       }
     ],
     "evidence": {
-      "http_trace_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "dom_snapshot": "<main data-hc-provider=\"anthropic\"><div data-hc-invoice-row><span data-hc-invoice-no>AN-2026-03-001</span></div></main>"
+      "dom_snapshot": "<main data-hc-provider=\"anthropic\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>AN-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://console.anthropic.com/settings/billing/invoices/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "f951090c8335fb9f1a11b3ba506812ab42f2a7784ec2967f9feab5686b099aca"
     }
   }
 }

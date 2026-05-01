@@ -13,33 +13,75 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://portal.azure.com/#view/Microsoft_Azure_Billing",
-      "pdf_base64": "JVBERiBhenVyZQ=="
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgYXp1cmUgaW52b2ljZSByZXBsYXkgZml4dHVyZQoxIDAgb2JqIDw8IC9UeXBlIC9DYXRhbG9nID4+IGVuZG9iagolJUVPRgo="
     }
   ],
   "recorded_session": {
     "recorded_at": "2026-05-01T00:00:00.000Z",
     "sanitized": true,
-    "recorder": "hybridclaw-invoice-fixture-v1",
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
     "steps": [
       {
-        "kind": "login",
-        "url": "fixture://azure/login",
-        "status": 200
+        "kind": "authenticate_or_list",
+        "url": "https://management.azure.com/providers/Microsoft.Billing/billingAccounts/redacted/invoices?api-version=2024-04-01",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "78b2e6743ef4d8d7345c6a3383fcb153b3f1e53016b1f52788abfa37be19c31e"
+        }
       },
       {
         "kind": "list",
-        "url": "fixture://azure/billing",
-        "status": 200
+        "url": "https://management.azure.com/providers/Microsoft.Billing/billingAccounts/redacted/invoices/redacted/download?api-version=2024-04-01",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "7fef5cced3330cfd1ef61e0bab3a97b8a7d9e86d2ad37df04247fcd635f37ee8"
+        }
       },
       {
         "kind": "download",
-        "url": "fixture://azure/invoice.pdf",
-        "status": 200
+        "url": "https://azure.example.invalid/invoices/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "bc728002fcb579f7bddfb3872c8a3ac9cc41cfaaa64ca8c9ecaf533f5085ee2e"
+        }
       }
     ],
     "evidence": {
-      "http_trace_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "dom_snapshot": "<main data-hc-provider=\"azure\"><div data-hc-invoice-row><span data-hc-invoice-no>AZ-2026-03-001</span></div></main>"
+      "dom_snapshot": "<main data-hc-provider=\"azure\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>AZ-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://azure.example.invalid/invoices/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "a148815bbaf5eff928291457c360bcfbe1b8fd87321580639d60f7d38f1c997b"
     }
   }
 }
