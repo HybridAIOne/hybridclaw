@@ -205,6 +205,16 @@ test('emitInteractionNeededEvent records typed F14 payload with routing hints', 
   });
 });
 
+test('routing uses the existing mobile admin channel for interactive handoff', async () => {
+  const escalation = await importInteractiveEscalation();
+
+  expect(escalation.resolveInteractionRouting('totp')).toEqual({
+    modality: 'totp',
+    preferredChannels: ['mobile_admin', 'sms'],
+    fallbackChannels: ['mobile_admin', 'sms', 'email'],
+  });
+});
+
 test('expired sessions queue F10 manager timeout escalation when configured', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-30T12:00:00Z'));

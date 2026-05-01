@@ -5769,6 +5769,140 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('resumes and consumes typed interactive escalation admin replies', async () => {
+    const state = await importFreshHealth();
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/interactive-escalations',
+      body: {
+        prompt: 'Enter the SMS verification code.',
+        userId: 'operator-1',
+        modality: 'sms',
+        frameSnapshot: {
+          url: 'https://sap.example/login',
+          title: 'Verify sign in',
+        },
+        context: {
+          host: 'sap.example',
+        },
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    expect(createRes.statusCode).toBe(200);
+    const created = JSON.parse(createRes.body);
+    const sessionId = String(created.session?.sessionId || '');
+    expect(sessionId).toBeTruthy();
+
+    const resumeReq = makeRequest({
+      method: 'POST',
+      url: '/api/interactive-escalations/resume',
+      body: {
+        sessionId,
+        response: {
+          kind: 'code',
+          value: '123 456',
+        },
+      },
+    });
+    const resumeRes = makeResponse();
+
+    state.handler(resumeReq as never, resumeRes as never);
+    await settle();
+
+    expect(resumeRes.statusCode).toBe(200);
+    expect(JSON.parse(resumeRes.body)).toMatchObject({
+      response: {
+        kind: 'code',
+        value: '123456',
+      },
+      session: {
+        sessionId,
+        status: 'resumed',
+        response: {
+          kind: 'code',
+          valueRedacted: true,
+        },
+      },
+    });
+
+    const consumeReq = makeRequest({
+      method: 'POST',
+      url: '/api/interactive-escalations/consume',
+      body: { sessionId },
+    });
+    const consumeRes = makeResponse();
+
+    state.handler(consumeReq as never, consumeRes as never);
+    await settle();
+
+    expect(consumeRes.statusCode).toBe(200);
+    expect(JSON.parse(consumeRes.body)).toEqual({
+      response: {
+        kind: 'code',
+        value: '123456',
+      },
+    });
+  });
+
+  test('parses SMS interactive escalation replies by operator identity', async () => {
+    const state = await importFreshHealth();
+    const createReq = makeRequest({
+      method: 'POST',
+      url: '/api/interactive-escalations',
+      body: {
+        prompt: 'Enter the SMS verification code.',
+        userId: 'operator-1',
+        modality: 'sms',
+        frameSnapshot: {
+          url: 'https://sap.example/login',
+        },
+      },
+    });
+    const createRes = makeResponse();
+
+    state.handler(createReq as never, createRes as never);
+    await settle();
+
+    expect(createRes.statusCode).toBe(200);
+    const sessionId = String(
+      JSON.parse(createRes.body).session?.sessionId || '',
+    );
+    expect(sessionId).toBeTruthy();
+
+    const smsReq = makeRequest({
+      method: 'POST',
+      url: '/api/interactive-escalations/sms-reply',
+      body: {
+        from: 'operator-1',
+        body: '123 456',
+      },
+    });
+    const smsRes = makeResponse();
+
+    state.handler(smsReq as never, smsRes as never);
+    await settle();
+
+    expect(smsRes.statusCode).toBe(200);
+    expect(JSON.parse(smsRes.body)).toMatchObject({
+      response: {
+        kind: 'code',
+        value: '123456',
+      },
+      session: {
+        sessionId,
+        status: 'resumed',
+        response: {
+          kind: 'code',
+          valueRedacted: true,
+        },
+      },
+    });
+  });
+
   test('saves admin policy rules for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
