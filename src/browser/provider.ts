@@ -1,5 +1,5 @@
 import type { Buffer } from 'node:buffer';
-import type { SecretRef } from '../security/secret-refs.js';
+import type { SecretInput } from '../security/secret-refs.js';
 
 export interface BrowserProvider {
   launchSession(opts: SessionOptions): Promise<BrowserSession>;
@@ -36,7 +36,7 @@ export interface BrowserSession {
    * Use SecretRef for credential or token fields. Plain strings are intended
    * for non-sensitive form values.
    */
-  fill(selector: string, value: SecretRef | string): Promise<void>;
+  fill(selector: string, value: SecretInput): Promise<void>;
   scroll(opts: ScrollOptions): Promise<void>;
   waitForSelector(selector: string, opts?: WaitOptions): Promise<void>;
 }
@@ -45,7 +45,7 @@ export type BrowserEvaluateFunction<T = unknown> = () => T | Promise<T>;
 
 export type BrowserAction =
   | { name: 'click'; selector: string; opts?: ClickOptions }
-  | { name: 'fill'; selector: string; value: SecretRef | string }
+  | { name: 'fill'; selector: string; value: SecretInput }
   | { name: 'scroll'; opts: ScrollOptions }
   | { name: 'wait_for_selector'; selector: string; opts?: WaitOptions }
   | { name: 'screenshot'; opts?: ScreenshotOptions }

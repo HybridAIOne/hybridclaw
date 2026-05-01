@@ -13,7 +13,7 @@ import type {
   SessionOptions,
   WaitOptions,
 } from '../src/browser/provider.js';
-import type { SecretRef } from '../src/security/secret-refs.js';
+import type { SecretInput } from '../src/security/secret-refs.js';
 
 const requiredActionNames = {
   click: true,
@@ -47,7 +47,7 @@ class MockBrowserSession implements BrowserSession {
 
   async click(_selector: string, _opts?: ClickOptions): Promise<void> {}
 
-  async fill(_selector: string, _value: SecretRef | string): Promise<void> {}
+  async fill(_selector: string, _value: SecretInput): Promise<void> {}
 
   async scroll(_opts: ScrollOptions): Promise<void> {}
 
