@@ -291,6 +291,25 @@ function writeRuntimeConfig(
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
 
+function writeAllowAllSecretPolicy(homeDir: string): void {
+  const policyPath = path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'main',
+    'workspace',
+    '.hybridclaw',
+    'policy.yaml',
+  );
+  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+  fs.writeFileSync(
+    policyPath,
+    ['secret:', '  default: allow', ''].join('\n'),
+    'utf8',
+  );
+}
+
 function makeRequest(params: {
   method?: string;
   url: string;
@@ -7749,6 +7768,7 @@ describe('gateway HTTP server', () => {
         ],
       };
     });
+    writeAllowAllSecretPolicy(homeDir);
 
     const { saveNamedRuntimeSecrets } = await import(
       '../src/security/runtime-secrets.ts'
@@ -7761,7 +7781,10 @@ describe('gateway HTTP server', () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),
     }));
-    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
       ok: true,
       status: 200,
@@ -7831,6 +7854,7 @@ describe('gateway HTTP server', () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-oauth-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
 
     const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
       '../src/security/runtime-secrets.ts'
@@ -7846,7 +7870,10 @@ describe('gateway HTTP server', () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
     }));
-    const state = await importFreshHealth({ gatewayApiToken: 'gateway-token' });
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(

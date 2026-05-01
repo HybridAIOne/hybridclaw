@@ -91,15 +91,26 @@ export function readSecretPolicyStateFromDocument(
         )
     : [];
   const defaultAction =
-    normalizeLower(secret.default) === 'allow' || rules.length === 0
-      ? 'allow'
-      : 'deny';
+    normalizeLower(secret.default) === 'allow' ? 'allow' : 'deny';
   return { defaultAction, rules };
 }
 
 function readPolicyDocument(policyPath: string): Record<string, unknown> {
-  if (!fs.existsSync(policyPath)) return {};
-  const parsed = YAML.parse(fs.readFileSync(policyPath, 'utf-8')) as unknown;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(policyPath, 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(raw) as unknown;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to parse policy file ${policyPath}: ${message}`);
+  }
   if (!parsed) return {};
   if (typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`Policy file must contain a YAML mapping: ${policyPath}`);
@@ -117,7 +128,6 @@ export function readWorkspaceSecretPolicyState(
 
 function matchesText(candidate: unknown, expected: unknown): boolean {
   const normalized = normalizeLower(candidate);
-  if (!normalized) return false;
   const values = normalizeStringList(expected);
   if (values.length === 0) {
     const single = normalizeLower(expected);

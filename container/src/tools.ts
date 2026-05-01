@@ -199,6 +199,10 @@ class ContainerSecretHandle {
     return this.#buffer?.length ?? 0;
   }
 
+  get characterLength(): number {
+    return [...this.unsafeReadStringForInjection()].length;
+  }
+
   dispose(): void {
     this.#buffer?.fill(0);
     this.#buffer = null;
@@ -1352,6 +1356,11 @@ async function executeBrowserSecretType(
     return failTool('Error: ref or selector is required.');
   }
   const host = await resolveCurrentBrowserHost();
+  if (!host) {
+    return failTool(
+      'Error: browser_secret_type requires an active browser page with a resolvable host.',
+    );
+  }
   const handle = await callGatewaySecretInject({
     secretName: args.secretName,
     skillName: args.skillName,
@@ -1391,7 +1400,7 @@ async function injectIntoElement(
                 ? locator.ref
                 : `@${locator.ref || ''}`,
             }),
-        typed_chars: handle.byteLength,
+        typed_chars: handle.characterLength,
         secret_injected: true,
       },
       null,

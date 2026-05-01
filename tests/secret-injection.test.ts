@@ -90,6 +90,36 @@ describe('SecretHandle', () => {
 });
 
 describe('secret resolution policy', () => {
+  test('denies by default unless secret.default explicitly allows', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const context = {
+      agentId: 'main',
+      secretSource: 'store' as const,
+      secretId: 'DATEV_PASSWORD',
+      sinkKind: 'dom' as const,
+      host: 'login.datev.de',
+      selector: '#password',
+    };
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state: readSecretPolicyStateFromDocument({}),
+        context,
+      }).decision,
+    ).toBe('deny');
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state: readSecretPolicyStateFromDocument({
+          secret: { default: 'allow' },
+        }),
+        context,
+      }).decision,
+    ).toBe('allow');
+  });
+
   test('allows host and selector scoped rules through the F3 policy engine', async () => {
     const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
       await import('../src/security/secret-policy.js');
@@ -142,6 +172,40 @@ describe('secret resolution policy', () => {
       }).decision,
     ).toBe('deny');
   });
+
+  test('matches wildcard predicates when optional context values are empty', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const state = readSecretPolicyStateFromDocument({
+      secret: {
+        rules: [
+          {
+            when: {
+              predicate: 'secret_resolve_allowed',
+              skill: '*',
+              sink: 'dom',
+            },
+            action: 'allow',
+          },
+        ],
+      },
+    });
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: {
+          agentId: 'main',
+          secretSource: 'store',
+          secretId: 'DATEV_PASSWORD',
+          sinkKind: 'dom',
+          host: 'login.datev.de',
+          selector: '#password',
+        },
+      }).decision,
+    ).toBe('allow');
+  });
 });
 
 describe('resolved secret leak corpus', () => {
@@ -179,12 +243,42 @@ describe('resolved secret leak corpus', () => {
     ]);
     expect(dehydrated[0].content).not.toContain('datev-cleartext-secret');
   });
+
+  test('keeps runtime leak rule ids unique after per-session rollover', async () => {
+    const { rememberResolvedSecretForLeakScan, withResolvedSecretLeakRules } =
+      await import('../src/security/secret-leak-corpus.js');
+
+    for (let index = 0; index < 101; index += 1) {
+      rememberResolvedSecretForLeakScan({
+        sessionId: 'session-secret-corpus-rollover',
+        secretId: `SECRET_${index}`,
+        value: `cleartext-secret-${index}`,
+      });
+    }
+
+    const ruleSet = withResolvedSecretLeakRules(
+      'session-secret-corpus-rollover',
+      {
+        rules: [],
+        sourcePath: null,
+      },
+    );
+    const ids = ruleSet.rules.map((rule) => rule.id);
+    expect(ruleSet.rules).toHaveLength(100);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('runtime_secret_101');
+  });
 });
 
 describe('gateway secret injection', () => {
   test('audits every stored secret resolve with sink metadata', async () => {
     const workspacePath = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-secret-policy-'),
+    );
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      ['secret:', '  default: allow', ''].join('\n'),
     );
     const recordAuditEvent = vi.fn();
 

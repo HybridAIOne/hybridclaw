@@ -4118,6 +4118,7 @@ function resolveConfiguredSecretInput(
     path: opts.path,
     required: opts.required,
     reason: `resolve runtime config secret ${opts.path}`,
+    // Runtime config resolution can happen before a session audit context exists.
     audit: () => undefined,
   });
 }

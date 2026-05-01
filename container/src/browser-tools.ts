@@ -2106,18 +2106,19 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_type',
       description:
-        'Type text into an input element by snapshot ref (clears then fills).',
+        'Type text into an input element by snapshot ref or CSS selector (clears then fills). Provide either ref or selector.',
       parameters: {
         type: 'object',
         properties: {
           ref: {
             type: 'string',
-            description: 'Element reference from browser_snapshot.',
+            description:
+              'Element reference from browser_snapshot. Required when selector is omitted.',
           },
           selector: {
             type: 'string',
             description:
-              'CSS selector fallback when a stable snapshot ref is unavailable.',
+              'CSS selector fallback when a stable snapshot ref is unavailable. Required when ref is omitted.',
           },
           text: { type: 'string', description: 'Text to type.' },
           frame: {

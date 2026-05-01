@@ -7,11 +7,7 @@ import {
   isRuntimeSecretName,
   readStoredRuntimeSecret,
 } from '../security/runtime-secrets.js';
-import {
-  createSecretHandle,
-  type SecretSinkKind,
-  unsafeEscapeSecretHandle,
-} from '../security/secret-handles.js';
+import type { SecretSinkKind } from '../security/secret-handles.js';
 import { rememberResolvedSecretForLeakScan } from '../security/secret-leak-corpus.js';
 import {
   evaluateSecretPolicyAccess,
@@ -164,44 +160,31 @@ export function resolveStoredSecretForInjection(params: {
       `Stored secret ${secretName} is not set.`,
     );
   }
-  const handle = createSecretHandle(
-    { source: 'store', id: secretName },
+  recordSecretResolved({
+    sessionId: params.sessionId,
+    skillName: params.skillName,
+    secretSource: 'store',
+    secretId: secretName,
+    sinkKind: params.sinkKind,
+    host: params.host,
+    selector: params.selector,
+  });
+  recordSecretUnsafeEscaped({
+    sessionId: params.sessionId,
+    skillName: params.skillName,
+    secretSource: 'store',
+    secretId: secretName,
+    sinkKind: params.sinkKind,
+    host: params.host,
+    selector: params.selector,
+    reason: `inject ${secretName} into ${params.sinkKind} sink`,
+  });
+  rememberResolvedSecretForLeakScan({
+    sessionId: normalizeString(params.sessionId) || 'secret-resolution',
+    secretId: secretName,
     value,
-    params.sinkKind,
-  );
-  try {
-    const cleartext = unsafeEscapeSecretHandle(handle, {
-      reason: `inject ${secretName} into ${params.sinkKind} sink`,
-      audit: (escapedHandle, reason) =>
-        recordSecretUnsafeEscaped({
-          sessionId: params.sessionId,
-          skillName: params.skillName,
-          secretSource: escapedHandle.ref.source,
-          secretId: escapedHandle.ref.id,
-          sinkKind: params.sinkKind,
-          host: params.host,
-          selector: params.selector,
-          reason,
-        }),
-    });
-    recordSecretResolved({
-      sessionId: params.sessionId,
-      skillName: params.skillName,
-      secretSource: 'store',
-      secretId: secretName,
-      sinkKind: params.sinkKind,
-      host: params.host,
-      selector: params.selector,
-    });
-    rememberResolvedSecretForLeakScan({
-      sessionId: normalizeString(params.sessionId) || 'secret-resolution',
-      secretId: secretName,
-      value: cleartext,
-    });
-    return cleartext;
-  } finally {
-    handle.dispose();
-  }
+  });
+  return value;
 }
 
 export async function handleApiSecretInject(
@@ -210,13 +193,8 @@ export async function handleApiSecretInject(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as ApiSecretInjectBody;
   const secretName = normalizeString(body.secretName);
-  const sinkKind =
-    normalizeString(body.sinkKind) === 'http'
-      ? 'http'
-      : normalizeString(body.sinkKind) === 'ssh'
-        ? 'ssh'
-        : 'dom';
-  if (sinkKind !== 'dom') {
+  const sinkKindInput = normalizeString(body.sinkKind).toLowerCase();
+  if (sinkKindInput && sinkKindInput !== 'dom') {
     throw new GatewayRequestError(
       400,
       '`/api/secret/inject` only supports DOM injection.',
@@ -227,10 +205,13 @@ export async function handleApiSecretInject(
     sessionId: normalizeString(body.sessionId),
     agentId: normalizeString(body.agentId),
     skillName: normalizeString(body.skillName),
-    sinkKind,
+    sinkKind: 'dom',
     host: normalizeString(body.host),
     selector: normalizeString(body.selector),
   });
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  // This local gateway-to-container endpoint intentionally carries cleartext.
   sendJson(res, 200, {
     ok: true,
     secretName,
