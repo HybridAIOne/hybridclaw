@@ -9,8 +9,8 @@ import {
 import { DATA_DIR, getConfigSnapshot } from '../config/config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
-import type { MemoryConsolidationReport } from '../memory/memory-consolidation.js';
-import { memoryService } from '../memory/memory-service.js';
+import type { MemoryConsolidationReport } from './memory-consolidation.js';
+import { memoryService } from './memory-service.js';
 
 export type MemoryConsolidationTrigger = 'nightly' | 'startup' | 'manual';
 

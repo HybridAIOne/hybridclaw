@@ -113,6 +113,13 @@ import {
   initDatabase,
   listQueuedProactiveMessages,
 } from '../memory/db.js';
+import {
+  getDreamTimezone,
+  hasDreamRunToday,
+  isMemoryConsolidationEnabled,
+  nextDreamRunAt,
+  runMemoryConsolidation,
+} from '../memory/memory-consolidation-runner.js';
 import { memoryService } from '../memory/memory-service.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
@@ -175,13 +182,6 @@ import type {
   GatewayChatResult,
 } from './gateway-types.js';
 import { runManagedMediaCleanup } from './managed-media-cleanup.js';
-import {
-  getDreamTimezone,
-  hasDreamRunToday,
-  isMemoryConsolidationEnabled,
-  nextDreamRunAt,
-  runMemoryConsolidation,
-} from './memory-consolidation-runner.js';
 import {
   clearPendingApproval,
   getPendingApproval,
