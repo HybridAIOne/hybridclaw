@@ -4508,7 +4508,8 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
 export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
-  const sessions = getAllSessions()
+  const allSessions = getAllSessions();
+  const sessions = allSessions
     .map((session) =>
       mapSessionCard({
         session,
@@ -4535,11 +4536,24 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       status: session.status,
       lastAnswer: session.lastAnswer,
     }));
+  const sessionAgentIds = new Map(
+    allSessions.map((session) => [
+      session.id,
+      resolveAgentForRequest({ session }).agentId,
+    ]),
+  );
+  const suspendedSessions = listSuspendedSessions();
 
   const agentIds = Array.from(
     new Set([
       ...listAgents().map((agent) => agent.id),
       ...sessions.map((session) => session.agentId),
+      ...suspendedSessions
+        .map(
+          (session) =>
+            session.agentId || sessionAgentIds.get(session.sessionId),
+        )
+        .filter((agentId): agentId is string => Boolean(agentId)),
     ]),
   ).sort((left, right) => left.localeCompare(right));
 
@@ -4552,6 +4566,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       };
     }),
     sessions,
+    suspendedSessions: suspendedSessions.map((session) =>
+      mapGatewayAdminSuspendedSession(session, sessionAgentIds),
+    ),
   };
 }
 

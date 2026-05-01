@@ -28,6 +28,9 @@ export function InteractionResumeControls(props: {
       void queryClient.invalidateQueries({
         queryKey: ['admin-approvals', auth.token],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ['jobs-context', auth.token],
+      });
       props.onResumed?.();
       toast.success('Blocked session resumed.');
     },

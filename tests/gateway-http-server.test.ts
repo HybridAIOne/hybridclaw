@@ -1502,6 +1502,7 @@ async function importFreshHealth(options?: {
         output: ['recent output'],
       },
     ],
+    suspendedSessions: [],
   }));
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
@@ -1864,6 +1865,7 @@ useCleanMocks({
     '../src/plugins/plugin-manager.js',
     '../src/gateway/gateway-restart.js',
   ],
+  suspendedSessions: [],
 });
 
 describe('gateway HTTP server', () => {
@@ -5404,6 +5406,7 @@ describe('gateway HTTP server', () => {
           output: ['recent output'],
         },
       ],
+      suspendedSessions: [],
     });
   });
 

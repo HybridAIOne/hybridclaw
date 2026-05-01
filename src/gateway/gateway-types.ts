@@ -803,6 +803,7 @@ export interface GatewayAdminJobSession {
 export interface GatewayAdminJobsContextResponse {
   agents: GatewayAdminJobAgent[];
   sessions: GatewayAdminJobSession[];
+  suspendedSessions: GatewayAdminSuspendedSession[];
 }
 
 export interface GatewayAdminDeleteSessionResult {

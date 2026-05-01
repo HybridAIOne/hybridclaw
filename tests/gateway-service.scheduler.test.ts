@@ -361,6 +361,46 @@ test('admin jobs context exposes full recent assistant outputs for scheduler ses
   });
 });
 
+test('admin jobs context includes suspended sessions for the jobs board', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { createSuspendedSession } = await import(
+    '../src/gateway/interactive-escalation.ts'
+  );
+  const { getGatewayAdminJobsContext } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  createSuspendedSession({
+    sessionId: 'session-2fa',
+    approvalId: 'approval-2fa',
+    prompt: 'Enter the SMS verification code.',
+    userId: 'operator-1',
+    agentId: 'main',
+    modality: 'sms',
+    ttlMs: 600_000,
+    frameSnapshot: {
+      url: 'https://sap.example/login',
+    },
+    context: {
+      host: 'sap.example',
+    },
+  });
+
+  expect(getGatewayAdminJobsContext().suspendedSessions).toEqual([
+    expect.objectContaining({
+      sessionId: 'session-2fa',
+      agentId: 'main',
+      modality: 'sms',
+      blockedLabel: 'blocked: needs sms',
+    }),
+  ]);
+});
+
 test('scheduled agent turns persist outputs for admin jobs detail', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

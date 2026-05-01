@@ -977,6 +977,7 @@ export interface JobSession {
 export interface AdminJobsContextResponse {
   agents: JobAgent[];
   sessions: JobSession[];
+  suspendedSessions: AdminSuspendedSession[];
 }
 
 export interface AdminMcpConfig {

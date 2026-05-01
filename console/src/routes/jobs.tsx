@@ -8,7 +8,6 @@ import {
   useState,
 } from 'react';
 import {
-  fetchAdminApprovals,
   fetchJobsContext,
   fetchScheduler,
   moveSchedulerJob,
@@ -593,12 +592,6 @@ export function JobsPage() {
     refetchInterval: 15_000,
   });
 
-  const approvalsQuery = useQuery({
-    queryKey: ['admin-approvals', auth.token, ''],
-    queryFn: () => fetchAdminApprovals(auth.token),
-    refetchInterval: 15_000,
-  });
-
   const saveJobMutation = useMutation({
     mutationFn: (job: AdminSchedulerJob & { source: 'config' }) =>
       saveSchedulerJob(auth.token, job),
@@ -712,7 +705,7 @@ export function JobsPage() {
       },
     );
 
-    const blockedItems = (approvalsQuery.data?.suspendedSessions || []).map(
+    const blockedItems = (jobsContextQuery.data?.suspendedSessions || []).map(
       (suspendedSession): JobBoardItem => {
         const key = `blocked:${suspendedSession.sessionId}`;
         const agentId = suspendedSession.agentId || 'unassigned';
@@ -752,7 +745,7 @@ export function JobsPage() {
     return [...blockedItems, ...scheduledItems];
   }, [
     agentsById,
-    approvalsQuery.data?.suspendedSessions,
+    jobsContextQuery.data?.suspendedSessions,
     schedulerQuery.data?.jobs,
     sessionsById,
   ]);
