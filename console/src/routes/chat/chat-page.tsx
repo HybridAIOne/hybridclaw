@@ -4,6 +4,7 @@ import {
   createChatBranch,
   createChatMobileQr,
   fetchAppStatus,
+  fetchChatContext,
   fetchChatRecent,
   uploadMedia,
 } from '../../api/chat';
@@ -164,6 +165,7 @@ export function ChatPage() {
     setError,
     refreshRecent,
     onSessionIdCorrection: handleSessionIdCorrection,
+    onModelResolved: setSelectedModelId,
   });
 
   const appStatusQuery = useQuery({
@@ -257,6 +259,14 @@ export function ChatPage() {
     staleTime: Infinity,
   });
 
+  const contextQuery = useQuery({
+    queryKey: ['chat-context', auth.token, sessionId],
+    queryFn: () => fetchChatContext(auth.token, sessionId),
+    enabled: Boolean(sessionId),
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  });
+
   const messages = historyQuery.data?.messages ?? EMPTY_MESSAGES;
   const branchFamilies =
     historyQuery.data?.branchFamilies ?? EMPTY_BRANCH_FAMILIES;
@@ -264,6 +274,11 @@ export function ChatPage() {
   // Forward fetch errors inline rather than throwing to the page-level error
   // boundary — a failed background refetch (invalidated after each stream)
   // would otherwise tear down ChatPage and lose composer/session state.
+  useEffect(() => {
+    const id = contextQuery.data?.snapshot?.model?.trim() ?? '';
+    if (id) setSelectedModelId(id);
+  }, [contextQuery.data?.snapshot?.model]);
+
   useEffect(() => {
     if (!historyQuery.error) return;
     setError(getErrorMessage(historyQuery.error));
