@@ -106,6 +106,13 @@ import {
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
+  getDreamTimezone,
+  hasDreamRunToday,
+  isMemoryConsolidationEnabled,
+  nextDreamRunAt,
+  runMemoryConsolidation,
+} from '../memory/consolidation-runner.js';
+import {
   deleteQueuedProactiveMessage,
   enqueueProactiveMessage,
   getMostRecentSessionChannelId,
@@ -113,13 +120,6 @@ import {
   initDatabase,
   listQueuedProactiveMessages,
 } from '../memory/db.js';
-import {
-  getDreamTimezone,
-  hasDreamRunToday,
-  isMemoryConsolidationEnabled,
-  nextDreamRunAt,
-  runMemoryConsolidation,
-} from '../memory/memory-consolidation-runner.js';
 import { memoryService } from '../memory/memory-service.js';
 import { initOtel, shutdownOtel } from '../observability/otel.js';
 import { hybridAIProbe } from '../providers/hybridai-health.js';
