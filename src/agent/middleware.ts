@@ -1,3 +1,4 @@
+import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import type { ToolExecution } from '../types/execution.js';
 
@@ -29,18 +30,18 @@ export type MiddlewareDecision =
   | { action: 'transform'; payload: string; reason: string }
   | { action: 'escalate'; route: EscalationRoute; reason: string };
 
-export interface ClassifierMiddlewareSkill {
+export interface ClassifierMiddlewareSkill<TContext = AgentTurnContext> {
   id: string;
   priority?: number;
   pre_send?: (
-    context: AgentTurnContext,
+    context: TContext,
   ) =>
     | Promise<MiddlewareDecision | null | undefined>
     | MiddlewareDecision
     | null
     | undefined;
   post_receive?: (
-    context: AgentTurnContext,
+    context: TContext,
   ) =>
     | Promise<MiddlewareDecision | null | undefined>
     | MiddlewareDecision
@@ -64,6 +65,8 @@ export interface MiddlewareOutcome {
   blocked: boolean;
   events: MiddlewareEvent[];
 }
+
+const EVENT_TEXT_LIMIT = 500;
 
 export function getMessageTextContent(message: ChatMessage): string {
   if (typeof message.content === 'string') return message.content;
@@ -119,37 +122,71 @@ function syncMessagesForMiddleware(
   return [...messages, { role, content: text }];
 }
 
-function normalizeDecision(value: unknown): MiddlewareDecision | null {
-  if (!value || typeof value !== 'object') return null;
-  const action = (value as { action?: unknown }).action;
-  if (action === 'allow') return { action };
-  if (action === 'block') {
-    const reason = String((value as { reason?: unknown }).reason || '').trim();
-    const payload = String((value as { payload?: unknown }).payload || '');
-    return reason ? { action, reason, ...(payload ? { payload } : {}) } : null;
+function eventText(value: string): string {
+  if (value.length <= EVENT_TEXT_LIMIT) return value;
+  return `${value.slice(0, EVENT_TEXT_LIMIT)}...`;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeDecision(
+  value: unknown,
+  skill: ClassifierMiddlewareSkill,
+  phase: MiddlewarePhase,
+): MiddlewareDecision | null {
+  if (!value) return null;
+  if (!isObjectRecord(value)) {
+    logger.warn(
+      { skillId: skill.id, phase },
+      'Middleware returned invalid decision shape; treating as allow',
+    );
+    return null;
   }
-  if (action === 'warn') {
-    const reason = String((value as { reason?: unknown }).reason || '').trim();
-    return reason ? { action, reason } : null;
-  }
-  if (action === 'transform') {
-    const payload = String((value as { payload?: unknown }).payload || '');
-    const reason = String((value as { reason?: unknown }).reason || '').trim();
-    return reason ? { action, payload, reason } : null;
-  }
-  if (action === 'escalate') {
-    const route = (value as { route?: unknown }).route;
-    const reason = String((value as { reason?: unknown }).reason || '').trim();
-    if (
-      (route === 'operator' ||
-        route === 'security' ||
-        route === 'approval_request' ||
-        route === 'policy_denial') &&
-      reason
-    ) {
-      return { action, route, reason };
+
+  switch (value.action) {
+    case 'allow':
+      return { action: 'allow' };
+    case 'block': {
+      const reason = safeText(value.reason);
+      const payload = safeText(value.payload);
+      return reason
+        ? { action: 'block', reason, ...(payload ? { payload } : {}) }
+        : null;
+    }
+    case 'warn': {
+      const reason = safeText(value.reason);
+      return reason ? { action: 'warn', reason } : null;
+    }
+    case 'transform': {
+      const payload = safeText(value.payload);
+      const reason = safeText(value.reason);
+      return reason ? { action: 'transform', payload, reason } : null;
+    }
+    case 'escalate': {
+      const reason = safeText(value.reason);
+      if (
+        reason &&
+        (value.route === 'operator' ||
+          value.route === 'security' ||
+          value.route === 'approval_request' ||
+          value.route === 'policy_denial')
+      ) {
+        return { action: 'escalate', route: value.route, reason };
+      }
+      break;
     }
   }
+
+  logger.warn(
+    { skillId: skill.id, phase, action: value.action },
+    'Middleware returned incomplete or unknown decision; treating as allow',
+  );
   return null;
 }
 
@@ -158,18 +195,12 @@ export async function applyClassifierMiddleware(
   skills: readonly ClassifierMiddlewareSkill[],
   context: AgentTurnContext,
 ): Promise<MiddlewareOutcome> {
-  const ordered = [...skills].sort((left, right) => {
-    const priorityDiff = (left.priority ?? 0) - (right.priority ?? 0);
-    if (priorityDiff !== 0) return priorityDiff;
-    return left.id.localeCompare(right.id);
-  });
-
   const events: MiddlewareEvent[] = [];
   let userContent = context.userContent;
   let resultText = context.resultText || '';
   let messages = context.messages.slice();
 
-  for (const skill of ordered) {
+  for (const skill of skills) {
     const handler = skill[phase];
     if (!handler) continue;
 
@@ -179,7 +210,11 @@ export async function applyClassifierMiddleware(
       userContent,
       resultText,
     };
-    const decision = normalizeDecision(await handler(currentContext));
+    const decision = normalizeDecision(
+      await handler(currentContext),
+      skill,
+      phase,
+    );
     if (!decision || decision.action === 'allow') {
       events.push({ skillId: skill.id, phase, action: 'allow' });
       continue;
@@ -217,8 +252,8 @@ export async function applyClassifierMiddleware(
         phase,
         action: 'transform',
         reason: decision.reason,
-        before,
-        after: decision.payload,
+        before: eventText(before),
+        after: eventText(decision.payload),
       });
       continue;
     }
@@ -232,8 +267,8 @@ export async function applyClassifierMiddleware(
       phase,
       action: decision.action,
       reason: decision.reason,
-      before,
-      after: replacement,
+      before: eventText(before),
+      after: eventText(replacement),
       route: decision.action === 'escalate' ? decision.route : undefined,
     });
     return {

@@ -9,16 +9,9 @@ import {
   type StakesScore,
 } from './stakes-classifier.js';
 
-export interface StakesMiddlewareContext extends StakesClassificationInput {}
-
 export interface StakesMiddlewareResult {
   decision: MiddlewareDecision;
   stakesScore: StakesScore;
-}
-
-export interface StakesClassifierMiddlewareSkill
-  extends ClassifierMiddlewareSkill<StakesMiddlewareContext> {
-  classify(context: StakesMiddlewareContext): StakesMiddlewareResult;
 }
 
 function decisionForStakes(score: StakesScore): MiddlewareDecision {
@@ -44,30 +37,30 @@ function decisionForStakes(score: StakesScore): MiddlewareDecision {
 
 export function createStakesMiddlewareSkill(
   classifier: StakesClassifier,
-): StakesClassifierMiddlewareSkill {
-  const classify = (
-    context: StakesMiddlewareContext,
-  ): StakesMiddlewareResult => {
-    const stakesScore = classifyStakes(context, classifier);
-    return {
-      decision: decisionForStakes(stakesScore),
-      stakesScore,
-    };
-  };
-
+): ClassifierMiddlewareSkill<StakesClassificationInput> {
   return {
     id: 'stakes',
     priority: 0,
     pre_send(context) {
-      return classify(context).decision;
+      return classifyStakesMiddleware(context, classifier).decision;
     },
-    classify,
+  };
+}
+
+function classifyStakesMiddleware(
+  context: StakesClassificationInput,
+  classifier: StakesClassifier,
+): StakesMiddlewareResult {
+  const stakesScore = classifyStakes(context, classifier);
+  return {
+    decision: decisionForStakes(stakesScore),
+    stakesScore,
   };
 }
 
 export function evaluateStakesMiddleware(
-  context: StakesMiddlewareContext,
+  context: StakesClassificationInput,
   classifier: StakesClassifier,
 ): StakesMiddlewareResult {
-  return createStakesMiddlewareSkill(classifier).classify(context);
+  return classifyStakesMiddleware(context, classifier);
 }

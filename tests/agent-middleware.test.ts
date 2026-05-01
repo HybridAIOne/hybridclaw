@@ -38,10 +38,10 @@ describe('agent middleware', () => {
     );
 
     expect(outcome.blocked).toBe(false);
-    expect(outcome.resultText).toBe('draft one two');
+    expect(outcome.resultText).toBe('draft two one');
     expect(outcome.events.map((event) => event.skillId)).toEqual([
-      'first',
       'second',
+      'first',
     ]);
   });
 

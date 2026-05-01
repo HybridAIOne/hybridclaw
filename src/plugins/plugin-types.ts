@@ -369,22 +369,7 @@ export type PluginAgentTurnContext = AgentTurnContext & {
 export type PluginMiddlewareDecision = MiddlewareDecision;
 
 export interface PluginMiddlewareSkill
-  extends Omit<ClassifierMiddlewareSkill, 'pre_send' | 'post_receive'> {
-  pre_send?: (
-    context: PluginAgentTurnContext,
-  ) =>
-    | Promise<PluginMiddlewareDecision | null | undefined>
-    | PluginMiddlewareDecision
-    | null
-    | undefined;
-  post_receive?: (
-    context: PluginAgentTurnContext,
-  ) =>
-    | Promise<PluginMiddlewareDecision | null | undefined>
-    | PluginMiddlewareDecision
-    | null
-    | undefined;
-}
+  extends ClassifierMiddlewareSkill<PluginAgentTurnContext> {}
 
 export interface MemoryLayerPlugin {
   id: string;

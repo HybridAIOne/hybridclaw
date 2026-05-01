@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HYBRIDAI_MODEL } from '../config/config.js';
+import { logger } from '../logger.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
 import {
@@ -45,6 +46,17 @@ function firstEscalationEvent(
   return events.find((event) => event.action === 'escalate') || null;
 }
 
+function escalationEvents(
+  events: readonly MiddlewareEvent[],
+): MiddlewareEvent[] {
+  return events.filter((event) => event.action === 'escalate');
+}
+
+function safeMiddlewareLabel(value: string): string {
+  const normalized = value.replace(/[^\w:.-]/g, '_').slice(0, 120);
+  return normalized || 'unknown';
+}
+
 function buildMiddlewarePendingApproval(params: {
   event: MiddlewareEvent;
   escalationTarget: PendingApproval['escalationTarget'];
@@ -52,17 +64,18 @@ function buildMiddlewarePendingApproval(params: {
   const approvalId = `mw-${randomUUID().slice(0, 8)}`;
   const reason =
     params.event.reason || 'Middleware requested operator escalation.';
+  const middlewareId = safeMiddlewareLabel(params.event.skillId);
   return {
     approvalId,
     prompt: [
       'Middleware escalation requires operator review before this response is delivered.',
-      `Middleware: ${params.event.skillId}`,
+      `Middleware: ${middlewareId}`,
       `Route: ${params.event.route || 'approval_request'}`,
       `Why: ${reason}`,
       `Approval ID: ${approvalId}`,
       'Reply `yes` to approve once, or `no` to deny.',
     ].join('\n'),
-    intent: `Review middleware escalation for ${params.event.skillId}`,
+    intent: `Review middleware escalation for ${middlewareId}`,
     reason,
     allowSession: false,
     allowAgent: false,
@@ -80,7 +93,7 @@ function buildMiddlewareToolExecution(params: {
   escalationTarget: PendingApproval['escalationTarget'];
 }): ToolExecution {
   return {
-    name: `middleware:${params.event.skillId}`,
+    name: `middleware:${safeMiddlewareLabel(params.event.skillId)}`,
     arguments: '{}',
     result: params.pendingApproval.prompt,
     durationMs: 0,
@@ -223,6 +236,21 @@ async function runAgentInner(
   );
   const escalationEvent = firstEscalationEvent(middlewareOutcome.events);
   if (escalationEvent) {
+    for (const extraEvent of escalationEvents(middlewareOutcome.events).slice(
+      1,
+    )) {
+      logger.warn(
+        {
+          sessionId,
+          agentId,
+          channelId,
+          middlewareId: safeMiddlewareLabel(extraEvent.skillId),
+          route: extraEvent.route,
+          reason: extraEvent.reason,
+        },
+        'Additional middleware escalation observed after primary escalation',
+      );
+    }
     const pendingApproval = buildMiddlewarePendingApproval({
       event: escalationEvent,
       escalationTarget: params.escalationTarget,

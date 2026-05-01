@@ -9,6 +9,7 @@ import {
   type AgentTurnContext,
   applyClassifierMiddleware,
   type ClassifierMiddlewareSkill,
+  type MiddlewareDecision,
   type MiddlewareOutcome,
   type MiddlewarePhase,
 } from '../agent/middleware.js';
@@ -137,6 +138,41 @@ type RegisteredMiddleware = {
   pluginId: string;
   middleware: PluginMiddlewareSkill;
 };
+
+function comparePriorityThenId(
+  leftId: string,
+  leftPriority: number | undefined,
+  rightId: string,
+  rightPriority: number | undefined,
+): number {
+  const priorityDiff = (leftPriority ?? 0) - (rightPriority ?? 0);
+  if (priorityDiff !== 0) return priorityDiff;
+  return leftId.localeCompare(rightId);
+}
+
+function compareOutputGuards(
+  left: RegisteredOutputGuard,
+  right: RegisteredOutputGuard,
+): number {
+  return comparePriorityThenId(
+    `${left.pluginId}:${left.guard.id}`,
+    left.guard.priority,
+    `${right.pluginId}:${right.guard.id}`,
+    right.guard.priority,
+  );
+}
+
+function compareMiddlewares(
+  left: RegisteredMiddleware,
+  right: RegisteredMiddleware,
+): number {
+  return comparePriorityThenId(
+    `${left.pluginId}:${left.middleware.id}`,
+    left.middleware.priority,
+    `${right.pluginId}:${right.middleware.id}`,
+    right.middleware.priority,
+  );
+}
 
 type RegisteredTool = {
   pluginId: string;
@@ -816,6 +852,8 @@ export class PluginManager {
   private promptHooks: RegisteredPromptHook[] = [];
   private outputGuards: RegisteredOutputGuard[] = [];
   private middlewares: RegisteredMiddleware[] = [];
+  private hasPreSendMiddleware = false;
+  private hasPostReceiveMiddleware = false;
   private tools = new Map<string, RegisteredTool>();
   private services: RegisteredService[] = [];
   private inboundWebhooks = new Map<string, RegisteredInboundWebhook>();
@@ -1347,6 +1385,8 @@ export class PluginManager {
         id: middlewareId,
       },
     });
+    this.middlewares.sort(compareMiddlewares);
+    this.recomputeMiddlewareFlags();
   }
 
   registerOutputGuard(pluginId: string, guard: PluginOutputGuard): void {
@@ -1361,6 +1401,8 @@ export class PluginManager {
         id: guardId,
       },
     });
+    this.outputGuards.sort(compareOutputGuards);
+    this.recomputeMiddlewareFlags();
   }
 
   registerCommand(pluginId: string, command: PluginCommandDefinition): void {
@@ -1496,6 +1538,15 @@ export class PluginManager {
     this.sessionUserIds.set(normalizedSessionId, normalizedUserId);
   }
 
+  private recomputeMiddlewareFlags(): void {
+    this.hasPreSendMiddleware = this.middlewares.some((entry) =>
+      Boolean(entry.middleware.pre_send),
+    );
+    this.hasPostReceiveMiddleware =
+      this.outputGuards.length > 0 ||
+      this.middlewares.some((entry) => Boolean(entry.middleware.post_receive));
+  }
+
   private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
     return {
       plugins: [...this.plugins],
@@ -1528,6 +1579,7 @@ export class PluginManager {
     this.promptHooks = [...snapshot.promptHooks];
     this.outputGuards = [...snapshot.outputGuards];
     this.middlewares = [...snapshot.middlewares];
+    this.recomputeMiddlewareFlags();
     this.services = [...snapshot.services];
     this.inboundWebhooks = new Map(snapshot.inboundWebhooks);
     this.providers = [...snapshot.providers];
@@ -1613,6 +1665,7 @@ export class PluginManager {
     this.middlewares = this.middlewares.filter(
       (entry) => entry.pluginId !== pluginId,
     );
+    this.recomputeMiddlewareFlags();
     this.services = this.services.filter(
       (entry) => entry.pluginId !== pluginId,
     );
@@ -1892,18 +1945,47 @@ export class PluginManager {
   }
 
   hasOutputGuards(): boolean {
-    return (
-      this.outputGuards.length > 0 ||
-      this.middlewares.some((entry) => Boolean(entry.middleware.post_receive))
-    );
+    return this.hasPostReceiveMiddleware;
   }
 
   hasMiddleware(phase?: MiddlewarePhase): boolean {
     if (!phase) {
-      return this.middlewares.length > 0 || this.outputGuards.length > 0;
+      return this.hasPreSendMiddleware || this.hasPostReceiveMiddleware;
     }
-    if (phase === 'post_receive' && this.outputGuards.length > 0) return true;
-    return this.middlewares.some((entry) => Boolean(entry.middleware[phase]));
+    return phase === 'pre_send'
+      ? this.hasPreSendMiddleware
+      : this.hasPostReceiveMiddleware;
+  }
+
+  private wrapPluginMiddlewareHandler(
+    entry: RegisteredMiddleware,
+    phase: MiddlewarePhase,
+  ):
+    | ((
+        context: AgentTurnContext,
+      ) => Promise<MiddlewareDecision | null | undefined>)
+    | undefined {
+    const handler = entry.middleware[phase];
+    if (!handler) return undefined;
+    return async (context) => {
+      try {
+        return await handler({
+          ...context,
+          userId: context.userId || '',
+        });
+      } catch (error) {
+        this.logger.error(
+          {
+            pluginId: entry.pluginId,
+            middlewareId: entry.middleware.id,
+            phase,
+            error,
+          },
+          'Plugin middleware failed; allowing original turn',
+        );
+        return { action: 'allow' };
+      }
+    };
   }
 
   private collectClassifierMiddleware(
@@ -1913,48 +1995,8 @@ export class PluginManager {
       (entry) => ({
         id: `${entry.pluginId}:${entry.middleware.id}`,
         priority: entry.middleware.priority,
-        pre_send: entry.middleware.pre_send
-          ? async (context) => {
-              try {
-                return await entry.middleware.pre_send?.({
-                  ...context,
-                  userId: context.userId || '',
-                });
-              } catch (error) {
-                this.logger.warn(
-                  {
-                    pluginId: entry.pluginId,
-                    middlewareId: entry.middleware.id,
-                    phase,
-                    error,
-                  },
-                  'Plugin middleware failed; allowing original turn',
-                );
-                return { action: 'allow' };
-              }
-            }
-          : undefined,
-        post_receive: entry.middleware.post_receive
-          ? async (context) => {
-              try {
-                return await entry.middleware.post_receive?.({
-                  ...context,
-                  userId: context.userId || '',
-                });
-              } catch (error) {
-                this.logger.warn(
-                  {
-                    pluginId: entry.pluginId,
-                    middlewareId: entry.middleware.id,
-                    phase,
-                    error,
-                  },
-                  'Plugin middleware failed; allowing original turn',
-                );
-                return { action: 'allow' };
-              }
-            }
-          : undefined,
+        pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
+        post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
       }),
     );
 
@@ -2031,7 +2073,7 @@ export class PluginManager {
             );
             return { action: 'allow' };
           } catch (error) {
-            this.logger.warn(
+            this.logger.error(
               {
                 pluginId: entry.pluginId,
                 guardId: entry.guard.id,
