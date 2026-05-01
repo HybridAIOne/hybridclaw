@@ -77,6 +77,12 @@ If `WEB_API_TOKEN` is unset, localhost access opens without a login prompt. If
 it is set, `/chat`, `/agents`, and `/admin` all reuse the same token gate.
 For access from another machine, keep the gateway on loopback and follow
 [Remote Access](../guides/remote-access.md).
+
+Before exposing the gateway beyond localhost, choose the right runtime shape in
+[Local vs Cloud Setup](./local-vs-cloud.md). That guide covers when a public
+URL is required, how to configure local-only, tunneled, and cloud deployments,
+and how to switch between them.
+
 The `/chat` sidebar keeps recent conversations and can search session titles
 with contextual snippets, so you can jump back into older browser sessions
 without scrolling through the default recent list.
