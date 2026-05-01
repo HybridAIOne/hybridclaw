@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
+import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
+import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
 import type {
   NetworkPolicyAction,
   NetworkRule,
@@ -20,12 +22,16 @@ import {
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
 import {
-  classifyStakes,
   createStakesClassifier,
   type StakesClassifier,
   type StakesLevel,
   type StakesScore,
 } from './stakes-classifier.js';
+import {
+  createStakesMiddlewareSkill,
+  type StakesMiddlewareContext,
+  type StakesMiddlewareResult,
+} from './stakes-middleware.js';
 import { normalizeText } from './text-normalization.js';
 import {
   type ChatMessage,
@@ -141,6 +147,7 @@ export interface ToolApprovalEvaluation {
   autonomyLevel: AutonomyLevel;
   stakes: StakesLevel;
   stakesScore: StakesScore;
+  stakesMiddlewareDecision: StakesMiddlewareResult['decision'];
   escalationRoute: EscalationRoute;
   escalationTarget?: EscalationTarget;
   decision: ApprovalDecision;
@@ -1034,6 +1041,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly seenNetworkHosts = new Set<string>();
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
+  private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
 
@@ -1049,6 +1057,7 @@ export class TrustedAgentApprovalRuntime {
     this.trustStorePath = trustStorePath;
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
     this.stakesClassifier = stakesClassifier;
+    this.stakesMiddleware = createStakesMiddlewareSkill(this.stakesClassifier);
     this.reloadPolicyIfNeeded(true);
     this.loadPersistedTrustStore({
       trustStorePath: this.agentTrustStorePath,
@@ -1061,6 +1070,29 @@ export class TrustedAgentApprovalRuntime {
       actionSet: this.allowlistedActions,
       fingerprintSet: this.allowlistedFingerprints,
     });
+  }
+
+  private runStakesMiddleware(
+    context: Omit<StakesMiddlewareContext, 'recordStakesScore'>,
+  ): StakesMiddlewareResult {
+    let stakesScore: StakesScore | null = null;
+    const outcome = applyClassifierMiddlewareSync(
+      'pre_send',
+      [this.stakesMiddleware],
+      {
+        ...context,
+        recordStakesScore(score) {
+          stakesScore = score;
+        },
+      },
+    );
+    if (!stakesScore) {
+      throw new Error('Stakes middleware did not record a stakes score.');
+    }
+    return {
+      decision: outcome.decision,
+      stakesScore,
+    };
   }
 
   setFullAutoOptions(params?: {
@@ -1317,22 +1349,20 @@ export class TrustedAgentApprovalRuntime {
     });
     const safetyTier: ApprovalTier =
       pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
-    const stakesScore = classifyStakes(
-      {
-        toolName: params.toolName,
-        args,
-        actionKey: classified.actionKey,
-        intent: classified.intent,
-        reason: classified.reason,
-        target: classified.commandPreview,
-        approvalTier: safetyTier,
-        pathHints: classified.pathHints,
-        hostHints: classified.hostHints,
-        writeIntent: classified.writeIntent,
-        pinned: pinnedByPolicy,
-      },
-      this.stakesClassifier,
-    );
+    const stakesMiddleware = this.runStakesMiddleware({
+      toolName: params.toolName,
+      args,
+      actionKey: classified.actionKey,
+      intent: classified.intent,
+      reason: classified.reason,
+      target: classified.commandPreview,
+      approvalTier: safetyTier,
+      pathHints: classified.pathHints,
+      hostHints: classified.hostHints,
+      writeIntent: classified.writeIntent,
+      pinned: pinnedByPolicy,
+    });
+    const stakesScore = stakesMiddleware.stakesScore;
     const stakes = stakesScore.level;
     const escalationTarget = normalizeEscalationTarget(params.escalationTarget);
 
@@ -1362,6 +1392,7 @@ export class TrustedAgentApprovalRuntime {
           autonomyLevel,
           stakes,
           stakesScore,
+          stakesMiddlewareDecision: stakesMiddleware.decision,
           escalationRoute: 'policy_denial',
           ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'denied',
@@ -1425,6 +1456,7 @@ export class TrustedAgentApprovalRuntime {
             autonomyLevel,
             stakes,
             stakesScore,
+            stakesMiddlewareDecision: stakesMiddleware.decision,
             escalationRoute: 'policy_denial',
             ...(escalationTarget ? { escalationTarget } : {}),
             decision: 'denied',
@@ -1456,6 +1488,7 @@ export class TrustedAgentApprovalRuntime {
           autonomyLevel,
           stakes,
           stakesScore,
+          stakesMiddlewareDecision: stakesMiddleware.decision,
           escalationRoute: 'approval_request',
           ...(escalationTarget ? { escalationTarget } : {}),
           decision: 'required',
@@ -1504,6 +1537,7 @@ export class TrustedAgentApprovalRuntime {
       autonomyLevel,
       stakes,
       stakesScore,
+      stakesMiddlewareDecision: stakesMiddleware.decision,
       escalationRoute: escalationRouteForDecision(decision, tier),
       ...(escalationTarget ? { escalationTarget } : {}),
       decision,

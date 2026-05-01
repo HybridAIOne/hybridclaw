@@ -60,6 +60,27 @@ Use the skill.
   expect(manifest.supportedChannels).toEqual(['slack', 'email', 'tui']);
 });
 
+test('parses skill-side middleware hook declarations', () => {
+  const manifest = parseSkillManifestFromMarkdown(
+    `---
+name: Middleware Skill
+metadata:
+  hybridclaw:
+    middleware:
+      pre_send: true
+      post_receive: true
+---
+Use the skill.
+`,
+    { name: 'fallback' },
+  );
+
+  expect(manifest.middleware).toEqual({
+    preSend: true,
+    postReceive: true,
+  });
+});
+
 test('requires valid versions when strict manifest parsing is requested', () => {
   expect(() =>
     parseSkillManifestFromMarkdown(

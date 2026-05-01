@@ -1,11 +1,17 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Logger } from 'pino';
+import type {
+  AgentTurnContext,
+  ClassifierMiddlewareSkill,
+  MiddlewareDecision,
+} from '../agent/middleware.js';
 import type { ChannelInfo } from '../channels/channel.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
 import type { GatewayChatResult } from '../gateway/gateway-types.js';
 import type { AIProvider } from '../providers/types.js';
+import type { ChatMessage } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import type { ArtifactMetadata, ToolExecution } from '../types/execution.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { StoredMessage } from '../types/session.js';
 
@@ -15,7 +21,8 @@ export type PluginKind =
   | 'channel'
   | 'tool'
   | 'prompt-hook'
-  | 'output-guard';
+  | 'output-guard'
+  | 'middleware';
 
 export type PluginRegistrationMode = 'full' | 'discovery';
 export type PluginDiscoverySource = 'home' | 'project' | 'config';
@@ -316,18 +323,24 @@ export interface PluginOutputGuardContext {
   agentId: string;
   channelId: string;
   model?: string;
+  workspacePath?: string;
+  messages?: ChatMessage[];
   userContent: string;
   resultText: string;
+  toolExecutions?: ToolExecution[];
+  skill?: AgentTurnContext['skill'];
 }
 
 export type PluginOutputGuardDecision =
   | { action: 'allow' }
+  | { action: 'warn'; reason: string }
   | { action: 'rewrite'; text: string; reason?: string }
-  | { action: 'block'; reason: string; replacement?: string };
+  | { action: 'block'; reason: string };
 
 export interface PluginOutputGuard {
   id: string;
   priority?: number;
+  predicate?: (context: PluginOutputGuardContext) => Promise<boolean> | boolean;
   inspect: (
     context: PluginOutputGuardContext,
   ) =>
@@ -340,7 +353,7 @@ export interface PluginOutputGuard {
 export interface PluginOutputGuardEvent {
   pluginId: string;
   guardId: string;
-  action: 'allow' | 'rewrite' | 'block';
+  action: 'allow' | 'rewrite' | 'block' | 'warn';
   reason?: string;
   before?: string;
   after?: string;
@@ -351,6 +364,15 @@ export interface PluginOutputGuardOutcome {
   blocked: boolean;
   events: PluginOutputGuardEvent[];
 }
+
+export type PluginAgentTurnContext = AgentTurnContext & {
+  userId: string;
+};
+
+export type PluginMiddlewareDecision = MiddlewareDecision;
+
+export interface PluginMiddlewareSkill
+  extends ClassifierMiddlewareSkill<PluginAgentTurnContext> {}
 
 export interface MemoryLayerPlugin {
   id: string;
@@ -456,6 +478,7 @@ export interface HybridClawPluginApi {
   registerChannel(channel: ChannelInfo): void;
   registerTool(tool: PluginToolDefinition): void;
   registerPromptHook(hook: PluginPromptHook): void;
+  registerMiddleware(middleware: PluginMiddlewareSkill): void;
   registerOutputGuard(guard: PluginOutputGuard): void;
   registerCommand(cmd: PluginCommandDefinition): void;
   registerService(svc: PluginService): void;

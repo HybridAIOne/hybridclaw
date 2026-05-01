@@ -17,8 +17,14 @@ export interface SkillManifest {
   name: string;
   version: string;
   capabilities: string[];
+  middleware: SkillManifestMiddleware;
   requiredCredentials: SkillManifestCredential[];
   supportedChannels: ChannelKind[];
+}
+
+export interface SkillManifestMiddleware {
+  preSend: boolean;
+  postReceive: boolean;
 }
 
 export interface SkillManifestParseOptions {
@@ -103,6 +109,19 @@ function normalizeCapabilities(value: unknown): string[] {
   return normalizeStringList(value)
     .map((entry) => normalizeCapability(entry))
     .filter(Boolean);
+}
+
+function normalizeMiddleware(value: unknown): SkillManifestMiddleware {
+  if (!isRecord(value)) {
+    return {
+      preSend: false,
+      postReceive: false,
+    };
+  }
+  return {
+    preSend: value.pre_send === true || value.preSend === true,
+    postReceive: value.post_receive === true || value.postReceive === true,
+  };
 }
 
 function normalizeRequiredCredentials(
@@ -302,6 +321,7 @@ function parseSkillManifestFromFrontmatterObject(
     'supported_channels',
     'channels',
   ]);
+  const rawMiddleware = findFirstValue(sources, ['middleware']);
 
   return {
     id: slugify(id),
@@ -310,6 +330,7 @@ function parseSkillManifestFromFrontmatterObject(
     capabilities: normalizeCapabilities(
       findFirstValue(sources, ['capabilities']),
     ),
+    middleware: normalizeMiddleware(rawMiddleware),
     requiredCredentials: normalizeRequiredCredentials(rawCredentials),
     supportedChannels: normalizeSupportedChannels(rawChannels),
   };

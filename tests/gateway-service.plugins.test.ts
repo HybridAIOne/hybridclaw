@@ -53,6 +53,13 @@ const {
     handleInboundWebhook: vi.fn(async () => false),
     notifySessionStart: vi.fn(async () => {}),
     listPluginSummary: vi.fn(() => []),
+    hasMiddleware: vi.fn(() => false),
+    applyMiddleware: vi.fn(async () => ({
+      userContent: '',
+      resultText: '',
+      blocked: false,
+      events: [],
+    })),
     hasOutputGuards: vi.fn(() => false),
     applyOutputGuards: vi.fn(async (context: { resultText: string }) => ({
       resultText: context.resultText,
@@ -252,6 +259,10 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.notifySessionStart.mockClear();
     pluginManagerMock.listPluginSummary.mockClear();
     pluginManagerMock.findCommand.mockClear();
+    pluginManagerMock.hasMiddleware.mockClear();
+    pluginManagerMock.applyMiddleware.mockClear();
+    pluginManagerMock.hasOutputGuards.mockClear();
+    pluginManagerMock.applyOutputGuards.mockClear();
     shutdownPluginManagerMock.mockClear();
     checkPluginMock.mockClear();
     installPluginMock.mockClear();
@@ -312,6 +323,56 @@ function makeWebhookResponse(): import('node:http').ServerResponse & {
     headersSent: boolean;
   };
 }
+
+test('handleGatewayMessage passes explicit skill middleware manifest into middleware context', async () => {
+  setupHome();
+
+  pluginManagerMock.hasMiddleware.mockReturnValueOnce(true);
+  pluginManagerMock.applyMiddleware.mockImplementationOnce(async (context) => ({
+    userContent: context.userContent,
+    resultText: '',
+    blocked: false,
+    events: [],
+  }));
+  runAgentMock.mockResolvedValue({
+    status: 'success',
+    result: 'agent result',
+    toolsUsed: [],
+    toolExecutions: [],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-brand-voice-middleware-context',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: '/skill brand-voice draft the announcement',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(pluginManagerMock.applyMiddleware).toHaveBeenCalledWith(
+    'pre_send',
+    expect.objectContaining({
+      skill: {
+        name: 'brand-voice',
+        middleware: {
+          preSend: false,
+          postReceive: true,
+        },
+      },
+    }),
+  );
+});
 
 test('handleGatewayMessage injects plugin prompt context and forwards plugin tools to the agent', async () => {
   setupHome();

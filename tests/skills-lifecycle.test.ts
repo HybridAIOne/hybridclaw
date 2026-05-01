@@ -114,6 +114,10 @@ describe('skill package lifecycle', () => {
       name: 'deal-desk',
       version: '1.2.3',
       capabilities: ['crm.sync', 'proposal.write'],
+      middleware: {
+        preSend: false,
+        postReceive: false,
+      },
       requiredCredentials: [
         {
           id: 'salesforce',

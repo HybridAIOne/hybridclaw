@@ -1,7 +1,7 @@
 id: brand-voice
 name: Brand Voice Output Guard
 version: 0.1.0
-kind: output-guard
+kind: middleware
 description: Tone-and-voice guard that scans final agent responses for off-brand language, banned phrases, and rule violations, then rewrites or blocks before the message ships.
 entrypoint: src/index.js
 credentials:
