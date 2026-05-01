@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react';
-import hybridaiLogoUrl from './hybridai-logo.png';
-import lmstudioLogoUrl from './lmstudio-logo.webp';
+import hybridaiLogoUrl from './hybridai-logo.svg';
+import lmstudioLogoUrl from './lmstudio-logo.svg';
 
 export type ProviderLogoProps = SVGProps<SVGSVGElement>;
 
