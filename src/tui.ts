@@ -1382,6 +1382,7 @@ function pickOceanActivityVerb(): string {
 interface SpinnerToolEntry {
   name: string;
   preview: string;
+  count: number;
 }
 
 export function formatTuiToolActivityLine(params: {
@@ -1389,6 +1390,7 @@ export function formatTuiToolActivityLine(params: {
   preview?: string;
   columns: number;
   frameIndex?: number;
+  count?: number;
 }): string {
   const frameIndex = Math.max(0, params.frameIndex || 0);
   const frame =
@@ -1396,7 +1398,9 @@ export function formatTuiToolActivityLine(params: {
   const previewText = params.preview
     ? ` ${MUTED}${params.preview}${RESET}`
     : '';
-  const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${previewText}`;
+  const count = Math.max(1, params.count || 1);
+  const countText = count > 1 ? ` ${MUTED}x${count}${RESET}` : '';
+  const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${countText}${previewText}`;
   const safeColumns = Math.max(1, params.columns - 1);
   return truncateAnsiTuiEnd(body, safeColumns);
 }
@@ -1404,7 +1408,7 @@ export function formatTuiToolActivityLine(params: {
 function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
-  finishTool: (toolName: string) => void;
+  finishTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
   clearVisibleText: () => void;
@@ -1446,6 +1450,7 @@ function spinner(): {
       preview: entry.preview,
       columns: terminalColumns(),
       frameIndex: frameIdx,
+      count: entry.count,
     });
   };
   const repaintToolLine = (frameIdx: number) => {
@@ -1558,22 +1563,44 @@ function spinner(): {
       if (hasVisibleText) return;
       clearThinkingPreview();
       clearLine();
+      const normalizedPreview = preview || '';
+      let existingEntry: SpinnerToolEntry | undefined;
+      for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
+        const entry = toolEntries[idx];
+        if (entry.name !== toolName || entry.preview !== normalizedPreview) {
+          continue;
+        }
+        existingEntry = entry;
+        break;
+      }
+      if (existingEntry) {
+        existingEntry.count += 1;
+        repaintToolLine(i);
+        return;
+      }
       const entry: SpinnerToolEntry = {
         name: toolName,
-        preview: preview || '',
+        preview: normalizedPreview,
+        count: 1,
       };
       toolEntries.push(entry);
       repaintToolLine(i);
     },
-    finishTool: (toolName: string) => {
+    finishTool: (toolName: string, preview?: string) => {
       if (!showTools) return;
       if (hasVisibleText) return;
+      const normalizedPreview = preview || '';
       for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
         const entry = toolEntries[idx];
-        if (entry && entry.name === toolName) {
-          toolEntries.splice(idx, 1);
-          break;
+        if (entry.name !== toolName || entry.preview !== normalizedPreview) {
+          continue;
         }
+        if (entry.count > 1) {
+          entry.count -= 1;
+        } else {
+          toolEntries.splice(idx, 1);
+        }
+        break;
       }
       if (toolEntries.length > 0) {
         repaintToolLine(i);
@@ -2341,6 +2368,10 @@ async function processMessage(
     const request = buildGatewayChatRequest(content, queuedMedia);
     const streamState = createTuiThinkingStreamState();
     const streamedToolNames = new Set<string>();
+    const activeDisplayedToolStartCounts = new Map<string, number>();
+    const hiddenDuplicateToolCounts = new Map<string, number>();
+    const makeToolDisplayKey = (toolName: string, preview: string): string =>
+      `${toolName}\0${preview}`;
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
     let activeDelegateToolCount = 0;
@@ -2400,12 +2431,47 @@ async function processMessage(
             event,
           );
           if (event.phase === 'finish') {
-            s.finishTool(event.toolName);
+            const previewText = formatToolPreview(event.preview);
+            const displayKey = makeToolDisplayKey(event.toolName, previewText);
+            const hiddenCount = hiddenDuplicateToolCounts.get(displayKey) || 0;
+            if (hiddenCount > 0) {
+              if (hiddenCount === 1) {
+                hiddenDuplicateToolCounts.delete(displayKey);
+              } else {
+                hiddenDuplicateToolCounts.set(displayKey, hiddenCount - 1);
+              }
+              return;
+            }
+            s.finishTool(event.toolName, previewText || undefined);
+            const activeDisplayCount =
+              activeDisplayedToolStartCounts.get(displayKey) || 0;
+            if (activeDisplayCount <= 1) {
+              activeDisplayedToolStartCounts.delete(displayKey);
+            } else {
+              activeDisplayedToolStartCounts.set(
+                displayKey,
+                activeDisplayCount - 1,
+              );
+            }
             return;
           }
           if (event.phase !== 'start') return;
           const previewText = formatToolPreview(event.preview);
+          const displayKey = makeToolDisplayKey(event.toolName, previewText);
           streamedToolNames.add(event.toolName);
+          const activeDisplayCount =
+            activeDisplayedToolStartCounts.get(displayKey) || 0;
+          if (activeDisplayCount > 0) {
+            hiddenDuplicateToolCounts.set(
+              displayKey,
+              (hiddenDuplicateToolCounts.get(displayKey) || 0) + 1,
+            );
+            return;
+          }
+          activeDisplayedToolStartCounts.set(
+            displayKey,
+            activeDisplayCount + 1,
+          );
           s.addTool(event.toolName, previewText || undefined);
         },
         abortController.signal,

@@ -743,7 +743,7 @@ Commands:
   hybridclaw secret show <name>
   hybridclaw secret unset <name>
   hybridclaw secret route list
-  hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+  hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
   hybridclaw secret route remove <url-prefix> [header]
 
 Examples:
@@ -752,12 +752,13 @@ Examples:
   hybridclaw secret show SF_FULL_USERNAME
   hybridclaw secret unset SF_FULL_USERNAME
   hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+  hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
 
 Notes:
   - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
   - Secret names must use uppercase letters, digits, and underscores.
   - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
-  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref.
+  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref or the Google OAuth runtime token provider.
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 

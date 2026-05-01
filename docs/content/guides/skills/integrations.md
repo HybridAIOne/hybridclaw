@@ -177,6 +177,11 @@ hybridclaw auth status google
 Use **OAuth client ID**, not **API key** or **Service account**, for normal
 personal Gmail, Calendar, Drive, Docs, and Sheets access.
 
+For Google APIs that are not exposed by `gog` commands, such as Google
+Analytics Admin, Google Analytics Data, or Google Ads, configure direct
+`http_request` auth routes with the same OAuth login. See
+[Google OAuth For Direct Google APIs](../../getting-started/authentication.md#google-oauth-for-direct-google-apis).
+
 HybridClaw stores the OAuth client secret and refresh token in encrypted
 runtime secrets. At run time it mints a short-lived access token on the host
 and injects only Google Workspace CLI access-token environment variables plus
