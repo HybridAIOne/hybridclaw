@@ -219,6 +219,42 @@ function railKeyOf(model: ParsedModel): string {
   return model.provider;
 }
 
+function inferProviderKeyForSelectedModel(modelId: string): string {
+  const prefix = modelId.split('/', 1)[0]?.trim().toLowerCase() ?? '';
+  if (prefix === 'openai-codex') return 'codex';
+  if (prefix && PROVIDER_LABELS[prefix as GatewayModelProviderKey]) {
+    return prefix;
+  }
+  return 'hybridai';
+}
+
+function inferBackendForSelectedModel(
+  provider: string,
+): ModelSwitchEntry['backend'] {
+  if (provider === 'ollama') return 'ollama';
+  if (provider === 'lmstudio') return 'lmstudio';
+  if (provider === 'llamacpp') return 'llamacpp';
+  if (provider === 'vllm') return 'vllm';
+  return null;
+}
+
+function buildSelectedModelFallback(modelId: string): ModelSwitchEntry | null {
+  const id = modelId.trim();
+  if (!id) return null;
+  const provider = inferProviderKeyForSelectedModel(id);
+  const backend: ModelSwitchEntry['backend'] =
+    inferBackendForSelectedModel(provider);
+  return {
+    id,
+    provider,
+    backend,
+    contextWindow: null,
+    isReasoning: false,
+    family: null,
+    parameterSize: null,
+  };
+}
+
 type LogoComponent = ComponentType<ProviderLogoProps>;
 
 const PROVIDER_LOGOS: Partial<Record<KnownProvider, LogoComponent>> = {
@@ -508,16 +544,20 @@ export function ModelSwitchSelect(props: {
     return ordered;
   }, [parsed, query, railFilter]);
 
-  if (props.models.length === 0) return null;
+  const selectedModelId = props.selectedModelId.trim();
+  const selectedFallback = buildSelectedModelFallback(selectedModelId);
+  const selected =
+    parsed.find((m) => m.id === selectedModelId) ??
+    (selectedFallback ? parseModel(selectedFallback) : undefined);
 
-  const selected = parsed.find((m) => m.id === props.selectedModelId);
+  if (props.models.length === 0 && !selected) return null;
 
   return (
     <Select
-      value={selected ? props.selectedModelId : ''}
+      value={selected ? selected.id : ''}
       disabled={props.disabled}
       onValueChange={(next) => {
-        if (!next || next === props.selectedModelId) return;
+        if (!next || next === selectedModelId) return;
         props.onSwitch(next);
       }}
     >
