@@ -1041,6 +1041,42 @@ export interface AdminPendingApproval {
   actionKey: string | null;
 }
 
+export interface AdminSuspendedSession {
+  sessionId: string;
+  agentId: string | null;
+  approvalId: string;
+  userId: string;
+  prompt: string;
+  status: 'pending' | 'resumed' | 'declined' | 'timed_out' | 'expired';
+  modality: 'totp' | 'push' | 'qr' | 'sms' | 'recovery_code';
+  expectedReturnKinds: string[];
+  context: {
+    host?: string | null;
+    pageTitle?: string | null;
+    url?: string | null;
+    screenshotRef?: string | null;
+  };
+  createdAt: string;
+  expiresAt: string;
+  blockedLabel: string;
+}
+
+export type AdminInteractionResponse =
+  | { kind: 'code'; value: string }
+  | { kind: 'approved' }
+  | { kind: 'scanned' }
+  | { kind: 'declined'; reason?: string }
+  | { kind: 'timeout' };
+
+export interface AdminInteractionResumeResponse {
+  session: {
+    sessionId: string;
+    status: AdminSuspendedSession['status'];
+    modality: AdminSuspendedSession['modality'];
+  };
+  response: AdminInteractionResponse;
+}
+
 export interface AdminPolicyRule {
   index: number;
   action: 'allow' | 'deny';
@@ -1081,6 +1117,7 @@ export interface AdminApprovalsResponse {
   selectedAgentId: string;
   agents: AdminApprovalAgent[];
   pending: AdminPendingApproval[];
+  suspendedSessions: AdminSuspendedSession[];
   policy: AdminPolicyState;
   availablePresets: AdminPolicyPresetSummary[];
 }

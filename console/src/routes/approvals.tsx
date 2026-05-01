@@ -3,11 +3,16 @@ import { type FormEvent, useEffect, useState } from 'react';
 import {
   deleteAdminPolicyRule,
   fetchAdminApprovals,
+  resumeInteractiveEscalation,
   saveAdminPolicyDefault,
   saveAdminPolicyPreset,
   saveAdminPolicyRule,
 } from '../api/client';
-import type { AdminPolicyRule, AdminPolicyRuleInput } from '../api/types';
+import type {
+  AdminInteractionResponse,
+  AdminPolicyRule,
+  AdminPolicyRuleInput,
+} from '../api/types';
 import { useAuth } from '../auth';
 import {
   Dialog,
@@ -127,6 +132,9 @@ export function ApprovalsPage() {
   const [editingRuleIndex, setEditingRuleIndex] = useState<number | null>(null);
   const [deleteRuleTarget, setDeleteRuleTarget] =
     useState<AdminPolicyRule | null>(null);
+  const [interactionCodes, setInteractionCodes] = useState<
+    Record<string, string>
+  >({});
   const [draft, setDraft] = useState<PolicyRuleDraft>(() =>
     createEmptyPolicyRuleDraft('main'),
   );
@@ -245,6 +253,28 @@ export function ApprovalsPage() {
     },
   });
 
+  const interactionMutation = useMutation({
+    mutationFn: (params: {
+      sessionId: string;
+      response?: AdminInteractionResponse;
+      text?: string;
+    }) => resumeInteractiveEscalation(auth.token, params),
+    onSuccess: (_payload, params) => {
+      setInteractionCodes((current) => {
+        const next = { ...current };
+        delete next[params.sessionId];
+        return next;
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['admin-approvals', auth.token],
+      });
+      toast.success('Blocked session resumed.');
+    },
+    onError: (error) => {
+      toast.error('Failed to resume blocked session', getErrorMessage(error));
+    },
+  });
+
   function handleDraftSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     try {
@@ -265,6 +295,25 @@ export function ApprovalsPage() {
 
   function beginDeleteRule(rule: AdminPolicyRule): void {
     setDeleteRuleTarget(rule);
+  }
+
+  function resumeInteraction(
+    sessionId: string,
+    response: AdminInteractionResponse,
+  ): void {
+    interactionMutation.mutate({ sessionId, response });
+  }
+
+  function submitInteractionCode(sessionId: string): void {
+    const value = (interactionCodes[sessionId] || '').trim();
+    if (!value) {
+      toast.error('Code required', 'Enter the operator-provided code first.');
+      return;
+    }
+    interactionMutation.mutate({
+      sessionId,
+      response: { kind: 'code', value },
+    });
   }
 
   const policyRules = approvalsQuery.data?.policy.rules || [];
@@ -326,6 +375,10 @@ export function ApprovalsPage() {
         <MetricCard
           label="Pending approvals"
           value={String(approvalsQuery.data?.pending.length || 0)}
+        />
+        <MetricCard
+          label="Blocked sessions"
+          value={String(approvalsQuery.data?.suspendedSessions.length || 0)}
         />
         <MetricCard
           label="Policy rules"
@@ -615,6 +668,136 @@ export function ApprovalsPage() {
             </div>
           ) : (
             <div className="empty-state">Policy state is unavailable.</div>
+          )}
+        </Panel>
+
+        <Panel title="Blocked sessions">
+          {approvalsQuery.isLoading ? (
+            <div className="empty-state">Loading blocked sessions...</div>
+          ) : approvalsQuery.data?.suspendedSessions.length ? (
+            <div className="list-stack">
+              {approvalsQuery.data.suspendedSessions.map((session) => (
+                <div className="summary-block" key={session.sessionId}>
+                  <div className="key-value-grid">
+                    <div>
+                      <span>Status</span>
+                      <strong>{session.blockedLabel}</strong>
+                    </div>
+                    <div>
+                      <span>Modality</span>
+                      <strong>{session.modality}</strong>
+                    </div>
+                    <div>
+                      <span>Agent</span>
+                      <strong>{session.agentId || 'unknown'}</strong>
+                    </div>
+                    <div>
+                      <span>Host</span>
+                      <strong>{session.context.host || 'unknown'}</strong>
+                    </div>
+                    <div>
+                      <span>Created</span>
+                      <strong title={formatDateTime(session.createdAt)}>
+                        {formatRelativeTime(session.createdAt)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Expires</span>
+                      <strong title={formatDateTime(session.expiresAt)}>
+                        {formatRelativeTime(session.expiresAt)}
+                      </strong>
+                    </div>
+                  </div>
+                  <p className="supporting-text">{session.prompt}</p>
+                  <div className="button-row">
+                    {session.expectedReturnKinds.includes('code') ? (
+                      <>
+                        <input
+                          aria-label={`Code for ${session.sessionId}`}
+                          value={interactionCodes[session.sessionId] || ''}
+                          disabled={interactionMutation.isPending}
+                          placeholder="Code"
+                          onChange={(event) =>
+                            setInteractionCodes((current) => ({
+                              ...current,
+                              [session.sessionId]: event.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={interactionMutation.isPending}
+                          onClick={() =>
+                            submitInteractionCode(session.sessionId)
+                          }
+                        >
+                          Resume
+                        </button>
+                      </>
+                    ) : null}
+                    {session.expectedReturnKinds.includes('approved') ? (
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={interactionMutation.isPending}
+                        onClick={() =>
+                          resumeInteraction(session.sessionId, {
+                            kind: 'approved',
+                          })
+                        }
+                      >
+                        Approved
+                      </button>
+                    ) : null}
+                    {session.expectedReturnKinds.includes('scanned') ? (
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={interactionMutation.isPending}
+                        onClick={() =>
+                          resumeInteraction(session.sessionId, {
+                            kind: 'scanned',
+                          })
+                        }
+                      >
+                        Scanned
+                      </button>
+                    ) : null}
+                    {session.expectedReturnKinds.includes('declined') ? (
+                      <button
+                        className="danger-button"
+                        type="button"
+                        disabled={interactionMutation.isPending}
+                        onClick={() =>
+                          resumeInteraction(session.sessionId, {
+                            kind: 'declined',
+                          })
+                        }
+                      >
+                        Decline
+                      </button>
+                    ) : null}
+                    {session.expectedReturnKinds.includes('timeout') ? (
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        disabled={interactionMutation.isPending}
+                        onClick={() =>
+                          resumeInteraction(session.sessionId, {
+                            kind: 'timeout',
+                          })
+                        }
+                      >
+                        Timeout
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">No blocked sessions right now.</div>
           )}
         </Panel>
 

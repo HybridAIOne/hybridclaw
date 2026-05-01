@@ -434,6 +434,7 @@ import {
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
   type GatewayAdminStatisticsTrendDay,
+  type GatewayAdminSuspendedSession,
   type GatewayAdminTeamStructureResponse,
   type GatewayAdminTeamStructureRevision,
   type GatewayAdminTeamStructureRevisionResponse,
@@ -460,6 +461,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { listSuspendedSessions } from './interactive-escalation.js';
 import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -5345,6 +5347,26 @@ function mapGatewayAdminPendingApproval(
   };
 }
 
+function mapGatewayAdminSuspendedSession(
+  session: ReturnType<typeof listSuspendedSessions>[number],
+  sessionAgentIds: Map<string, string>,
+): GatewayAdminSuspendedSession {
+  return {
+    sessionId: session.sessionId,
+    agentId: session.agentId || sessionAgentIds.get(session.sessionId) || null,
+    approvalId: session.approvalId,
+    userId: session.userId,
+    prompt: session.prompt,
+    status: session.status,
+    modality: session.modality,
+    expectedReturnKinds: session.expectedReturnKinds,
+    context: session.context,
+    createdAt: new Date(session.createdAt).toISOString(),
+    expiresAt: new Date(session.expiresAt).toISOString(),
+    blockedLabel: `blocked: needs ${session.modality === 'totp' ? '2FA' : session.modality}`,
+  };
+}
+
 export function getGatewayAdminApprovals(params?: {
   agentId?: string;
 }): GatewayAdminApprovalsResponse {
@@ -5361,6 +5383,9 @@ export function getGatewayAdminApprovals(params?: {
     agents: listGatewayAdminApprovalAgents(selectedAgentId),
     pending: listPendingApprovals().map((pending) =>
       mapGatewayAdminPendingApproval(pending, sessionAgentIds),
+    ),
+    suspendedSessions: listSuspendedSessions().map((session) =>
+      mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
     policy: mapGatewayAdminPolicyState(selectedAgentId),
     availablePresets: listPolicyPresetSummaries().map(

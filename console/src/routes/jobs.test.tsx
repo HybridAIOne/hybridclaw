@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AdminApprovalsResponse,
   AdminSchedulerJob,
   AdminSchedulerResponse,
   JobSession,
@@ -11,14 +12,19 @@ import { JobsPage } from './jobs';
 
 const fetchJobsContextMock = vi.fn();
 const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
+const fetchAdminApprovalsMock = vi.fn<() => Promise<AdminApprovalsResponse>>();
 const moveSchedulerJobMock = vi.fn();
+const resumeInteractiveEscalationMock = vi.fn();
 const saveSchedulerJobMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchAdminApprovals: () => fetchAdminApprovalsMock(),
   fetchJobsContext: (...args: unknown[]) => fetchJobsContextMock(...args),
   fetchScheduler: () => fetchSchedulerMock(),
   moveSchedulerJob: (...args: unknown[]) => moveSchedulerJobMock(...args),
+  resumeInteractiveEscalation: (...args: unknown[]) =>
+    resumeInteractiveEscalationMock(...args),
   saveSchedulerJob: (...args: unknown[]) => saveSchedulerJobMock(...args),
 }));
 
@@ -81,6 +87,27 @@ function makeJobSession(overrides: Partial<JobSession> = {}): JobSession {
   };
 }
 
+function makeApprovalsResponse(
+  overrides: Partial<AdminApprovalsResponse> = {},
+): AdminApprovalsResponse {
+  return {
+    selectedAgentId: 'main',
+    agents: [{ id: 'main', name: 'Main', workspacePath: '/tmp/main' }],
+    pending: [],
+    suspendedSessions: [],
+    policy: {
+      exists: true,
+      policyPath: '/tmp/main/.hybridclaw/policy.yaml',
+      workspacePath: '/tmp/main',
+      defaultAction: 'deny',
+      presets: [],
+      rules: [],
+    },
+    availablePresets: [],
+    ...overrides,
+  };
+}
+
 function renderJobsPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -101,7 +128,9 @@ describe('JobsPage', () => {
   beforeEach(() => {
     fetchJobsContextMock.mockReset();
     fetchSchedulerMock.mockReset();
+    fetchAdminApprovalsMock.mockReset();
     moveSchedulerJobMock.mockReset();
+    resumeInteractiveEscalationMock.mockReset();
     saveSchedulerJobMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({
@@ -113,6 +142,15 @@ describe('JobsPage', () => {
     });
     fetchSchedulerMock.mockResolvedValue({
       jobs: [makeConfigJob()],
+    });
+    fetchAdminApprovalsMock.mockResolvedValue(makeApprovalsResponse());
+    resumeInteractiveEscalationMock.mockResolvedValue({
+      session: {
+        sessionId: 'session-2fa',
+        status: 'resumed',
+        modality: 'sms',
+      },
+      response: { kind: 'code', value: '123456' },
     });
   });
 
@@ -170,5 +208,54 @@ describe('JobsPage', () => {
       expect(screen.getByText('Created')).toBeTruthy();
     });
     expect(screen.queryByText('never')).toBeNull();
+  });
+
+  it('shows blocked sessions on the board and resumes them from the detail pane', async () => {
+    fetchAdminApprovalsMock.mockResolvedValue(
+      makeApprovalsResponse({
+        suspendedSessions: [
+          {
+            sessionId: 'session-2fa',
+            agentId: 'main',
+            approvalId: 'approval-2fa',
+            userId: 'operator-1',
+            prompt: 'Enter the SMS verification code.',
+            status: 'pending',
+            modality: 'sms',
+            expectedReturnKinds: ['code', 'declined', 'timeout'],
+            context: {
+              host: 'sap.example',
+              pageTitle: 'Verify sign in',
+              url: 'https://sap.example/login',
+            },
+            createdAt: '2026-04-12T18:40:00.000Z',
+            expiresAt: '2026-04-12T18:50:00.000Z',
+            blockedLabel: 'Blocked: sms',
+          },
+        ],
+      }),
+    );
+
+    renderJobsPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Blocked: sms').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByText('Blocked: sms')[0]);
+    fireEvent.change(screen.getByLabelText('Code for session-2fa'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => {
+      expect(resumeInteractiveEscalationMock).toHaveBeenCalledWith(
+        'test-token',
+        {
+          sessionId: 'session-2fa',
+          response: { kind: 'code', value: '123456' },
+        },
+      );
+    });
   });
 });

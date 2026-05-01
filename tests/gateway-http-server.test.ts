@@ -1183,6 +1183,7 @@ async function importFreshHealth(options?: {
         actionKey: 'network:example.com',
       },
     ],
+    suspendedSessions: [],
     policy: {
       exists: true,
       policyPath: '/tmp/main/workspace/.hybridclaw/policy.yaml',

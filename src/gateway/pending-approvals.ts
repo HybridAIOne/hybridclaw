@@ -1,9 +1,15 @@
 import {
+  getRuntimeAssetRevisionState,
+  listRuntimeAssetRevisionStates,
+  syncRuntimeAssetRevisionState,
+} from '../config/runtime-config-revisions.js';
+import {
   type ApprovalPresentation,
   createApprovalPresentation,
 } from './approval-presentation.js';
 
 const APPROVAL_PROMPT_DEFAULT_TTL_MS = 120_000;
+const PENDING_APPROVAL_ASSET_PREFIX = 'pending-approvals/session/';
 
 export interface PendingApprovalCommandAction {
   approveArgs: string[];
@@ -30,6 +36,180 @@ export interface PendingApprovalPrompt {
 
 const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
 
+type DurablePendingApprovalPrompt = Omit<
+  PendingApprovalPrompt,
+  'disableButtons' | 'disableTimeout'
+>;
+
+function pendingApprovalAssetPath(sessionId: string): string {
+  const normalized = encodeURIComponent(sessionId.trim());
+  return `${PENDING_APPROVAL_ASSET_PREFIX}${normalized || 'session'}.json`;
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDurablePendingApproval(
+  value: unknown,
+): DurablePendingApprovalPrompt | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const approvalId =
+    typeof raw.approvalId === 'string' ? raw.approvalId.trim() : '';
+  const prompt = typeof raw.prompt === 'string' ? raw.prompt : '';
+  const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : NaN;
+  const expiresAt = typeof raw.expiresAt === 'number' ? raw.expiresAt : NaN;
+  const userId = typeof raw.userId === 'string' ? raw.userId.trim() : '';
+  if (
+    !approvalId ||
+    !prompt ||
+    !userId ||
+    !Number.isFinite(createdAt) ||
+    !Number.isFinite(expiresAt)
+  ) {
+    return null;
+  }
+
+  return {
+    approvalId,
+    prompt,
+    presentation:
+      raw.presentation &&
+      typeof raw.presentation === 'object' &&
+      !Array.isArray(raw.presentation)
+        ? (raw.presentation as ApprovalPresentation)
+        : createApprovalPresentation('text'),
+    createdAt,
+    expiresAt,
+    userId,
+    resolvedAt:
+      typeof raw.resolvedAt === 'number' && Number.isFinite(raw.resolvedAt)
+        ? raw.resolvedAt
+        : null,
+    commandAction:
+      raw.commandAction &&
+      typeof raw.commandAction === 'object' &&
+      !Array.isArray(raw.commandAction)
+        ? (raw.commandAction as PendingApprovalCommandAction)
+        : null,
+  };
+}
+
+function serializePendingApproval(
+  entry: PendingApprovalPrompt,
+): DurablePendingApprovalPrompt {
+  return {
+    approvalId: entry.approvalId,
+    prompt: entry.prompt,
+    presentation: entry.presentation ?? createApprovalPresentation('text'),
+    createdAt: entry.createdAt,
+    expiresAt: entry.expiresAt,
+    userId: entry.userId,
+    resolvedAt: entry.resolvedAt ?? null,
+    commandAction: entry.commandAction ?? null,
+  };
+}
+
+function persistPendingApproval(
+  sessionId: string,
+  entry: PendingApprovalPrompt,
+): void {
+  syncRuntimeAssetRevisionState(
+    'pending_approval',
+    pendingApprovalAssetPath(sessionId),
+    {
+      route: 'pending-approvals.persist',
+      source: 'gateway',
+    },
+    {
+      exists: true,
+      content: JSON.stringify(serializePendingApproval(entry)),
+    },
+  );
+}
+
+function deletePersistedPendingApproval(sessionId: string): void {
+  syncRuntimeAssetRevisionState(
+    'pending_approval',
+    pendingApprovalAssetPath(sessionId),
+    {
+      route: 'pending-approvals.clear',
+      source: 'gateway',
+    },
+    { exists: false, content: null },
+  );
+}
+
+function rehydrateDurablePendingApprovals(): void {
+  const states = listRuntimeAssetRevisionStates('pending_approval').filter(
+    (state) => state.assetPath.startsWith(PENDING_APPROVAL_ASSET_PREFIX),
+  );
+  for (const state of states) {
+    const sessionId = decodeURIComponent(
+      state.assetPath
+        .slice(PENDING_APPROVAL_ASSET_PREFIX.length)
+        .replace(/\.json$/, ''),
+    );
+    const durable = normalizeDurablePendingApproval(
+      parseJsonObject(state.content),
+    );
+    if (!durable) continue;
+
+    const existing = pendingApprovalBySession.get(sessionId);
+    pendingApprovalBySession.set(sessionId, {
+      ...durable,
+      disableButtons: existing?.disableButtons ?? null,
+      disableTimeout: existing?.disableTimeout ?? null,
+    });
+  }
+}
+
+function getStoredPendingApproval(
+  sessionId: string,
+): PendingApprovalPrompt | null {
+  rehydrateDurablePendingApprovals();
+  const entry = pendingApprovalBySession.get(sessionId) || null;
+  if (entry) return entry;
+
+  const state = getRuntimeAssetRevisionState(
+    'pending_approval',
+    pendingApprovalAssetPath(sessionId),
+  );
+  const durable = state
+    ? normalizeDurablePendingApproval(parseJsonObject(state.content))
+    : null;
+  if (!durable) return null;
+  const rehydrated: PendingApprovalPrompt = {
+    ...durable,
+    disableButtons: null,
+    disableTimeout: null,
+  };
+  pendingApprovalBySession.set(sessionId, rehydrated);
+  return rehydrated;
+}
+
+function dropPendingApprovalEntry(
+  sessionId: string,
+  options?: { disableButtons?: boolean },
+): PendingApprovalPrompt | null {
+  const existing = pendingApprovalBySession.get(sessionId) || null;
+  pendingApprovalBySession.delete(sessionId);
+  deletePersistedPendingApproval(sessionId);
+  if (existing) {
+    void disposePendingApprovalEntry(existing, options);
+  }
+  return existing;
+}
+
 async function disposePendingApprovalEntry(
   entry: PendingApprovalPrompt,
   options?: { disableButtons?: boolean },
@@ -48,13 +228,14 @@ async function disposePendingApprovalEntry(
 export function getPendingApproval(
   sessionId: string,
 ): PendingApprovalPrompt | null {
-  return pendingApprovalBySession.get(sessionId) || null;
+  return getStoredPendingApproval(sessionId);
 }
 
 export function listPendingApprovals(): Array<{
   sessionId: string;
   entry: PendingApprovalPrompt;
 }> {
+  rehydrateDurablePendingApprovals();
   const now = Date.now();
   const entries: Array<{
     sessionId: string;
@@ -63,8 +244,7 @@ export function listPendingApprovals(): Array<{
 
   for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
     if (entry.expiresAt <= now) {
-      pendingApprovalBySession.delete(sessionId);
-      void disposePendingApprovalEntry(entry, { disableButtons: true });
+      dropPendingApprovalEntry(sessionId, { disableButtons: true });
       continue;
     }
     if (entry.resolvedAt) {
@@ -88,9 +268,11 @@ export async function setPendingApproval(
   const existing = pendingApprovalBySession.get(sessionId) || null;
   if (existing) {
     pendingApprovalBySession.delete(sessionId);
+    deletePersistedPendingApproval(sessionId);
     await disposePendingApprovalEntry(existing, { disableButtons: true });
   }
   pendingApprovalBySession.set(sessionId, nextEntry);
+  persistPendingApproval(sessionId, nextEntry);
 }
 
 export async function rememberPendingApproval(params: {
@@ -133,14 +315,16 @@ export async function clearPendingApproval(
   sessionId: string,
   options?: { disableButtons?: boolean },
 ): Promise<PendingApprovalPrompt | null> {
-  const existing = pendingApprovalBySession.get(sessionId) || null;
+  const existing = getStoredPendingApproval(sessionId);
   if (!existing) return null;
   pendingApprovalBySession.delete(sessionId);
+  deletePersistedPendingApproval(sessionId);
   await disposePendingApprovalEntry(existing, options);
   return existing;
 }
 
 export async function cleanupExpiredPendingApprovals(): Promise<void> {
+  rehydrateDurablePendingApprovals();
   const now = Date.now();
   const expiredSessionIds = [...pendingApprovalBySession.entries()]
     .filter(([, pending]) => pending.expiresAt <= now)
@@ -156,13 +340,13 @@ export function findPendingApprovalByApprovalId(approvalId: string): {
   sessionId: string;
   entry: PendingApprovalPrompt;
 } | null {
+  rehydrateDurablePendingApprovals();
   const normalizedApprovalId = approvalId.trim();
   if (!normalizedApprovalId) return null;
   const now = Date.now();
   for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
     if (entry.expiresAt <= now) {
-      pendingApprovalBySession.delete(sessionId);
-      void disposePendingApprovalEntry(entry, { disableButtons: true });
+      dropPendingApprovalEntry(sessionId, { disableButtons: true });
       continue;
     }
     if (entry.resolvedAt) {
@@ -195,13 +379,13 @@ export function claimPendingApprovalByApprovalId(params: {
       entry: PendingApprovalPrompt;
     }
   | { status: 'not_found' } {
+  rehydrateDurablePendingApprovals();
   const normalizedApprovalId = params.approvalId.trim();
   if (!normalizedApprovalId) return { status: 'not_found' };
   const now = Date.now();
   for (const [sessionId, entry] of pendingApprovalBySession.entries()) {
     if (entry.expiresAt <= now) {
-      pendingApprovalBySession.delete(sessionId);
-      void disposePendingApprovalEntry(entry, { disableButtons: true });
+      dropPendingApprovalEntry(sessionId, { disableButtons: true });
       continue;
     }
     if (entry.approvalId !== normalizedApprovalId) {
@@ -214,6 +398,7 @@ export function claimPendingApprovalByApprovalId(params: {
       return { status: 'already_handled', sessionId, entry };
     }
     entry.resolvedAt = now;
+    persistPendingApproval(sessionId, entry);
     return { status: 'claimed', sessionId, entry };
   }
   return { status: 'not_found' };
@@ -229,7 +414,7 @@ export function rollbackPendingApprovalClaim(params: {
     return false;
   }
 
-  const entry = pendingApprovalBySession.get(sessionId);
+  const entry = getStoredPendingApproval(sessionId);
   if (!entry) {
     return false;
   }
@@ -238,5 +423,6 @@ export function rollbackPendingApprovalClaim(params: {
   }
 
   entry.resolvedAt = null;
+  persistPendingApproval(sessionId, entry);
   return true;
 }

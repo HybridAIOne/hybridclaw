@@ -15,6 +15,7 @@ import {
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
+  setBrowserGatewayContext,
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
@@ -710,6 +711,7 @@ export function setGatewayContext(
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
+  setBrowserGatewayContext(gatewayBaseUrl, gatewayApiToken);
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
@@ -3049,6 +3051,8 @@ async function executeToolInternal(
     }
 
     case 'browser_navigate':
+    case 'browser_await_two_factor':
+    case 'browser_resume_interaction':
     case 'browser_snapshot':
     case 'browser_click':
     case 'browser_type':

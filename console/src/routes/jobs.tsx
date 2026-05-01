@@ -8,12 +8,20 @@ import {
   useState,
 } from 'react';
 import {
+  fetchAdminApprovals,
   fetchJobsContext,
   fetchScheduler,
   moveSchedulerJob,
+  resumeInteractiveEscalation,
   saveSchedulerJob,
 } from '../api/client';
-import type { AdminSchedulerJob, JobAgent, JobSession } from '../api/types';
+import type {
+  AdminInteractionResponse,
+  AdminSchedulerJob,
+  AdminSuspendedSession,
+  JobAgent,
+  JobSession,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
@@ -25,6 +33,7 @@ type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 interface JobBoardItem {
   key: string;
   job: AdminSchedulerJob;
+  suspendedSession?: AdminSuspendedSession;
   session: JobSession | null;
   agentKey: string;
   agentLabel: string;
@@ -100,6 +109,39 @@ function deriveStateLabel(job: AdminSchedulerJob, column: JobColumnId): string {
   if (column === 'review' && job.lastStatus === 'error') return 'failed';
   if (column === 'backlog' || column === 'cancelled') return 'queued';
   return 'ready';
+}
+
+function buildSuspendedSessionJob(
+  session: AdminSuspendedSession,
+): AdminSchedulerJob {
+  return {
+    id: `blocked:${session.sessionId}`,
+    source: 'task',
+    name: session.blockedLabel,
+    description: session.prompt,
+    agentId: session.agentId,
+    boardStatus: 'review',
+    maxRetries: null,
+    enabled: true,
+    schedule: {
+      kind: 'one_shot',
+      at: session.createdAt,
+      everyMs: null,
+      expr: null,
+      tz: 'UTC',
+    },
+    action: { kind: 'system_event', message: session.prompt },
+    delivery: { kind: 'last-channel', channel: '', to: '', webhookUrl: '' },
+    lastRun: null,
+    lastStatus: null,
+    nextRunAt: null,
+    disabled: false,
+    consecutiveErrors: 0,
+    createdAt: session.createdAt,
+    sessionId: session.sessionId,
+    channelId: null,
+    taskId: null,
+  };
 }
 
 function isJobPaused(job: AdminSchedulerJob): boolean {
@@ -273,10 +315,16 @@ function JobDetailCard(props: {
   runtime: JobRuntimeEntry[];
   agents: JobAgent[];
   savePending: boolean;
+  interactionCode: string;
+  interactionPending: boolean;
   onUpdate: (nextJob: AdminSchedulerJob & { source: 'config' }) => void;
+  onInteractionCodeChange: (value: string) => void;
+  onResumeInteraction: (response: AdminInteractionResponse) => void;
 }) {
   const sessionId = resolveSchedulerSessionId(props.item.job);
-  const editHref = `/admin/scheduler?jobId=${encodeURIComponent(props.item.job.id)}`;
+  const editHref = props.item.suspendedSession
+    ? '/admin/approvals'
+    : `/admin/scheduler?jobId=${encodeURIComponent(props.item.job.id)}`;
   const outputs = useMemo(() => collectJobOutputs(props.item), [props.item]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<null | 'lane' | 'agent'>(
@@ -426,6 +474,112 @@ function JobDetailCard(props: {
           <p>{props.item.job.action.message || 'No action message.'}</p>
         </div>
 
+        {props.item.suspendedSession ? (
+          <div className="summary-block">
+            <div className="summary-block-header">
+              <span>Resume</span>
+              <strong>{props.item.suspendedSession.modality}</strong>
+            </div>
+            <p className="supporting-text">
+              {props.item.suspendedSession.prompt}
+            </p>
+            <div className="button-row">
+              {props.item.suspendedSession.expectedReturnKinds.includes(
+                'code',
+              ) ? (
+                <>
+                  <input
+                    aria-label={`Code for ${props.item.suspendedSession.sessionId}`}
+                    value={props.interactionCode}
+                    disabled={props.interactionPending}
+                    placeholder="Code"
+                    onChange={(event) =>
+                      props.onInteractionCodeChange(event.target.value)
+                    }
+                  />
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={props.interactionPending}
+                    onClick={() =>
+                      props.onResumeInteraction({
+                        kind: 'code',
+                        value: props.interactionCode.trim(),
+                      })
+                    }
+                  >
+                    Resume
+                  </button>
+                </>
+              ) : null}
+              {props.item.suspendedSession.expectedReturnKinds.includes(
+                'approved',
+              ) ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={props.interactionPending}
+                  onClick={() =>
+                    props.onResumeInteraction({
+                      kind: 'approved',
+                    })
+                  }
+                >
+                  Approved
+                </button>
+              ) : null}
+              {props.item.suspendedSession.expectedReturnKinds.includes(
+                'scanned',
+              ) ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={props.interactionPending}
+                  onClick={() =>
+                    props.onResumeInteraction({
+                      kind: 'scanned',
+                    })
+                  }
+                >
+                  Scanned
+                </button>
+              ) : null}
+              {props.item.suspendedSession.expectedReturnKinds.includes(
+                'declined',
+              ) ? (
+                <button
+                  className="danger-button"
+                  type="button"
+                  disabled={props.interactionPending}
+                  onClick={() =>
+                    props.onResumeInteraction({
+                      kind: 'declined',
+                    })
+                  }
+                >
+                  Decline
+                </button>
+              ) : null}
+              {props.item.suspendedSession.expectedReturnKinds.includes(
+                'timeout',
+              ) ? (
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={props.interactionPending}
+                  onClick={() =>
+                    props.onResumeInteraction({
+                      kind: 'timeout',
+                    })
+                  }
+                >
+                  Timeout
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         <div className="summary-block">
           <div className="summary-block-header">
             <span>Outputs</span>
@@ -500,6 +654,9 @@ export function JobsPage() {
   const [dragOverColumn, setDragOverColumn] = useState<JobColumnId | null>(
     null,
   );
+  const [interactionCodes, setInteractionCodes] = useState<
+    Record<string, string>
+  >({});
   const deferredSearch = useDeferredValue(search);
 
   const schedulerQuery = useQuery({
@@ -511,6 +668,12 @@ export function JobsPage() {
   const jobsContextQuery = useQuery({
     queryKey: ['jobs-context', auth.token],
     queryFn: () => fetchJobsContext(auth.token),
+    refetchInterval: 15_000,
+  });
+
+  const approvalsQuery = useQuery({
+    queryKey: ['admin-approvals', auth.token, 'board'],
+    queryFn: () => fetchAdminApprovals(auth.token),
     refetchInterval: 15_000,
   });
 
@@ -566,6 +729,53 @@ export function JobsPage() {
     },
   });
 
+  const interactionMutation = useMutation({
+    mutationFn: (params: {
+      sessionId: string;
+      response: AdminInteractionResponse;
+    }) => resumeInteractiveEscalation(auth.token, params),
+    onSuccess: (_payload, params) => {
+      setInteractionCodes((current) => {
+        const next = { ...current };
+        delete next[params.sessionId];
+        return next;
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['admin-approvals', auth.token],
+      });
+      toast.success('Blocked session resumed.');
+    },
+    onError: (error) => {
+      toast.error('Failed to resume blocked session', getErrorMessage(error));
+    },
+  });
+
+  function submitInteractionCode(sessionId: string): void {
+    const value = (interactionCodes[sessionId] || '').trim();
+    if (!value) {
+      toast.error('Code required', 'Enter the operator-provided code first.');
+      return;
+    }
+    interactionMutation.mutate({
+      sessionId,
+      response: { kind: 'code', value },
+    });
+  }
+
+  function resumeBlockedSession(
+    session: AdminSuspendedSession,
+    response: AdminInteractionResponse,
+  ): void {
+    if (response.kind === 'code') {
+      submitInteractionCode(session.sessionId);
+      return;
+    }
+    interactionMutation.mutate({
+      sessionId: session.sessionId,
+      response,
+    });
+  }
+
   const sessionsById = useMemo(() => {
     return new Map(
       (jobsContextQuery.data?.sessions || []).map((session) => [
@@ -582,48 +792,94 @@ export function JobsPage() {
   }, [jobsContextQuery.data?.agents]);
 
   const allItems = useMemo(() => {
-    return (schedulerQuery.data?.jobs || []).map((job): JobBoardItem => {
-      const session =
-        sessionsById.get(resolveSchedulerSessionId(job) || '') || null;
-      const agentId = job.agentId || session?.agentId || 'unassigned';
-      const agent = agentsById.get(agentId) || null;
-      const agentLabel =
-        agent?.name ||
-        job.agentId ||
-        session?.agentId ||
-        (agentId === 'unassigned' ? 'Unassigned' : agentId);
-      const column = deriveColumn(job, session);
-      const summary =
-        trimText(job.description, 28) ||
-        trimText(job.action.message, 36) ||
-        trimText(job.channelId, 24) ||
-        'No summary';
+    const scheduledItems = (schedulerQuery.data?.jobs || []).map(
+      (job): JobBoardItem => {
+        const session =
+          sessionsById.get(resolveSchedulerSessionId(job) || '') || null;
+        const agentId = job.agentId || session?.agentId || 'unassigned';
+        const agent = agentsById.get(agentId) || null;
+        const agentLabel =
+          agent?.name ||
+          job.agentId ||
+          session?.agentId ||
+          (agentId === 'unassigned' ? 'Unassigned' : agentId);
+        const column = deriveColumn(job, session);
+        const summary =
+          trimText(job.description, 28) ||
+          trimText(job.action.message, 36) ||
+          trimText(job.channelId, 24) ||
+          'No summary';
 
-      return {
-        key: job.id,
-        job,
-        session,
-        agentKey: agentId,
-        agentLabel,
-        column,
-        tone: deriveTone(column),
-        stateLabel: deriveStateLabel(job, column),
-        summary,
-        searchIndex: [
-          job.id,
-          job.name,
-          summary,
-          job.action.message,
-          job.description || '',
+        return {
+          key: job.id,
+          job,
+          session,
+          agentKey: agentId,
           agentLabel,
-          job.channelId || '',
-          job.delivery.to,
-        ]
-          .join(' ')
-          .toLowerCase(),
-      };
-    });
-  }, [agentsById, schedulerQuery.data?.jobs, sessionsById]);
+          column,
+          tone: deriveTone(column),
+          stateLabel: deriveStateLabel(job, column),
+          summary,
+          searchIndex: [
+            job.id,
+            job.name,
+            summary,
+            job.action.message,
+            job.description || '',
+            agentLabel,
+            job.channelId || '',
+            job.delivery.to,
+          ]
+            .join(' ')
+            .toLowerCase(),
+        };
+      },
+    );
+
+    const blockedItems = (approvalsQuery.data?.suspendedSessions || []).map(
+      (suspendedSession): JobBoardItem => {
+        const job = buildSuspendedSessionJob(suspendedSession);
+        const agentId = suspendedSession.agentId || 'unassigned';
+        const agent = agentsById.get(agentId) || null;
+        const agentLabel =
+          agent?.name ||
+          suspendedSession.agentId ||
+          (agentId === 'unassigned' ? 'Unassigned' : agentId);
+        return {
+          key: job.id,
+          job,
+          suspendedSession,
+          session: null,
+          agentKey: agentId,
+          agentLabel,
+          column: 'review',
+          tone: 'danger',
+          stateLabel: suspendedSession.blockedLabel,
+          summary:
+            trimText(suspendedSession.context.host, 24) ||
+            trimText(suspendedSession.prompt, 32) ||
+            'Needs operator',
+          searchIndex: [
+            job.id,
+            job.name,
+            suspendedSession.prompt,
+            suspendedSession.context.host || '',
+            suspendedSession.modality,
+            agentLabel,
+          ]
+            .join(' ')
+            .toLowerCase(),
+        };
+      },
+    );
+
+    return [...blockedItems, ...scheduledItems];
+  }, [
+    agentsById,
+    approvalsQuery.data?.suspendedSessions,
+    schedulerQuery.data?.jobs,
+    sessionsById,
+  ]);
 
   const visibleItems = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase();
@@ -858,7 +1114,25 @@ export function JobsPage() {
             runtime={selectedRuntime}
             agents={jobsContextQuery.data?.agents || []}
             savePending={saveJobMutation.isPending}
+            interactionCode={
+              selectedItem.suspendedSession
+                ? interactionCodes[selectedItem.suspendedSession.sessionId] ||
+                  ''
+                : ''
+            }
+            interactionPending={interactionMutation.isPending}
             onUpdate={(job) => saveJobMutation.mutate(job)}
+            onInteractionCodeChange={(value) => {
+              if (!selectedItem.suspendedSession) return;
+              setInteractionCodes((current) => ({
+                ...current,
+                [selectedItem.suspendedSession?.sessionId || '']: value,
+              }));
+            }}
+            onResumeInteraction={(response) => {
+              if (!selectedItem.suspendedSession) return;
+              resumeBlockedSession(selectedItem.suspendedSession, response);
+            }}
           />
         ) : null}
       </section>

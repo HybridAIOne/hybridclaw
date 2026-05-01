@@ -61,7 +61,10 @@ import {
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
   writeUploadedMediaCacheFile,
 } from '../media/uploaded-media-cache.js';
-import { claimQueuedProactiveMessages } from '../memory/db.js';
+import {
+  claimQueuedProactiveMessages,
+  enqueueProactiveMessage,
+} from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { listLoadedPluginCommands } from '../plugins/plugin-manager.js';
 import { isPluginInboundWebhookPath } from '../plugins/plugin-webhooks.js';
@@ -193,11 +196,25 @@ import type {
   GatewayCommandRequest,
 } from './gateway-types.js';
 import { resolveWorkspaceRelativePath } from './gateway-utils.js';
+import {
+  consumeOperatorReturn,
+  createSuspendedSession,
+  emitInteractionNeededEvent,
+  findPendingSuspendedSessionForOperator,
+  formatInteractionRequest,
+  INTERACTION_MODALITIES,
+  type InteractionModality,
+  type OperatorReturn,
+  parseOperatorReturnText,
+  resumeWith,
+  resumeWithText,
+} from './interactive-escalation.js';
 import { consumeGatewayMediaUploadQuota } from './media-upload-quota.js';
 import {
   handleOpenAICompatibleChatCompletions,
   handleOpenAICompatibleModelList,
 } from './openai-compatible.js';
+import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import { renderQrSvg } from './qr-svg.js';
 import {
   handleTextChannelApprovalCommand,
@@ -3266,6 +3283,232 @@ function handleApiAdminApprovals(res: ServerResponse, url: URL): void {
   );
 }
 
+function parseInteractionModality(value: unknown): InteractionModality {
+  const normalized = String(value || '').trim();
+  if (INTERACTION_MODALITIES.includes(normalized as InteractionModality)) {
+    return normalized as InteractionModality;
+  }
+  throw new GatewayRequestError(
+    400,
+    '`modality` must be one of totp, push, qr, sms, or recovery_code.',
+  );
+}
+
+function parseInteractionFrameSnapshot(value: unknown): {
+  url: string;
+  title?: string | null;
+  browserSessionKey?: string | null;
+  storageStateRef?: string | null;
+  screenshotRef?: string | null;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(400, 'Expected object `frameSnapshot`.');
+  }
+  const raw = value as Record<string, unknown>;
+  const url = normalizeOptionalString(raw.url);
+  if (!url) {
+    throw new GatewayRequestError(
+      400,
+      'Expected non-empty `frameSnapshot.url`.',
+    );
+  }
+  return {
+    url,
+    title: normalizeOptionalString(raw.title) || null,
+    browserSessionKey: normalizeOptionalString(raw.browserSessionKey) || null,
+    storageStateRef: normalizeOptionalString(raw.storageStateRef) || null,
+    screenshotRef: normalizeOptionalString(raw.screenshotRef) || null,
+  };
+}
+
+function parseOperatorReturn(value: unknown): OperatorReturn | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const kind = normalizeOptionalString(raw.kind);
+  if (kind === 'code') {
+    const code = normalizeOptionalString(raw.value);
+    return code ? { kind, value: code } : null;
+  }
+  if (kind === 'approved' || kind === 'scanned' || kind === 'timeout') {
+    return { kind };
+  }
+  if (kind === 'declined') {
+    const reason = normalizeOptionalString(raw.reason);
+    return reason ? { kind, reason } : { kind };
+  }
+  return null;
+}
+
+function broadcastSseEvent(
+  activeSseResponses: Set<ServerResponse>,
+  event: string,
+  payload: unknown,
+): void {
+  const data = JSON.stringify(payload);
+  for (const sseRes of activeSseResponses) {
+    try {
+      if (!sseRes.writableEnded) {
+        sseRes.write(`event: ${event}\n`);
+        sseRes.write(`data: ${data}\n\n`);
+      }
+    } catch {
+      // Ignore closed SSE clients.
+    }
+  }
+}
+
+function queueInteractionNotification(
+  session: ReturnType<typeof createSuspendedSession>,
+): {
+  queued: boolean;
+  channelId: string | null;
+} {
+  const targetChannel = session.escalationTarget?.channel?.trim() || '';
+  if (!targetChannel || !isSupportedProactiveChannelId(targetChannel)) {
+    return { queued: false, channelId: targetChannel || null };
+  }
+  enqueueProactiveMessage(
+    targetChannel,
+    formatInteractionRequest(session),
+    'interactive-escalation',
+    100,
+  );
+  return { queued: true, channelId: targetChannel };
+}
+
+async function handleApiInteractiveEscalations(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  activeSseResponses: Set<ServerResponse>,
+): Promise<void> {
+  try {
+    if (req.method === 'GET') {
+      sendJson(res, 200, {
+        sessions: getGatewayAdminApprovals().suspendedSessions,
+      });
+      return;
+    }
+
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    if (url.pathname === '/api/interactive-escalations/resume') {
+      const sessionId = normalizeOptionalString(body.sessionId);
+      if (!sessionId) {
+        throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
+      }
+      const response = parseOperatorReturn(body.response);
+      const text = normalizeOptionalString(body.text);
+      const result = response
+        ? { response, session: resumeWith(sessionId, response) }
+        : text
+          ? resumeWithText(sessionId, text)
+          : null;
+      if (!result) {
+        throw new GatewayRequestError(
+          400,
+          'Expected `response` object or typed reply `text`.',
+        );
+      }
+      broadcastSseEvent(activeSseResponses, 'interaction_response', result);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (url.pathname === '/api/interactive-escalations/consume') {
+      const sessionId = normalizeOptionalString(body.sessionId);
+      if (!sessionId) {
+        throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
+      }
+      const response = consumeOperatorReturn(sessionId);
+      if (!response) {
+        throw new GatewayRequestError(
+          404,
+          'No operator response is available for this suspended session.',
+        );
+      }
+      sendJson(res, 200, { response });
+      return;
+    }
+
+    if (url.pathname === '/api/interactive-escalations/sms-reply') {
+      const from = normalizeOptionalString(body.from);
+      const text = normalizeOptionalString(body.text ?? body.body);
+      if (!text) {
+        throw new GatewayRequestError(400, 'Expected SMS reply `text`.');
+      }
+      const sessionId = normalizeOptionalString(body.sessionId);
+      const session = sessionId
+        ? null
+        : findPendingSuspendedSessionForOperator({
+            userId: from,
+            modality: 'sms',
+          });
+      const targetSessionId = sessionId || session?.sessionId || '';
+      if (!targetSessionId) {
+        throw new GatewayRequestError(
+          404,
+          'No pending SMS suspended session matched this reply.',
+        );
+      }
+      const parsed = parseOperatorReturnText(text, ['code', 'declined']);
+      if (!parsed) {
+        throw new GatewayRequestError(400, 'Could not parse SMS reply.');
+      }
+      const resumed = resumeWith(targetSessionId, parsed);
+      const result = { response: parsed, session: resumed };
+      broadcastSseEvent(activeSseResponses, 'interaction_response', result);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    const modality = parseInteractionModality(body.modality);
+    const prompt = normalizeOptionalString(body.prompt);
+    if (!prompt) {
+      throw new GatewayRequestError(400, 'Expected non-empty `prompt`.');
+    }
+    const escalationTarget =
+      body.escalationTarget &&
+      typeof body.escalationTarget === 'object' &&
+      !Array.isArray(body.escalationTarget)
+        ? (body.escalationTarget as { channel: string; recipient: string })
+        : undefined;
+    const userId =
+      normalizeOptionalString(body.userId) ||
+      escalationTarget?.recipient ||
+      'operator';
+    const session = createSuspendedSession({
+      sessionId: normalizeOptionalString(body.sessionId) || undefined,
+      approvalId: normalizeOptionalString(body.approvalId) || undefined,
+      prompt,
+      userId,
+      modality,
+      frameSnapshot: parseInteractionFrameSnapshot(body.frameSnapshot),
+      context:
+        body.context && typeof body.context === 'object'
+          ? (body.context as Record<string, string | null>)
+          : {},
+      agentId: normalizeOptionalString(body.agentId) || null,
+      skillId: normalizeOptionalString(body.skillId) || null,
+      escalationTarget,
+      ttlMs:
+        typeof body.ttlMs === 'number' && Number.isFinite(body.ttlMs)
+          ? body.ttlMs
+          : null,
+    });
+    emitInteractionNeededEvent({ session });
+    const notification = queueInteractionNotification(session);
+    const payload = { session, notification };
+    broadcastSseEvent(activeSseResponses, 'interaction_needed', payload);
+    sendJson(res, 200, payload);
+  } catch (error) {
+    const status =
+      error instanceof GatewayRequestError ? error.statusCode : 400;
+    sendJson(res, status, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function sendApiAdminPolicyError(res: ServerResponse, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   sendJson(res, error instanceof GatewayRequestError ? error.statusCode : 400, {
@@ -4086,6 +4329,32 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/approvals' && method === 'GET') {
             handleApiAdminApprovals(res, url);
+            return;
+          }
+          if (
+            pathname === '/api/interactive-escalations' &&
+            (method === 'GET' || method === 'POST')
+          ) {
+            await handleApiInteractiveEscalations(
+              req,
+              res,
+              url,
+              activeSseResponses,
+            );
+            return;
+          }
+          if (
+            (pathname === '/api/interactive-escalations/resume' ||
+              pathname === '/api/interactive-escalations/consume' ||
+              pathname === '/api/interactive-escalations/sms-reply') &&
+            method === 'POST'
+          ) {
+            await handleApiInteractiveEscalations(
+              req,
+              res,
+              url,
+              activeSseResponses,
+            );
             return;
           }
           if (
