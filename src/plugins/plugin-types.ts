@@ -340,6 +340,7 @@ export type PluginOutputGuardDecision =
 export interface PluginOutputGuard {
   id: string;
   priority?: number;
+  predicate?: (context: PluginOutputGuardContext) => Promise<boolean> | boolean;
   inspect: (
     context: PluginOutputGuardContext,
   ) =>

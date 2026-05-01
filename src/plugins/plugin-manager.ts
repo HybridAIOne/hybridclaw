@@ -134,11 +134,6 @@ type RegisteredPromptHook = {
   hook: PluginPromptHook;
 };
 
-type RegisteredOutputGuard = {
-  pluginId: string;
-  guard: PluginOutputGuard;
-};
-
 type RegisteredMiddleware = {
   pluginId: string;
   middleware: PluginMiddlewareSkill;
@@ -195,7 +190,6 @@ type PluginRegistrationSnapshot = {
   plugins: LoadedPlugin[];
   memoryLayers: RegisteredMemoryLayer[];
   promptHooks: RegisteredPromptHook[];
-  outputGuards: RegisteredOutputGuard[];
   middlewares: RegisteredMiddleware[];
   services: RegisteredService[];
   inboundWebhooks: Map<string, RegisteredInboundWebhook>;
@@ -820,7 +814,6 @@ export class PluginManager {
   private plugins: LoadedPlugin[] = [];
   private memoryLayers: RegisteredMemoryLayer[] = [];
   private promptHooks: RegisteredPromptHook[] = [];
-  private outputGuards: RegisteredOutputGuard[] = [];
   private middlewares: RegisteredMiddleware[] = [];
   private hasPreSendMiddleware = false;
   private hasPostReceiveMiddleware = false;
@@ -1364,14 +1357,13 @@ export class PluginManager {
     if (!guardId) {
       throw new Error('Plugin output guard is missing `id`.');
     }
-    this.outputGuards.push({
+    this.registerMiddleware(
       pluginId,
-      guard: {
+      this.createOutputGuardMiddleware(pluginId, {
         ...guard,
         id: guardId,
-      },
-    });
-    this.recomputeMiddlewareFlags();
+      }),
+    );
   }
 
   registerCommand(pluginId: string, command: PluginCommandDefinition): void {
@@ -1511,9 +1503,9 @@ export class PluginManager {
     this.hasPreSendMiddleware = this.middlewares.some((entry) =>
       Boolean(entry.middleware.pre_send),
     );
-    this.hasPostReceiveMiddleware =
-      this.outputGuards.length > 0 ||
-      this.middlewares.some((entry) => Boolean(entry.middleware.post_receive));
+    this.hasPostReceiveMiddleware = this.middlewares.some((entry) =>
+      Boolean(entry.middleware.post_receive),
+    );
   }
 
   private createPluginRegistrationSnapshot(): PluginRegistrationSnapshot {
@@ -1521,7 +1513,6 @@ export class PluginManager {
       plugins: [...this.plugins],
       memoryLayers: [...this.memoryLayers],
       promptHooks: [...this.promptHooks],
-      outputGuards: [...this.outputGuards],
       middlewares: [...this.middlewares],
       services: [...this.services],
       inboundWebhooks: new Map(this.inboundWebhooks),
@@ -1546,7 +1537,6 @@ export class PluginManager {
     this.plugins = [...snapshot.plugins];
     this.memoryLayers = [...snapshot.memoryLayers];
     this.promptHooks = [...snapshot.promptHooks];
-    this.outputGuards = [...snapshot.outputGuards];
     this.middlewares = [...snapshot.middlewares];
     this.recomputeMiddlewareFlags();
     this.services = [...snapshot.services];
@@ -1586,11 +1576,6 @@ export class PluginManager {
       registered.add(entry.hook.id);
     }
 
-    for (const entry of this.outputGuards) {
-      if (entry.pluginId !== pluginId) continue;
-      registered.add(`output-guard:${entry.guard.id}`);
-    }
-
     for (const entry of this.middlewares) {
       if (entry.pluginId !== pluginId) continue;
       registered.add(`middleware:${entry.middleware.id}`);
@@ -1626,9 +1611,6 @@ export class PluginManager {
       (entry) => entry.pluginId !== pluginId,
     );
     this.promptHooks = this.promptHooks.filter(
-      (entry) => entry.pluginId !== pluginId,
-    );
-    this.outputGuards = this.outputGuards.filter(
       (entry) => entry.pluginId !== pluginId,
     );
     this.middlewares = this.middlewares.filter(
@@ -1984,113 +1966,133 @@ export class PluginManager {
     };
   }
 
-  private collectClassifierMiddleware(
-    phase: MiddlewarePhase,
-  ): ClassifierMiddlewareSkill<AgentTurnContext>[] {
-    const middlewares: ClassifierMiddlewareSkill<AgentTurnContext>[] =
-      this.middlewares.map((entry) => ({
-        id: `${entry.pluginId}:${entry.middleware.id}`,
-        priority: entry.middleware.priority,
-        predicate: this.wrapPluginMiddlewarePredicate(entry),
-        pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
-        post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
-      }));
+  private outputGuardContext(
+    context: AgentTurnContext,
+  ): PluginOutputGuardContext {
+    return {
+      sessionId: context.sessionId,
+      userId: context.userId || '',
+      agentId: context.agentId,
+      channelId: context.channelId,
+      model: context.model,
+      workspacePath: context.workspacePath,
+      messages: context.messages,
+      userContent: context.userContent,
+      resultText: context.resultText || '',
+      toolExecutions: context.toolExecutions,
+      skill: context.skill,
+    };
+  }
 
-    if (phase !== 'post_receive') return middlewares;
-
-    return [
-      ...middlewares,
-      ...this.outputGuards.map<ClassifierMiddlewareSkill<AgentTurnContext>>(
-        (entry) => ({
-          id: `${entry.pluginId}:${entry.guard.id}`,
-          priority: entry.guard.priority,
-          post_receive: async (context) => {
+  private createOutputGuardMiddleware(
+    pluginId: string,
+    guard: PluginOutputGuard,
+  ): PluginMiddlewareSkill {
+    return {
+      id: guard.id,
+      priority: guard.priority,
+      predicate: guard.predicate
+        ? async (context) => {
             try {
-              const value = await entry.guard.inspect({
-                sessionId: context.sessionId,
-                userId: context.userId || '',
-                agentId: context.agentId,
-                channelId: context.channelId,
-                model: context.model,
-                workspacePath: context.workspacePath,
-                messages: context.messages,
-                userContent: context.userContent,
-                resultText: context.resultText || '',
-                toolExecutions: context.toolExecutions,
-                skill: context.skill,
-              });
-              if (!value || typeof value !== 'object' || !('action' in value)) {
-                return { action: 'allow' };
-              }
-              const action = (value as { action?: unknown }).action;
-              if (action === 'allow') return { action: 'allow' };
-              if (action === 'warn') {
-                return {
-                  action: 'warn',
-                  reason:
-                    (value as PluginOutputGuardDecision & { action: 'warn' })
-                      .reason || 'Output flagged by plugin guard.',
-                };
-              }
-              if (action === 'rewrite') {
-                const text = String(
-                  (value as PluginOutputGuardDecision & { action: 'rewrite' })
-                    .text || '',
-                ).trim();
-                if (!text) {
-                  this.logger.warn(
-                    {
-                      pluginId: entry.pluginId,
-                      guardId: entry.guard.id,
-                    },
-                    'Plugin output guard returned empty rewrite; allowing original output',
-                  );
-                  return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
-                }
-                return {
-                  action: 'transform',
-                  payload: text,
-                  reason:
-                    (value as PluginOutputGuardDecision & { action: 'rewrite' })
-                      .reason || 'Output rewritten by plugin guard.',
-                };
-              }
-              if (action === 'block') {
-                const decision = value as PluginOutputGuardDecision & {
-                  action: 'block';
-                };
-                const reason =
-                  String(decision.reason || '').trim() ||
-                  'Output blocked by plugin guard.';
-                return {
-                  action: 'block',
-                  reason,
-                };
-              }
+              return Boolean(
+                await guard.predicate?.(this.outputGuardContext(context)),
+              );
+            } catch (error) {
               this.logger.warn(
                 {
-                  pluginId: entry.pluginId,
-                  guardId: entry.guard.id,
-                  action,
-                },
-                'Plugin output guard returned unknown action; treating as allow',
-              );
-              return { action: 'allow' };
-            } catch (error) {
-              this.logger.error(
-                {
-                  pluginId: entry.pluginId,
-                  guardId: entry.guard.id,
+                  pluginId,
+                  guardId: guard.id,
                   error,
                 },
-                'Plugin output guard failed; allowing original output',
+                'Plugin output guard predicate failed; skipping guard',
+              );
+              return false;
+            }
+          }
+        : undefined,
+      post_receive: async (context) => {
+        try {
+          const value = await guard.inspect(this.outputGuardContext(context));
+          if (!value || typeof value !== 'object' || !('action' in value)) {
+            return { action: 'allow' };
+          }
+          const action = (value as { action?: unknown }).action;
+          if (action === 'allow') return { action: 'allow' };
+          if (action === 'warn') {
+            return {
+              action: 'warn',
+              reason:
+                (value as PluginOutputGuardDecision & { action: 'warn' })
+                  .reason || 'Output flagged by plugin guard.',
+            };
+          }
+          if (action === 'rewrite') {
+            const text = String(
+              (value as PluginOutputGuardDecision & { action: 'rewrite' })
+                .text || '',
+            ).trim();
+            if (!text) {
+              this.logger.warn(
+                {
+                  pluginId,
+                  guardId: guard.id,
+                },
+                'Plugin output guard returned empty rewrite; allowing original output',
               );
               return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
             }
-          },
-        }),
-      ),
-    ];
+            return {
+              action: 'transform',
+              payload: text,
+              reason:
+                (value as PluginOutputGuardDecision & { action: 'rewrite' })
+                  .reason || 'Output rewritten by plugin guard.',
+            };
+          }
+          if (action === 'block') {
+            const decision = value as PluginOutputGuardDecision & {
+              action: 'block';
+            };
+            const reason =
+              String(decision.reason || '').trim() ||
+              'Output blocked by plugin guard.';
+            return {
+              action: 'block',
+              reason,
+            };
+          }
+          this.logger.warn(
+            {
+              pluginId,
+              guardId: guard.id,
+              action,
+            },
+            'Plugin output guard returned unknown action; treating as allow',
+          );
+          return { action: 'allow' };
+        } catch (error) {
+          this.logger.error(
+            {
+              pluginId,
+              guardId: guard.id,
+              error,
+            },
+            'Plugin output guard failed; allowing original output',
+          );
+          return { action: 'warn', reason: SKIP_OUTPUT_GUARD_EVENT };
+        }
+      },
+    };
+  }
+
+  private collectClassifierMiddleware(): ClassifierMiddlewareSkill<AgentTurnContext>[] {
+    return this.middlewares.map((entry) => ({
+      id: `${entry.pluginId}:${entry.middleware.id}`,
+      priority: entry.middleware.priority,
+      predicate: this.wrapPluginMiddlewarePredicate(entry),
+      pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
+      post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
+    }));
   }
 
   async applyMiddleware(
@@ -2100,7 +2102,7 @@ export class PluginManager {
     await this.ensureInitialized();
     return applyClassifierMiddleware(
       phase,
-      this.collectClassifierMiddleware(phase),
+      this.collectClassifierMiddleware(),
       context,
     );
   }

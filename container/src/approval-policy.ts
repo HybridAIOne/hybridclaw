@@ -4,10 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
-import type {
-  ClassifierMiddlewareSkill,
-  MiddlewareDecision,
-} from '../shared/middleware-contract.js';
+import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
+import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
 import type {
   NetworkPolicyAction,
   NetworkRule,
@@ -1024,23 +1022,6 @@ function parsePersistedTrustStore(
   }
 }
 
-function isPromiseLike<T>(
-  value: T | Promise<T> | null | undefined,
-): value is Promise<T> {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      'then' in value &&
-      typeof (value as { then?: unknown }).then === 'function',
-  );
-}
-
-function normalizeStakesMiddlewareDecision(
-  decision: MiddlewareDecision | null | undefined,
-): MiddlewareDecision {
-  return decision ?? { action: 'allow' };
-}
-
 export class TrustedAgentApprovalRuntime {
   private readonly policyPath: string;
   private readonly agentTrustStorePath: string;
@@ -1094,25 +1075,22 @@ export class TrustedAgentApprovalRuntime {
   private runStakesMiddleware(
     context: Omit<StakesMiddlewareContext, 'recordStakesScore'>,
   ): StakesMiddlewareResult {
-    const handler = this.stakesMiddleware.pre_send;
-    if (!handler) {
-      throw new Error('Stakes middleware is missing pre_send handler.');
-    }
     let stakesScore: StakesScore | null = null;
-    const decision = handler({
-      ...context,
-      recordStakesScore(score) {
-        stakesScore = score;
+    const outcome = applyClassifierMiddlewareSync(
+      'pre_send',
+      [this.stakesMiddleware],
+      {
+        ...context,
+        recordStakesScore(score) {
+          stakesScore = score;
+        },
       },
-    });
-    if (isPromiseLike(decision)) {
-      throw new Error('Stakes middleware must be synchronous.');
-    }
+    );
     if (!stakesScore) {
       throw new Error('Stakes middleware did not record a stakes score.');
     }
     return {
-      decision: normalizeStakesMiddlewareDecision(decision),
+      decision: outcome.decision,
       stakesScore,
     };
   }

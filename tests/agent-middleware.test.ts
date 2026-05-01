@@ -126,6 +126,48 @@ describe('agent middleware', () => {
     expect(outcome.events.map((event) => event.skillId)).toEqual(['active']);
   });
 
+  test('skips active skill middleware when manifest disables the phase', async () => {
+    const outcome = await applyClassifierMiddleware(
+      'post_receive',
+      [
+        {
+          id: 'plugin:brand-voice',
+          post_receive: () => ({
+            action: 'transform',
+            payload: 'should not run',
+            reason: 'inactive',
+          }),
+        },
+        {
+          id: 'plugin:auditor',
+          post_receive: (context) => ({
+            action: 'transform',
+            payload: `${context.resultText} audited`,
+            reason: 'active',
+          }),
+        },
+      ],
+      {
+        sessionId: 'session-1',
+        agentId: 'main',
+        channelId: 'tui',
+        messages: [],
+        userContent: 'hello',
+        resultText: 'draft',
+        skill: {
+          name: 'brand-voice',
+          middleware: { preSend: true, postReceive: false },
+        },
+      },
+    );
+
+    expect(outcome.blocked).toBe(false);
+    expect(outcome.resultText).toBe('draft audited');
+    expect(outcome.events.map((event) => event.skillId)).toEqual([
+      'plugin:auditor',
+    ]);
+  });
+
   test('confidential leak middleware redacts outbound matches', async () => {
     const ruleSet = parseConfidentialYaml(`
 clients:

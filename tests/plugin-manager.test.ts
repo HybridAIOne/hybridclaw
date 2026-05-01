@@ -2439,6 +2439,87 @@ test('plugin manager swallows errors from output guards and keeps original outpu
   expect(outcome.events).toEqual([]);
 });
 
+test('plugin manager applies output guard predicates through middleware adapter', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'guard-scoped');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: guard-scoped\nname: guard-scoped\nkind: output-guard\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'guard-scoped',",
+      "  kind: 'output-guard',",
+      '  register(api) {',
+      '    api.registerOutputGuard({',
+      "      id: 'guard-scoped-guard',",
+      '      predicate(context) {',
+      "        return context.skill?.name === 'brand-voice';",
+      '      },',
+      '      inspect(context) {',
+      "        return { action: 'rewrite', text: `${context.resultText} scoped` };",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const skipped = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+    skill: {
+      name: 'other',
+      middleware: { preSend: false, postReceive: true },
+    },
+  });
+  expect(skipped.resultText).toBe('original draft');
+  expect(skipped.events).toEqual([]);
+
+  const applied = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+    skill: {
+      name: 'brand-voice',
+      middleware: { preSend: false, postReceive: true },
+    },
+  });
+  expect(applied.resultText).toBe('original draft scoped');
+  expect(applied.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'guard-scoped',
+      guardId: 'guard-scoped-guard',
+      action: 'rewrite',
+    }),
+  ]);
+});
+
 test('plugin manager treats unknown output-guard actions as allow', async () => {
   const homeDir = makeTempDir('hybridclaw-plugin-home-');
   const cwd = makeTempDir('hybridclaw-plugin-project-');

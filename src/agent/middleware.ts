@@ -16,6 +16,10 @@ import type {
   MiddlewareDecision,
   MiddlewarePhase,
 } from '../../container/shared/middleware-contract.js';
+import {
+  normalizeMiddlewareDecision,
+  shouldRunClassifierMiddleware,
+} from '../../container/shared/middleware-runner.js';
 
 export interface AgentTurnContext {
   sessionId: string;
@@ -115,81 +119,20 @@ function eventText(value: string): string {
   return `${value.slice(0, EVENT_TEXT_LIMIT)}...`;
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function safeText(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeDecision(
-  value: unknown,
-  skill: ClassifierMiddlewareSkill<AgentTurnContext>,
-  phase: MiddlewarePhase,
-): MiddlewareDecision | null {
-  if (!value) return null;
-  if (!isObjectRecord(value)) {
-    logger.warn(
-      { skillId: skill.id, phase },
-      'Middleware returned invalid decision shape; treating as allow',
-    );
-    return null;
-  }
-
-  switch (value.action) {
-    case 'allow':
-      return { action: 'allow' };
-    case 'block': {
-      const reason = safeText(value.reason);
-      return reason ? { action: 'block', reason } : null;
-    }
-    case 'warn': {
-      const reason = safeText(value.reason);
-      return reason ? { action: 'warn', reason } : null;
-    }
-    case 'transform': {
-      const payload = safeText(value.payload);
-      const reason = safeText(value.reason);
-      return reason ? { action: 'transform', payload, reason } : null;
-    }
-    case 'escalate': {
-      const reason = safeText(value.reason);
-      if (
-        reason &&
-        (value.route === 'operator' ||
-          value.route === 'security' ||
-          value.route === 'approval_request' ||
-          value.route === 'policy_denial')
-      ) {
-        return { action: 'escalate', route: value.route, reason };
-      }
-      break;
-    }
-  }
-
-  logger.warn(
-    { skillId: skill.id, phase, action: value.action },
-    'Middleware returned incomplete or unknown decision; treating as allow',
-  );
-  return null;
-}
-
-async function shouldRunMiddleware(
+function shouldRunManifestPhase(
   skill: ClassifierMiddlewareSkill<AgentTurnContext>,
   context: AgentTurnContext,
   phase: MiddlewarePhase,
-): Promise<boolean> {
-  if (!skill.predicate) return true;
-  try {
-    return Boolean(await skill.predicate(context));
-  } catch (error) {
-    logger.warn(
-      { skillId: skill.id, phase, error },
-      'Middleware predicate failed; skipping middleware',
-    );
-    return false;
+): boolean {
+  const activeSkill = context.skill;
+  if (!activeSkill?.middleware) return true;
+  const middlewareName = skill.id.split(':').at(-1) || skill.id;
+  if (activeSkill.name !== skill.id && activeSkill.name !== middlewareName) {
+    return true;
   }
+  return phase === 'pre_send'
+    ? activeSkill.middleware.preSend
+    : activeSkill.middleware.postReceive;
 }
 
 export async function applyClassifierMiddleware(
@@ -212,12 +155,22 @@ export async function applyClassifierMiddleware(
       userContent,
       resultText,
     };
-    if (!(await shouldRunMiddleware(skill, currentContext, phase))) continue;
+    if (!shouldRunManifestPhase(skill, currentContext, phase)) continue;
+    if (
+      !(await shouldRunClassifierMiddleware(skill, currentContext, phase, {
+        warn: (meta, message) => logger.warn(meta, message),
+      }))
+    ) {
+      continue;
+    }
 
-    const decision = normalizeDecision(
+    const decision = normalizeMiddlewareDecision(
       await handler(currentContext),
-      skill,
-      phase,
+      {
+        skillId: skill.id,
+        phase,
+        warn: (meta, message) => logger.warn(meta, message),
+      },
     );
     if (!decision || decision.action === 'allow') {
       events.push({ skillId: skill.id, phase, action: 'allow' });
