@@ -11,7 +11,7 @@ import type { SecretSinkKind } from '../security/secret-handles.js';
 import { rememberResolvedSecretForLeakScan } from '../security/secret-leak-corpus.js';
 import {
   normalizeSecretSessionId,
-  normalizeSecretString,
+  normalizeSecretString as normalizeString,
 } from '../security/secret-normalization.js';
 import {
   evaluateSecretPolicyAccess,
@@ -29,10 +29,6 @@ type ApiSecretInjectBody = {
   host?: unknown;
   selector?: unknown;
 };
-
-function normalizeString(value: unknown): string {
-  return normalizeSecretString(value);
-}
 
 export function resolveSecretAgentId(params: {
   sessionId?: string;

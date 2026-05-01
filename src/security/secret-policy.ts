@@ -11,8 +11,8 @@ import {
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
 import type { SecretSinkKind } from './secret-handles.js';
 import {
-  normalizeSecretLower,
-  normalizeSecretString,
+  normalizeSecretLower as normalizeLower,
+  normalizeSecretString as normalizeString,
 } from './secret-normalization.js';
 
 export type SecretPolicyDecision = 'allow' | 'deny';
@@ -46,14 +46,6 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function normalizeString(value: unknown): string {
-  return normalizeSecretString(value);
-}
-
-function normalizeLower(value: unknown): string {
-  return normalizeSecretLower(value);
 }
 
 function normalizeStringList(value: unknown): string[] {

@@ -8,6 +8,7 @@ import {
   type SecretSinkKind,
   unsafeEscapeSecretHandle,
 } from './secret-handles.js';
+import { normalizeSecretString } from './secret-normalization.js';
 
 const ENV_SECRET_REF_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
@@ -119,7 +120,7 @@ export function resolveSecretInput(
 
   const resolved =
     parsed.ref.source === 'env'
-      ? String(process.env[parsed.ref.id] || '').trim()
+      ? normalizeSecretString(process.env[parsed.ref.id])
       : readStoredRuntimeSecret(parsed.ref.id) || '';
 
   if (!resolved && opts.required) {

@@ -24,7 +24,10 @@ import {
   withSecretHeader,
 } from '../security/secret-handles.js';
 import { rememberResolvedSecretForLeakScan } from '../security/secret-leak-corpus.js';
-import { normalizeSecretSessionId } from '../security/secret-normalization.js';
+import {
+  normalizeSecretSessionId,
+  normalizeSecretString,
+} from '../security/secret-normalization.js';
 import {
   resolveSecretHandleInput,
   resolveSecretInputUnsafe,
@@ -605,9 +608,9 @@ export async function handleApiHttpRequest(
   const body = (await readJsonBody(req)) as ApiHttpRequestBody;
   const replacePlaceholders = body.replaceSecretPlaceholders !== false;
   const baseSecretContext: SecretResolveContext = {
-    sessionId: typeof body.sessionId === 'string' ? body.sessionId.trim() : '',
-    agentId: typeof body.agentId === 'string' ? body.agentId.trim() : '',
-    skillName: typeof body.skillName === 'string' ? body.skillName.trim() : '',
+    sessionId: normalizeSecretString(body.sessionId),
+    agentId: normalizeSecretString(body.agentId),
+    skillName: normalizeSecretString(body.skillName),
   };
   const captureFields =
     body.captureResponseFields === undefined
