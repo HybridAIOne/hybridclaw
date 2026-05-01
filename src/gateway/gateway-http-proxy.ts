@@ -24,6 +24,7 @@ import {
   withSecretHeader,
 } from '../security/secret-handles.js';
 import { rememberResolvedSecretForLeakScan } from '../security/secret-leak-corpus.js';
+import { normalizeSecretSessionId } from '../security/secret-normalization.js';
 import {
   resolveSecretHandleInput,
   resolveSecretInputUnsafe,
@@ -534,17 +535,7 @@ function resolveHttpRuleSecret(
             path,
             required: true,
             reason: `resolve plaintext HTTP auth rule ${path}`,
-            audit: (escapedHandle, reason) =>
-              recordSecretUnsafeEscaped({
-                sessionId: context.sessionId,
-                skillName: context.skillName,
-                secretSource: escapedHandle.ref.source,
-                secretId: escapedHandle.ref.id,
-                sinkKind: 'http',
-                host: context.host,
-                selector: context.selector,
-                reason,
-              }),
+            audit: makeHttpSecretAuditCallback(context),
           }) || '',
         ),
         prefix,
@@ -570,26 +561,6 @@ function consumeSecretHandleForHttp(
     host: context.host,
     selector: context.selector,
   });
-  const header = withSecretHeader(handle, headerName, {
-    prefix,
-    audit: (escapedHandle, reason) =>
-      recordSecretUnsafeEscaped({
-        sessionId: context.sessionId,
-        skillName: context.skillName,
-        secretSource: escapedHandle.ref.source,
-        secretId: escapedHandle.ref.id,
-        sinkKind: 'http',
-        host: context.host,
-        selector: context.selector,
-        reason,
-      }),
-    onCleartext: (value) =>
-      rememberResolvedSecretForLeakScan({
-        sessionId: context.sessionId || 'secret-resolution',
-        secretId: handle.ref.id,
-        value,
-      }),
-  });
   recordSecretResolved({
     sessionId: context.sessionId,
     skillName: context.skillName,
@@ -599,7 +570,32 @@ function consumeSecretHandleForHttp(
     host: context.host,
     selector: context.selector,
   });
+  const header = withSecretHeader(handle, headerName, {
+    prefix,
+    audit: makeHttpSecretAuditCallback(context),
+    onCleartext: (value) =>
+      rememberResolvedSecretForLeakScan({
+        sessionId: normalizeSecretSessionId(context.sessionId),
+        secretId: handle.ref.id,
+        value,
+      }),
+  });
   return { header: header.name, value: header.value };
+}
+
+function makeHttpSecretAuditCallback(context: SecretResolveContext) {
+  return (escapedHandle: SecretHandle, reason: string): void => {
+    recordSecretUnsafeEscaped({
+      sessionId: context.sessionId,
+      skillName: context.skillName,
+      secretSource: escapedHandle.ref.source,
+      secretId: escapedHandle.ref.id,
+      sinkKind: 'http',
+      host: context.host,
+      selector: context.selector,
+      reason,
+    });
+  };
 }
 
 export async function handleApiHttpRequest(

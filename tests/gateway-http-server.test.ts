@@ -7752,6 +7752,71 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('restricts cleartext secret injection endpoint to gateway token auth', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-secret-inject-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      DATEV_PASSWORD: 'datev-cleartext-secret',
+    });
+
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      webApiToken: 'web-token',
+      gatewayApiToken: 'gateway-token',
+    });
+    const webReq = makeRequest({
+      method: 'POST',
+      url: '/api/secret/inject',
+      headers: { authorization: 'Bearer web-token' },
+      body: {
+        secretName: 'DATEV_PASSWORD',
+        sinkKind: 'dom',
+        host: 'login.datev.de',
+        selector: '#password',
+      },
+    });
+    const webRes = makeResponse();
+
+    state.handler(webReq as never, webRes as never);
+    await settle();
+
+    expect(webRes.statusCode).toBe(401);
+    expect(JSON.parse(webRes.body)).toEqual({
+      error: 'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+    });
+
+    const gatewayReq = makeRequest({
+      method: 'POST',
+      url: '/api/secret/inject',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        secretName: 'DATEV_PASSWORD',
+        sinkKind: 'dom',
+        host: 'login.datev.de',
+        selector: '#password',
+      },
+    });
+    const gatewayRes = makeResponse();
+
+    state.handler(gatewayReq as never, gatewayRes as never);
+    await settle();
+
+    expect(gatewayRes.statusCode).toBe(200);
+    expect(gatewayRes.headers['Cache-Control']).toBe('no-store');
+    expect(gatewayRes.headers.Pragma).toBe('no-cache');
+    expect(JSON.parse(gatewayRes.body)).toEqual({
+      ok: true,
+      secretName: 'DATEV_PASSWORD',
+      value: 'datev-cleartext-secret',
+    });
+  });
+
   test('dispatches gateway-owned http requests with URL auth rules and secret placeholders', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-');
     process.env.HOME = homeDir;

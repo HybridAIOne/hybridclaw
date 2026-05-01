@@ -173,6 +173,52 @@ describe('secret resolution policy', () => {
     ).toBe('deny');
   });
 
+  test('allows composed fine-grained F3 secret policy predicates', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const state = readSecretPolicyStateFromDocument({
+      secret: {
+        rules: [
+          {
+            when: {
+              all: [
+                { predicate: 'secret.id', matches: 'DATEV_*' },
+                { predicate: 'secret.source', equals: 'store' },
+                { predicate: 'secret.sink', equals: 'dom' },
+                { predicate: 'secret.host', matches: '*.datev.de' },
+                { predicate: 'secret.selector', matches: '#pass*' },
+                { predicate: 'skill.name', equals: 'datev-login' },
+                { predicate: 'agent.id', equals: 'main' },
+              ],
+            },
+            action: 'allow',
+          },
+        ],
+      },
+    });
+
+    const context = {
+      agentId: 'main',
+      skillName: 'datev-login',
+      secretSource: 'store' as const,
+      secretId: 'DATEV_PASSWORD',
+      sinkKind: 'dom' as const,
+      host: 'login.datev.de',
+      selector: '#password',
+    };
+
+    expect(evaluateSecretPolicyAccess({ state, context }).decision).toBe(
+      'allow',
+    );
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: { ...context, selector: '#username' },
+      }).decision,
+    ).toBe('deny');
+  });
+
   test('matches wildcard predicates when optional context values are empty', async () => {
     const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
       await import('../src/security/secret-policy.js');
@@ -205,6 +251,52 @@ describe('secret resolution policy', () => {
         },
       }).decision,
     ).toBe('allow');
+  });
+
+  test('caches workspace secret policy reads until the policy file changes', async () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-secret-policy-cache-'),
+    );
+    const policyPath = path.join(workspacePath, '.hybridclaw', 'policy.yaml');
+    fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+    fs.writeFileSync(
+      policyPath,
+      ['secret:', '  default: allow', ''].join('\n'),
+      'utf8',
+    );
+    const readFileSync = vi.spyOn(fs, 'readFileSync');
+    const { clearSecretPolicyStateCache, readWorkspaceSecretPolicyState } =
+      await import('../src/security/secret-policy.js');
+
+    clearSecretPolicyStateCache();
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'allow',
+    );
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'allow',
+    );
+
+    let policyReads = readFileSync.mock.calls.filter(
+      ([file]) => String(file) === policyPath,
+    );
+    expect(policyReads).toHaveLength(1);
+
+    fs.writeFileSync(
+      policyPath,
+      ['secret:', '  default: deny', '  rules: []', ''].join('\n'),
+      'utf8',
+    );
+
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'deny',
+    );
+    policyReads = readFileSync.mock.calls.filter(
+      ([file]) => String(file) === policyPath,
+    );
+    expect(policyReads).toHaveLength(2);
+    readFileSync.mockRestore();
+
+    fs.rmSync(workspacePath, { recursive: true, force: true });
   });
 });
 

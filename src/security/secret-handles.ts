@@ -12,6 +12,13 @@ export interface SecretHandle {
   dispose(): void;
 }
 
+type Assert<T extends true> = T;
+export type SecretHandleCompileTimeGuards = {
+  readonly notAssignableToString: Assert<
+    SecretHandle extends string ? false : true
+  >;
+};
+
 type SecretHandleInternal = SecretHandle & {
   unsafeRead(): string;
 };

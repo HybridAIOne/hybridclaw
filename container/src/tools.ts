@@ -227,6 +227,13 @@ class ContainerSecretHandle {
   }
 }
 
+type Assert<T extends true> = T;
+export type ContainerSecretHandleCompileTimeGuards = {
+  readonly notAssignableToString: Assert<
+    ContainerSecretHandle extends string ? false : true
+  >;
+};
+
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =

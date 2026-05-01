@@ -10,6 +10,10 @@ import {
 import type { SecretSinkKind } from '../security/secret-handles.js';
 import { rememberResolvedSecretForLeakScan } from '../security/secret-leak-corpus.js';
 import {
+  normalizeSecretSessionId,
+  normalizeSecretString,
+} from '../security/secret-normalization.js';
+import {
   evaluateSecretPolicyAccess,
   readWorkspaceSecretPolicyState,
 } from '../security/secret-policy.js';
@@ -27,7 +31,7 @@ type ApiSecretInjectBody = {
 };
 
 function normalizeString(value: unknown): string {
-  return String(value ?? '').trim();
+  return normalizeSecretString(value);
 }
 
 export function resolveSecretAgentId(params: {
@@ -82,7 +86,7 @@ export function recordSecretResolved(params: {
   host?: string;
   selector?: string;
 }): void {
-  const sessionId = normalizeString(params.sessionId) || 'secret-resolution';
+  const sessionId = normalizeSecretSessionId(params.sessionId);
   recordAuditEvent({
     sessionId,
     runId: params.runId || makeAuditRunId('secret'),
@@ -111,7 +115,7 @@ export function recordSecretUnsafeEscaped(params: {
   selector?: string;
   reason: string;
 }): void {
-  const sessionId = normalizeString(params.sessionId) || 'secret-resolution';
+  const sessionId = normalizeSecretSessionId(params.sessionId);
   recordAuditEvent({
     sessionId,
     runId: params.runId || makeAuditRunId('secret-escape'),
@@ -180,7 +184,7 @@ export function resolveStoredSecretForInjection(params: {
     reason: `inject ${secretName} into ${params.sinkKind} sink`,
   });
   rememberResolvedSecretForLeakScan({
-    sessionId: normalizeString(params.sessionId) || 'secret-resolution',
+    sessionId: normalizeSecretSessionId(params.sessionId),
     secretId: secretName,
     value,
   });
@@ -211,7 +215,7 @@ export async function handleApiSecretInject(
   });
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Pragma', 'no-cache');
-  // This local gateway-to-container endpoint intentionally carries cleartext.
+  // This gateway-token-only container endpoint intentionally carries cleartext.
   sendJson(res, 200, {
     ok: true,
     secretName,

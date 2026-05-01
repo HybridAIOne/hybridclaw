@@ -10,6 +10,10 @@ import {
 } from '../policy/policy-engine.js';
 import { resolveWorkspacePolicyPath } from '../policy/policy-store.js';
 import type { SecretSinkKind } from './secret-handles.js';
+import {
+  normalizeSecretLower,
+  normalizeSecretString,
+} from './secret-normalization.js';
 
 export type SecretPolicyDecision = 'allow' | 'deny';
 
@@ -28,6 +32,16 @@ export interface SecretPolicyState {
   rules: PolicyRule<SecretPolicyDecision>[];
 }
 
+type CachedPolicyState = {
+  mtimeMs: number;
+  size: number;
+  state: SecretPolicyState;
+};
+
+const secretPolicyStateCache = new Map<string, CachedPolicyState>();
+const globRegexCache = new Map<string, RegExp>();
+const MAX_GLOB_REGEX_CACHE_ENTRIES = 256;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -35,22 +49,16 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function normalizeString(value: unknown): string {
-  return String(value ?? '').trim();
+  return normalizeSecretString(value);
 }
 
 function normalizeLower(value: unknown): string {
-  return normalizeString(value).toLowerCase();
+  return normalizeSecretLower(value);
 }
 
 function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map(normalizeString).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    return value
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean);
   }
   return [];
 }
@@ -121,9 +129,52 @@ function readPolicyDocument(policyPath: string): Record<string, unknown> {
 export function readWorkspaceSecretPolicyState(
   workspacePath: string,
 ): SecretPolicyState {
-  return readSecretPolicyStateFromDocument(
-    readPolicyDocument(resolveWorkspacePolicyPath(workspacePath)),
+  const policyPath = resolveWorkspacePolicyPath(workspacePath);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(policyPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      secretPolicyStateCache.delete(policyPath);
+      return readSecretPolicyStateFromDocument({});
+    }
+    throw err;
+  }
+
+  const cached = secretPolicyStateCache.get(policyPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.state;
+  }
+
+  const state = readSecretPolicyStateFromDocument(
+    readPolicyDocument(policyPath),
   );
+  secretPolicyStateCache.set(policyPath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    state,
+  });
+  return state;
+}
+
+export function clearSecretPolicyStateCache(): void {
+  secretPolicyStateCache.clear();
+  globRegexCache.clear();
+}
+
+function compileGlobPattern(pattern: string): RegExp {
+  const cached = globRegexCache.get(pattern);
+  if (cached) return cached;
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  const regex = new RegExp(`^${escaped}$`, 'i');
+  if (globRegexCache.size >= MAX_GLOB_REGEX_CACHE_ENTRIES) {
+    const oldest = globRegexCache.keys().next().value;
+    if (oldest) globRegexCache.delete(oldest);
+  }
+  globRegexCache.set(pattern, regex);
+  return regex;
 }
 
 function matchesText(candidate: unknown, expected: unknown): boolean {
@@ -147,10 +198,7 @@ function matchesGlobText(candidate: unknown, expected: unknown): boolean {
   return candidates.some((pattern) => {
     if (!pattern) return false;
     if (pattern === '*') return true;
-    const escaped = pattern
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*/g, '.*');
-    return new RegExp(`^${escaped}$`, 'i').test(normalized);
+    return compileGlobPattern(pattern).test(normalized);
   });
 }
 

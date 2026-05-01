@@ -4124,6 +4124,14 @@ function resolveConfiguredSecretInput(
   });
 }
 
+let runtimeConfigSecretAuditSequence = 0;
+
+function makeRuntimeConfigSecretAuditRunId(): string {
+  runtimeConfigSecretAuditSequence =
+    (runtimeConfigSecretAuditSequence % Number.MAX_SAFE_INTEGER) + 1;
+  return `secret_runtime_config_${Date.now()}_${runtimeConfigSecretAuditSequence}`;
+}
+
 function auditConfiguredSecretUnsafeEscape(
   handle: SecretHandle,
   reason: string,
@@ -4142,32 +4150,38 @@ function auditConfiguredSecretUnsafeEscape(
 
   queueMicrotask(() => {
     void import('../audit/audit-events.js')
-      .then(({ makeAuditRunId, recordAuditEvent }) => {
+      .then((auditEvents) => {
         const sessionId = 'secret-resolution';
-        const runId = makeAuditRunId('secret');
-        recordAuditEvent({
-          sessionId,
-          runId,
-          event: {
-            type: 'secret.resolved',
-            ...event,
-          },
-        });
-        recordAuditEvent({
-          sessionId,
-          runId,
-          event: {
-            type: 'secret.unsafe_escape',
-            ...event,
-            reason,
-          },
-        });
+        const runId = makeRuntimeConfigSecretAuditRunId();
+        const recordAuditEvent = Object.hasOwn(
+          auditEvents,
+          'recordAuditEventStrict',
+        )
+          ? auditEvents.recordAuditEventStrict
+          : auditEvents.recordAuditEvent;
+        try {
+          recordAuditEvent({
+            sessionId,
+            runId,
+            event: {
+              type: 'secret.resolved',
+              ...event,
+            },
+          });
+          recordAuditEvent({
+            sessionId,
+            runId,
+            event: {
+              type: 'secret.unsafe_escape',
+              ...event,
+              reason,
+            },
+          });
+        } catch {
+          // Runtime config can be normalized before the audit sink is ready.
+        }
       })
-      .catch((err: unknown) => {
-        console.warn(
-          `[runtime-config] secret audit failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      .catch(() => {});
   });
 }
 

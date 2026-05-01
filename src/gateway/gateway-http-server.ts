@@ -773,6 +773,13 @@ function hasApiAuth(
   return gatewayTokenMatch;
 }
 
+function hasGatewayApiAuth(req: IncomingMessage): boolean {
+  const authHeader = req.headers.authorization || '';
+  return (
+    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`
+  );
+}
+
 function hasApiTokenValue(token: string): boolean {
   const trimmed = token.trim();
   if (!trimmed) return false;
@@ -4201,6 +4208,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             return;
           }
           if (pathname === '/api/secret/inject' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
             await handleApiSecretInject(req, res);
             return;
           }

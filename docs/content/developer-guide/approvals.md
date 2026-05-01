@@ -246,6 +246,33 @@ skill:
         reason: SAP is finance-only.
 ```
 
+Secret resolution is another policy-engine consumer. The default is deny unless
+the workspace policy explicitly sets `secret.default: allow` or an allow rule
+matches. Prefer the composite `secret_resolve_allowed` predicate for normal
+secret injection rules:
+
+```yaml
+secret:
+  rules:
+    - id: allow-datev-login
+      when:
+        predicate: secret_resolve_allowed
+        id: DATEV_*
+        source: store
+        sink: dom
+        host: "*.datev.de"
+        selector: "#password"
+        skill: datev-login
+        agent: main
+      action: allow
+```
+
+The secret policy consumer also exposes fine-grained predicates for composed
+rules: `secret.id`, `secret.source`, `secret.sink`, `secret.host`,
+`secret.selector`, `skill.name`, and `agent.id`. Use these when the rule needs
+`all`, `any`, or `not` composition that is clearer than one composite
+predicate.
+
 ## Approval Scopes
 
 | Reply or command | Internal scope | Persistence | Stored in | Notes |
