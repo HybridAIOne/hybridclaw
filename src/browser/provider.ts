@@ -36,18 +36,6 @@ export interface BrowserSession {
   waitForSelector(selector: string, opts?: WaitOptions): Promise<void>;
 }
 
-export type BrowserActionName =
-  | 'click'
-  | 'fill'
-  | 'scroll'
-  | 'wait_for_selector'
-  | 'screenshot'
-  | 'evaluate'
-  | 'navigate'
-  | 'back'
-  | 'forward'
-  | 'reload';
-
 export type BrowserAction =
   | { name: 'click'; selector: string; opts?: ClickOptions }
   | { name: 'fill'; selector: string; value: SecretRef | string }
@@ -59,6 +47,8 @@ export type BrowserAction =
   | { name: 'back'; opts?: NavigationOptions }
   | { name: 'forward'; opts?: NavigationOptions }
   | { name: 'reload'; opts?: NavigationOptions };
+
+export type BrowserActionName = BrowserAction['name'];
 
 export interface ClickOptions {
   button?: 'left' | 'middle' | 'right';

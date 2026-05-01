@@ -5,6 +5,13 @@ import type {
   BrowserActionName,
   BrowserProvider,
   BrowserSession,
+  ClickOptions,
+  NavigateOptions,
+  NavigationOptions,
+  ScreenshotOptions,
+  ScrollOptions,
+  SessionOptions,
+  WaitOptions,
 } from '../src/browser/provider.js';
 import type { SecretRef } from '../src/security/secret-refs.js';
 
@@ -26,39 +33,40 @@ class MockBrowserSession implements BrowserSession {
     return await fn();
   }
 
-  async screenshot(): Promise<Buffer> {
+  async screenshot(_opts?: ScreenshotOptions): Promise<Buffer> {
     return Buffer.from('mock-screenshot');
   }
 
-  async navigate(): Promise<void> {}
+  async navigate(_url: string, _opts?: NavigateOptions): Promise<void> {}
 
-  async back(): Promise<void> {}
+  async back(_opts?: NavigationOptions): Promise<void> {}
 
-  async forward(): Promise<void> {}
+  async forward(_opts?: NavigationOptions): Promise<void> {}
 
-  async reload(): Promise<void> {}
+  async reload(_opts?: NavigationOptions): Promise<void> {}
 
-  async click(): Promise<void> {}
+  async click(_selector: string, _opts?: ClickOptions): Promise<void> {}
 
   async fill(_selector: string, _value: SecretRef | string): Promise<void> {}
 
-  async scroll(): Promise<void> {}
+  async scroll(_opts: ScrollOptions): Promise<void> {}
 
-  async waitForSelector(): Promise<void> {}
+  async waitForSelector(
+    _selector: string,
+    _opts?: WaitOptions,
+  ): Promise<void> {}
 }
 
 class MockBrowserProvider implements BrowserProvider {
   readonly launchedProfileHints: string[] = [];
 
-  async launchSession(opts: {
-    profileDirHint?: string;
-  }): Promise<BrowserSession> {
+  async launchSession(opts: SessionOptions): Promise<BrowserSession> {
     if (opts.profileDirHint)
       this.launchedProfileHints.push(opts.profileDirHint);
     return new MockBrowserSession();
   }
 
-  async closeSession(): Promise<void> {}
+  async closeSession(_session: BrowserSession): Promise<void> {}
 }
 
 test('browser provider contract covers the required action vocabulary', () => {
