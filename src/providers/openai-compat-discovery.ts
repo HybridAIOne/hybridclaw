@@ -10,6 +10,10 @@ import {
   ZAI_ENABLED,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import {
+  type DiscoveryError,
+  formatDiscoveryFailure,
+} from './discovery-error-utils.js';
 import { getDiscoveredHuggingFaceModelNames } from './huggingface-discovery.js';
 import { getDiscoveredMistralModelNames } from './mistral-discovery.js';
 import {
@@ -85,11 +89,6 @@ function prefixModelId(prefix: string, id: string): string {
   return `${prefix}${id}`;
 }
 
-export interface DiscoveryError {
-  httpStatus?: number;
-  message: string;
-}
-
 export interface OpenAICompatDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
@@ -109,49 +108,6 @@ const buildEmptyOpenAICompatDiscoveryState =
     discoveredModelNames: [],
     pricingByModel: new Map(),
   });
-
-function formatDuration(ms: number): string {
-  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
-}
-
-function isTimeoutError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  const name = error.name.toLowerCase();
-  const code = (error as Error & { code?: unknown }).code;
-  return (
-    name === 'timeouterror' ||
-    code === 23 ||
-    code === 'TIMEOUT_ERR' ||
-    /timed out|timeout|aborted due to timeout/.test(message)
-  );
-}
-
-function formatDiscoveryFailure(error: unknown, url: string): DiscoveryError {
-  const httpStatus = (error as { httpStatus?: number } | null)?.httpStatus;
-  if (typeof httpStatus === 'number') {
-    return {
-      httpStatus,
-      message: `HTTP ${httpStatus} from ${url}`,
-    };
-  }
-
-  if (isTimeoutError(error)) {
-    return {
-      message: `Timed out after ${formatDuration(
-        OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS,
-      )} while fetching ${url}.`,
-    };
-  }
-
-  const rawMessage =
-    error instanceof Error && error.message.trim()
-      ? error.message.trim()
-      : String(error);
-  return {
-    message: `Failed to fetch ${url}: ${rawMessage}`,
-  };
-}
 
 export function createOpenAICompatDiscoveryStore(
   def: OpenAICompatRemoteProviderDef,
@@ -239,10 +195,11 @@ export function createOpenAICompatDiscoveryStore(
     const state = await discoveryStore.discover(() => fetchModels(apiKey), {
       force: opts?.force,
       onError: (err, staleState) => {
-        const discoveryError = formatDiscoveryFailure(
-          err,
-          resolveDiscoveryUrl(),
-        );
+        const discoveryError = formatDiscoveryFailure({
+          error: err,
+          url: resolveDiscoveryUrl(),
+          timeoutMs: OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS,
+        });
         lastError = discoveryError;
         const httpStatus = discoveryError.httpStatus;
         if (httpStatus === 404 || httpStatus === 405) {
