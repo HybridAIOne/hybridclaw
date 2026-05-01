@@ -13,7 +13,6 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://console.aws.amazon.com/billing/home",
-      "suggested_file_name": "AWS-2026-03-001.pdf",
       "pdf_base64": "JVBERiBhd3M="
     }
   ]

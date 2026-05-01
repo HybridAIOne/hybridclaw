@@ -15,6 +15,8 @@ export function resolveInvoiceCredentials(
 
   for (const [key, value] of Object.entries(inputs)) {
     if (value === undefined) continue;
+    // This resolver returns the cleartext secret to the caller; keep the value
+    // local and rely on the supplied audit hook for the secret handle trail.
     const secret = resolveSecretInputUnsafe(value, {
       path: `invoiceProviders.${providerId}.credentials.${key}`,
       required: required.has(key),

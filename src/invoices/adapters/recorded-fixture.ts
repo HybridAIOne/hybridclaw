@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+import { sinceTimestamp } from '../date-utils.js';
 import type {
   InvoiceAdapter,
   InvoiceAdapterContext,
@@ -19,7 +20,14 @@ interface RecordedInvoiceSession {
 }
 
 function parseRecordedInvoiceFixture(filePath: string): RecordedInvoiceFixture {
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+  } catch (error) {
+    throw new Error(
+      `Invalid recorded invoice fixture at ${filePath}: ${(error as Error).message}`,
+    );
+  }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`Invalid recorded invoice fixture at ${filePath}.`);
   }
@@ -41,7 +49,7 @@ export class RecordedFixtureInvoiceAdapter
 {
   readonly id: InvoiceProviderId | string;
   readonly displayName: string;
-  readonly #fixturePath: string;
+  readonly #fixture: RecordedInvoiceFixture;
 
   constructor(options: {
     id: InvoiceProviderId | string;
@@ -50,21 +58,21 @@ export class RecordedFixtureInvoiceAdapter
   }) {
     this.id = options.id;
     this.displayName = options.displayName;
-    this.#fixturePath = options.fixturePath;
+    this.#fixture = parseRecordedInvoiceFixture(options.fixturePath);
   }
 
   async login(
     _credentials: InvoiceCredentials,
     _context: InvoiceAdapterContext,
   ): Promise<RecordedInvoiceSession> {
-    return { fixture: parseRecordedInvoiceFixture(this.#fixturePath) };
+    return { fixture: this.#fixture };
   }
 
   async listInvoices(
     session: RecordedInvoiceSession,
     options: InvoiceListOptions,
   ): Promise<InvoiceMeta[]> {
-    const since = options.since ? new Date(options.since).getTime() : null;
+    const since = sinceTimestamp(options, 'recorded invoice since date');
     return session.fixture.invoices
       .filter((invoice) => {
         if (since == null) return true;

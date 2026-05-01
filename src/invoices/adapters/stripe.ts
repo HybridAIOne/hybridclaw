@@ -1,3 +1,4 @@
+import { sinceTimestamp } from '../date-utils.js';
 import type {
   InvoiceAdapter,
   InvoiceAdapterContext,
@@ -97,7 +98,6 @@ function mapStripeInvoice(invoice: StripeInvoice): InvoiceMeta {
     gross,
     currency: (invoice.currency || 'usd').toUpperCase(),
     source_url: sourceUrl,
-    suggested_file_name: `${invoiceNo}.pdf`,
   };
 }
 
@@ -129,11 +129,8 @@ export class StripeInvoiceAdapter implements InvoiceAdapter<StripeSession> {
     const url = new URL(`${this.#apiBaseUrl}/invoices`);
     url.searchParams.set('limit', '100');
     url.searchParams.set('status', 'paid');
-    if (options.since) {
-      const sinceTime = new Date(options.since).getTime();
-      if (!Number.isFinite(sinceTime)) {
-        throw new Error(`Invalid Stripe invoice since date: ${options.since}`);
-      }
+    const sinceTime = sinceTimestamp(options, 'Stripe invoice since date');
+    if (sinceTime != null) {
       url.searchParams.set(
         'created[gte]',
         String(Math.floor(sinceTime / 1000)),

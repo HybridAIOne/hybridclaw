@@ -37,8 +37,20 @@ export interface MonthlyInvoiceRunResult {
     providerId: InvoiceProviderId;
     result: InvoiceHarvestResult;
   }>;
+  providerErrors: Array<{
+    providerId: InvoiceProviderId;
+    error: string;
+  }>;
   datevUploaded: boolean;
 }
+
+const SCRAPE_PROVIDER_IDS = new Set<InvoiceProviderId>([
+  'github',
+  'openai',
+  'anthropic',
+  'atlassian',
+  'linkedin',
+]);
 
 function adapterMap(
   adapters: InvoiceAdapter[],
@@ -60,59 +72,94 @@ export async function runMonthlyInvoiceRun(input: {
   sessionId: string;
   datev?: DatevInvoiceUploadAdapter;
   recordAudit?: (input: RecordAuditEventInput) => void;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+  scrapeJitterMs?: { min: number; max: number };
 }): Promise<MonthlyInvoiceRunResult> {
   const runId = makeAuditRunId('monthly-invoice');
   const audit = input.recordAudit || recordAuditEvent;
   const adaptersById = adapterMap(input.adapters);
   const providerResults: MonthlyInvoiceRunResult['providerResults'] = [];
+  const providerErrors: MonthlyInvoiceRunResult['providerErrors'] = [];
   const invoiceRoots: Array<{
     vendor: string;
     invoice_no: string;
     outputDir: string;
   }> = [];
+  const providers = enabledProviders(input.config);
 
-  for (const provider of enabledProviders(input.config)) {
+  for (let index = 0; index < providers.length; index += 1) {
+    const provider = providers[index] as InvoiceProviderConfig;
     const adapter = adaptersById.get(provider.id);
     if (!adapter) {
       throw new Error(`Invoice adapter ${provider.id} is not registered.`);
     }
     const outputDir = provider.outputDir || input.config.outputDir;
-    const credentials = resolveInvoiceCredentials(
-      provider.id,
-      provider.credentials,
-      {
-        required: [],
-        audit: () => {
-          audit({
-            sessionId: input.sessionId,
-            runId,
-            event: {
-              type: 'invoice.credential_resolved',
-              provider: provider.id,
-            },
-          });
+    try {
+      const credentials = resolveInvoiceCredentials(
+        provider.id,
+        provider.credentials,
+        {
+          required: [],
+          audit: () => {
+            audit({
+              sessionId: input.sessionId,
+              runId,
+              event: {
+                type: 'invoice.credential_resolved',
+                provider: provider.id,
+              },
+            });
+          },
         },
-      },
-    );
-    const result = await harvestProviderInvoices({
-      adapter,
-      credentials,
-      outputDir,
-      manifestPath: path.join(outputDir, 'manifest.json'),
-      listOptions: { since: provider.since },
-      profileDir: provider.profileDir,
-      sessionId: input.sessionId,
-      runId,
-      recordAudit: audit,
-    });
-    providerResults.push({ providerId: provider.id, result });
-    invoiceRoots.push(
-      ...result.fetched.map((record) => ({
-        vendor: record.vendor,
-        invoice_no: record.invoice_no,
+      );
+      const result = await harvestProviderInvoices({
+        adapter,
+        credentials,
         outputDir,
-      })),
-    );
+        manifestPath: path.join(outputDir, 'manifest.json'),
+        listOptions: { since: provider.since },
+        profileDir: provider.profileDir,
+        sessionId: input.sessionId,
+        runId,
+        recordAudit: audit,
+      });
+      providerResults.push({ providerId: provider.id, result });
+      invoiceRoots.push(
+        ...result.fetched.map((record) => ({
+          vendor: record.vendor,
+          invoice_no: record.invoice_no,
+          outputDir,
+        })),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      providerErrors.push({ providerId: provider.id, error: message });
+      audit({
+        sessionId: input.sessionId,
+        runId,
+        event: {
+          type: 'invoice.provider_failed',
+          provider: provider.id,
+          error: message,
+        },
+      });
+    }
+
+    if (
+      index < providers.length - 1 &&
+      SCRAPE_PROVIDER_IDS.has(provider.id) &&
+      SCRAPE_PROVIDER_IDS.has(providers[index + 1]?.id as InvoiceProviderId)
+    ) {
+      const jitter = input.scrapeJitterMs || { min: 250, max: 1250 };
+      const random = input.random || Math.random;
+      const sleep =
+        input.sleep ||
+        ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+      const delay =
+        jitter.min + Math.floor(random() * (jitter.max - jitter.min + 1));
+      await sleep(delay);
+    }
   }
 
   const records = providerResults.flatMap(({ result }) => result.fetched);
@@ -144,6 +191,7 @@ export async function runMonthlyInvoiceRun(input: {
   return {
     runId,
     providerResults,
+    providerErrors,
     datevUploaded: shouldUpload,
   };
 }

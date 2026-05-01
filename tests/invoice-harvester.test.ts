@@ -13,20 +13,20 @@ import {
   harvestProviderInvoices,
   INVOICE_PROVIDER_DEFINITIONS,
   INVOICE_SCRAPE_PLANS,
+  type InvoiceAdapter,
+  type InvoiceApiClient,
+  type InvoiceMeta,
+  type InvoiceProviderId,
   loadInvoiceManifest,
   parseInvoiceMoneyText,
   RecordedFixtureInvoiceAdapter,
   resolveInvoiceCredentials,
   runMonthlyInvoiceRun,
-  saveInvoiceManifest,
+  type ScrapeInvoiceDriver,
   StripeInvoiceAdapter,
+  saveInvoiceManifest,
   validateInvoiceHarvesterConfig,
   validateInvoiceRecord,
-  type InvoiceApiClient,
-  type InvoiceAdapter,
-  type InvoiceMeta,
-  type InvoiceProviderId,
-  type ScrapeInvoiceDriver,
 } from '../src/invoices/index.js';
 
 const invoiceMeta: InvoiceMeta = {
@@ -41,7 +41,6 @@ const invoiceMeta: InvoiceMeta = {
   gross: 119,
   currency: 'EUR',
   source_url: 'https://platform.openai.com/account/billing',
-  suggested_file_name: 'OA-2026-03-001.pdf',
 };
 
 afterEach(() => {
@@ -52,7 +51,6 @@ afterEach(() => {
 describe('invoice schema', () => {
   test('validates the normalized invoice record contract', () => {
     const normalized = { ...invoiceMeta };
-    delete normalized.suggested_file_name;
     const record = validateInvoiceRecord({
       ...normalized,
       pdf_path: 'runs/2026-03/openai/OA-2026-03-001.pdf',
@@ -61,9 +59,9 @@ describe('invoice schema', () => {
     });
 
     expect(record.vendor).toBe('openai');
-    expect(() =>
-      validateInvoiceRecord({ ...record, vat_rate: 1.5 }),
-    ).toThrow(/vat_rate/u);
+    expect(() => validateInvoiceRecord({ ...record, vat_rate: 1.5 })).toThrow(
+      /vat_rate/u,
+    );
   });
 });
 
@@ -193,28 +191,38 @@ describe('invoice harvester', () => {
 
     rename.mockRestore();
   });
+
+  test('reports malformed manifests with the file path', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-invoices-'));
+    const manifestPath = path.join(outputDir, 'manifest.json');
+    fs.writeFileSync(manifestPath, '{not-json', 'utf-8');
+
+    expect(() => loadInvoiceManifest(manifestPath)).toThrow(
+      new RegExp(`Invalid invoice manifest at ${manifestPath}`),
+    );
+  });
 });
 
 describe('reference invoice adapters', () => {
-  test('declares the launch provider set and credential handles', () => {
-    expect(INVOICE_PROVIDER_DEFINITIONS.map((provider) => provider.id)).toEqual([
-      'stripe',
-      'github',
-      'openai',
-      'anthropic',
-      'atlassian',
-      'linkedin',
-      'google-ads',
-      'aws',
-      'gcp',
-      'azure',
-    ]);
+  test('declares the launch provider set', () => {
+    expect(INVOICE_PROVIDER_DEFINITIONS.map((provider) => provider.id)).toEqual(
+      [
+        'stripe',
+        'github',
+        'openai',
+        'anthropic',
+        'atlassian',
+        'linkedin',
+        'google-ads',
+        'aws',
+        'gcp',
+        'azure',
+      ],
+    );
     expect(
       INVOICE_PROVIDER_DEFINITIONS.find((provider) => provider.id === 'stripe'),
     ).toMatchObject({
-      mode: 'api',
-      status: 'available',
-      credentialKeys: ['apiKey'],
+      displayName: 'Stripe',
     });
   });
 
@@ -241,7 +249,9 @@ describe('reference invoice adapters', () => {
       }
       return new Response('%PDF stripe', { status: 200 });
     });
-    const adapter = new StripeInvoiceAdapter({ fetch: fetchMock as typeof fetch });
+    const adapter = new StripeInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
     const session = await adapter.login(
       { apiKey: 'sk_test' },
       { providerId: 'stripe' },
@@ -287,7 +297,9 @@ describe('reference invoice adapters', () => {
       }
       return new Response('%PDF stripe', { status: 200 });
     });
-    const adapter = new StripeInvoiceAdapter({ fetch: fetchMock as typeof fetch });
+    const adapter = new StripeInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
     const session = await adapter.login(
       { apiKey: 'sk_test' },
       { providerId: 'stripe' },
@@ -303,13 +315,18 @@ describe('reference invoice adapters', () => {
     expect(parseInvoiceMoneyText('1.234,56 EUR')).toBe(1234.56);
     expect(parseInvoiceMoneyText('1,234')).toBe(1234);
     expect(parseInvoiceMoneyText('123,45')).toBe(123.45);
+    expect(() => parseInvoiceMoneyText('not available')).toThrow(
+      /Unable to parse/u,
+    );
   });
 
   test('scrape adapters use injected browser drivers for offline fixtures', async () => {
     const driver: ScrapeInvoiceDriver = {
       login: vi.fn(async () => undefined),
       listInvoices: vi.fn(async () => [invoiceMeta]),
-      downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF openai')),
+      downloadInvoice: vi.fn(async () =>
+        new TextEncoder().encode('%PDF openai'),
+      ),
     };
     const adapter = createGitHubInvoiceAdapter({ driver });
     const session = await adapter.login(
@@ -320,9 +337,9 @@ describe('reference invoice adapters', () => {
     await expect(adapter.listInvoices(session, {})).resolves.toEqual([
       invoiceMeta,
     ]);
-    await expect(adapter.download(session, invoiceMeta)).resolves.toBeInstanceOf(
-      Uint8Array,
-    );
+    await expect(
+      adapter.download(session, invoiceMeta),
+    ).resolves.toBeInstanceOf(Uint8Array);
     expect(driver.login).toHaveBeenCalledWith(
       { username: 'user_a' },
       { providerId: 'github', profileDir: '/tmp/github-profile' },
@@ -332,9 +349,9 @@ describe('reference invoice adapters', () => {
   test('scrape adapters fail loudly when no browser driver is configured', async () => {
     const adapter = createGitHubInvoiceAdapter();
 
-    await expect(
-      adapter.login({}, { providerId: 'github' }),
-    ).rejects.toThrow(/requires a Playwright driver/u);
+    await expect(adapter.login({}, { providerId: 'github' })).rejects.toThrow(
+      /requires a Playwright driver/u,
+    );
   });
 
   test('API adapters run through injected clients for launch providers', async () => {
@@ -400,12 +417,31 @@ describe('recorded invoice eval fixtures', () => {
       ).pathname,
     });
     const session = await adapter.login({}, { providerId: id });
-    const invoices = await adapter.listInvoices(session, { since: '2026-01-01' });
+    const invoices = await adapter.listInvoices(session, {
+      since: '2026-01-01',
+    });
     const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
 
     expect(invoices).toHaveLength(1);
     expect(invoices[0]?.vendor).toBe(id);
     expect(new TextDecoder().decode(pdf)).toContain('%PDF');
+  });
+
+  test('validates recorded fixtures at construction time', () => {
+    const fixturePath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'hc-recorded-fixture-')),
+      'broken.json',
+    );
+    fs.writeFileSync(fixturePath, '{broken', 'utf-8');
+
+    expect(
+      () =>
+        new RecordedFixtureInvoiceAdapter({
+          id: 'stripe',
+          displayName: 'Stripe',
+          fixturePath,
+        }),
+    ).toThrow(new RegExp(`Invalid recorded invoice fixture at ${fixturePath}`));
   });
 });
 
@@ -522,6 +558,59 @@ describe('invoice harvester config and monthly workflow', () => {
         records: expect.arrayContaining([
           expect.objectContaining({ invoice_no: 'ST-2026-03-001' }),
         ]),
+      }),
+    );
+  });
+
+  test('keeps monthly runs going after one provider fails', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-'));
+    const failingAdapter: InvoiceAdapter<undefined> = {
+      id: 'openai',
+      displayName: 'OpenAI',
+      async login() {
+        throw new Error('portal unavailable');
+      },
+      async listInvoices() {
+        return [];
+      },
+      async download() {
+        return new Uint8Array();
+      },
+    };
+    const workingAdapter = new RecordedFixtureInvoiceAdapter({
+      id: 'stripe',
+      displayName: 'Stripe',
+      fixturePath: new URL(
+        './fixtures/invoices/recorded-stripe.json',
+        import.meta.url,
+      ).pathname,
+    });
+    const recordAudit = vi.fn();
+
+    const result = await runMonthlyInvoiceRun({
+      sessionId: 'session-monthly-invoice-test',
+      adapters: [failingAdapter, workingAdapter],
+      recordAudit,
+      config: {
+        outputDir,
+        providers: [
+          { id: 'openai', credentials: {} },
+          { id: 'stripe', credentials: {} },
+        ],
+      },
+    });
+
+    expect(result.providerResults).toHaveLength(1);
+    expect(result.providerResults[0]?.providerId).toBe('stripe');
+    expect(result.providerErrors).toEqual([
+      { providerId: 'openai', error: 'portal unavailable' },
+    ]);
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: 'invoice.provider_failed',
+          provider: 'openai',
+        }),
       }),
     );
   });

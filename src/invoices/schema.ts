@@ -1,4 +1,5 @@
-import { Ajv, type AnySchemaObject, type ErrorObject } from 'ajv';
+import { Ajv, type AnySchemaObject } from 'ajv';
+import { formatJsonSchemaError } from './schema-error.js';
 import type { InvoiceRecord } from './types.js';
 
 const ISO_DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$';
@@ -48,29 +49,6 @@ const invoiceRecordValidator = new Ajv({
   removeAdditional: false,
   strictSchema: true,
 }).compile<InvoiceRecord>(INVOICE_RECORD_SCHEMA);
-
-function formatJsonSchemaError(error: ErrorObject): string {
-  const pointer = error.instancePath || '/';
-  if (
-    error.keyword === 'required' &&
-    typeof error.params.missingProperty === 'string'
-  ) {
-    return `${pointer} must include ${error.params.missingProperty}.`;
-  }
-  if (
-    error.keyword === 'additionalProperties' &&
-    typeof error.params.additionalProperty === 'string'
-  ) {
-    return `${pointer} must not include ${error.params.additionalProperty}.`;
-  }
-  if (error.keyword === 'pattern') {
-    return `${pointer} has invalid format.`;
-  }
-  if (error.keyword === 'minimum' || error.keyword === 'maximum') {
-    return `${pointer} ${error.message || 'is out of range'}.`;
-  }
-  return `${pointer} ${error.message || 'is invalid'}.`;
-}
 
 export function validateInvoiceRecord(value: unknown): InvoiceRecord {
   if (!invoiceRecordValidator(value)) {

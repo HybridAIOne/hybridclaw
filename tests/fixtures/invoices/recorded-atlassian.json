@@ -13,7 +13,6 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://my.atlassian.com/billing",
-      "suggested_file_name": "AT-2026-03-001.pdf",
       "pdf_base64": "JVBERiBhdGxhc3NpYW4="
     }
   ]

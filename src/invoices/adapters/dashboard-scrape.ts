@@ -1,3 +1,4 @@
+import { INVOICE_SCRAPE_PLANS } from '../scrape-plans.js';
 import type {
   InvoiceAdapter,
   InvoiceAdapterContext,
@@ -68,59 +69,58 @@ export class DashboardScrapeInvoiceAdapter
   }
 }
 
+const SCRAPE_PROVIDER_DISPLAY_NAMES = {
+  github: 'GitHub',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  atlassian: 'Atlassian',
+  linkedin: 'LinkedIn Campaign Manager',
+} satisfies Partial<Record<InvoiceProviderId, string>>;
+
+function createScrapeInvoiceAdapter(
+  id: keyof typeof SCRAPE_PROVIDER_DISPLAY_NAMES,
+  options: { driver?: ScrapeInvoiceDriver } = {},
+): DashboardScrapeInvoiceAdapter {
+  const plan = INVOICE_SCRAPE_PLANS[id];
+  if (!plan) {
+    throw new Error(`Missing invoice scrape plan for ${id}.`);
+  }
+  return new DashboardScrapeInvoiceAdapter({
+    id,
+    displayName: SCRAPE_PROVIDER_DISPLAY_NAMES[id],
+    loginUrl: plan.loginUrl,
+    driver: options.driver,
+  });
+}
+
 export function createGitHubInvoiceAdapter(
   options: { driver?: ScrapeInvoiceDriver } = {},
 ): DashboardScrapeInvoiceAdapter {
-  return new DashboardScrapeInvoiceAdapter({
-    id: 'github',
-    displayName: 'GitHub',
-    loginUrl: 'https://github.com/settings/billing/summary',
-    driver: options.driver,
-  });
+  return createScrapeInvoiceAdapter('github', options);
 }
 
 export function createOpenAIInvoiceAdapter(
   options: { driver?: ScrapeInvoiceDriver } = {},
 ): DashboardScrapeInvoiceAdapter {
-  return new DashboardScrapeInvoiceAdapter({
-    id: 'openai',
-    displayName: 'OpenAI',
-    loginUrl: 'https://platform.openai.com/account/billing',
-    driver: options.driver,
-  });
+  return createScrapeInvoiceAdapter('openai', options);
 }
 
 export function createAnthropicInvoiceAdapter(
   options: { driver?: ScrapeInvoiceDriver } = {},
 ): DashboardScrapeInvoiceAdapter {
-  return new DashboardScrapeInvoiceAdapter({
-    id: 'anthropic',
-    displayName: 'Anthropic',
-    loginUrl: 'https://console.anthropic.com/settings/billing',
-    driver: options.driver,
-  });
+  return createScrapeInvoiceAdapter('anthropic', options);
 }
 
 export function createAtlassianInvoiceAdapter(
   options: { driver?: ScrapeInvoiceDriver } = {},
 ): DashboardScrapeInvoiceAdapter {
-  return new DashboardScrapeInvoiceAdapter({
-    id: 'atlassian',
-    displayName: 'Atlassian',
-    loginUrl: 'https://my.atlassian.com/billing',
-    driver: options.driver,
-  });
+  return createScrapeInvoiceAdapter('atlassian', options);
 }
 
 export function createLinkedInInvoiceAdapter(
   options: { driver?: ScrapeInvoiceDriver } = {},
 ): DashboardScrapeInvoiceAdapter {
-  return new DashboardScrapeInvoiceAdapter({
-    id: 'linkedin',
-    displayName: 'LinkedIn Campaign Manager',
-    loginUrl: 'https://www.linkedin.com/campaignmanager/accounts',
-    driver: options.driver,
-  });
+  return createScrapeInvoiceAdapter('linkedin', options);
 }
 
 export function createPlaywrightScrapeDriver(

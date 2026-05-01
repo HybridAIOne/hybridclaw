@@ -1,6 +1,6 @@
-import { Ajv, type AnySchemaObject, type ErrorObject } from 'ajv';
-import type { RuntimeConfigChangeMeta } from '../config/runtime-config-revisions.js';
+import { Ajv, type AnySchemaObject } from 'ajv';
 import type { SecretInput } from '../security/secret-refs.js';
+import { formatJsonSchemaError } from './schema-error.js';
 import { INVOICE_PROVIDER_IDS, type InvoiceProviderId } from './types.js';
 
 export interface InvoiceProviderConfig {
@@ -88,26 +88,6 @@ const invoiceConfigValidator = new Ajv({
   strictSchema: true,
 }).compile<InvoiceHarvesterConfig>(INVOICE_HARVESTER_CONFIG_SCHEMA);
 
-function formatJsonSchemaError(error: ErrorObject): string {
-  const pointer = error.instancePath || '/';
-  if (
-    error.keyword === 'required' &&
-    typeof error.params.missingProperty === 'string'
-  ) {
-    return `${pointer} must include ${error.params.missingProperty}.`;
-  }
-  if (
-    error.keyword === 'additionalProperties' &&
-    typeof error.params.additionalProperty === 'string'
-  ) {
-    return `${pointer} must not include ${error.params.additionalProperty}.`;
-  }
-  if (error.keyword === 'enum' && Array.isArray(error.schema)) {
-    return `${pointer} must be one of ${error.schema.join(', ')}.`;
-  }
-  return `${pointer} ${error.message || 'is invalid'}.`;
-}
-
 function assertUniqueProviders(config: InvoiceHarvesterConfig): void {
   const seen = new Set<string>();
   for (const provider of config.providers) {
@@ -131,21 +111,4 @@ export function validateInvoiceHarvesterConfig(
   }
   assertUniqueProviders(value);
   return value;
-}
-
-export async function syncInvoiceHarvesterConfigRevision(
-  configPath: string,
-  meta?: RuntimeConfigChangeMeta,
-): Promise<void> {
-  const { syncRuntimeAssetRevisionState } = await import(
-    '../config/runtime-config.js'
-  );
-  syncRuntimeAssetRevisionState(
-    'config',
-    configPath,
-    meta || {
-      route: 'invoice-harvester.config',
-      source: 'invoice-harvester',
-    },
-  );
 }

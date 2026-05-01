@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { Ajv, type AnySchemaObject } from 'ajv';
 import { validateInvoiceRecord } from './schema.js';
+import { formatJsonSchemaError } from './schema-error.js';
 import type {
   InvoiceHarvestDuplicate,
   InvoiceMeta,
@@ -12,6 +14,26 @@ export interface InvoiceManifest {
   schema: 'hybridclaw.invoice-manifest.v1';
   records: InvoiceRecord[];
 }
+
+const INVOICE_MANIFEST_SCHEMA = {
+  $schema: 'http://json-schema.org/draft-07/schema#',
+  $id: 'urn:hybridclaw:schema:invoice-manifest',
+  type: 'object',
+  additionalProperties: false,
+  required: ['schema', 'records'],
+  properties: {
+    schema: { type: 'string', const: 'hybridclaw.invoice-manifest.v1' },
+    records: { type: 'array' },
+  },
+} satisfies AnySchemaObject;
+
+const invoiceManifestValidator = new Ajv({
+  allErrors: true,
+  removeAdditional: false,
+  strictSchema: true,
+}).compile<{ schema: 'hybridclaw.invoice-manifest.v1'; records: unknown[] }>(
+  INVOICE_MANIFEST_SCHEMA,
+);
 
 export function createInvoiceIdentity(invoice: {
   vendor: string;
@@ -25,26 +47,25 @@ export function loadInvoiceManifest(filePath: string): InvoiceManifest {
     return { schema: 'hybridclaw.invoice-manifest.v1', records: [] };
   }
 
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    Array.isArray(parsed) ||
-    (parsed as { schema?: unknown }).schema !== 'hybridclaw.invoice-manifest.v1'
-  ) {
-    throw new Error(`Invalid invoice manifest at ${filePath}.`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+  } catch (error) {
+    throw new Error(
+      `Invalid invoice manifest at ${filePath}: ${(error as Error).message}`,
+    );
   }
 
-  const records = (parsed as { records?: unknown }).records;
-  if (!Array.isArray(records)) {
-    throw new Error(
-      `Invalid invoice manifest at ${filePath}: records missing.`,
-    );
+  if (!invoiceManifestValidator(parsed)) {
+    const message = (invoiceManifestValidator.errors || [])
+      .map(formatJsonSchemaError)
+      .join(' ');
+    throw new Error(`Invalid invoice manifest at ${filePath}: ${message}`);
   }
 
   return {
     schema: 'hybridclaw.invoice-manifest.v1',
-    records: records.map(validateInvoiceRecord),
+    records: parsed.records.map(validateInvoiceRecord),
   };
 }
 
@@ -73,26 +94,40 @@ export function saveInvoiceManifest(
   }
 }
 
-export function findInvoiceDuplicate(
-  invoice: InvoiceMeta | InvoiceRecord,
+export interface InvoiceDuplicateIndex {
+  identities: Set<string>;
+  checksums: Set<string>;
+}
+
+export function createInvoiceDuplicateIndex(
   records: InvoiceRecord[],
+): InvoiceDuplicateIndex {
+  return {
+    identities: new Set(records.map(createInvoiceIdentity)),
+    checksums: new Set(records.map((record) => record.checksum_sha256)),
+  };
+}
+
+export function addInvoiceRecordToDuplicateIndex(
+  index: InvoiceDuplicateIndex,
+  record: InvoiceRecord,
+): void {
+  index.identities.add(createInvoiceIdentity(record));
+  index.checksums.add(record.checksum_sha256);
+}
+
+export function findInvoiceDuplicateInIndex(
+  invoice: InvoiceMeta | InvoiceRecord,
+  index: InvoiceDuplicateIndex,
 ): InvoiceHarvestDuplicate | null {
-  const identity = createInvoiceIdentity(invoice);
-  const identityMatch = records.find(
-    (record) => createInvoiceIdentity(record) === identity,
-  );
-  if (identityMatch) {
+  if (index.identities.has(createInvoiceIdentity(invoice))) {
     return { reason: 'identity', invoice };
   }
-
-  if ('checksum_sha256' in invoice) {
-    const checksumMatch = records.find(
-      (record) => record.checksum_sha256 === invoice.checksum_sha256,
-    );
-    if (checksumMatch) {
-      return { reason: 'checksum', invoice };
-    }
+  if (
+    'checksum_sha256' in invoice &&
+    index.checksums.has(invoice.checksum_sha256)
+  ) {
+    return { reason: 'checksum', invoice };
   }
-
   return null;
 }

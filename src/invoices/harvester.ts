@@ -4,7 +4,9 @@ import path from 'node:path';
 
 import { emitInvoiceFetchedAudit, type InvoiceAuditRecorder } from './audit.js';
 import {
-  findInvoiceDuplicate,
+  addInvoiceRecordToDuplicateIndex,
+  createInvoiceDuplicateIndex,
+  findInvoiceDuplicateInIndex,
   loadInvoiceManifest,
   saveInvoiceManifest,
 } from './idempotency.js';
@@ -37,9 +39,7 @@ function safePathPart(value: string): string {
 }
 
 function invoicePdfRelativePath(invoice: InvoiceMeta): string {
-  const fileName = safePathPart(
-    invoice.suggested_file_name || `${invoice.invoice_no}.pdf`,
-  );
+  const fileName = safePathPart(`${invoice.invoice_no}.pdf`);
   const pdfName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
   return path.posix.join(
     'runs',
@@ -70,10 +70,8 @@ export function buildInvoiceRecord(input: {
   pdfPath: string;
   checksumSha256: string;
 }): InvoiceRecord {
-  const invoice = { ...input.invoice };
-  delete invoice.suggested_file_name;
   return validateInvoiceRecord({
-    ...invoice,
+    ...input.invoice,
     pdf_path: input.pdfPath,
     checksum_sha256: input.checksumSha256,
   });
@@ -93,6 +91,7 @@ export async function harvestProviderInvoices<Session>(input: {
   const manifestPath =
     input.manifestPath || path.join(input.outputDir, 'manifest.json');
   const manifest = loadInvoiceManifest(manifestPath);
+  const duplicateIndex = createInvoiceDuplicateIndex(manifest.records);
   const duplicates: InvoiceHarvestDuplicate[] = [];
   const fetched: InvoiceRecord[] = [];
   let session: Session | undefined;
@@ -108,10 +107,10 @@ export async function harvestProviderInvoices<Session>(input: {
     );
 
     for (const invoice of invoices) {
-      const identityDuplicate = findInvoiceDuplicate(invoice, [
-        ...manifest.records,
-        ...fetched,
-      ]);
+      const identityDuplicate = findInvoiceDuplicateInIndex(
+        invoice,
+        duplicateIndex,
+      );
       if (identityDuplicate) {
         duplicates.push(identityDuplicate);
         continue;
@@ -124,10 +123,10 @@ export async function harvestProviderInvoices<Session>(input: {
         pdfPath: relativePath,
         checksumSha256: sha256(bytes),
       });
-      const checksumDuplicate = findInvoiceDuplicate(record, [
-        ...manifest.records,
-        ...fetched,
-      ]);
+      const checksumDuplicate = findInvoiceDuplicateInIndex(
+        record,
+        duplicateIndex,
+      );
       if (checksumDuplicate) {
         duplicates.push(checksumDuplicate);
         continue;
@@ -135,6 +134,7 @@ export async function harvestProviderInvoices<Session>(input: {
 
       writeInvoicePdf(input.outputDir, relativePath, bytes);
       fetched.push(record);
+      addInvoiceRecordToDuplicateIndex(duplicateIndex, record);
       if (input.sessionId) {
         emitInvoiceFetchedAudit({
           sessionId: input.sessionId,

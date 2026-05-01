@@ -30,7 +30,6 @@ export interface InvoiceMeta {
   gross: number;
   currency: string;
   source_url: string;
-  suggested_file_name?: string;
 }
 
 export interface InvoiceRecord extends InvoiceMeta {

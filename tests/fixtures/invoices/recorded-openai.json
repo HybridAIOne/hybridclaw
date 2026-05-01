@@ -13,7 +13,6 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://platform.openai.com/account/billing",
-      "suggested_file_name": "OA-2026-03-001.pdf",
       "pdf_base64": "JVBERiBvcGVuYWk="
     }
   ]

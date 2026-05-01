@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-
+import { sinceTimestamp } from '../date-utils.js';
 import type {
   InvoiceAdapterContext,
   InvoiceCredentials,
@@ -108,34 +108,54 @@ function generateTotp(secret: string, now = Date.now()): string {
 
 export function parseInvoiceMoneyText(value: string): number {
   const compact = value.replace(/[^0-9,.-]/g, '');
+  if (!/\d/u.test(compact)) {
+    throw new Error(`Unable to parse invoice money value: ${value}`);
+  }
   const lastComma = compact.lastIndexOf(',');
   const lastDot = compact.lastIndexOf('.');
-  const decimalIndex = Math.max(lastComma, lastDot);
-  if (decimalIndex < 0) {
-    const parsed = Number.parseFloat(compact.replace(/[^0-9-]/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
+  let decimalSeparator = '';
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    decimalSeparator = lastDot > lastComma ? '.' : ',';
+  } else {
+    const separator = lastDot >= 0 ? '.' : lastComma >= 0 ? ',' : '';
+    if (separator) {
+      const firstIndex = compact.indexOf(separator);
+      const lastIndex = compact.lastIndexOf(separator);
+      if (firstIndex === lastIndex) {
+        const digitsAfter = compact
+          .slice(lastIndex + 1)
+          .replace(/\D/g, '').length;
+        const digitsBefore = compact
+          .slice(0, lastIndex)
+          .replace(/\D/g, '').length;
+        decimalSeparator =
+          digitsAfter === 3 && digitsBefore > 0 ? '' : separator;
+      }
+    }
   }
 
-  const decimalSeparator = compact[decimalIndex];
-  const fraction = compact.slice(decimalIndex + 1).replace(/\D/g, '');
-  const whole = compact.slice(0, decimalIndex).replace(/[^0-9-]/g, '');
-  const separatorIsThousandsOnly =
-    fraction.length === 3 &&
-    compact.slice(0, decimalIndex).replace(/\D/g, '').length > 0 &&
-    (lastComma < 0 || lastDot < 0);
-  const normalized = separatorIsThousandsOnly
-    ? `${whole}${fraction}`
-    : `${whole}${decimalSeparator ? '.' : ''}${fraction}`;
+  let normalized = compact;
+  if (decimalSeparator) {
+    const thousandsSeparator = decimalSeparator === '.' ? ',' : '.';
+    normalized = normalized.split(thousandsSeparator).join('');
+    if (decimalSeparator === ',') {
+      normalized = normalized.replace(',', '.');
+    }
+  } else {
+    normalized = normalized.replace(/[.,]/g, '');
+  }
+  normalized = normalized.replace(/[^0-9.-]/g, '');
   const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Unable to parse invoice money value: ${value}`);
+  }
+  return parsed;
 }
 
 async function loadPlaywright(): Promise<PlaywrightModule> {
-  const dynamicImport = new Function(
-    'specifier',
-    'return import(specifier)',
-  ) as (specifier: string) => Promise<PlaywrightModule>;
-  return dynamicImport('playwright');
+  const specifier = 'playwright';
+  return import(specifier) as Promise<PlaywrightModule>;
 }
 
 export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
@@ -215,35 +235,58 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
       (rows, plan) => {
         const textContent = (root: Element, selector: string): string =>
           (root.querySelector(selector)?.textContent || '').trim();
+        // Keep this browser-context parser in sync with parseInvoiceMoneyText.
         const numberFromText = (value: string): number => {
           const compact = value.replace(/[^0-9,.-]/g, '');
+          if (!/\d/u.test(compact)) {
+            throw new Error(`Unable to parse invoice money value: ${value}`);
+          }
           const lastComma = compact.lastIndexOf(',');
           const lastDot = compact.lastIndexOf('.');
-          const decimalIndex = Math.max(lastComma, lastDot);
-          if (decimalIndex < 0) {
-            const parsed = Number.parseFloat(compact.replace(/[^0-9-]/g, ''));
-            return Number.isFinite(parsed) ? parsed : 0;
+          let decimalSeparator = '';
+          if (lastComma >= 0 && lastDot >= 0) {
+            decimalSeparator = lastDot > lastComma ? '.' : ',';
+          } else {
+            const separator = lastDot >= 0 ? '.' : lastComma >= 0 ? ',' : '';
+            if (separator) {
+              const firstIndex = compact.indexOf(separator);
+              const lastIndex = compact.lastIndexOf(separator);
+              if (firstIndex === lastIndex) {
+                const digitsAfter = compact
+                  .slice(lastIndex + 1)
+                  .replace(/\D/g, '').length;
+                const digitsBefore = compact
+                  .slice(0, lastIndex)
+                  .replace(/\D/g, '').length;
+                decimalSeparator =
+                  digitsAfter === 3 && digitsBefore > 0 ? '' : separator;
+              }
+            }
           }
-          const decimalSeparator = compact[decimalIndex];
-          const fraction = compact.slice(decimalIndex + 1).replace(/\D/g, '');
-          const whole = compact.slice(0, decimalIndex).replace(/[^0-9-]/g, '');
-          const separatorIsThousandsOnly =
-            fraction.length === 3 &&
-            compact.slice(0, decimalIndex).replace(/\D/g, '').length > 0 &&
-            (lastComma < 0 || lastDot < 0);
-          const normalized = separatorIsThousandsOnly
-            ? `${whole}${fraction}`
-            : `${whole}${decimalSeparator ? '.' : ''}${fraction}`;
+          let normalized = compact;
+          if (decimalSeparator) {
+            const thousandsSeparator = decimalSeparator === '.' ? ',' : '.';
+            normalized = normalized.split(thousandsSeparator).join('');
+            if (decimalSeparator === ',') {
+              normalized = normalized.replace(',', '.');
+            }
+          } else {
+            normalized = normalized.replace(/[.,]/g, '');
+          }
+          normalized = normalized.replace(/[^0-9.-]/g, '');
           const parsed = Number.parseFloat(normalized);
-          return Number.isFinite(parsed) ? parsed : 0;
+          if (!Number.isFinite(parsed)) {
+            throw new Error(`Unable to parse invoice money value: ${value}`);
+          }
+          return parsed;
         };
         const currencyFromText = (value: string): string => {
           const upper = value.toUpperCase();
           const match = upper.match(/\b[A-Z]{3}\b/u);
-          if (match) return match[0] || 'EUR';
+          if (match?.[0]) return match[0];
           if (upper.includes('€')) return 'EUR';
           if (upper.includes('$')) return 'USD';
-          return 'EUR';
+          throw new Error(`Unable to parse invoice currency value: ${value}`);
         };
         return rows.map((row) => {
           const invoiceNo = textContent(row, plan.invoiceNoSelector);
@@ -265,13 +308,12 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
             gross,
             currency: currencyFromText(textContent(row, plan.currencySelector)),
             source_url: pdfHref,
-            suggested_file_name: `${invoiceNo}.pdf`,
           };
         });
       },
       evaluationPlan,
     );
-    const since = options.since ? new Date(options.since).getTime() : null;
+    const since = sinceTimestamp(options, 'scrape invoice since date');
     return invoices.filter((invoice) => {
       if (since == null) return true;
       return new Date(invoice.issue_date).getTime() >= since;
@@ -284,25 +326,22 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
     }
     const result = await this.#page.evaluate<
       BrowserDownloadResult,
-      ScrapeInvoicePlan
+      { sourceUrl: string; allowedHosts: string[] }
     >(
-      async (invoiceNo, plan) => {
-        const rows = Array.from(
-          document.querySelectorAll(plan.invoiceRowSelector),
-        );
-        const row = rows.find((candidate) =>
-          (candidate.querySelector(plan.invoiceNoSelector)?.textContent || '')
-            .trim()
-            .includes(invoiceNo),
-        );
-        const href =
-          row
-            ?.querySelector<HTMLAnchorElement>(plan.pdfLinkSelector)
-            ?.getAttribute('href') || '';
-        if (!href) {
+      async (_invoiceNo, params) => {
+        let url: URL;
+        try {
+          url = new URL(params.sourceUrl, window.location.href);
+        } catch {
           return { base64: '', contentType: '', status: 0 };
         }
-        const response = await fetch(href);
+        if (
+          url.protocol !== 'https:' ||
+          !params.allowedHosts.includes(url.hostname)
+        ) {
+          return { base64: '', contentType: 'blocked-url', status: 0 };
+        }
+        const response = await fetch(url.href);
         const contentType = response.headers.get('content-type') || '';
         if (
           !response.ok ||
@@ -327,7 +366,15 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
         };
       },
       invoice.invoice_no,
-      this.#plan,
+      {
+        sourceUrl: invoice.source_url,
+        allowedHosts: Array.from(
+          new Set([
+            new URL(this.#plan.loginUrl).hostname,
+            new URL(this.#plan.billingUrl).hostname,
+          ]),
+        ),
+      },
     );
     if (!result.base64) {
       throw new Error(

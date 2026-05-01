@@ -13,7 +13,6 @@
       "gross": 119,
       "currency": "EUR",
       "source_url": "https://github.com/settings/billing/summary",
-      "suggested_file_name": "GH-2026-03-001.pdf",
       "pdf_base64": "JVBERiBnaXRodWI="
     }
   ]
