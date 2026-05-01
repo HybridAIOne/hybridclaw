@@ -6,8 +6,8 @@ import type {
   BrowserProvider,
   BrowserSession,
   ClickOptions,
+  HistoryNavigationOptions,
   NavigateOptions,
-  NavigationOptions,
   ScreenshotOptions,
   ScrollOptions,
   SessionOptions,
@@ -15,18 +15,18 @@ import type {
 } from '../src/browser/provider.js';
 import type { SecretRef } from '../src/security/secret-refs.js';
 
-const requiredActionNames = [
-  'click',
-  'fill',
-  'scroll',
-  'wait_for_selector',
-  'screenshot',
-  'evaluate',
-  'navigate',
-  'back',
-  'forward',
-  'reload',
-] as const satisfies readonly BrowserActionName[];
+const requiredActionNames = {
+  click: true,
+  fill: true,
+  scroll: true,
+  wait_for_selector: true,
+  screenshot: true,
+  evaluate: true,
+  navigate: true,
+  back: true,
+  forward: true,
+  reload: true,
+} satisfies Record<BrowserActionName, true>;
 
 class MockBrowserSession implements BrowserSession {
   async evaluate<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -39,11 +39,11 @@ class MockBrowserSession implements BrowserSession {
 
   async navigate(_url: string, _opts?: NavigateOptions): Promise<void> {}
 
-  async back(_opts?: NavigationOptions): Promise<void> {}
+  async back(_opts?: HistoryNavigationOptions): Promise<void> {}
 
-  async forward(_opts?: NavigationOptions): Promise<void> {}
+  async forward(_opts?: HistoryNavigationOptions): Promise<void> {}
 
-  async reload(_opts?: NavigationOptions): Promise<void> {}
+  async reload(_opts?: HistoryNavigationOptions): Promise<void> {}
 
   async click(_selector: string, _opts?: ClickOptions): Promise<void> {}
 
@@ -70,17 +70,17 @@ class MockBrowserProvider implements BrowserProvider {
 }
 
 test('browser provider contract covers the required action vocabulary', () => {
-  expect(requiredActionNames).toEqual([
+  expect(Object.keys(requiredActionNames).sort()).toEqual([
+    'back',
     'click',
+    'evaluate',
     'fill',
+    'forward',
+    'navigate',
+    'reload',
+    'screenshot',
     'scroll',
     'wait_for_selector',
-    'screenshot',
-    'evaluate',
-    'navigate',
-    'back',
-    'forward',
-    'reload',
   ]);
 });
 
@@ -90,6 +90,7 @@ test('browser provider accepts browser-login profile directory hints', async () 
 
   const session = await provider.launchSession({ profileDirHint });
   await session.fill('#password', { source: 'store', id: 'LOGIN_PASSWORD' });
+  await session.scroll({ direction: 'down' });
 
   expect(provider.launchedProfileHints).toEqual([
     '/tmp/hybridclaw-data/browser-profiles',

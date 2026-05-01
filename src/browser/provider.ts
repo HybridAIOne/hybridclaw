@@ -9,32 +9,39 @@ export interface BrowserProvider {
 export interface SessionOptions {
   /**
    * Persistent profile directory hint. Callers may pass the value returned by
-   * getBrowserProfileDir(dataDir) from browser-login.ts.
+   * getBrowserProfileDir(dataDir) from browser-login.ts. Implementations must
+   * normalize and constrain this path to an approved browser-profile root.
    */
   profileDirHint?: string;
   headed?: boolean;
-  viewport?: BrowserViewport;
-  userAgent?: string;
   timeoutMs?: number;
 }
 
-export interface BrowserViewport {
-  width: number;
-  height: number;
-}
-
 export interface BrowserSession {
-  evaluate<T>(fn: () => T | Promise<T>): Promise<T>;
+  /**
+   * Runs in the browser renderer context, not Node.js. Implementations should
+   * restrict this path because page state may include cookies and localStorage.
+   */
+  evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
   screenshot(opts?: ScreenshotOptions): Promise<Buffer>;
+  /**
+   * Implementations must reject unsafe schemes such as file:// and javascript:.
+   */
   navigate(url: string, opts?: NavigateOptions): Promise<void>;
-  back(opts?: NavigationOptions): Promise<void>;
-  forward(opts?: NavigationOptions): Promise<void>;
-  reload(opts?: NavigationOptions): Promise<void>;
+  back(opts?: HistoryNavigationOptions): Promise<void>;
+  forward(opts?: HistoryNavigationOptions): Promise<void>;
+  reload(opts?: HistoryNavigationOptions): Promise<void>;
   click(selector: string, opts?: ClickOptions): Promise<void>;
+  /**
+   * Use SecretRef for credential or token fields. Plain strings are intended
+   * for non-sensitive form values.
+   */
   fill(selector: string, value: SecretRef | string): Promise<void>;
   scroll(opts: ScrollOptions): Promise<void>;
   waitForSelector(selector: string, opts?: WaitOptions): Promise<void>;
 }
+
+export type BrowserEvaluateFunction<T = unknown> = () => T | Promise<T>;
 
 export type BrowserAction =
   | { name: 'click'; selector: string; opts?: ClickOptions }
@@ -42,26 +49,27 @@ export type BrowserAction =
   | { name: 'scroll'; opts: ScrollOptions }
   | { name: 'wait_for_selector'; selector: string; opts?: WaitOptions }
   | { name: 'screenshot'; opts?: ScreenshotOptions }
-  | { name: 'evaluate'; fn: () => unknown | Promise<unknown> }
+  | { name: 'evaluate'; fn: BrowserEvaluateFunction }
   | { name: 'navigate'; url: string; opts?: NavigateOptions }
-  | { name: 'back'; opts?: NavigationOptions }
-  | { name: 'forward'; opts?: NavigationOptions }
-  | { name: 'reload'; opts?: NavigationOptions };
+  | { name: 'back'; opts?: HistoryNavigationOptions }
+  | { name: 'forward'; opts?: HistoryNavigationOptions }
+  | { name: 'reload'; opts?: HistoryNavigationOptions };
 
 export type BrowserActionName = BrowserAction['name'];
 
 export interface ClickOptions {
-  button?: 'left' | 'middle' | 'right';
-  clickCount?: number;
   timeoutMs?: number;
 }
 
-export interface ScrollOptions {
+export type ScrollOptions = {
   selector?: string;
-  direction?: 'up' | 'down' | 'left' | 'right';
-  deltaX?: number;
-  deltaY?: number;
-}
+} & (
+  | { direction: ScrollDirection; deltaX?: number; deltaY?: number }
+  | { deltaX: number; direction?: ScrollDirection; deltaY?: number }
+  | { deltaY: number; direction?: ScrollDirection; deltaX?: number }
+);
+
+export type ScrollDirection = 'up' | 'down' | 'left' | 'right';
 
 export interface WaitOptions {
   state?: 'attached' | 'detached' | 'visible' | 'hidden';
@@ -70,16 +78,15 @@ export interface WaitOptions {
 
 export interface ScreenshotOptions {
   fullPage?: boolean;
-  selector?: string;
   type?: 'png' | 'jpeg';
 }
 
 export interface NavigateOptions {
-  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
+  waitUntil?: 'load' | 'domcontentloaded';
   timeoutMs?: number;
 }
 
-export interface NavigationOptions {
+export interface HistoryNavigationOptions {
   waitUntil?: NavigateOptions['waitUntil'];
   timeoutMs?: number;
 }
