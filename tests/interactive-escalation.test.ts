@@ -143,6 +143,32 @@ test('suspended sessions persist, rehydrate, and redact code responses', async (
   expect(reloaded.consumeOperatorReturn('session-2fa')).toBeNull();
 });
 
+test('operator return cache expires unconsumed responses', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-30T12:00:00Z'));
+  const escalation = await importInteractiveEscalation();
+
+  escalation.createSuspendedSession({
+    sessionId: 'session-unconsumed',
+    approvalId: 'approval-unconsumed',
+    prompt: 'Enter the SMS verification code.',
+    userId: 'operator-1',
+    modality: 'sms',
+    ttlMs: 600_000,
+    frameSnapshot: {
+      url: 'https://sap.example/login',
+    },
+  });
+
+  escalation.resumeWith('session-unconsumed', {
+    kind: 'code',
+    value: '654321',
+  });
+  vi.setSystemTime(new Date('2026-04-30T12:31:00Z'));
+
+  expect(escalation.consumeOperatorReturn('session-unconsumed')).toBeNull();
+});
+
 test('emitInteractionNeededEvent records typed F14 payload with routing hints', async () => {
   const escalation = await importInteractiveEscalation();
   const session = escalation.awaitTwoFactor({

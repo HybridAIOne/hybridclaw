@@ -186,7 +186,12 @@ export function parseOperatorReturnText(
 }
 
 const SUSPENDED_SESSION_ASSET_PREFIX = 'interactive-escalation/session/';
-const operatorReturnBySession = new Map<string, OperatorReturn>();
+const OPERATOR_RETURN_TTL_MS = 30 * 60_000;
+const OPERATOR_RETURN_MAX_PENDING = 500;
+const operatorReturnBySession = new Map<
+  string,
+  { response: OperatorReturn; expiresAt: number }
+>();
 const PREFERRED_CHANNELS_BY_MODALITY: Record<InteractionModality, string[]> = {
   totp: ['mobile_admin', 'sms'],
   push: ['push', 'mobile_admin'],
@@ -370,6 +375,35 @@ function storedOperatorReturn(response: OperatorReturn): StoredOperatorReturn {
       : { kind: 'declined' };
   }
   return response;
+}
+
+function cleanupOperatorReturns(now = Date.now()): void {
+  for (const [sessionId, entry] of operatorReturnBySession) {
+    if (entry.expiresAt <= now) {
+      operatorReturnBySession.delete(sessionId);
+    }
+  }
+}
+
+function storeOperatorReturn(
+  sessionId: string,
+  response: OperatorReturn,
+  now = Date.now(),
+): void {
+  cleanupOperatorReturns(now);
+  if (
+    operatorReturnBySession.size >= OPERATOR_RETURN_MAX_PENDING &&
+    !operatorReturnBySession.has(sessionId)
+  ) {
+    const oldestSessionId = operatorReturnBySession.keys().next().value;
+    if (oldestSessionId) {
+      operatorReturnBySession.delete(oldestSessionId);
+    }
+  }
+  operatorReturnBySession.set(sessionId, {
+    response,
+    expiresAt: now + OPERATOR_RETURN_TTL_MS,
+  });
 }
 
 function statusForResponse(response: OperatorReturn): SuspendedSessionStatus {
@@ -594,7 +628,7 @@ export function resumeWith(
   session.status = statusForResponse(response);
   session.resolvedAt = now;
   session.response = storedOperatorReturn(response);
-  operatorReturnBySession.set(session.sessionId, response);
+  storeOperatorReturn(session.sessionId, response, now);
   persistSuspendedSession(session);
   recordAuditEvent({
     sessionId: session.sessionId,
@@ -615,11 +649,12 @@ export function consumeOperatorReturn(
 ): OperatorReturn | null {
   const normalized = sessionId.trim();
   if (!normalized) return null;
-  const response = operatorReturnBySession.get(normalized) || null;
-  if (response) {
+  cleanupOperatorReturns();
+  const entry = operatorReturnBySession.get(normalized) || null;
+  if (entry) {
     operatorReturnBySession.delete(normalized);
   }
-  return response;
+  return entry?.response || null;
 }
 
 export function resumeWithText(

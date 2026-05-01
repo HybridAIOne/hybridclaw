@@ -3325,19 +3325,41 @@ function parseInteractionFrameSnapshot(value: unknown): {
   };
 }
 
+const MAX_OPERATOR_RETURN_CODE_LENGTH = 16;
+const MAX_OPERATOR_RETURN_REASON_LENGTH = 500;
+
+function parseOperatorReturnCode(value: unknown): string | null {
+  const code = normalizeOptionalString(value);
+  if (!code) return null;
+  const normalized = code.replace(/[\s-]/g, '');
+  if (
+    normalized.length > MAX_OPERATOR_RETURN_CODE_LENGTH ||
+    !/^\d+$/.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function parseOperatorReturnReason(value: unknown): string | null {
+  const reason = normalizeOptionalString(value);
+  if (!reason) return null;
+  return reason.length <= MAX_OPERATOR_RETURN_REASON_LENGTH ? reason : null;
+}
+
 function parseOperatorReturn(value: unknown): OperatorReturn | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   const kind = normalizeOptionalString(raw.kind);
   if (kind === 'code') {
-    const code = normalizeOptionalString(raw.value);
+    const code = parseOperatorReturnCode(raw.value);
     return code ? { kind, value: code } : null;
   }
   if (kind === 'approved' || kind === 'scanned' || kind === 'timeout') {
     return { kind };
   }
   if (kind === 'declined') {
-    const reason = normalizeOptionalString(raw.reason);
+    const reason = parseOperatorReturnReason(raw.reason);
     return reason ? { kind, reason } : { kind };
   }
   return null;
@@ -3373,13 +3395,21 @@ function queueInteractionNotification(
   if (!targetChannel || !isSupportedProactiveChannelId(targetChannel)) {
     return { queued: false, channelId: targetChannel || null };
   }
-  enqueueProactiveMessage(
-    targetChannel,
-    formatInteractionRequest(session),
-    'interactive-escalation',
-    100,
-  );
-  return { queued: true, channelId: targetChannel };
+  try {
+    enqueueProactiveMessage(
+      targetChannel,
+      formatInteractionRequest(session),
+      'interactive-escalation',
+      100,
+    );
+    return { queued: true, channelId: targetChannel };
+  } catch (error) {
+    logger.warn(
+      { channelId: targetChannel, sessionId: session.sessionId, error },
+      'Failed to queue interactive escalation notification',
+    );
+    return { queued: false, channelId: targetChannel };
+  }
 }
 
 function sendApiInteractiveError(res: ServerResponse, error: unknown): void {
@@ -3468,6 +3498,18 @@ async function handleApiSmsReplyInteractiveEscalation(
       throw new GatewayRequestError(400, 'Expected SMS reply `text`.');
     }
     const sessionId = normalizeOptionalString(body.sessionId);
+    if (!sessionId && !from) {
+      throw new GatewayRequestError(
+        400,
+        'Expected non-empty `sessionId` or `from` for SMS reply matching.',
+      );
+    }
+    if (!sessionId && from && /\s/.test(from)) {
+      throw new GatewayRequestError(
+        400,
+        'Expected a valid SMS reply `from` value.',
+      );
+    }
     const session = sessionId
       ? null
       : findPendingSuspendedSessionForOperator({

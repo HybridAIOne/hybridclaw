@@ -297,32 +297,37 @@ test('pending approvals rehydrate from durable F4 state after module reload', as
   const tmpDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-pending-approval-'),
   );
-  process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
-  vi.resetModules();
+  try {
+    process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
+    vi.resetModules();
 
-  const pendingApprovals = await import('../src/gateway/pending-approvals.js');
-  await pendingApprovals.setPendingApproval('session-durable', {
-    approvalId: 'durable-1',
-    prompt: 'durable approval',
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 600_000,
-    userId: 'user-1',
-    resolvedAt: null,
-  });
+    const pendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
+    await pendingApprovals.setPendingApproval('session-durable', {
+      approvalId: 'durable-1',
+      prompt: 'durable approval',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 600_000,
+      userId: 'user-1',
+      resolvedAt: null,
+    });
 
-  vi.resetModules();
-  const reloadedPendingApprovals = await import(
-    '../src/gateway/pending-approvals.js'
-  );
+    vi.resetModules();
+    const reloadedPendingApprovals = await import(
+      '../src/gateway/pending-approvals.js'
+    );
 
-  expect(
-    reloadedPendingApprovals.getPendingApproval('session-durable'),
-  ).toMatchObject({
-    approvalId: 'durable-1',
-    prompt: 'durable approval',
-    userId: 'user-1',
-  });
+    expect(
+      reloadedPendingApprovals.getPendingApproval('session-durable'),
+    ).toMatchObject({
+      approvalId: 'durable-1',
+      prompt: 'durable approval',
+      userId: 'user-1',
+    });
 
-  await reloadedPendingApprovals.clearPendingApproval('session-durable');
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+    await reloadedPendingApprovals.clearPendingApproval('session-durable');
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
