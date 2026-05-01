@@ -110,6 +110,49 @@ const buildEmptyOpenAICompatDiscoveryState =
     pricingByModel: new Map(),
   });
 
+function formatDuration(ms: number): string {
+  return ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  const name = error.name.toLowerCase();
+  const code = (error as Error & { code?: unknown }).code;
+  return (
+    name === 'timeouterror' ||
+    code === 23 ||
+    code === 'TIMEOUT_ERR' ||
+    /timed out|timeout|aborted due to timeout/.test(message)
+  );
+}
+
+function formatDiscoveryFailure(error: unknown, url: string): DiscoveryError {
+  const httpStatus = (error as { httpStatus?: number } | null)?.httpStatus;
+  if (typeof httpStatus === 'number') {
+    return {
+      httpStatus,
+      message: `HTTP ${httpStatus} from ${url}`,
+    };
+  }
+
+  if (isTimeoutError(error)) {
+    return {
+      message: `Timed out after ${formatDuration(
+        OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS,
+      )} while fetching ${url}.`,
+    };
+  }
+
+  const rawMessage =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : String(error);
+  return {
+    message: `Failed to fetch ${url}: ${rawMessage}`,
+  };
+}
+
 export function createOpenAICompatDiscoveryStore(
   def: OpenAICompatRemoteProviderDef,
   readEnabled: () => boolean,
@@ -196,17 +239,20 @@ export function createOpenAICompatDiscoveryStore(
     const state = await discoveryStore.discover(() => fetchModels(apiKey), {
       force: opts?.force,
       onError: (err, staleState) => {
-        const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
-        const message = err instanceof Error ? err.message : String(err);
-        lastError = { httpStatus, message };
+        const discoveryError = formatDiscoveryFailure(
+          err,
+          resolveDiscoveryUrl(),
+        );
+        lastError = discoveryError;
+        const httpStatus = discoveryError.httpStatus;
         if (httpStatus === 404 || httpStatus === 405) {
           logger.debug(
-            { err, provider: def.id, httpStatus },
+            { provider: def.id, httpStatus, error: discoveryError.message },
             'OpenAI-compat model discovery not supported by provider',
           );
         } else {
           logger.warn(
-            { err, provider: def.id },
+            { provider: def.id, error: discoveryError.message },
             'OpenAI-compat model discovery failed',
           );
         }

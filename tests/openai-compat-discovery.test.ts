@@ -410,7 +410,49 @@ describe('openai-compat discovery — per-provider store', () => {
     ]);
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
-      { err: expect.any(Error), provider: 'zai' },
+      {
+        provider: 'zai',
+        error: 'Failed to fetch https://api.z.ai/api/paas/v4/models: network down',
+      },
+      'OpenAI-compat model discovery failed',
+    );
+  });
+
+  test('formats timeout discovery failures without logging DOMException internals', async () => {
+    process.env.XAI_API_KEY = 'xai-test';
+    mockModules({ XAI_ENABLED: true });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new DOMException(
+          'The operation was aborted due to timeout',
+          'TimeoutError',
+        );
+      }),
+    );
+
+    const discovery = await importDiscovery();
+    const { logger } = await import(LOGGER_MOCK_PATH);
+    const { OPENAI_COMPAT_REMOTE_PROVIDERS } = await importRegistry();
+    const xaiDef = OPENAI_COMPAT_REMOTE_PROVIDERS.find((d) => d.id === 'xai');
+    if (!xaiDef) throw new Error('xai provider def missing');
+    const store = discovery.createOpenAICompatDiscoveryStore(
+      xaiDef,
+      () => true,
+    );
+
+    await expect(store.discoverModels()).resolves.toEqual([]);
+    expect(store.getLastError()).toEqual({
+      message:
+        'Timed out after 5s while fetching https://api.x.ai/v1/language-models.',
+    });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        provider: 'xai',
+        error:
+          'Timed out after 5s while fetching https://api.x.ai/v1/language-models.',
+      },
       'OpenAI-compat model discovery failed',
     );
   });
@@ -438,9 +480,9 @@ describe('openai-compat discovery — per-provider store', () => {
     expect(logger.debug).toHaveBeenCalledTimes(1);
     expect(logger.debug).toHaveBeenCalledWith(
       {
-        err: expect.objectContaining({ httpStatus: 404 }),
         provider: 'kilo',
         httpStatus: 404,
+        error: 'HTTP 404 from https://api.kilo.ai/api/gateway/models',
       },
       'OpenAI-compat model discovery not supported by provider',
     );
