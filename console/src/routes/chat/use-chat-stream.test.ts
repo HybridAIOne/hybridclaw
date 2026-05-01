@@ -343,6 +343,42 @@ describe('useChatStream', () => {
     });
   });
 
+  it('notifies when the server resolves an effective model', async () => {
+    const harness = makeHarness();
+    const onModelResolved = vi.fn();
+
+    requestChatStreamMock.mockResolvedValue({
+      status: 'ok',
+      sessionId: SESSION_ID,
+      userMessageId: 'server-user-1',
+      assistantMessageId: 'assistant-1',
+      result: 'Answer',
+      model: 'hybridai/grok-4.20-0309-non-reasoning',
+    });
+
+    const { result } = renderHook(
+      () =>
+        useChatStream({
+          token: TOKEN,
+          userId: 'web-user-1',
+          getSessionId: () => SESSION_ID,
+          setError: harness.setError,
+          refreshRecent: vi.fn(),
+          onSessionIdCorrection: harness.correctionMock,
+          onModelResolved,
+        }),
+      { wrapper: harness.wrapper },
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('hello', []);
+    });
+
+    expect(onModelResolved).toHaveBeenCalledWith(
+      'hybridai/grok-4.20-0309-non-reasoning',
+    );
+  });
+
   it('removes the thinking placeholder and appends one system error on stream failure', async () => {
     const harness = makeHarness();
 

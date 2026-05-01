@@ -119,6 +119,8 @@ export interface ChatStreamResult {
   assistantMessageId?: number | string | null;
   result?: string;
   assistantPresentation?: AssistantPresentation | null;
+  model?: string;
+  provider?: string;
   artifacts?: ChatArtifact[];
   toolsUsed?: string[];
 }

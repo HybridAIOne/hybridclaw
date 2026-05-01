@@ -574,6 +574,9 @@ async function resolveApiChatSlashCommandResult(
     );
   }
 
+  const contextUsage = getGatewaySessionContextUsage(sessionId);
+  const resolvedModel = contextUsage.snapshot?.model?.trim() || undefined;
+
   return {
     status: 'success',
     result:
@@ -581,6 +584,7 @@ async function resolveApiChatSlashCommandResult(
       (handledApprovalCommand ? 'Approval submitted.' : 'Done.'),
     toolsUsed: [],
     sessionId,
+    ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(sessionKey ? { sessionKey } : {}),
     ...(mainSessionKey ? { mainSessionKey } : {}),
     ...(artifacts.length > 0 ? { artifacts } : {}),

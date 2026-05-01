@@ -74,6 +74,7 @@
   width: 22px;
   height: 22px;
   color: var(--muted-foreground);
+  filter: grayscale(1) saturate(0);
   line-height: 1;
 }
 
@@ -89,6 +90,7 @@
 .triggerPill {
   border-color: transparent;
   background-color: transparent;
+  color: var(--muted-foreground);
   height: 36px;
   padding: 0 16px;
 }
@@ -97,12 +99,15 @@
 .triggerPill[data-state="open"] {
   border-color: transparent;
   background-color: var(--chat-hover-bg);
+  color: var(--text);
 }
 
 .triggerLogo {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+  color: var(--muted-foreground);
+  filter: grayscale(1) saturate(0);
   line-height: 1;
 }
 
@@ -113,5 +118,7 @@
   flex-shrink: 0;
   width: 20px;
   height: 20px;
+  color: var(--muted-foreground);
+  filter: grayscale(1) saturate(0);
   line-height: 1;
 }

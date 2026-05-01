@@ -628,6 +628,10 @@ async function importFreshHealth(options?: {
     kind: 'plain' as const,
     text: 'ok',
   }));
+  const getGatewaySessionContextUsage = vi.fn((sessionId: string) => ({
+    sessionId,
+    snapshot: null,
+  }));
   const readSystemPromptMessage = vi.fn(
     (messages: Array<{ role?: string; content?: unknown }>) => {
       const first = messages[0];
@@ -1642,6 +1646,7 @@ async function importFreshHealth(options?: {
     getGatewayHistory,
     getGatewayRecentChatSessions,
     getGatewayHistorySummary,
+    getGatewaySessionContextUsage,
     getGatewayStatus,
     handleGatewayCommand,
     reconnectGatewayAdminTunnel,
@@ -1791,6 +1796,7 @@ async function importFreshHealth(options?: {
     uploadGatewayAdminSkillZip,
     handleGatewayMessage,
     handleGatewayCommand,
+    getGatewaySessionContextUsage,
     handleGatewayPluginWebhook,
     renderGatewayCommand,
     getSessionById,

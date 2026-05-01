@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { createElement } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 import type { ChatModel } from '../../api/types';
-import { parseModel } from './model-switch-select';
+import { ModelSwitchSelect, parseModel } from './model-switch-select';
 
 function model(
   overrides: Partial<ChatModel> & Pick<ChatModel, 'id'>,
@@ -62,5 +64,24 @@ describe('parseModel', () => {
       }),
     );
     expect(parsed.displayName).toBe('Claude Opus 4.1');
+  });
+
+  it('renders the selected runtime model even when it is missing from the catalog', () => {
+    render(
+      createElement(ModelSwitchSelect, {
+        models: [
+          model({
+            id: 'hybridai/qwen3.6-27b-fp8',
+            provider: 'hybridai',
+          }),
+        ],
+        selectedModelId: 'hybridai/grok-4.20-0309-non-reasoning',
+        onSwitch: vi.fn(),
+      }),
+    );
+
+    const trigger = screen.getByRole('combobox', { name: 'Switch model' });
+    expect(trigger.textContent).toContain('Grok 4.20 0309 Non Reasoning');
+    expect(trigger.textContent).not.toContain('Qwen3.6 27b Fp8');
   });
 });

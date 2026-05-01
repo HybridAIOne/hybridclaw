@@ -33,6 +33,7 @@ interface UseChatStreamOptions {
   setError: (err: string) => void;
   refreshRecent: () => void;
   onSessionIdCorrection: (serverSessionId: string) => void;
+  onModelResolved?: (modelId: string) => void;
 }
 
 export interface UseChatStreamReturn {
@@ -59,6 +60,7 @@ export function useChatStream(
     setError,
     refreshRecent,
     onSessionIdCorrection,
+    onModelResolved,
   } = options;
 
   const queryClient = useQueryClient();
@@ -239,6 +241,11 @@ export function useChatStream(
           onSessionIdCorrection(result.sessionId);
         }
 
+        const resolvedModel = result.model?.trim();
+        if (resolvedModel) {
+          onModelResolved?.(resolvedModel);
+        }
+
         flushRender();
 
         const finalText = result.result ?? req.assistantText ?? '';
@@ -322,6 +329,7 @@ export function useChatStream(
       getSessionId,
       writeMessages,
       onSessionIdCorrection,
+      onModelResolved,
       setError,
       refreshRecent,
     ],

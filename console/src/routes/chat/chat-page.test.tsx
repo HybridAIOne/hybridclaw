@@ -120,6 +120,39 @@ vi.mock('../../components/theme-toggle', () => ({
   ThemeToggle: () => null,
 }));
 
+function ensureLocalStorage() {
+  if (typeof globalThis.localStorage?.clear === 'function') return;
+  const store = new Map<string, string>();
+  const storage = {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(key) ?? null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  } satisfies Storage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    configurable: true,
+  });
+  Object.defineProperty(window, 'localStorage', {
+    value: storage,
+    configurable: true,
+  });
+}
+
 function renderChatPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -148,6 +181,7 @@ describe('ChatPage', () => {
 
   beforeEach(async () => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    ensureLocalStorage();
     localStorage.clear();
     localStorage.setItem('hybridclaw_session', 'session-a');
     localStorage.setItem('hybridclaw_user_id', 'web-user-1');
@@ -313,6 +347,57 @@ describe('ChatPage', () => {
         hideUser: true,
       }),
     );
+  });
+
+  it('syncs the model dropdown from the session context snapshot', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    fetchModelsMock.mockResolvedValue({
+      defaultModel: 'hybridai/qwen3.6-27b-fp8',
+      providerStatus: {},
+      models: [
+        {
+          id: 'hybridai/qwen3.6-27b-fp8',
+          provider: 'hybridai',
+          backend: null,
+          contextWindow: null,
+          isReasoning: false,
+          family: null,
+          parameterSize: null,
+        },
+      ],
+    } as AdminModelsResponse);
+    fetchChatContextMock.mockResolvedValue({
+      sessionId: 'session-a',
+      snapshot: {
+        sessionId: 'session-a',
+        model: 'hybridai/grok-4.20-0309-non-reasoning',
+        contextUsedTokens: null,
+        contextBudgetTokens: null,
+        contextUsagePercent: null,
+        contextRemainingTokens: null,
+        compactionCount: 0,
+        compactionTokenBudget: 0,
+        compactionMessageThreshold: 0,
+        compactionKeepRecent: 0,
+        messageCount: 1,
+        promptTokens: null,
+        completionTokens: null,
+      },
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    const trigger = await screen.findByRole('combobox', {
+      name: 'Switch model',
+    });
+    await waitFor(() =>
+      expect(trigger.textContent).toContain('Grok 4.20 0309 Non Reasoning'),
+    );
+    expect(trigger.textContent).not.toContain('Qwen3.6 27b Fp8');
   });
 
   it('reuses cached history when switching back to a recent session inside the stale window', async () => {
