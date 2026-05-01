@@ -11,6 +11,7 @@ import type {
   ConfidentialKind,
   ConfidentialRuleSet,
 } from '../security/confidential-rules.js';
+import { withResolvedSecretLeakRules } from '../security/secret-leak-corpus.js';
 
 const AUDIT_DIR_NAME = 'audit';
 const WIRE_FILE_NAME = 'wire.jsonl';
@@ -401,6 +402,7 @@ export function scanAuditSessionForLeaks(
   options: LeakScanOptions = {},
 ): LeakScanReport {
   const scanTypes = options.scanEventTypes ?? resolveScanEventTypes();
+  const effectiveRuleSet = withResolvedSecretLeakRules(sessionId, ruleSet);
   const safeId = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'session';
   const filePath = path.join(dataDir, AUDIT_DIR_NAME, safeId, WIRE_FILE_NAME);
   const errors: string[] = [];
@@ -462,7 +464,7 @@ export function scanAuditSessionForLeaks(
       continue;
     }
     recordsScanned += 1;
-    const scan = scanRecordForLeaks(parsed, ruleSet);
+    const scan = scanRecordForLeaks(parsed, effectiveRuleSet);
     if (!scan) continue;
 
     matched.push({

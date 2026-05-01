@@ -244,11 +244,16 @@ function makeStreamingDeltaWrapper(
   };
 }
 
-export function createConfidentialRuntimeContext(): ConfidentialRuntimeContext {
-  if (!isConfidentialRedactionEnabled()) {
+export function createConfidentialRuntimeContext(
+  ruleSetOverride?: ConfidentialRuleSet,
+): ConfidentialRuntimeContext {
+  if (process.env.HYBRIDCLAW_CONFIDENTIAL_DISABLE === '1') {
     return NOOP_CONTEXT;
   }
-  const ruleSet = getConfidentialRuleSet();
+  const ruleSet = ruleSetOverride ?? getConfidentialRuleSet();
+  if (ruleSet.rules.length === 0) {
+    return NOOP_CONTEXT;
+  }
   const mappings = createPlaceholderMap();
 
   function rehydrateFields<T extends object>(

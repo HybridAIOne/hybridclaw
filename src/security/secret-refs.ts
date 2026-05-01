@@ -2,6 +2,12 @@ import {
   isRuntimeSecretName,
   readStoredRuntimeSecret,
 } from './runtime-secrets.js';
+import {
+  createSecretHandle,
+  type SecretHandle,
+  type SecretSinkKind,
+  unsafeEscapeSecretHandle,
+} from './secret-handles.js';
 
 const ENV_SECRET_REF_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
@@ -100,8 +106,9 @@ export function resolveSecretInput(
   opts: {
     path: string;
     required?: boolean;
+    sinkKind?: SecretSinkKind;
   },
-): string | undefined {
+): string | SecretHandle | undefined {
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
     throw new Error(`${opts.path} ${parsed.reason}`);
@@ -121,7 +128,40 @@ export function resolveSecretInput(
     );
   }
 
-  return resolved;
+  return createSecretHandle(parsed.ref, resolved, opts.sinkKind || 'unsafe');
+}
+
+export function resolveSecretHandleInput(
+  value: unknown,
+  opts: {
+    path: string;
+    required?: boolean;
+    sinkKind: SecretSinkKind;
+  },
+): SecretHandle | undefined {
+  const resolved = resolveSecretInput(value, opts);
+  return typeof resolved === 'string' ? undefined : resolved;
+}
+
+export function resolveSecretInputUnsafe(
+  value: unknown,
+  opts: {
+    path: string;
+    required?: boolean;
+    reason: string;
+    audit: (handle: SecretHandle, reason: string) => void;
+  },
+): string | undefined {
+  const resolved = resolveSecretInput(value, {
+    path: opts.path,
+    required: opts.required,
+    sinkKind: 'unsafe',
+  });
+  if (!resolved || typeof resolved === 'string') return resolved;
+  return unsafeEscapeSecretHandle(resolved, {
+    reason: opts.reason,
+    audit: opts.audit,
+  });
 }
 
 export function isSecretRefInput(value: unknown): value is SecretRef {

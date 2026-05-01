@@ -130,6 +130,7 @@ import {
   setGatewayAdminSchedulerJobPaused,
   upsertGatewayAdminSchedulerJob,
 } from './gateway-scheduled-task-service.js';
+import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
   createGatewayAdminAgent,
@@ -4193,6 +4194,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/http/request' && method === 'POST') {
             await handleApiHttpRequest(req, res);
+            return;
+          }
+          if (pathname === '/api/secret/inject' && method === 'POST') {
+            await handleApiSecretInject(req, res);
             return;
           }
           if (pathname === '/api/discord/action' && method === 'POST') {

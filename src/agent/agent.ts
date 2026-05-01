@@ -2,7 +2,11 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { HYBRIDAI_MODEL } from '../config/config.js';
 import { injectPdfContextMessages } from '../media/pdf-context.js';
 import { withSpan } from '../observability/otel.js';
-import { createConfidentialRuntimeContext } from '../security/confidential-runtime.js';
+import {
+  createConfidentialRuntimeContext,
+  getConfidentialRuleSet,
+} from '../security/confidential-runtime.js';
+import { withResolvedSecretLeakRules } from '../security/secret-leak-corpus.js';
 import type { ContainerOutput } from '../types/container.js';
 import type {
   PendingApproval,
@@ -61,7 +65,9 @@ async function runAgentInner(
     workspaceRoot,
     media,
   });
-  const confidential = createConfidentialRuntimeContext();
+  const confidential = createConfidentialRuntimeContext(
+    withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet()),
+  );
   const dehydratedMessages = confidential.dehydrate(preparedMessages);
   const output = await executor.exec({
     ...params,

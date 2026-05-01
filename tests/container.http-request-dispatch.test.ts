@@ -2,15 +2,18 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 describe.sequential('container http_request dispatch', () => {
   afterEach(async () => {
-    const { setGatewayContext } = await import('../container/src/tools.js');
+    const { setGatewayContext, setSessionContext } = await import(
+      '../container/src/tools.js'
+    );
     setGatewayContext(undefined, undefined, undefined, undefined);
+    setSessionContext('');
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
   test('forwards http_request payloads to the gateway endpoint', async () => {
-    const { executeTool, setGatewayContext } = await import(
+    const { executeTool, setGatewayContext, setSessionContext } = await import(
       '../container/src/tools.js'
     );
     const fetchMock = vi.fn().mockResolvedValue({
@@ -25,6 +28,7 @@ describe.sequential('container http_request dispatch', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
+    setSessionContext('agent:main:channel:web:chat:dm:peer:test');
 
     const result = await executeTool(
       'http_request',
@@ -54,6 +58,7 @@ describe.sequential('container http_request dispatch', () => {
             prompt: 'Hallo Welt!',
           },
           bearerSecretName: 'HYBRIDAI_API_KEY',
+          sessionId: 'agent:main:channel:web:chat:dm:peer:test',
         }),
       }),
     );
