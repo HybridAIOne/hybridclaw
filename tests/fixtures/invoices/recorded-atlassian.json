@@ -1,0 +1,20 @@
+{
+  "provider": "atlassian",
+  "invoices": [
+    {
+      "vendor": "atlassian",
+      "invoice_no": "AT-2026-03-001",
+      "period": "2026-03",
+      "issue_date": "2026-04-01",
+      "due_date": "2026-04-15",
+      "net": 100,
+      "vat_rate": 0.19,
+      "vat": 19,
+      "gross": 119,
+      "currency": "EUR",
+      "source_url": "https://my.atlassian.com/billing",
+      "suggested_file_name": "AT-2026-03-001.pdf",
+      "pdf_base64": "JVBERiBhdGxhc3NpYW4="
+    }
+  ]
+}

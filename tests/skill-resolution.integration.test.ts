@@ -98,6 +98,17 @@ describe('skill resolution integration', () => {
     expect(pdfSkill?.description).toContain('invoice/document parsing');
   });
 
+  it('bundled invoice harvester skill is discoverable', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const invoiceSkill = catalog.find(
+      (skill) => skill.name === 'download-platform-invoices',
+    );
+
+    expect(invoiceSkill).toBeDefined();
+    expect(invoiceSkill?.description).toContain('SaaS billing invoices');
+    expect(invoiceSkill?.metadata.hybridclaw.tags).toContain('invoices');
+  });
+
   it('advertises gog for Google Calendar event access', () => {
     const catalog = skillsMod.loadSkillCatalog();
     const gogSkill = catalog.find((skill) => skill.name === 'gog');
