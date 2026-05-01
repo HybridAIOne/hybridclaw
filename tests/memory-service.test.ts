@@ -21,6 +21,7 @@ import {
   getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getSessionById,
+  getSessionTitle,
   getUsageTotals,
   initDatabase,
   listMemoryValues,
@@ -34,6 +35,7 @@ import {
   recallSemanticMemories,
   recordUsageEvent,
   setMemoryValue,
+  setSessionTitle,
   storeMessage,
   storeSemanticMemory,
 } from '../src/memory/db.js';
@@ -44,6 +46,7 @@ import {
 } from '../src/memory/memory-service.js';
 import { MODEL_METADATA_USD_TO_EUR } from '../src/providers/model-metadata.js';
 import { normalizeRecentChatSearchQuery } from '../src/session/recent-chat-search.js';
+import { RECENT_CHAT_SESSION_TITLE_MAX_LENGTH } from '../src/session/session-preview.js';
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,
@@ -95,6 +98,10 @@ function makeSession(partial?: Partial<Session>): Session {
     show_mode: 'all',
     created_at: new Date().toISOString(),
     last_active: new Date().toISOString(),
+    reset_count: 0,
+    reset_at: null,
+    title: null,
+    title_source: null,
     ...(partial || {}),
   };
 }
@@ -663,6 +670,69 @@ describe.sequential('schema migrations', () => {
         'idx_sessions_channel_last_active',
       ]),
     );
+  });
+
+  test('migrates branch schema v20 databases with session titles and missing message agent identity', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        title TEXT,
+        title_source TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        last_active TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO sessions (id, channel_id, title, title_source)
+      VALUES ('branch-title-session', 'web', 'Branch Title', 'auto');
+    `);
+    legacy.pragma('user_version = 20');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const messageColumns = inspect.pragma('table_info(messages)') as Array<{
+      name: string;
+    }>;
+    const sessionColumns = inspect.pragma('table_info(sessions)') as Array<{
+      name: string;
+    }>;
+    const sessionSql = inspect
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get() as { sql: string } | undefined;
+    expect(() =>
+      inspect
+        .prepare("UPDATE sessions SET title_source = 'user' WHERE id = ?")
+        .run('branch-title-session'),
+    ).toThrow();
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(messageColumns.some((column) => column.name === 'agent_id')).toBe(
+      true,
+    );
+    expect(sessionColumns.some((column) => column.name === 'title')).toBe(true);
+    expect(
+      sessionColumns.some((column) => column.name === 'title_source'),
+    ).toBe(true);
+    expect(sessionSql?.sql).toContain('CHECK');
+    expect(sessionSql?.sql).toContain("'auto'");
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -1526,6 +1596,103 @@ describe.sequential('schema migrations', () => {
         query: 'deploy',
       }),
     ).toEqual([]);
+  });
+
+  test('setSessionTitle persists and round-trips with getSessionTitle', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', '   ');
+    expect(getSessionTitle('title-session')).toEqual({
+      title: null,
+      source: null,
+    });
+
+    setSessionTitle('title-session', '  Deploy Plan  ');
+
+    expect(getSessionTitle('title-session')).toEqual({
+      title: 'Deploy Plan',
+      source: 'auto',
+    });
+
+    const inspect = new Database(dbPath);
+    expect(() =>
+      inspect
+        .prepare("UPDATE sessions SET title_source = 'user' WHERE id = ?")
+        .run('title-session'),
+    ).toThrow();
+    inspect.close();
+  });
+
+  test('setSessionTitle does not overwrite an existing title', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', 'First Pick');
+    setSessionTitle('title-session', 'Second Pick');
+
+    expect(getSessionTitle('title-session').title).toBe('First Pick');
+  });
+
+  test('setSessionTitle caps stored title length', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle(
+      'title-session',
+      `${'A'.repeat(RECENT_CHAT_SESSION_TITLE_MAX_LENGTH)} extra`,
+    );
+
+    expect(getSessionTitle('title-session').title).toBe(
+      'A'.repeat(RECENT_CHAT_SESSION_TITLE_MAX_LENGTH),
+    );
+  });
+
+  test('getRecentSessionsForUser prefers the stored title over the derived preview', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('stored-title-session', null, 'web');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare(
+        'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'stored-title-session',
+        'web-user-a',
+        'web',
+        'user',
+        'Boring derived first message',
+        '2026-04-25T10:00:00.000Z',
+      );
+    inspect
+      .prepare(
+        'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+      )
+      .run(1, '2026-04-25T10:00:00.000Z', 'stored-title-session');
+    inspect.close();
+
+    setSessionTitle('stored-title-session', 'Custom Stored Title');
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'stored-title-session',
+        lastActive: '2026-04-25T10:00:00.000Z',
+        messageCount: 1,
+        title: 'Custom Stored Title',
+      },
+    ]);
   });
 
   test('forkSessionBranch copies the prefix into a new sibling session', () => {

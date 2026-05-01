@@ -294,7 +294,10 @@ export type RuntimeAudioTranscriptionModelConfig =
   | RuntimeAudioProviderModelConfig
   | RuntimeAudioCliModelConfig;
 
-export type RuntimeAuxiliaryProviderSelection = 'auto' | RuntimeProviderId;
+export type RuntimeAuxiliaryProviderSelection =
+  | 'auto'
+  | 'disabled'
+  | RuntimeProviderId;
 
 export interface RuntimeAuxiliaryModelPolicyConfig {
   provider: RuntimeAuxiliaryProviderSelection;
@@ -784,6 +787,7 @@ export interface RuntimeConfig {
     eval_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
+    session_title: RuntimeAuxiliaryModelPolicyConfig;
     cv_narration: RuntimeAuxiliaryModelPolicyConfig;
   };
   container: {
@@ -1429,6 +1433,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     flush_memories: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    session_title: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -4237,7 +4246,11 @@ function normalizeAuxiliaryProviderSelection(
 ): RuntimeAuxiliaryProviderSelection {
   if (typeof value !== 'string') return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
+  if (
+    normalized === 'auto' ||
+    normalized === 'disabled' ||
+    isRuntimeProviderId(normalized)
+  ) {
     return normalized;
   }
   return fallback;
@@ -4567,6 +4580,11 @@ function normalizeRuntimeConfig(
     rawAuxiliaryModels.flush_memories,
   )
     ? rawAuxiliaryModels.flush_memories
+    : {};
+  const rawSessionTitleAuxiliaryModel = isRecord(
+    rawAuxiliaryModels.session_title,
+  )
+    ? rawAuxiliaryModels.session_title
     : {};
   const rawCvNarrationAuxiliaryModel = isRecord(rawAuxiliaryModels.cv_narration)
     ? rawAuxiliaryModels.cv_narration
@@ -5515,6 +5533,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawFlushMemoriesAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.flush_memories.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      session_title: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawSessionTitleAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.provider,
+        ),
+        model: normalizeString(
+          rawSessionTitleAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawSessionTitleAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.session_title.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },

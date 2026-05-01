@@ -16,6 +16,7 @@ import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
+  isAuxiliaryTaskDisabled,
   normalizeAuxiliaryProviderModel,
   normalizeMaxTokens,
   resolveDefaultAuxiliaryModelForProvider,
@@ -468,6 +469,10 @@ async function resolveFallbackModelTextCallContext(
 async function resolveTextCallContext(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext> {
+  if (isAuxiliaryTaskDisabled(params.task)) {
+    throw new Error(`${params.task} auxiliary model is disabled.`);
+  }
+
   const requestedMaxTokens = normalizeMaxTokens(params.maxTokens);
 
   // 1. Respect explicit provider/model overrides first.

@@ -173,6 +173,20 @@ test('prefers auxiliary env overrides for provider and model selection', async (
   expect(policy?.maxTokens).toBeUndefined();
 });
 
+test('omits disabled auxiliary task policy', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.auxiliaryModels.session_title.provider = 'disabled';
+  });
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  expect(taskRouting.isAuxiliaryTaskDisabled('session_title')).toBe(true);
+  await expect(
+    taskRouting.resolveTaskModelPolicy('session_title'),
+  ).resolves.toBeUndefined();
+});
+
 test('captures env overrides at module load', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {

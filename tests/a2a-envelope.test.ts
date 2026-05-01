@@ -197,11 +197,13 @@ describe('A2A envelope persistence', () => {
       path.join(tmpDir, 'a2a', 'threads', 'thread-1.json'),
     );
     const state = revisions.getRuntimeAssetRevisionState('a2a', assetPath);
-    expect(JSON.parse(state?.content ?? '{}')).toMatchObject({
+    const stateContent = state?.content ?? '{}';
+    expect(JSON.parse(stateContent)).toMatchObject({
       version: 1,
       thread_id: 'thread-1',
       envelopes: [resolvedFirst, resolvedSecond],
     });
+    expect(stateContent).toBe(JSON.stringify(JSON.parse(stateContent)));
 
     const revisionSummaries = revisions.listRuntimeAssetRevisions(
       'a2a',

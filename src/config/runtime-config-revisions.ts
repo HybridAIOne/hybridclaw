@@ -69,6 +69,10 @@ export interface RuntimeConfigRevisionState {
   updatedAt: string;
 }
 
+export interface RuntimeAssetRevisionState extends RuntimeConfigRevisionState {
+  assetPath: string;
+}
+
 export interface RuntimeConfigRevisionStateMetadata {
   actor: string;
   route: string;
@@ -118,6 +122,10 @@ interface ConfigRevisionStateRow {
   route: string;
   source: string;
   updated_at: string;
+}
+
+interface ConfigRevisionAssetStateRow extends ConfigRevisionStateRow {
+  config_path: string;
 }
 
 interface ConfigRevisionStateMetadataRow {
@@ -349,6 +357,15 @@ function mapRevisionStateRow(
     source: row.source,
     content: row.current_content,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapRevisionAssetStateRow(
+  row: ConfigRevisionAssetStateRow,
+): RuntimeAssetRevisionState {
+  return {
+    assetPath: row.config_path,
+    ...mapRevisionStateRow(row),
   };
 }
 
@@ -686,6 +703,23 @@ export function getRuntimeAssetRevisionState(
       .get(normalizedAssetType, assetPath);
     return row ? mapRevisionStateRow(row) : null;
   });
+}
+
+export function listRuntimeAssetRevisionStates(
+  assetType: RuntimeRevisionAssetType,
+): RuntimeAssetRevisionState[] {
+  const normalizedAssetType = normalizeRevisionAssetType(assetType);
+  return withRevisionDatabase((database) =>
+    database
+      .prepare<[string], ConfigRevisionAssetStateRow>(
+        `SELECT config_path, current_content, actor, route, source, updated_at
+         FROM config_revision_state
+         WHERE asset_type = ?
+         ORDER BY config_path ASC`,
+      )
+      .all(normalizedAssetType)
+      .map((row) => mapRevisionAssetStateRow(row)),
+  );
 }
 
 export function getRuntimeConfigRevisionStateMetadata(

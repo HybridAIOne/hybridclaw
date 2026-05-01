@@ -52,6 +52,7 @@ import {
 } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
+import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
@@ -589,6 +590,15 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
+  // Each success path returns after scheduling title work, so one turn enqueues
+  // at most one title request.
+  const autoTitleParams = () => ({
+    sessionId: req.sessionId,
+    agentId,
+    chatbotId,
+    model,
+    isFirstTurn: turnIndex === 1,
+  });
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
@@ -611,6 +621,10 @@ async function handleGatewayMessageInner(
   });
   let conciergeExecutionProfile: ConciergeProfile | null = null;
   if (conciergeTurn.kind === 'respond') {
+    const conciergeUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
     const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -624,11 +638,15 @@ async function handleGatewayMessageInner(
       userId: req.userId,
       username: req.username,
       canonicalScopeId: canonicalContextScope,
-      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      userContent: conciergeUserContent,
       resultText: conciergeTurn.resultText,
       toolCallCount: 0,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+    });
+    maybeAutoTitleSession({
+      ...autoTitleParams(),
+      userContent: conciergeUserContent,
     });
     return attachSessionIdentity({
       status: 'success',
@@ -812,6 +830,10 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    maybeAutoTitleSession({
+      ...autoTitleParams(),
+      userContent: req.content,
+    });
     return attachSessionIdentity(result);
   }
 
@@ -1533,6 +1555,10 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    maybeAutoTitleSession({
+      ...autoTitleParams(),
+      userContent: storedUserContent,
+    });
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({
         sessionId: req.sessionId,
