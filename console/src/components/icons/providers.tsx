@@ -1,5 +1,6 @@
 import type { ReactNode, SVGProps } from 'react';
 import hybridaiLogoUrl from './hybridai-logo.png';
+import lmstudioLogoUrl from './lmstudio-logo.webp';
 
 export type ProviderLogoProps = SVGProps<SVGSVGElement>;
 
@@ -262,8 +263,25 @@ export function KiloLogo(props: ProviderLogoProps) {
   return <Badge letter="K" fill="#10B981" {...props} />;
 }
 
-export function LMStudioLogo(props: ProviderLogoProps) {
-  return <Badge letter="LM" fill="#0EA5E9" {...props} />;
+export function LMStudioLogo({
+  width = 18,
+  height = 18,
+  className,
+  style,
+}: ProviderLogoProps) {
+  return (
+    <img
+      aria-hidden="true"
+      src={lmstudioLogoUrl}
+      width={width}
+      height={height}
+      className={className}
+      style={style}
+      alt=""
+      draggable={false}
+      decoding="async"
+    />
+  );
 }
 
 export function LlamaCppLogo(props: ProviderLogoProps) {
