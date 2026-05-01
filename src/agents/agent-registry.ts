@@ -37,6 +37,12 @@ import {
   validateAgentOrgChart,
 } from './agent-types.js';
 import {
+  hasAgentReference,
+  escalationChain as resolveOrgChartEscalationChain,
+  managerOf as resolveOrgChartManager,
+  peersOf as resolveOrgChartPeers,
+} from './org-chart.js';
+import {
   type AgentTeamStructureRevision,
   type AgentTeamStructureRevisionSummary,
   getAgentTeamStructureRevision,
@@ -582,11 +588,49 @@ export function getStoredAgentConfig(
   return registry.get(normalizedId) || null;
 }
 
-function hasAgentReference(
-  values: readonly string[] | undefined,
-  agentId: string,
-): boolean {
-  return values?.some((value) => normalizeString(value) === agentId) ?? false;
+export function managerOfAgent(agentId?: string | null): AgentConfig | null {
+  ensureRegistryCurrent();
+  return resolveOrgChartManager(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function peersOfAgent(agentId?: string | null): AgentConfig[] {
+  ensureRegistryCurrent();
+  return resolveOrgChartPeers(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function escalationChainForAgent(
+  agentId?: string | null,
+): AgentConfig[] {
+  ensureRegistryCurrent();
+  return resolveOrgChartEscalationChain(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function resolveAgentEscalationTarget(
+  agentId?: string | null,
+): AgentConfig['escalationTarget'] {
+  ensureRegistryCurrent();
+  const normalizedId = normalizeString(agentId) || DEFAULT_AGENT_ID;
+  const storedAgent = registry.get(normalizedId);
+  const agent = storedAgent ? applyDefaults(storedAgent) : null;
+  if (agent?.escalationTarget) {
+    return { ...agent.escalationTarget };
+  }
+  const agents = currentTeamStructureAgents();
+  for (const manager of resolveOrgChartEscalationChain(normalizedId, agents)) {
+    if (manager.escalationTarget) {
+      return { ...manager.escalationTarget };
+    }
+  }
+  return undefined;
 }
 
 function collectAgentDeletionBlockers(agentId: string): string[] {

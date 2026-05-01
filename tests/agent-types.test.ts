@@ -7,6 +7,11 @@ import {
   normalizeAgentCv,
   validateAgentOrgChart,
 } from '../src/agents/agent-types.js';
+import {
+  escalationChain,
+  managerOf,
+  peersOf,
+} from '../src/agents/org-chart.js';
 
 test('buildOptionalAgentPresentation includes only populated presentation fields', () => {
   expect(
@@ -126,4 +131,46 @@ test('validateAgentOrgChart rejects reports_to cycles and dangling references', 
   expect(() =>
     validateAgentOrgChart([{ id: 'alpha', peers: ['missing'] }]),
   ).toThrow('Agent "alpha" peers references unknown agent "missing".');
+});
+
+test('org-chart helpers resolve managers, peers, and escalation chains', () => {
+  const agents = [
+    { id: 'hq', role: 'Chief of Staff' },
+    {
+      id: 'support-lead',
+      role: 'Support Lead',
+      reportsTo: 'hq',
+      peers: ['ops-lead'],
+    },
+    { id: 'ops-lead', role: 'Operations Lead', reportsTo: 'hq' },
+    {
+      id: 'support-tier-1',
+      role: 'Support Specialist',
+      reportsTo: 'support-lead',
+      peers: ['support-tier-2'],
+    },
+    {
+      id: 'support-tier-2',
+      role: 'Escalation Specialist',
+      reportsTo: 'support-lead',
+    },
+    {
+      id: 'billing',
+      role: 'Billing Specialist',
+      reportsTo: 'support-lead',
+      peers: ['support-tier-1'],
+    },
+  ];
+
+  expect(managerOf('support-tier-1', agents)?.id).toBe('support-lead');
+  expect(managerOf('hq', agents)).toBeNull();
+  expect(managerOf('missing', agents)).toBeNull();
+  expect(peersOf('support-tier-1', agents).map((agent) => agent.id)).toEqual([
+    'support-tier-2',
+    'billing',
+  ]);
+  expect(
+    escalationChain('support-tier-1', agents).map((agent) => agent.id),
+  ).toEqual(['support-lead', 'hq']);
+  expect(escalationChain('hq', agents)).toEqual([]);
 });

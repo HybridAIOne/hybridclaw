@@ -10,6 +10,7 @@ import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
   resolveAgentConfig,
+  resolveAgentEscalationTarget,
   resolveAgentForRequest,
   resolveAgentModel,
 } from '../agents/agent-registry.js';
@@ -1150,7 +1151,7 @@ async function handleGatewayMessageInner(
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
-      escalationTarget: resolvedAgent.escalationTarget,
+      escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
     });
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(

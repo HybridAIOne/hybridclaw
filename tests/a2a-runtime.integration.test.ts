@@ -70,23 +70,31 @@ describe('A2A runtime API', () => {
 
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.agents.list = [
-        { id: 'stub-a', owner: 'team' },
-        { id: 'stub-b', owner: 'team' },
+        { id: 'main', owner: 'team', role: 'lead' },
+        { id: 'Stub-A', owner: 'team', role: 'sender', reportsTo: 'main' },
+        {
+          id: 'stub-b',
+          owner: 'team',
+          role: 'recipient',
+          reportsTo: 'main',
+          peers: ['Stub-A'],
+        },
       ];
     });
 
     const confirmation = runtime.sendMessage(
       {
         id: 'msg-1',
-        sender_agent_id: 'stub-a',
+        sender_agent_id: 'stub-a@team@local-dev',
         recipient_agent_id: 'stub-b',
         thread_id: 'thread-1',
         intent: 'handoff',
-        content: 'Please take over the customer brief.',
+        content:
+          'Please take over the customer brief.\n\n## Handoff Org Chart Context',
         created_at: '2026-04-29T10:00:00.000Z',
       },
       {
-        actor: 'stub-a',
+        actor: 'Stub-A',
       },
     );
 
@@ -104,10 +112,21 @@ describe('A2A runtime API', () => {
       recipient_agent_id: 'stub-b@team@local-dev',
       thread_id: 'thread-1',
       intent: 'handoff',
-      content: 'Please take over the customer brief.',
+      content: expect.stringContaining('Please take over the customer brief.'),
       created_at: '2026-04-29T10:00:00.000Z',
     };
     expect(runtime.inbox('stub-a')).toEqual([]);
     expect(runtime.inbox('stub-b')).toEqual([deliveredEnvelope]);
+    const [handoff] = runtime.inbox('stub-b');
+    expect(handoff?.content).toContain('## Handoff Org Chart Context');
+    expect(handoff?.content).toContain(
+      '<!-- hybridclaw:a2a-handoff-org-chart-context:v1 -->',
+    );
+    expect(handoff?.content).toContain('sender_manager: main (lead)');
+    expect(handoff?.content).toContain('recipient_manager: main (lead)');
+    expect(handoff?.content).toContain('recipient_peers: Stub-A (sender)');
+    expect(handoff?.content).toContain(
+      'recipient_escalation_chain: main (lead)',
+    );
   });
 });
