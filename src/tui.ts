@@ -1055,7 +1055,9 @@ function truncateAnsiTuiEnd(value: string, width: number): string {
       output += source.slice(start, index);
       continue;
     }
-    const symbol = [...source.slice(index)][0] || source[index] || '';
+    const code = source.codePointAt(index);
+    const symbol =
+      code == null ? source[index] || '' : String.fromCodePoint(code);
     const symbolWidth = tuiCharacterWidth(symbol);
     if (visibleCount + symbolWidth + 1 > width) {
       output += '…';
