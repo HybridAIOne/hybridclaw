@@ -369,6 +369,78 @@ test('agent registry rejects cyclic reports_to relationships', async () => {
   ).toThrow('Agent reports_to cycle detected: design -> ops -> design.');
 });
 
+test('agent registry resolves org-chart helpers from persisted agents', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
+  const {
+    escalationChainForAgent,
+    initAgentRegistry,
+    managerOfAgent,
+    peersOfAgent,
+    resolveAgentEscalationTarget,
+  } = await import('../src/agents/agent-registry.ts');
+
+  const agents = [
+    {
+      id: 'main',
+      name: 'Main Agent',
+      escalationTarget: {
+        channel: 'slack:exec',
+        recipient: 'owner',
+      },
+    },
+    {
+      id: 'ops-lead',
+      name: 'Ops Lead',
+      reportsTo: 'main',
+      peers: ['support-lead'],
+      escalationTarget: {
+        channel: 'slack:ops',
+        recipient: 'ops-manager',
+      },
+    },
+    {
+      id: 'support-lead',
+      name: 'Support Lead',
+      reportsTo: 'main',
+    },
+    {
+      id: 'support-tier-1',
+      name: 'Support Tier 1',
+      reportsTo: 'support-lead',
+      peers: ['ops-lead'],
+    },
+  ];
+
+  initDatabase({ quiet: true });
+  updateRuntimeConfig((draft) => {
+    draft.agents.list = agents;
+  });
+  initAgentRegistry({ list: agents });
+
+  expect(managerOfAgent('support-tier-1')?.id).toBe('support-lead');
+  expect(peersOfAgent('support-tier-1').map((agent) => agent.id)).toEqual([
+    'ops-lead',
+  ]);
+  expect(
+    escalationChainForAgent('support-tier-1').map((agent) => agent.id),
+  ).toEqual(['support-lead', 'main']);
+  expect(resolveAgentEscalationTarget('support-tier-1')).toEqual({
+    channel: 'slack:exec',
+    recipient: 'owner',
+  });
+  expect(resolveAgentEscalationTarget('ops-lead')).toEqual({
+    channel: 'slack:ops',
+    recipient: 'ops-manager',
+  });
+});
+
 test('agent registry rejects deleting agents still referenced by org-chart fields', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;

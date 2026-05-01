@@ -1,4 +1,5 @@
 import { type A2AEnvelope, A2AEnvelopeValidationError } from './envelope.js';
+import { attachA2AHandoffContext } from './handoff-context.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
 import { isRecord } from './utils.js';
 
@@ -30,7 +31,7 @@ export function sendMessage(
   meta?: A2ASendMessageMeta,
 ): A2ADeliveryConfirmation {
   const deliveredEnvelope = saveA2AEnvelope(
-    normalizeRuntimeEnvelope(envelope),
+    attachA2AHandoffContext(normalizeRuntimeEnvelope(envelope)),
     {
       actor: meta?.actor,
       route: 'a2a.sendMessage',

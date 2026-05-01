@@ -70,8 +70,15 @@ describe('A2A runtime API', () => {
 
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.agents.list = [
-        { id: 'stub-a', owner: 'team' },
-        { id: 'stub-b', owner: 'team' },
+        { id: 'main', owner: 'team', role: 'lead' },
+        { id: 'stub-a', owner: 'team', role: 'sender', reportsTo: 'main' },
+        {
+          id: 'stub-b',
+          owner: 'team',
+          role: 'recipient',
+          reportsTo: 'main',
+          peers: ['stub-a'],
+        },
       ];
     });
 
@@ -104,10 +111,18 @@ describe('A2A runtime API', () => {
       recipient_agent_id: 'stub-b@team@local-dev',
       thread_id: 'thread-1',
       intent: 'handoff',
-      content: 'Please take over the customer brief.',
+      content: expect.stringContaining('Please take over the customer brief.'),
       created_at: '2026-04-29T10:00:00.000Z',
     };
     expect(runtime.inbox('stub-a')).toEqual([]);
     expect(runtime.inbox('stub-b')).toEqual([deliveredEnvelope]);
+    const [handoff] = runtime.inbox('stub-b');
+    expect(handoff?.content).toContain('## Handoff Org Chart Context');
+    expect(handoff?.content).toContain('sender_manager: main (lead)');
+    expect(handoff?.content).toContain('recipient_manager: main (lead)');
+    expect(handoff?.content).toContain('recipient_peers: stub-a (sender)');
+    expect(handoff?.content).toContain(
+      'recipient_escalation_chain: main (lead)',
+    );
   });
 });

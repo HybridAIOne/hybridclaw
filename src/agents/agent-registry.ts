@@ -37,6 +37,11 @@ import {
   validateAgentOrgChart,
 } from './agent-types.js';
 import {
+  escalationChain as resolveOrgChartEscalationChain,
+  managerOf as resolveOrgChartManager,
+  peersOf as resolveOrgChartPeers,
+} from './org-chart.js';
+import {
   type AgentTeamStructureRevision,
   type AgentTeamStructureRevisionSummary,
   getAgentTeamStructureRevision,
@@ -580,6 +585,50 @@ export function getStoredAgentConfig(
     return dbGetAgentById(normalizedId);
   }
   return registry.get(normalizedId) || null;
+}
+
+export function managerOfAgent(agentId?: string | null): AgentConfig | null {
+  ensureRegistryCurrent();
+  return resolveOrgChartManager(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function peersOfAgent(agentId?: string | null): AgentConfig[] {
+  ensureRegistryCurrent();
+  return resolveOrgChartPeers(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function escalationChainForAgent(
+  agentId?: string | null,
+): AgentConfig[] {
+  ensureRegistryCurrent();
+  return resolveOrgChartEscalationChain(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function resolveAgentEscalationTarget(
+  agentId?: string | null,
+): AgentConfig['escalationTarget'] {
+  ensureRegistryCurrent();
+  const agents = currentTeamStructureAgents();
+  const normalizedId = normalizeString(agentId) || DEFAULT_AGENT_ID;
+  const agent = agents.find((entry) => entry.id === normalizedId);
+  if (agent?.escalationTarget) {
+    return { ...agent.escalationTarget };
+  }
+  for (const manager of resolveOrgChartEscalationChain(normalizedId, agents)) {
+    if (manager.escalationTarget) {
+      return { ...manager.escalationTarget };
+    }
+  }
+  return undefined;
 }
 
 function hasAgentReference(
