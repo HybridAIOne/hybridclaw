@@ -703,10 +703,10 @@ describe('gateway bootstrap', () => {
     expect(state.setInterval).toHaveBeenCalled();
   });
 
-  test('warns on startup when the warm process pool is enabled', async () => {
+  test('logs startup details when the warm process pool is enabled', async () => {
     const state = await importFreshGatewayMain({ warmPoolEnabled: true });
 
-    expect(state.loggerWarn).toHaveBeenCalledWith(
+    expect(state.loggerInfo).toHaveBeenCalledWith(
       {
         sandboxMode: 'container',
         minIdlePerActiveAgent: 1,
@@ -720,6 +720,10 @@ describe('gateway bootstrap', () => {
           'filled after recent traffic for an agent; gateway startup does not pre-spawn workers',
         disableConfig: 'container.warmPool.enabled=false',
       },
+      'Warm process pool enabled; idle workers prewarm runtime process startup only',
+    );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      expect.anything(),
       'Warm process pool enabled; idle workers prewarm runtime process startup only',
     );
   });

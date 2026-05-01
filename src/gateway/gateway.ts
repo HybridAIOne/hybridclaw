@@ -3057,7 +3057,7 @@ function startOrRestartMemoryConsolidationScheduler(): void {
 function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
   const warmPool = config.warmPool;
   if (!warmPool.enabled || warmPool.maxIdlePerAgent <= 0) return;
-  logger.warn(
+  logger.info(
     {
       sandboxMode: config.sandboxMode,
       minIdlePerActiveAgent: warmPool.minIdlePerActiveAgent,
