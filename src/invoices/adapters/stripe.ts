@@ -34,14 +34,24 @@ interface StripeSession {
   apiKey: string;
 }
 
-function dateFromUnixSeconds(value: number | null | undefined): string {
-  if (!value) return new Date().toISOString().slice(0, 10);
+function dateFromUnixSeconds(
+  value: number | null | undefined,
+  fieldName: string,
+  invoiceNo: string,
+): string {
+  if (!value) {
+    throw new Error(`Stripe invoice ${invoiceNo} is missing ${fieldName}.`);
+  }
   return new Date(value * 1000).toISOString().slice(0, 10);
 }
 
 function periodFromInvoice(invoice: StripeInvoice): string {
   const periodStart = invoice.period_start || invoice.created;
-  return dateFromUnixSeconds(periodStart).slice(0, 7);
+  return dateFromUnixSeconds(
+    periodStart,
+    'period_start or created',
+    invoice.number || invoice.id || '(unknown)',
+  ).slice(0, 7);
 }
 
 function cents(value: number | null | undefined): number {
@@ -75,8 +85,12 @@ function mapStripeInvoice(invoice: StripeInvoice): InvoiceMeta {
     vendor: 'stripe',
     invoice_no: invoiceNo,
     period: periodFromInvoice(invoice),
-    issue_date: dateFromUnixSeconds(invoice.created),
-    due_date: dateFromUnixSeconds(invoice.due_date || invoice.created),
+    issue_date: dateFromUnixSeconds(invoice.created, 'created', invoiceNo),
+    due_date: dateFromUnixSeconds(
+      invoice.due_date || invoice.created,
+      'due_date or created',
+      invoiceNo,
+    ),
     net,
     vat_rate: vatRate,
     vat,
@@ -116,9 +130,13 @@ export class StripeInvoiceAdapter implements InvoiceAdapter<StripeSession> {
     url.searchParams.set('limit', '100');
     url.searchParams.set('status', 'paid');
     if (options.since) {
+      const sinceTime = new Date(options.since).getTime();
+      if (!Number.isFinite(sinceTime)) {
+        throw new Error(`Invalid Stripe invoice since date: ${options.since}`);
+      }
       url.searchParams.set(
         'created[gte]',
-        String(Math.floor(new Date(options.since).getTime() / 1000)),
+        String(Math.floor(sinceTime / 1000)),
       );
     }
 

@@ -857,8 +857,72 @@ function stripAnsiTui(value: string): string {
   return output;
 }
 
-function visibleTuiLength(value: string): number {
-  return [...stripAnsiTui(value)].length;
+function tuiCharacterWidth(symbol: string): number {
+  const code = symbol.codePointAt(0);
+  if (code == null) return 0;
+  if (code === 0) return 0;
+  if (code < 32 || (code >= 0x7f && code < 0xa0)) return 0;
+  if (
+    (code >= 0x300 && code <= 0x36f) ||
+    (code >= 0x200b && code <= 0x200f) ||
+    code === 0x200d ||
+    (code >= 0xfe00 && code <= 0xfe0f) ||
+    (code >= 0xe0100 && code <= 0xe01ef)
+  ) {
+    return 0;
+  }
+  if (
+    code >= 0x1100 &&
+    (code <= 0x115f ||
+      code === 0x2329 ||
+      code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe19) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1faff) ||
+      (code >= 0x20000 && code <= 0x3fffd))
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+function nextTuiSymbol(
+  source: string,
+  index: number,
+): { symbol: string; nextIndex: number } {
+  const code = source.codePointAt(index);
+  const symbol =
+    code == null ? source[index] || '' : String.fromCodePoint(code);
+  return {
+    symbol,
+    nextIndex: index + (symbol.length || 1),
+  };
+}
+
+export function visibleTuiLength(value: string): number {
+  const source = String(value || '');
+  let width = 0;
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+
+    const next = nextTuiSymbol(source, index);
+    width += tuiCharacterWidth(next.symbol);
+    index = next.nextIndex;
+  }
+  return width;
 }
 
 function padAnsiTuiEnd(value: string, width: number): string {
@@ -884,9 +948,9 @@ function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
       tokens.push({ kind: 'ansi', value: source.slice(start, index) });
       continue;
     }
-    const symbol = [...source.slice(index)][0] || source[index] || '';
-    tokens.push({ kind: 'char', value: symbol });
-    index += symbol.length || 1;
+    const next = nextTuiSymbol(source, index);
+    tokens.push({ kind: 'char', value: next.symbol });
+    index = next.nextIndex;
   }
   return tokens;
 }
@@ -1005,16 +1069,15 @@ function truncateAnsiTuiEnd(value: string, width: number): string {
       output += source.slice(start, index);
       continue;
     }
-    const symbol =
-      [...source.slice(index, index + 2)][0] || source[index] || '';
-    const symbolLength = [...symbol].length || 1;
-    if (visibleCount + 1 >= width) {
+    const next = nextTuiSymbol(source, index);
+    const symbolWidth = tuiCharacterWidth(next.symbol);
+    if (symbolWidth > 0 && visibleCount + symbolWidth + 1 > width) {
       output += '…';
       return output.endsWith(RESET) ? output : `${output}${RESET}`;
     }
-    output += symbol;
-    visibleCount += 1;
-    index += symbolLength;
+    output += next.symbol;
+    visibleCount += symbolWidth;
+    index = next.nextIndex;
   }
   return output;
 }
@@ -1321,6 +1384,23 @@ interface SpinnerToolEntry {
   preview: string;
 }
 
+export function formatTuiToolActivityLine(params: {
+  toolName: string;
+  preview?: string;
+  columns: number;
+  frameIndex?: number;
+}): string {
+  const frameIndex = Math.max(0, params.frameIndex || 0);
+  const frame =
+    JELLYFISH_PULSE_FRAMES[frameIndex % JELLYFISH_PULSE_FRAMES.length];
+  const previewText = params.preview
+    ? ` ${MUTED}${params.preview}${RESET}`
+    : '';
+  const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${previewText}`;
+  const safeColumns = Math.max(1, params.columns - 1);
+  return truncateAnsiTuiEnd(body, safeColumns);
+}
+
 function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
@@ -1361,13 +1441,12 @@ function spinner(): {
     entry: SpinnerToolEntry,
     frameIdx: number,
   ): string => {
-    const previewText = entry.preview
-      ? ` ${MUTED}${entry.preview}${RESET}`
-      : '';
-    const frame =
-      JELLYFISH_PULSE_FRAMES[frameIdx % JELLYFISH_PULSE_FRAMES.length];
-    const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${entry.name}${RESET}${previewText}`;
-    return truncateAnsiTuiEnd(body, terminalColumns());
+    return formatTuiToolActivityLine({
+      toolName: entry.name,
+      preview: entry.preview,
+      columns: terminalColumns(),
+      frameIndex: frameIdx,
+    });
   };
   const repaintToolLine = (frameIdx: number) => {
     const entry = toolEntries.at(-1);

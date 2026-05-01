@@ -1,0 +1,123 @@
+{
+  "name": "@hybridaione/hybridclaw-desktop",
+  "productName": "HybridClaw",
+  "private": true,
+  "version": "0.12.5",
+  "type": "module",
+  "description": "macOS wrapper for the HybridClaw chat and admin web surfaces",
+  "author": "HybridAI One",
+  "main": "dist/main.js",
+  "scripts": {
+    "build:icon": "swift scripts/generate-mac-icon.swift",
+    "build:runtime": "node scripts/prepare-runtime.mjs",
+    "build": "npm run build:icon && npm run build:runtime && tsc --project tsconfig.json",
+    "build:dmg": "node scripts/run-build-dmg.mjs",
+    "start": "node scripts/start-dev.mjs",
+    "test": "vitest run --configLoader runner --config vitest.config.ts",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "dist:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir zip && npm run build:dmg",
+    "pack:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir"
+  },
+  "dependencies": {
+    "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
+  },
+  "devDependencies": {
+    "electron": "37.10.3",
+    "electron-builder": "26.8.1"
+  },
+  "build": {
+    "appId": "com.hybridaione.hybridclaw.desktop",
+    "productName": "HybridClaw",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "icon": "build/icon.icns",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../",
+        "to": "hybridclaw-runtime",
+        "filter": [
+          "package.json",
+          "dist/**/*",
+          "!dist/**/*.js.map",
+          "console/dist/**/*",
+          "container/dist/**/*",
+          "!container/dist/**/*.js.map",
+          "container/package.json",
+          "container/package-lock.json",
+          "container/tsconfig.json",
+          "container/shared/**/*",
+          "container/src/**/*",
+          "container/Dockerfile",
+          "container/.dockerignore",
+          "skills/**/*",
+          "community-skills/**/*",
+          "presets/**/*",
+          "templates/**/*",
+          "docs/**/*",
+          "plugin-sdk.js",
+          "plugin-sdk.d.ts",
+          "README.md",
+          "CHANGELOG.md",
+          "LICENSE",
+          "AGENTS.md",
+          "SECURITY.md",
+          "TRUST_MODEL.md",
+          "config.example.json"
+        ]
+      },
+      {
+        "from": "build/runtime-deps/root-node_modules",
+        "to": "hybridclaw-runtime/node_modules"
+      },
+      {
+        "from": "build/runtime-deps/container-node_modules",
+        "to": "hybridclaw-runtime/container/node_modules"
+      },
+      {
+        "from": "build/runtime-bin",
+        "to": "hybridclaw-runtime/bin",
+        "filter": [
+          "node"
+        ]
+      }
+    ],
+    "dmg": {
+      "title": "HybridClaw",
+      "icon": "build/icon.icns",
+      "background": "build/background.png",
+      "iconSize": 144,
+      "iconTextSize": 16,
+      "window": {
+        "width": 960,
+        "height": 640
+      },
+      "contents": [
+        {
+          "x": 236,
+          "y": 386,
+          "type": "file"
+        },
+        {
+          "x": 724,
+          "y": 386,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "icon/AppIcon.icon",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
+  }
+}

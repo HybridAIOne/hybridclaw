@@ -25,7 +25,10 @@ export interface InvoiceHarvesterConfig {
 
 const secretInputSchema = {
   oneOf: [
-    { type: 'string', minLength: 1 },
+    {
+      type: 'string',
+      pattern: '^\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}$',
+    },
     {
       type: 'object',
       additionalProperties: false,
@@ -59,7 +62,7 @@ export const INVOICE_HARVESTER_CONFIG_SCHEMA = {
           enabled: { type: 'boolean' },
           outputDir: { type: 'string', minLength: 1 },
           profileDir: { type: 'string', minLength: 1 },
-          since: { type: 'string', minLength: 1 },
+          since: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           credentials: {
             type: 'object',
             additionalProperties: secretInputSchema,

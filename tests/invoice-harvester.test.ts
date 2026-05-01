@@ -14,9 +14,11 @@ import {
   INVOICE_PROVIDER_DEFINITIONS,
   INVOICE_SCRAPE_PLANS,
   loadInvoiceManifest,
+  parseInvoiceMoneyText,
   RecordedFixtureInvoiceAdapter,
   resolveInvoiceCredentials,
   runMonthlyInvoiceRun,
+  saveInvoiceManifest,
   StripeInvoiceAdapter,
   validateInvoiceHarvesterConfig,
   validateInvoiceRecord,
@@ -145,6 +147,52 @@ describe('invoice harvester', () => {
       }),
     );
   });
+
+  test('closes invoice sessions after harvest runs', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-invoices-'));
+    const close = vi.fn(async () => undefined);
+    const adapter: InvoiceAdapter<{ close: () => Promise<void> }> = {
+      id: 'openai',
+      displayName: 'OpenAI',
+      async login() {
+        return { close };
+      },
+      async listInvoices() {
+        return [invoiceMeta];
+      },
+      async download() {
+        return new TextEncoder().encode('%PDF-1.7 invoice');
+      },
+    };
+
+    await harvestProviderInvoices({
+      adapter,
+      credentials: {},
+      outputDir,
+    });
+
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  test('cleans up temporary manifest writes after atomic write failures', () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-invoices-'));
+    const manifestPath = path.join(outputDir, 'manifest.json');
+    const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('rename failed');
+    });
+
+    expect(() =>
+      saveInvoiceManifest(manifestPath, {
+        schema: 'hybridclaw.invoice-manifest.v1',
+        records: [],
+      }),
+    ).toThrow(/rename failed/u);
+    expect(
+      fs.readdirSync(outputDir).filter((entry) => entry.endsWith('.tmp')),
+    ).toEqual([]);
+
+    rename.mockRestore();
+  });
 });
 
 describe('reference invoice adapters', () => {
@@ -215,6 +263,46 @@ describe('reference invoice adapters', () => {
       currency: 'EUR',
     });
     expect(new TextDecoder().decode(pdf)).toBe('%PDF stripe');
+  });
+
+  test('rejects Stripe invoices missing required timestamps', async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/invoices')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'in_missing_created',
+                number: 'ST-MISSING-CREATED',
+                amount_subtotal: 10000,
+                amount_paid: 11900,
+                currency: 'eur',
+                invoice_pdf: 'https://pay.stripe.com/invoice/missing/pdf',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('%PDF stripe', { status: 200 });
+    });
+    const adapter = new StripeInvoiceAdapter({ fetch: fetchMock as typeof fetch });
+    const session = await adapter.login(
+      { apiKey: 'sk_test' },
+      { providerId: 'stripe' },
+    );
+
+    await expect(adapter.listInvoices(session, {})).rejects.toThrow(
+      /missing period_start or created/u,
+    );
+  });
+
+  test('normalizes common invoice money formats', () => {
+    expect(parseInvoiceMoneyText('EUR 1,234.56')).toBe(1234.56);
+    expect(parseInvoiceMoneyText('1.234,56 EUR')).toBe(1234.56);
+    expect(parseInvoiceMoneyText('1,234')).toBe(1234);
+    expect(parseInvoiceMoneyText('123,45')).toBe(123.45);
   });
 
   test('scrape adapters use injected browser drivers for offline fixtures', async () => {
@@ -352,10 +440,40 @@ describe('invoice harvester config and monthly workflow', () => {
         ],
       }),
     ).toThrow(/duplicate stripe/u);
+    expect(() =>
+      validateInvoiceHarvesterConfig({
+        outputDir: '/tmp/invoices',
+        providers: [
+          {
+            id: 'stripe',
+            since: 'not-a-date',
+            credentials: {
+              apiKey: { source: 'store', id: 'STRIPE_INVOICE_API_KEY' },
+            },
+          },
+        ],
+      }),
+    ).toThrow(/since/u);
+    expect(() =>
+      validateInvoiceHarvesterConfig({
+        outputDir: '/tmp/invoices',
+        providers: [
+          {
+            id: 'stripe',
+            credentials: {
+              apiKey: 'sk_live_cleartext',
+            },
+          },
+        ],
+      }),
+    ).toThrow(/credentials/u);
   });
 
   test('composes harvest and DATEV handoff in one monthly run', async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-'));
+    const providerOutputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hc-monthly-provider-'),
+    );
     const adapter = new RecordedFixtureInvoiceAdapter({
       id: 'stripe',
       displayName: 'Stripe',
@@ -374,7 +492,9 @@ describe('invoice harvester config and monthly workflow', () => {
       recordAudit,
       config: {
         outputDir,
-        providers: [{ id: 'stripe', credentials: {} }],
+        providers: [
+          { id: 'stripe', outputDir: providerOutputDir, credentials: {} },
+        ],
         datev: {
           enabled: true,
           workflowId: 'workflow_monthly_invoice_run',
@@ -392,6 +512,13 @@ describe('invoice harvester config and monthly workflow', () => {
     expect(datev.uploadInvoices).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowId: 'workflow_monthly_invoice_run',
+        outputDir,
+        invoiceRoots: [
+          expect.objectContaining({
+            invoice_no: 'ST-2026-03-001',
+            outputDir: providerOutputDir,
+          }),
+        ],
         records: expect.arrayContaining([
           expect.objectContaining({ invoice_no: 'ST-2026-03-001' }),
         ]),

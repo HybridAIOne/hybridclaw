@@ -19,6 +19,10 @@ import type {
   InvoiceRecord,
 } from './types.js';
 
+type Closeable = {
+  close?: () => void | Promise<void>;
+};
+
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -91,63 +95,75 @@ export async function harvestProviderInvoices<Session>(input: {
   const manifest = loadInvoiceManifest(manifestPath);
   const duplicates: InvoiceHarvestDuplicate[] = [];
   const fetched: InvoiceRecord[] = [];
-  const session = await input.adapter.login(input.credentials, {
-    providerId: input.adapter.id,
-    profileDir: input.profileDir,
-  });
-  const invoices = await input.adapter.listInvoices(
-    session,
-    input.listOptions || {},
-  );
+  let session: Session | undefined;
 
-  for (const invoice of invoices) {
-    const identityDuplicate = findInvoiceDuplicate(invoice, [
-      ...manifest.records,
-      ...fetched,
-    ]);
-    if (identityDuplicate) {
-      duplicates.push(identityDuplicate);
-      continue;
-    }
-
-    const bytes = await input.adapter.download(session, invoice);
-    const relativePath = invoicePdfRelativePath(invoice);
-    const record = buildInvoiceRecord({
-      invoice,
-      pdfPath: relativePath,
-      checksumSha256: sha256(bytes),
+  try {
+    session = await input.adapter.login(input.credentials, {
+      providerId: input.adapter.id,
+      profileDir: input.profileDir,
     });
-    const checksumDuplicate = findInvoiceDuplicate(record, [
-      ...manifest.records,
-      ...fetched,
-    ]);
-    if (checksumDuplicate) {
-      duplicates.push(checksumDuplicate);
-      continue;
-    }
+    const invoices = await input.adapter.listInvoices(
+      session,
+      input.listOptions || {},
+    );
 
-    writeInvoicePdf(input.outputDir, relativePath, bytes);
-    fetched.push(record);
-    if (input.sessionId) {
-      emitInvoiceFetchedAudit({
-        sessionId: input.sessionId,
-        runId: input.runId,
-        record,
-        recordAudit: input.recordAudit,
+    for (const invoice of invoices) {
+      const identityDuplicate = findInvoiceDuplicate(invoice, [
+        ...manifest.records,
+        ...fetched,
+      ]);
+      if (identityDuplicate) {
+        duplicates.push(identityDuplicate);
+        continue;
+      }
+
+      const bytes = await input.adapter.download(session, invoice);
+      const relativePath = invoicePdfRelativePath(invoice);
+      const record = buildInvoiceRecord({
+        invoice,
+        pdfPath: relativePath,
+        checksumSha256: sha256(bytes),
       });
+      const checksumDuplicate = findInvoiceDuplicate(record, [
+        ...manifest.records,
+        ...fetched,
+      ]);
+      if (checksumDuplicate) {
+        duplicates.push(checksumDuplicate);
+        continue;
+      }
+
+      writeInvoicePdf(input.outputDir, relativePath, bytes);
+      fetched.push(record);
+      if (input.sessionId) {
+        emitInvoiceFetchedAudit({
+          sessionId: input.sessionId,
+          runId: input.runId,
+          record,
+          recordAudit: input.recordAudit,
+        });
+      }
+    }
+
+    if (fetched.length > 0) {
+      manifest.records.push(...fetched);
+      saveInvoiceManifest(manifestPath, manifest);
+    } else if (!fs.existsSync(manifestPath)) {
+      saveInvoiceManifest(manifestPath, manifest);
+    }
+
+    return {
+      fetched,
+      duplicates,
+      manifestPath,
+    };
+  } finally {
+    if (session !== undefined) {
+      if (typeof input.adapter.close === 'function') {
+        await input.adapter.close(session);
+      } else {
+        await (session as Closeable).close?.();
+      }
     }
   }
-
-  if (fetched.length > 0) {
-    manifest.records.push(...fetched);
-    saveInvoiceManifest(manifestPath, manifest);
-  } else if (!fs.existsSync(manifestPath)) {
-    saveInvoiceManifest(manifestPath, manifest);
-  }
-
-  return {
-    fetched,
-    duplicates,
-    manifestPath,
-  };
 }

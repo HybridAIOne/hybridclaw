@@ -59,6 +59,7 @@ export interface InvoiceAdapter<Session = unknown> {
     options: InvoiceListOptions,
   ): Promise<InvoiceMeta[]>;
   download(session: Session, invoice: InvoiceMeta): Promise<Uint8Array>;
+  close?(session: Session): void | Promise<void>;
 }
 
 export interface InvoiceHarvestDuplicate {

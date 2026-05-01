@@ -53,15 +53,24 @@ export function saveInvoiceManifest(
   manifest: InvoiceManifest,
 ): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(
-    `${filePath}.tmp`,
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    {
+  const tempFilePath = `${filePath}.${process.pid}.${Date.now()}.${Math.random()
+    .toString(16)
+    .slice(2)}.tmp`;
+
+  try {
+    fs.writeFileSync(tempFilePath, `${JSON.stringify(manifest, null, 2)}\n`, {
       encoding: 'utf-8',
       mode: 0o600,
-    },
-  );
-  fs.renameSync(`${filePath}.tmp`, filePath);
+    });
+    fs.renameSync(tempFilePath, filePath);
+  } catch (error) {
+    try {
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    } catch {
+      // Best-effort cleanup only.
+    }
+    throw error;
+  }
 }
 
 export function findInvoiceDuplicate(

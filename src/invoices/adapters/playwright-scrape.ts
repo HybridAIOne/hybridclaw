@@ -26,19 +26,19 @@ type PageLike = {
   goto(url: string, options?: { waitUntil?: string }): Promise<unknown>;
   fill(selector: string, value: string): Promise<unknown>;
   click(selector: string): Promise<unknown>;
-  waitForSelector(selector: string): Promise<unknown>;
-  $$eval<T>(
+  waitForSelector(
     selector: string,
-    pageFunction: (elements: Element[], plan: ScrapeInvoicePlan) => T,
-    plan: ScrapeInvoicePlan,
+    options?: { timeout?: number },
+  ): Promise<unknown>;
+  $$eval<T, Arg>(
+    selector: string,
+    pageFunction: (elements: Element[], arg: Arg) => T,
+    arg: Arg,
   ): Promise<T>;
-  evaluate<T>(
-    pageFunction: (
-      invoiceNo: string,
-      plan: ScrapeInvoicePlan,
-    ) => T | Promise<T>,
+  evaluate<T, Arg>(
+    pageFunction: (invoiceNo: string, arg: Arg) => T | Promise<T>,
     invoiceNo: string,
-    plan: ScrapeInvoicePlan,
+    arg: Arg,
   ): Promise<T>;
 };
 
@@ -60,6 +60,16 @@ export interface ScrapeInvoicePlan {
   pdfLinkSelector: string;
   totpSelector?: string;
   captchaSelector?: string;
+}
+
+type ScrapeInvoiceEvaluationPlan = ScrapeInvoicePlan & {
+  vendor: string;
+};
+
+interface BrowserDownloadResult {
+  base64: string;
+  contentType: string;
+  status: number;
 }
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -96,6 +106,30 @@ function generateTotp(secret: string, now = Date.now()): string {
   return String(code % 1_000_000).padStart(6, '0');
 }
 
+export function parseInvoiceMoneyText(value: string): number {
+  const compact = value.replace(/[^0-9,.-]/g, '');
+  const lastComma = compact.lastIndexOf(',');
+  const lastDot = compact.lastIndexOf('.');
+  const decimalIndex = Math.max(lastComma, lastDot);
+  if (decimalIndex < 0) {
+    const parsed = Number.parseFloat(compact.replace(/[^0-9-]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  const decimalSeparator = compact[decimalIndex];
+  const fraction = compact.slice(decimalIndex + 1).replace(/\D/g, '');
+  const whole = compact.slice(0, decimalIndex).replace(/[^0-9-]/g, '');
+  const separatorIsThousandsOnly =
+    fraction.length === 3 &&
+    compact.slice(0, decimalIndex).replace(/\D/g, '').length > 0 &&
+    (lastComma < 0 || lastDot < 0);
+  const normalized = separatorIsThousandsOnly
+    ? `${whole}${fraction}`
+    : `${whole}${decimalSeparator ? '.' : ''}${fraction}`;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 async function loadPlaywright(): Promise<PlaywrightModule> {
   const dynamicImport = new Function(
     'specifier',
@@ -108,6 +142,7 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
   readonly #plan: ScrapeInvoicePlan;
   #context: BrowserContextLike | null = null;
   #page: PageLike | null = null;
+  #providerId: string | null = null;
 
   constructor(plan: ScrapeInvoicePlan) {
     this.#plan = plan;
@@ -120,6 +155,7 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
     if (!context.profileDir) {
       throw new Error('Scrape invoice adapters require context.profileDir.');
     }
+    this.#providerId = context.providerId;
     if (!credentials.username || !credentials.password) {
       throw new Error('Scrape invoice adapters require username and password.');
     }
@@ -138,7 +174,9 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
     await this.#page.click(this.#plan.submitSelector);
     if (this.#plan.captchaSelector) {
       try {
-        await this.#page.waitForSelector(this.#plan.captchaSelector);
+        await this.#page.waitForSelector(this.#plan.captchaSelector, {
+          timeout: 1000,
+        });
         throw new Error(
           'Captcha detected during invoice portal login; operator escalation required.',
         );
@@ -168,13 +206,34 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
     if (!this.#page) {
       throw new Error('Scrape invoice session is not logged in.');
     }
+    const evaluationPlan: ScrapeInvoiceEvaluationPlan = {
+      ...this.#plan,
+      vendor: this.#providerId || new URL(this.#plan.billingUrl).hostname,
+    };
     const invoices = await this.#page.$$eval(
       this.#plan.invoiceRowSelector,
       (rows, plan) => {
         const textContent = (root: Element, selector: string): string =>
           (root.querySelector(selector)?.textContent || '').trim();
         const numberFromText = (value: string): number => {
-          const normalized = value.replace(/[^0-9,.-]/g, '').replace(',', '.');
+          const compact = value.replace(/[^0-9,.-]/g, '');
+          const lastComma = compact.lastIndexOf(',');
+          const lastDot = compact.lastIndexOf('.');
+          const decimalIndex = Math.max(lastComma, lastDot);
+          if (decimalIndex < 0) {
+            const parsed = Number.parseFloat(compact.replace(/[^0-9-]/g, ''));
+            return Number.isFinite(parsed) ? parsed : 0;
+          }
+          const decimalSeparator = compact[decimalIndex];
+          const fraction = compact.slice(decimalIndex + 1).replace(/\D/g, '');
+          const whole = compact.slice(0, decimalIndex).replace(/[^0-9-]/g, '');
+          const separatorIsThousandsOnly =
+            fraction.length === 3 &&
+            compact.slice(0, decimalIndex).replace(/\D/g, '').length > 0 &&
+            (lastComma < 0 || lastDot < 0);
+          const normalized = separatorIsThousandsOnly
+            ? `${whole}${fraction}`
+            : `${whole}${decimalSeparator ? '.' : ''}${fraction}`;
           const parsed = Number.parseFloat(normalized);
           return Number.isFinite(parsed) ? parsed : 0;
         };
@@ -195,7 +254,7 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
             row.querySelector<HTMLAnchorElement>(plan.pdfLinkSelector)?.href ||
             plan.billingUrl;
           return {
-            vendor: new URL(plan.billingUrl).hostname.replace(/^www\./u, ''),
+            vendor: plan.vendor,
             invoice_no: invoiceNo,
             period: textContent(row, plan.periodSelector),
             issue_date: textContent(row, plan.issueDateSelector),
@@ -210,7 +269,7 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
           };
         });
       },
-      this.#plan,
+      evaluationPlan,
     );
     const since = options.since ? new Date(options.since).getTime() : null;
     return invoices.filter((invoice) => {
@@ -223,7 +282,10 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
     if (!this.#page) {
       throw new Error('Scrape invoice session is not logged in.');
     }
-    const base64 = await this.#page.evaluate(
+    const result = await this.#page.evaluate<
+      BrowserDownloadResult,
+      ScrapeInvoicePlan
+    >(
       async (invoiceNo, plan) => {
         const rows = Array.from(
           document.querySelectorAll(plan.invoiceRowSelector),
@@ -237,21 +299,42 @@ export class PlaywrightScrapeInvoiceDriver implements ScrapeInvoiceDriver {
           row
             ?.querySelector<HTMLAnchorElement>(plan.pdfLinkSelector)
             ?.getAttribute('href') || '';
-        if (!href) return '';
+        if (!href) {
+          return { base64: '', contentType: '', status: 0 };
+        }
         const response = await fetch(href);
+        const contentType = response.headers.get('content-type') || '';
+        if (
+          !response.ok ||
+          (contentType &&
+            !contentType.toLowerCase().includes('pdf') &&
+            !contentType.toLowerCase().includes('octet-stream'))
+        ) {
+          return {
+            base64: '',
+            contentType,
+            status: response.status,
+          };
+        }
         const buffer = await response.arrayBuffer();
         let binary = '';
         const bytes = new Uint8Array(buffer);
         for (const byte of bytes) binary += String.fromCharCode(byte);
-        return btoa(binary);
+        return {
+          base64: btoa(binary),
+          contentType,
+          status: response.status,
+        };
       },
       invoice.invoice_no,
       this.#plan,
     );
-    if (!base64) {
-      throw new Error(`Invoice PDF link not found for ${invoice.invoice_no}.`);
+    if (!result.base64) {
+      throw new Error(
+        `Invoice PDF download failed for ${invoice.invoice_no}: HTTP ${result.status || 'unknown'} ${result.contentType || 'unknown content type'}.`,
+      );
     }
-    return Buffer.from(base64, 'base64');
+    return Buffer.from(result.base64, 'base64');
   }
 
   async close(): Promise<void> {

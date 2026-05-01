@@ -38,7 +38,7 @@ official PDF. The record shape is:
   "vat": 23.45,
   "gross": 146.9,
   "currency": "EUR",
-  "pdf_path": "runs/2026-04/openai/E-2026-03-001.pdf",
+  "pdf_path": "runs/2026-03/openai/E-2026-03-001.pdf",
   "source_url": "https://platform.openai.com/account/billing",
   "checksum_sha256": "64 lowercase hex characters"
 }

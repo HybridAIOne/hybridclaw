@@ -23,6 +23,11 @@ export interface DatevInvoiceUploadAdapter {
     workflowId: string;
     records: InvoiceRecord[];
     outputDir: string;
+    invoiceRoots: Array<{
+      vendor: string;
+      invoice_no: string;
+      outputDir: string;
+    }>;
   }): Promise<void>;
 }
 
@@ -60,6 +65,11 @@ export async function runMonthlyInvoiceRun(input: {
   const audit = input.recordAudit || recordAuditEvent;
   const adaptersById = adapterMap(input.adapters);
   const providerResults: MonthlyInvoiceRunResult['providerResults'] = [];
+  const invoiceRoots: Array<{
+    vendor: string;
+    invoice_no: string;
+    outputDir: string;
+  }> = [];
 
   for (const provider of enabledProviders(input.config)) {
     const adapter = adaptersById.get(provider.id);
@@ -96,6 +106,13 @@ export async function runMonthlyInvoiceRun(input: {
       recordAudit: audit,
     });
     providerResults.push({ providerId: provider.id, result });
+    invoiceRoots.push(
+      ...result.fetched.map((record) => ({
+        vendor: record.vendor,
+        invoice_no: record.invoice_no,
+        outputDir,
+      })),
+    );
   }
 
   const records = providerResults.flatMap(({ result }) => result.fetched);
@@ -106,17 +123,19 @@ export async function runMonthlyInvoiceRun(input: {
         'DATEV handoff is enabled but no upload adapter was provided.',
       );
     }
+    const workflowId = input.config.datev?.workflowId || 'monthly-invoice-run';
     await input.datev.uploadInvoices({
-      workflowId: input.config.datev?.workflowId || 'monthly-invoice-run',
+      workflowId,
       records,
       outputDir: input.config.outputDir,
+      invoiceRoots,
     });
     audit({
       sessionId: input.sessionId,
       runId,
       event: {
         type: 'invoice.datev_handoff',
-        workflowId: input.config.datev?.workflowId,
+        workflowId,
         invoiceCount: records.length,
       },
     });
