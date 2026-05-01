@@ -192,6 +192,7 @@ describe('whatsapp inbound policy filtering', () => {
       path.join(os.tmpdir(), 'hybridclaw-shared-inbound-'),
     );
     sharedMediaDataDirs.push(dataDir);
+    vi.resetModules();
     vi.doMock('@whiskeysockets/baileys', async () => {
       const actual = await vi.importActual<
         typeof import('@whiskeysockets/baileys')

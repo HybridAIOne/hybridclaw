@@ -1788,19 +1788,21 @@ export async function executeBrowserTool(
       }
 
       case 'browser_type': {
-        const ref = ensureRef(args.ref);
+        const selector = String(args.selector || '').trim();
+        const ref = selector ? '' : ensureRef(args.ref);
+        const target = selector || ref;
         const text = String(args.text || '');
         if (!text) return failure('text is required');
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
         const result = await runAgentBrowser(effectiveSessionId, 'fill', [
-          ref,
+          target,
           text,
         ]);
         if (!result.success)
-          return failure(result.error || `failed to fill ${ref}`);
+          return failure(result.error || `failed to fill ${target}`);
         return success({
-          element: ref,
+          ...(selector ? { selector } : { element: ref }),
           typed_chars: text.length,
           ...(frame ? { frame: frame.raw } : {}),
         });
@@ -2442,13 +2444,19 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_type',
       description:
-        'Type text into an input element by snapshot ref (clears then fills).',
+        'Type text into an input element by snapshot ref or CSS selector (clears then fills). Provide either ref or selector.',
       parameters: {
         type: 'object',
         properties: {
           ref: {
             type: 'string',
-            description: 'Element reference from browser_snapshot.',
+            description:
+              'Element reference from browser_snapshot. Required when selector is omitted.',
+          },
+          selector: {
+            type: 'string',
+            description:
+              'CSS selector fallback when a stable snapshot ref is unavailable. Required when ref is omitted.',
           },
           text: { type: 'string', description: 'Text to type.' },
           frame: {
@@ -2457,7 +2465,44 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
               'Optional frame selector. Use "main" to target the main document again.',
           },
         },
-        required: ['ref', 'text'],
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_secret_type',
+      description:
+        'Inject a stored secret into a browser element without exposing the secret text to the model. Use only for login/API credential fields after navigating to the target host.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: {
+            type: 'string',
+            description: 'Element reference from browser_snapshot.',
+          },
+          selector: {
+            type: 'string',
+            description:
+              'CSS selector for policy allowlists and elements without stable refs.',
+          },
+          secretName: {
+            type: 'string',
+            description: 'Stored secret name to inject.',
+          },
+          skillName: {
+            type: 'string',
+            description:
+              'Optional skill name for secret resolution policy and audit.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
+          },
+        },
+        required: ['secretName'],
       },
     },
   },

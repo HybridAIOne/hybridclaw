@@ -710,6 +710,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_snapshot',
   'browser_click',
   'browser_type',
+  'browser_secret_type',
   'browser_upload',
   'browser_press',
   'browser_scroll',

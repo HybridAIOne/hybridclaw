@@ -188,6 +188,7 @@ const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
 const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
   'browser_press',
   'browser_type',
+  'browser_secret_type',
   'browser_upload',
 ]);
 const MAX_PROMPT_CHARS = 1_200;

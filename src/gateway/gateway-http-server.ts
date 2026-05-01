@@ -133,6 +133,7 @@ import {
   setGatewayAdminSchedulerJobPaused,
   upsertGatewayAdminSchedulerJob,
 } from './gateway-scheduled-task-service.js';
+import { handleApiSecretInject } from './gateway-secret-injection.js';
 import {
   applyGatewayAdminPolicyPreset,
   createGatewayAdminAgent,
@@ -787,6 +788,13 @@ function hasApiAuth(
     return true;
   }
   return gatewayTokenMatch;
+}
+
+function hasGatewayApiAuth(req: IncomingMessage): boolean {
+  const authHeader = req.headers.authorization || '';
+  return (
+    Boolean(GATEWAY_API_TOKEN) && authHeader === `Bearer ${GATEWAY_API_TOKEN}`
+  );
 }
 
 function hasApiTokenValue(token: string): boolean {
@@ -4558,6 +4566,17 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/http/request' && method === 'POST') {
             await handleApiHttpRequest(req, res);
+            return;
+          }
+          if (pathname === '/api/secret/inject' && method === 'POST') {
+            if (!hasGatewayApiAuth(req)) {
+              sendJson(res, 401, {
+                error:
+                  'Unauthorized. Set `Authorization: Bearer <GATEWAY_API_TOKEN>`.',
+              });
+              return;
+            }
+            await handleApiSecretInject(req, res);
             return;
           }
           if (pathname === '/api/discord/action' && method === 'POST') {

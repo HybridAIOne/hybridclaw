@@ -19,13 +19,31 @@ import {
   readStoredRuntimeSecret,
   saveNamedRuntimeSecrets,
 } from '../security/runtime-secrets.js';
-import { resolveSecretInput } from '../security/secret-refs.js';
+import {
+  type SecretHandle,
+  withSecretHeader,
+} from '../security/secret-handles.js';
+import { rememberResolvedSecretForLeakScan } from '../security/secret-leak-corpus.js';
+import {
+  normalizeSecretSessionId,
+  normalizeSecretString,
+} from '../security/secret-normalization.js';
+import {
+  resolveSecretHandleInput,
+  resolveSecretInputUnsafe,
+} from '../security/secret-refs.js';
 
 import {
   parsePositiveInteger,
   readJsonBody,
   sendJson,
 } from './gateway-http-utils.js';
+import {
+  assertSecretResolveAllowed,
+  recordSecretResolved,
+  recordSecretUnsafeEscaped,
+  resolveStoredSecretForInjection,
+} from './gateway-secret-injection.js';
 
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const HTTP_REQUEST_MAX_RESPONSE_BYTES = 1_000_000;
@@ -47,12 +65,23 @@ type ApiHttpRequestBody = {
   captureResponseFields?: unknown;
   timeoutMs?: unknown;
   maxResponseBytes?: unknown;
+  sessionId?: unknown;
+  agentId?: unknown;
+  skillName?: unknown;
 };
 
 type ApiHttpRequestSecretHeaderBody = {
   name?: unknown;
   secretName?: unknown;
   prefix?: unknown;
+};
+
+type SecretResolveContext = {
+  sessionId?: string;
+  agentId?: string;
+  skillName?: string;
+  host?: string;
+  selector?: string;
 };
 
 function isPrivateIpv4(ip: string): boolean {
@@ -266,39 +295,56 @@ function withAuthPrefix(secret: string, prefix: string): string {
   return prefix ? `${prefix} ${secret}` : secret;
 }
 
-function resolveStoredSecretOrThrow(secretName: string): string {
+function resolveStoredSecretOrThrow(
+  secretName: string,
+  context: SecretResolveContext,
+): string {
   if (!isRuntimeSecretName(secretName)) {
     throw new GatewayRequestError(400, `Invalid secret name: ${secretName}`);
   }
-  const value = readStoredRuntimeSecret(secretName);
-  if (!value) {
-    throw new GatewayRequestError(
-      400,
-      `Stored secret ${secretName} is not set.`,
-    );
-  }
-  return value;
+  return resolveStoredSecretForInjection({
+    secretName,
+    sessionId: context.sessionId,
+    agentId: context.agentId,
+    skillName: context.skillName,
+    sinkKind: 'http',
+    host: context.host,
+    selector: context.selector,
+  });
 }
 
-function replaceSecretPlaceholdersInString(value: string): string {
+function replaceSecretPlaceholdersInString(
+  value: string,
+  context: SecretResolveContext,
+): string {
   return value.replace(
     HTTP_REQUEST_SECRET_PLACEHOLDER_RE,
-    (_match, secretName) => resolveStoredSecretOrThrow(secretName),
+    (_match, secretName) =>
+      resolveStoredSecretOrThrow(secretName, {
+        ...context,
+        selector: context.selector || '<secret-placeholder>',
+      }),
   );
 }
 
-function replaceSecretPlaceholders(value: unknown): unknown {
+function replaceSecretPlaceholders(
+  value: unknown,
+  context: SecretResolveContext,
+): unknown {
   if (typeof value === 'string') {
-    return replaceSecretPlaceholdersInString(value);
+    return replaceSecretPlaceholdersInString(value, context);
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => replaceSecretPlaceholders(entry));
+    return value.map((entry) => replaceSecretPlaceholders(entry, context));
   }
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [
         key,
-        replaceSecretPlaceholders(entry),
+        replaceSecretPlaceholders(entry, {
+          ...context,
+          selector: context.selector || `json.${key}`,
+        }),
       ]),
     );
   }
@@ -441,6 +487,7 @@ function captureOAuthResponse(
 function resolveHttpRequestRuleAssignments(
   url: string,
   config: RuntimeConfig,
+  context: SecretResolveContext,
 ): Array<{ header: string; value: string }> {
   const matching = config.tools.httpRequest.authRules
     .map((rule, index) => ({ rule, index }))
@@ -455,16 +502,103 @@ function resolveHttpRequestRuleAssignments(
   for (const { rule, index } of matching) {
     const key = rule.header.toLowerCase();
     if (assignments.has(key)) continue;
-    const secret = resolveSecretInput(rule.secret, {
-      path: `tools.httpRequest.authRules[${index}].secret`,
-      required: true,
-    });
-    assignments.set(key, {
-      header: rule.header,
-      value: withAuthPrefix(String(secret || ''), rule.prefix),
-    });
+    const secret = resolveHttpRuleSecret(
+      rule.secret,
+      {
+        ...context,
+        selector: rule.header,
+      },
+      `tools.httpRequest.authRules[${index}].secret`,
+      rule.header,
+      rule.prefix,
+    );
+    assignments.set(key, secret);
   }
   return Array.from(assignments.values());
+}
+
+function resolveHttpRuleSecret(
+  value: unknown,
+  context: SecretResolveContext,
+  path: string,
+  headerName: string,
+  prefix: string,
+): { header: string; value: string } {
+  const handle = resolveSecretHandleInput(value, {
+    path,
+    required: true,
+    sinkKind: 'http',
+  });
+  if (!handle) {
+    return {
+      header: headerName,
+      value: withAuthPrefix(
+        String(
+          resolveSecretInputUnsafe(value, {
+            path,
+            required: true,
+            reason: `resolve plaintext HTTP auth rule ${path}`,
+            audit: makeHttpSecretAuditCallback(context),
+          }) || '',
+        ),
+        prefix,
+      ),
+    };
+  }
+  return consumeSecretHandleForHttp(handle, context, headerName, prefix);
+}
+
+function consumeSecretHandleForHttp(
+  handle: SecretHandle,
+  context: SecretResolveContext,
+  headerName: string,
+  prefix: string,
+): { header: string; value: string } {
+  assertSecretResolveAllowed({
+    sessionId: context.sessionId,
+    agentId: context.agentId,
+    skillName: context.skillName,
+    secretSource: handle.ref.source,
+    secretId: handle.ref.id,
+    sinkKind: 'http',
+    host: context.host,
+    selector: context.selector,
+  });
+  recordSecretResolved({
+    sessionId: context.sessionId,
+    skillName: context.skillName,
+    secretSource: handle.ref.source,
+    secretId: handle.ref.id,
+    sinkKind: 'http',
+    host: context.host,
+    selector: context.selector,
+  });
+  const header = withSecretHeader(handle, headerName, {
+    prefix,
+    audit: makeHttpSecretAuditCallback(context),
+    onCleartext: (value) =>
+      rememberResolvedSecretForLeakScan({
+        sessionId: normalizeSecretSessionId(context.sessionId),
+        secretId: handle.ref.id,
+        value,
+      }),
+  });
+  return { header: header.name, value: header.value };
+}
+
+function makeHttpSecretAuditCallback(context: SecretResolveContext) {
+  return (escapedHandle: SecretHandle, reason: string): void => {
+    recordSecretUnsafeEscaped({
+      sessionId: context.sessionId,
+      skillName: context.skillName,
+      secretSource: escapedHandle.ref.source,
+      secretId: escapedHandle.ref.id,
+      sinkKind: 'http',
+      host: context.host,
+      selector: context.selector,
+      reason,
+    });
+  };
 }
 
 export async function handleApiHttpRequest(
@@ -473,14 +607,26 @@ export async function handleApiHttpRequest(
 ): Promise<void> {
   const body = (await readJsonBody(req)) as ApiHttpRequestBody;
   const replacePlaceholders = body.replaceSecretPlaceholders !== false;
+  const baseSecretContext: SecretResolveContext = {
+    sessionId: normalizeSecretString(body.sessionId),
+    agentId: normalizeSecretString(body.agentId),
+    skillName: normalizeSecretString(body.skillName),
+  };
   const captureFields =
     body.captureResponseFields === undefined
       ? []
       : (normalizeCaptureResponseFields(body.captureResponseFields) ?? []);
   const rawUrl = replacePlaceholders
-    ? replaceSecretPlaceholdersInString(String(body.url || ''))
+    ? replaceSecretPlaceholdersInString(String(body.url || ''), {
+        ...baseSecretContext,
+        selector: 'url',
+      })
     : body.url;
   const url = await assertHttpRequestUrl(rawUrl);
+  const secretContext = {
+    ...baseSecretContext,
+    host: url.hostname,
+  };
   const method = normalizeHttpRequestMethod(body.method);
   const timeoutMs =
     parsePositiveInteger(body.timeoutMs) ?? HTTP_REQUEST_TIMEOUT_MS;
@@ -493,6 +639,7 @@ export async function handleApiHttpRequest(
   for (const assignment of resolveHttpRequestRuleAssignments(
     url.toString(),
     config,
+    secretContext,
   )) {
     setHeaderValue(headers, assignment.header, assignment.value);
   }
@@ -506,7 +653,13 @@ export async function handleApiHttpRequest(
     setHeaderValue(
       headers,
       'Authorization',
-      withAuthPrefix(resolveStoredSecretOrThrow(bearerSecretName), 'Bearer'),
+      withAuthPrefix(
+        resolveStoredSecretOrThrow(bearerSecretName, {
+          ...secretContext,
+          selector: 'Authorization',
+        }),
+        'Bearer',
+      ),
     );
   }
 
@@ -518,7 +671,10 @@ export async function handleApiHttpRequest(
       headers,
       secretHeader.name,
       withAuthPrefix(
-        resolveStoredSecretOrThrow(secretHeader.secretName),
+        resolveStoredSecretOrThrow(secretHeader.secretName, {
+          ...secretContext,
+          selector: secretHeader.name,
+        }),
         secretHeader.prefix,
       ),
     );
@@ -526,14 +682,20 @@ export async function handleApiHttpRequest(
 
   if (replacePlaceholders) {
     for (const [key, value] of Object.entries(headers)) {
-      headers[key] = replaceSecretPlaceholdersInString(value);
+      headers[key] = replaceSecretPlaceholdersInString(value, {
+        ...secretContext,
+        selector: key,
+      });
     }
   }
 
   let payloadBody: string | undefined;
   if (body.json !== undefined) {
     const jsonValue = replacePlaceholders
-      ? replaceSecretPlaceholders(body.json)
+      ? replaceSecretPlaceholders(body.json, {
+          ...secretContext,
+          selector: 'json',
+        })
       : body.json;
     payloadBody = JSON.stringify(jsonValue);
     if (
@@ -543,7 +705,10 @@ export async function handleApiHttpRequest(
     }
   } else if (typeof body.body === 'string') {
     payloadBody = replacePlaceholders
-      ? replaceSecretPlaceholdersInString(body.body)
+      ? replaceSecretPlaceholdersInString(body.body, {
+          ...secretContext,
+          selector: 'body',
+        })
       : body.body;
   } else if (body.body !== undefined) {
     throw new GatewayRequestError(

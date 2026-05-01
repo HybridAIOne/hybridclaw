@@ -56,10 +56,11 @@ import {
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
 import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
+import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
   parseSecretInput,
-  resolveSecretInput,
+  resolveSecretInputUnsafe,
   type SecretInput,
 } from '../security/secret-refs.js';
 import {
@@ -4114,9 +4115,73 @@ function resolveConfiguredSecretInput(
     required?: boolean;
   },
 ): unknown {
-  return resolveSecretInput(value, {
+  return resolveSecretInputUnsafe(value, {
     path: opts.path,
     required: opts.required,
+    reason: `resolve runtime config secret ${opts.path}`,
+    audit: (handle, reason) =>
+      auditConfiguredSecretUnsafeEscape(handle, reason, opts.path),
+  });
+}
+
+let runtimeConfigSecretAuditSequence = 0;
+
+function makeRuntimeConfigSecretAuditRunId(): string {
+  runtimeConfigSecretAuditSequence =
+    (runtimeConfigSecretAuditSequence % Number.MAX_SAFE_INTEGER) + 1;
+  return `secret_runtime_config_${Date.now()}_${runtimeConfigSecretAuditSequence}`;
+}
+
+function auditConfiguredSecretUnsafeEscape(
+  handle: SecretHandle,
+  reason: string,
+  path: RuntimeConfigSecretInputPath,
+): void {
+  const event = {
+    skill: null,
+    secretRef: {
+      source: handle.ref.source,
+      id: handle.ref.id,
+    },
+    sinkKind: handle.sinkKind,
+    host: null,
+    selector: path,
+  };
+
+  queueMicrotask(() => {
+    void import('../audit/audit-events.js')
+      .then((auditEvents) => {
+        const sessionId = 'secret-resolution';
+        const runId = makeRuntimeConfigSecretAuditRunId();
+        const recordAuditEvent = Object.hasOwn(
+          auditEvents,
+          'recordAuditEventStrict',
+        )
+          ? auditEvents.recordAuditEventStrict
+          : auditEvents.recordAuditEvent;
+        try {
+          recordAuditEvent({
+            sessionId,
+            runId,
+            event: {
+              type: 'secret.resolved',
+              ...event,
+            },
+          });
+          recordAuditEvent({
+            sessionId,
+            runId,
+            event: {
+              type: 'secret.unsafe_escape',
+              ...event,
+              reason,
+            },
+          });
+        } catch {
+          // Runtime config can be normalized before the audit sink is ready.
+        }
+      })
+      .catch(() => {});
   });
 }
 

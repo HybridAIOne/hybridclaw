@@ -181,6 +181,56 @@ function parseStructuredToolOutput(
   }
 }
 
+class ContainerSecretHandle {
+  readonly sinkKind = 'dom' as const;
+  #buffer: Buffer | null;
+
+  constructor(value: string) {
+    this.#buffer = Buffer.from(value, 'utf-8');
+  }
+
+  unsafeReadStringForInjection(): string {
+    if (!this.#buffer) {
+      throw new Error('Secret handle was already disposed.');
+    }
+    return this.#buffer.toString('utf-8');
+  }
+
+  get characterLength(): number {
+    return [...this.unsafeReadStringForInjection()].length;
+  }
+
+  dispose(): void {
+    this.#buffer?.fill(0);
+    this.#buffer = null;
+  }
+
+  toString(): never {
+    throw new Error(
+      'SecretHandle cannot be string-coerced; use an audited injection API.',
+    );
+  }
+
+  toJSON(): never {
+    throw new Error(
+      'SecretHandle cannot be JSON-stringified; use an audited injection API.',
+    );
+  }
+
+  [Symbol.toPrimitive](): never {
+    throw new Error(
+      'SecretHandle cannot be coerced; use an audited injection API.',
+    );
+  }
+}
+
+type Assert<T extends true> = T;
+export type ContainerSecretHandleCompileTimeGuards = {
+  readonly notAssignableToString: Assert<
+    ContainerSecretHandle extends string ? false : true
+  >;
+};
+
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
@@ -1010,6 +1060,12 @@ function resolveGatewayHttpRequestUrl(): string | null {
   return `${base}/api/http/request`;
 }
 
+function resolveGatewaySecretInjectUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/secret/inject`;
+}
+
 async function callGatewayMessageAction(
   payload: Record<string, unknown>,
 ): Promise<string> {
@@ -1180,7 +1236,10 @@ async function callGatewayHttpRequest(
     response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(args),
+      body: JSON.stringify({
+        ...args,
+        ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+      }),
     });
   } catch (err) {
     return failTool(
@@ -1211,6 +1270,150 @@ async function callGatewayHttpRequest(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText;
+}
+
+async function callGatewaySecretInject(
+  args: Record<string, unknown>,
+): Promise<ContainerSecretHandle> {
+  const url = resolveGatewaySecretInjectUrl();
+  if (!url) {
+    return failTool(
+      'Error: browser_secret_type is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...args,
+        sinkKind: 'dom',
+        ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+      }),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: secret injection request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const errorText =
+      parsed && typeof parsed.error === 'string'
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    return failTool(`Error: ${errorText}`);
+  }
+
+  const value = typeof parsed?.value === 'string' ? parsed.value : '';
+  if (!value) {
+    return failTool(
+      'Error: secret injection response did not include a value.',
+    );
+  }
+  return new ContainerSecretHandle(value);
+}
+
+async function resolveCurrentBrowserHost(): Promise<string> {
+  try {
+    const snapshot = await executeBrowserTool(
+      'browser_snapshot',
+      { mode: 'interactive' },
+      currentSessionId || 'default',
+    );
+    const structured = parseStructuredToolOutput(snapshot);
+    const url = typeof structured?.url === 'string' ? structured.url : '';
+    if (!url) return '';
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+async function executeBrowserSecretType(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const selector = String(args.selector || '').trim();
+  const ref = String(args.ref || '').trim();
+  if (!selector && !ref) {
+    return failTool('Error: ref or selector is required.');
+  }
+  const host = await resolveCurrentBrowserHost();
+  if (!host) {
+    return failTool(
+      'Error: browser_secret_type requires an active browser page with a resolvable host.',
+    );
+  }
+  const handle = await callGatewaySecretInject({
+    secretName: args.secretName,
+    skillName: args.skillName,
+    selector: selector || (ref.startsWith('@') ? ref : `@${ref}`),
+    host,
+  });
+  return injectIntoElement(handle, {
+    ...(selector ? { selector } : { ref }),
+    ...(typeof args.frame === 'string' ? { frame: args.frame } : {}),
+  });
+}
+
+async function injectIntoElement(
+  handle: ContainerSecretHandle,
+  locator: { ref?: string; selector?: string; frame?: string },
+): Promise<string> {
+  try {
+    const output = await executeBrowserTool(
+      'browser_type',
+      {
+        ...(locator.selector ? { selector: locator.selector } : {}),
+        ...(locator.ref ? { ref: locator.ref } : {}),
+        text: handle.unsafeReadStringForInjection(),
+        ...(locator.frame ? { frame: locator.frame } : {}),
+      },
+      currentSessionId || 'default',
+    );
+    const structured = parseStructuredToolOutput(output);
+    if (structured?.success === false) return output;
+    return JSON.stringify(
+      {
+        success: true,
+        ...(locator.selector
+          ? { selector: locator.selector }
+          : {
+              element: locator.ref?.startsWith('@')
+                ? locator.ref
+                : `@${locator.ref || ''}`,
+            }),
+        typed_chars: handle.characterLength,
+        secret_injected: true,
+      },
+      null,
+      2,
+    );
+  } finally {
+    handle.dispose();
+  }
 }
 
 function normalizeDelegationTask(
@@ -3056,6 +3259,7 @@ async function executeToolInternal(
     case 'browser_snapshot':
     case 'browser_click':
     case 'browser_type':
+    case 'browser_secret_type':
     case 'browser_upload':
     case 'browser_press':
     case 'browser_scroll':
@@ -3067,11 +3271,10 @@ async function executeToolInternal(
     case 'browser_console':
     case 'browser_network':
     case 'browser_close': {
-      const output = await executeBrowserTool(
-        name,
-        args,
-        currentSessionId || 'default',
-      );
+      const output =
+        name === 'browser_secret_type'
+          ? await executeBrowserSecretType(args)
+          : await executeBrowserTool(name, args, currentSessionId || 'default');
       const structured = parseStructuredToolOutput(output);
       if (structured?.success === false) {
         return failTool(output);
