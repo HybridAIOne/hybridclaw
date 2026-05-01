@@ -164,6 +164,19 @@ const FIND_FILE_INPUT_SELECTORS_SCRIPT = `(() => {
   return selectors.slice(0, 10);
 })()`;
 
+const TWO_FACTOR_SELECTOR_HINTS_SCRIPT = `(() => {
+  const selectors = [
+    'input[autocomplete="one-time-code"]',
+    'input[inputmode="numeric"]',
+    'input[type="tel"]',
+    'input[name*="otp" i]',
+    'input[id*="otp" i]',
+    'input[name*="code" i]',
+    'input[id*="code" i]',
+  ];
+  return selectors.filter((selector) => document.querySelector(selector));
+})()`;
+
 type SnapshotMode = 'default' | 'interactive' | 'full';
 type FrameTarget = {
   raw: string;
@@ -231,6 +244,17 @@ let currentBrowserModelContext: BrowserModelContext = {
   requestHeaders: {},
 };
 let currentBrowserTaskModels: TaskModelPolicies | undefined;
+let gatewayBaseUrl = '';
+let gatewayApiToken = '';
+const suspendedSessionByBrowserSession = new Map<string, string>();
+
+export function setBrowserGatewayContext(
+  baseUrl?: string,
+  apiToken?: string,
+): void {
+  gatewayBaseUrl = String(baseUrl || '').trim();
+  gatewayApiToken = String(apiToken || '').trim();
+}
 
 function cloneTaskModelPolicies(
   taskModels?: TaskModelPolicies,
@@ -917,6 +941,78 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function resolveGatewayInteractiveEscalationUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  return base ? `${base}/api/interactive-escalations` : null;
+}
+
+function assertGatewayInteractiveEscalationConfigured(): void {
+  if (!resolveGatewayInteractiveEscalationUrl()) {
+    throw new Error(
+      'gatewayBaseUrl is not configured; cannot park browser interaction.',
+    );
+  }
+}
+
+function safeUrlHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+async function callGatewayInteractiveEscalation(
+  pathSuffix: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const baseUrl = resolveGatewayInteractiveEscalationUrl();
+  if (!baseUrl) {
+    throw new Error(
+      'gatewayBaseUrl is not configured; cannot park browser interaction.',
+    );
+  }
+  const url = `${baseUrl}${pathSuffix}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = asRecord(JSON.parse(text) as unknown);
+  } catch {
+    parsed = null;
+  }
+  if (!response.ok) {
+    const message =
+      typeof parsed?.error === 'string'
+        ? parsed.error
+        : text || `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return parsed || { raw: text };
+}
+
+async function createGatewayInteractiveEscalation(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return callGatewayInteractiveEscalation('', payload);
+}
+
+async function consumeGatewayInteractiveEscalation(
+  sessionId: string,
+): Promise<Record<string, unknown>> {
+  return callGatewayInteractiveEscalation('/consume', { sessionId });
+}
+
 function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
   if (rawMode == null || String(rawMode).trim() === '') return 'default';
   const mode = String(rawMode).trim().toLowerCase();
@@ -1601,6 +1697,20 @@ export async function executeBrowserTool(
         const frames = frameEval.success
           ? normalizeFrameMetadata(frameEval.result)
           : [];
+        const twoFactorSelectorEval = await runBrowserEval(
+          effectiveSessionId,
+          TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+          10_000,
+        );
+        const twoFactorSelectors = Array.isArray(twoFactorSelectorEval.result)
+          ? twoFactorSelectorEval.result.filter(
+              (selector): selector is string => typeof selector === 'string',
+            )
+          : [];
+        const twoFactorTextSignal =
+          /\b(verification code|one[- ]time code|two[- ]factor|2fa|multi[- ]factor|authenticator|sms|text message|recovery code|backup code|scan.+code|qr)\b/i.test(
+            rawSnapshot,
+          );
         return success({
           snapshot: truncated.text,
           truncated: truncated.truncated,
@@ -1611,6 +1721,15 @@ export async function executeBrowserTool(
           url: data.url || data.origin || '',
           mode,
           ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
+          ...(twoFactorSelectors.length > 0 || twoFactorTextSignal
+            ? {
+                two_factor_detection: {
+                  detected: true,
+                  selectors: twoFactorSelectors,
+                  text_signal: twoFactorTextSignal,
+                },
+              }
+            : {}),
         });
       }
 
@@ -1991,6 +2110,152 @@ export async function executeBrowserTool(
         });
       }
 
+      case 'browser_await_two_factor': {
+        assertGatewayInteractiveEscalationConfigured();
+        const modality = String(args.modality || 'totp').trim();
+        const prompt =
+          String(args.prompt || '').trim() ||
+          `A ${modality} challenge needs operator input.`;
+        const skillId = String(args.skillId || '').trim();
+        const userId = String(args.userId || '').trim();
+        const targetChannel = String(args.escalationChannel || '').trim();
+        const targetRecipient = String(args.escalationRecipient || '').trim();
+        const ttlMs =
+          typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
+            ? args.ttlMs
+            : null;
+
+        const [textEval, selectorEval] = await Promise.all([
+          runBrowserEval(
+            effectiveSessionId,
+            EXTRACT_TEXT_PREVIEW_SCRIPT,
+            15_000,
+          ),
+          runBrowserEval(
+            effectiveSessionId,
+            TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+            15_000,
+          ),
+        ]);
+        const screenshotPath = createTempScreenshotPath('two-factor');
+        const [snapshotResult, screenshotResult] = await Promise.all([
+          runAgentBrowser(effectiveSessionId, 'snapshot', [], {
+            timeoutMs: 30_000,
+          }),
+          runAgentBrowser(effectiveSessionId, 'screenshot', [screenshotPath], {
+            timeoutMs: 60_000,
+          }),
+        ]);
+        const screenshotRef = screenshotResult.success
+          ? toWorkspaceRelativePath(screenshotPath)
+          : null;
+        const textData = asRecord(textEval.success ? textEval.result : null);
+        const snapshotData = asRecord(
+          snapshotResult.success ? snapshotResult.data : null,
+        );
+        const url =
+          String(snapshotData?.url || snapshotData?.origin || '').trim() ||
+          'about:blank';
+        const title = String(snapshotData?.title || '').trim();
+        const selectors = Array.isArray(selectorEval.result)
+          ? selectorEval.result.filter(
+              (selector): selector is string => typeof selector === 'string',
+            )
+          : [];
+
+        const gatewayResult = await createGatewayInteractiveEscalation({
+          prompt,
+          modality,
+          ...(userId ? { userId } : {}),
+          ...(skillId ? { skillId } : {}),
+          ...(ttlMs ? { ttlMs } : {}),
+          ...(targetChannel && targetRecipient
+            ? {
+                escalationTarget: {
+                  channel: targetChannel,
+                  recipient: targetRecipient,
+                },
+              }
+            : {}),
+          frameSnapshot: {
+            url,
+            title,
+            browserSessionKey: effectiveSessionId,
+            screenshotRef,
+          },
+          context: {
+            host: safeUrlHost(url),
+            pageTitle: title || null,
+            url,
+            screenshotRef,
+          },
+        });
+        const gatewaySession = asRecord(gatewayResult.session);
+        const suspendedSessionId = String(
+          gatewaySession?.sessionId || '',
+        ).trim();
+        if (suspendedSessionId) {
+          suspendedSessionByBrowserSession.set(
+            effectiveSessionId,
+            suspendedSessionId,
+          );
+        }
+        return success({
+          parked: true,
+          modality,
+          detected_selectors: selectors,
+          text_preview: String(textData?.preview || '').slice(0, 1000),
+          screenshot: screenshotRef,
+          interaction: gatewayResult,
+        });
+      }
+
+      case 'browser_resume_interaction': {
+        const ref = ensureRef(args.ref);
+        const sessionId = String(
+          args.sessionId ||
+            suspendedSessionByBrowserSession.get(effectiveSessionId) ||
+            effectiveSessionId,
+        ).trim();
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
+        const gatewayResult =
+          await consumeGatewayInteractiveEscalation(sessionId);
+        const response = asRecord(gatewayResult.response);
+        const kind = String(response?.kind || '').trim();
+        if (kind === 'code') {
+          const value = String(response?.value || '').trim();
+          if (!value) {
+            return failure('operator code response was empty');
+          }
+          const result = await runAgentBrowser(effectiveSessionId, 'fill', [
+            ref,
+            value,
+          ]);
+          if (!result.success) {
+            return failure(result.error || `failed to fill ${ref}`);
+          }
+          return success({
+            resumed: true,
+            response_kind: 'code',
+            code_injected: true,
+            element: ref,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
+        if (kind === 'approved' || kind === 'scanned') {
+          return success({
+            resumed: true,
+            response_kind: kind,
+            operator_completed_challenge: true,
+          });
+        }
+        return success({
+          resumed: false,
+          response_kind: kind || 'unknown',
+        });
+      }
+
       case 'browser_close': {
         const warning = await closeSession(effectiveSessionId, {
           createIfMissing: true,
@@ -2013,6 +2278,79 @@ export async function executeBrowserTool(
 }
 
 export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'browser_await_two_factor',
+      description:
+        'Park the active browser session when a human must complete a 2FA or interactive challenge. Captures page context and screenshot, then asks the gateway to create a durable suspended session. Use this instead of trying to solve TOTP, push, QR, SMS, or recovery-code challenges automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Challenge type.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Operator-facing prompt explaining what is needed.',
+          },
+          skillId: {
+            type: 'string',
+            description: 'Optional skill id that reached the waypoint.',
+          },
+          userId: {
+            type: 'string',
+            description: 'Optional operator id for the response.',
+          },
+          escalationChannel: {
+            type: 'string',
+            description: 'Optional F8 target channel for operator routing.',
+          },
+          escalationRecipient: {
+            type: 'string',
+            description: 'Optional F8 target recipient for operator routing.',
+          },
+          ttlMs: {
+            type: 'number',
+            description:
+              'Optional timeout in milliseconds. Defaults to the gateway F14 timeout.',
+          },
+        },
+        required: ['modality', 'prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_resume_interaction',
+      description:
+        'Resume a browser session after the operator responds to browser_await_two_factor. If the response is a code, this consumes it from the gateway and injects it directly into the target element without returning the cleartext in the tool result.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: {
+            type: 'string',
+            description:
+              'Element reference for the 2FA/code input from browser_snapshot.',
+          },
+          sessionId: {
+            type: 'string',
+            description:
+              'Optional suspended session id. Defaults to the current browser session.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
+          },
+        },
+        required: ['ref'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

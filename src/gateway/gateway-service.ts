@@ -435,6 +435,7 @@ import {
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
   type GatewayAdminStatisticsTrendDay,
+  type GatewayAdminSuspendedSession,
   type GatewayAdminTeamStructureResponse,
   type GatewayAdminTeamStructureRevision,
   type GatewayAdminTeamStructureRevisionResponse,
@@ -461,6 +462,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';
@@ -4506,7 +4508,8 @@ export async function getGatewayAgents(): Promise<GatewayAgentsResponse> {
 export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
   const activeSessionIds = new Set(getActiveExecutorSessionIds());
   const sandboxMode = getRuntimeConfig().container.sandboxMode || 'container';
-  const sessions = getAllSessions()
+  const allSessions = getAllSessions();
+  const sessions = allSessions
     .map((session) =>
       mapSessionCard({
         session,
@@ -4533,11 +4536,24 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       status: session.status,
       lastAnswer: session.lastAnswer,
     }));
+  const sessionAgentIds = new Map(
+    allSessions.map((session) => [
+      session.id,
+      resolveAgentForRequest({ session }).agentId,
+    ]),
+  );
+  const suspendedSessions = listSuspendedSessions();
 
   const agentIds = Array.from(
     new Set([
       ...listAgents().map((agent) => agent.id),
       ...sessions.map((session) => session.agentId),
+      ...suspendedSessions
+        .map(
+          (session) =>
+            session.agentId || sessionAgentIds.get(session.sessionId),
+        )
+        .filter((agentId): agentId is string => Boolean(agentId)),
     ]),
   ).sort((left, right) => left.localeCompare(right));
 
@@ -4550,6 +4566,9 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       };
     }),
     sessions,
+    suspendedSessions: suspendedSessions.map((session) =>
+      mapGatewayAdminSuspendedSession(session, sessionAgentIds),
+    ),
   };
 }
 
@@ -5345,6 +5364,26 @@ function mapGatewayAdminPendingApproval(
   };
 }
 
+function mapGatewayAdminSuspendedSession(
+  session: ReturnType<typeof listSuspendedSessions>[number],
+  sessionAgentIds: Map<string, string>,
+): GatewayAdminSuspendedSession {
+  return {
+    sessionId: session.sessionId,
+    agentId: session.agentId || sessionAgentIds.get(session.sessionId) || null,
+    approvalId: session.approvalId,
+    userId: session.userId,
+    prompt: session.prompt,
+    status: session.status,
+    modality: session.modality,
+    expectedReturnKinds: session.expectedReturnKinds,
+    context: session.context,
+    createdAt: new Date(session.createdAt).toISOString(),
+    expiresAt: new Date(session.expiresAt).toISOString(),
+    blockedLabel: `blocked: needs ${session.modality === 'totp' ? '2FA' : session.modality}`,
+  };
+}
+
 export function getGatewayAdminApprovals(params?: {
   agentId?: string;
 }): GatewayAdminApprovalsResponse {
@@ -5361,6 +5400,9 @@ export function getGatewayAdminApprovals(params?: {
     agents: listGatewayAdminApprovalAgents(selectedAgentId),
     pending: listPendingApprovals().map((pending) =>
       mapGatewayAdminPendingApproval(pending, sessionAgentIds),
+    ),
+    suspendedSessions: listSuspendedSessions().map((session) =>
+      mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
     policy: mapGatewayAdminPolicyState(selectedAgentId),
     availablePresets: listPolicyPresetSummaries().map(

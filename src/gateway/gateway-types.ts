@@ -803,6 +803,7 @@ export interface GatewayAdminJobSession {
 export interface GatewayAdminJobsContextResponse {
   agents: GatewayAdminJobAgent[];
   sessions: GatewayAdminJobSession[];
+  suspendedSessions: GatewayAdminSuspendedSession[];
 }
 
 export interface GatewayAdminDeleteSessionResult {
@@ -1073,6 +1074,27 @@ export interface GatewayAdminPendingApproval {
   actionKey: string | null;
 }
 
+// Keep console/src/api/types.ts AdminSuspendedSession in sync with this shape.
+export interface GatewayAdminSuspendedSession {
+  sessionId: string;
+  agentId: string | null;
+  approvalId: string;
+  userId: string;
+  prompt: string;
+  status: 'pending' | 'resumed' | 'declined' | 'timed_out' | 'expired';
+  modality: 'totp' | 'push' | 'qr' | 'sms' | 'recovery_code';
+  expectedReturnKinds: string[];
+  context: {
+    host?: string | null;
+    pageTitle?: string | null;
+    url?: string | null;
+    screenshotRef?: string | null;
+  };
+  createdAt: string;
+  expiresAt: string;
+  blockedLabel: string;
+}
+
 export interface GatewayAdminPolicyRule {
   index: number;
   action: 'allow' | 'deny';
@@ -1103,6 +1125,7 @@ export interface GatewayAdminApprovalsResponse {
   selectedAgentId: string;
   agents: GatewayAdminApprovalAgent[];
   pending: GatewayAdminPendingApproval[];
+  suspendedSessions: GatewayAdminSuspendedSession[];
   policy: GatewayAdminPolicyState;
   availablePresets: GatewayAdminPolicyPresetSummary[];
 }

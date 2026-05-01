@@ -13,8 +13,14 @@ import {
   moveSchedulerJob,
   saveSchedulerJob,
 } from '../api/client';
-import type { AdminSchedulerJob, JobAgent, JobSession } from '../api/types';
+import type {
+  AdminSchedulerJob,
+  AdminSuspendedSession,
+  JobAgent,
+  JobSession,
+} from '../api/types';
 import { useAuth } from '../auth';
+import { InteractionResumeControls } from '../components/interaction-resume-controls';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -22,9 +28,8 @@ import { formatDateTime } from '../lib/format';
 
 type JobColumnId = 'backlog' | 'in_progress' | 'review' | 'done' | 'cancelled';
 
-interface JobBoardItem {
+interface JobBoardItemBase {
   key: string;
-  job: AdminSchedulerJob;
   session: JobSession | null;
   agentKey: string;
   agentLabel: string;
@@ -34,6 +39,16 @@ interface JobBoardItem {
   summary: string;
   searchIndex: string;
 }
+
+type JobBoardItem =
+  | (JobBoardItemBase & {
+      kind: 'job';
+      job: AdminSchedulerJob;
+    })
+  | (JobBoardItemBase & {
+      kind: 'blocked';
+      suspendedSession: AdminSuspendedSession;
+    });
 
 interface JobRuntimeEntry {
   key: string;
@@ -169,7 +184,14 @@ function JobCard(props: {
       >
         <article className={`jobs-card tone-${item.tone}`}>
           <div className="jobs-card-top">
-            <strong>{trimText(item.job.name, 24)}</strong>
+            <strong>
+              {trimText(
+                item.kind === 'job'
+                  ? item.job.name
+                  : item.suspendedSession.blockedLabel,
+                24,
+              )}
+            </strong>
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
@@ -200,7 +222,7 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
     const normalized = String(value || '').trim();
     if (!normalized) return;
     entries.push({
-      key: `${item.job.id}:${label.toLowerCase().replace(/\s+/g, '-')}`,
+      key: `${item.key}:${label.toLowerCase().replace(/\s+/g, '-')}`,
       label,
       value: normalized,
     });
@@ -209,6 +231,12 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
     if (!String(raw || '').trim()) return;
     push(label, formatDateTime(raw || null));
   };
+
+  if (item.kind === 'blocked') {
+    pushDate('Created', item.suspendedSession.createdAt);
+    pushDate('Expires', item.suspendedSession.expiresAt);
+    return entries;
+  }
 
   pushDate('Created', item.job.createdAt || item.session?.startedAt || null);
   pushDate('Last run', item.job.lastRun);
@@ -243,6 +271,7 @@ function buildJobRuntimeEntries(item: JobBoardItem): JobRuntimeEntry[] {
 }
 
 function collectJobOutputs(item: JobBoardItem): string[] {
+  if (item.kind === 'blocked') return [];
   const values =
     item.session?.output && item.session.output.length > 0
       ? item.session.output
@@ -275,18 +304,27 @@ function JobDetailCard(props: {
   savePending: boolean;
   onUpdate: (nextJob: AdminSchedulerJob & { source: 'config' }) => void;
 }) {
-  const sessionId = resolveSchedulerSessionId(props.item.job);
-  const editHref = `/admin/scheduler?jobId=${encodeURIComponent(props.item.job.id)}`;
+  const { item } = props;
+  const sessionId =
+    item.kind === 'blocked'
+      ? item.suspendedSession.sessionId
+      : resolveSchedulerSessionId(item.job);
+  const editHref =
+    item.kind === 'blocked'
+      ? '/admin/approvals'
+      : `/admin/scheduler?jobId=${encodeURIComponent(item.job.id)}`;
   const outputs = useMemo(() => collectJobOutputs(props.item), [props.item]);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingField, setEditingField] = useState<null | 'lane' | 'agent'>(
     null,
   );
-  const isEditable = props.item.job.source === 'config';
+  const isEditable =
+    props.item.kind === 'job' && props.item.job.source === 'config';
 
   function saveConfigUpdate(
     patch: Partial<AdminSchedulerJob & { source: 'config' }>,
   ): void {
+    if (props.item.kind !== 'job') return;
     const job = props.item.job;
     if (job.source !== 'config') return;
     props.onUpdate({
@@ -314,7 +352,11 @@ function JobDetailCard(props: {
       <div className="jobs-detail-header">
         <div>
           <span className="eyebrow">Job</span>
-          <h4>{props.item.job.name}</h4>
+          <h4>
+            {props.item.kind === 'job'
+              ? props.item.job.name
+              : props.item.suspendedSession.blockedLabel}
+          </h4>
         </div>
         <a className="ghost-button" href={editHref}>
           Edit
@@ -332,7 +374,11 @@ function JobDetailCard(props: {
             {isEditable && editingField === 'lane' ? (
               <select
                 className="jobs-inline-select"
-                value={props.item.job.boardStatus || props.item.column}
+                value={
+                  props.item.kind === 'job'
+                    ? props.item.job.boardStatus || props.item.column
+                    : props.item.column
+                }
                 onBlur={() => setEditingField(null)}
                 onChange={(event) =>
                   saveConfigUpdate({
@@ -363,7 +409,9 @@ function JobDetailCard(props: {
             {isEditable && editingField === 'agent' ? (
               <select
                 className="jobs-inline-select"
-                value={props.item.job.agentId || ''}
+                value={
+                  props.item.kind === 'job' ? props.item.job.agentId || '' : ''
+                }
                 onBlur={() => setEditingField(null)}
                 onChange={(event) =>
                   saveConfigUpdate({
@@ -394,7 +442,11 @@ function JobDetailCard(props: {
           <div>
             <span>Type</span>
             <strong>
-              {props.item.job.source === 'task' ? 'task' : 'config'}
+              {props.item.kind === 'blocked'
+                ? 'blocked'
+                : props.item.job.source === 'task'
+                  ? 'task'
+                  : 'config'}
             </strong>
           </div>
           <div>
@@ -404,10 +456,15 @@ function JobDetailCard(props: {
           <div>
             <span>Channel</span>
             <strong>
-              {props.item.job.channelId || props.item.job.delivery.to || 'n/a'}
+              {props.item.kind === 'blocked'
+                ? props.item.suspendedSession.context.host || 'n/a'
+                : props.item.job.channelId ||
+                  props.item.job.delivery.to ||
+                  'n/a'}
             </strong>
           </div>
-          {props.item.job.schedule.kind !== 'at' &&
+          {props.item.kind === 'job' &&
+          props.item.job.schedule.kind !== 'at' &&
           props.item.job.schedule.kind !== 'one_shot' ? (
             <div>
               <span>Next run</span>
@@ -418,13 +475,34 @@ function JobDetailCard(props: {
 
         <div className="summary-block">
           <span>Description</span>
-          <p>{props.item.job.description || props.item.summary}</p>
+          <p>
+            {props.item.kind === 'blocked'
+              ? props.item.suspendedSession.prompt
+              : props.item.job.description || props.item.summary}
+          </p>
         </div>
 
         <div className="summary-block">
           <span>Message</span>
-          <p>{props.item.job.action.message || 'No action message.'}</p>
+          <p>
+            {props.item.kind === 'blocked'
+              ? props.item.suspendedSession.prompt
+              : props.item.job.action.message || 'No action message.'}
+          </p>
         </div>
+
+        {props.item.kind === 'blocked' ? (
+          <div className="summary-block">
+            <div className="summary-block-header">
+              <span>Resume</span>
+              <strong>{props.item.suspendedSession.modality}</strong>
+            </div>
+            <p className="supporting-text">
+              {props.item.suspendedSession.prompt}
+            </p>
+            <InteractionResumeControls session={props.item.suspendedSession} />
+          </div>
+        ) : null}
 
         <div className="summary-block">
           <div className="summary-block-header">
@@ -582,48 +660,95 @@ export function JobsPage() {
   }, [jobsContextQuery.data?.agents]);
 
   const allItems = useMemo(() => {
-    return (schedulerQuery.data?.jobs || []).map((job): JobBoardItem => {
-      const session =
-        sessionsById.get(resolveSchedulerSessionId(job) || '') || null;
-      const agentId = job.agentId || session?.agentId || 'unassigned';
-      const agent = agentsById.get(agentId) || null;
-      const agentLabel =
-        agent?.name ||
-        job.agentId ||
-        session?.agentId ||
-        (agentId === 'unassigned' ? 'Unassigned' : agentId);
-      const column = deriveColumn(job, session);
-      const summary =
-        trimText(job.description, 28) ||
-        trimText(job.action.message, 36) ||
-        trimText(job.channelId, 24) ||
-        'No summary';
+    const scheduledItems = (schedulerQuery.data?.jobs || []).map(
+      (job): JobBoardItem => {
+        const session =
+          sessionsById.get(resolveSchedulerSessionId(job) || '') || null;
+        const agentId = job.agentId || session?.agentId || 'unassigned';
+        const agent = agentsById.get(agentId) || null;
+        const agentLabel =
+          agent?.name ||
+          job.agentId ||
+          session?.agentId ||
+          (agentId === 'unassigned' ? 'Unassigned' : agentId);
+        const column = deriveColumn(job, session);
+        const summary =
+          trimText(job.description, 28) ||
+          trimText(job.action.message, 36) ||
+          trimText(job.channelId, 24) ||
+          'No summary';
 
-      return {
-        key: job.id,
-        job,
-        session,
-        agentKey: agentId,
-        agentLabel,
-        column,
-        tone: deriveTone(column),
-        stateLabel: deriveStateLabel(job, column),
-        summary,
-        searchIndex: [
-          job.id,
-          job.name,
-          summary,
-          job.action.message,
-          job.description || '',
+        return {
+          key: job.id,
+          kind: 'job',
+          job,
+          session,
+          agentKey: agentId,
           agentLabel,
-          job.channelId || '',
-          job.delivery.to,
-        ]
-          .join(' ')
-          .toLowerCase(),
-      };
-    });
-  }, [agentsById, schedulerQuery.data?.jobs, sessionsById]);
+          column,
+          tone: deriveTone(column),
+          stateLabel: deriveStateLabel(job, column),
+          summary,
+          searchIndex: [
+            job.id,
+            job.name,
+            summary,
+            job.action.message,
+            job.description || '',
+            agentLabel,
+            job.channelId || '',
+            job.delivery.to,
+          ]
+            .join(' ')
+            .toLowerCase(),
+        };
+      },
+    );
+
+    const blockedItems = (jobsContextQuery.data?.suspendedSessions || []).map(
+      (suspendedSession): JobBoardItem => {
+        const key = `blocked:${suspendedSession.sessionId}`;
+        const agentId = suspendedSession.agentId || 'unassigned';
+        const agent = agentsById.get(agentId) || null;
+        const agentLabel =
+          agent?.name ||
+          suspendedSession.agentId ||
+          (agentId === 'unassigned' ? 'Unassigned' : agentId);
+        return {
+          key,
+          kind: 'blocked',
+          suspendedSession,
+          session: null,
+          agentKey: agentId,
+          agentLabel,
+          column: 'review',
+          tone: 'danger',
+          stateLabel: suspendedSession.blockedLabel,
+          summary:
+            trimText(suspendedSession.context.host, 24) ||
+            trimText(suspendedSession.prompt, 32) ||
+            'Needs operator',
+          searchIndex: [
+            key,
+            suspendedSession.blockedLabel,
+            suspendedSession.prompt,
+            suspendedSession.context.host || '',
+            suspendedSession.modality,
+            agentLabel,
+          ]
+            .join(' ')
+            .toLowerCase(),
+        };
+      },
+    );
+
+    return [...blockedItems, ...scheduledItems];
+  }, [
+    agentsById,
+    jobsContextQuery.data?.suspendedSessions,
+    schedulerQuery.data?.jobs,
+    sessionsById,
+  ]);
 
   const visibleItems = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase();
@@ -674,7 +799,12 @@ export function JobsPage() {
     column: JobColumnId,
     beforeJobId: string | null = null,
   ): void {
-    if (!draggedItem || draggedItem.job.source !== 'config') return;
+    if (
+      !draggedItem ||
+      draggedItem.kind !== 'job' ||
+      draggedItem.job.source !== 'config'
+    )
+      return;
     if (beforeJobId === draggedItem.job.id) {
       setDraggedKey(null);
       setDragOverItemKey(null);
@@ -746,7 +876,12 @@ export function JobsPage() {
               }
               key={column.id}
               onDragOver={(event) => {
-                if (!draggedItem || draggedItem.job.source !== 'config') return;
+                if (
+                  !draggedItem ||
+                  draggedItem.kind !== 'job' ||
+                  draggedItem.job.source !== 'config'
+                )
+                  return;
                 event.preventDefault();
                 if (dragOverColumn !== column.id) {
                   setDragOverColumn(column.id);
@@ -790,14 +925,20 @@ export function JobsPage() {
                       <JobCard
                         item={item}
                         selected={item.key === selectedItem?.key}
-                        draggable={item.job.source === 'config'}
+                        draggable={
+                          item.kind === 'job' && item.job.source === 'config'
+                        }
                         onSelect={() =>
                           setSelectedKey((current) =>
                             current === item.key ? null : item.key,
                           )
                         }
                         onDragStart={(event) => {
-                          if (item.job.source !== 'config') return;
+                          if (
+                            item.kind !== 'job' ||
+                            item.job.source !== 'config'
+                          )
+                            return;
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData('text/plain', item.key);
                           setDraggedKey(item.key);
@@ -810,10 +951,15 @@ export function JobsPage() {
                         onDragOver={(event) => {
                           if (
                             !draggedItem ||
+                            draggedItem.kind !== 'job' ||
                             draggedItem.job.source !== 'config'
                           )
                             return;
-                          if (item.job.source !== 'config') return;
+                          if (
+                            item.kind !== 'job' ||
+                            item.job.source !== 'config'
+                          )
+                            return;
                           event.preventDefault();
                           event.stopPropagation();
                           if (dragOverItemKey !== item.key) {
@@ -836,7 +982,11 @@ export function JobsPage() {
                           }
                         }}
                         onDrop={(event) => {
-                          if (item.job.source !== 'config') return;
+                          if (
+                            item.kind !== 'job' ||
+                            item.job.source !== 'config'
+                          )
+                            return;
                           event.preventDefault();
                           event.stopPropagation();
                           handleDrop(column.id, item.job.id);

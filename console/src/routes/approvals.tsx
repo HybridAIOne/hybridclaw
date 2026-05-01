@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/dialog';
+import { InteractionResumeControls } from '../components/interaction-resume-controls';
 import { useToast } from '../components/toast';
 import { MetricCard, PageHeader, Panel } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
@@ -328,6 +329,10 @@ export function ApprovalsPage() {
           value={String(approvalsQuery.data?.pending.length || 0)}
         />
         <MetricCard
+          label="Blocked sessions"
+          value={String(approvalsQuery.data?.suspendedSessions.length || 0)}
+        />
+        <MetricCard
           label="Policy rules"
           value={String(policyRules.length || 0)}
         />
@@ -615,6 +620,53 @@ export function ApprovalsPage() {
             </div>
           ) : (
             <div className="empty-state">Policy state is unavailable.</div>
+          )}
+        </Panel>
+
+        <Panel title="Blocked sessions">
+          {approvalsQuery.isLoading ? (
+            <div className="empty-state">Loading blocked sessions...</div>
+          ) : approvalsQuery.data?.suspendedSessions.length ? (
+            <div className="list-stack">
+              {approvalsQuery.data.suspendedSessions.map((session) => (
+                <div className="summary-block" key={session.sessionId}>
+                  <div className="key-value-grid">
+                    <div>
+                      <span>Status</span>
+                      <strong>{session.blockedLabel}</strong>
+                    </div>
+                    <div>
+                      <span>Modality</span>
+                      <strong>{session.modality}</strong>
+                    </div>
+                    <div>
+                      <span>Agent</span>
+                      <strong>{session.agentId || 'unknown'}</strong>
+                    </div>
+                    <div>
+                      <span>Host</span>
+                      <strong>{session.context.host || 'unknown'}</strong>
+                    </div>
+                    <div>
+                      <span>Created</span>
+                      <strong title={formatDateTime(session.createdAt)}>
+                        {formatRelativeTime(session.createdAt)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Expires</span>
+                      <strong title={formatDateTime(session.expiresAt)}>
+                        {formatRelativeTime(session.expiresAt)}
+                      </strong>
+                    </div>
+                  </div>
+                  <p className="supporting-text">{session.prompt}</p>
+                  <InteractionResumeControls session={session} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">No blocked sessions right now.</div>
           )}
         </Panel>
 

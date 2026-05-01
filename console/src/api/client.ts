@@ -19,6 +19,8 @@ import type {
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
+  AdminInteractionResponse,
+  AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -731,6 +733,24 @@ export function fetchAdminApprovals(
   return requestJson<AdminApprovalsResponse>(
     suffix ? `/api/admin/approvals?${suffix}` : '/api/admin/approvals',
     { token },
+  );
+}
+
+export function resumeInteractiveEscalation(
+  token: string,
+  params: {
+    sessionId: string;
+    response?: AdminInteractionResponse;
+    text?: string;
+  },
+): Promise<AdminInteractionResumeResponse> {
+  return requestJson<AdminInteractionResumeResponse>(
+    '/api/interactive-escalations/resume',
+    {
+      token,
+      method: 'POST',
+      body: params,
+    },
   );
 }
 
