@@ -268,7 +268,7 @@ hybridclaw secret set <NAME> <VALUE>
 hybridclaw secret show <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -278,7 +278,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <NAME>
 /secret unset <NAME>
 /secret route list
-/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -287,6 +287,7 @@ hybridclaw secret route remove <url-prefix> [header]
   store
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
+- `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is

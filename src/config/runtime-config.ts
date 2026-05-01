@@ -586,15 +586,56 @@ export interface RuntimePluginsConfig {
   list: RuntimePluginConfigEntry[];
 }
 
+export interface RuntimeHttpRequestGoogleOAuthSecretRef {
+  source: 'google-oauth';
+}
+
+export type RuntimeHttpRequestAuthRuleSecret =
+  | SecretInput
+  | RuntimeHttpRequestGoogleOAuthSecretRef;
+
 export interface RuntimeHttpRequestAuthRule {
   urlPrefix: string;
   header: string;
   prefix: string;
-  secret: SecretInput;
+  secret: RuntimeHttpRequestAuthRuleSecret;
 }
 
 export interface RuntimeHttpRequestToolConfig {
   authRules: RuntimeHttpRequestAuthRule[];
+}
+
+export function makeGoogleOAuthSecretRef(): RuntimeHttpRequestGoogleOAuthSecretRef {
+  return { source: 'google-oauth' };
+}
+
+export function isGoogleOAuthSpecifier(value: string): boolean {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'google-oauth' || normalized === 'google-oauth:workspace'
+  );
+}
+
+export function isGoogleOAuthSecretRef(
+  value: unknown,
+): value is RuntimeHttpRequestGoogleOAuthSecretRef {
+  return (
+    isRecord(value) &&
+    value.source === 'google-oauth' &&
+    (value.id === undefined || value.id === 'workspace')
+  );
+}
+
+export function isGoogleApisUrlPrefix(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.trim().toLowerCase();
+    return host === 'googleapis.com' || host.endsWith('.googleapis.com');
+  } catch {
+    return false;
+  }
 }
 
 export interface RuntimeSkillAutonomyRule {
@@ -4203,14 +4244,18 @@ function normalizeHttpHeaderName(
 function normalizeHttpRequestAuthRuleSecret(
   value: unknown,
   path: string,
-): SecretInput {
+): RuntimeHttpRequestAuthRuleSecret {
+  if (isGoogleOAuthSecretRef(value)) {
+    return makeGoogleOAuthSecretRef();
+  }
+
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
     throw new Error(`${path} ${parsed.reason}`);
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR}\``,
+      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`\${ENV_VAR}\`, or \`{ "source": "google-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);

@@ -30,8 +30,11 @@ compatibility import of supported secrets.
 
 Store the key once with `/secret set <NAME> <VALUE>`, then either:
 
-- configure a URL auth rule with `/secret route add <url-prefix> <secret-name> [header] [prefix|none]`
+- configure a URL auth rule with `/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`
 - reference it explicitly in a prompt with `<secret:NAME>`
+
+For direct Google APIs, run `hybridclaw auth login google` and use
+`google-oauth` in the route instead of storing a static token.
 
 HybridClaw routes the actual request through the gateway-side `http_request`
 path, injects the real header at send time, and persists redacted tool-call

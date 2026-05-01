@@ -125,8 +125,13 @@ import {
 } from '../config/config.js';
 import {
   getRuntimeConfig,
+  isGoogleApisUrlPrefix,
+  isGoogleOAuthSecretRef,
+  isGoogleOAuthSpecifier,
+  makeGoogleOAuthSecretRef,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
+  type RuntimeHttpRequestAuthRuleSecret,
   reloadRuntimeConfig,
   resolveDefaultAgentId,
   runtimeConfigPath,
@@ -3409,6 +3414,35 @@ function normalizeSecretRoutePrefix(raw: string | undefined): string {
   return normalized;
 }
 
+function normalizeSecretRouteSecret(
+  raw: string,
+): RuntimeHttpRequestAuthRuleSecret {
+  const value = String(raw || '').trim();
+  if (isGoogleOAuthSpecifier(value)) {
+    return makeGoogleOAuthSecretRef();
+  }
+  return { source: 'store', id: value };
+}
+
+function isStoreSecretRouteSecret(
+  secret: RuntimeHttpRequestAuthRuleSecret,
+): secret is { source: 'store'; id: string } {
+  return (
+    typeof secret === 'object' &&
+    secret !== null &&
+    !Array.isArray(secret) &&
+    secret.source === 'store'
+  );
+}
+
+function formatRouteSecretLabel(
+  secret: RuntimeHttpRequestAuthRuleSecret,
+): string {
+  if (typeof secret === 'string') return secret;
+  if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
+  return `${secret.source}:${secret.id}`;
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = String(hostname || '')
     .trim()
@@ -3469,9 +3503,11 @@ function formatHttpRequestAuthRule(
   const parsedSecret =
     typeof rule.secret === 'string'
       ? rule.secret
-      : typeof rule.secret.id === 'string'
-        ? `${rule.secret.source}:${rule.secret.id}`
-        : '<invalid>';
+      : isGoogleOAuthSecretRef(rule.secret)
+        ? 'google-oauth'
+        : typeof rule.secret.id === 'string'
+          ? `${rule.secret.source}:${rule.secret.id}`
+          : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
@@ -8997,23 +9033,39 @@ export async function handleGatewayCommand(
             if (!rawPrefix || !secretName) {
               return badCommand(
                 'Usage',
-                'Usage: `secret route add <url-prefix> <secret-name> [header] [prefix|none]`',
+                'Usage: `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`',
               );
             }
-            if (!isRuntimeSecretName(secretName)) {
+            const secret = normalizeSecretRouteSecret(secretName);
+            if (
+              isStoreSecretRouteSecret(secret) &&
+              !isRuntimeSecretName(secret.id)
+            ) {
               return badCommand(
                 'Invalid Secret Name',
                 'Secret names must use uppercase letters, digits, and underscores only.',
               );
             }
-            if (isReservedNonSecretRuntimeName(secretName)) {
+            if (
+              isStoreSecretRouteSecret(secret) &&
+              isReservedNonSecretRuntimeName(secret.id)
+            ) {
               return badCommand(
                 'Reserved Non-Secret Name',
-                `\`${secretName}\` is a normal runtime config key and cannot be used as an encrypted secret route target.`,
+                `\`${secret.id}\` is a normal runtime config key and cannot be used as an encrypted secret route target.`,
               );
             }
             try {
               const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              if (
+                isGoogleOAuthSecretRef(secret) &&
+                !isGoogleApisUrlPrefix(urlPrefix)
+              ) {
+                return badCommand(
+                  'Invalid Google OAuth Route',
+                  '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
+                );
+              }
               const header = normalizeSecretRouteHeader(rawHeader);
               const prefix = normalizeSecretRoutePrefix(rawAuthPrefix);
               updateRuntimeConfig((draft) => {
@@ -9021,7 +9073,7 @@ export async function handleGatewayCommand(
                   urlPrefix,
                   header,
                   prefix,
-                  secret: { source: 'store', id: secretName },
+                  secret,
                 };
                 draft.tools.httpRequest.authRules =
                   draft.tools.httpRequest.authRules.filter(
@@ -9037,7 +9089,7 @@ export async function handleGatewayCommand(
                 ? `${header}: ${prefix} <secret>`
                 : `${header}: <secret>`;
               return plainCommand(
-                `Added secret route for \`${urlPrefix}\` using \`${secretName}\` as \`${authLabel}\`.`,
+                `Added secret route for \`${urlPrefix}\` using \`${formatRouteSecretLabel(secret)}\` as \`${authLabel}\`.`,
               );
             } catch (error) {
               return badCommand(
@@ -9092,7 +9144,7 @@ export async function handleGatewayCommand(
 
           return badCommand(
             'Usage',
-            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
+            'Usage: `secret route list`, `secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`, or `secret route remove <url-prefix> [header]`',
           );
         }
 
@@ -9999,7 +10051,7 @@ export async function handleGatewayCommand(
           `⚙️ Runtime: ${status.sandbox?.mode || 'container'} · RAG: ${session.enable_rag ? 'on' : 'off'} · Ralph: ${formatRalphIterations(resolveSessionRalphIterations(session))} · Show: ${showMode}`,
           `🤖 Full-auto: ${fullAutoLabel}`,
           `👥 Activation: ${resolveActivationModeLabel()} · 🪢 Queue: ${queueLabel} · 📬 Proactive queued: ${proactiveQueued}`,
-          `🩺 Coworkers: ${coworkerHealthLabel}`,
+          `🩺 Agents: ${coworkerHealthLabel}`,
           ...coworkerHealthLines,
         ];
         return infoCommand('Status', lines.join('\n'));
