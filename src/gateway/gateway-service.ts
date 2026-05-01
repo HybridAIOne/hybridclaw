@@ -196,6 +196,7 @@ import {
   updateSessionRag,
   updateSessionShowMode,
 } from '../memory/db.js';
+import { runMemoryConsolidation } from '../memory/memory-consolidation-runner.js';
 import { memoryService } from '../memory/memory-service.js';
 import {
   ensurePluginManagerInitialized,
@@ -460,7 +461,6 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
-import { runMemoryConsolidation } from './memory-consolidation-runner.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
 import { buildResetConfirmationComponents } from './reset-confirmation.js';

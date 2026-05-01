@@ -53,7 +53,7 @@ async function loadRunner(params: {
       })),
     },
   }));
-  return import('../src/gateway/memory-consolidation-runner.js');
+  return import('../src/memory/memory-consolidation-runner.js');
 }
 
 test('hasDreamRunToday uses the main workspace timezone', async () => {

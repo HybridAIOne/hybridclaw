@@ -21,6 +21,7 @@ shortest path is:
   web surfaces
 - [Authentication](./authentication.md) for provider login and credential
   storage behavior
+- [Local vs Cloud Setup](./local-vs-cloud.md) for choosing local-only, tunneled, or cloud deployment
 - [Connect Your First Channel](./first-channel.md) for the shortest path from
   onboarding to one verified transport
 - [Channels](../channels/README.md) for the full supported channel catalog,

@@ -1,7 +1,7 @@
 ---
 title: Connect Your First Channel
 description: Pick one transport, keep it private, and verify the first successful round trip.
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Connect Your First Channel
