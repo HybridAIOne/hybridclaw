@@ -586,15 +586,56 @@ export interface RuntimePluginsConfig {
   list: RuntimePluginConfigEntry[];
 }
 
+export interface RuntimeHttpRequestGoogleOAuthSecretRef {
+  source: 'google-oauth';
+}
+
+export type RuntimeHttpRequestAuthRuleSecret =
+  | SecretInput
+  | RuntimeHttpRequestGoogleOAuthSecretRef;
+
 export interface RuntimeHttpRequestAuthRule {
   urlPrefix: string;
   header: string;
   prefix: string;
-  secret: SecretInput;
+  secret: RuntimeHttpRequestAuthRuleSecret;
 }
 
 export interface RuntimeHttpRequestToolConfig {
   authRules: RuntimeHttpRequestAuthRule[];
+}
+
+export function makeGoogleOAuthSecretRef(): RuntimeHttpRequestGoogleOAuthSecretRef {
+  return { source: 'google-oauth' };
+}
+
+export function isGoogleOAuthSpecifier(value: string): boolean {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === 'google-oauth' || normalized === 'google-oauth:workspace'
+  );
+}
+
+export function isGoogleOAuthSecretRef(
+  value: unknown,
+): value is RuntimeHttpRequestGoogleOAuthSecretRef {
+  return (
+    isRecord(value) &&
+    value.source === 'google-oauth' &&
+    (value.id === undefined || value.id === 'workspace')
+  );
+}
+
+export function isGoogleApisUrlPrefix(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.trim().toLowerCase();
+    return host === 'googleapis.com' || host.endsWith('.googleapis.com');
+  } catch {
+    return false;
+  }
 }
 
 export interface RuntimeSkillAutonomyRule {
@@ -615,6 +656,11 @@ export interface RuntimeSkillCredentialManifest {
   required: boolean;
 }
 
+export interface RuntimeSkillMiddlewareManifest {
+  preSend: boolean;
+  postReceive: boolean;
+}
+
 export type RuntimeSkillLifecycleStatus =
   | 'enabled'
   | 'disabled'
@@ -629,6 +675,7 @@ export interface RuntimeInstalledSkillManifest {
   manifestPath: string;
   status: RuntimeSkillLifecycleStatus;
   capabilities: string[];
+  middleware: RuntimeSkillMiddlewareManifest;
   requiredCredentials: RuntimeSkillCredentialManifest[];
   supportedChannels: ChannelKind[];
   installedAt: string;
@@ -2013,6 +2060,19 @@ function normalizeRuntimeSkillCredentialManifests(
   return credentials;
 }
 
+function normalizeRuntimeSkillMiddlewareManifest(
+  value: unknown,
+): RuntimeSkillMiddlewareManifest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { preSend: false, postReceive: false };
+  }
+  const raw = value as { preSend?: unknown; postReceive?: unknown };
+  return {
+    preSend: raw.preSend === true,
+    postReceive: raw.postReceive === true,
+  };
+}
+
 function normalizeRuntimeSkillSupportedChannels(value: unknown): ChannelKind[] {
   const channels: ChannelKind[] = [];
   const seen = new Set<ChannelKind>();
@@ -2071,6 +2131,7 @@ function normalizeRuntimeInstalledSkillManifests(
       manifestPath,
       status: normalizeSkillLifecycleStatus(item.status),
       capabilities: normalizeStringArray(item.capabilities, []),
+      middleware: normalizeRuntimeSkillMiddlewareManifest(item.middleware),
       requiredCredentials: normalizeRuntimeSkillCredentialManifests(
         item.requiredCredentials,
       ),
@@ -4203,14 +4264,18 @@ function normalizeHttpHeaderName(
 function normalizeHttpRequestAuthRuleSecret(
   value: unknown,
   path: string,
-): SecretInput {
+): RuntimeHttpRequestAuthRuleSecret {
+  if (isGoogleOAuthSecretRef(value)) {
+    return makeGoogleOAuthSecretRef();
+  }
+
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
     throw new Error(`${path} ${parsed.reason}`);
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR}\``,
+      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`\${ENV_VAR}\`, or \`{ "source": "google-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);

@@ -34,6 +34,8 @@ export type {
   PluginMemoryFlushContext,
   PluginMemoryWriteAction,
   PluginMemoryWriteContext,
+  PluginMiddlewareDecision,
+  PluginMiddlewareSkill,
   PluginOutputGuard,
   PluginOutputGuardContext,
   PluginOutputGuardDecision,

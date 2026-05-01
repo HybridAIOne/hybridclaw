@@ -120,14 +120,14 @@ function startCoworkerLivenessPaging(
 
   livenessPagingTimer = setInterval(async () => {
     if (livenessPagingRunning) {
-      logger.debug('Coworker liveness paging skipped — previous still running');
+      logger.debug('Agent liveness paging skipped — previous still running');
       return;
     }
     livenessPagingRunning = true;
     try {
       await pageRedCoworkerLivenessTransitions(onMessage);
     } catch (error) {
-      logger.warn({ error }, 'Coworker liveness paging failed');
+      logger.warn({ error }, 'Agent liveness paging failed');
     } finally {
       livenessPagingRunning = false;
     }
@@ -148,7 +148,7 @@ export function startHeartbeat(
 
   if (!HEARTBEAT_ENABLED) {
     logger.info(
-      'Heartbeat disabled via HEARTBEAT_ENABLED=false; coworker liveness paging remains active',
+      'Heartbeat disabled via HEARTBEAT_ENABLED=false; agent liveness paging remains active',
     );
     return;
   }
@@ -499,11 +499,11 @@ export function stopHeartbeat(): void {
   if (livenessPagingTimer) {
     clearInterval(livenessPagingTimer);
     livenessPagingTimer = null;
-    logger.info('Coworker liveness paging stopped');
+    logger.info('Agent liveness paging stopped');
   }
   heartbeatRunning = false;
   livenessPagingRunning = false;
-  // In-process edge state is intentionally cleared so a still-red coworker
+  // In-process edge state is intentionally cleared so a still-red agent
   // pages again after gateway restart or scheduler restart.
   lastPagedLivenessStateByAgent.clear();
 }

@@ -420,6 +420,7 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
         name: entry.name,
         version: '0.0.0',
         capabilities: [],
+        middleware: { preSend: false, postReceive: false },
         requiredCredentials: [],
         supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
       },

@@ -1010,9 +1010,88 @@ async function handleGatewayMessageInner(
       )
     : effectiveUserTurnContentExpanded;
   const explicitSkillName = explicitSkillInvocation?.skill.name || null;
-  const agentUserContent = mediaContextBlock
+  const activeSkill = explicitSkillInvocation
+    ? {
+        name: explicitSkillInvocation.skill.name,
+        middleware: explicitSkillInvocation.skill.manifest.middleware,
+      }
+    : undefined;
+  let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  if (pluginManager?.hasMiddleware('pre_send')) {
+    const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
+      sessionId: req.sessionId,
+      userId: req.userId,
+      agentId,
+      channelId: req.channelId,
+      model: model || undefined,
+      workspacePath,
+      messages: [
+        ...messages,
+        {
+          role: 'user',
+          content: agentUserContent,
+        },
+      ],
+      userContent: agentUserContent,
+      skill: activeSkill,
+    });
+    for (const event of preSendOutcome.events) {
+      if (event.action === 'allow') continue;
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          middlewareId: event.skillId,
+          action: event.action,
+          reason: event.reason,
+        },
+        'Plugin pre-send middleware adjusted turn',
+      );
+    }
+    if (preSendOutcome.blocked) {
+      const storedUserContent = buildStoredUserTurnContent(
+        userTurnContent,
+        media,
+      );
+      const resultText =
+        preSendOutcome.resultText || 'Message blocked by pre-send middleware.';
+      const storedTurn = recordSuccessfulTurn({
+        sessionId: req.sessionId,
+        agentId,
+        chatbotId,
+        enableRag,
+        model,
+        channelId: req.channelId,
+        promptMode: req.promptMode,
+        runId,
+        turnIndex,
+        userId: req.userId,
+        username: req.username,
+        canonicalScopeId: canonicalContextScope,
+        userContent: storedUserContent,
+        resultText,
+        toolCallCount: 0,
+        startedAt,
+        replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      });
+      return attachSessionIdentity({
+        status: 'success',
+        result: resultText,
+        toolsUsed: [],
+        pluginsUsed,
+        agentId,
+        model,
+        provider,
+        assistantPresentation:
+          getGatewayAssistantPresentationForMessageAgent(agentId),
+        userMessageId: storedTurn.userMessageId,
+        assistantMessageId: storedTurn.assistantMessageId,
+      });
+    }
+    agentUserContent = preSendOutcome.userContent;
+  }
   logger.debug(
     {
       ...debugMeta,
@@ -1408,8 +1487,12 @@ async function handleGatewayMessageInner(
           agentId,
           channelId: req.channelId,
           model: model || undefined,
+          workspacePath,
+          messages: [...messages, { role: 'assistant', content: resultText }],
           userContent: storedUserContent,
           resultText,
+          toolExecutions,
+          skill: activeSkill,
         });
         if (guardOutcome.events.length > 0) {
           for (const event of guardOutcome.events) {

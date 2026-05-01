@@ -9,6 +9,7 @@ import {
   type StakesClassifier,
   type StakesLevel,
 } from '../container/src/stakes-classifier.js';
+import { createStakesMiddlewareSkill } from '../container/src/stakes-middleware.js';
 
 interface StakesEvalExample {
   label: string;
@@ -452,5 +453,41 @@ describe('stakes classifier', () => {
     }).classify(makeInput({ toolName: 'read', actionKey: 'read' }));
     expect(ignored?.level).toBe('low');
     expect(ignored?.classifier).toBe('rules:v1');
+  });
+
+  test('stakes middleware exposes classifier decisions through middleware actions', () => {
+    const classifier = createStakesClassifier();
+    const middleware = createStakesMiddlewareSkill(classifier);
+    const evaluate = (input: StakesClassificationInput) => {
+      let stakesScore: ReturnType<typeof classifyStakes> | null = null;
+      const decision = middleware.pre_send?.({
+        ...input,
+        recordStakesScore(score) {
+          stakesScore = score;
+        },
+      });
+      if (!stakesScore) throw new Error('Expected stakes score.');
+      return { decision, stakesScore };
+    };
+
+    const low = evaluate(makeInput({ toolName: 'read', actionKey: 'read' }));
+    expect(low.decision).toEqual({ action: 'allow' });
+    expect(low.stakesScore.level).toBe('low');
+
+    const high = evaluate(
+      makeInput({
+        toolName: 'delete',
+        actionKey: 'delete:workspace',
+        intent: 'delete workspace',
+        target: 'delete workspace',
+        approvalTier: 'red',
+        writeIntent: true,
+      }),
+    );
+    expect(high.decision).toMatchObject({
+      action: 'escalate',
+      route: 'approval_request',
+    });
+    expect(high.stakesScore.level).toBe('high');
   });
 });

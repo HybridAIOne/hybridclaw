@@ -155,7 +155,7 @@ function buildRecentSkillRunCheck(
     return {
       ok: false,
       code: 'no_skill_runs_observed',
-      detail: 'no skill execution observations found for this coworker',
+      detail: 'no skill execution observations found for this agent',
       observedAt: null,
       skillName: null,
       outcome: null,
@@ -496,7 +496,7 @@ export function formatCoworkerLivenessPage(
   probe: GatewayCoworkerLivenessProbe,
 ): string {
   return [
-    `Coworker liveness ${probe.state.toUpperCase()}: ${probe.agentId}`,
+    `Agent liveness ${probe.state.toUpperCase()}: ${probe.agentId}`,
     `Reasons: ${probe.reasonCodes.join(', ')}`,
     `Process: ${probe.process.code} - ${probe.process.detail}`,
     `Skill: ${probe.recentSkillRun.code} - ${probe.recentSkillRun.detail}`,

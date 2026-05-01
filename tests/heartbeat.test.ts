@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
   recordAuditEvent: vi.fn(),
   formatCoworkerLivenessPage: vi.fn(
     (probe: { agentId: string; state: string }) =>
-      `Coworker liveness ${probe.state}: ${probe.agentId}`,
+      `Agent liveness ${probe.state}: ${probe.agentId}`,
   ),
   getCoworkerLivenessSummary: vi.fn(() => ({ probes: [] })),
   heartbeatEnabled: true,
@@ -195,7 +195,7 @@ test('delivers substantive heartbeat messages', async () => {
   expect(mocks.maybeCompactSession).toHaveBeenCalledTimes(1);
 });
 
-test('pages red coworker liveness transitions through heartbeat delivery', async () => {
+test('pages red agent liveness transitions through heartbeat delivery', async () => {
   vi.useFakeTimers();
   mocks.runAgent.mockResolvedValue({
     status: 'success',
@@ -223,10 +223,10 @@ test('pages red coworker liveness transitions through heartbeat delivery', async
   stopHeartbeat();
 
   expect(onMessage).toHaveBeenCalledTimes(1);
-  expect(onMessage).toHaveBeenCalledWith('Coworker liveness red: ops');
+  expect(onMessage).toHaveBeenCalledWith('Agent liveness red: ops');
 });
 
-test('pages red coworker liveness when heartbeat agent is disabled', async () => {
+test('pages red agent liveness when heartbeat agent is disabled', async () => {
   vi.useFakeTimers();
   mocks.heartbeatEnabled = false;
   mocks.getCoworkerLivenessSummary.mockReturnValue({
@@ -251,5 +251,5 @@ test('pages red coworker liveness when heartbeat agent is disabled', async () =>
 
   expect(mocks.runAgent).not.toHaveBeenCalled();
   expect(onMessage).toHaveBeenCalledTimes(1);
-  expect(onMessage).toHaveBeenCalledWith('Coworker liveness red: ops');
+  expect(onMessage).toHaveBeenCalledWith('Agent liveness red: ops');
 });

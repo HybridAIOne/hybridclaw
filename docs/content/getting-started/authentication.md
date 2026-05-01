@@ -167,7 +167,7 @@ hybridclaw secret set <NAME> <VALUE>
 hybridclaw secret show <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -177,7 +177,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <NAME>
 /secret unset <NAME>
 /secret route list
-/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -192,6 +192,117 @@ hybridclaw secret route remove <url-prefix> [header]
   secret should be sent unchanged
 - you can still reference stored secrets explicitly in prompts with
   `<secret:NAME>` when that workflow is more appropriate than a URL auth rule
+
+## Google OAuth For Direct Google APIs
+
+Use the `google-oauth` route provider when an agent should call Google APIs
+through `http_request` without seeing or handling an access token. This is the
+right setup for APIs such as Google Analytics Admin, Google Analytics Data,
+Google Ads, or other `*.googleapis.com` endpoints that are not covered by a
+bundled skill command.
+
+The route provider uses the same encrypted Google OAuth material created by
+`hybridclaw auth login google`. At request time the gateway mints a
+short-lived access token on the host and injects it into matching
+`http_request` calls. The token is only injectable into `googleapis.com` or
+`*.googleapis.com` requests.
+
+### 1. Create A Google OAuth Client
+
+1. Open [Google Cloud Console Credentials](https://console.cloud.google.com/apis/credentials).
+2. Select or create a project dedicated to HybridClaw Google API access.
+3. Open **OAuth consent screen** and finish the required app setup; if the app is in testing mode, add your Google account as a test user.
+4. Open **Library** and enable every API you plan to call from this project; for GA4 reporting, enable Google Analytics Admin API and Google Analytics Data API.
+5. Open **Credentials**.
+6. Click **Create credentials**.
+7. Choose **OAuth client ID**.
+8. Choose application type **Desktop app**.
+9. Copy the generated **Client ID** and **Client secret**.
+
+Use an OAuth desktop client, not an API key. A service account can work for
+some Google APIs, but it is a different setup and is not what
+`google-oauth` routes use.
+
+### 2. Authorize The Required Scopes
+
+Run `auth login google` with the scopes needed by the APIs you will call. For
+GA4 read-only reporting:
+
+```bash
+hybridclaw auth login google \
+  --client-id "<client-id>" \
+  --client-secret "<client-secret>" \
+  --account you@example.com \
+  --scopes "https://www.googleapis.com/auth/analytics.readonly"
+```
+
+If the same Google OAuth credential should also keep powering `gog` or `gws`,
+include the Workspace scopes you need in the same `--scopes` value. Treat
+`--scopes` as the complete grant you want stored for this Google login.
+
+Check the stored account and scopes:
+
+```bash
+hybridclaw auth status google
+```
+
+### 3. Add URL Auth Routes
+
+Add one route per Google API family, using narrow URL prefixes:
+
+```bash
+hybridclaw secret route add https://analyticsadmin.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
+```
+
+The equivalent local TUI/web commands are:
+
+```text
+/secret route add https://analyticsadmin.googleapis.com/ google-oauth Authorization Bearer
+/secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
+```
+
+List routes:
+
+```bash
+hybridclaw secret route list
+```
+
+Routes are stored in `~/.hybridclaw/config.json` as:
+
+```json
+{
+  "urlPrefix": "https://analyticsdata.googleapis.com/",
+  "header": "Authorization",
+  "prefix": "Bearer",
+  "secret": { "source": "google-oauth" }
+}
+```
+
+### 4. Prompt The Agent
+
+After the routes exist, prompts do not need `bearerSecretName` or
+`Authorization` headers. Ask the agent to use `http_request` and call only the
+Google API URLs:
+
+```text
+Get my GA4 report with http_request.
+
+Use these APIs only:
+- GET https://analyticsadmin.googleapis.com/v1alpha/accountSummaries?pageSize=200
+- POST https://analyticsdata.googleapis.com/v1beta/properties/PROPERTY_ID:runReport
+
+Do not use bash, gcloud, ADC, gog, or gws.
+Do not read or print any token.
+The configured Google OAuth auth routes should attach Authorization.
+```
+
+### Troubleshooting
+
+- `SERVICE_DISABLED`: enable the named Google API in the same Google Cloud project that owns the OAuth client, then wait a few minutes and retry.
+- `PERMISSION_DENIED` for a GA4 property: grant the authorized Google account Viewer or Analyst access to that GA4 property.
+- `insufficient authentication scopes`: rerun `hybridclaw auth login google` with all required scopes.
+- `401 Unauthorized`: rerun `hybridclaw auth login google`; the stored refresh token may have been revoked or the OAuth client may have changed.
 
 ## Where Credentials Live
 

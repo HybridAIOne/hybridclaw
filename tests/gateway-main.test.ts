@@ -703,7 +703,7 @@ describe('gateway bootstrap', () => {
     expect(state.setInterval).toHaveBeenCalled();
   });
 
-  test('logs startup details when the warm process pool is enabled', async () => {
+  test('logs info on startup when the warm process pool is enabled', async () => {
     const state = await importFreshGatewayMain({ warmPoolEnabled: true });
 
     expect(state.loggerInfo).toHaveBeenCalledWith(

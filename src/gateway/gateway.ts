@@ -69,19 +69,12 @@ import {
   type TelegramReplyFn,
 } from '../channels/telegram/runtime.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
-import {
-  initVoice,
-  isVoiceRelayDisconnectedError,
-  shutdownVoice,
-} from '../channels/voice/runtime.js';
+import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
 import {
   createVoiceTextStreamFormatter,
   normalizeVoiceUserTextForGateway,
 } from '../channels/voice/text.js';
-import {
-  getWhatsAppAuthStatus,
-  WhatsAppAuthLockError,
-} from '../channels/whatsapp/auth.js';
+import { getWhatsAppAuthStatus } from '../channels/whatsapp/auth.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import {
   initWhatsApp,
@@ -144,7 +137,6 @@ import {
   startTokenUsageBuffer,
   stopTokenUsageBuffer,
 } from '../usage/token-usage-buffer.js';
-import { formatError } from '../utils/text-format.js';
 import { buildApprovalConfirmationComponents } from './approval-confirmation.js';
 import {
   type ApprovalPresentation,
@@ -152,10 +144,6 @@ import {
   getApprovalPromptText,
   getApprovalVisibleText,
 } from './approval-presentation.js';
-import {
-  DEFAULT_CHANNEL_INTERRUPTED_REPLY,
-  formatChannelGatewayFailure,
-} from './channel-gateway-failure.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
 import {
   normalizePendingApprovalReply,
@@ -165,6 +153,15 @@ import {
   handleGatewayMessage,
   validateGatewayPromptEnvDefaults,
 } from './gateway-chat-service.js';
+import {
+  formatAgentErrorReply,
+  formatChannelGatewayErrorReply,
+  formatGatewayErrorReply,
+  isDefaultChannelInterruptedReply,
+  isDiscordInvalidTokenError,
+  isVoiceGatewayAbort,
+  isWhatsAppAuthLockError,
+} from './gateway-error-service.js';
 import { startGatewayHttpServer } from './gateway-http-server.js';
 import {
   initGatewayService,
@@ -1202,11 +1199,7 @@ async function startDiscordIntegration(): Promise<boolean> {
             ),
           );
           if (result.status === 'error') {
-            const errorText = formatError(
-              'Agent Error',
-              result.error || 'Unknown error',
-            );
-            await context.stream.fail(errorText);
+            await context.stream.fail(formatAgentErrorReply(result.error));
             return;
           }
           const pendingApproval = extractGatewayChatApprovalEvent(result);
@@ -1278,13 +1271,11 @@ async function startDiscordIntegration(): Promise<boolean> {
           }
           await context.stream.finalize(responseText, attachments);
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'Discord message handling failed',
           );
-          const errorText = formatError('Gateway Error', text);
-          await context.stream.fail(errorText);
+          await context.stream.fail(formatGatewayErrorReply(error));
         }
       },
       async (
@@ -1307,12 +1298,11 @@ async function startDiscordIntegration(): Promise<boolean> {
             reply,
           });
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId, args },
             'Discord command handling failed',
           );
-          await reply(formatError('Gateway Error', text));
+          await reply(formatGatewayErrorReply(error));
         }
       },
     );
@@ -1328,24 +1318,6 @@ async function startDiscordIntegration(): Promise<boolean> {
   }
   logger.info('Discord integration started inside gateway');
   return true;
-}
-
-function isDiscordInvalidTokenError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const code =
-    'code' in error && typeof error.code === 'string' ? error.code : '';
-  if (code === 'TokenInvalid') return true;
-  const message =
-    'message' in error && typeof error.message === 'string'
-      ? error.message
-      : '';
-  return message.toLowerCase().includes('invalid token');
-}
-
-function isWhatsAppAuthLockError(
-  error: unknown,
-): error is WhatsAppAuthLockError {
-  return error instanceof WhatsAppAuthLockError;
 }
 
 async function startMSTeamsIntegration(): Promise<boolean> {
@@ -1437,9 +1409,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           ),
         );
         if (result.status === 'error') {
-          await context.stream.fail(
-            formatError('Agent Error', result.error || 'Unknown error'),
-          );
+          await context.stream.fail(formatAgentErrorReply(result.error));
           return;
         }
 
@@ -1519,12 +1489,11 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         }
         await context.stream.finalize(responseText, attachments);
       } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
         logger.error(
           { error, sessionId, channelId },
           'Teams message handling failed',
         );
-        await context.stream.fail(formatError('Gateway Error', text));
+        await context.stream.fail(formatGatewayErrorReply(error));
       }
     },
     async (sessionId, guildId, channelId, userId, username, args, reply) => {
@@ -1542,12 +1511,11 @@ async function startMSTeamsIntegration(): Promise<boolean> {
           reply: bridgedReply,
         });
       } catch (error) {
-        const text = error instanceof Error ? error.message : String(error);
         logger.error(
           { error, sessionId, channelId, args },
           'Teams command handling failed',
         );
-        await reply(formatError('Gateway Error', text));
+        await reply(formatGatewayErrorReply(error));
       }
     },
   );
@@ -1633,7 +1601,7 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayFailure(result.error));
+            await reply(formatChannelGatewayErrorReply(result.error));
             return;
           }
 
@@ -1677,12 +1645,11 @@ async function startWhatsAppIntegration(): Promise<boolean> {
             }
           }
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'WhatsApp message handling failed',
           );
-          await reply(formatChannelGatewayFailure(text));
+          await reply(formatChannelGatewayErrorReply(error));
         }
       },
     );
@@ -1784,7 +1751,7 @@ async function startEmailIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayFailure(result.error));
+            await reply(formatChannelGatewayErrorReply(result.error));
             return;
           }
 
@@ -1837,12 +1804,11 @@ async function startEmailIntegration(): Promise<boolean> {
             }
           }
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'Email message handling failed',
           );
-          await reply(formatChannelGatewayFailure(text));
+          await reply(formatChannelGatewayErrorReply(error));
         }
       },
     );
@@ -1953,7 +1919,7 @@ async function startTelegramIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayFailure(result.error));
+            await reply(formatChannelGatewayErrorReply(result.error));
             return;
           }
 
@@ -1997,12 +1963,11 @@ async function startTelegramIntegration(): Promise<boolean> {
             }
           }
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'Telegram message handling failed',
           );
-          await reply(formatChannelGatewayFailure(text));
+          await reply(formatChannelGatewayErrorReply(error));
         }
       },
     );
@@ -2112,7 +2077,7 @@ async function startSignalIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            await reply(formatChannelGatewayFailure(result.error));
+            await reply(formatChannelGatewayErrorReply(result.error));
             return;
           }
 
@@ -2147,12 +2112,11 @@ async function startSignalIntegration(): Promise<boolean> {
             );
           }
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'Signal message handling failed',
           );
-          await reply(formatChannelGatewayFailure(text));
+          await reply(formatChannelGatewayErrorReply(error));
         }
       },
     );
@@ -2239,9 +2203,7 @@ async function startSlackIntegration(): Promise<boolean> {
             return;
           }
           if (result.status === 'error') {
-            await reply(
-              formatError('Agent Error', result.error || 'Unknown error'),
-            );
+            await reply(formatAgentErrorReply(result.error));
             return;
           }
 
@@ -2293,12 +2255,11 @@ async function startSlackIntegration(): Promise<boolean> {
             });
           }
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'Slack message handling failed',
           );
-          await reply(formatError('Gateway Error', text));
+          await reply(formatGatewayErrorReply(error));
         }
       },
       async (sessionId, guildId, channelId, userId, username, args, reply) => {
@@ -2313,12 +2274,11 @@ async function startSlackIntegration(): Promise<boolean> {
             reply,
           });
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId, args },
             'Slack command handling failed',
           );
-          await reply(formatError('Gateway Error', text));
+          await reply(formatGatewayErrorReply(error));
         }
       },
     );
@@ -2491,10 +2451,7 @@ async function startVoiceIntegration(): Promise<boolean> {
               for (const voiceDelta of voiceTextStream.push(filteredDelta)) {
                 sawTextDelta = true;
                 void context.responseStream.push(voiceDelta).catch((error) => {
-                  if (
-                    context.abortSignal.aborted ||
-                    isVoiceRelayDisconnectedError(error)
-                  ) {
+                  if (isVoiceGatewayAbort(error, context.abortSignal)) {
                     return;
                   }
                   logger.debug(
@@ -2519,7 +2476,7 @@ async function startVoiceIntegration(): Promise<boolean> {
             return;
           }
           if (result.status === 'error') {
-            await reply(formatChannelGatewayFailure(result.error));
+            await reply(formatChannelGatewayErrorReply(result.error));
             return;
           }
 
@@ -2528,10 +2485,7 @@ async function startVoiceIntegration(): Promise<boolean> {
             for (const voiceDelta of voiceTextStream.push(trailingDelta)) {
               sawTextDelta = true;
               await context.responseStream.push(voiceDelta).catch((error) => {
-                if (
-                  context.abortSignal.aborted ||
-                  isVoiceRelayDisconnectedError(error)
-                ) {
+                if (isVoiceGatewayAbort(error, context.abortSignal)) {
                   return;
                 }
                 throw error;
@@ -2542,10 +2496,7 @@ async function startVoiceIntegration(): Promise<boolean> {
           for (const voiceDelta of voiceTextStream.flush()) {
             sawTextDelta = true;
             await context.responseStream.push(voiceDelta).catch((error) => {
-              if (
-                context.abortSignal.aborted ||
-                isVoiceRelayDisconnectedError(error)
-              ) {
+              if (isVoiceGatewayAbort(error, context.abortSignal)) {
                 return;
               }
               throw error;
@@ -2563,10 +2514,7 @@ async function startVoiceIntegration(): Promise<boolean> {
             await reply(cleanedResultText);
           }
         } catch (error) {
-          if (
-            context.abortSignal.aborted ||
-            isVoiceRelayDisconnectedError(error)
-          ) {
+          if (isVoiceGatewayAbort(error, context.abortSignal)) {
             logger.debug(
               { sessionId, channelId, callSid: context.callSid },
               'Voice message handling aborted after relay disconnect',
@@ -2578,12 +2526,11 @@ async function startVoiceIntegration(): Promise<boolean> {
             'Voice message handling failed',
           );
           try {
-            await reply(formatChannelGatewayFailure('Response interrupted.'));
+            await reply(
+              formatChannelGatewayErrorReply('Response interrupted.'),
+            );
           } catch (replyError) {
-            if (
-              !context.abortSignal.aborted &&
-              !isVoiceRelayDisconnectedError(replyError)
-            ) {
+            if (!isVoiceGatewayAbort(replyError, context.abortSignal)) {
               throw replyError;
             }
           }
@@ -2718,9 +2665,9 @@ async function startIMessageIntegration(): Promise<boolean> {
             }),
           );
           if (result.status === 'error') {
-            const failureText = formatChannelGatewayFailure(result.error);
+            const failureText = formatChannelGatewayErrorReply(result.error);
             if (
-              failureText === DEFAULT_CHANNEL_INTERRUPTED_REPLY &&
+              isDefaultChannelInterruptedReply(failureText) &&
               isLocalIMessageSelfChatContext(context)
             ) {
               return;
@@ -2761,12 +2708,11 @@ async function startIMessageIntegration(): Promise<boolean> {
 
           await reply(cleanedResultText);
         } catch (error) {
-          const text = error instanceof Error ? error.message : String(error);
           logger.error(
             { error, sessionId, channelId },
             'iMessage message handling failed',
           );
-          await reply(formatError('Gateway Error', text));
+          await reply(formatGatewayErrorReply(error));
         }
       },
     );

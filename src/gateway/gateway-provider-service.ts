@@ -99,6 +99,7 @@ function unauthorized(
 function unreachable(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
   baseUrl: string | null,
+  detail?: string,
 ): ProviderDiagnostic {
   const { label } = PROVIDER_META[filter];
   return {
@@ -107,6 +108,7 @@ function unreachable(
       baseUrl
         ? `${label} at ${baseUrl} is not reachable.`
         : `${label} is not reachable.`,
+      ...(detail ? [`Last discovery error: ${detail}`] : []),
       'Check your network or the provider status, then rerun',
       `  \`model list ${rerunFilter(filter)}\`.`,
     ].join('\n'),
@@ -182,7 +184,11 @@ export function diagnoseProviderForModels(
           status !== 401 &&
           status !== 403
         ) {
-          return unreachable(filter, section.baseUrl ?? null);
+          return unreachable(
+            filter,
+            section.baseUrl ?? null,
+            lastError.message,
+          );
         }
       }
       return null;

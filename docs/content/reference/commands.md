@@ -257,7 +257,7 @@ hybridclaw secret set <name> <value>
 hybridclaw secret show <name>
 hybridclaw secret unset <name>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -267,7 +267,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <name>
 /secret unset <name>
 /secret route list
-/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -282,6 +282,9 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route add` manages `tools.httpRequest.authRules[]`, which lets the
   gateway inject the real auth header for matching `http_request` tool calls
 - use `prefix` for `Bearer <secret>` or `none` for raw header injection
+- use `google-oauth` as the secret name for direct Google API routes after
+  `hybridclaw auth login google`; see
+  [Google OAuth For Direct Google APIs](../getting-started/authentication.md#google-oauth-for-direct-google-apis)
 
 ## Channels
 
