@@ -1,6 +1,7 @@
 import type { ReactNode, SVGProps } from 'react';
-import hybridaiLogoUrl from './hybridai-logo.svg';
 import lmstudioLogoUrl from './lmstudio-logo.svg';
+
+export { HybridAILogo } from './HybridAILogo';
 
 export type ProviderLogoProps = SVGProps<SVGSVGElement>;
 
@@ -168,27 +169,6 @@ export function MicrosoftLogo(props: ProviderLogoProps) {
       <rect x="2" y="12.5" width="9.5" height="9.5" fill="#00A4EF" />
       <rect x="12.5" y="12.5" width="9.5" height="9.5" fill="#FFB900" />
     </Frame>
-  );
-}
-
-export function HybridAILogo({
-  width = 18,
-  height = 18,
-  className,
-  style,
-}: ProviderLogoProps) {
-  return (
-    <img
-      aria-hidden="true"
-      src={hybridaiLogoUrl}
-      width={width}
-      height={height}
-      className={className}
-      style={style}
-      alt=""
-      draggable={false}
-      decoding="async"
-    />
   );
 }
 
