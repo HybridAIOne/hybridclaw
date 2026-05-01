@@ -1,10 +1,12 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import {
+const require = createRequire(import.meta.url);
+const {
   createAwsInvoiceAdapter,
   createAzureInvoiceAdapter,
   createGcpInvoiceAdapter,
@@ -15,20 +17,57 @@ import {
   harvestProviderInvoices,
   INVOICE_PROVIDER_DEFINITIONS,
   INVOICE_SCRAPE_PLANS,
-  type InvoiceAdapter,
-  type InvoiceMeta,
-  type InvoiceProviderId,
   loadInvoiceManifest,
   parseInvoiceMoneyText,
   RecordedFixtureInvoiceAdapter,
   resolveInvoiceCredentials,
   runMonthlyInvoiceRun,
-  type ScrapeInvoiceDriver,
   StripeInvoiceAdapter,
   saveInvoiceManifest,
   validateInvoiceHarvesterConfig,
   validateInvoiceRecord,
-} from '../src/invoices/index.js';
+} = require('../skills/download-platform-invoices/index.cjs');
+
+type InvoiceAdapter<Session = unknown> = {
+  id: string;
+  displayName: string;
+  login(credentials: Record<string, string>, context: unknown): Promise<Session>;
+  listInvoices(session: Session, options: unknown): Promise<InvoiceMeta[]>;
+  download(session: Session, invoice: InvoiceMeta): Promise<Uint8Array>;
+  close?(session: Session): void | Promise<void>;
+};
+
+type InvoiceMeta = {
+  vendor: string;
+  invoice_no: string;
+  period: string;
+  issue_date: string;
+  due_date: string;
+  net: number;
+  vat_rate: number;
+  vat: number;
+  gross: number;
+  currency: string;
+  source_url: string;
+};
+
+type InvoiceProviderId =
+  | 'stripe'
+  | 'github'
+  | 'openai'
+  | 'anthropic'
+  | 'atlassian'
+  | 'linkedin'
+  | 'google-ads'
+  | 'aws'
+  | 'gcp'
+  | 'azure';
+
+type ScrapeInvoiceDriver = {
+  login(credentials: Record<string, string>, context: unknown): Promise<void>;
+  listInvoices(options: unknown): Promise<InvoiceMeta[]>;
+  downloadInvoice(invoice: InvoiceMeta): Promise<Uint8Array>;
+};
 
 const invoiceMeta: InvoiceMeta = {
   vendor: 'openai',
@@ -241,7 +280,10 @@ describe('reference invoice adapters', () => {
 
   test('maps Stripe API invoices and downloads the official PDF', async () => {
     const fixture = fs.readFileSync(
-      new URL('./fixtures/invoices/stripe-invoices.json', import.meta.url),
+      new URL(
+        '../skills/download-platform-invoices/fixtures/stripe-invoices.json',
+        import.meta.url,
+      ),
       'utf-8',
     );
     const fetchMock = vi.fn(async (input: string | URL) => {
@@ -599,7 +641,7 @@ describe('recorded invoice eval fixtures', () => {
       id,
       displayName: id,
       fixturePath: new URL(
-        `./fixtures/invoices/recorded-${id}.json`,
+        `../skills/download-platform-invoices/fixtures/recorded-${id}.json`,
         import.meta.url,
       ).pathname,
     });
@@ -701,7 +743,7 @@ describe('invoice harvester config and monthly workflow', () => {
       id: 'stripe',
       displayName: 'Stripe',
       fixturePath: new URL(
-        './fixtures/invoices/recorded-stripe.json',
+        '../skills/download-platform-invoices/fixtures/recorded-stripe.json',
         import.meta.url,
       ).pathname,
     });
@@ -817,7 +859,7 @@ describe('invoice harvester config and monthly workflow', () => {
       id: 'stripe',
       displayName: 'Stripe',
       fixturePath: new URL(
-        './fixtures/invoices/recorded-stripe.json',
+        '../skills/download-platform-invoices/fixtures/recorded-stripe.json',
         import.meta.url,
       ).pathname,
     });

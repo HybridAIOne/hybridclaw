@@ -44,8 +44,8 @@ official PDF. The record shape is:
 }
 ```
 
-Validate records with `src/invoices/schema.ts`. Keep `pdf_path` relative to the
-invoice run directory.
+Validate records with the colocated `schema.json` contract. Keep `pdf_path`
+relative to the invoice run directory.
 
 ## Adapter Contract
 
@@ -57,7 +57,7 @@ listInvoices(session, { since }) -> InvoiceMeta[]
 download(session, invoice) -> Uint8Array
 ```
 
-The reference implementation lives in `src/invoices/`:
+The runtime implementation is colocated with this skill:
 
 - Stripe API adapter
 - browser-driver scrape adapters for GitHub, OpenAI, Anthropic, Atlassian,
@@ -101,8 +101,7 @@ manifest, then pass the normalized records and PDF paths to the DATEV upload
 step. The composed workflow fixture is
 `tests/fixtures/workflows/monthly-invoice-run.workflow.yaml`.
 
-The runtime composition helper is `runMonthlyInvoiceRun` in
-`src/invoices/monthly-run.ts`. It runs configured providers one at a time,
-emits invoice audit events, and calls `DatevUnternehmenOnlineUploadAdapter`
-when the handoff is enabled and the operator provides a configured DATEV upload
-driver/profile.
+The runtime composition helper is `runMonthlyInvoiceRun` in `harvester.cjs`. It
+runs configured providers one at a time, emits invoice audit events, and calls
+`DatevUnternehmenOnlineUploadAdapter` when the handoff is enabled and the
+operator provides a configured DATEV upload driver/profile.

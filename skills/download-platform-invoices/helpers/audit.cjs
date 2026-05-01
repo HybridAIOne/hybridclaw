@@ -1,19 +1,9 @@
-import {
-  makeAuditRunId,
-  type RecordAuditEventInput,
-  recordAuditEvent,
-} from '../audit/audit-events.js';
-import type { InvoiceRecord } from './types.js';
+function makeAuditRunId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}`;
+}
 
-export type InvoiceAuditRecorder = (input: RecordAuditEventInput) => void;
-
-export function emitInvoiceFetchedAudit(input: {
-  sessionId: string;
-  runId?: string;
-  record: InvoiceRecord;
-  recordAudit?: InvoiceAuditRecorder;
-}): void {
-  const recordAudit = input.recordAudit || recordAuditEvent;
+function emitInvoiceFetchedAudit(input) {
+  const recordAudit = input.recordAudit || (() => undefined);
   recordAudit({
     sessionId: input.sessionId,
     runId: input.runId || makeAuditRunId('invoice'),
@@ -31,3 +21,5 @@ export function emitInvoiceFetchedAudit(input: {
     },
   });
 }
+
+module.exports = { emitInvoiceFetchedAudit, makeAuditRunId };
