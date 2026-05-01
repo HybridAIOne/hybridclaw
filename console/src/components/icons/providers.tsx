@@ -1,4 +1,5 @@
 import type { ReactNode, SVGProps } from 'react';
+import hybridaiLogoUrl from './hybridai-logo.png';
 
 export type ProviderLogoProps = SVGProps<SVGSVGElement>;
 
@@ -178,7 +179,7 @@ export function HybridAILogo({
   return (
     <img
       aria-hidden="true"
-      src="/icons/hybridai.png"
+      src={hybridaiLogoUrl}
       width={width}
       height={height}
       className={className}
