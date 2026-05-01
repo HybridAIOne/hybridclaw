@@ -56,6 +56,7 @@ import {
   type RuntimeProviderId,
 } from '../providers/provider-ids.js';
 import { DEFAULT_RESOURCE_HYGIENE_SCHEDULER_JOB } from '../scheduler/system-jobs.js';
+import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
   parseSecretInput,
@@ -4118,8 +4119,55 @@ function resolveConfiguredSecretInput(
     path: opts.path,
     required: opts.required,
     reason: `resolve runtime config secret ${opts.path}`,
-    // Runtime config resolution can happen before a session audit context exists.
-    audit: () => undefined,
+    audit: (handle, reason) =>
+      auditConfiguredSecretUnsafeEscape(handle, reason, opts.path),
+  });
+}
+
+function auditConfiguredSecretUnsafeEscape(
+  handle: SecretHandle,
+  reason: string,
+  path: RuntimeConfigSecretInputPath,
+): void {
+  const event = {
+    skill: null,
+    secretRef: {
+      source: handle.ref.source,
+      id: handle.ref.id,
+    },
+    sinkKind: handle.sinkKind,
+    host: null,
+    selector: path,
+  };
+
+  queueMicrotask(() => {
+    void import('../audit/audit-events.js')
+      .then(({ makeAuditRunId, recordAuditEvent }) => {
+        const sessionId = 'secret-resolution';
+        const runId = makeAuditRunId('secret');
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'secret.resolved',
+            ...event,
+          },
+        });
+        recordAuditEvent({
+          sessionId,
+          runId,
+          event: {
+            type: 'secret.unsafe_escape',
+            ...event,
+            reason,
+          },
+        });
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          `[runtime-config] secret audit failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
   });
 }
 
