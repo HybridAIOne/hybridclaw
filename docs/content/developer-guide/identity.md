@@ -39,10 +39,8 @@ two different users.
 
 HybridClaw reserves these authorities:
 
-- `hybridai`: canonical HybridAI-hosted user authority and the default used by
-  `formatUserId(username)`
-- `local`: un-federated single-instance authority for local-only operators or
-  demos
+- `hybridai`: canonical HybridAI-hosted user authority and the default used by `formatUserId(username)`
+- `local`: un-federated single-instance authority for local-only operators or demos
 
 Other authorities are valid when a federated identity provider or deployment
 owns that namespace.

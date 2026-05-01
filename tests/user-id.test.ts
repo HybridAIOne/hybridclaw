@@ -65,6 +65,7 @@ describe('canonical user ids', () => {
       'lena@',
       '@hybridai',
       'lena@@hybridai',
+      'lena@hybridai@extra',
       'lena smith@hybridai',
       'lena@hybrid ai',
       '.lena@hybridai',

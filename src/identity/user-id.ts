@@ -78,7 +78,6 @@ export function formatUserId(
 
 export function parseUserId(value: string): ParsedUserId {
   const normalized = String(value || '').trim();
-  const issues: string[] = [];
 
   if (!normalized) {
     throw new UserIdValidationError(['user id is required']);
@@ -86,21 +85,13 @@ export function parseUserId(value: string): ParsedUserId {
 
   const parts = normalized.split('@');
   if (parts.length !== 2) {
-    issues.push('user id must use the username@authority format');
+    throw new UserIdValidationError([
+      'user id must use the username@authority format',
+    ]);
   }
 
   const [username = '', authority = ''] = parts;
-  try {
-    return normalizeAndValidateUserIdParts(username, authority);
-  } catch (error) {
-    if (error instanceof UserIdValidationError) {
-      issues.push(...error.issues);
-    } else {
-      throw error;
-    }
-  }
-
-  throw new UserIdValidationError(issues);
+  return normalizeAndValidateUserIdParts(username, authority);
 }
 
 function normalizeComparableUserId(value: string | ParsedUserId): string {
