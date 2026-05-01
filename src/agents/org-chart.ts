@@ -94,7 +94,3 @@ export function escalationChain(
 
   return chain;
 }
-
-export const manager_of = managerOf;
-export const peers_of = peersOf;
-export const escalation_chain = escalationChain;

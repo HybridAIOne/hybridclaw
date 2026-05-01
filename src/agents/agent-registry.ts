@@ -38,9 +38,9 @@ import {
 } from './agent-types.js';
 import {
   hasAgentReference,
-  escalation_chain as resolveOrgChartEscalationChain,
-  manager_of as resolveOrgChartManager,
-  peers_of as resolveOrgChartPeers,
+  escalationChain as resolveOrgChartEscalationChain,
+  managerOf as resolveOrgChartManager,
+  peersOf as resolveOrgChartPeers,
 } from './org-chart.js';
 import {
   type AgentTeamStructureRevision,
