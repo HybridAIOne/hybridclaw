@@ -60,9 +60,11 @@ download(session, invoice) -> Uint8Array
 The reference implementation lives in `src/invoices/`:
 
 - Stripe API adapter
-- browser-driver scrape adapters for GitHub, OpenAI, Anthropic, Atlassian, and
-  LinkedIn
-- API-client adapters for Google Ads, AWS, GCP, and Azure
+- browser-driver scrape adapters for GitHub, OpenAI, Anthropic, Atlassian,
+  LinkedIn, and GCP Cloud Billing documents
+- native API adapters for Google Ads InvoiceService, AWS Invoicing, and Azure
+  Billing invoices
+- browser-driver DATEV Unternehmen Online upload handoff
 - manifest-based idempotency using `(vendor, invoice_no)` and
   `checksum_sha256`
 - audit event emission per fetched invoice
@@ -101,5 +103,6 @@ step. The composed workflow fixture is
 
 The runtime composition helper is `runMonthlyInvoiceRun` in
 `src/invoices/monthly-run.ts`. It runs configured providers one at a time,
-emits invoice audit events, and calls a DATEV upload adapter when the handoff is
-enabled.
+emits invoice audit events, and calls `DatevUnternehmenOnlineUploadAdapter`
+when the handoff is enabled and the operator provides a configured DATEV upload
+driver/profile.

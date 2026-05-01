@@ -26,6 +26,9 @@ const tablePlan = {
   | 'pdfLinkSelector'
 >;
 
+const totpSelector =
+  'input[autocomplete="one-time-code"], input[name*="totp" i], input[name*="otp" i]';
+
 export const INVOICE_SCRAPE_PLANS: Partial<
   Record<InvoiceProviderId, ScrapeInvoicePlan>
 > = {
@@ -35,6 +38,7 @@ export const INVOICE_SCRAPE_PLANS: Partial<
     usernameSelector: 'input[name="login"]',
     passwordSelector: 'input[name="password"]',
     submitSelector: 'input[type="submit"], button[type="submit"]',
+    totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
     ...tablePlan,
   },
@@ -44,6 +48,7 @@ export const INVOICE_SCRAPE_PLANS: Partial<
     usernameSelector: 'input[name="email"], input[type="email"]',
     passwordSelector: 'input[name="password"], input[type="password"]',
     submitSelector: 'button[type="submit"]',
+    totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
     ...tablePlan,
   },
@@ -53,6 +58,7 @@ export const INVOICE_SCRAPE_PLANS: Partial<
     usernameSelector: 'input[name="email"], input[type="email"]',
     passwordSelector: 'input[name="password"], input[type="password"]',
     submitSelector: 'button[type="submit"]',
+    totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
     ...tablePlan,
   },
@@ -62,6 +68,7 @@ export const INVOICE_SCRAPE_PLANS: Partial<
     usernameSelector: 'input[name="username"], input[type="email"]',
     passwordSelector: 'input[name="password"], input[type="password"]',
     submitSelector: 'button[type="submit"]',
+    totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
     ...tablePlan,
   },
@@ -71,7 +78,18 @@ export const INVOICE_SCRAPE_PLANS: Partial<
     usernameSelector: 'input[name="session_key"]',
     passwordSelector: 'input[name="session_password"]',
     submitSelector: 'button[type="submit"]',
+    totpSelector,
     captchaSelector: '[data-test-id="captcha"], iframe[src*="captcha"]',
+    ...tablePlan,
+  },
+  gcp: {
+    loginUrl: 'https://accounts.google.com/',
+    billingUrl: 'https://console.cloud.google.com/billing/documents',
+    usernameSelector: 'input[type="email"]',
+    passwordSelector: 'input[type="password"]',
+    submitSelector: 'button[type="submit"], #identifierNext, #passwordNext',
+    totpSelector,
+    captchaSelector: 'iframe[src*="captcha"], [aria-label*="captcha" i]',
     ...tablePlan,
   },
 };

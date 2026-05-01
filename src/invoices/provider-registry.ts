@@ -1,13 +1,12 @@
 import {
   createAwsInvoiceAdapter,
   createAzureInvoiceAdapter,
-  createGcpInvoiceAdapter,
   createGoogleAdsInvoiceAdapter,
-  type InvoiceApiClient,
 } from './adapters/api-client.js';
 import {
   createAnthropicInvoiceAdapter,
   createAtlassianInvoiceAdapter,
+  createGcpInvoiceAdapter,
   createGitHubInvoiceAdapter,
   createLinkedInInvoiceAdapter,
   createOpenAIInvoiceAdapter,
@@ -45,47 +44,34 @@ function createScrapeAdapters(
     createAnthropicInvoiceAdapter({ driver: drivers.anthropic }),
     createAtlassianInvoiceAdapter({ driver: drivers.atlassian }),
     createLinkedInInvoiceAdapter({ driver: drivers.linkedin }),
+    createGcpInvoiceAdapter({ driver: drivers.gcp }),
   ];
-}
-
-function createApiAdapters(
-  clients: Partial<Record<InvoiceProviderId, InvoiceApiClient>>,
-): InvoiceAdapter[] {
-  const adapters: InvoiceAdapter[] = [];
-  if (clients['google-ads']) {
-    adapters.push(createGoogleAdsInvoiceAdapter(clients['google-ads']));
-  }
-  if (clients.aws) adapters.push(createAwsInvoiceAdapter(clients.aws));
-  if (clients.gcp) adapters.push(createGcpInvoiceAdapter(clients.gcp));
-  if (clients.azure) adapters.push(createAzureInvoiceAdapter(clients.azure));
-  return adapters;
 }
 
 export function createReferenceInvoiceAdapters(
   options: {
     fetch?: FetchLike;
     scrapeDrivers?: Partial<Record<InvoiceProviderId, ScrapeInvoiceDriver>>;
-    apiClients?: Partial<Record<InvoiceProviderId, InvoiceApiClient>>;
   } = {},
 ): InvoiceAdapter[] {
   return [
     new StripeInvoiceAdapter({ fetch: options.fetch }),
     ...createScrapeAdapters(options.scrapeDrivers),
-    ...createApiAdapters(options.apiClients || {}),
+    createGoogleAdsInvoiceAdapter({ fetch: options.fetch }),
+    createAwsInvoiceAdapter({ fetch: options.fetch }),
+    createAzureInvoiceAdapter({ fetch: options.fetch }),
   ];
 }
 
 export function createLaunchInvoiceAdapters(options: {
   fetch?: FetchLike;
   scrapeDrivers: Partial<Record<InvoiceProviderId, ScrapeInvoiceDriver>>;
-  apiClients: Pick<
-    Record<InvoiceProviderId, InvoiceApiClient>,
-    'google-ads' | 'aws' | 'gcp' | 'azure'
-  >;
 }): InvoiceAdapter[] {
   return [
     new StripeInvoiceAdapter({ fetch: options.fetch }),
     ...createScrapeAdapters(options.scrapeDrivers),
-    ...createApiAdapters(options.apiClients),
+    createGoogleAdsInvoiceAdapter({ fetch: options.fetch }),
+    createAwsInvoiceAdapter({ fetch: options.fetch }),
+    createAzureInvoiceAdapter({ fetch: options.fetch }),
   ];
 }

@@ -7,6 +7,7 @@ export * from './audit.js';
 export * from './config.js';
 export * from './credentials.js';
 export * from './date-utils.js';
+export * from './datev-upload.js';
 export * from './harvester.js';
 export * from './idempotency.js';
 export * from './monthly-run.js';

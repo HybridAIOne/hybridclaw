@@ -75,6 +75,7 @@ const SCRAPE_PROVIDER_DISPLAY_NAMES = {
   anthropic: 'Anthropic',
   atlassian: 'Atlassian',
   linkedin: 'LinkedIn Campaign Manager',
+  gcp: 'GCP',
 } satisfies Partial<Record<InvoiceProviderId, string>>;
 
 function createScrapeInvoiceAdapter(
@@ -121,6 +122,12 @@ export function createLinkedInInvoiceAdapter(
   options: { driver?: ScrapeInvoiceDriver } = {},
 ): DashboardScrapeInvoiceAdapter {
   return createScrapeInvoiceAdapter('linkedin', options);
+}
+
+export function createGcpInvoiceAdapter(
+  options: { driver?: ScrapeInvoiceDriver } = {},
+): DashboardScrapeInvoiceAdapter {
+  return createScrapeInvoiceAdapter('gcp', options);
 }
 
 export function createPlaywrightScrapeDriver(

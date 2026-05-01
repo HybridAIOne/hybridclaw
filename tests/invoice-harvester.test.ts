@@ -10,11 +10,12 @@ import {
   createGcpInvoiceAdapter,
   createGitHubInvoiceAdapter,
   createGoogleAdsInvoiceAdapter,
+  DatevUnternehmenOnlineUploadAdapter,
+  generateTotp,
   harvestProviderInvoices,
   INVOICE_PROVIDER_DEFINITIONS,
   INVOICE_SCRAPE_PLANS,
   type InvoiceAdapter,
-  type InvoiceApiClient,
   type InvoiceMeta,
   type InvoiceProviderId,
   loadInvoiceManifest,
@@ -230,6 +231,7 @@ describe('reference invoice adapters', () => {
     expect(Object.keys(INVOICE_SCRAPE_PLANS).sort()).toEqual([
       'anthropic',
       'atlassian',
+      'gcp',
       'github',
       'linkedin',
       'openai',
@@ -320,6 +322,12 @@ describe('reference invoice adapters', () => {
     );
   });
 
+  test('generates RFC 6238-compatible TOTP codes for scrape MFA', () => {
+    expect(generateTotp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 59_000)).toBe(
+      '287082',
+    );
+  });
+
   test('scrape adapters use injected browser drivers for offline fixtures', async () => {
     const driver: ScrapeInvoiceDriver = {
       login: vi.fn(async () => undefined),
@@ -354,44 +362,223 @@ describe('reference invoice adapters', () => {
     );
   });
 
-  test('API adapters run through injected clients for launch providers', async () => {
-    const client: InvoiceApiClient = {
-      listInvoices: vi.fn(async ({ context }) => [
-        {
-          ...invoiceMeta,
-          vendor: context.providerId,
-          invoice_no: `${context.providerId}-2026-03-001`,
-        },
-      ]),
-      downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF api')),
+  test('Google Ads adapter calls InvoiceService and downloads invoice PDFs', async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('/customers/1234567890/invoices')) {
+        expect(url).toContain('issueYear=2026');
+        expect(url).toContain('issueMonth=MARCH');
+        return new Response(
+          JSON.stringify({
+            invoices: [
+              {
+                id: 'GA-2026-03-001',
+                issueDate: { year: 2026, month: 4, day: 1 },
+                dueDate: { year: 2026, month: 4, day: 15 },
+                serviceDateRange: {
+                  startDate: { year: 2026, month: 3, day: 1 },
+                },
+                subtotalAmountMicros: '100000000',
+                taxAmountMicros: '19000000',
+                totalAmountMicros: '119000000',
+                currencyCode: 'EUR',
+                pdfUrl: 'https://googleads.googleapis.com/invoices/pdf-1',
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('%PDF google ads', { status: 200 });
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await adapter.login(
+      {
+        accessToken: 'token',
+        developerToken: 'developer',
+        customerId: '123-456-7890',
+        billingSetup: 'customers/1234567890/billingSetups/111',
+      },
+      { providerId: 'google-ads' },
+    );
+
+    const invoices = await adapter.listInvoices(session, {
+      since: '2026-03-01',
+    });
+    const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
+
+    expect(invoices[0]).toMatchObject({
+      vendor: 'google-ads',
+      invoice_no: 'GA-2026-03-001',
+      period: '2026-03',
+      net: 100,
+      vat: 19,
+      gross: 119,
+    });
+    expect(new TextDecoder().decode(pdf)).toBe('%PDF google ads');
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'https://googleads.googleapis.com/invoices/pdf-1',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token',
+          'developer-token': 'developer',
+        }),
+      }),
+    );
+  });
+
+  test('AWS adapter signs Invoicing API requests and downloads invoice PDFs', async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('invoicing.us-east-1.amazonaws.com')) {
+        expect(init?.headers).toEqual(
+          expect.objectContaining({
+            authorization: expect.stringContaining('AWS4-HMAC-SHA256'),
+            'x-amz-target': expect.stringContaining('AWSInvoicingService.'),
+          }),
+        );
+        const body = JSON.parse(String(init?.body || '{}')) as {
+          InvoiceId?: string;
+        };
+        if (body.InvoiceId) {
+          return new Response(
+            JSON.stringify({
+              InvoicePDF: {
+                DocumentUrl: 'https://aws.example/invoices/pdf-1',
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            InvoiceSummaries: [
+              {
+                InvoiceId: 'AWS-2026-03-001',
+                BillingPeriod: { Month: 3, Year: 2026 },
+                IssuedDate: '2026-04-01',
+                DueDate: '2026-04-15',
+                PaymentCurrencyAmount: {
+                  CurrencyCode: 'EUR',
+                  TotalAmountBeforeTax: '100',
+                  AmountBreakdown: { Taxes: { TotalAmount: '19' } },
+                  TotalAmount: '119',
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('%PDF aws', { status: 200 });
+    });
+    const adapter = createAwsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await adapter.login(
+      {
+        accessKeyId: 'AKIATEST',
+        secretAccessKey: 'test-secret',
+        accountId: '123456789012',
+        region: 'us-east-1',
+      },
+      { providerId: 'aws' },
+    );
+
+    const invoices = await adapter.listInvoices(session, {
+      since: '2026-03-01',
+    });
+    const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
+
+    expect(invoices[0]).toMatchObject({
+      vendor: 'aws',
+      invoice_no: 'AWS-2026-03-001',
+      period: '2026-03',
+      net: 100,
+      vat: 19,
+      gross: 119,
+      currency: 'EUR',
+    });
+    expect(new TextDecoder().decode(pdf)).toBe('%PDF aws');
+  });
+
+  test('Azure adapter lists invoices and follows the download URL', async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('/invoices?')) {
+        return new Response(
+          JSON.stringify({
+            value: [
+              {
+                name: 'AZ-2026-03-001',
+                properties: {
+                  invoiceDate: '2026-04-01',
+                  dueDate: '2026-04-15',
+                  billingPeriodStartDate: '2026-03-01',
+                  subTotal: { value: 100 },
+                  taxAmount: { value: 19 },
+                  totalAmount: { value: 119 },
+                  currency: 'EUR',
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes('/download?')) {
+        return new Response(
+          JSON.stringify({
+            url: 'https://azure.example/invoices/pdf-1',
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('%PDF azure', { status: 200 });
+    });
+    const adapter = createAzureInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await adapter.login(
+      { accessToken: 'token', billingAccountId: 'billing-account' },
+      { providerId: 'azure' },
+    );
+
+    const invoices = await adapter.listInvoices(session, {
+      since: '2026-03-01',
+    });
+    const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
+
+    expect(invoices[0]).toMatchObject({
+      vendor: 'azure',
+      invoice_no: 'AZ-2026-03-001',
+      period: '2026-03',
+      net: 100,
+      vat: 19,
+      gross: 119,
+    });
+    expect(new TextDecoder().decode(pdf)).toBe('%PDF azure');
+  });
+
+  test('GCP adapter uses the browser scrape path for Cloud Billing documents', async () => {
+    const driver: ScrapeInvoiceDriver = {
+      login: vi.fn(async () => undefined),
+      listInvoices: vi.fn(async () => [{ ...invoiceMeta, vendor: 'gcp' }]),
+      downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF gcp')),
     };
-    const adapters = [
-      createGoogleAdsInvoiceAdapter(client),
-      createAwsInvoiceAdapter(client),
-      createGcpInvoiceAdapter(client),
-      createAzureInvoiceAdapter(client),
-    ];
+    const adapter = createGcpInvoiceAdapter({ driver });
+    const session = await adapter.login(
+      { username: 'user_a', password: 'password' },
+      { providerId: 'gcp', profileDir: '/tmp/gcp-profile' },
+    );
 
-    for (const adapter of adapters) {
-      const session = await adapter.login(
-        {
-          accessToken: 'token',
-          developerToken: 'developer',
-          customerId: 'customer',
-          accessKeyId: 'key',
-          secretAccessKey: 'secret',
-          region: 'eu-central-1',
-          billingAccountId: 'billing',
-        },
-        { providerId: adapter.id },
-      );
-
-      const invoices = await adapter.listInvoices(session, {});
-      expect(invoices[0]?.vendor).toBe(adapter.id);
-      await expect(
-        adapter.download(session, invoices[0] as InvoiceMeta),
-      ).resolves.toBeInstanceOf(Uint8Array);
-    }
+    const invoices = await adapter.listInvoices(session, {});
+    expect(invoices[0]?.vendor).toBe('gcp');
+    await expect(
+      adapter.download(session, invoices[0] as InvoiceMeta),
+    ).resolves.toBeInstanceOf(Uint8Array);
   });
 });
 
@@ -560,6 +747,55 @@ describe('invoice harvester config and monthly workflow', () => {
         ]),
       }),
     );
+  });
+
+  test('DATEV Unternehmen Online uploader sends harvested PDFs through a browser driver', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-'));
+    const pdfPath = path.join(
+      outputDir,
+      'runs',
+      '2026-03',
+      'stripe',
+      'ST-2026-03-001.pdf',
+    );
+    fs.mkdirSync(path.dirname(pdfPath), { recursive: true });
+    fs.writeFileSync(pdfPath, '%PDF stripe');
+    const record = validateInvoiceRecord({
+      ...invoiceMeta,
+      vendor: 'stripe',
+      invoice_no: 'ST-2026-03-001',
+      pdf_path: 'runs/2026-03/stripe/ST-2026-03-001.pdf',
+      checksum_sha256:
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    });
+    const session = { close: vi.fn(async () => undefined) };
+    const driver = {
+      login: vi.fn(async () => session),
+      uploadInvoice: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    };
+    const adapter = new DatevUnternehmenOnlineUploadAdapter({
+      credentials: { username: 'datev-user', password: 'datev-password' },
+      profileDir: '/tmp/datev-profile',
+      driver,
+    });
+
+    await adapter.uploadInvoices({
+      workflowId: 'workflow_monthly_invoice_run',
+      records: [record],
+      outputDir,
+      invoiceRoots: [],
+    });
+
+    expect(driver.login).toHaveBeenCalledWith({
+      credentials: { username: 'datev-user', password: 'datev-password' },
+      profileDir: '/tmp/datev-profile',
+    });
+    expect(driver.uploadInvoice).toHaveBeenCalledWith(session, {
+      record,
+      pdfPath,
+    });
+    expect(driver.close).toHaveBeenCalledWith(session);
   });
 
   test('keeps monthly runs going after one provider fails', async () => {

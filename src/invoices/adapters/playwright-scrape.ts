@@ -89,7 +89,7 @@ function decodeBase32(value: string): Buffer {
   return Buffer.from(bytes);
 }
 
-function generateTotp(secret: string, now = Date.now()): string {
+export function generateTotp(secret: string, now = Date.now()): string {
   const counter = Math.floor(now / 1000 / 30);
   const counterBuffer = Buffer.alloc(8);
   counterBuffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
