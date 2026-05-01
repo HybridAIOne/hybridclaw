@@ -16,10 +16,12 @@ import {
   escalationTargetEquals,
   normalizeEscalationTarget,
 } from '../types/execution.js';
+import { parseJsonObject } from '../utils/json-object.js';
 import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 
 export const INTERACTION_SESSION_DEFAULT_TTL_MS = 30 * 60_000;
 export const INTERACTION_SESSION_MIN_TTL_MS = 60_000;
+export const INTERACTION_SESSION_MAX_PENDING = 500;
 
 export const INTERACTION_MODALITIES = [
   'totp',
@@ -185,6 +187,13 @@ export function parseOperatorReturnText(
 
 const SUSPENDED_SESSION_ASSET_PREFIX = 'interactive-escalation/session/';
 const operatorReturnBySession = new Map<string, OperatorReturn>();
+const PREFERRED_CHANNELS_BY_MODALITY: Record<InteractionModality, string[]> = {
+  totp: ['mobile_admin', 'sms'],
+  push: ['push', 'mobile_admin'],
+  qr: ['mobile_admin', 'push'],
+  sms: ['sms', 'mobile_admin'],
+  recovery_code: ['mobile_admin', 'sms'],
+};
 const TWO_FACTOR_TEXT_PATTERNS: Array<{
   modality: InteractionModality;
   pattern: RegExp;
@@ -212,18 +221,6 @@ const TWO_FACTOR_TEXT_PATTERNS: Array<{
 function suspendedSessionAssetPath(sessionId: string): string {
   const normalized = encodeURIComponent(sessionId.trim());
   return `${SUSPENDED_SESSION_ASSET_PREFIX}${normalized || 'session'}.json`;
-}
-
-function parseJsonObject(text: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 function isInteractionModality(value: unknown): value is InteractionModality {
@@ -381,6 +378,17 @@ function statusForResponse(response: OperatorReturn): SuspendedSessionStatus {
   return 'resumed';
 }
 
+function assertSuspendedSessionCapacity(nextSessionId: string): void {
+  const existing = getSuspendedSession(nextSessionId);
+  if (existing?.status === 'pending') return;
+  const pendingCount = listSuspendedSessions().length;
+  if (pendingCount >= INTERACTION_SESSION_MAX_PENDING) {
+    throw new Error(
+      `Too many pending suspended sessions (${pendingCount}); refusing to create another interactive escalation.`,
+    );
+  }
+}
+
 function timeoutEscalationMessage(session: SuspendedSession): string {
   const host =
     session.context.host || session.context.url || 'the current page';
@@ -512,6 +520,8 @@ export function createSuspendedSession(
   input: CreateSuspendedSessionInput,
 ): SuspendedSession {
   const createdAt = Date.now();
+  const sessionId = input.sessionId?.trim() || randomUUID();
+  assertSuspendedSessionCapacity(sessionId);
   const expiresAt =
     typeof input.expiresAt === 'number' && Number.isFinite(input.expiresAt)
       ? Math.max(createdAt + INTERACTION_SESSION_MIN_TTL_MS, input.expiresAt)
@@ -522,7 +532,7 @@ export function createSuspendedSession(
         );
   const session: SuspendedSession = {
     schemaVersion: 1,
-    sessionId: input.sessionId?.trim() || randomUUID(),
+    sessionId,
     approvalId: input.approvalId?.trim() || randomUUID(),
     prompt: input.prompt,
     userId: input.userId,
@@ -570,23 +580,21 @@ export function resumeWith(
   if (session.status !== 'pending') {
     throw new Error(`Suspended session is already ${session.status}.`);
   }
+  const now = Date.now();
+  if (session.expiresAt <= now) {
+    expireSuspendedSession(session, now);
+    throw new Error('Suspended session has expired.');
+  }
   if (!session.expectedReturnKinds.includes(response.kind)) {
     throw new Error(
       `Suspended session ${sessionId} does not accept ${response.kind} responses.`,
     );
   }
 
-  const now = Date.now();
-  session.status =
-    session.expiresAt <= now ? 'expired' : statusForResponse(response);
+  session.status = statusForResponse(response);
   session.resolvedAt = now;
-  session.response =
-    session.status === 'expired'
-      ? { kind: 'timeout' }
-      : storedOperatorReturn(response);
-  if (session.status !== 'expired') {
-    operatorReturnBySession.set(session.sessionId, response);
-  }
+  session.response = storedOperatorReturn(response);
+  operatorReturnBySession.set(session.sessionId, response);
   persistSuspendedSession(session);
   recordAuditEvent({
     sessionId: session.sessionId,
@@ -666,7 +674,15 @@ export function detectTwoFactorChallenge(
       normalized.includes("autocomplete='one-time-code'") ||
       normalized.includes('input[autocomplete=one-time-code]') ||
       normalized.includes('input[type=tel]') ||
-      normalized.includes('inputmode=numeric')
+      normalized.includes('inputmode=numeric') ||
+      normalized.includes('name*="otp"') ||
+      normalized.includes("name*='otp'") ||
+      normalized.includes('id*="otp"') ||
+      normalized.includes("id*='otp'") ||
+      normalized.includes('name*="code"') ||
+      normalized.includes("name*='code'") ||
+      normalized.includes('id*="code"') ||
+      normalized.includes("id*='code'")
     ) {
       signals.push(`selector:${selector}`);
     }
@@ -703,14 +719,7 @@ export function resolveInteractionRouting(
   modality: InteractionModality,
   target?: EscalationTarget,
 ): InteractionRoutingPlan {
-  const preferredChannels =
-    modality === 'qr'
-      ? ['mobile_admin', 'push']
-      : modality === 'push'
-        ? ['push', 'mobile_admin']
-        : modality === 'sms'
-          ? ['sms', 'mobile_admin']
-          : ['mobile_admin', 'sms'];
+  const preferredChannels = PREFERRED_CHANNELS_BY_MODALITY[modality];
   const fallbackChannels = [
     ...preferredChannels,
     ...['sms', 'email'].filter(

@@ -1041,6 +1041,7 @@ export interface AdminPendingApproval {
   actionKey: string | null;
 }
 
+// Mirrors GatewayAdminSuspendedSession in src/gateway/gateway-types.ts.
 export interface AdminSuspendedSession {
   sessionId: string;
   agentId: string | null;

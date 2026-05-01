@@ -3361,6 +3361,8 @@ function broadcastSseEvent(
   }
 }
 
+type InteractiveHandlerBody = Record<string, unknown>;
+
 function queueInteractionNotification(
   session: ReturnType<typeof createSuspendedSession>,
 ): {
@@ -3380,91 +3382,125 @@ function queueInteractionNotification(
   return { queued: true, channelId: targetChannel };
 }
 
-async function handleApiInteractiveEscalations(
+function sendApiInteractiveError(res: ServerResponse, error: unknown): void {
+  const status = error instanceof GatewayRequestError ? error.statusCode : 500;
+  sendJson(res, status, {
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
+async function readInteractiveBody(
+  req: IncomingMessage,
+): Promise<InteractiveHandlerBody> {
+  return (await readJsonBody(req)) as InteractiveHandlerBody;
+}
+
+function handleApiListInteractiveEscalations(res: ServerResponse): void {
+  sendJson(res, 200, {
+    sessions: getGatewayAdminApprovals().suspendedSessions,
+  });
+}
+
+async function handleApiResumeInteractiveEscalation(
   req: IncomingMessage,
   res: ServerResponse,
-  url: URL,
   activeSseResponses: Set<ServerResponse>,
 ): Promise<void> {
   try {
-    if (req.method === 'GET') {
-      sendJson(res, 200, {
-        sessions: getGatewayAdminApprovals().suspendedSessions,
-      });
-      return;
+    const body = await readInteractiveBody(req);
+    const sessionId = normalizeOptionalString(body.sessionId);
+    if (!sessionId) {
+      throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
     }
-
-    const body = (await readJsonBody(req)) as Record<string, unknown>;
-    if (url.pathname === '/api/interactive-escalations/resume') {
-      const sessionId = normalizeOptionalString(body.sessionId);
-      if (!sessionId) {
-        throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
-      }
-      const response = parseOperatorReturn(body.response);
-      const text = normalizeOptionalString(body.text);
-      const result = response
-        ? { response, session: resumeWith(sessionId, response) }
-        : text
-          ? resumeWithText(sessionId, text)
-          : null;
-      if (!result) {
-        throw new GatewayRequestError(
-          400,
-          'Expected `response` object or typed reply `text`.',
-        );
-      }
-      broadcastSseEvent(activeSseResponses, 'interaction_response', result);
-      sendJson(res, 200, result);
-      return;
+    const response = parseOperatorReturn(body.response);
+    const text = normalizeOptionalString(body.text);
+    const result = response
+      ? { response, session: resumeWith(sessionId, response) }
+      : text
+        ? resumeWithText(sessionId, text)
+        : null;
+    if (!result) {
+      throw new GatewayRequestError(
+        400,
+        'Expected `response` object or typed reply `text`.',
+      );
     }
+    broadcastSseEvent(activeSseResponses, 'interaction_response', result);
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendApiInteractiveError(res, error);
+  }
+}
 
-    if (url.pathname === '/api/interactive-escalations/consume') {
-      const sessionId = normalizeOptionalString(body.sessionId);
-      if (!sessionId) {
-        throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
-      }
-      const response = consumeOperatorReturn(sessionId);
-      if (!response) {
-        throw new GatewayRequestError(
-          404,
-          'No operator response is available for this suspended session.',
-        );
-      }
-      sendJson(res, 200, { response });
-      return;
+async function handleApiConsumeInteractiveEscalation(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  try {
+    const body = await readInteractiveBody(req);
+    const sessionId = normalizeOptionalString(body.sessionId);
+    if (!sessionId) {
+      throw new GatewayRequestError(400, 'Expected non-empty `sessionId`.');
     }
-
-    if (url.pathname === '/api/interactive-escalations/sms-reply') {
-      const from = normalizeOptionalString(body.from);
-      const text = normalizeOptionalString(body.text ?? body.body);
-      if (!text) {
-        throw new GatewayRequestError(400, 'Expected SMS reply `text`.');
-      }
-      const sessionId = normalizeOptionalString(body.sessionId);
-      const session = sessionId
-        ? null
-        : findPendingSuspendedSessionForOperator({
-            userId: from,
-            modality: 'sms',
-          });
-      const targetSessionId = sessionId || session?.sessionId || '';
-      if (!targetSessionId) {
-        throw new GatewayRequestError(
-          404,
-          'No pending SMS suspended session matched this reply.',
-        );
-      }
-      const parsed = parseOperatorReturnText(text, ['code', 'declined']);
-      if (!parsed) {
-        throw new GatewayRequestError(400, 'Could not parse SMS reply.');
-      }
-      const resumed = resumeWith(targetSessionId, parsed);
-      const result = { response: parsed, session: resumed };
-      broadcastSseEvent(activeSseResponses, 'interaction_response', result);
-      sendJson(res, 200, result);
-      return;
+    const response = consumeOperatorReturn(sessionId);
+    if (!response) {
+      throw new GatewayRequestError(
+        404,
+        'No operator response is available for this suspended session.',
+      );
     }
+    sendJson(res, 200, { response });
+  } catch (error) {
+    sendApiInteractiveError(res, error);
+  }
+}
 
+async function handleApiSmsReplyInteractiveEscalation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): Promise<void> {
+  try {
+    const body = await readInteractiveBody(req);
+    const from = normalizeOptionalString(body.from);
+    const text = normalizeOptionalString(body.text ?? body.body);
+    if (!text) {
+      throw new GatewayRequestError(400, 'Expected SMS reply `text`.');
+    }
+    const sessionId = normalizeOptionalString(body.sessionId);
+    const session = sessionId
+      ? null
+      : findPendingSuspendedSessionForOperator({
+          userId: from,
+          modality: 'sms',
+        });
+    const targetSessionId = sessionId || session?.sessionId || '';
+    if (!targetSessionId) {
+      throw new GatewayRequestError(
+        404,
+        'No pending SMS suspended session matched this reply.',
+      );
+    }
+    const parsed = parseOperatorReturnText(text, ['code', 'declined']);
+    if (!parsed) {
+      throw new GatewayRequestError(400, 'Could not parse SMS reply.');
+    }
+    const resumed = resumeWith(targetSessionId, parsed);
+    const result = { response: parsed, session: resumed };
+    broadcastSseEvent(activeSseResponses, 'interaction_response', result);
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendApiInteractiveError(res, error);
+  }
+}
+
+async function handleApiCreateInteractiveEscalation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  activeSseResponses: Set<ServerResponse>,
+): Promise<void> {
+  try {
+    const body = await readInteractiveBody(req);
     const modality = parseInteractionModality(body.modality);
     const prompt = normalizeOptionalString(body.prompt);
     if (!prompt) {
@@ -3505,11 +3541,7 @@ async function handleApiInteractiveEscalations(
     broadcastSseEvent(activeSseResponses, 'interaction_needed', payload);
     sendJson(res, 200, payload);
   } catch (error) {
-    const status =
-      error instanceof GatewayRequestError ? error.statusCode : 400;
-    sendJson(res, status, {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    sendApiInteractiveError(res, error);
   }
 }
 
@@ -4335,28 +4367,46 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             handleApiAdminApprovals(res, url);
             return;
           }
+          if (pathname === '/api/interactive-escalations' && method === 'GET') {
+            handleApiListInteractiveEscalations(res);
+            return;
+          }
           if (
             pathname === '/api/interactive-escalations' &&
-            (method === 'GET' || method === 'POST')
+            method === 'POST'
           ) {
-            await handleApiInteractiveEscalations(
+            await handleApiCreateInteractiveEscalation(
               req,
               res,
-              url,
               activeSseResponses,
             );
             return;
           }
           if (
-            (pathname === '/api/interactive-escalations/resume' ||
-              pathname === '/api/interactive-escalations/consume' ||
-              pathname === '/api/interactive-escalations/sms-reply') &&
+            pathname === '/api/interactive-escalations/resume' &&
             method === 'POST'
           ) {
-            await handleApiInteractiveEscalations(
+            await handleApiResumeInteractiveEscalation(
               req,
               res,
-              url,
+              activeSseResponses,
+            );
+            return;
+          }
+          if (
+            pathname === '/api/interactive-escalations/consume' &&
+            method === 'POST'
+          ) {
+            await handleApiConsumeInteractiveEscalation(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/interactive-escalations/sms-reply' &&
+            method === 'POST'
+          ) {
+            await handleApiSmsReplyInteractiveEscalation(
+              req,
+              res,
               activeSseResponses,
             );
             return;

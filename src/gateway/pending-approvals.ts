@@ -1,8 +1,8 @@
 import {
-  getRuntimeAssetRevisionState,
   listRuntimeAssetRevisionStates,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
+import { parseJsonObject } from '../utils/json-object.js';
 import {
   type ApprovalPresentation,
   createApprovalPresentation,
@@ -35,6 +35,7 @@ export interface PendingApprovalPrompt {
 }
 
 const pendingApprovalBySession = new Map<string, PendingApprovalPrompt>();
+let pendingApprovalsHydrated = false;
 
 type DurablePendingApprovalPrompt = Omit<
   PendingApprovalPrompt,
@@ -44,18 +45,6 @@ type DurablePendingApprovalPrompt = Omit<
 function pendingApprovalAssetPath(sessionId: string): string {
   const normalized = encodeURIComponent(sessionId.trim());
   return `${PENDING_APPROVAL_ASSET_PREFIX}${normalized || 'session'}.json`;
-}
-
-function parseJsonObject(text: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 function normalizeDurablePendingApproval(
@@ -150,6 +139,7 @@ function deletePersistedPendingApproval(sessionId: string): void {
 }
 
 function rehydrateDurablePendingApprovals(): void {
+  if (pendingApprovalsHydrated) return;
   const states = listRuntimeAssetRevisionStates('pending_approval').filter(
     (state) => state.assetPath.startsWith(PENDING_APPROVAL_ASSET_PREFIX),
   );
@@ -171,30 +161,14 @@ function rehydrateDurablePendingApprovals(): void {
       disableTimeout: existing?.disableTimeout ?? null,
     });
   }
+  pendingApprovalsHydrated = true;
 }
 
 function getStoredPendingApproval(
   sessionId: string,
 ): PendingApprovalPrompt | null {
   rehydrateDurablePendingApprovals();
-  const entry = pendingApprovalBySession.get(sessionId) || null;
-  if (entry) return entry;
-
-  const state = getRuntimeAssetRevisionState(
-    'pending_approval',
-    pendingApprovalAssetPath(sessionId),
-  );
-  const durable = state
-    ? normalizeDurablePendingApproval(parseJsonObject(state.content))
-    : null;
-  if (!durable) return null;
-  const rehydrated: PendingApprovalPrompt = {
-    ...durable,
-    disableButtons: null,
-    disableTimeout: null,
-  };
-  pendingApprovalBySession.set(sessionId, rehydrated);
-  return rehydrated;
+  return pendingApprovalBySession.get(sessionId) || null;
 }
 
 function dropPendingApprovalEntry(

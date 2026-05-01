@@ -246,6 +246,7 @@ let currentBrowserModelContext: BrowserModelContext = {
 let currentBrowserTaskModels: TaskModelPolicies | undefined;
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
+const suspendedSessionByBrowserSession = new Map<string, string>();
 
 export function setBrowserGatewayContext(
   baseUrl?: string,
@@ -943,6 +944,22 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function resolveGatewayInteractiveEscalationUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   return base ? `${base}/api/interactive-escalations` : null;
+}
+
+function assertGatewayInteractiveEscalationConfigured(): void {
+  if (!resolveGatewayInteractiveEscalationUrl()) {
+    throw new Error(
+      'gatewayBaseUrl is not configured; cannot park browser interaction.',
+    );
+  }
+}
+
+function safeUrlHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
 }
 
 async function callGatewayInteractiveEscalation(
@@ -2094,6 +2111,7 @@ export async function executeBrowserTool(
       }
 
       case 'browser_await_two_factor': {
+        assertGatewayInteractiveEscalationConfigured();
         const modality = String(args.modality || 'totp').trim();
         const prompt =
           String(args.prompt || '').trim() ||
@@ -2107,29 +2125,27 @@ export async function executeBrowserTool(
             ? args.ttlMs
             : null;
 
-        const textEval = await runBrowserEval(
-          effectiveSessionId,
-          EXTRACT_TEXT_PREVIEW_SCRIPT,
-          15_000,
-        );
-        const selectorEval = await runBrowserEval(
-          effectiveSessionId,
-          TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
-          15_000,
-        );
-        const snapshotResult = await runAgentBrowser(
-          effectiveSessionId,
-          'snapshot',
-          [],
-          { timeoutMs: 30_000 },
-        );
+        const [textEval, selectorEval] = await Promise.all([
+          runBrowserEval(
+            effectiveSessionId,
+            EXTRACT_TEXT_PREVIEW_SCRIPT,
+            15_000,
+          ),
+          runBrowserEval(
+            effectiveSessionId,
+            TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+            15_000,
+          ),
+        ]);
         const screenshotPath = createTempScreenshotPath('two-factor');
-        const screenshotResult = await runAgentBrowser(
-          effectiveSessionId,
-          'screenshot',
-          [screenshotPath],
-          { timeoutMs: 60_000 },
-        );
+        const [snapshotResult, screenshotResult] = await Promise.all([
+          runAgentBrowser(effectiveSessionId, 'snapshot', [], {
+            timeoutMs: 30_000,
+          }),
+          runAgentBrowser(effectiveSessionId, 'screenshot', [screenshotPath], {
+            timeoutMs: 60_000,
+          }),
+        ]);
         const screenshotRef = screenshotResult.success
           ? toWorkspaceRelativePath(screenshotPath)
           : null;
@@ -2148,7 +2164,6 @@ export async function executeBrowserTool(
           : [];
 
         const gatewayResult = await createGatewayInteractiveEscalation({
-          sessionId: effectiveSessionId,
           prompt,
           modality,
           ...(userId ? { userId } : {}),
@@ -2169,18 +2184,22 @@ export async function executeBrowserTool(
             screenshotRef,
           },
           context: {
-            host: (() => {
-              try {
-                return new URL(url).host;
-              } catch {
-                return null;
-              }
-            })(),
+            host: safeUrlHost(url),
             pageTitle: title || null,
             url,
             screenshotRef,
           },
         });
+        const gatewaySession = asRecord(gatewayResult.session);
+        const suspendedSessionId = String(
+          gatewaySession?.sessionId || '',
+        ).trim();
+        if (suspendedSessionId) {
+          suspendedSessionByBrowserSession.set(
+            effectiveSessionId,
+            suspendedSessionId,
+          );
+        }
         return success({
           parked: true,
           modality,
@@ -2193,7 +2212,11 @@ export async function executeBrowserTool(
 
       case 'browser_resume_interaction': {
         const ref = ensureRef(args.ref);
-        const sessionId = String(args.sessionId || effectiveSessionId).trim();
+        const sessionId = String(
+          args.sessionId ||
+            suspendedSessionByBrowserSession.get(effectiveSessionId) ||
+            effectiveSessionId,
+        ).trim();
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
         const gatewayResult =

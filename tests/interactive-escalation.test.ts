@@ -58,12 +58,19 @@ test('detectTwoFactorChallenge recognizes selector and page text signals', async
     escalation.detectTwoFactorChallenge({
       title: 'Verification code required',
       text: 'Enter the code from your authenticator app.',
-      selectors: ['input[autocomplete="one-time-code"]'],
+      selectors: [
+        'input[autocomplete="one-time-code"]',
+        'input[name*="otp" i]',
+      ],
     }),
   ).toEqual({
     detected: true,
     modality: 'totp',
-    signals: ['selector:input[autocomplete="one-time-code"]', 'totp text'],
+    signals: [
+      'selector:input[autocomplete="one-time-code"]',
+      'selector:input[name*="otp" i]',
+      'totp text',
+    ],
   });
 });
 
@@ -208,6 +215,37 @@ test('expired sessions queue F10 manager timeout escalation when configured', as
     100,
   );
   expect(escalation.getSuspendedSession('session-timeout')).toMatchObject({
+    status: 'expired',
+    response: { kind: 'timeout' },
+  });
+});
+
+test('resumeWith fails fast when a suspended session has expired', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-04-30T12:00:00Z'));
+  const escalation = await importInteractiveEscalation();
+
+  escalation.createSuspendedSession({
+    sessionId: 'session-expired-resume',
+    approvalId: 'approval-expired-resume',
+    prompt: 'Enter the SMS verification code.',
+    userId: 'operator-1',
+    modality: 'sms',
+    expiresAt: Date.now() + 60_000,
+    frameSnapshot: { url: 'https://sap.example/login' },
+    context: { host: 'sap.example' },
+  });
+
+  vi.setSystemTime(new Date('2026-04-30T12:01:01Z'));
+  expect(() =>
+    escalation.resumeWith('session-expired-resume', {
+      kind: 'code',
+      value: '123456',
+    }),
+  ).toThrow('Suspended session has expired.');
+  expect(
+    escalation.getSuspendedSession('session-expired-resume'),
+  ).toMatchObject({
     status: 'expired',
     response: { kind: 'timeout' },
   });

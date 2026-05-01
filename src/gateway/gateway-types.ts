@@ -1073,6 +1073,7 @@ export interface GatewayAdminPendingApproval {
   actionKey: string | null;
 }
 
+// Keep console/src/api/types.ts AdminSuspendedSession in sync with this shape.
 export interface GatewayAdminSuspendedSession {
   sessionId: string;
   agentId: string | null;
