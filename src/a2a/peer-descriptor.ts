@@ -1,0 +1,252 @@
+import type { SecretRef } from '../security/secret-refs.js';
+import { parseSecretInput } from '../security/secret-refs.js';
+import {
+  A2A_TRANSPORT_PATTERN,
+  isRecord,
+  normalizeTransportString,
+} from './utils.js';
+
+export const A2A_PEER_TRANSPORTS = ['internal', 'a2a', 'webhook'] as const;
+
+export type A2APeerTransport = (typeof A2A_PEER_TRANSPORTS)[number];
+
+const INTERNAL_ALLOWED_FIELDS = new Set(['transport', 'agentId', 'agent_id']);
+const A2A_ALLOWED_FIELDS = new Set([
+  'transport',
+  'agentCardUrl',
+  'agent_card_url',
+]);
+const WEBHOOK_ALLOWED_FIELDS = new Set([
+  'transport',
+  'url',
+  'secretRef',
+  'secret_ref',
+]);
+
+export interface InternalPeerDescriptor {
+  transport: 'internal';
+  agentId?: string;
+}
+
+export interface A2APeerDescriptor {
+  transport: 'a2a';
+  agentCardUrl: string;
+}
+
+export interface WebhookPeerDescriptor {
+  transport: 'webhook';
+  url: string;
+  secretRef: SecretRef;
+}
+
+export interface UnknownPeerDescriptor {
+  transport: string;
+  raw: Record<string, unknown>;
+}
+
+export type KnownPeerDescriptor =
+  | InternalPeerDescriptor
+  | A2APeerDescriptor
+  | WebhookPeerDescriptor;
+
+export type PeerDescriptor = KnownPeerDescriptor | UnknownPeerDescriptor;
+
+export class PeerDescriptorValidationError extends Error {
+  readonly issues: string[];
+
+  constructor(issues: string[]) {
+    super(`Invalid A2A peer descriptor: ${issues.join('; ')}`);
+    this.name = 'PeerDescriptorValidationError';
+    this.issues = [...issues];
+  }
+}
+
+function readAlias(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+): unknown {
+  return record[camelKey] !== undefined ? record[camelKey] : record[snakeKey];
+}
+
+function readRequiredString(
+  value: unknown,
+  field: string,
+  issues: string[],
+): string {
+  if (typeof value !== 'string') {
+    issues.push(`${field} must be a string`);
+    return '';
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    issues.push(`${field} is required`);
+  }
+  return normalized;
+}
+
+function readOptionalStringAlias(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+  field: string,
+  issues: string[],
+): string | undefined {
+  if (!Object.hasOwn(record, camelKey) && !Object.hasOwn(record, snakeKey)) {
+    return undefined;
+  }
+  const value = readAlias(record, camelKey, snakeKey);
+  if (typeof value !== 'string') {
+    issues.push(`${field} must be a string when provided`);
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    issues.push(`${field} must not be empty when provided`);
+    return undefined;
+  }
+  return normalized;
+}
+
+function validateAllowedFields(
+  record: Record<string, unknown>,
+  allowedFields: ReadonlySet<string>,
+  issues: string[],
+): void {
+  for (const field of Object.keys(record)) {
+    if (!allowedFields.has(field)) {
+      issues.push(`unexpected field: ${field}`);
+    }
+  }
+}
+
+function readHttpUrl(
+  record: Record<string, unknown>,
+  field: string,
+  issues: string[],
+): string {
+  const value = readRequiredString(record[field], field, issues);
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') {
+      issues.push(`${field} must use https`);
+    }
+  } catch {
+    issues.push(`${field} must be a valid URL`);
+  }
+  return value;
+}
+
+function normalizeTransport(value: unknown, issues: string[]): string {
+  if (typeof value !== 'string') {
+    issues.push('transport must be a string');
+    return '';
+  }
+  const normalized = normalizeTransportString(value);
+  if (!normalized) {
+    issues.push('transport is required');
+  } else if (!A2A_TRANSPORT_PATTERN.test(normalized)) {
+    issues.push(
+      'transport must match /^[a-z][a-z0-9._-]{0,63}$/ after trimming and lowercasing',
+    );
+  }
+  return normalized;
+}
+
+function normalizeWebhookSecretRef(
+  value: unknown,
+  issues: string[],
+): SecretRef | undefined {
+  if (value === undefined || value === null) {
+    issues.push('secretRef is required');
+    return undefined;
+  }
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'invalid') {
+    issues.push(`secretRef ${parsed.reason}`);
+    return undefined;
+  }
+  if (parsed.kind === 'plain') {
+    issues.push('secretRef must be a secret reference');
+    return undefined;
+  }
+  return parsed.ref;
+}
+
+export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
+  if (value === undefined || value === null) {
+    return { transport: 'internal' };
+  }
+  if (!isRecord(value)) {
+    throw new PeerDescriptorValidationError(['descriptor must be an object']);
+  }
+
+  const issues: string[] = [];
+  const transport = normalizeTransport(value.transport, issues);
+  if (issues.length > 0) {
+    throw new PeerDescriptorValidationError(issues);
+  }
+
+  if (transport === 'internal') {
+    validateAllowedFields(value, INTERNAL_ALLOWED_FIELDS, issues);
+    const agentId = readOptionalStringAlias(
+      value,
+      'agentId',
+      'agent_id',
+      'agentId',
+      issues,
+    );
+    if (issues.length > 0) {
+      throw new PeerDescriptorValidationError(issues);
+    }
+    return {
+      transport: 'internal',
+      ...(agentId ? { agentId } : {}),
+    };
+  }
+
+  if (transport === 'a2a') {
+    validateAllowedFields(value, A2A_ALLOWED_FIELDS, issues);
+    const agentCardUrl = readHttpUrl(
+      { agentCardUrl: readAlias(value, 'agentCardUrl', 'agent_card_url') },
+      'agentCardUrl',
+      issues,
+    );
+    if (issues.length > 0) {
+      throw new PeerDescriptorValidationError(issues);
+    }
+    return {
+      transport: 'a2a',
+      agentCardUrl,
+    };
+  }
+
+  if (transport === 'webhook') {
+    validateAllowedFields(value, WEBHOOK_ALLOWED_FIELDS, issues);
+    const url = readHttpUrl(value, 'url', issues);
+    const secretRef = normalizeWebhookSecretRef(
+      readAlias(value, 'secretRef', 'secret_ref'),
+      issues,
+    );
+    if (issues.length > 0 || !secretRef) {
+      throw new PeerDescriptorValidationError(issues);
+    }
+    return {
+      transport: 'webhook',
+      url,
+      secretRef,
+    };
+  }
+
+  return {
+    transport,
+    raw: { ...value },
+  };
+}
+
+export function isKnownPeerDescriptor(
+  descriptor: PeerDescriptor,
+): descriptor is KnownPeerDescriptor {
+  return A2A_PEER_TRANSPORTS.includes(descriptor.transport as A2APeerTransport);
+}

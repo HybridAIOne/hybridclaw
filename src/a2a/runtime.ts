@@ -1,7 +1,15 @@
-import { type A2AEnvelope, A2AEnvelopeValidationError } from './envelope.js';
+import type { EscalationTarget } from '../types/execution.js';
+import {
+  type A2AEnvelope,
+  A2AEnvelopeValidationError,
+  validateA2AEnvelope,
+} from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
-import { isRecord } from './utils.js';
+import {
+  encodeForRegisteredTransport,
+  type TransportRegistry,
+} from './transport-registry.js';
 
 // Public server-side A2A runtime API required by roadmap #425.
 export interface A2ADeliveryConfirmation {
@@ -13,13 +21,15 @@ export interface A2ADeliveryConfirmation {
 
 export interface A2ASendMessageMeta {
   actor?: string;
+  peerDescriptor?: unknown;
+  transportRegistry?: TransportRegistry;
+  sessionId?: string;
+  auditRunId?: string;
+  escalationTarget?: EscalationTarget;
 }
 
-function normalizeRuntimeEnvelope(envelope: unknown): unknown {
-  if (!isRecord(envelope)) {
-    throw new A2AEnvelopeValidationError(['envelope must be an object']);
-  }
-  return envelope;
+function validateRuntimeEnvelope(envelope: unknown): A2AEnvelope {
+  return validateA2AEnvelope(envelope);
 }
 
 /**
@@ -30,14 +40,19 @@ export function sendMessage(
   envelope: unknown,
   meta?: A2ASendMessageMeta,
 ): A2ADeliveryConfirmation {
-  const deliveredEnvelope = saveA2AEnvelope(
-    attachA2AHandoffContext(normalizeRuntimeEnvelope(envelope)),
-    {
-      actor: meta?.actor,
-      route: 'a2a.sendMessage',
-      source: 'a2a-runtime',
-    },
-  );
+  const encodedEnvelope = encodeForRegisteredTransport({
+    envelope: attachA2AHandoffContext(validateRuntimeEnvelope(envelope)),
+    peerDescriptor: meta?.peerDescriptor,
+    registry: meta?.transportRegistry,
+    sessionId: meta?.sessionId,
+    runId: meta?.auditRunId,
+    escalationTarget: meta?.escalationTarget,
+  });
+  const deliveredEnvelope = saveA2AEnvelope(encodedEnvelope, {
+    actor: meta?.actor,
+    route: 'a2a.sendMessage',
+    source: 'a2a-runtime',
+  });
   return {
     delivered: true,
     message_id: deliveredEnvelope.id,

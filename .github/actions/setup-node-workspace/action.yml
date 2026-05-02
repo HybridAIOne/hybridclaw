@@ -23,6 +23,7 @@ runs:
       shell: bash
       env:
         ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       run: npm ci --no-audit --fund=false
 
     - name: Install container dependencies
