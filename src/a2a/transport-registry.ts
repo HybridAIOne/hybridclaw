@@ -277,6 +277,8 @@ export function encodeForRegisteredTransport(params: {
     return validateA2AEnvelope(adapter.encode(normalizedEnvelope, descriptor));
   }
 
+  // R1.10 opens the encoder seam; follow-up transport work owns delivery.
+  // The runtime persists the canonical envelope until a sender consumes this payload.
   adapter.encode(normalizedEnvelope, descriptor);
   return normalizedEnvelope;
 }
