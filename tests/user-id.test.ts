@@ -69,7 +69,13 @@ describe('canonical user ids', () => {
       'lena smith@hybridai',
       'lena@hybrid ai',
       '.lena@hybridai',
+      'lena.@hybridai',
+      'lena_@hybridai',
+      'lena-@hybridai',
       'lena@-authority',
+      'lena@hybridai.',
+      'lena@hybridai_',
+      'lena@hybridai-',
       'lena@hybridai!',
     ];
 

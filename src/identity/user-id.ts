@@ -26,7 +26,7 @@ export class UserIdValidationError extends Error {
   }
 }
 
-const USER_ID_COMPONENT_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
+const USER_ID_COMPONENT_PATTERN = /^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$/;
 
 function normalizeUserIdComponent(value: string): string {
   return value.trim().toLowerCase();
