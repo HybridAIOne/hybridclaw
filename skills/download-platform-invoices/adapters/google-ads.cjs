@@ -21,11 +21,12 @@ class GoogleAdsInvoiceAdapter {
   }
 
   async login(credentials) {
-    for (const key of ['accessToken', 'developerToken', 'customerId', 'billingSetup']) {
-      if (!credentials[key]) {
-        throw new Error(`Google Ads invoice adapter requires credentials.${key}.`);
-      }
-    }
+    assertGoogleAdsCredentials(credentials, [
+      'accessToken',
+      'developerToken',
+      'customerId',
+      'billingSetup',
+    ]);
     return { credentials };
   }
 
@@ -40,16 +41,10 @@ class GoogleAdsInvoiceAdapter {
     url.searchParams.set('issueYear', String(period.year));
     url.searchParams.set('issueMonth', period.googleAdsMonth);
     const response = await this.fetch(url, {
-      headers: {
-        Authorization: `Bearer ${credentials.accessToken}`,
-        'developer-token': credentials.developerToken,
-        ...(credentials.loginCustomerId
-          ? { 'login-customer-id': credentials.loginCustomerId }
-          : {}),
-      },
+      headers: googleAdsHeaders(credentials),
     });
     if (!response.ok) {
-      throw new Error(`Google Ads invoice list failed with HTTP ${response.status}.`);
+      throw await googleAdsHttpError(response, 'Google Ads invoice list');
     }
     const payload = await response.json();
     return (payload.invoices || []).map((invoice) => {
@@ -90,20 +85,100 @@ class GoogleAdsInvoiceAdapter {
     });
   }
 
+  async discoverBillingSetups(credentials) {
+    assertGoogleAdsCredentials(credentials, [
+      'accessToken',
+      'developerToken',
+      'customerId',
+    ]);
+    const customerId = credentials.customerId.replace(/-/g, '');
+    const response = await this.fetch(
+      `https://googleads.googleapis.com/${this.apiVersion}/customers/${customerId}/googleAds:search`,
+      {
+        method: 'POST',
+        headers: googleAdsHeaders(credentials, {
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({
+          query: [
+            'SELECT',
+            '  billing_setup.resource_name,',
+            '  billing_setup.payments_account,',
+            '  billing_setup.status',
+            'FROM billing_setup',
+          ].join('\n'),
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw await googleAdsHttpError(response, 'Google Ads billing setup discovery');
+    }
+    const payload = await response.json();
+    return (payload.results || []).map((row) => {
+      const billingSetup = row.billingSetup || {};
+      return {
+        resourceName: String(billingSetup.resourceName || ''),
+        paymentsAccount: String(billingSetup.paymentsAccount || ''),
+        status: String(billingSetup.status || ''),
+      };
+    });
+  }
+
   async download(session, invoice) {
     const response = await this.fetch(invoice.source_url, {
-      headers: {
-        Authorization: `Bearer ${session.credentials.accessToken}`,
-        'developer-token': session.credentials.developerToken,
-      },
+      headers: googleAdsHeaders(session.credentials),
     });
     if (!response.ok) {
-      throw new Error(
-        `Google Ads invoice ${invoice.invoice_no} PDF download failed with HTTP ${response.status}.`,
+      throw await googleAdsHttpError(
+        response,
+        `Google Ads invoice ${invoice.invoice_no} PDF download`,
       );
     }
     return new Uint8Array(await response.arrayBuffer());
   }
+}
+
+function assertGoogleAdsCredentials(credentials, keys) {
+  for (const key of keys) {
+    if (!credentials[key]) {
+      throw new Error(`Google Ads invoice adapter requires credentials.${key}.`);
+    }
+  }
+}
+
+function googleAdsHeaders(credentials, extra = {}) {
+  return {
+    ...extra,
+    Authorization: `Bearer ${credentials.accessToken}`,
+    'developer-token': credentials.developerToken,
+    ...(credentials.loginCustomerId
+      ? { 'login-customer-id': credentials.loginCustomerId.replace(/-/g, '') }
+      : {}),
+  };
+}
+
+async function googleAdsHttpError(response, context) {
+  let body = '';
+  try {
+    body = await response.text();
+  } catch {
+    body = '';
+  }
+  const requestId = response.headers?.get?.('request-id');
+  const details = [
+    `${context} failed with HTTP ${response.status}.`,
+    requestId ? `request-id: ${requestId}.` : '',
+    body ? `Response body: ${truncateGoogleAdsErrorBody(body)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return new Error(details);
+}
+
+function truncateGoogleAdsErrorBody(body) {
+  const normalized = body.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 4000) return normalized;
+  return `${normalized.slice(0, 4000)}...`;
 }
 
 function formatGoogleAdsDate(value, fieldName) {

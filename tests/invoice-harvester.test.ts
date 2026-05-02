@@ -550,6 +550,86 @@ describe('reference invoice adapters', () => {
     );
   });
 
+  test('Google Ads adapter discovers billing setups through GoogleAdsService search', async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        'https://googleads.googleapis.com/v20/customers/1234567890/googleAds:search',
+      );
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer token',
+        'developer-token': 'developer',
+        'login-customer-id': '9998887777',
+      });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        query: expect.stringContaining('FROM billing_setup'),
+      });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              billingSetup: {
+                resourceName: 'customers/1234567890/billingSetups/111',
+                paymentsAccount: 'customers/1234567890/paymentsAccounts/222',
+                status: 'APPROVED',
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(
+      adapter.discoverBillingSetups({
+        accessToken: 'token',
+        developerToken: 'developer',
+        customerId: '123-456-7890',
+        loginCustomerId: '999-888-7777',
+      }),
+    ).resolves.toEqual([
+      {
+        resourceName: 'customers/1234567890/billingSetups/111',
+        paymentsAccount: 'customers/1234567890/paymentsAccounts/222',
+        status: 'APPROVED',
+      },
+    ]);
+  });
+
+  test('Google Ads adapter includes exact API errors in failures', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 403,
+            message:
+              'Google Ads API has not been used in project 163608417660 before or it is disabled.',
+            status: 'PERMISSION_DENIED',
+            details: [{ reason: 'SERVICE_DISABLED' }],
+          },
+        }),
+        {
+          status: 403,
+          headers: { 'request-id': 'request-123' },
+        },
+      );
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(
+      adapter.discoverBillingSetups({
+        accessToken: 'token',
+        developerToken: 'developer',
+        customerId: '1234567890',
+      }),
+    ).rejects.toThrow(/request-123.*SERVICE_DISABLED/u);
+  });
+
   test('AWS adapter signs Invoicing API requests and downloads invoice PDFs', async () => {
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);

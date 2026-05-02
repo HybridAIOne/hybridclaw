@@ -95,6 +95,81 @@ The runtime implementation is colocated with this skill:
 - Push MFA and captchas must stop the provider run and emit
   `invoice.operator_escalation_required` for F8 operator routing.
 
+## Google Ads InvoiceService
+
+Use the native Google Ads InvoiceService path for Google Ads invoices. Do not
+write one-off Node or shell scripts for live Google Ads calls unless the user
+explicitly asks for a throwaway diagnostic script. Prefer `http_request` with
+configured URL auth routes so OAuth and developer-token values stay hidden.
+
+Required Google Ads inputs:
+
+- `customerId`: the target Google Ads client customer ID, with hyphens removed
+  when calling the API.
+- `developerToken`: store this as `GOOGLEADS_DEVELOPER_TOKEN`; it comes from
+  the API Center of a Google Ads manager account.
+- Google OAuth access through the `google-oauth` route for
+  `https://googleads.googleapis.com/`; the Google Cloud project that owns the
+  OAuth client must have Google Ads API enabled and the OAuth grant must include
+  `https://www.googleapis.com/auth/adwords`.
+- `billingSetup`: the resource name
+  `customers/<customer-id>/billingSetups/<billing-setup-id>`.
+- Optional `loginCustomerId`: the Google Ads manager customer ID, without
+  hyphens, when the OAuth user reaches the client through an MCC/manager
+  account.
+
+Set the route injection once:
+
+```bash
+hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none
+```
+
+For Google Ads live calls from an agent, rely on those routes. Do not use
+`GOG_ACCESS_TOKEN` as a fallback; a blocked `GOG_ACCESS_TOKEN` is not an error
+when the `google-oauth` route resolved successfully.
+
+If `billingSetup` is missing, discover it with GoogleAdsService search using
+this exact endpoint:
+
+```text
+POST https://googleads.googleapis.com/v20/customers/<customer-id>/googleAds:search
+```
+
+Use this GAQL:
+
+```sql
+SELECT
+  billing_setup.resource_name,
+  billing_setup.payments_account,
+  billing_setup.status
+FROM billing_setup
+```
+
+Never call `POST /v20/customers/<customer-id>:search`; that is not the REST
+endpoint for GoogleAdsService search and will return a misleading `404`.
+
+After choosing the matching `billing_setup.resource_name`, list invoices with:
+
+```text
+GET https://googleads.googleapis.com/v20/customers/<customer-id>/invoices?billingSetup=<resource-name>&issueYear=<yyyy>&issueMonth=<MONTH>
+```
+
+Then download the official PDF from the returned `pdfUrl`.
+
+Google Ads error handling:
+
+- Report the exact Google Ads response body, especially `status`, `reason`,
+  `message`, `request-id`, and `consumer` project. Do not infer setup problems
+  from fallback-token failures.
+- `SERVICE_DISABLED` means the Google Cloud project that owns the OAuth client
+  has not enabled `googleads.googleapis.com`.
+- `USER_PERMISSION_DENIED` usually means the OAuth user lacks access to the
+  target client account, or the request needs a `login-customer-id` header for
+  the managing MCC account.
+- `insufficient authentication scopes` means the stored Google OAuth grant must
+  be refreshed with `https://www.googleapis.com/auth/adwords`.
+
 ## Run Discipline
 
 - Process one provider at a time.
