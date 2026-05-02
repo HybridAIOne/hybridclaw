@@ -45,19 +45,23 @@ function writeRuntimeConfig(
 function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
   return YAML.parse(
     fs.readFileSync(
-      path.join(
-        homeDir,
-        '.hybridclaw',
-        'data',
-        'agents',
-        'main',
-        'workspace',
-        '.hybridclaw',
-        'policy.yaml',
-      ),
+      mainAgentPolicyPath(homeDir),
       'utf-8',
     ),
   ) as Record<string, unknown>;
+}
+
+function mainAgentPolicyPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'main',
+    'workspace',
+    '.hybridclaw',
+    'policy.yaml',
+  );
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -1511,6 +1515,42 @@ test('secret route add normalizes URL prefixes before saving auth rules', async 
       ],
     },
   });
+});
+
+test('secret route add does not leave runtime config changed when policy is invalid', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+  const policyPath = mainAgentPolicyPath(homeDir);
+  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+  fs.writeFileSync(policyPath, 'secret:\n  rules: [\n', 'utf-8');
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-secret-route-invalid-policy',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://hybridai.one/v1/',
+      'NEW_HAI_API_KEY',
+    ],
+  });
+
+  expect(result.kind).toBe('error');
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([]);
 });
 
 test('secret route add accepts Google OAuth runtime provider routes', async () => {

@@ -221,7 +221,9 @@ import {
 } from '../policy/policy-store.js';
 import {
   allowHttpSecretRouteInWorkspacePolicy,
+  captureHttpSecretRoutePolicySnapshot,
   removeHttpSecretRouteFromWorkspacePolicy,
+  restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
 import {
   discoverCodexModels,
@@ -9072,31 +9074,39 @@ export async function handleGatewayCommand(
               }
               const header = normalizeSecretRouteHeader(rawHeader);
               const prefix = normalizeSecretRoutePrefix(rawAuthPrefix);
-              updateRuntimeConfig((draft) => {
-                const nextRule: RuntimeHttpRequestAuthRule = {
-                  urlPrefix,
-                  header,
-                  prefix,
-                  secret,
-                };
-                draft.tools.httpRequest.authRules =
-                  draft.tools.httpRequest.authRules.filter(
-                    (rule) =>
-                      !(
-                        rule.urlPrefix === urlPrefix &&
-                        rule.header.toLowerCase() === header.toLowerCase()
-                      ),
-                );
-                draft.tools.httpRequest.authRules.push(nextRule);
-              });
               const agentId = resolveSessionAgentId(session);
+              const policyWorkspacePath = agentWorkspaceDir(agentId);
+              const policySnapshot =
+                captureHttpSecretRoutePolicySnapshot(policyWorkspacePath);
               allowHttpSecretRouteInWorkspacePolicy({
-                workspacePath: agentWorkspaceDir(agentId),
+                workspacePath: policyWorkspacePath,
                 urlPrefix,
                 header,
                 secret,
                 agentId,
               });
+              try {
+                updateRuntimeConfig((draft) => {
+                  const nextRule: RuntimeHttpRequestAuthRule = {
+                    urlPrefix,
+                    header,
+                    prefix,
+                    secret,
+                  };
+                  draft.tools.httpRequest.authRules =
+                    draft.tools.httpRequest.authRules.filter(
+                      (rule) =>
+                        !(
+                          rule.urlPrefix === urlPrefix &&
+                          rule.header.toLowerCase() === header.toLowerCase()
+                        ),
+                    );
+                  draft.tools.httpRequest.authRules.push(nextRule);
+                });
+              } catch (error) {
+                restoreHttpSecretRoutePolicySnapshot(policySnapshot);
+                throw error;
+              }
               const authLabel = prefix
                 ? `${header}: ${prefix} <secret>`
                 : `${header}: <secret>`;
@@ -9138,31 +9148,38 @@ export async function handleGatewayCommand(
                     return true;
                   },
                 );
-              let removed = 0;
-              updateRuntimeConfig((draft) => {
-                const before = draft.tools.httpRequest.authRules.length;
-                draft.tools.httpRequest.authRules =
-                  draft.tools.httpRequest.authRules.filter((rule) => {
-                    if (rule.urlPrefix !== urlPrefix) return true;
-                    if (
-                      header &&
-                      rule.header.toLowerCase() !== header.toLowerCase()
-                    ) {
-                      return true;
-                    }
-                    return false;
-                });
-                removed = before - draft.tools.httpRequest.authRules.length;
-              });
               const agentId = resolveSessionAgentId(session);
+              const policyWorkspacePath = agentWorkspaceDir(agentId);
+              const policySnapshot =
+                captureHttpSecretRoutePolicySnapshot(policyWorkspacePath);
               for (const rule of currentRules) {
                 removeHttpSecretRouteFromWorkspacePolicy({
-                  workspacePath: agentWorkspaceDir(agentId),
+                  workspacePath: policyWorkspacePath,
                   urlPrefix,
                   header: rule.header,
-                  secret: rule.secret,
                   agentId,
                 });
+              }
+              let removed = 0;
+              try {
+                updateRuntimeConfig((draft) => {
+                  const before = draft.tools.httpRequest.authRules.length;
+                  draft.tools.httpRequest.authRules =
+                    draft.tools.httpRequest.authRules.filter((rule) => {
+                      if (rule.urlPrefix !== urlPrefix) return true;
+                      if (
+                        header &&
+                        rule.header.toLowerCase() !== header.toLowerCase()
+                      ) {
+                        return true;
+                      }
+                      return false;
+                    });
+                  removed = before - draft.tools.httpRequest.authRules.length;
+                });
+              } catch (error) {
+                restoreHttpSecretRoutePolicySnapshot(policySnapshot);
+                throw error;
               }
               return plainCommand(
                 removed > 0

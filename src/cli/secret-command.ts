@@ -13,7 +13,9 @@ import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   allowHttpSecretRouteInWorkspacePolicy,
+  captureHttpSecretRoutePolicySnapshot,
   removeHttpSecretRouteFromWorkspacePolicy,
+  restoreHttpSecretRoutePolicySnapshot,
 } from '../policy/secret-route-policy.js';
 import {
   isReservedNonSecretRuntimeName,
@@ -220,36 +222,44 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       }
       const header = normalizeSecretRouteHeader(rawHeader);
       const prefix = normalizeSecretRoutePrefix(rawAuthPrefix);
-      updateRuntimeConfig(
-        (draft) => {
-          const nextRule: RuntimeHttpRequestAuthRule = {
-            urlPrefix,
-            header,
-            prefix,
-            secret,
-          };
-          draft.tools.httpRequest.authRules =
-            draft.tools.httpRequest.authRules.filter(
-              (rule) =>
-                !(
-                  rule.urlPrefix === urlPrefix &&
-                  rule.header.toLowerCase() === header.toLowerCase()
-                ),
-            );
-          draft.tools.httpRequest.authRules.push(nextRule);
-        },
-        {
-          route: `cli.secret.route.add:${urlPrefix}:${header}`,
-          source: 'internal',
-        },
-      );
+      const policyWorkspacePath = agentWorkspaceDir(DEFAULT_AGENT_ID);
+      const policySnapshot =
+        captureHttpSecretRoutePolicySnapshot(policyWorkspacePath);
       const policyRuleId = allowHttpSecretRouteInWorkspacePolicy({
-        workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+        workspacePath: policyWorkspacePath,
         urlPrefix,
         header,
         secret,
         agentId: DEFAULT_AGENT_ID,
       });
+      try {
+        updateRuntimeConfig(
+          (draft) => {
+            const nextRule: RuntimeHttpRequestAuthRule = {
+              urlPrefix,
+              header,
+              prefix,
+              secret,
+            };
+            draft.tools.httpRequest.authRules =
+              draft.tools.httpRequest.authRules.filter(
+                (rule) =>
+                  !(
+                    rule.urlPrefix === urlPrefix &&
+                    rule.header.toLowerCase() === header.toLowerCase()
+                  ),
+              );
+            draft.tools.httpRequest.authRules.push(nextRule);
+          },
+          {
+            route: `cli.secret.route.add:${urlPrefix}:${header}`,
+            source: 'internal',
+          },
+        );
+      } catch (error) {
+        restoreHttpSecretRoutePolicySnapshot(policySnapshot);
+        throw error;
+      }
       const authLabel = prefix
         ? `${header}: ${prefix} <secret>`
         : `${header}: <secret>`;
@@ -283,36 +293,43 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
           return true;
         },
       );
-      let removed = 0;
-      updateRuntimeConfig(
-        (draft) => {
-          const before = draft.tools.httpRequest.authRules.length;
-          draft.tools.httpRequest.authRules =
-            draft.tools.httpRequest.authRules.filter((rule) => {
-              if (rule.urlPrefix !== urlPrefix) return true;
-              if (
-                header &&
-                rule.header.toLowerCase() !== header.toLowerCase()
-              ) {
-                return true;
-              }
-              return false;
-            });
-          removed = before - draft.tools.httpRequest.authRules.length;
-        },
-        {
-          route: `cli.secret.route.remove:${urlPrefix}:${header || '*'}`,
-          source: 'internal',
-        },
-      );
+      const policyWorkspacePath = agentWorkspaceDir(DEFAULT_AGENT_ID);
+      const policySnapshot =
+        captureHttpSecretRoutePolicySnapshot(policyWorkspacePath);
       for (const rule of currentRules) {
         removeHttpSecretRouteFromWorkspacePolicy({
-          workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+          workspacePath: policyWorkspacePath,
           urlPrefix,
           header: rule.header,
-          secret: rule.secret,
           agentId: DEFAULT_AGENT_ID,
         });
+      }
+      let removed = 0;
+      try {
+        updateRuntimeConfig(
+          (draft) => {
+            const before = draft.tools.httpRequest.authRules.length;
+            draft.tools.httpRequest.authRules =
+              draft.tools.httpRequest.authRules.filter((rule) => {
+                if (rule.urlPrefix !== urlPrefix) return true;
+                if (
+                  header &&
+                  rule.header.toLowerCase() !== header.toLowerCase()
+                ) {
+                  return true;
+                }
+                return false;
+              });
+            removed = before - draft.tools.httpRequest.authRules.length;
+          },
+          {
+            route: `cli.secret.route.remove:${urlPrefix}:${header || '*'}`,
+            source: 'internal',
+          },
+        );
+      } catch (error) {
+        restoreHttpSecretRoutePolicySnapshot(policySnapshot);
+        throw error;
       }
       console.log(
         removed > 0

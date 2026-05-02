@@ -19,6 +19,12 @@ type SecretRoutePolicyTarget = {
   secretId: string;
 };
 
+export type SecretRoutePolicySnapshot = {
+  policyPath: string;
+  exists: boolean;
+  content: string | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -42,6 +48,33 @@ function writeRawPolicyObject(
 ): void {
   fs.mkdirSync(path.dirname(policyPath), { recursive: true });
   fs.writeFileSync(policyPath, YAML.stringify(document), 'utf-8');
+}
+
+export function captureHttpSecretRoutePolicySnapshot(workspacePath: string): SecretRoutePolicySnapshot {
+  const policyPath = resolveWorkspacePolicyPath(workspacePath);
+  if (!fs.existsSync(policyPath)) {
+    return {
+      policyPath,
+      exists: false,
+      content: null,
+    };
+  }
+  return {
+    policyPath,
+    exists: true,
+    content: fs.readFileSync(policyPath, 'utf-8'),
+  };
+}
+
+export function restoreHttpSecretRoutePolicySnapshot(snapshot: SecretRoutePolicySnapshot): void {
+  if (!snapshot.exists) {
+    if (fs.existsSync(snapshot.policyPath)) {
+      fs.unlinkSync(snapshot.policyPath);
+    }
+    return;
+  }
+  fs.mkdirSync(path.dirname(snapshot.policyPath), { recursive: true });
+  fs.writeFileSync(snapshot.policyPath, snapshot.content || '', 'utf-8');
 }
 
 function routePolicyTarget(
@@ -111,6 +144,26 @@ function secretRouteRule(params: {
   };
 }
 
+function isManagedSecretRouteRuleForRoute(
+  rule: unknown,
+  params: {
+    agentId: string;
+    host: string;
+    header: string;
+  },
+): boolean {
+  const record = asRecord(rule);
+  if (record[MANAGED_BY_SECRET_ROUTE_FIELD] !== true) return false;
+  const when = asRecord(record.when);
+  return (
+    when.predicate === 'secret_resolve_allowed' &&
+    when.sink === 'http' &&
+    when.host === params.host &&
+    when.selector === params.header &&
+    when.agent === params.agentId
+  );
+}
+
 export function allowHttpSecretRouteInWorkspacePolicy(params: {
   workspacePath: string;
   urlPrefix: string;
@@ -133,9 +186,13 @@ export function allowHttpSecretRouteInWorkspacePolicy(params: {
     header: params.header,
     target,
   });
-  const nextRuleId = String(nextRule.id);
   const nextRules = rules.filter(
-    (rule) => asRecord(rule).id !== nextRuleId,
+    (rule) =>
+      !isManagedSecretRouteRuleForRoute(rule, {
+        agentId,
+        host,
+        header: params.header,
+      }),
   );
   nextRules.push(nextRule);
   document.secret = {
@@ -143,32 +200,29 @@ export function allowHttpSecretRouteInWorkspacePolicy(params: {
     rules: nextRules,
   };
   writeRawPolicyObject(policyPath, document);
-  return nextRuleId;
+  return String(nextRule.id);
 }
 
 export function removeHttpSecretRouteFromWorkspacePolicy(params: {
   workspacePath: string;
   urlPrefix: string;
   header: string;
-  secret: RuntimeHttpRequestAuthRuleSecret;
   agentId?: string;
 }): boolean {
-  const target = routePolicyTarget(params.secret);
-  if (!target) return false;
-
   const host = new URL(params.urlPrefix).hostname;
   const agentId = params.agentId || DEFAULT_AGENT_ID;
   const policyPath = resolveWorkspacePolicyPath(params.workspacePath);
   const document = readRawPolicyObject(policyPath);
   const secret = asRecord(document.secret);
   const rules = Array.isArray(secret.rules) ? [...secret.rules] : [];
-  const ruleId = secretRouteRuleId({
-    agentId,
-    host,
-    header: params.header,
-    target,
-  });
-  const nextRules = rules.filter((rule) => asRecord(rule).id !== ruleId);
+  const nextRules = rules.filter(
+    (rule) =>
+      !isManagedSecretRouteRuleForRoute(rule, {
+        agentId,
+        host,
+        header: params.header,
+      }),
+  );
   if (nextRules.length === rules.length) return false;
   document.secret = {
     ...secret,

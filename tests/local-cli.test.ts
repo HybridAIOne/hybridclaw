@@ -60,19 +60,23 @@ function readRuntimeConfig(homeDir: string): RuntimeConfig {
 function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
   return YAML.parse(
     fs.readFileSync(
-      path.join(
-        homeDir,
-        '.hybridclaw',
-        'data',
-        'agents',
-        'main',
-        'workspace',
-        '.hybridclaw',
-        'policy.yaml',
-      ),
+      mainAgentPolicyPath(homeDir),
       'utf-8',
     ),
   ) as Record<string, unknown>;
+}
+
+function mainAgentPolicyPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'main',
+    'workspace',
+    '.hybridclaw',
+    'policy.yaml',
+  );
 }
 
 async function readRuntimeSecrets(
@@ -339,6 +343,117 @@ test('secret route add and remove update store-backed auth rules', async () => {
       rules: [],
     },
   });
+});
+
+test('secret route add replaces stale managed policy rules for the route', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_OTHER_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://api.example.com/v1/',
+      header: 'X-API-Key',
+      prefix: '',
+      secret: { source: 'store', id: 'SF_FULL_OTHER_SECRET' },
+    },
+  ]);
+  const policy = readMainAgentPolicy(homeDir);
+  expect(policy).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'SF_FULL_OTHER_SECRET',
+            source: 'store',
+            sink: 'http',
+            host: 'api.example.com',
+            selector: 'X-API-Key',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(policy)).not.toContain('SF_FULL_SECRET');
+});
+
+test('secret route add fails before runtime config changes when policy is invalid', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const policyPath = mainAgentPolicyPath(homeDir);
+  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+  fs.writeFileSync(policyPath, 'secret:\n  rules: [\n', 'utf-8');
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'SF_FULL_SECRET',
+      'X-API-Key',
+      'none',
+    ]),
+  ).rejects.toThrow();
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
+});
+
+test('secret route remove fails before runtime config changes when policy is invalid', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+  fs.writeFileSync(mainAgentPolicyPath(homeDir), 'secret:\n  rules: [\n', 'utf-8');
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'remove',
+      'https://api.example.com/v1',
+      'X-API-Key',
+    ]),
+  ).rejects.toThrow();
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://api.example.com/v1/',
+      header: 'X-API-Key',
+      prefix: '',
+      secret: { source: 'store', id: 'SF_FULL_SECRET' },
+    },
+  ]);
 });
 
 test('secret route add supports Google OAuth runtime auth rules', async () => {
