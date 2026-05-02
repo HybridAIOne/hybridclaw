@@ -20,6 +20,7 @@ const {
   harvestProviderInvoices,
   INVOICE_PROVIDER_DEFINITIONS,
   INVOICE_SCRAPE_PLANS,
+  invoicePdfRelativePath,
   InvoiceOperatorEscalationError,
   loadInvoiceManifest,
   parseInvoiceMoneyText,
@@ -29,6 +30,7 @@ const {
   runMonthlyInvoiceRun,
   StripeInvoiceAdapter,
   saveInvoiceManifest,
+  shouldRotateInvoiceCredentials,
   validateInvoiceHarvesterConfig,
   validateInvoiceRecord,
   verifyDatevUploadPlanAgainstSnapshot,
@@ -159,6 +161,21 @@ describe('invoice credentials', () => {
 });
 
 describe('invoice harvester', () => {
+  test('preserves invoice number case in generated PDF paths', () => {
+    expect(
+      invoicePdfRelativePath({
+        ...invoiceMeta,
+        invoice_no: 'Inv-Aa-001',
+      }),
+    ).toBe('runs/2026-03/openai/Inv-Aa-001.pdf');
+    expect(
+      invoicePdfRelativePath({
+        ...invoiceMeta,
+        invoice_no: 'inv-aa-001',
+      }),
+    ).toBe('runs/2026-03/openai/inv-aa-001.pdf');
+  });
+
   test('writes PDFs, manifests records, dedupes reruns, and audits fetched invoices', async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-invoices-'));
     const adapter: InvoiceAdapter<undefined> = {
@@ -269,6 +286,31 @@ describe('invoice harvester', () => {
     expect(() => loadInvoiceManifest(manifestPath)).toThrow(
       new RegExp(`Invalid invoice manifest at ${manifestPath}`),
     );
+  });
+
+  test('rotates credentials only for explicit auth failure signals', () => {
+    const rotatableRefs = {
+      apiKey: { source: 'store', id: 'STRIPE_INVOICE_API_KEY' },
+    };
+
+    expect(
+      shouldRotateInvoiceCredentials(
+        new Error('missing authentication context'),
+        rotatableRefs,
+      ),
+    ).toBe(false);
+    expect(
+      shouldRotateInvoiceCredentials(
+        new Error('authentication failed'),
+        rotatableRefs,
+      ),
+    ).toBe(true);
+    expect(
+      shouldRotateInvoiceCredentials(
+        new Error('401 unauthorized'),
+        rotatableRefs,
+      ),
+    ).toBe(true);
   });
 });
 

@@ -18,17 +18,18 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function safePathPart(value) {
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
+function safePathPart(value, options = {}) {
+  const raw = options.preserveCase ? value.trim() : value.trim().toLowerCase();
+  const normalized = raw
+    .replace(options.preserveCase ? /[^A-Za-z0-9._-]+/g : /[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return normalized || 'invoice';
 }
 
 function invoicePdfRelativePath(invoice) {
-  const fileName = safePathPart(`${invoice.invoice_no}.pdf`);
+  const fileName = safePathPart(`${invoice.invoice_no}.pdf`, {
+    preserveCase: true,
+  });
   const pdfName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
   return path.posix.join(
     'runs',
@@ -428,7 +429,7 @@ function shouldRotateInvoiceCredentials(error, credentialRefs) {
   const code = typeof error === 'object' ? error.code : null;
   if (code === 'AUTH_FAILED' || code === 'UNAUTHORIZED') return true;
   const message = error instanceof Error ? error.message : String(error);
-  return /\b(401|403|auth|credential|unauthorized|forbidden|invalid token)\b/iu.test(
+  return /\b(401|403|credential|unauthorized|forbidden|invalid token|expired token|invalid credentials|auth(?:entication)? (?:failed|failure))\b/iu.test(
     message,
   );
 }
