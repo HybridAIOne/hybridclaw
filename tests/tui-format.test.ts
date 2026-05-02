@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   formatTuiTitledCommandBlock,
+  formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
   nextActiveDelegateToolCount,
   parseTuiSectionCards,
@@ -56,6 +57,27 @@ test('tool activity width uses production wide and zero-width handling', () => {
 
   expect(visibleTuiLength(line)).toBeLessThanOrEqual(27);
   expect(stripAnsi(line)).not.toContain('�');
+});
+
+test('tool activity block keeps active tools on separate rows', () => {
+  const lines = formatTuiToolActivityBlock({
+    entries: [
+      {
+        name: 'read',
+        preview: '{"path":"skills/download-platform-invoices/helpers/money"}',
+        count: 1,
+      },
+      { name: 'grep', preview: '{"pattern":"invoice"}', count: 2 },
+    ],
+    columns: 70,
+    frameIndex: 0,
+  }).map(stripAnsi);
+
+  expect(lines).toHaveLength(2);
+  expect(lines[0]).toContain('read');
+  expect(lines[0]).toContain('skills/download-platform-invoices');
+  expect(lines[1]).toContain('grep');
+  expect(lines[1]).toContain('x2');
 });
 
 test('reflows locomo variant tables to the live tui width without splitting rows', () => {
