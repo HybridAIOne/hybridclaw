@@ -23,7 +23,7 @@ import { discoverOpenRouterModels } from './openrouter-discovery.js';
 import { isRuntimeProviderId, type RuntimeProviderId } from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 
-export type AuxiliaryTask = TaskModelKey;
+export type AuxiliaryTask = TaskModelKey | 'cv_narration';
 
 type RuntimeProvider = RuntimeProviderId;
 type TaskOverrideSuffix = 'MODEL' | 'PROVIDER';
@@ -31,12 +31,13 @@ type TaskOverrideSnapshot = Partial<
   Record<AuxiliaryTask, Partial<Record<TaskOverrideSuffix, string>>>
 >;
 
-const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS];
+const AUXILIARY_TASKS: AuxiliaryTask[] = [...TASK_MODEL_KEYS, 'cv_narration'];
 
 const ENV_OVERRIDE_PREFIXES = ['AUXILIARY_', 'CONTEXT_'] as const;
 const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
   hybridai: '',
   'openai-codex': 'openai-codex/',
+  anthropic: 'anthropic/',
   openrouter: 'openrouter/',
   mistral: 'mistral/',
   huggingface: 'huggingface/',
@@ -66,7 +67,11 @@ function normalizeTaskProviderSelection(
   value: string | undefined,
 ): RuntimeAuxiliaryProviderSelection | undefined {
   const normalized = (value ?? '').trim().toLowerCase();
-  if (normalized === 'auto' || isRuntimeProviderId(normalized)) {
+  if (
+    normalized === 'auto' ||
+    normalized === 'disabled' ||
+    isRuntimeProviderId(normalized)
+  ) {
     return normalized;
   }
   return undefined;
@@ -92,8 +97,6 @@ function readTaskOverrideSnapshot(): TaskOverrideSnapshot {
   return snapshot;
 }
 
-// Snapshot env overrides once at module load so a running worker sees stable
-// task-routing behavior for its lifetime instead of re-reading process.env.
 const TASK_OVERRIDE_SNAPSHOT = readTaskOverrideSnapshot();
 
 function readTaskOverride(
@@ -117,6 +120,10 @@ function getSelectedTaskProvider(
   );
   if (override) return override;
   return getConfiguredTaskSelection(task).provider;
+}
+
+export function isAuxiliaryTaskDisabled(task: AuxiliaryTask): boolean {
+  return getSelectedTaskProvider(task) === 'disabled';
 }
 
 function getSelectedTaskModel(task: AuxiliaryTask): string {
@@ -222,6 +229,10 @@ export function normalizeAuxiliaryProviderModel(params: {
     return trimmed;
   }
 
+  if (params.provider === 'openrouter' && explicitPrefix !== 'openrouter') {
+    return `${RUNTIME_PROVIDER_PREFIXES.openrouter}${trimmed}`;
+  }
+
   if (explicitPrefix && explicitPrefix !== params.provider) {
     throw new Error(
       `${params.provider} provider override cannot be used with model "${trimmed}".`,
@@ -246,6 +257,7 @@ export async function resolveTaskModelPolicy(
   const providerSelection = getSelectedTaskProvider(task);
   const rawModel = getSelectedTaskModel(task);
   const maxTokens = normalizeMaxTokens(configured.maxTokens);
+  if (providerSelection === 'disabled') return undefined;
 
   if (providerSelection === 'auto' && !rawModel) {
     // For the vision task, verify that the session/fallback model actually
@@ -282,6 +294,7 @@ export async function resolveTaskModelPolicy(
             });
             return {
               provider: resolved.provider,
+              providerMethod: resolved.providerMethod,
               baseUrl: resolved.baseUrl,
               apiKey: resolved.apiKey,
               requestHeaders: { ...resolved.requestHeaders },
@@ -367,6 +380,7 @@ export async function resolveTaskModelPolicy(
     }
     return {
       provider: resolved.provider,
+      providerMethod: resolved.providerMethod,
       baseUrl: resolved.baseUrl,
       apiKey: resolved.apiKey,
       requestHeaders: { ...resolved.requestHeaders },
@@ -402,7 +416,7 @@ export async function resolveTaskModelPolicies(
   params: { agentId?: string; chatbotId?: string; sessionModel?: string } = {},
 ): Promise<TaskModelPolicies | undefined> {
   const taskModels: TaskModelPolicies = {};
-  for (const task of AUXILIARY_TASKS) {
+  for (const task of TASK_MODEL_KEYS) {
     const policy = await resolveTaskModelPolicy(task, params);
     if (policy) {
       taskModels[task] = policy;

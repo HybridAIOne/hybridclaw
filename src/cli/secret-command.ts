@@ -1,6 +1,11 @@
 import {
   getRuntimeConfig,
+  isGoogleApisUrlPrefix,
+  isGoogleOAuthSecretRef,
+  isGoogleOAuthSpecifier,
+  makeGoogleOAuthSecretRef,
   type RuntimeHttpRequestAuthRule,
+  type RuntimeHttpRequestAuthRuleSecret,
   runtimeConfigPath,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -57,6 +62,25 @@ function normalizeSecretRoutePrefix(raw: string | undefined): string {
   return normalized;
 }
 
+function normalizeSecretRouteSecret(
+  raw: string,
+): RuntimeHttpRequestAuthRuleSecret {
+  const value = String(raw || '').trim();
+  if (isGoogleOAuthSpecifier(value)) {
+    return makeGoogleOAuthSecretRef();
+  }
+  assertSecretName(value);
+  return { source: 'store', id: value };
+}
+
+function formatRouteSecretLabel(
+  secret: RuntimeHttpRequestAuthRuleSecret,
+): string {
+  if (typeof secret === 'string') return secret;
+  if (isGoogleOAuthSecretRef(secret)) return 'google-oauth';
+  return `${secret.source}:${secret.id}`;
+}
+
 function formatHttpRequestAuthRule(
   rule: RuntimeHttpRequestAuthRule,
   index: number,
@@ -64,9 +88,11 @@ function formatHttpRequestAuthRule(
   const parsedSecret =
     typeof rule.secret === 'string'
       ? rule.secret
-      : typeof rule.secret.id === 'string'
-        ? `${rule.secret.source}:${rule.secret.id}`
-        : '<invalid>';
+      : isGoogleOAuthSecretRef(rule.secret)
+        ? 'google-oauth'
+        : typeof rule.secret.id === 'string'
+          ? `${rule.secret.source}:${rule.secret.id}`
+          : '<invalid>';
   const prefix = rule.prefix ? ` ${rule.prefix}` : '';
   return `${index + 1}. ${rule.urlPrefix} -> ${rule.header}:${prefix} ${parsedSecret}`.trim();
 }
@@ -176,11 +202,16 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       if (!rawPrefix || !secretName) {
         printSecretUsage();
         throw new Error(
-          'Usage: `hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]`',
+          'Usage: `hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`',
         );
       }
-      assertSecretName(secretName);
+      const secret = normalizeSecretRouteSecret(secretName);
       const urlPrefix = normalizeUrlPrefix(rawPrefix);
+      if (isGoogleOAuthSecretRef(secret) && !isGoogleApisUrlPrefix(urlPrefix)) {
+        throw new Error(
+          '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
+        );
+      }
       const header = normalizeSecretRouteHeader(rawHeader);
       const prefix = normalizeSecretRoutePrefix(rawAuthPrefix);
       updateRuntimeConfig(
@@ -189,7 +220,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
             urlPrefix,
             header,
             prefix,
-            secret: { source: 'store', id: secretName },
+            secret,
           };
           draft.tools.httpRequest.authRules =
             draft.tools.httpRequest.authRules.filter(
@@ -210,7 +241,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
         ? `${header}: ${prefix} <secret>`
         : `${header}: <secret>`;
       console.log(
-        `Added secret route for \`${urlPrefix}\` using \`${secretName}\` as \`${authLabel}\`.`,
+        `Added secret route for \`${urlPrefix}\` using \`${formatRouteSecretLabel(secret)}\` as \`${authLabel}\`.`,
       );
       console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
       return;
@@ -262,7 +293,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
 
     printSecretUsage();
     throw new Error(
-      'Usage: `hybridclaw secret route list`, `hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]`, or `hybridclaw secret route remove <url-prefix> [header]`',
+      'Usage: `hybridclaw secret route list`, `hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]`, or `hybridclaw secret route remove <url-prefix> [header]`',
     );
   }
 

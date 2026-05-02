@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import {
+  getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
+  requireAnthropicClaudeCliCredential,
+} from './auth/anthropic-auth.js';
+import {
   getCodexAuthStatus,
   loginCodexInteractive,
 } from './auth/codex-auth.js';
@@ -60,6 +65,7 @@ interface OnboardingOptions {
   requireCredentials?: boolean;
   preferredAuth?:
     | 'hybridai'
+    | 'anthropic'
     | 'openai-codex'
     | 'openrouter'
     | 'mistral'
@@ -394,6 +400,16 @@ function defaultCodexModel(): string {
   return 'openai-codex/gpt-5-codex';
 }
 
+function defaultAnthropicModel(): string {
+  const config = getRuntimeConfig();
+  const current = config.hybridai.defaultModel.trim();
+  if (current && resolveModelProvider(current) === 'anthropic') return current;
+  const first = config.anthropic.models.find(
+    (model) => resolveModelProvider(model) === 'anthropic',
+  );
+  return (first || '').trim();
+}
+
 function defaultOpenRouterModel(): string {
   const config = getRuntimeConfig();
   const current = config.hybridai.defaultModel.trim();
@@ -659,6 +675,7 @@ async function promptAuthMethod(
   currentModel: string,
 ): Promise<
   | 'hybridai'
+  | 'anthropic'
   | 'openai-codex'
   | 'openrouter'
   | 'mistral'
@@ -667,23 +684,26 @@ async function promptAuthMethod(
 > {
   const currentProvider = resolveModelProvider(currentModel);
   const defaultChoice =
-    currentProvider === 'openai-codex'
+    currentProvider === 'anthropic'
       ? '2'
-      : currentProvider === 'openrouter'
+      : currentProvider === 'openai-codex'
         ? '3'
-        : currentProvider === 'mistral'
+        : currentProvider === 'openrouter'
           ? '4'
-          : currentProvider === 'huggingface'
+          : currentProvider === 'mistral'
             ? '5'
-            : '1';
+            : currentProvider === 'huggingface'
+              ? '6'
+              : '1';
 
   console.log(`${TEAL}${ICON_TITLE}${RESET} Auth methods:`);
   console.log(`  ${TEAL}1.${RESET} HybridAI API key`);
-  console.log(`  ${TEAL}2.${RESET} OpenAI Codex (OAuth login)`);
-  console.log(`  ${TEAL}3.${RESET} OpenRouter API key`);
-  console.log(`  ${TEAL}4.${RESET} Mistral API key`);
-  console.log(`  ${TEAL}5.${RESET} Hugging Face token`);
-  console.log(`  ${TEAL}6.${RESET} Skip for now (for local models)`);
+  console.log(`  ${TEAL}2.${RESET} Anthropic Claude Code / API key`);
+  console.log(`  ${TEAL}3.${RESET} OpenAI Codex (OAuth login)`);
+  console.log(`  ${TEAL}4.${RESET} OpenRouter API key`);
+  console.log(`  ${TEAL}5.${RESET} Mistral API key`);
+  console.log(`  ${TEAL}6.${RESET} Hugging Face token`);
+  console.log(`  ${TEAL}7.${RESET} Skip for now (for local models)`);
 
   while (true) {
     const choice = await promptOptional(
@@ -695,29 +715,36 @@ async function promptAuthMethod(
     if (normalized === '1' || normalized === 'hybridai') return 'hybridai';
     if (
       normalized === '2' ||
+      normalized === 'anthropic' ||
+      normalized === 'claude'
+    ) {
+      return 'anthropic';
+    }
+    if (
+      normalized === '3' ||
       normalized === 'codex' ||
       normalized === 'openai-codex'
     ) {
       return 'openai-codex';
     }
-    if (normalized === '3' || normalized === 'openrouter') {
+    if (normalized === '4' || normalized === 'openrouter') {
       return 'openrouter';
     }
-    if (normalized === '4' || normalized === 'mistral') {
+    if (normalized === '5' || normalized === 'mistral') {
       return 'mistral';
     }
     if (
-      normalized === '5' ||
+      normalized === '6' ||
       normalized === 'huggingface' ||
       normalized === 'hf'
     ) {
       return 'huggingface';
     }
-    if (normalized === '6' || normalized === 'skip' || normalized === 'local') {
+    if (normalized === '7' || normalized === 'skip' || normalized === 'local') {
       return 'skip';
     }
     printWarn(
-      'Enter 1 for HybridAI, 2 for OpenAI Codex, 3 for OpenRouter, 4 for Mistral, 5 for Hugging Face, or 6 to skip for now.',
+      'Enter 1 for HybridAI, 2 for Anthropic, 3 for OpenAI Codex, 4 for OpenRouter, 5 for Mistral, 6 for Hugging Face, or 7 to skip for now.',
     );
   }
 }
@@ -1126,6 +1153,110 @@ async function runCodexOnboarding(params: {
   console.log();
 }
 
+async function runAnthropicOnboarding(params: {
+  rl: readline.Interface;
+  commandLabel: string;
+  existingApiKey: string;
+}): Promise<void> {
+  const { rl, commandLabel, existingApiKey } = params;
+  const runtimeConfig = getRuntimeConfig();
+  const existingStatus = getAnthropicAuthStatus();
+  printMeta('ANTHROPIC_BASE_URL', runtimeConfig.anthropic.baseUrl);
+  if (existingStatus.authenticated) {
+    printSetup('Anthropic credentials already detected on this host.');
+  } else {
+    printInfo(
+      'Anthropic can use a direct Anthropic API key or the official Claude CLI transport.',
+    );
+  }
+  console.log();
+
+  const defaultMethod = runtimeConfig.anthropic.method;
+  const methodChoice = (
+    await promptOptional(
+      rl,
+      `Auth method [api-key/claude-cli] (Enter for ${defaultMethod}): `,
+      ICON_AUTH,
+    )
+  )
+    .trim()
+    .toLowerCase();
+  const method =
+    !methodChoice || methodChoice === defaultMethod
+      ? defaultMethod
+      : methodChoice === 'claude-cli' ||
+          methodChoice === 'claude_cli' ||
+          methodChoice === 'claudecli' ||
+          methodChoice === 'cli' ||
+          methodChoice === 'claude'
+        ? 'claude-cli'
+        : methodChoice === 'api-key' || methodChoice === 'apikey'
+          ? 'api-key'
+          : null;
+  if (!method) {
+    throw new Error('Anthropic onboarding expected `api-key` or `claude-cli`.');
+  }
+
+  let resultMessage = '';
+  if (method === 'claude-cli') {
+    if (
+      !existingStatus.authenticated ||
+      existingStatus.method !== 'claude-cli'
+    ) {
+      printInfo(
+        'Run `claude auth login` in another terminal if you have not already done so, then press Enter here.',
+      );
+      await promptOptional(
+        rl,
+        'Press Enter after Claude Code login is complete: ',
+        ICON_KEYBOARD,
+      );
+    }
+    requireAnthropicClaudeCliCredential();
+    resultMessage = `Using Claude Code login from ${getAnthropicAuthStatus().path}.`;
+  } else {
+    const entered = await promptOptional(
+      rl,
+      existingApiKey
+        ? 'Anthropic API key (Enter to keep current): '
+        : 'Anthropic API key: ',
+      ICON_KEY,
+    );
+    const apiKey = (entered || existingApiKey).trim();
+    if (!apiKey) {
+      throw new Error('Anthropic onboarding requires a non-empty API key.');
+    }
+    const secretsPath = saveRuntimeSecrets({ ANTHROPIC_API_KEY: apiKey });
+    refreshRuntimeSecretsFromEnv();
+    resultMessage = `Saved credentials to ${secretsPath}.`;
+  }
+
+  updateRuntimeConfig((draft) => {
+    draft.anthropic.enabled = true;
+    draft.anthropic.method = method;
+  });
+
+  const nextAnthropicModel = defaultAnthropicModel();
+  const switchedModel = await maybeSwitchDefaultModel(
+    rl,
+    nextAnthropicModel,
+    'Anthropic auth works only with Anthropic models.',
+  );
+
+  console.log();
+  printSuccess(resultMessage);
+  printSuccess(`Saved runtime settings to ${runtimeConfigPath()}.`);
+  if (switchedModel) {
+    printSuccess(`Default model set to: ${nextAnthropicModel}`);
+  } else if (!nextAnthropicModel) {
+    printInfo(
+      `No Anthropic default model is configured. Set hybridai.defaultModel to an anthropic/... model in ${runtimeConfigPath()} if needed.`,
+    );
+  }
+  printTuiStartHint(commandLabel);
+  console.log();
+}
+
 async function runOpenRouterOnboarding(params: {
   rl: readline.Interface;
   commandLabel: string;
@@ -1390,36 +1521,46 @@ export async function ensureRuntimeCredentials(
     readStoredRuntimeSecret('HF_TOKEN') ||
     ''
   ).trim();
+  const anthropicStatus = getAnthropicAuthStatus();
   const codexStatus = getCodexAuthStatus();
+  const anthropicConfiguredMethod = runtimeConfig.anthropic.method;
+  const anthropicReady = isAnthropicAuthReadyForMethod(
+    anthropicStatus,
+    anthropicConfiguredMethod,
+  );
   const currentModel = runtimeConfig.hybridai.defaultModel.trim();
   const resolvedCurrentProvider = resolveModelProvider(currentModel);
   const currentProviderIsLocal = isLocalProvider(resolvedCurrentProvider);
   const currentAuth =
     options.preferredAuth ||
-    (resolvedCurrentProvider === 'openai-codex'
-      ? 'openai-codex'
-      : resolvedCurrentProvider === 'openrouter'
-        ? 'openrouter'
-        : resolvedCurrentProvider === 'mistral'
-          ? 'mistral'
-          : resolvedCurrentProvider === 'huggingface'
-            ? 'huggingface'
-            : 'hybridai');
+    (resolvedCurrentProvider === 'anthropic'
+      ? 'anthropic'
+      : resolvedCurrentProvider === 'openai-codex'
+        ? 'openai-codex'
+        : resolvedCurrentProvider === 'openrouter'
+          ? 'openrouter'
+          : resolvedCurrentProvider === 'mistral'
+            ? 'mistral'
+            : resolvedCurrentProvider === 'huggingface'
+              ? 'huggingface'
+              : 'hybridai');
   const force = options.force === true;
   const requireCredentials = options.requireCredentials !== false;
   let securityAccepted = isSecurityTrustAccepted(runtimeConfig);
   const needsSecurityAcceptance = !securityAccepted || force;
   const hasRequiredCredentials = currentProviderIsLocal
     ? true
-    : currentAuth === 'openai-codex'
-      ? codexStatus.authenticated
-      : currentAuth === 'openrouter'
-        ? !!existingOpenRouterKey
-        : currentAuth === 'mistral'
-          ? !!existingMistralKey
-          : currentAuth === 'huggingface'
-            ? !!existingHuggingFaceKey
-            : !!existingKey;
+    : currentAuth === 'anthropic'
+      ? anthropicReady
+      : currentAuth === 'openai-codex'
+        ? codexStatus.authenticated
+        : currentAuth === 'openrouter'
+          ? !!existingOpenRouterKey
+          : currentAuth === 'mistral'
+            ? !!existingMistralKey
+            : currentAuth === 'huggingface'
+              ? !!existingHuggingFaceKey
+              : !!existingKey;
   if (
     !needsSecurityAcceptance &&
     (hasRequiredCredentials || !requireCredentials)
@@ -1456,6 +1597,11 @@ export async function ensureRuntimeCredentials(
     // After accepting trust via env var, credentials may already be present.
     if (hasRequiredCredentials) return;
     if (!requireCredentials) return;
+    if (currentAuth === 'anthropic') {
+      throw new Error(
+        `Anthropic credentials are missing. Run \`hybridclaw auth login anthropic --method api-key --set-default\` for direct API access, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli --set-default\` for the official Claude CLI transport in host sandbox mode.`,
+      );
+    }
     if (currentAuth === 'openai-codex') {
       throw new Error(
         'OpenAI Codex credentials are missing. Run `hybridclaw codex login` or `hybridclaw onboarding` in an interactive terminal.',
@@ -1508,6 +1654,13 @@ export async function ensureRuntimeCredentials(
       process.env.HUGGINGFACE_API_KEY ||
       ''
     ).trim();
+    const refreshedAnthropicStatus = getAnthropicAuthStatus();
+    const refreshedAnthropicConfiguredMethod =
+      refreshedRuntimeConfig.anthropic.method;
+    const refreshedAnthropicReady = isAnthropicAuthReadyForMethod(
+      refreshedAnthropicStatus,
+      refreshedAnthropicConfiguredMethod,
+    );
     const refreshedCurrentModel =
       refreshedRuntimeConfig.hybridai.defaultModel.trim();
     const refreshedResolvedProvider = resolveModelProvider(
@@ -1516,27 +1669,31 @@ export async function ensureRuntimeCredentials(
     const refreshedProviderIsLocal = isLocalProvider(refreshedResolvedProvider);
     const refreshedAuth =
       options.preferredAuth ||
-      (refreshedResolvedProvider === 'openai-codex'
-        ? 'openai-codex'
-        : refreshedResolvedProvider === 'openrouter'
-          ? 'openrouter'
-          : refreshedResolvedProvider === 'mistral'
-            ? 'mistral'
-            : refreshedResolvedProvider === 'huggingface'
-              ? 'huggingface'
-              : 'hybridai');
+      (refreshedResolvedProvider === 'anthropic'
+        ? 'anthropic'
+        : refreshedResolvedProvider === 'openai-codex'
+          ? 'openai-codex'
+          : refreshedResolvedProvider === 'openrouter'
+            ? 'openrouter'
+            : refreshedResolvedProvider === 'mistral'
+              ? 'mistral'
+              : refreshedResolvedProvider === 'huggingface'
+                ? 'huggingface'
+                : 'hybridai');
     const refreshedCodexStatus = getCodexAuthStatus();
     const refreshedHasRequiredCredentials = refreshedProviderIsLocal
       ? true
-      : refreshedAuth === 'openai-codex'
-        ? refreshedCodexStatus.authenticated
-        : refreshedAuth === 'openrouter'
-          ? !!refreshedExistingOpenRouterKey
-          : refreshedAuth === 'mistral'
-            ? !!refreshedExistingMistralKey
-            : refreshedAuth === 'huggingface'
-              ? !!refreshedExistingHuggingFaceKey
-              : !!refreshedExistingKey;
+      : refreshedAuth === 'anthropic'
+        ? refreshedAnthropicReady
+        : refreshedAuth === 'openai-codex'
+          ? refreshedCodexStatus.authenticated
+          : refreshedAuth === 'openrouter'
+            ? !!refreshedExistingOpenRouterKey
+            : refreshedAuth === 'mistral'
+              ? !!refreshedExistingMistralKey
+              : refreshedAuth === 'huggingface'
+                ? !!refreshedExistingHuggingFaceKey
+                : !!refreshedExistingKey;
 
     if (refreshedProviderIsLocal && !options.preferredAuth) {
       printSuccess(
@@ -1568,6 +1725,17 @@ export async function ensureRuntimeCredentials(
     }
     if (authMethod === 'openai-codex') {
       await runCodexOnboarding({ rl, commandLabel });
+      return;
+    }
+    if (authMethod === 'anthropic') {
+      await runAnthropicOnboarding({
+        rl,
+        commandLabel,
+        existingApiKey:
+          process.env.ANTHROPIC_API_KEY?.trim() ||
+          readStoredRuntimeSecret('ANTHROPIC_API_KEY') ||
+          '',
+      });
       return;
     }
     if (authMethod === 'openrouter') {

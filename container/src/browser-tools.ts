@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -42,6 +43,16 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
+const HEADED_BROWSER_ARGS = [
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-networking',
+  '--disable-sync',
+  '--disable-translate',
+  '--metrics-recording-only',
+  '--password-store=basic',
+  '--use-mock-keychain',
+];
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -153,6 +164,19 @@ const FIND_FILE_INPUT_SELECTORS_SCRIPT = `(() => {
   return selectors.slice(0, 10);
 })()`;
 
+const TWO_FACTOR_SELECTOR_HINTS_SCRIPT = `(() => {
+  const selectors = [
+    'input[autocomplete="one-time-code"]',
+    'input[inputmode="numeric"]',
+    'input[type="tel"]',
+    'input[name*="otp" i]',
+    'input[id*="otp" i]',
+    'input[name*="code" i]',
+    'input[id*="code" i]',
+  ];
+  return selectors.filter((selector) => document.querySelector(selector));
+})()`;
+
 type SnapshotMode = 'default' | 'interactive' | 'full';
 type FrameTarget = {
   raw: string;
@@ -170,6 +194,7 @@ type BrowserModelContext = {
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -177,12 +202,14 @@ type BrowserModelContext = {
     | 'lmstudio'
     | 'llamacpp'
     | 'vllm';
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
   requestHeaders: Record<string, string>;
   maxTokens?: number;
+  debugModelResponses?: boolean;
 };
 
 type BrowserRunner = {
@@ -195,6 +222,7 @@ type BrowserSession = {
   socketDir: string;
   profileDir?: string;
   stateName?: string;
+  headed: boolean;
   createdAt: number;
   lastUsedAt: number;
 };
@@ -216,6 +244,17 @@ let currentBrowserModelContext: BrowserModelContext = {
   requestHeaders: {},
 };
 let currentBrowserTaskModels: TaskModelPolicies | undefined;
+let gatewayBaseUrl = '';
+let gatewayApiToken = '';
+const suspendedSessionByBrowserSession = new Map<string, string>();
+
+export function setBrowserGatewayContext(
+  baseUrl?: string,
+  apiToken?: string,
+): void {
+  gatewayBaseUrl = String(baseUrl || '').trim();
+  gatewayApiToken = String(apiToken || '').trim();
+}
 
 function cloneTaskModelPolicies(
   taskModels?: TaskModelPolicies,
@@ -238,6 +277,7 @@ export function setBrowserModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -246,15 +286,18 @@ export function setBrowserModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentBrowserModelContext = {
     provider: provider || 'hybridai',
+    providerMethod,
     baseUrl: String(baseUrl || '')
       .trim()
       .replace(/\/+$/, ''),
@@ -268,6 +311,7 @@ export function setBrowserModelContext(
       maxTokens > 0
         ? Math.floor(maxTokens)
         : undefined,
+    debugModelResponses,
   };
 }
 
@@ -309,6 +353,14 @@ function shouldPersistProfiles(): boolean {
 
 function shouldPersistSessionState(): boolean {
   return envFlagEnabled('BROWSER_PERSIST_SESSION_STATE', true);
+}
+
+function shouldLaunchHeaded(): boolean {
+  return (
+    envFlagEnabled('BROWSER_HEADFUL', false) ||
+    envFlagEnabled('BROWSER_HEADED', false) ||
+    envFlagEnabled('AGENT_BROWSER_HEADED', false)
+  );
 }
 
 function resolveProfileRoot(): string {
@@ -390,7 +442,55 @@ function resolveRunner(): BrowserRunner | null {
   return cachedRunner;
 }
 
-function getSession(sessionId: string): BrowserSession {
+function resolveHeadedBrowserExecutable(): string | undefined {
+  const configured = String(
+    process.env.AGENT_BROWSER_EXECUTABLE_PATH || '',
+  ).trim();
+  if (configured) return configured;
+
+  const chromeBin = String(process.env.CHROME_BIN || '').trim();
+  if (chromeBin) return chromeBin;
+
+  if (process.platform === 'darwin') {
+    const googleChrome =
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    return fs.existsSync(googleChrome) ? googleChrome : undefined;
+  }
+
+  if (process.platform === 'linux') {
+    for (const name of ['google-chrome', 'google-chrome-stable']) {
+      const result = spawnSync('which', [name], { encoding: 'utf-8' });
+      if (result.status === 0 && result.stdout.trim()) {
+        return result.stdout.trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function resolveBrowserLaunchArgs(session: BrowserSession): string | undefined {
+  const configured = String(process.env.AGENT_BROWSER_ARGS || '').trim();
+  if (!session.headed) return configured || undefined;
+
+  const configuredArgs = configured
+    ? configured
+        .split(/[,\n]/)
+        .map((arg) => arg.trim())
+        .filter(Boolean)
+    : [];
+  const merged = [...configuredArgs];
+  const existing = new Set(merged);
+  for (const arg of HEADED_BROWSER_ARGS) {
+    if (!existing.has(arg)) merged.push(arg);
+  }
+  return merged.length > 0 ? merged.join('\n') : undefined;
+}
+
+function getSession(
+  sessionId: string,
+  options: { headed?: boolean } = {},
+): BrowserSession {
   const sessionKey = normalizeSessionKey(sessionId);
   const existing = activeSessions.get(sessionKey);
   if (existing) {
@@ -429,11 +529,23 @@ function getSession(sessionId: string): BrowserSession {
     socketDir,
     profileDir,
     stateName,
+    headed: options.headed ?? shouldLaunchHeaded(),
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
   };
   activeSessions.set(sessionKey, session);
   return session;
+}
+
+async function prepareSessionMode(
+  sessionId: string,
+  options: { headed?: boolean } = {},
+): Promise<void> {
+  if (options.headed == null) return;
+  const sessionKey = normalizeSessionKey(sessionId);
+  const existing = activeSessions.get(sessionKey);
+  if (!existing || existing.headed === options.headed) return;
+  await closeSession(sessionKey);
 }
 
 function ensureWritableDir(dirPath: string): string {
@@ -827,6 +939,78 @@ function createTempScreenshotPath(prefix: string): string {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function resolveGatewayInteractiveEscalationUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  return base ? `${base}/api/interactive-escalations` : null;
+}
+
+function assertGatewayInteractiveEscalationConfigured(): void {
+  if (!resolveGatewayInteractiveEscalationUrl()) {
+    throw new Error(
+      'gatewayBaseUrl is not configured; cannot park browser interaction.',
+    );
+  }
+}
+
+function safeUrlHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+async function callGatewayInteractiveEscalation(
+  pathSuffix: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const baseUrl = resolveGatewayInteractiveEscalationUrl();
+  if (!baseUrl) {
+    throw new Error(
+      'gatewayBaseUrl is not configured; cannot park browser interaction.',
+    );
+  }
+  const url = `${baseUrl}${pathSuffix}`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = asRecord(JSON.parse(text) as unknown);
+  } catch {
+    parsed = null;
+  }
+  if (!response.ok) {
+    const message =
+      typeof parsed?.error === 'string'
+        ? parsed.error
+        : text || `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return parsed || { raw: text };
+}
+
+async function createGatewayInteractiveEscalation(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return callGatewayInteractiveEscalation('', payload);
+}
+
+async function consumeGatewayInteractiveEscalation(
+  sessionId: string,
+): Promise<Record<string, unknown>> {
+  return callGatewayInteractiveEscalation('/consume', { sessionId });
 }
 
 function normalizeSnapshotMode(rawMode: unknown): SnapshotMode {
@@ -1290,7 +1474,7 @@ async function runAgentBrowser(
   sessionId: string,
   command: string,
   commandArgs: string[] = [],
-  options: { timeoutMs?: number; cdpUrl?: string } = {},
+  options: { timeoutMs?: number; cdpUrl?: string; headed?: boolean } = {},
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const runner = resolveRunner();
   if (!runner) {
@@ -1306,7 +1490,8 @@ async function runAgentBrowser(
     1_000,
     Math.min(options.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS, 180_000),
   );
-  const session = getSession(sessionId);
+  await prepareSessionMode(sessionId, { headed: options.headed });
+  const session = getSession(sessionId, { headed: options.headed });
   const homeDir = resolveWritableHome();
   const npmCacheDir = ensureWritableDir(BROWSER_NPM_CACHE);
   const xdgCacheDir = ensureWritableDir(BROWSER_XDG_CACHE);
@@ -1329,12 +1514,30 @@ async function runAgentBrowser(
     NPM_CONFIG_CACHE: npmCacheDir,
     npm_config_cache: npmCacheDir,
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
+    AGENT_BROWSER_HEADED: session.headed ? '1' : '0',
   };
   if (session.stateName) {
     browserEnv.AGENT_BROWSER_SESSION_NAME = session.stateName;
   }
   if (!cdpUrl && session.profileDir) {
     browserEnv.AGENT_BROWSER_PROFILE = session.profileDir;
+  }
+  const launchArgs = resolveBrowserLaunchArgs(session);
+  if (launchArgs) {
+    browserEnv.AGENT_BROWSER_ARGS = launchArgs;
+  } else {
+    delete browserEnv.AGENT_BROWSER_ARGS;
+  }
+  if (session.headed && !cdpUrl) {
+    const executablePath = resolveHeadedBrowserExecutable();
+    if (!executablePath) {
+      return {
+        success: false,
+        error:
+          'Headful browser control requires Google Chrome. Install Google Chrome or set CHROME_BIN/AGENT_BROWSER_EXECUTABLE_PATH to a Chrome executable. Refusing to fall back to Playwright Chrome for Testing because it is unstable for headed macOS launches.',
+      };
+    }
+    browserEnv.AGENT_BROWSER_EXECUTABLE_PATH = executablePath;
   }
 
   try {
@@ -1414,11 +1617,12 @@ export async function executeBrowserTool(
     switch (name) {
       case 'browser_navigate': {
         const parsed = await assertNavigationUrl(args.url);
+        const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,
           'open',
           [parsed.toString()],
-          { timeoutMs: 60_000 },
+          { timeoutMs: 60_000, headed },
         );
         if (!result.success)
           return failure(result.error || 'navigation failed');
@@ -1465,6 +1669,7 @@ export async function executeBrowserTool(
           ...(hasNoscript ? { has_noscript: true } : {}),
           ...(rootShell ? { root_shell: true } : {}),
           read_extraction_hint: extractionHint,
+          headed: getSession(effectiveSessionId).headed,
           ...(botWarning ? { bot_detection_warning: botWarning } : {}),
         });
       }
@@ -1492,6 +1697,20 @@ export async function executeBrowserTool(
         const frames = frameEval.success
           ? normalizeFrameMetadata(frameEval.result)
           : [];
+        const twoFactorSelectorEval = await runBrowserEval(
+          effectiveSessionId,
+          TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+          10_000,
+        );
+        const twoFactorSelectors = Array.isArray(twoFactorSelectorEval.result)
+          ? twoFactorSelectorEval.result.filter(
+              (selector): selector is string => typeof selector === 'string',
+            )
+          : [];
+        const twoFactorTextSignal =
+          /\b(verification code|one[- ]time code|two[- ]factor|2fa|multi[- ]factor|authenticator|sms|text message|recovery code|backup code|scan.+code|qr)\b/i.test(
+            rawSnapshot,
+          );
         return success({
           snapshot: truncated.text,
           truncated: truncated.truncated,
@@ -1502,6 +1721,15 @@ export async function executeBrowserTool(
           url: data.url || data.origin || '',
           mode,
           ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
+          ...(twoFactorSelectors.length > 0 || twoFactorTextSignal
+            ? {
+                two_factor_detection: {
+                  detected: true,
+                  selectors: twoFactorSelectors,
+                  text_signal: twoFactorTextSignal,
+                },
+              }
+            : {}),
         });
       }
 
@@ -1560,19 +1788,21 @@ export async function executeBrowserTool(
       }
 
       case 'browser_type': {
-        const ref = ensureRef(args.ref);
+        const selector = String(args.selector || '').trim();
+        const ref = selector ? '' : ensureRef(args.ref);
+        const target = selector || ref;
         const text = String(args.text || '');
         if (!text) return failure('text is required');
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
         const result = await runAgentBrowser(effectiveSessionId, 'fill', [
-          ref,
+          target,
           text,
         ]);
         if (!result.success)
-          return failure(result.error || `failed to fill ${ref}`);
+          return failure(result.error || `failed to fill ${target}`);
         return success({
-          element: ref,
+          ...(selector ? { selector } : { element: ref }),
           typed_chars: text.length,
           ...(frame ? { frame: frame.raw } : {}),
         });
@@ -1882,6 +2112,152 @@ export async function executeBrowserTool(
         });
       }
 
+      case 'browser_await_two_factor': {
+        assertGatewayInteractiveEscalationConfigured();
+        const modality = String(args.modality || 'totp').trim();
+        const prompt =
+          String(args.prompt || '').trim() ||
+          `A ${modality} challenge needs operator input.`;
+        const skillId = String(args.skillId || '').trim();
+        const userId = String(args.userId || '').trim();
+        const targetChannel = String(args.escalationChannel || '').trim();
+        const targetRecipient = String(args.escalationRecipient || '').trim();
+        const ttlMs =
+          typeof args.ttlMs === 'number' && Number.isFinite(args.ttlMs)
+            ? args.ttlMs
+            : null;
+
+        const [textEval, selectorEval] = await Promise.all([
+          runBrowserEval(
+            effectiveSessionId,
+            EXTRACT_TEXT_PREVIEW_SCRIPT,
+            15_000,
+          ),
+          runBrowserEval(
+            effectiveSessionId,
+            TWO_FACTOR_SELECTOR_HINTS_SCRIPT,
+            15_000,
+          ),
+        ]);
+        const screenshotPath = createTempScreenshotPath('two-factor');
+        const [snapshotResult, screenshotResult] = await Promise.all([
+          runAgentBrowser(effectiveSessionId, 'snapshot', [], {
+            timeoutMs: 30_000,
+          }),
+          runAgentBrowser(effectiveSessionId, 'screenshot', [screenshotPath], {
+            timeoutMs: 60_000,
+          }),
+        ]);
+        const screenshotRef = screenshotResult.success
+          ? toWorkspaceRelativePath(screenshotPath)
+          : null;
+        const textData = asRecord(textEval.success ? textEval.result : null);
+        const snapshotData = asRecord(
+          snapshotResult.success ? snapshotResult.data : null,
+        );
+        const url =
+          String(snapshotData?.url || snapshotData?.origin || '').trim() ||
+          'about:blank';
+        const title = String(snapshotData?.title || '').trim();
+        const selectors = Array.isArray(selectorEval.result)
+          ? selectorEval.result.filter(
+              (selector): selector is string => typeof selector === 'string',
+            )
+          : [];
+
+        const gatewayResult = await createGatewayInteractiveEscalation({
+          prompt,
+          modality,
+          ...(userId ? { userId } : {}),
+          ...(skillId ? { skillId } : {}),
+          ...(ttlMs ? { ttlMs } : {}),
+          ...(targetChannel && targetRecipient
+            ? {
+                escalationTarget: {
+                  channel: targetChannel,
+                  recipient: targetRecipient,
+                },
+              }
+            : {}),
+          frameSnapshot: {
+            url,
+            title,
+            browserSessionKey: effectiveSessionId,
+            screenshotRef,
+          },
+          context: {
+            host: safeUrlHost(url),
+            pageTitle: title || null,
+            url,
+            screenshotRef,
+          },
+        });
+        const gatewaySession = asRecord(gatewayResult.session);
+        const suspendedSessionId = String(
+          gatewaySession?.sessionId || '',
+        ).trim();
+        if (suspendedSessionId) {
+          suspendedSessionByBrowserSession.set(
+            effectiveSessionId,
+            suspendedSessionId,
+          );
+        }
+        return success({
+          parked: true,
+          modality,
+          detected_selectors: selectors,
+          text_preview: String(textData?.preview || '').slice(0, 1000),
+          screenshot: screenshotRef,
+          interaction: gatewayResult,
+        });
+      }
+
+      case 'browser_resume_interaction': {
+        const ref = ensureRef(args.ref);
+        const sessionId = String(
+          args.sessionId ||
+            suspendedSessionByBrowserSession.get(effectiveSessionId) ||
+            effectiveSessionId,
+        ).trim();
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
+        const gatewayResult =
+          await consumeGatewayInteractiveEscalation(sessionId);
+        const response = asRecord(gatewayResult.response);
+        const kind = String(response?.kind || '').trim();
+        if (kind === 'code') {
+          const value = String(response?.value || '').trim();
+          if (!value) {
+            return failure('operator code response was empty');
+          }
+          const result = await runAgentBrowser(effectiveSessionId, 'fill', [
+            ref,
+            value,
+          ]);
+          if (!result.success) {
+            return failure(result.error || `failed to fill ${ref}`);
+          }
+          return success({
+            resumed: true,
+            response_kind: 'code',
+            code_injected: true,
+            element: ref,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
+        if (kind === 'approved' || kind === 'scanned') {
+          return success({
+            resumed: true,
+            response_kind: kind,
+            operator_completed_challenge: true,
+          });
+        }
+        return success({
+          resumed: false,
+          response_kind: kind || 'unknown',
+        });
+      }
+
       case 'browser_close': {
         const warning = await closeSession(effectiveSessionId, {
           createIfMissing: true,
@@ -1907,15 +2283,93 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'browser_await_two_factor',
+      description:
+        'Park the active browser session when a human must complete a 2FA or interactive challenge. Captures page context and screenshot, then asks the gateway to create a durable suspended session. Use this instead of trying to solve TOTP, push, QR, SMS, or recovery-code challenges automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          modality: {
+            type: 'string',
+            enum: ['totp', 'push', 'qr', 'sms', 'recovery_code'],
+            description: 'Challenge type.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Operator-facing prompt explaining what is needed.',
+          },
+          skillId: {
+            type: 'string',
+            description: 'Optional skill id that reached the waypoint.',
+          },
+          userId: {
+            type: 'string',
+            description: 'Optional operator id for the response.',
+          },
+          escalationChannel: {
+            type: 'string',
+            description: 'Optional F8 target channel for operator routing.',
+          },
+          escalationRecipient: {
+            type: 'string',
+            description: 'Optional F8 target recipient for operator routing.',
+          },
+          ttlMs: {
+            type: 'number',
+            description:
+              'Optional timeout in milliseconds. Defaults to the gateway F14 timeout.',
+          },
+        },
+        required: ['modality', 'prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_resume_interaction',
+      description:
+        'Resume a browser session after the operator responds to browser_await_two_factor. If the response is a code, this consumes it from the gateway and injects it directly into the target element without returning the cleartext in the tool result.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: {
+            type: 'string',
+            description:
+              'Element reference for the 2FA/code input from browser_snapshot.',
+          },
+          sessionId: {
+            type: 'string',
+            description:
+              'Optional suspended session id. Defaults to the current browser session.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
+          },
+        },
+        required: ['ref'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'browser_navigate',
       description:
-        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
+        'Navigate to a URL in a full browser session with JavaScript execution and dynamic rendering. Use for SPAs (React/Vue/Angular/Svelte), auth/login flows, dashboards/web apps (Notion, Google Docs, Airtable, Jira, etc.), interaction tasks (click/type/submit/scroll), bot/captcha/consent flows, or when web_fetch returns escalation hints (javascript_required, spa_shell_only, empty_extraction, boilerplate_only, bot_blocked). Prefer web_fetch instead for static docs/articles/wikis, direct API JSON/XML/text endpoints, and simple read-only retrieval. If the user asks for a visible/headed/headful browser window, pass headed=true; the setting persists for the browser session and may require a local display. Important: browser_navigate opens the page but does not replace content extraction; for read/summarize tasks call browser_snapshot with mode="full" next. Browser usage is typically ~10-100x slower/more expensive than web_fetch. Private/loopback hosts are blocked by default (SSRF guard).',
       parameters: {
         type: 'object',
         properties: {
           url: {
             type: 'string',
             description: 'URL to open (http:// or https://)',
+          },
+          headed: {
+            type: 'boolean',
+            description:
+              'Use a visible browser window when the user explicitly requests headful/headed browser control.',
           },
         },
         required: ['url'],
@@ -1990,13 +2444,19 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_type',
       description:
-        'Type text into an input element by snapshot ref (clears then fills).',
+        'Type text into an input element by snapshot ref or CSS selector (clears then fills). Provide either ref or selector.',
       parameters: {
         type: 'object',
         properties: {
           ref: {
             type: 'string',
-            description: 'Element reference from browser_snapshot.',
+            description:
+              'Element reference from browser_snapshot. Required when selector is omitted.',
+          },
+          selector: {
+            type: 'string',
+            description:
+              'CSS selector fallback when a stable snapshot ref is unavailable. Required when ref is omitted.',
           },
           text: { type: 'string', description: 'Text to type.' },
           frame: {
@@ -2005,7 +2465,44 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
               'Optional frame selector. Use "main" to target the main document again.',
           },
         },
-        required: ['ref', 'text'],
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_secret_type',
+      description:
+        'Inject a stored secret into a browser element without exposing the secret text to the model. Use only for login/API credential fields after navigating to the target host.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: {
+            type: 'string',
+            description: 'Element reference from browser_snapshot.',
+          },
+          selector: {
+            type: 'string',
+            description:
+              'CSS selector for policy allowlists and elements without stable refs.',
+          },
+          secretName: {
+            type: 'string',
+            description: 'Stored secret name to inject.',
+          },
+          skillName: {
+            type: 'string',
+            description:
+              'Optional skill name for secret resolution policy and audit.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use "main" to target the main document again.',
+          },
+        },
+        required: ['secretName'],
       },
     },
   },

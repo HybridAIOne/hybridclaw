@@ -3,7 +3,6 @@ import { stemmer } from 'stemmer';
 const PUNCTUATION_REGEX = /[!"#$%&'()*+./:;<=>?@[\\\]^_`{|}~-]/g;
 const ARTICLES_REGEX = /\b(a|an|the|and)\b/g;
 
-// Direct port of LoCoMo QA scoring semantics from task_eval/evaluation.py.
 export function scoreOfficialLocomoAnswer(params: {
   category: number;
   prediction: string;

@@ -16,6 +16,7 @@ const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
 
 export interface ProactiveMessagePayload {
+  channelId?: string;
   text: string;
   artifacts?: ArtifactMetadata[];
 }

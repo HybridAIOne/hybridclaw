@@ -4,6 +4,7 @@ import type {
   AdminAgent,
   AdminAgentMarkdownFileResponse,
   AdminAgentMarkdownRevisionResponse,
+  AdminAgentScoreboardResponse,
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
@@ -18,6 +19,8 @@ import type {
   AdminEmailFolderResponse,
   AdminEmailMailboxResponse,
   AdminEmailMessageResponse,
+  AdminInteractionResponse,
+  AdminInteractionResumeResponse,
   AdminJobsContextResponse,
   AdminMcpConfig,
   AdminMcpResponse,
@@ -31,13 +34,20 @@ import type {
   AdminSchedulerResponse,
   AdminSession,
   AdminSkillsResponse,
+  AdminStatisticsResponse,
+  AdminTeamStructureResponse,
+  AdminTeamStructureRevisionResponse,
   AdminTerminalStartResponse,
   AdminTerminalStopResponse,
   AdminToolsResponse,
+  AdminTunnelStatus,
+  AgentListItem,
+  AgentListResponse,
   AgentsOverview,
   AgentsOverviewResponse,
   DeleteSessionResult,
   GatewayStatus,
+  SignalLinkResponse,
 } from './types';
 
 export const TOKEN_STORAGE_KEY = 'hybridclaw_token';
@@ -196,6 +206,33 @@ export function fetchOverview(token: string): Promise<AdminOverview> {
   return requestJson<AdminOverview>('/api/admin/overview', { token });
 }
 
+export async function reconnectTunnel(
+  token: string,
+): Promise<AdminTunnelStatus> {
+  const payload = await requestJson<{ tunnel: AdminTunnelStatus }>(
+    '/api/admin/tunnel/reconnect',
+    {
+      token,
+      method: 'POST',
+    },
+  );
+  return payload.tunnel;
+}
+
+export function fetchStatistics(
+  token: string,
+  days?: number,
+): Promise<AdminStatisticsResponse> {
+  const search =
+    typeof days === 'number' && Number.isFinite(days)
+      ? `?days=${Math.max(1, Math.floor(days))}`
+      : '';
+  return requestJson<AdminStatisticsResponse>(
+    `/api/admin/statistics${search}`,
+    { token },
+  );
+}
+
 export function reloadGateway(
   token: string,
 ): Promise<{ status: 'ok'; message: string }> {
@@ -250,11 +287,49 @@ export function fetchAgentsOverview(token: string): Promise<AgentsOverview> {
   return requestJson<AgentsOverviewResponse>('/api/agents', { token });
 }
 
+export async function fetchAgentList(token: string): Promise<AgentListItem[]> {
+  const payload = await requestJson<AgentListResponse>('/api/agents/list', {
+    token,
+  });
+  return payload.agents;
+}
+
 export async function fetchAdminAgents(token: string): Promise<AdminAgent[]> {
   const payload = await requestJson<AdminAgentsResponse>('/api/admin/agents', {
     token,
   });
   return payload.agents;
+}
+
+export function fetchAdminTeamStructure(
+  token: string,
+): Promise<AdminTeamStructureResponse> {
+  return requestJson<AdminTeamStructureResponse>('/api/admin/team-structure', {
+    token,
+  });
+}
+
+export function fetchAdminTeamStructureRevision(
+  token: string,
+  revisionId: number,
+): Promise<AdminTeamStructureRevisionResponse> {
+  return requestJson<AdminTeamStructureRevisionResponse>(
+    `/api/admin/team-structure/revisions/${encodeURIComponent(String(revisionId))}`,
+    { token },
+  );
+}
+
+export function restoreAdminTeamStructureRevision(
+  token: string,
+  revisionId: number,
+): Promise<AdminTeamStructureResponse> {
+  return requestJson<AdminTeamStructureResponse>(
+    `/api/admin/team-structure/revisions/${encodeURIComponent(String(revisionId))}/restore`,
+    {
+      token,
+      method: 'POST',
+    },
+  );
 }
 
 export function fetchAdminAgentMarkdownFile(
@@ -472,6 +547,21 @@ export function saveConfig(
   });
 }
 
+export function startSignalLink(
+  token: string,
+  options: { cliPath?: string; deviceName?: string },
+): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', {
+    token,
+    method: 'POST',
+    body: options,
+  });
+}
+
+export function fetchSignalLink(token: string): Promise<SignalLinkResponse> {
+  return requestJson<SignalLinkResponse>('/api/admin/signal/link', { token });
+}
+
 function runAdminCommand(
   token: string,
   args: string[],
@@ -646,6 +736,24 @@ export function fetchAdminApprovals(
   );
 }
 
+export function resumeInteractiveEscalation(
+  token: string,
+  params: {
+    sessionId: string;
+    response?: AdminInteractionResponse;
+    text?: string;
+  },
+): Promise<AdminInteractionResumeResponse> {
+  return requestJson<AdminInteractionResumeResponse>(
+    '/api/interactive-escalations/resume',
+    {
+      token,
+      method: 'POST',
+      body: params,
+    },
+  );
+}
+
 export function saveAdminPolicyRule(
   token: string,
   params: {
@@ -748,6 +856,15 @@ export function fetchAdaptiveSkillHealth(
   return requestJson<AdminAdaptiveSkillHealthResponse>('/api/skills/health', {
     token,
   });
+}
+
+export function fetchAgentScoreboard(
+  token: string,
+): Promise<AdminAgentScoreboardResponse> {
+  return requestJson<AdminAgentScoreboardResponse>(
+    '/api/admin/agent-scoreboard',
+    { token },
+  );
 }
 
 export function fetchAdaptiveSkillAmendments(

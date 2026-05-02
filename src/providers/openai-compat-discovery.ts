@@ -10,6 +10,10 @@ import {
   ZAI_ENABLED,
 } from '../config/config.js';
 import { logger } from '../logger.js';
+import {
+  type DiscoveryError,
+  formatDiscoveryFailure,
+} from './discovery-error-utils.js';
 import { getDiscoveredHuggingFaceModelNames } from './huggingface-discovery.js';
 import { getDiscoveredMistralModelNames } from './mistral-discovery.js';
 import {
@@ -17,12 +21,16 @@ import {
   type OpenAICompatRemoteProviderDef,
 } from './openai-compat-remote.js';
 import { getDiscoveredOpenRouterModelNames } from './openrouter-discovery.js';
+import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
 import type { RuntimeProviderId } from './provider-ids.js';
-import { isRecord, normalizeBaseUrl } from './utils.js';
+import { createDiscoveryStore, isRecord, normalizeBaseUrl } from './utils.js';
 
-const OPENAI_COMPAT_DISCOVERY_TTL_MS = 3_600_000;
 const OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS = 5_000;
 const OPENAI_COMPAT_DISCOVERY_PATH = '/models';
+const XAI_LANGUAGE_MODELS_DISCOVERY_PATH = '/language-models';
 
 const DISCOVERY_URL_OVERRIDES: Partial<Record<RuntimeProviderId, string>> = {};
 
@@ -38,6 +46,7 @@ const ENABLED_BY_ID: Record<RuntimeProviderId, (() => boolean) | undefined> = {
   kilo: () => KILO_ENABLED,
   hybridai: undefined,
   'openai-codex': undefined,
+  anthropic: undefined,
   openrouter: undefined,
   mistral: undefined,
   huggingface: undefined,
@@ -63,6 +72,14 @@ function readEntryId(entry: unknown): string {
   return id.trim();
 }
 
+function readEntryAliases(entry: unknown): string[] {
+  if (!isRecord(entry) || !Array.isArray(entry.aliases)) return [];
+  return entry.aliases.filter(
+    (alias): alias is string =>
+      typeof alias === 'string' && alias.trim() !== '',
+  );
+}
+
 function prefixModelId(prefix: string, id: string): string {
   const lower = id.toLowerCase();
   const lowerPrefix = prefix.toLowerCase();
@@ -72,33 +89,34 @@ function prefixModelId(prefix: string, id: string): string {
   return `${prefix}${id}`;
 }
 
-export interface DiscoveryError {
-  httpStatus?: number;
-  message: string;
-}
-
 export interface OpenAICompatDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => DiscoveredModelPricingUsdPerToken | null;
   getLastError: () => DiscoveryError | null;
 }
+
+interface OpenAICompatDiscoveryState {
+  discoveredModelNames: string[];
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
+}
+
+const buildEmptyOpenAICompatDiscoveryState =
+  (): OpenAICompatDiscoveryState => ({
+    discoveredModelNames: [],
+    pricingByModel: new Map(),
+  });
 
 export function createOpenAICompatDiscoveryStore(
   def: OpenAICompatRemoteProviderDef,
   readEnabled: () => boolean,
 ): OpenAICompatDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyOpenAICompatDiscoveryState(),
+  );
   let lastError: DiscoveryError | null = null;
-
-  function replaceCache(
-    modelNames: string[],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
 
   function resolveDiscoveryUrl(): string {
     const override = DISCOVERY_URL_OVERRIDES[def.id];
@@ -106,10 +124,15 @@ export function createOpenAICompatDiscoveryStore(
       if (/^https?:\/\//i.test(override)) return override;
       return `${normalizeBaseUrl(def.readBaseUrl())}${override}`;
     }
+    if (def.id === 'xai') {
+      return `${normalizeBaseUrl(def.readBaseUrl())}${XAI_LANGUAGE_MODELS_DISCOVERY_PATH}`;
+    }
     return `${normalizeBaseUrl(def.readBaseUrl())}${OPENAI_COMPAT_DISCOVERY_PATH}`;
   }
 
-  async function fetchModels(apiKey: string): Promise<string[]> {
+  async function fetchModels(
+    apiKey: string,
+  ): Promise<OpenAICompatDiscoveryState> {
     const url = resolveDiscoveryUrl();
     const response = await fetch(url, {
       headers: {
@@ -129,74 +152,80 @@ export function createOpenAICompatDiscoveryStore(
     const entries = readModelEntries(payload);
     const seen = new Set<string>();
     const discovered: string[] = [];
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     for (const entry of entries) {
       const rawId = readEntryId(entry);
       if (!rawId) continue;
-      const prefixed = prefixModelId(def.prefix, rawId);
-      if (seen.has(prefixed)) continue;
-      seen.add(prefixed);
-      discovered.push(prefixed);
+      const aliases = def.id === 'xai' ? readEntryAliases(entry) : [];
+      const modelIds = [rawId, ...aliases];
+      if (isRecord(entry)) {
+        const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+        for (const modelId of modelIds) {
+          const prefixed = prefixModelId(def.prefix, modelId);
+          if (pricing) pricingByModel.set(prefixed, pricing);
+        }
+      }
+      for (const modelId of modelIds) {
+        const prefixed = prefixModelId(def.prefix, modelId);
+        if (seen.has(prefixed)) continue;
+        seen.add(prefixed);
+        discovered.push(prefixed);
+      }
     }
-    replaceCache(discovered);
-    return [...discovered];
+    lastError = null;
+    return { discoveredModelNames: discovered, pricingByModel };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!readEnabled()) {
-      replaceCache([], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyOpenAICompatDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
     const apiKey = def.readApiKey({ required: false });
     if (!apiKey) {
-      replaceCache([], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyOpenAICompatDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < OPENAI_COMPAT_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchModels(apiKey);
-        lastError = null;
-        return [...discoveredModelNames];
-      } catch (err) {
-        const httpStatus = (err as { httpStatus?: number } | null)?.httpStatus;
-        const message = err instanceof Error ? err.message : String(err);
-        lastError = { httpStatus, message };
+    const state = await discoveryStore.discover(() => fetchModels(apiKey), {
+      force: opts?.force,
+      onError: (err, staleState) => {
+        const discoveryError = formatDiscoveryFailure({
+          error: err,
+          url: resolveDiscoveryUrl(),
+          timeoutMs: OPENAI_COMPAT_DISCOVERY_TIMEOUT_MS,
+        });
+        lastError = discoveryError;
+        const httpStatus = discoveryError.httpStatus;
         if (httpStatus === 404 || httpStatus === 405) {
           logger.debug(
-            { err, provider: def.id, httpStatus },
+            { provider: def.id, httpStatus, error: discoveryError.message },
             'OpenAI-compat model discovery not supported by provider',
           );
         } else {
           logger.warn(
-            { err, provider: def.id },
+            { provider: def.id, error: discoveryError.message },
             'OpenAI-compat model discovery failed',
           );
         }
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+        return staleState;
+      },
+    });
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
+    getModelPricingUsdPerToken: (model: string) => {
+      const normalized = prefixModelId(def.prefix, model);
+      return discoveryStore.getState().pricingByModel.get(normalized) ?? null;
+    },
     getLastError: () => (lastError ? { ...lastError } : null),
   };
 }
@@ -235,6 +264,16 @@ export function getDiscoveredOpenAICompatRemoteModelNames(): string[] {
   all.push(...getDiscoveredMistralModelNames());
   all.push(...getDiscoveredHuggingFaceModelNames());
   return all;
+}
+
+export function getDiscoveredOpenAICompatRemoteModelPricingUsdPerToken(
+  model: string,
+): DiscoveredModelPricingUsdPerToken | null {
+  for (const store of defaultStoreRegistry.values()) {
+    const pricing = store.getModelPricingUsdPerToken(model);
+    if (pricing) return pricing;
+  }
+  return null;
 }
 
 export function getOpenAICompatProviderLastError(

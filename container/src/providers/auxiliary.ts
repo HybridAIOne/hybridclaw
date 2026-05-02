@@ -69,6 +69,7 @@ function getAuxiliaryContextError(params: {
 }): string | null {
   return getProviderContextError({
     provider: params.context.provider,
+    providerMethod: params.context.providerMethod,
     baseUrl: params.context.baseUrl,
     apiKey: params.context.apiKey,
     model: params.context.model,
@@ -94,6 +95,7 @@ export function resolveAuxiliaryTaskContext(params: {
   }
   return {
     provider: taskOverride.provider,
+    providerMethod: taskOverride.providerMethod,
     baseUrl: taskOverride.baseUrl?.trim() ?? '',
     apiKey: taskOverride.apiKey?.trim() ?? '',
     model: taskOverride.model.trim(),
@@ -104,6 +106,7 @@ export function resolveAuxiliaryTaskContext(params: {
     isLocal: taskOverride.isLocal,
     contextWindow: taskOverride.contextWindow,
     thinkingFormat: taskOverride.thinkingFormat,
+    debugModelResponses: params.fallbackContext.debugModelResponses,
     maxTokens: taskOverride.maxTokens,
   };
 }
@@ -158,6 +161,7 @@ export async function callAuxiliaryModel(
     });
     const response = await callRoutedModel({
       provider: context.provider,
+      providerMethod: context.providerMethod,
       baseUrl: context.baseUrl,
       apiKey: context.apiKey,
       model: context.model,
@@ -167,6 +171,7 @@ export async function callAuxiliaryModel(
       isLocal: context.isLocal,
       contextWindow: context.contextWindow,
       thinkingFormat: context.thinkingFormat,
+      debugModelResponses: context.debugModelResponses,
       messages: params.messages,
       tools: Array.isArray(params.tools) ? params.tools : [],
       maxTokens,
@@ -191,6 +196,7 @@ export async function callAuxiliaryModel(
     });
     return await callVisionProviderModel({
       provider: context.provider,
+      providerMethod: context.providerMethod,
       baseUrl: context.baseUrl,
       apiKey: context.apiKey,
       model: context.model,
@@ -199,6 +205,7 @@ export async function callAuxiliaryModel(
       isLocal: context.isLocal,
       contextWindow: context.contextWindow,
       thinkingFormat: context.thinkingFormat,
+      debugModelResponses: context.debugModelResponses,
       question: params.question,
       imageDataUrl: params.imageDataUrl,
       maxTokens,

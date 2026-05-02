@@ -9,10 +9,12 @@ import {
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import {
-  deleteAgent as dbDeleteAgent,
+  deleteAgentWithTeamRevision as dbDeleteAgentWithTeamRevision,
   getAgentById as dbGetAgentById,
   listAgents as dbListAgents,
-  upsertAgent as dbUpsertAgent,
+  replaceAgentOrgChart as dbReplaceAgentOrgChart,
+  upsertAgentsWithTeamRevision as dbUpsertAgentsWithTeamRevision,
+  upsertAgentWithTeamRevision as dbUpsertAgentWithTeamRevision,
   isDatabaseInitialized,
 } from '../memory/db.js';
 import type { Session } from '../types/session.js';
@@ -27,8 +29,25 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentCv,
   DEFAULT_AGENT_ID,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+  resolveSnakeCamelAlias,
+  validateAgentOrgChart,
 } from './agent-types.js';
+import {
+  hasAgentReference,
+  escalationChain as resolveOrgChartEscalationChain,
+  managerOf as resolveOrgChartManager,
+  peersOf as resolveOrgChartPeers,
+} from './org-chart.js';
+import {
+  type AgentTeamStructureRevision,
+  type AgentTeamStructureRevisionSummary,
+  getAgentTeamStructureRevision,
+  listAgentTeamStructureRevisions,
+} from './team-structure-revisions.js';
 
 const LEGACY_WORKSPACE_DIRS = [
   'default',
@@ -155,6 +174,21 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const skills = normalizeOptionalTrimmedUniqueStringArray(
     (value as { skills?: unknown }).skills,
   );
+  const owner = normalizeString((value as { owner?: unknown }).owner);
+  const role = normalizeString((value as { role?: unknown }).role);
+  const reportsTo = normalizeString(
+    resolveSnakeCamelAlias(value, 'reportsTo', 'reports_to'),
+  );
+  const delegatesTo = normalizeOptionalTrimmedUniqueStringArray(
+    resolveSnakeCamelAlias(value, 'delegatesTo', 'delegates_to'),
+  );
+  const peers = normalizeOptionalTrimmedUniqueStringArray(
+    (value as { peers?: unknown }).peers,
+  );
+  const cv = normalizeAgentCv((value as { cv?: unknown }).cv);
+  const escalationTarget = normalizeAgentEscalationTarget(
+    (value as { escalationTarget?: unknown }).escalationTarget,
+  );
   return {
     id,
     ...(name ? { name } : {}),
@@ -164,7 +198,82 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(workspace ? { workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
+    ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
+}
+
+function fingerprintString(value: string | undefined): string {
+  if (!value) return '0:0';
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${value.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function fingerprintStringArray(values: string[] | undefined): string {
+  return values?.map(fingerprintString).join(',') ?? '';
+}
+
+function fingerprintModel(model: AgentModelConfig | undefined): string {
+  if (!model) return '';
+  if (typeof model === 'string') return `s:${fingerprintString(model)}`;
+  return `o:${fingerprintString(model.primary)}:${fingerprintStringArray(model.fallbacks)}`;
+}
+
+function fingerprintCv(cv: AgentConfig['cv']): string {
+  if (!cv) return '';
+  return [
+    fingerprintString(cv.summary),
+    fingerprintString(cv.background),
+    fingerprintStringArray(cv.capabilities),
+    fingerprintString(cv.asset),
+  ].join(':');
+}
+
+function fingerprintAgent(agent: AgentConfig): string {
+  return [
+    fingerprintString(agent.id),
+    fingerprintString(agent.name),
+    fingerprintString(agent.displayName),
+    fingerprintString(agent.imageAsset),
+    fingerprintModel(agent.model),
+    fingerprintStringArray(agent.skills),
+    fingerprintString(agent.workspace),
+    fingerprintString(agent.chatbotId),
+    typeof agent.enableRag === 'boolean' ? String(agent.enableRag) : '',
+    fingerprintString(agent.owner),
+    fingerprintString(agent.role),
+    fingerprintString(agent.reportsTo),
+    fingerprintStringArray(agent.delegatesTo),
+    fingerprintStringArray(agent.peers),
+    fingerprintCv(agent.cv),
+    fingerprintString(agent.escalationTarget?.channel),
+    fingerprintString(agent.escalationTarget?.recipient),
+  ].join('|');
+}
+
+function fingerprintAgentsConfig(params: {
+  defaultAgentId: string;
+  defaults: AgentDefaultsConfig;
+  list: AgentConfig[];
+}): string {
+  return [
+    fingerprintString(params.defaultAgentId),
+    fingerprintModel(params.defaults.model),
+    fingerprintString(params.defaults.chatbotId),
+    typeof params.defaults.enableRag === 'boolean'
+      ? String(params.defaults.enableRag)
+      : '',
+    ...params.list.map(fingerprintAgent),
+  ].join('\n');
 }
 
 function normalizeAgentsConfig(config: AgentsConfig | undefined): {
@@ -186,16 +295,18 @@ function normalizeAgentsConfig(config: AgentsConfig | undefined): {
     list.unshift({ id: DEFAULT_AGENT_ID, name: 'Main Agent' });
     seen.add(DEFAULT_AGENT_ID);
   }
+  validateAgentOrgChart(list);
   const defaultAgentId = normalizeDefaultAgentId(config?.defaultAgentId, seen);
+  const fingerprint = fingerprintAgentsConfig({
+    defaultAgentId,
+    defaults,
+    list,
+  });
   return {
     defaultAgentId,
     defaults,
     list,
-    fingerprint: JSON.stringify({
-      defaultAgentId,
-      defaults,
-      list,
-    }),
+    fingerprint,
   };
 }
 
@@ -215,6 +326,15 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.workspace ? { workspace: agent.workspace } : {}),
     ...(chatbotId ? { chatbotId } : {}),
     ...(typeof enableRag === 'boolean' ? { enableRag } : {}),
+    ...(agent.owner ? { owner: agent.owner } : {}),
+    ...(agent.role ? { role: agent.role } : {}),
+    ...(agent.reportsTo ? { reportsTo: agent.reportsTo } : {}),
+    ...(agent.delegatesTo ? { delegatesTo: [...agent.delegatesTo] } : {}),
+    ...(agent.peers ? { peers: [...agent.peers] } : {}),
+    ...(agent.cv ? { cv: agent.cv } : {}),
+    ...(agent.escalationTarget
+      ? { escalationTarget: { ...agent.escalationTarget } }
+      : {}),
   };
 }
 
@@ -231,7 +351,7 @@ function rebuildFallbackRegistry(): void {
   }
 }
 
-function rebuildRegistryFromDatabase(): void {
+function rebuildRegistryFromDatabase(options?: { validate?: boolean }): void {
   registry = new Map<string, AgentConfig>();
   for (const agent of dbListAgents()) {
     registry.set(agent.id, agent);
@@ -242,40 +362,65 @@ function rebuildRegistryFromDatabase(): void {
       name: 'Main Agent',
     });
   }
+  if (options?.validate !== false) {
+    validateAgentOrgChart(Array.from(registry.values()));
+  }
+}
+
+function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
+  return {
+    id: agent.id,
+    name: agent.name,
+    displayName: agent.displayName,
+    imageAsset: agent.imageAsset,
+    model: cloneModelConfig(agent.model),
+    skills: agent.skills,
+    workspace: agent.workspace,
+    chatbotId: agent.chatbotId,
+    enableRag: agent.enableRag,
+    owner: agent.owner,
+    role: agent.role,
+    reportsTo: agent.reportsTo,
+    delegatesTo: agent.delegatesTo,
+    peers: agent.peers,
+    cv: cloneAgentCv(agent.cv),
+    escalationTarget: agent.escalationTarget,
+  };
 }
 
 function syncConfiguredAgentsToDatabase(): void {
+  const currentAgents = dbListAgents();
   const mainAgent = configuredAgents.find(
     (entry) => entry.id === DEFAULT_AGENT_ID,
-  ) ?? {
-    id: DEFAULT_AGENT_ID,
-    name: 'Main Agent',
-  };
-  dbUpsertAgent({
-    id: DEFAULT_AGENT_ID,
-    name: mainAgent.name || 'Main Agent',
-    displayName: mainAgent.displayName,
-    imageAsset: mainAgent.imageAsset,
-    model: cloneModelConfig(mainAgent.model),
-    skills: mainAgent.skills,
-    workspace: mainAgent.workspace,
-    chatbotId: mainAgent.chatbotId,
-    enableRag: mainAgent.enableRag,
-  });
+  );
+  const agentsToUpsert: AgentConfig[] = [];
+  const finalAgentsById = new Map(
+    currentAgents.map((agent) => [agent.id, agent] as const),
+  );
+  if (!mainAgent) {
+    const defaultMainAgent = {
+      id: DEFAULT_AGENT_ID,
+      name: 'Main Agent',
+    };
+    agentsToUpsert.push(defaultMainAgent);
+    finalAgentsById.set(DEFAULT_AGENT_ID, defaultMainAgent);
+  }
 
   for (const agent of configuredAgents) {
-    dbUpsertAgent({
-      id: agent.id,
-      name: agent.name,
-      displayName: agent.displayName,
-      imageAsset: agent.imageAsset,
-      model: cloneModelConfig(agent.model),
-      skills: agent.skills,
-      workspace: agent.workspace,
-      chatbotId: agent.chatbotId,
-      enableRag: agent.enableRag,
-    });
+    const nextAgent = configuredAgentForDatabase(agent);
+    agentsToUpsert.push(nextAgent);
+    finalAgentsById.set(nextAgent.id, nextAgent);
   }
+  const finalAgents = Array.from(finalAgentsById.values());
+  validateAgentOrgChart(finalAgents);
+  dbUpsertAgentsWithTeamRevision({
+    agents: agentsToUpsert,
+    finalAgents,
+    meta: {
+      route: 'agents.team.config_sync',
+      source: 'agent-registry',
+    },
+  });
 }
 
 function safeWorkspaceName(rawName: string): string {
@@ -427,6 +572,11 @@ export function getAgentById(agentId: string): AgentConfig | null {
   return findAgentConfig(normalizedId);
 }
 
+export function displayNameForAgent(agentId: string): string {
+  const agent = getAgentById(agentId);
+  return agent?.displayName || agent?.name || agentId;
+}
+
 export function getStoredAgentConfig(
   agentId?: string | null,
 ): AgentConfig | null {
@@ -438,6 +588,73 @@ export function getStoredAgentConfig(
   return registry.get(normalizedId) || null;
 }
 
+export function managerOfAgent(agentId?: string | null): AgentConfig | null {
+  ensureRegistryCurrent();
+  return resolveOrgChartManager(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function peersOfAgent(agentId?: string | null): AgentConfig[] {
+  ensureRegistryCurrent();
+  return resolveOrgChartPeers(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function escalationChainForAgent(
+  agentId?: string | null,
+): AgentConfig[] {
+  ensureRegistryCurrent();
+  return resolveOrgChartEscalationChain(
+    normalizeString(agentId) || DEFAULT_AGENT_ID,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function resolveAgentEscalationTarget(
+  agentId?: string | null,
+): AgentConfig['escalationTarget'] {
+  ensureRegistryCurrent();
+  const normalizedId = normalizeString(agentId) || DEFAULT_AGENT_ID;
+  const storedAgent = registry.get(normalizedId);
+  const agent = storedAgent ? applyDefaults(storedAgent) : null;
+  if (agent?.escalationTarget) {
+    return { ...agent.escalationTarget };
+  }
+  const agents = currentTeamStructureAgents();
+  for (const manager of resolveOrgChartEscalationChain(normalizedId, agents)) {
+    if (manager.escalationTarget) {
+      return { ...manager.escalationTarget };
+    }
+  }
+  return undefined;
+}
+
+function collectAgentDeletionBlockers(agentId: string): string[] {
+  const blockers: string[] = [];
+  for (const agent of registry.values()) {
+    const sourceAgentId = normalizeString(agent.id);
+    if (!sourceAgentId || sourceAgentId === agentId) continue;
+    if (normalizeString(agent.reportsTo) === agentId) {
+      blockers.push(`${sourceAgentId}.reports_to`);
+    }
+    if (hasAgentReference(agent.delegatesTo, agentId)) {
+      blockers.push(`${sourceAgentId}.delegates_to`);
+    }
+    if (hasAgentReference(agent.peers, agentId)) {
+      blockers.push(`${sourceAgentId}.peers`);
+    }
+  }
+  return blockers.sort();
+}
+
+function currentTeamStructureAgents(): AgentConfig[] {
+  return Array.from(registry.values()).map((agent) => applyDefaults(agent));
+}
+
 export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
@@ -446,8 +663,25 @@ export function upsertRegisteredAgent(agent: AgentConfig): AgentConfig {
   if (!normalized) {
     throw new Error('Agent id is required.');
   }
-  dbUpsertAgent(normalized);
-  rebuildRegistryFromDatabase();
+  ensureRegistryCurrent();
+  const nextAgentsById = new Map<string, AgentConfig>(registry);
+  nextAgentsById.set(normalized.id, normalized);
+  if (!nextAgentsById.has(DEFAULT_AGENT_ID)) {
+    nextAgentsById.set(DEFAULT_AGENT_ID, {
+      id: DEFAULT_AGENT_ID,
+      name: 'Main Agent',
+    });
+  }
+  validateAgentOrgChart(Array.from(nextAgentsById.values()));
+  dbUpsertAgentWithTeamRevision({
+    agent: normalized,
+    finalAgents: Array.from(nextAgentsById.values()),
+    meta: {
+      route: `agents.team.upsert#${normalized.id}`,
+      source: 'agent-registry',
+    },
+  });
+  rebuildRegistryFromDatabase({ validate: false });
   registryInitialized = true;
   registryDbBacked = true;
   return resolveAgentConfig(normalized.id);
@@ -459,11 +693,68 @@ export function deleteRegisteredAgent(agentId: string): boolean {
   if (!isDatabaseInitialized()) {
     throw new Error('Database is not initialized.');
   }
-  const deleted = dbDeleteAgent(normalizedId);
+  ensureRegistryCurrent();
+  if (!registry.has(normalizedId)) return false;
+  const blockers = collectAgentDeletionBlockers(normalizedId);
+  if (blockers.length > 0) {
+    throw new Error(
+      `Cannot delete agent "${normalizedId}" because it is still referenced by: ${blockers.join(', ')}.`,
+    );
+  }
+  const finalAgents = Array.from(registry.values()).filter(
+    (agent) => agent.id !== normalizedId,
+  );
+  const deleted = dbDeleteAgentWithTeamRevision({
+    agentId: normalizedId,
+    finalAgents,
+    meta: {
+      route: `agents.team.delete#${normalizedId}`,
+      source: 'agent-registry',
+    },
+  });
   rebuildRegistryFromDatabase();
   registryInitialized = true;
   registryDbBacked = true;
   return deleted;
+}
+
+export function listRegisteredAgentTeamStructureRevisions(): AgentTeamStructureRevisionSummary[] {
+  ensureRegistryCurrent();
+  return listAgentTeamStructureRevisions(currentTeamStructureAgents());
+}
+
+export function getRegisteredAgentTeamStructureRevision(
+  revisionId: number,
+): AgentTeamStructureRevision {
+  ensureRegistryCurrent();
+  return getAgentTeamStructureRevision(
+    revisionId,
+    currentTeamStructureAgents(),
+  );
+}
+
+export function restoreRegisteredAgentTeamStructureRevision(
+  revisionId: number,
+): AgentTeamStructureRevision {
+  if (!isDatabaseInitialized()) {
+    throw new Error('Database is not initialized.');
+  }
+  ensureRegistryCurrent();
+  const revision = getAgentTeamStructureRevision(
+    revisionId,
+    currentTeamStructureAgents(),
+  );
+  dbReplaceAgentOrgChart(revision.snapshot.agents, {
+    route: `agents.team.restore#${revisionId}`,
+    source: 'agent-registry',
+  });
+  rebuildRegistryFromDatabase();
+  registryInitialized = true;
+  registryDbBacked = true;
+  return getAgentTeamStructureRevision(
+    revisionId,
+    currentTeamStructureAgents(),
+  );
 }
 
 export function migrateWorkspaceDirs(): void {
@@ -520,7 +811,6 @@ export function migrateWorkspaceDirs(): void {
   }
 }
 
-// Tree-shakeable test helper for suites that intentionally reuse a module instance.
 export function resetAgentRegistryForTesting(): void {
   resetRegistryState();
 }

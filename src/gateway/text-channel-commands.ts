@@ -5,11 +5,15 @@ import {
   type ApprovalScopeMode,
 } from '../approval-commands.js';
 import { buildResponseText } from '../channels/discord/delivery.js';
+import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
   mapTuiSlashCommandToGatewayArgs,
   parseTuiSlashCommand,
 } from '../tui-slash-command.js';
-import type { ArtifactMetadata } from '../types/execution.js';
+import {
+  type ArtifactMetadata,
+  normalizeEscalationTarget,
+} from '../types/execution.js';
 import { formatError, formatInfo } from '../utils/text-format.js';
 import { getApprovalPromptText } from './approval-presentation.js';
 import { extractGatewayChatApprovalEvent } from './chat-approval.js';
@@ -129,12 +133,12 @@ export async function handleTextChannelApprovalCommand(params: {
   args: string[];
 }): Promise<HandledTextChannelApprovalResult | null> {
   const { sessionId, guildId, channelId, userId, username, args } = params;
-  if ((args[0] || '').toLowerCase() !== 'approve') return null;
+  if (parseLowerArg(args, 0) !== 'approve') return null;
 
   await cleanupExpiredPendingApprovals();
   const pending = getPendingApproval(sessionId);
-  const action = (args[1] || 'view').trim().toLowerCase();
-  const providedApprovalId = (args[2] || '').trim();
+  const action = parseLowerArg(args, 1, { defaultValue: 'view' });
+  const providedApprovalId = parseIdArg(args, 2);
   const currentApprovalId = pending?.approvalId || '';
   const approvalId = providedApprovalId || currentApprovalId;
 
@@ -356,11 +360,14 @@ export async function handleTextChannelApprovalCommand(params: {
   );
   const pendingApproval = extractGatewayChatApprovalEvent(approvalResult);
   if (pendingApproval) {
+    const escalationTarget = normalizeEscalationTarget(
+      pendingApproval.escalationTarget,
+    );
     await rememberPendingApproval({
       sessionId: approvalSessionId,
       approvalId: pendingApproval.approvalId,
       prompt: getApprovalPromptText(pendingApproval, resultText),
-      userId,
+      userId: escalationTarget?.recipient || userId,
       expiresAt: pendingApproval.expiresAt,
     });
     return {

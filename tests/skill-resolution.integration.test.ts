@@ -98,6 +98,97 @@ describe('skill resolution integration', () => {
     expect(pdfSkill?.description).toContain('invoice/document parsing');
   });
 
+  it('bundled invoice harvester skill is discoverable', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const invoiceSkill = catalog.find(
+      (skill) => skill.name === 'download-platform-invoices',
+    );
+
+    expect(invoiceSkill).toBeDefined();
+    expect(invoiceSkill?.description).toContain('SaaS billing invoices');
+    expect(invoiceSkill?.metadata.hybridclaw.tags).toContain('invoices');
+  });
+
+  it('advertises gog for Google Calendar event access', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const gogSkill = catalog.find((skill) => skill.name === 'gog');
+    const gwsSkill = catalog.find((skill) => skill.name === 'gws');
+    const googleWorkspaceSkill = fs.readFileSync(
+      path.resolve('skills/google-workspace/SKILL.md'),
+      'utf-8',
+    );
+
+    expect(gogSkill?.description).toContain('Google Calendar');
+    expect(gogSkill?.description).toContain('events');
+    expect(gogSkill?.description).toContain('meetings');
+    const gogSkillBody = fs.readFileSync(
+      path.resolve('skills/gog/SKILL.md'),
+      'utf-8',
+    );
+    expect(gogSkillBody).toContain('searches all available calendars');
+    expect(gogSkillBody).toContain('Do not pipe `gog ... --json`');
+    expect(googleWorkspaceSkill).toContain(
+      'API-backed Google Workspace access',
+    );
+    expect(googleWorkspaceSkill).toContain(
+      'Use `gws` or `gog` without asking clarifying questions',
+    );
+    expect(googleWorkspaceSkill).not.toContain(
+      'Navigate to the relevant Google service via browser automation',
+    );
+    expect(gwsSkill?.metadata.hybridclaw.install).toEqual([
+      expect.objectContaining({
+        id: 'gws',
+        kind: 'npm',
+        label: 'Install Google Workspace CLI (npm)',
+        bins: ['gws'],
+      }),
+    ]);
+    const gwsSkillBody = fs.readFileSync(
+      path.resolve('skills/gws/SKILL.md'),
+      'utf-8',
+    );
+    expect(gwsSkillBody).toContain('credential_source` is `"token_env_var"');
+    expect(gwsSkillBody).toContain('token_env_var` is `true`');
+    expect(gwsSkillBody).toContain('Do not add `--json`');
+    expect(gwsSkillBody).toContain('gws auth status --json` is invalid');
+    expect(gwsSkillBody).toContain('do not ask the user to log in again');
+  });
+
+  it('uses dependency names as bundled skill install ids', () => {
+    const catalog = skillsMod.loadSkillCatalog();
+    const installsBySkill = new Map(
+      catalog.map((skill) => [
+        skill.name,
+        skill.metadata.hybridclaw.install.map((install) => ({
+          id: install.id,
+          kind: install.kind,
+          bins: install.bins,
+        })),
+      ]),
+    );
+
+    expect(installsBySkill.get('1password')).toEqual([
+      { id: 'op', kind: 'brew', bins: ['op'] },
+    ]);
+    expect(installsBySkill.get('gh-issues')).toEqual([
+      { id: 'gh', kind: 'brew', bins: ['gh'] },
+    ]);
+    expect(installsBySkill.get('gog')).toEqual([
+      { id: 'gog', kind: 'brew', bins: ['gog'] },
+    ]);
+    expect(installsBySkill.get('gws')).toEqual([
+      { id: 'gws', kind: 'npm', bins: ['gws'] },
+    ]);
+    expect(installsBySkill.get('manim-video')).toEqual([
+      { id: 'manim', kind: 'uv', bins: ['manim'] },
+      { id: 'ffmpeg', kind: 'brew', bins: ['ffmpeg'] },
+    ]);
+    expect(installsBySkill.get('wordpress')).toEqual([
+      { id: 'wp', kind: 'brew', bins: ['wp'] },
+    ]);
+  });
+
   it('SKILL.md with valid frontmatter parses correctly (name, description, category, tags)', () => {
     const extraDir = path.join(tmpDir, 'extra-skills');
     writeSkill(
@@ -359,6 +450,64 @@ Edit body.
       'copy-edit',
     ]);
     expect(skillsMod.loadSkills('silent')).toEqual([]);
+  });
+
+  it('loadSkills applies workspace skill policy rules', async () => {
+    const extraDir = path.join(tmpDir, 'policy-skills');
+    writeSkill(
+      extraDir,
+      'sap',
+      `---
+name: sap
+description: SAP skill
+---
+
+SAP body.
+`,
+    );
+    writeSkill(
+      extraDir,
+      'ga4',
+      `---
+name: ga4
+description: GA4 skill
+---
+
+GA4 body.
+`,
+    );
+
+    configMod.ensureRuntimeConfigFile();
+    configMod.updateRuntimeConfig((draft) => {
+      draft.skills.extraDirs = [extraDir];
+      draft.skills.disabled = [];
+    });
+
+    const { agentWorkspaceDir } = await import('../src/infra/ipc.js');
+    const policyDir = path.join(agentWorkspaceDir('main'), '.hybridclaw');
+    fs.mkdirSync(policyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(policyDir, 'policy.yaml'),
+      [
+        'skill:',
+        '  rules:',
+        '    - id: deny-sap-for-main',
+        '      when:',
+        '        all:',
+        '          - predicate: skill.name',
+        '            equals: sap',
+        '          - predicate: agent.id',
+        '            equals: main',
+        '      action:',
+        '        type: deny',
+        '        reason: SAP is blocked for this agent.',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const skillNames = skillsMod.loadSkills('main').map((skill) => skill.name);
+    expect(skillNames).not.toContain('sap');
+    expect(skillNames).toContain('ga4');
   });
 
   it('sorts discovered skills by category and then by name', () => {

@@ -5,6 +5,7 @@ import {
   EMAIL_CAPABILITIES,
   IMESSAGE_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
+  SIGNAL_CAPABILITIES,
   SKILL_CONFIG_CHANNEL_KINDS,
   type SkillConfigChannelKind,
   SLACK_CAPABILITIES,
@@ -16,6 +17,7 @@ import {
 } from './channel.js';
 import { isEmailAddress } from './email/allowlist.js';
 import { isIMessageHandle } from './imessage/handle.js';
+import { isSignalChannelId } from './signal/target.js';
 import { isSlackChannelTarget } from './slack/target.js';
 import { isTelegramChannelId } from './telegram/target.js';
 import { isVoiceChannelId } from './voice/channel-id.js';
@@ -30,6 +32,7 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   imessage: IMESSAGE_CAPABILITIES,
   msteams: MSTEAMS_CAPABILITIES,
   scheduler: SYSTEM_CAPABILITIES,
+  signal: SIGNAL_CAPABILITIES,
   slack: SLACK_CAPABILITIES,
   telegram: TELEGRAM_CAPABILITIES,
   tui: TUI_CAPABILITIES,
@@ -48,9 +51,6 @@ const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
   teams: 'msteams',
 };
 
-// Channel registration is intentionally process-global so prompt rendering and
-// runtime delivery share the same live channel inventory. Tests reset it by
-// reloading the module.
 const channels = new Map<ChannelKind, ChannelInfo>();
 
 export function normalizeChannelValue(
@@ -112,6 +112,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
   if (isWhatsAppJid(normalized)) return 'whatsapp';
   if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
+  if (isSignalChannelId(normalized)) return 'signal';
   if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';
   if (isEmailAddress(normalized)) return 'email';

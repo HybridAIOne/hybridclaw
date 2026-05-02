@@ -10,15 +10,22 @@ runs:
   using: composite
   steps:
     - name: Setup Node.js
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+      uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6.3.0
       with:
         node-version: ${{ inputs.node-version }}
         cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          container/package-lock.json
+          console/package-lock.json
 
     - name: Install root dependencies
       shell: bash
-      run: npm ci
+      env:
+        ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      run: npm ci --no-audit --fund=false
 
     - name: Install container dependencies
       shell: bash
-      run: npm run setup
+      run: npm --prefix container ci --no-audit --fund=false

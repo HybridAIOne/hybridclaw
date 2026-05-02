@@ -117,6 +117,10 @@ export function createThinkingDeltaFilter(
 
 export function createThinkingStreamEmitter(
   onTextDelta: (delta: string) => void,
+  options?: {
+    inlineThinking?: boolean;
+    onThinkingDelta?: (delta: string) => void;
+  },
 ): {
   pushRaw: (delta: string) => void;
   pushVisible: (delta: string) => void;
@@ -127,6 +131,8 @@ export function createThinkingStreamEmitter(
 } {
   let rawContent = '';
   let syntheticThinkingOpen = false;
+  const inlineThinking = Boolean(options?.inlineThinking);
+  const onThinkingDelta = options?.onThinkingDelta;
 
   const emit = (delta: string): void => {
     if (!delta) return;
@@ -141,13 +147,27 @@ export function createThinkingStreamEmitter(
     pushVisible(delta: string): void {
       if (!delta) return;
       if (syntheticThinkingOpen) {
-        emit('</think>');
+        if (onThinkingDelta) {
+          rawContent += '</think>';
+        } else {
+          emit('</think>');
+        }
         syntheticThinkingOpen = false;
       }
       emit(delta);
     },
     pushThinking(delta: string): void {
       if (!delta) return;
+      if (inlineThinking) {
+        emit(delta);
+        return;
+      }
+      if (onThinkingDelta) {
+        rawContent += syntheticThinkingOpen ? delta : `<think>${delta}`;
+        syntheticThinkingOpen = true;
+        onThinkingDelta(delta);
+        return;
+      }
       if (!syntheticThinkingOpen) {
         emit('<think>');
         syntheticThinkingOpen = true;
@@ -156,7 +176,11 @@ export function createThinkingStreamEmitter(
     },
     close(): void {
       if (!syntheticThinkingOpen) return;
-      emit('</think>');
+      if (onThinkingDelta) {
+        rawContent += '</think>';
+      } else {
+        emit('</think>');
+      }
       syntheticThinkingOpen = false;
     },
     getRawContent(): string {

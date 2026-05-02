@@ -61,7 +61,6 @@ const DUPLICATE_TWILIO_REQUEST_HEADER = 'i-twilio-idempotency-token';
 const PREINIT_MAX_CONCURRENT_CALLS = 1;
 
 const replayProtector = new ReplayProtector(REPLAY_TTL_MS);
-let runtimeInitialized = false;
 let draining = false;
 let voiceMessageHandler: VoiceMessageHandler | null = null;
 let missingTwilioAuthTokenLogged = false;
@@ -88,14 +87,13 @@ type WebSocketServerLike = {
   ) => void;
   removeAllListeners: () => void;
 };
-// `ws` exposes `WebSocketServer` through a mixed ESM/CJS shape, so keep this
-// cast when reading the constructor from the namespace import.
 const WebSocketServerCtor = (
   wsModule as unknown as {
     WebSocketServer: new (options: { noServer: true }) => WebSocketServerLike;
   }
 ).WebSocketServer;
 let websocketServer = new WebSocketServerCtor({ noServer: true });
+let runtimeInitialized = false;
 
 function isVoiceRuntimeAvailable(): boolean {
   return runtimeInitialized && !draining && voiceMessageHandler !== null;
@@ -427,7 +425,9 @@ async function dispatchPromptToHandler(
       }
     }
   } finally {
-    sessionStore.setController(session.callSid, null);
+    if (session.controller === controller) {
+      sessionStore.setController(session.callSid, null);
+    }
   }
 }
 
@@ -574,9 +574,9 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     if (!session) {
       return;
     }
-    session.controller?.abort();
+    // A relay close can be transient; keep the active turn alive so a reconnect
+    // does not kill the model/container mid-request.
     session.ws = null;
-    sessionStore.setController(callSid, null);
     if (!draining && session.state !== 'ended' && session.state !== 'failed') {
       transitionSession(callSid, 'reconnecting');
     }
@@ -586,7 +586,6 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     logger.debug({ error, callSid, remoteIp }, 'Voice relay websocket error');
   });
 }
-
 export async function initVoice(
   messageHandler: VoiceMessageHandler,
 ): Promise<void> {

@@ -15,20 +15,27 @@ import {
   forkSessionBranch,
   getAnyChatbotId,
   getCanonicalContext,
+  getConversationHistoryPage,
   getMemoryValue,
   getOrCreateSession,
+  getRecentSessionsForChannel,
   getRecentSessionsForUser,
   getSessionById,
+  getSessionTitle,
   getUsageTotals,
   initDatabase,
   listMemoryValues,
   listUsageByAgent,
+  listUsageByAgentRollups,
   listUsageByModel,
   listUsageDailyBreakdown,
+  monthlySpendEur,
+  monthlySpendUsd,
   queryKnowledgeGraph,
   recallSemanticMemories,
   recordUsageEvent,
   setMemoryValue,
+  setSessionTitle,
   storeMessage,
   storeSemanticMemory,
 } from '../src/memory/db.js';
@@ -37,7 +44,9 @@ import {
   type MemoryBackend,
   MemoryService,
 } from '../src/memory/memory-service.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../src/providers/model-metadata.js';
 import { normalizeRecentChatSearchQuery } from '../src/session/recent-chat-search.js';
+import { RECENT_CHAT_SESSION_TITLE_MAX_LENGTH } from '../src/session/session-preview.js';
 import {
   KnowledgeEntityType,
   KnowledgeRelationType,
@@ -89,6 +98,10 @@ function makeSession(partial?: Partial<Session>): Session {
     show_mode: 'all',
     created_at: new Date().toISOString(),
     last_active: new Date().toISOString(),
+    reset_count: 0,
+    reset_at: null,
+    title: null,
+    title_source: null,
     ...(partial || {}),
   };
 }
@@ -568,14 +581,158 @@ describe.sequential('schema migrations', () => {
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
       )
       .get('request_log') as { sql: string | null } | undefined;
+    const messageColumns = inspect
+      .prepare('PRAGMA table_info(messages)')
+      .all() as Array<{ name: string }>;
     inspect.close();
 
     expect(String(journalMode).toLowerCase()).toBe('wal');
     expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
     expect(hasRequestLog?.name).toBe('request_log');
+    expect(messageColumns.some((column) => column.name === 'agent_id')).toBe(
+      true,
+    );
+    expect(
+      messageColumns.some((column) => column.name === 'artifacts_json'),
+    ).toBe(true);
     expect(requestLogSql?.sql?.toLowerCase()).not.toContain(
       "created_at text default (datetime('now'))",
     );
+  });
+
+  test('fills admin statistics indexes for branch schema v23 databases', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        last_active TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT,
+        role TEXT NOT NULL,
+        agent_id TEXT,
+        content TEXT NOT NULL,
+        artifacts_json TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE agent_skill_scores (
+        agent_id TEXT NOT NULL,
+        skill_id TEXT NOT NULL,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        partial_count INTEGER NOT NULL DEFAULT 0,
+        avg_duration_ms REAL NOT NULL DEFAULT 0,
+        last_run_at TEXT,
+        quality_score REAL,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        PRIMARY KEY (agent_id, skill_id)
+      );
+
+      PRAGMA user_version = 23;
+    `);
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const indexes = inspect
+      .prepare(
+        `SELECT name
+         FROM sqlite_master
+         WHERE type = 'index'
+           AND name IN (
+             'idx_messages_created_at',
+             'idx_messages_session_created_at',
+             'idx_sessions_created_at',
+             'idx_sessions_last_active',
+             'idx_sessions_channel_last_active'
+           )`,
+      )
+      .all() as Array<{ name: string }>;
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(new Set(indexes.map((index) => index.name))).toEqual(
+      new Set([
+        'idx_messages_created_at',
+        'idx_messages_session_created_at',
+        'idx_sessions_created_at',
+        'idx_sessions_last_active',
+        'idx_sessions_channel_last_active',
+      ]),
+    );
+  });
+
+  test('migrates branch schema v20 databases with session titles and missing message agent identity', () => {
+    const dbPath = createTempDbPath();
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        title TEXT,
+        title_source TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        last_active TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO sessions (id, channel_id, title, title_source)
+      VALUES ('branch-title-session', 'web', 'Branch Title', 'auto');
+    `);
+    legacy.pragma('user_version = 20');
+    legacy.close();
+
+    initDatabase({ quiet: true, dbPath });
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const schemaVersion = inspect.pragma('user_version', { simple: true });
+    const messageColumns = inspect.pragma('table_info(messages)') as Array<{
+      name: string;
+    }>;
+    const sessionColumns = inspect.pragma('table_info(sessions)') as Array<{
+      name: string;
+    }>;
+    const sessionSql = inspect
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+      )
+      .get() as { sql: string } | undefined;
+    expect(() =>
+      inspect
+        .prepare("UPDATE sessions SET title_source = 'user' WHERE id = ?")
+        .run('branch-title-session'),
+    ).toThrow();
+    inspect.close();
+
+    expect(Number(schemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(messageColumns.some((column) => column.name === 'agent_id')).toBe(
+      true,
+    );
+    expect(sessionColumns.some((column) => column.name === 'title')).toBe(true);
+    expect(
+      sessionColumns.some((column) => column.name === 'title_source'),
+    ).toBe(true);
+    expect(sessionSql?.sql).toContain('CHECK');
+    expect(sessionSql?.sql).toContain("'auto'");
   });
 
   test('migrates legacy memory_kv rows and creates knowledge graph tables', () => {
@@ -693,6 +850,68 @@ describe.sequential('schema migrations', () => {
     expect(getAnyChatbotId()).toBe('bot-newer');
   });
 
+  test('storeMessage persists assistant agent identity', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('session-agent-message', null, 'web');
+    storeMessage(
+      'session-agent-message',
+      'assistant',
+      null,
+      'assistant',
+      'Charly answer',
+      'charly',
+    );
+
+    const inspect = new Database(dbPath, { readonly: true });
+    const stored = inspect
+      .prepare('SELECT agent_id FROM messages WHERE session_id = ?')
+      .get('session-agent-message') as { agent_id: string | null } | undefined;
+    inspect.close();
+
+    expect(stored?.agent_id).toBe('charly');
+  });
+
+  test('storeMessage persists assistant artifact metadata for history', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('session-artifact-message', null, 'web');
+    storeMessage(
+      'session-artifact-message',
+      'assistant',
+      null,
+      'assistant',
+      'Created haiku.pdf',
+      'charly',
+      [
+        {
+          path: '/tmp/haiku.pdf',
+          filename: 'haiku.pdf',
+          mimeType: 'application/pdf',
+        },
+      ],
+    );
+
+    const page = getConversationHistoryPage('session-artifact-message', 10);
+
+    expect(page.history).toEqual([
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Created haiku.pdf',
+        agent_id: 'charly',
+        artifacts: [
+          {
+            path: '/tmp/haiku.pdf',
+            filename: 'haiku.pdf',
+            mimeType: 'application/pdf',
+          },
+        ],
+      }),
+    ]);
+  });
+
   test('getRecentSessionsForUser returns recent web sessions scoped to the user', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
@@ -774,6 +993,227 @@ describe.sequential('schema migrations', () => {
         lastActive: '2026-03-24T09:01:00.000Z',
         messageCount: 2,
         title: '"First web question from user A" ... "Assistant reply A1"',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForUser ranks by latest message instead of bumped session activity', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('older-conversation-bumped', null, 'web');
+    getOrCreateSession('newer-conversation', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'older-conversation-bumped',
+      'web-user-a',
+      'web',
+      'user',
+      'Older PDF request',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'newer-conversation',
+      'web-user-a',
+      'web',
+      'user',
+      'Newer PDF request',
+      '2026-03-24T10:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T12:00:00.000Z',
+      'older-conversation-bumped',
+    );
+    updateSession.run(1, '2026-03-24T10:00:00.000Z', 'newer-conversation');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 1,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'newer-conversation',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Newer PDF request"',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForUser returns SQLite message timestamps as UTC ISO strings', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('sqlite-timestamp-session', null, 'web');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare(
+        'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'sqlite-timestamp-session',
+        'web-user-a',
+        'web',
+        'user',
+        'PDF request with SQLite timestamp',
+        '2026-03-24 10:00:00',
+      );
+    inspect
+      .prepare(
+        'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+      )
+      .run(1, '2026-03-24 10:00:00', 'sqlite-timestamp-session');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'sqlite-timestamp-session',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"PDF request with SQLite timestamp"',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForChannel returns recent web sessions across browser users', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('web-session-1', null, 'web');
+    getOrCreateSession('web-session-2', null, 'web');
+    getOrCreateSession('discord-session', null, 'discord:123');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'web-session-1',
+      'web-user-a',
+      'web',
+      'user',
+      'First browser question',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'web-session-2',
+      'web-user-b',
+      'web',
+      'user',
+      'Second browser question',
+      '2026-03-24T10:00:00.000Z',
+    );
+    insertMessage.run(
+      'discord-session',
+      'web-user-a',
+      'web',
+      'user',
+      'Discord message should be ignored',
+      '2026-03-24T11:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(1, '2026-03-24T09:00:00.000Z', 'web-session-1');
+    updateSession.run(1, '2026-03-24T10:00:00.000Z', 'web-session-2');
+    updateSession.run(1, '2026-03-24T11:00:00.000Z', 'discord-session');
+    inspect.close();
+
+    expect(
+      getRecentSessionsForChannel({
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'web-session-2',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Second browser question"',
+      },
+      {
+        sessionId: 'web-session-1',
+        lastActive: '2026-03-24T09:00:00.000Z',
+        messageCount: 1,
+        title: '"First browser question"',
+      },
+    ]);
+  });
+
+  test('getRecentSessionsForChannel ranks by latest message instead of bumped session activity', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('older-channel-conversation-bumped', null, 'web');
+    getOrCreateSession('newer-channel-conversation', null, 'web');
+
+    const inspect = new Database(dbPath);
+    const insertMessage = inspect.prepare(
+      'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    insertMessage.run(
+      'older-channel-conversation-bumped',
+      'web-user-a',
+      'web',
+      'user',
+      'Older browser request',
+      '2026-03-24T09:00:00.000Z',
+    );
+    insertMessage.run(
+      'newer-channel-conversation',
+      'web-user-b',
+      'web',
+      'user',
+      'Newer browser request',
+      '2026-03-24T10:00:00.000Z',
+    );
+
+    const updateSession = inspect.prepare(
+      'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T12:00:00.000Z',
+      'older-channel-conversation-bumped',
+    );
+    updateSession.run(
+      1,
+      '2026-03-24T10:00:00.000Z',
+      'newer-channel-conversation',
+    );
+    inspect.close();
+
+    expect(
+      getRecentSessionsForChannel({
+        channelId: 'web',
+        limit: 1,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'newer-channel-conversation',
+        lastActive: '2026-03-24T10:00:00.000Z',
+        messageCount: 1,
+        title: '"Newer browser request"',
       },
     ]);
   });
@@ -1156,6 +1596,103 @@ describe.sequential('schema migrations', () => {
         query: 'deploy',
       }),
     ).toEqual([]);
+  });
+
+  test('setSessionTitle persists and round-trips with getSessionTitle', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', '   ');
+    expect(getSessionTitle('title-session')).toEqual({
+      title: null,
+      source: null,
+    });
+
+    setSessionTitle('title-session', '  Deploy Plan  ');
+
+    expect(getSessionTitle('title-session')).toEqual({
+      title: 'Deploy Plan',
+      source: 'auto',
+    });
+
+    const inspect = new Database(dbPath);
+    expect(() =>
+      inspect
+        .prepare("UPDATE sessions SET title_source = 'user' WHERE id = ?")
+        .run('title-session'),
+    ).toThrow();
+    inspect.close();
+  });
+
+  test('setSessionTitle does not overwrite an existing title', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle('title-session', 'First Pick');
+    setSessionTitle('title-session', 'Second Pick');
+
+    expect(getSessionTitle('title-session').title).toBe('First Pick');
+  });
+
+  test('setSessionTitle caps stored title length', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('title-session', null, 'web');
+    setSessionTitle(
+      'title-session',
+      `${'A'.repeat(RECENT_CHAT_SESSION_TITLE_MAX_LENGTH)} extra`,
+    );
+
+    expect(getSessionTitle('title-session').title).toBe(
+      'A'.repeat(RECENT_CHAT_SESSION_TITLE_MAX_LENGTH),
+    );
+  });
+
+  test('getRecentSessionsForUser prefers the stored title over the derived preview', () => {
+    const dbPath = createTempDbPath();
+    initDatabase({ quiet: true, dbPath });
+
+    getOrCreateSession('stored-title-session', null, 'web');
+
+    const inspect = new Database(dbPath);
+    inspect
+      .prepare(
+        'INSERT INTO messages (session_id, user_id, username, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        'stored-title-session',
+        'web-user-a',
+        'web',
+        'user',
+        'Boring derived first message',
+        '2026-04-25T10:00:00.000Z',
+      );
+    inspect
+      .prepare(
+        'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+      )
+      .run(1, '2026-04-25T10:00:00.000Z', 'stored-title-session');
+    inspect.close();
+
+    setSessionTitle('stored-title-session', 'Custom Stored Title');
+
+    expect(
+      getRecentSessionsForUser({
+        userId: 'web-user-a',
+        channelId: 'web',
+        limit: 10,
+      }),
+    ).toEqual([
+      {
+        sessionId: 'stored-title-session',
+        lastActive: '2026-04-25T10:00:00.000Z',
+        messageCount: 1,
+        title: 'Custom Stored Title',
+      },
+    ]);
   });
 
   test('forkSessionBranch copies the prefix into a new sibling session', () => {
@@ -1725,6 +2262,10 @@ describe.sequential('usage aggregation DB', () => {
   test('records usage events and returns daily/monthly + by-model aggregates', () => {
     const dbPath = createTempDbPath();
     initDatabase({ quiet: true, dbPath });
+    const now = new Date();
+    const previousMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12),
+    );
 
     recordUsageEvent({
       sessionId: 's-a',
@@ -1756,6 +2297,16 @@ describe.sequential('usage aggregation DB', () => {
       toolCalls: 0,
       costUsd: 0.0013,
     });
+    recordUsageEvent({
+      sessionId: 's-old',
+      agentId: 'agent-a',
+      model: 'gpt-5-nano',
+      inputTokens: 1_000,
+      outputTokens: 1_000,
+      totalTokens: 2_000,
+      costUsd: 9,
+      timestamp: previousMonth.toISOString(),
+    });
 
     const agentDaily = getUsageTotals({
       agentId: 'agent-a',
@@ -1764,6 +2315,14 @@ describe.sequential('usage aggregation DB', () => {
     expect(agentDaily.call_count).toBe(2);
     expect(agentDaily.total_tokens).toBe(800);
     expect(agentDaily.total_cost_usd).toBeCloseTo(0.0049, 6);
+    expect(agentDaily.cost_per_call_usd).toBeCloseTo(0.00245, 6);
+    expect(monthlySpendUsd(' agent-a ')).toBeCloseTo(0.0049, 6);
+    expect(monthlySpendEur(' agent-a ')).toBeCloseTo(
+      0.0049 / MODEL_METADATA_USD_TO_EUR.usdPerEur,
+      6,
+    );
+    expect(monthlySpendUsd('agent-b')).toBeCloseTo(0.0013, 6);
+    expect(() => monthlySpendUsd('')).toThrow('Agent id is required.');
 
     const monthlyByModel = listUsageByModel({
       window: 'monthly',
@@ -1778,6 +2337,12 @@ describe.sequential('usage aggregation DB', () => {
     expect(dailyByAgent.length).toBe(2);
     expect(dailyByAgent[0]?.agent_id).toBe('agent-a');
     expect(dailyByAgent[0]?.total_tokens).toBe(800);
+
+    const agentRollups = listUsageByAgentRollups();
+    expect(agentRollups.length).toBe(2);
+    expect(agentRollups[0]?.agent_id).toBe('agent-a');
+    expect(agentRollups[0]?.total_cost_usd).toBeCloseTo(9.0049, 6);
+    expect(agentRollups[0]?.monthly_cost_usd).toBeCloseTo(0.0049, 6);
 
     const dailyBreakdown = listUsageDailyBreakdown({ days: 7 });
     expect(dailyBreakdown.length).toBe(1);

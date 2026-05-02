@@ -2,6 +2,358 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.15.0) - 2026-04-29
+
+### Added
+
+- **Backup and restore CLI**: `hybridclaw backup` creates WAL-safe runtime-home
+  archives and `hybridclaw backup restore` validates manifests before
+  rehydrating `~/.hybridclaw` on a fresh or recovered host.
+- **Brand-voice output guard**: A repo-shipped `brand-voice` plugin can flag,
+  rewrite, or block off-brand final responses using configured voice rules,
+  banned phrases or patterns, required phrases, and optional classifier/rewriter
+  models. The bundled `brand-voice` skill helps agents draft within those rules
+  before the output guard fires.
+- **Production Salesforce skill**: The bundled Salesforce skill now ships a
+  fuller read-only helper, metadata/query references, eval scenarios, and
+  server-side secret placeholder handling for inspecting org schema and SOQL
+  records without writing credentials to disk.
+- **Tailscale Funnel tunnel provider and admin status**: Local deployments can
+  use `deployment.tunnel.provider=tailscale`, with `TS_AUTHKEY` resolved from
+  encrypted runtime secrets when needed and kept out of process arguments. The
+  admin console surfaces public URL and tunnel status alongside the existing
+  gateway controls.
+- **Web chat model switcher**: The chat composer can switch models from the
+  browser using discovered provider catalogs, provider icons, model capability
+  metadata, and the same active-session routing used by local slash commands.
+- **Agent org chart, team revisions, and chronological CVs**: Agent metadata
+  can model role, reporting, delegation, and peer relationships; admin agent
+  pages keep restorable team-structure revisions; observed skill history can
+  refresh per-agent CV output.
+- **Warm process pool**: Host and container runners can keep a bounded adaptive
+  pool of idle runtime processes for recently active agents, reducing cold-start
+  latency while respecting max-idle, startup-claim, config-change, and
+  memory-pressure limits.
+- **Trace judge and trace preparation**: Local eval workflows can prepare
+  redacted traces and dispatch them through an auxiliary judge model for skill,
+  leak, and output-quality evaluation foundations.
+- **Config value inspection**: `hybridclaw config get <key>` and `/config get
+  <key>` return one resolved runtime config value without dumping the full
+  config file.
+- **GPT-5.5 model support**: Static and Codex-discovered model catalogs include
+  `gpt-5.5`, `gpt-5.5-pro`, and `openai-codex/gpt-5.5`.
+
+### Changed
+
+- **Gateway health is less fragile**: Gateway status and health endpoints rely
+  on cached provider checks instead of blocking on live model-provider probes,
+  so transient provider failures no longer make the local gateway look down.
+- **Token usage recording is buffered**: Usage events are normalized,
+  size-capped, and batch-flushed asynchronously to reduce hot-path overhead
+  while preserving audit records.
+- **Runtime secrets are scrubbed more consistently**: Host/container agent
+  runtimes share sensitive environment filtering and web-search credential
+  injection so Brave, Perplexity, and Tavily keys are passed only through the
+  intended secret channels.
+- **Trajectory capture is stricter**: Stored skill trajectories run through
+  PII, secret, and confidential-info redaction, and retention can be capped
+  globally or per tenant.
+- **Docs are consolidated under `docs/content`**: The duplicate legacy
+  `docs/development` tree was removed after the content moved into the current
+  docs hierarchy.
+
+### Fixed
+
+- **Loopback API auth is no longer bypassed**: Local OpenAI-compatible API
+  requests require `WEB_API_TOKEN` or `GATEWAY_API_TOKEN`; loopback address
+  alone is not treated as authentication.
+- **Local TUI and gateway token handling is safer**: Generated gateway tokens
+  are persisted once with serialized creation, shared with local TUI/eval
+  clients, and no longer rewritten during later config reloads.
+- **Ngrok tunnel reconnects are quieter**: Reconnect errors are deduplicated by
+  normalized cause, audit run ids are correlated, and tunnel health checks stay
+  enabled by default.
+- **HybridAI-prefixed model names resolve cleanly**: Provider prefix handling
+  recognizes `hybridai/...` model ids without noisy warnings.
+- **Context ring popovers render correctly**: The web chat context usage ring
+  once again shows its detail popover.
+
+## [0.14.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.14.0) - 2026-04-28
+
+### Added
+
+- **Signal channel**: HybridClaw can connect to Signal through a
+  `signal-cli` compatible daemon, with private-by-default DM and group
+  policies, outbound chunk pacing, reconnect handling, admin QR linking, and a
+  full setup guide.
+- **Confidential-info filter and audit leak scanner**: Operators can define
+  NDA-class client, project, person, keyword, and regex rules in
+  `.confidential.yml`; prompts are redacted before model calls, responses are
+  rehydrated for the user, and `hybridclaw audit scan-leaks` can inspect
+  historic audit logs with severity and type filters.
+- **Admin statistics and agent scoreboard**: The admin console adds
+  `/admin/statistics` for session, message, token, cost, and channel trends,
+  plus `/admin/agent-scoreboard` for per-agent skill scores, best skills,
+  reliability, timing, and CV links.
+- **Live context usage controls**: Web chat shows a live context-usage ring,
+  local sessions support `/context`, and compaction headroom is visible before
+  long-running chats hit the model window.
+- **Packaged skill lifecycle**: Production skills can declare manifests with
+  package id, version, capabilities, required credentials, and supported
+  channels. Operators can install, upgrade, uninstall, list revisions, and roll
+  back managed skills with audited snapshots.
+- **Skill autonomy and stakes policy foundations**: `skills.autonomy` records
+  per-agent skill autonomy levels, the container approval policy can classify
+  high-stakes actions, and conditional skill availability can be routed through
+  the generalized policy engine.
+- **Deployment config and ngrok tunnel provider**: Runtime config now declares
+  local or cloud deployment mode, public URLs, tunnel provider intent, and a
+  built-in ngrok tunnel provider backed by the encrypted `NGROK_AUTHTOKEN`
+  secret.
+- **Nix and Homebrew packaging groundwork**: The repo ships a multi-arch Nix
+  flake, NixOS service module, contributor dev shell, packaging notes, and a
+  preview Homebrew formula for future tap publication.
+- **Model metadata, pricing, and monthly usage rollups**: `/model info`,
+  `/usage`, and the admin Models page surface discovered context windows,
+  output limits, capabilities, pricing, and monthly per-model spend when
+  providers expose that metadata.
+- **Headful browser control**: Browser tools can run a visible Chrome session
+  when a user explicitly asks for headed/headful control, while shared browser
+  login profiles stay reusable for automation.
+- **Agent-to-agent and trajectory persistence foundations**: The runtime can
+  persist A2A envelopes and opt-in redacted skill-run trajectories, creating
+  the data trail needed for multi-agent handoffs, skill evaluation, and future
+  workflow tuning.
+
+### Changed
+
+- **Browser chat is more operational**: Chat navigation is session-id driven,
+  recent sessions keep richer snippets, the composer can switch agents, slash
+  result streams render correctly, and context-ring data is shared with the
+  `/context` command.
+- **Agent terminology and profile data are consistent**: The UI and internal
+  persistence moved from coworker compatibility naming to agent naming, while
+  agent configs gained owner, role, and CV fields.
+- **Model and provider status is discovery-led**: Provider catalogs cache
+  runtime discovery, merge pinned entries with discovered models, remove stale
+  static pricing assumptions, and keep status/model-info output focused on the
+  active model.
+- **Approval and policy evaluation is more explicit**: Approval tiers can be
+  influenced by autonomy level and stakes classification, invalid policy
+  regexes and thresholds warn early, and unsafe realpath inspection during
+  approval classification is avoided.
+- **Local diagnostics are more precise**: Gateway debug startup flags can
+  capture raw model responses and last prompts for local troubleshooting, and
+  `doctor` resource hygiene can reclaim stale gateway artifacts more safely.
+- **TUI and status reporting are quieter and more useful**: Proactive polling
+  runs less often, streamed TUI responses preserve visible text, transient tool
+  lines truncate cleanly, and status output includes tokens-per-second and
+  time-to-first-token aware metrics.
+
+### Fixed
+
+- **Web fetch is guarded against SSRF**: Plain HTTP retrieval now enforces
+  private-network protections more consistently before escalating to browser
+  tools.
+- **Headful browser launches require system Chrome**: Visible browser control
+  refuses unstable headed macOS fallback launches and reports the required
+  Chrome executable setup instead.
+- **Voice turns survive relay reconnects**: Twilio voice relay reconnects no
+  longer lose the active turn state while the gateway is handling a call.
+- **Chat history and streaming edge cases are closed**: Result-only slash
+  streams render, tool-call sentinels are stripped before storage, regenerated
+  replies include tools used, context rings stay visible, and `/chat.html`
+  redirects preserve query strings.
+- **Skill lifecycle and manifest handling are stricter**: Managed skill
+  installs require installed status records, validate snapshot entries, cap
+  restored file modes, preserve unknown deployment tunnel providers, and reject
+  upgrades for uninstalled packages.
+- **Channel runtimes shut down more predictably**: WhatsApp and voice shutdown
+  paths cancel stale work, Signal delivery validates daemon/account state, and
+  channel send tools remain scoped to active transports.
+
+## [0.13.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.1) - 2026-04-24
+
+### Added
+
+- **Delegation runtime reporting**: Delegated agent runs now persist their own
+  request logs, audit tool events, model usage, token counts, and artifacts.
+  `/status` rolls first-level delegate usage into the session summary when a
+  dedicated delegate model is configured.
+- **Dedicated proactive delegate model**: Added
+  `proactive.delegation.model`, allowing operators to run delegated tasks on a
+  different model from the parent orchestration turn.
+- **Live delegate progress in the TUI**: Delegate batches now stream status
+  blocks, child tool progress, token totals, and synthesized final-answer
+  deltas into local TUI sessions without interrupting the active prompt.
+- **Shared gateway command parsing helpers**: Added common parsing utilities
+  for command ids, lower-case subcommands, and integer arguments across
+  policy, concierge, skill, session, usage, export, audit, and schedule
+  commands.
+
+### Changed
+
+- **Delegation prompts and approvals are clearer**: Delegation metadata moves
+  into the child user prompt, subagents get more explicit tool-use guidance,
+  duplicate delegate task titles are tracked independently, and `delegate` is
+  classified as green because child tool calls are approved separately.
+- **TUI activity rendering is more stable**: Running tools pulse in place,
+  completed tools switch to a green checkmark, streamed text row counts are
+  tracked incrementally, and delegate tool calls suppress partial parent text
+  until delegate output is ready.
+- **Console chat navigation is easier to reach**: The chat sidebar collapses
+  to an icon rail on desktop, exposes a mobile topbar trigger, and respects
+  reduced-motion preferences.
+- **Encrypted web-search credentials feed runtimes consistently**: Brave,
+  Perplexity, and Tavily API keys are resolved through the runtime secret store
+  and injected into host/container agent runtimes from the active encrypted
+  credentials, with environment variables used as fallback.
+- **Liquid/LFM local model tool prompts are more compatible**: Local
+  OpenAI-compatible Liquid/LFM requests include a compact tool list in the
+  system prompt while preserving normal tool-choice request fields.
+
+### Fixed
+
+- **WhatsApp shutdown no longer waits on stale inbound batches**: Runtime
+  shutdown cancels debounced WhatsApp batches, aborts in-flight handlers,
+  stops typing indicators, and avoids starting new typing state after shutdown
+  begins.
+- **Console audit inspection stays visible while browsing events**: The audit
+  detail panel remains sticky as the event list scrolls.
+- **Whitespace-padded command arguments normalize consistently**: Gateway
+  command handlers now trim ids and lower-case subcommands through shared
+  helpers before dispatching.
+
+## [0.13.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.0) - 2026-04-22
+
+### Added
+
+- **Direct Anthropic provider**: Added first-class `anthropic/...` model
+  routing with `hybridclaw auth login anthropic`, direct Messages API support,
+  optional official `claude -p` transport in host sandbox mode, runtime model
+  discovery, doctor/onboarding coverage, and container-side Anthropic provider
+  execution.
+- **JSON agent configuration command**: Added `hybridclaw agent config` for
+  platform-generated agent JSON payloads. The command can upsert agent
+  metadata, write bootstrap markdown files, optionally activate the agent, and
+  import `imageAsset` URLs or local files into the agent workspace.
+- **Bundled `gog` Google Workspace skill**: Added API-backed Gmail, Google
+  Calendar, Drive, Contacts, Sheets, and Docs workflows through the `gog` CLI,
+  including the Homebrew install helper and Google OAuth setup via
+  `hybridclaw auth login google`. HybridClaw stores the OAuth client secret
+  and refresh token in encrypted runtime secrets, mints short-lived access
+  tokens on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT`
+  into the agent runtime.
+- **Bundled `gws` Google Workspace skill**: Added a Google Workspace CLI skill
+  with progressive disclosure, auth preflight, and focused reference material
+  for Calendar, Gmail, Drive, Docs, Sheets, and common workflows.
+- **Bundled `gh-issues` skill**: Added a HybridClaw-native GitHub issue queue
+  workflow that can fetch live issue lists, filter batches, confirm selected
+  issues, deduplicate issue-fix branches, delegate focused PRs, watch queues,
+  and revisit review feedback on open issue-fix PRs.
+- **Bundled `excalidraw` skill**: Added editable `.excalidraw` diagram
+  creation and revision guidance with reference material for colors, dark
+  mode, examples, and an upload helper.
+- **Small-business workflow tutorials**: Added a top-level Tutorials section
+  covering practical owner, GTM, marketing, sales, DevRel, content, webinar,
+  invoicing, and release-launch workflows.
+- **Roman personality option**: Added a bundled Roman personality profile.
+- **Console view switch and chat route refresh**: Added a shared view switch,
+  larger admin brand treatment, collapsible desktop navigation, and a refreshed
+  top-level `/chat` SPA route.
+- **Release image promotion action**: Added a dedicated GitHub Action for
+  release image promotion and tightened release-image workflow caching.
+
+### Changed
+
+- **Anthropic provider handling is production-routed**: Anthropic auth status,
+  provider probing, model discovery, task routing, stream parsing, timeout
+  behavior, Claude CLI credential lookup, and credential environment handling
+  now use provider-specific code paths instead of OpenAI-compatible fallbacks.
+- **Google Workspace skill routing prefers `gog` for API access**: The
+  browser-oriented `google-workspace` skill now defers to the bundled `gog`
+  skill when API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs
+  access is available.
+- **Browser chat is the primary local web surface**: The gateway root routes to
+  chat, `/chat` is mounted as a top-level console SPA route, the standalone
+  chat view owns its viewport, and server-rendered pages use document
+  navigation where appropriate.
+- **Chat composer and message actions were refined**: Assistant message actions
+  are always visible, regenerate precedes copy, the composer uses a two-row
+  layout and the full main-column width, active sessions use accent text, and
+  the new-conversation/send controls use lighter chrome.
+- **Channel runtime lifecycle code is shared**: Built-in channel transports now
+  use a shared runtime factory for common lifecycle handling, with explicit
+  opt-outs where a transport needs custom behavior.
+- **Provider discovery is more consistent**: Discovery caches and lookup
+  aliases are shared across providers, HybridAI model alias lookup is indexed,
+  provider integer parsing is centralized, and discovery refresh failures are
+  logged consistently.
+- **Prompt and tool summaries are cleaner**: Message-tool advertising is scoped
+  to active channels, and prompt hook output avoids redundant comment noise.
+
+### Fixed
+
+- **Gateway restarts no longer hang during shutdown**: The gateway shutdown
+  path now drains pending credential-save work in order, avoiding a restart
+  hang during WhatsApp shutdown.
+- **Honcho memory prefetch races are closed**: Prompt-context assembly waits
+  for in-flight Honcho prefetch work before reading memory context.
+- **Inactive channel send tools no longer leak into prompts**: The runtime only
+  advertises message-send tools for channels that are active in the current
+  configuration.
+- **OpenRouter free-model lookups normalize correctly**: OpenRouter discovery
+  handles free model lookup aliases consistently.
+- **Slack runtime sends are guarded more tightly**: Slack send handling now
+  validates runtime state before attempting delivery.
+- **Agent avatars load behind web auth**: Chat agent avatars are fetched with
+  authenticated requests and eagerly loaded when chat state initializes.
+- **Chat replay restores request context from history**: Regenerating from a
+  historic assistant message hydrates the stored replay request before
+  resubmitting.
+- **Collapsed sidebars keep the expected width**: The collapsed console rail
+  shrinks to icon width and exposes nav tooltips instead of leaving excess
+  sidebar space.
+- **Google Workspace replies preserve user-visible addresses**: Assistant
+  replies and streamed chat text no longer redact ordinary email addresses
+  before they reach the user. Redaction still applies to audit, logging,
+  approval/control previews, and observability paths.
+- **HybridAI streaming avoids duplicate assistant text**: The HybridAI stream
+  adapter now handles chunks that include both cumulative `message.content` and
+  incremental `delta.content` without emitting the same text twice.
+
+## [0.12.11](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.11)
+
+### Added
+
+- **Ephemeral `/btw` side-question command**: Added `/btw <question>` across
+  local and Discord slash-command surfaces. It answers side questions from
+  recent conversation context with a tool-less model call, without persisting
+  the side exchange to session history.
+- **Concurrent `/btw` threads in browser chat**: The built-in `/chat` surface
+  accepts `/btw ...` while a primary run is active and renders those replies in
+  a distinct side-thread presentation.
+- **Bash tool state can persist between calls**: Added persistent bash state
+  support so bash tool calls can preserve
+  working directory, exported environment variables, and aliases for the active
+  session by default, plus `container.persistBashState` and a matching
+  `/admin/config` toggle (`Persistent bash state`) to disable this behavior
+  when stateless shell calls are preferred.
+
+### Fixed
+
+- **Expected transport outages stay local and less noisy**: Discord, Email
+  IMAP, and WhatsApp transport handlers now classify expected transient
+  transport failures, keep reconnect loops local, and rate-limit repetitive
+  outage logs.
+- **Cloud artifact path remapping remains stable across workspace roots**:
+  Artifact remapping now preserves host-resolved workspace paths when runtime
+  and display roots differ, keeping generated files downloadable and attachable
+  in cloud-backed sessions.
+- **Remote skill import guardrails close unsafe/over-budget paths**: GitHub
+  and skill-hub imports now enforce shared file-count/byte budgets during
+  streaming downloads and consistently reject unsafe relative paths.
+
 ## [0.12.10](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.10)
 
 ### Added
@@ -29,10 +381,6 @@
   output artifacts are remapped against the active workspace path even when the
   runtime exposes a different display root such as `/app`, keeping generated
   files downloadable and attachable from chat surfaces.
-- **Web chat history search respects authenticated session identity**:
-  `/api/chat/recent` title search now uses the signed session subject for
-  authenticated browser sessions, restoring recent-search access after the auth
-  regression in the initial chat-search rollout.
 
 ## [0.12.9](https://github.com/HybridAIOne/hybridclaw/tree/v0.12.9)
 
@@ -1251,7 +1599,7 @@
   through shared routing for Discord, WhatsApp, email, and local clients,
   including native vision/audio injection paths and stronger preference for
   current-turn local files over history rediscovery.
-- **Auxiliary task/provider routing**: Added Hermes-style auxiliary routing and
+- **Auxiliary task/provider routing**: Added auxiliary routing and
   tighter provider fallback handling so deferred or background tasks pick the
   right model more predictably.
 - **Discord activation config cleanup**: Removed the obsolete

@@ -39,6 +39,9 @@ Skill roots include:
   `install` feed operator-facing summaries, related-skill hints, and install
   helpers
 - installer metadata lives under `metadata.hybridclaw.install:`
+- production package metadata lives under `manifest:` or
+  `metadata.hybridclaw.manifest:` and declares `id`, `version`,
+  `capabilities`, `required_credentials`, and `supported_channels`
 
 ## Invocation Paths
 
@@ -71,17 +74,15 @@ description: Render Manim explainers.
 metadata:
   hybridclaw:
     install:
-      - id: uv-manim
+      - id: manim
         kind: uv
         package: manim
-        bins:
-          - manim
+        bins: ["manim"]
         label: Install Manim (uv)
-      - id: brew-ffmpeg
+      - id: ffmpeg
         kind: brew
         formula: ffmpeg
-        bins:
-          - ffmpeg
+        bins: ["ffmpeg"]
         label: Install ffmpeg (brew)
 ---
 ```
@@ -90,10 +91,12 @@ Operator surfaces:
 
 - `hybridclaw skill list` and `/skill list` show declared dependency ids
 - `hybridclaw skill install <skill> <dependency>` runs one declared dependency for the named skill
+- `hybridclaw skill setup <skill>` runs every declared dependency for the named skill
 - `/skill install <skill> <dependency>` does the same from local TUI or web chat
+- `/skill setup <skill>` does the same for every declared dependency from local TUI or web chat
 
-`skill install` is limited to local TUI and web sessions because it changes the
-host dependency state.
+`skill install` and `skill setup` are limited to local TUI and web sessions
+because they change the host dependency state.
 
 ## Catalog And Admin Surfaces
 
@@ -101,7 +104,8 @@ host dependency state.
   `available` / `disabled` / missing-dependency state, and mark
   higher-precedence foreign-source overrides with `*`
 - skill list output includes any declared dependency ids and labels so operators
-  can discover the right dependency before running `skill install`
+  can discover the right dependency before running `skill install` or
+  `skill setup`
 - the admin `Skills` page shows the same catalog metadata alongside
   adaptive-skill health and amendment review
 - the admin `Skills` page can create a local skill from a form or upload a
@@ -113,10 +117,9 @@ host dependency state.
 HybridClaw separates skill discovery from runtime availability.
 
 - `skills.disabled` is the global disabled list
-- `skills.channelDisabled.discord`
-- `skills.channelDisabled.msteams`
-- `skills.channelDisabled.whatsapp`
-- `skills.channelDisabled.email`
+- `skills.channelDisabled.<channel>` blocks a skill in one channel. Current
+  channel keys include `discord`, `msteams`, `signal`, `slack`, `telegram`,
+  `voice`, `whatsapp`, `email`, and `imessage`.
 
 Operator surfaces:
 
@@ -165,6 +168,24 @@ Guard behavior:
 - `--force` only overrides a `caution` scanner verdict
 - `--skip-skill-scan` bypasses the scanner entirely for trusted operators
 - `dangerous` verdicts stay blocked
+
+## Package Lifecycle
+
+Packaged business skills use audited lifecycle commands:
+
+- `hybridclaw skill install <source>`
+- `hybridclaw skill upgrade <source>`
+- `hybridclaw skill uninstall <skill-name>`
+- `hybridclaw skill revisions <skill-name>`
+- `hybridclaw skill rollback <skill-name> <revision-id>`
+
+Lifecycle commands update `skills.installed`, write audit events, and store
+package snapshots in the existing runtime config revision database as `skill`
+assets. `manifest.supported_channels` is enforced during skill loading so a
+skill is not advertised in unsupported channel contexts.
+
+See [How to Ship a Business Skill](../guides/skills/business-skills.md) for the
+operator-facing packaging contract.
 
 ## Adaptive Skills
 

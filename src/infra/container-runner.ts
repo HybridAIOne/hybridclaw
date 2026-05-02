@@ -5,18 +5,26 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ExecutorRequest } from '../agent/executor-types.js';
+import type {
+  ExecutorRequest,
+  ExecutorSessionHealthSnapshot,
+} from '../agent/executor-types.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { resolveGoogleWorkspaceRuntimeEnv } from '../auth/google-auth.js';
 import { getBrowserProfileDir } from '../browser/browser-login.js';
+import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
+  BRAVE_API_KEY,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
   CONTAINER_IMAGE,
   CONTAINER_MEMORY,
   CONTAINER_MEMORY_SWAP,
   CONTAINER_NETWORK,
+  CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
+  CONTAINER_WARM_POOL,
   CONTEXT_GUARD_COMPACTION_RATIO,
   CONTEXT_GUARD_ENABLED,
   CONTEXT_GUARD_MAX_RETRIES,
@@ -32,11 +40,14 @@ import {
   HYBRIDAI_MODEL,
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
+  onConfigChange,
+  PERPLEXITY_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
+  TAVILY_API_KEY,
   WEB_SEARCH_CACHE_TTL_MINUTES,
   WEB_SEARCH_DEFAULT_COUNT,
   WEB_SEARCH_FALLBACK_PROVIDERS,
@@ -44,6 +55,7 @@ import {
   WEB_SEARCH_SEARXNG_BASE_URL,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
+import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
 import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
@@ -52,12 +64,13 @@ import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
 import { validateAdditionalMounts } from '../security/mount-security.js';
-import { redactSecrets } from '../security/redact.js';
+import { redactCredentialSecrets } from '../security/redact.js';
 import type { ContainerInput, ContainerOutput } from '../types/container.js';
-import type {
-  ArtifactMetadata,
-  PendingApproval,
-  ToolProgressEvent,
+import {
+  type ArtifactMetadata,
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
@@ -72,17 +85,37 @@ import {
   readOutput,
   writeInput,
 } from './ipc.js';
+import { consumeModelResponseDebugFileLine } from './model-response-debug.js';
 import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
   decodeStreamDelta,
+  decodeThinkingDelta,
   flushCollapsedStreamDebugSummary,
   isStreamActivityLine,
+  isThinkingDeltaLine,
   type StreamDebugState,
 } from './stream-debug.js';
+import { WarmProcessPool } from './warm-process-pool.js';
+import {
+  claimWarmEntry,
+  enforceWarmPoolPressure,
+  formatWarmRunnerTerminalError,
+  getCachedObservedMemoryBytes,
+  getTotalWarmProcessCount,
+  IDLE_TIMEOUT_MS,
+  isTimedOutAgentOutput,
+  type MemorySample,
+  maintainWarmPool,
+  normalizeWarmProcessPoolRuntimeConfig,
+  observeAgentLifecycleLine,
+  pingWarmRunnerHealthEntry,
+  rememberStderrLine,
+  removeWarmPoolEntry,
+  stopWarmEntries as stopWarmPoolEntries,
+  type WarmRunnerEntry,
+} from './warm-runner-utils.js';
 import { computeWorkerSignature } from './worker-signature.js';
-
-const IDLE_TIMEOUT_MS = 300_000; // 5 minutes — matches container-side default
 
 function resolveExecutorMaxTokens(params: {
   model: string;
@@ -94,20 +127,28 @@ function resolveExecutorMaxTokens(params: {
   });
 }
 
-interface PoolEntry {
+interface PoolEntry extends WarmRunnerEntry {
   process: ChildProcess;
   containerName: string;
   sessionId: string;
+  ipcSessionId: string;
+  agentId: string;
   startedAt: number;
+  lastUsedAt: number;
+  warm: boolean;
+  readyForInputAt: number | null;
+  pendingColdStartProbeStartedAt: number | null;
   stderrBuffer: string;
   stderrHistory: string[];
   streamDebug: StreamDebugState;
   workerSignature: string;
   terminalError: string | null;
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onToolProgress?: (event: ToolProgressEvent) => void;
   onApprovalProgress?: (approval: PendingApproval) => void;
   activity?: import('./ipc.js').ActivityTracker;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
 }
 
 interface ContainerPathAliasMount {
@@ -117,6 +158,11 @@ interface ContainerPathAliasMount {
 }
 
 const pool = new Map<string, PoolEntry>();
+const warmPool = new WarmProcessPool<PoolEntry>(
+  normalizeWarmProcessPoolRuntimeConfig(CONTAINER_WARM_POOL),
+);
+let containerMemorySample: MemorySample | null = null;
+let containerMemoryRefreshInFlight = false;
 const TOOL_RESULT_RE =
   /^\[tool\]\s+([a-zA-Z0-9_.-]+)\s+result\s+\((\d+)ms\):\s*(.*)$/;
 const TOOL_START_RE = /^\[tool\]\s+([a-zA-Z0-9_.-]+):\s*(.*)$/;
@@ -125,7 +171,6 @@ const CONTAINER_WORKSPACE_ROOT = '/workspace';
 const CONTAINER_APP_NODE_MODULES = '/app/node_modules';
 const CONTAINER_DISCORD_MEDIA_CACHE_ROOT = '/discord-media-cache';
 const CONTAINER_UPLOADED_MEDIA_CACHE_ROOT = '/uploaded-media-cache';
-const AGENT_OUTPUT_TIMEOUT_PREFIX = 'Timeout waiting for agent output after ';
 
 export function collectConfiguredDiscordChannelIds(
   currentChannelId: string,
@@ -155,60 +200,6 @@ export function resolveDiscordMediaCacheHostDir(): string {
 }
 
 const CONTAINER_BROWSER_PROFILE_PATH = '/browser-profiles';
-const STDERR_HISTORY_LIMIT = 20;
-
-function rememberStderrLine(entry: PoolEntry, line: string): void {
-  entry.stderrHistory.push(line);
-  if (entry.stderrHistory.length > STDERR_HISTORY_LIMIT) {
-    entry.stderrHistory.splice(
-      0,
-      entry.stderrHistory.length - STDERR_HISTORY_LIMIT,
-    );
-  }
-}
-
-function summarizeExit(
-  code: number | null,
-  signal: NodeJS.Signals | null,
-): string {
-  if (typeof code === 'number') return `exit code ${code}`;
-  if (signal) return `signal ${signal}`;
-  return 'unknown exit status';
-}
-
-function formatContainerTerminalError(
-  entry: PoolEntry,
-  params?: {
-    code?: number | null;
-    signal?: NodeJS.Signals | null;
-  },
-): string {
-  const stderrText = entry.stderrHistory.join('\n');
-  const missingPackageMatch = stderrText.match(
-    /Cannot find package '([^']+)' imported from /,
-  );
-  const status = summarizeExit(
-    params?.code ?? entry.process.exitCode,
-    params?.signal ?? null,
-  );
-
-  if (missingPackageMatch) {
-    return [
-      `Container runtime exited before producing output (${status}).`,
-      `Missing runtime dependency: ${missingPackageMatch[1]}.`,
-      'Reinstall HybridClaw. If you are running from a source checkout, run `npm run setup` first.',
-    ].join('\n');
-  }
-
-  const detail = entry.stderrHistory
-    .slice(-4)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return detail
-    ? `Container runtime exited before producing output (${status}). ${detail}`
-    : `Container runtime exited before producing output (${status}). Check the gateway log for stderr details.`;
-}
 
 export function resolveBrowserProfileHostDir(): string {
   return path.resolve(getBrowserProfileDir(DATA_DIR));
@@ -222,11 +213,28 @@ function emitTextDelta(entry: PoolEntry, line: string): void {
 
   try {
     if (!delta) return;
-    callback(redactSecrets(delta));
+    callback(redactCredentialSecrets(delta));
   } catch (err) {
     logger.debug(
       { sessionId: entry.sessionId, err },
       'Text delta callback failed',
+    );
+  }
+}
+
+function emitThinkingDelta(entry: PoolEntry, line: string): void {
+  const callback = entry.onThinkingDelta;
+  if (!callback) return;
+  const delta = decodeThinkingDelta(line);
+  if (delta == null) return;
+
+  try {
+    if (!delta) return;
+    callback(redactCredentialSecrets(delta));
+  } catch (err) {
+    logger.debug(
+      { sessionId: entry.sessionId, err },
+      'Thinking delta callback failed',
     );
   }
 }
@@ -243,7 +251,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         toolName: resultMatch[1],
         phase: 'finish',
         durationMs: parseInt(resultMatch[2], 10),
-        preview: redactSecrets(resultMatch[3]),
+        preview: redactCredentialSecrets(resultMatch[3]),
       });
     } catch (err) {
       logger.debug(
@@ -261,7 +269,7 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
         sessionId: entry.sessionId,
         toolName: startMatch[1],
         phase: 'start',
-        preview: redactSecrets(startMatch[2]),
+        preview: redactCredentialSecrets(startMatch[2]),
       });
     } catch (err) {
       logger.debug(
@@ -277,7 +285,9 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   if (!match) return null;
   try {
     const raw = Buffer.from(match[1], 'base64').toString('utf-8');
-    const parsed = JSON.parse(raw) as PendingApproval;
+    const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
+      escalationTarget?: unknown;
+    };
     if (
       !parsed ||
       typeof parsed !== 'object' ||
@@ -288,11 +298,12 @@ function parseApprovalProgress(line: string): PendingApproval | null {
     ) {
       return null;
     }
+    const escalationTarget = normalizeEscalationTarget(parsed.escalationTarget);
     return {
       approvalId: parsed.approvalId,
-      prompt: redactSecrets(parsed.prompt),
-      intent: redactSecrets(parsed.intent),
-      reason: redactSecrets(parsed.reason),
+      prompt: redactCredentialSecrets(parsed.prompt),
+      intent: redactCredentialSecrets(parsed.intent),
+      reason: redactCredentialSecrets(parsed.reason),
       allowSession: parsed.allowSession === true,
       allowAgent: parsed.allowAgent === true,
       allowAll: parsed.allowAll === true,
@@ -301,6 +312,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
         Number.isFinite(parsed.expiresAt)
           ? parsed.expiresAt
           : null,
+      ...(escalationTarget ? { escalationTarget } : {}),
     };
   } catch {
     return null;
@@ -332,6 +344,35 @@ export function getActiveContainerSessionIds(): string[] {
   );
 }
 
+export async function getActiveContainerSessionHealthSnapshots(): Promise<
+  ExecutorSessionHealthSnapshot[]
+> {
+  const snapshots = await Promise.all(
+    Array.from(pool.values()).map((entry) =>
+      pingWarmRunnerHealthEntry('container', entry),
+    ),
+  );
+  return snapshots.sort((left, right) =>
+    left.sessionId.localeCompare(right.sessionId),
+  );
+}
+
+export function getWarmContainerColdStartP95Ms(): number | null {
+  return warmPool.coldStartP95Ms();
+}
+
+export function isWarmContainerColdStartWithinBudget(): boolean {
+  return warmPool.isWithinColdStartBudget();
+}
+
+function getTotalContainerProcessCount(): number {
+  return getTotalWarmProcessCount(pool, warmPool);
+}
+
+function removePoolEntry(entry: PoolEntry): void {
+  removeWarmPoolEntry(pool, warmPool, entry);
+}
+
 export function stopSessionContainer(sessionId: string): boolean {
   const entry = pool.get(sessionId);
   if (!entry) return false;
@@ -340,7 +381,7 @@ export function stopSessionContainer(sessionId: string): boolean {
     'Stopping session container',
   );
   stopContainer(entry.containerName);
-  pool.delete(sessionId);
+  removePoolEntry(entry);
   return true;
 }
 
@@ -351,12 +392,182 @@ function stopContainer(containerName: string): void {
   });
 }
 
-function isTimedOutAgentOutput(output: ContainerOutput): boolean {
-  return (
-    output.status === 'error' &&
-    typeof output.error === 'string' &&
-    output.error.startsWith(AGENT_OUTPUT_TIMEOUT_PREFIX)
+function stopPoolEntry(entry: PoolEntry): void {
+  stopContainer(entry.containerName);
+}
+
+function stopWarmEntries(entries: PoolEntry[]): void {
+  stopWarmPoolEntries(entries, {
+    log: (entry) =>
+      logger.info(
+        { agentId: entry.agentId, containerName: entry.containerName },
+        'Evicting warm container',
+      ),
+    stop: stopPoolEntry,
+  });
+}
+
+onConfigChange((config) => {
+  stopWarmEntries(
+    warmPool.reconfigure(
+      normalizeWarmProcessPoolRuntimeConfig(config.container.warmPool),
+    ),
   );
+  containerMemorySample = null;
+});
+
+function parseMemoryBytes(raw: string): number | null {
+  const match = raw.trim().match(/^([\d.]+)\s*([kmgt]?i?b)?/i);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  const unit = (match[2] || 'b').toLowerCase();
+  const multiplier =
+    unit === 'kb' || unit === 'kib'
+      ? 1024
+      : unit === 'mb' || unit === 'mib'
+        ? 1024 ** 2
+        : unit === 'gb' || unit === 'gib'
+          ? 1024 ** 3
+          : unit === 'tb' || unit === 'tib'
+            ? 1024 ** 4
+            : 1;
+  return Math.floor(value * multiplier);
+}
+
+function readContainerMemoryBytes(
+  containerNames: string[],
+): Promise<Map<string, number>> {
+  const memoryByContainer = new Map<string, number>();
+  const uniqueContainerNames = Array.from(new Set(containerNames)).filter(
+    (name) => name.length > 0,
+  );
+  if (uniqueContainerNames.length === 0)
+    return Promise.resolve(memoryByContainer);
+
+  return new Promise((resolve) => {
+    const proc = spawn(
+      'docker',
+      [
+        'stats',
+        '--no-stream',
+        '--format',
+        '{{.Name}}\t{{.MemUsage}}',
+        ...uniqueContainerNames,
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    let stdout = '';
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const separatorIndex = trimmed.indexOf('\t');
+        if (separatorIndex === -1) continue;
+        const containerName = trimmed.slice(0, separatorIndex).trim();
+        const usage = trimmed.slice(separatorIndex + 1).split('/')[0] || '';
+        memoryByContainer.set(containerName, parseMemoryBytes(usage) || 0);
+      }
+      resolve(memoryByContainer);
+    };
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      finish();
+    }, 2_000);
+    proc.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString('utf-8');
+    });
+    proc.on('error', finish);
+    proc.on('close', finish);
+  });
+}
+
+function getObservedContainerMemoryBytes(): number {
+  return getCachedObservedMemoryBytes({
+    cache: containerMemorySample,
+    setCache: (sample) => {
+      containerMemorySample = sample;
+    },
+    isRefreshInFlight: () => containerMemoryRefreshInFlight,
+    setRefreshInFlight: (value) => {
+      containerMemoryRefreshInFlight = value;
+    },
+    activeEntries: Array.from(pool.values()),
+    warmEntries: warmPool.values(),
+    memoryPressureEnabled: warmPool.memoryPressureEnabled,
+    keyForEntry: (entry) => entry.containerName,
+    refreshTotalBytes: async (containerNames) => {
+      const memoryByContainer = await readContainerMemoryBytes(containerNames);
+      let total = 0;
+      for (const containerName of containerNames) {
+        total += memoryByContainer.get(containerName) || 0;
+      }
+      return total;
+    },
+  });
+}
+
+function enforceWarmContainerPressure(): void {
+  enforceWarmPoolPressure({
+    pool,
+    warmPool,
+    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    getObservedMemoryBytes: getObservedContainerMemoryBytes,
+    stopEntries: stopWarmEntries,
+  });
+}
+
+function claimWarmContainer(params: {
+  sessionId: string;
+  agentId: string;
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  bashProxy?: ExecutorRequest['bashProxy'];
+}): PoolEntry | null {
+  return claimWarmEntry({
+    pool,
+    warmPool,
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    eligibility: params,
+    logClaim: (entry) =>
+      logger.info(
+        {
+          sessionId: params.sessionId,
+          ipcSessionId: entry.ipcSessionId,
+          agentId: params.agentId,
+          containerName: entry.containerName,
+        },
+        'Claimed warm container',
+      ),
+  });
+}
+
+function maintainWarmContainerPool(params: {
+  agentId: string;
+  workspacePathOverride?: string;
+  workspaceDisplayRootOverride?: string;
+  bashProxy?: ExecutorRequest['bashProxy'];
+}): void {
+  maintainWarmPool({
+    pool,
+    warmPool,
+    maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+    agentId: params.agentId,
+    eligibility: params,
+    stopEntries: stopWarmEntries,
+    spawnWarm: (sessionId, agentId) => {
+      getOrSpawnContainer({ sessionId, agentId, warm: true });
+    },
+  });
+}
+
+function isWithinResolvedRoot(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
 
 function resolveArtifactHostPath(
@@ -373,6 +584,11 @@ function resolveArtifactHostPath(
   );
 
   if (path.posix.isAbsolute(normalized)) {
+    const resolvedActual = path.resolve(normalized);
+    if (isWithinResolvedRoot(resolvedActual, workspaceRoot)) {
+      return resolvedActual;
+    }
+
     const cleanAbs = path.posix.normalize(normalized);
     const allowedRoots =
       displayRoot === CONTAINER_WORKSPACE_ROOT
@@ -389,10 +605,7 @@ function resolveArtifactHostPath(
     }
     const rel = cleanAbs.slice(matchedRoot.length).replace(/^\/+/, '');
     const resolved = path.resolve(workspaceRoot, rel);
-    if (
-      resolved === workspaceRoot ||
-      resolved.startsWith(`${workspaceRoot}${path.sep}`)
-    ) {
+    if (isWithinResolvedRoot(resolved, workspaceRoot)) {
       return resolved;
     }
     return null;
@@ -401,10 +614,7 @@ function resolveArtifactHostPath(
   const cleanRel = path.posix.normalize(normalized);
   if (cleanRel === '..' || cleanRel.startsWith('../')) return null;
   const resolved = path.resolve(workspaceRoot, cleanRel);
-  if (
-    resolved === workspaceRoot ||
-    resolved.startsWith(`${workspaceRoot}${path.sep}`)
-  ) {
+  if (isWithinResolvedRoot(resolved, workspaceRoot)) {
     return resolved;
   }
   return null;
@@ -467,11 +677,12 @@ function getOrSpawnContainer(
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
     | 'bashProxy'
-  >,
+  > & { ipcSessionId?: string; warm?: boolean },
 ): PoolEntry {
   const sessionId = params.sessionId;
+  const ipcSessionId = params.ipcSessionId || sessionId;
   const agentId = params.agentId || DEFAULT_AGENT_ID;
-  const existing = pool.get(sessionId);
+  const existing = params.warm ? null : pool.get(sessionId);
   if (
     existing &&
     !existing.process.killed &&
@@ -488,9 +699,9 @@ function getOrSpawnContainer(
     pool.delete(sessionId);
   }
 
-  ensureSessionDirs(sessionId);
+  ensureSessionDirs(ipcSessionId);
   ensureAgentDirs(agentId);
-  const { ipcPath } = getSessionPaths(sessionId, agentId);
+  const { ipcPath } = getSessionPaths(ipcSessionId, agentId);
   const workspacePath = getContainerWorkspacePath({
     sessionId,
     agentId,
@@ -515,7 +726,7 @@ function getOrSpawnContainer(
       'Failed to set permissions on browser profile directory',
     );
   }
-  const containerName = `hybridclaw-${sessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
+  const containerName = `hybridclaw-${ipcSessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
 
   const args = [
     'run',
@@ -584,16 +795,9 @@ function getOrSpawnContainer(
     `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
     '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
+    '-e',
+    'HYBRIDCLAW_AGENT_SANDBOX_MODE=container',
   ];
-
-  for (const [name, value] of [
-    ['BRAVE_API_KEY', process.env.BRAVE_API_KEY || ''],
-    ['PERPLEXITY_API_KEY', process.env.PERPLEXITY_API_KEY || ''],
-    ['TAVILY_API_KEY', process.env.TAVILY_API_KEY || ''],
-  ] as const) {
-    if (!value) continue;
-    args.push('-e', `${name}=${value}`);
-  }
 
   // Run as host user so bind-mount file ownership matches
   const hostUid = process.getuid?.();
@@ -637,22 +841,38 @@ function getOrSpawnContainer(
 
   args.push(CONTAINER_IMAGE);
 
-  logger.info({ sessionId, containerName }, 'Spawning persistent container');
+  logger.info(
+    { sessionId, ipcSessionId, agentId, containerName, warm: params.warm },
+    'Spawning persistent container',
+  );
 
   const proc = spawn('docker', args, {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
   const entry: PoolEntry = {
+    id: ipcSessionId,
     process: proc,
     containerName,
     sessionId,
+    ipcSessionId,
+    agentId,
     startedAt: Date.now(),
+    lastUsedAt: Date.now(),
+    warm: params.warm === true,
+    readyForInputAt: null,
+    pendingColdStartProbeStartedAt: null,
     stderrBuffer: '',
     stderrHistory: [],
     streamDebug: createStreamDebugState(),
     workerSignature: '',
     terminalError: null,
+    isReady() {
+      return entry.readyForInputAt != null;
+    },
+    stop() {
+      stopPoolEntry(entry);
+    },
   };
 
   proc.stderr.on('data', (data) => {
@@ -662,8 +882,18 @@ function getOrSpawnContainer(
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (observeAgentLifecycleLine(entry, line, warmPool)) continue;
+      if (consumeModelResponseDebugFileLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       rememberStderrLine(entry, line);
       emitTextDelta(entry, line);
+      emitThinkingDelta(entry, line);
+      if (isThinkingDeltaLine(line)) {
+        entry.activity?.notify();
+        continue;
+      }
       if (isStreamActivityLine(line)) {
         entry.activity?.notify();
         continue;
@@ -689,37 +919,60 @@ function getOrSpawnContainer(
   proc.on('close', (code, signal) => {
     const tail = entry.stderrBuffer.trim();
     if (tail) {
-      rememberStderrLine(entry, tail);
-      emitTextDelta(entry, tail);
-      if (isStreamActivityLine(tail)) {
+      if (observeAgentLifecycleLine(entry, tail, warmPool)) {
+        entry.stderrBuffer = '';
+      } else if (consumeModelResponseDebugFileLine(tail)) {
         entry.activity?.notify();
-      } else if (
-        !consumeCollapsedStreamDebugLine(tail, entry.streamDebug, (message) => {
-          logger.debug({ container: containerName }, message);
-        })
-      ) {
-        if (!emitApprovalProgress(entry, tail)) {
-          logger.debug({ container: containerName }, tail);
-          emitToolProgress(entry, tail);
+        entry.stderrBuffer = '';
+      } else {
+        rememberStderrLine(entry, tail);
+        emitTextDelta(entry, tail);
+        emitThinkingDelta(entry, tail);
+        if (isStreamActivityLine(tail)) {
+          entry.activity?.notify();
+        } else if (isThinkingDeltaLine(tail)) {
+          entry.activity?.notify();
+        } else if (
+          !consumeCollapsedStreamDebugLine(
+            tail,
+            entry.streamDebug,
+            (message) => {
+              logger.debug({ container: containerName }, message);
+            },
+          )
+        ) {
+          if (!emitApprovalProgress(entry, tail)) {
+            logger.debug({ container: containerName }, tail);
+            emitToolProgress(entry, tail);
+          }
         }
+        entry.stderrBuffer = '';
       }
-      entry.stderrBuffer = '';
     }
-    entry.terminalError = formatContainerTerminalError(entry, { code, signal });
+    entry.terminalError = formatWarmRunnerTerminalError(
+      entry,
+      'Container runtime',
+      { code, signal },
+    );
     flushCollapsedStreamDebugSummary(entry.streamDebug, (message) => {
       logger.debug({ container: containerName }, message);
     });
-    pool.delete(sessionId);
+    removePoolEntry(entry);
     logger.info({ sessionId, containerName, code, signal }, 'Container exited');
   });
 
   proc.on('error', (err) => {
     entry.terminalError = `Container runtime failed before producing output: ${err instanceof Error ? err.message : String(err)}`;
-    pool.delete(sessionId);
+    removePoolEntry(entry);
     logger.error({ sessionId, containerName, error: err }, 'Container error');
   });
 
-  pool.set(sessionId, entry);
+  if (entry.warm) {
+    warmPool.add(entry);
+    getObservedContainerMemoryBytes();
+  } else {
+    pool.set(sessionId, entry);
+  }
   return entry;
 }
 
@@ -759,12 +1012,14 @@ async function runContainerInner(
     allowedTools,
     blockedTools,
     onTextDelta,
+    onThinkingDelta,
     onToolProgress,
     onApprovalProgress,
     abortSignal,
     media,
     audioTranscriptsPrepended,
     pluginTools,
+    escalationTarget,
     maxWallClockMs,
     inactivityTimeoutMs,
   } = params;
@@ -784,19 +1039,38 @@ async function runContainerInner(
     chatbotId: modelRuntime.chatbotId,
     sessionModel: model,
   });
-  if (pool.size >= MAX_CONCURRENT_CONTAINERS && !pool.has(sessionId)) {
+  const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
+    logger.warn(
+      { error },
+      'Failed to resolve Google access token for Workspace CLI runtime environment',
+    );
+    return {};
+  });
+  enforceWarmContainerPressure();
+  if (
+    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
+    !pool.has(sessionId)
+  ) {
+    stopWarmEntries(
+      warmPool.evictForPressure({
+        totalProcessCount: getTotalContainerProcessCount() + 1,
+        maxProcessCount: MAX_CONCURRENT_CONTAINERS,
+      }),
+    );
+  }
+  if (
+    getTotalContainerProcessCount() >= MAX_CONCURRENT_CONTAINERS &&
+    !pool.has(sessionId)
+  ) {
     return {
       status: 'error',
       result: null,
       toolsUsed: [],
-      error: `Too many active containers (${pool.size}/${MAX_CONCURRENT_CONTAINERS}). Try again later.`,
+      error: `Too many active containers (${getTotalContainerProcessCount()}/${MAX_CONCURRENT_CONTAINERS}). Try again later.`,
     };
   }
 
   const startTime = Date.now();
-
-  cleanupIpc(sessionId);
-  ensureSessionDirs(sessionId);
 
   const input: ContainerInput = {
     sessionId,
@@ -806,6 +1080,7 @@ async function runContainerInner(
     apiKey: modelRuntime.apiKey,
     baseUrl: remapHostBaseUrlForContainer(modelRuntime.baseUrl),
     provider: modelRuntime.provider,
+    providerMethod: modelRuntime.providerMethod,
     requestHeaders: modelRuntime.requestHeaders,
     isLocal: modelRuntime.isLocal,
     contextWindow: modelRuntime.contextWindow,
@@ -818,12 +1093,14 @@ async function runContainerInner(
     fullAutoNeverApproveTools,
     skipContainerSystemPrompt,
     streamTextDeltas: Boolean(onTextDelta),
+    debugModelResponses: process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] === '1',
     maxTokens: resolveExecutorMaxTokens({
       model,
       discoveredMaxTokens: modelRuntime.maxTokens,
     }),
     channelId,
     configuredDiscordChannels: collectConfiguredDiscordChannelIds(channelId),
+    activeMessageChannels: collectActiveMessageToolChannelKinds(),
     scheduledTasks: scheduledTasks?.map(
       (task): ScheduledTaskInput => ({
         id: task.id,
@@ -844,6 +1121,7 @@ async function runContainerInner(
     pluginTools,
     mcpServers: MCP_SERVERS,
     taskModels,
+    runtimeEnv,
     contextGuard: {
       enabled: CONTEXT_GUARD_ENABLED,
       perResultShare: CONTEXT_GUARD_PER_RESULT_SHARE,
@@ -858,11 +1136,17 @@ async function runContainerInner(
       cacheTtlMinutes: WEB_SEARCH_CACHE_TTL_MINUTES,
       searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
       tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
+      braveApiKey: BRAVE_API_KEY,
+      perplexityApiKey: PERPLEXITY_API_KEY,
+      tavilyApiKey: TAVILY_API_KEY,
     },
+    persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
     agentId,
     provider: input.provider,
+    providerMethod: input.providerMethod,
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
@@ -884,7 +1168,7 @@ async function runContainerInner(
       'Worker routing changed; restarting persistent container',
     );
     stopContainer(existingEntry.containerName);
-    pool.delete(sessionId);
+    removePoolEntry(existingEntry);
   }
 
   const isNewContainer =
@@ -894,13 +1178,23 @@ async function runContainerInner(
 
   let entry: PoolEntry;
   try {
-    entry = getOrSpawnContainer({
-      sessionId,
-      agentId,
-      workspacePathOverride: params.workspacePathOverride,
-      workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
-      bashProxy: params.bashProxy,
-    });
+    entry =
+      (isNewContainer
+        ? claimWarmContainer({
+            sessionId,
+            agentId,
+            workspacePathOverride: params.workspacePathOverride,
+            workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+            bashProxy: params.bashProxy,
+          })
+        : null) ||
+      getOrSpawnContainer({
+        sessionId,
+        agentId,
+        workspacePathOverride: params.workspacePathOverride,
+        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+        bashProxy: params.bashProxy,
+      });
   } catch (err) {
     return {
       status: 'error',
@@ -909,9 +1203,12 @@ async function runContainerInner(
       error: `Container spawn error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  cleanupIpc(entry.ipcSessionId);
+  ensureSessionDirs(entry.ipcSessionId);
   const activity = createActivityTracker();
   entry.workerSignature = workerSignature;
   entry.onTextDelta = onTextDelta;
+  entry.onThinkingDelta = onThinkingDelta;
   entry.onToolProgress = onToolProgress;
   entry.onApprovalProgress = onApprovalProgress;
   entry.activity = activity;
@@ -929,17 +1226,18 @@ async function runContainerInner(
 
   try {
     if (isNewContainer) {
+      entry.pendingColdStartProbeStartedAt = Date.now();
       // First request: send full input (including apiKey) via stdin — no file on disk.
       // Write JSON on a single line followed by newline as delimiter.
       // Do NOT end stdin — closing stdin can cause docker -i to terminate the container.
       entry.process.stdin?.write(`${JSON.stringify(input)}\n`);
     } else {
       // Follow-up requests: write to IPC file, omitting apiKey
-      writeInput(sessionId, input, { omitApiKey: true });
+      writeInput(entry.ipcSessionId, input, { omitApiKey: true });
     }
 
     const output = await readOutput(
-      sessionId,
+      entry.ipcSessionId,
       inactivityTimeoutMs === undefined
         ? CONTAINER_TIMEOUT
         : inactivityTimeoutMs,
@@ -950,7 +1248,8 @@ async function runContainerInner(
         terminalError: () => entry.terminalError,
       },
     );
-    if (isTimedOutAgentOutput(output)) {
+    const timedOut = isTimedOutAgentOutput(output);
+    if (timedOut) {
       logger.warn(
         { sessionId, containerName: entry.containerName },
         'Agent output timed out; stopping stuck container',
@@ -962,19 +1261,31 @@ async function runContainerInner(
       workspacePath,
       params.workspaceDisplayRootOverride,
     );
-    if (typeof output.result === 'string')
-      output.result = redactSecrets(output.result);
-    if (typeof output.error === 'string')
-      output.error = redactSecrets(output.error);
+    if (typeof output.result === 'string') {
+      output.result = redactCredentialSecrets(output.result);
+    }
+    if (typeof output.error === 'string') {
+      output.error = redactCredentialSecrets(output.error);
+    }
     if (output.pendingApproval) {
       output.pendingApproval = {
         ...output.pendingApproval,
-        prompt: redactSecrets(output.pendingApproval.prompt),
-        intent: redactSecrets(output.pendingApproval.intent),
-        reason: redactSecrets(output.pendingApproval.reason),
+        prompt: redactCredentialSecrets(output.pendingApproval.prompt),
+        intent: redactCredentialSecrets(output.pendingApproval.intent),
+        reason: redactCredentialSecrets(output.pendingApproval.reason),
       };
     }
     const duration = Date.now() - startTime;
+    if (!timedOut) {
+      entry.lastUsedAt = Date.now();
+      warmPool.recordRequest(agentId, duration);
+      maintainWarmContainerPool({
+        agentId,
+        workspacePathOverride: params.workspacePathOverride,
+        workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
+        bashProxy: params.bashProxy,
+      });
+    }
 
     logger.info(
       {
@@ -995,6 +1306,9 @@ async function runContainerInner(
     });
     if (entry.onTextDelta === onTextDelta) {
       entry.onTextDelta = undefined;
+    }
+    if (entry.onThinkingDelta === onThinkingDelta) {
+      entry.onThinkingDelta = undefined;
     }
     if (entry.onToolProgress === onToolProgress) {
       entry.onToolProgress = undefined;
@@ -1018,6 +1332,13 @@ export function stopAllContainers(): void {
     stopContainer(entry.containerName);
   }
   pool.clear();
+  for (const entry of warmPool.clear()) {
+    logger.info(
+      { agentId: entry.agentId, containerName: entry.containerName },
+      'Stopping warm container (shutdown)',
+    );
+    stopContainer(entry.containerName);
+  }
 }
 
 export class ContainerExecutor {
@@ -1044,5 +1365,9 @@ export class ContainerExecutor {
 
   getActiveSessionIds(): string[] {
     return getActiveContainerSessionIds();
+  }
+
+  getSessionHealthSnapshots(): Promise<ExecutorSessionHealthSnapshot[]> {
+    return getActiveContainerSessionHealthSnapshots();
   }
 }

@@ -25,6 +25,7 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from './index';
 import styles from './index.module.css';
@@ -37,9 +38,12 @@ export function AppSidebar(props: {
   onLogout: () => void;
 }) {
   return (
-    <Sidebar>
+    <Sidebar collapsible="icon">
       <SidebarHeader>
-        <SidebarBrand />
+        <div className={styles.headerRow}>
+          <SidebarBrand subtitle="Admin console" />
+          <SidebarTrigger className={styles.sidebarToggle} />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         {props.groups.map((group) => (
@@ -76,7 +80,7 @@ export function AppSidebar(props: {
   );
 }
 
-function SidebarBrand() {
+export function SidebarBrand(props: { subtitle?: string }) {
   return (
     <div className={styles.brand}>
       <div className={styles.brandTitle}>
@@ -85,7 +89,9 @@ function SidebarBrand() {
         </span>
         <div className={styles.brandText}>
           <h1>HybridClaw</h1>
-          <span className={styles.eyebrow}>Admin console</span>
+          {props.subtitle ? (
+            <span className={styles.eyebrow}>{props.subtitle}</span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -98,11 +104,12 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
   return (
     <Link
       to={props.item.to}
+      title={props.item.label}
       activeProps={{
         className: cx(styles.menuButton, styles.menuButtonActive),
       }}
       inactiveProps={{ className: styles.menuButton }}
-      activeOptions={{ exact: props.item.to === '/' }}
+      activeOptions={{ exact: true }}
       onClick={() => {
         if (isMobile) {
           setOpenMobile(false);
@@ -117,7 +124,7 @@ function SidebarNavLink(props: { item: SidebarNavItem }) {
   );
 }
 
-function SidebarMeta(props: { version?: string }) {
+export function SidebarMeta(props: { version?: string }) {
   if (!props.version) return null;
   return (
     <div className={styles.footerMeta}>

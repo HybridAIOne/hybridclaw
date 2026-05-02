@@ -6,6 +6,7 @@ import type {
   SessionExpiryEvaluation,
   SessionResetPolicy,
 } from '../session/session-reset.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import type {
   KnowledgeEntityTypeValue,
   KnowledgeGraphMatch,
@@ -171,6 +172,8 @@ export interface MemoryBackend {
     username: string | null,
     role: string,
     content: string,
+    agentId?: string | null,
+    artifacts?: ArtifactMetadata[] | null,
   ) => number;
   storeSemanticMemory: (params: {
     sessionId: string;
@@ -241,7 +244,9 @@ export interface StoreTurnParams {
   assistant: {
     userId?: string;
     username?: string | null;
+    agentId?: string | null;
     content: string;
+    artifacts?: ArtifactMetadata[] | null;
   };
 }
 
@@ -357,8 +362,6 @@ function truncateInline(content: string, maxChars: number): string {
   return `${compact.slice(0, maxChars)}...`;
 }
 
-// Keep citation previews short so tagged memories stay readable in prompts and
-// channel footers without crowding out the main assistant response.
 const CITATION_CONTENT_MAX_CHARS = 220;
 
 class HashedTokenEmbeddingProvider implements EmbeddingProvider {
@@ -723,6 +726,8 @@ export class MemoryService {
     username: string | null;
     role: string;
     content: string;
+    agentId?: string | null;
+    artifacts?: ArtifactMetadata[] | null;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -730,6 +735,8 @@ export class MemoryService {
       params.username,
       params.role,
       params.content,
+      params.agentId,
+      params.artifacts,
     );
   }
 
@@ -777,6 +784,8 @@ export class MemoryService {
       username: params.assistant.username || null,
       role: 'assistant',
       content: params.assistant.content,
+      agentId: params.assistant.agentId,
+      artifacts: params.assistant.artifacts,
     });
 
     const interactionText = this.normalizeSemanticContent(

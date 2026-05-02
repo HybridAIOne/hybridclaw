@@ -23,6 +23,10 @@ import {
   HEARTBEAT_ENABLED,
   HYBRIDAI_CHATBOT_ID,
 } from '../config/config.js';
+import {
+  formatCoworkerLivenessPage,
+  getCoworkerLivenessSummary,
+} from '../gateway/coworker-liveness.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getTasksForSession } from '../memory/db.js';
@@ -64,6 +68,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_snapshot',
   'browser_click',
   'browser_type',
+  'browser_secret_type',
   'browser_press',
   'browser_scroll',
   'browser_back',
@@ -78,8 +83,11 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_close',
 ];
 
-let timer: ReturnType<typeof setInterval> | null = null;
-let running = false;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let livenessPagingTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatRunning = false;
+let livenessPagingRunning = false;
+const lastPagedLivenessStateByAgent = new Map<string, string>();
 
 function isHeartbeatOk(text: string): boolean {
   const normalized = text
@@ -89,36 +97,74 @@ function isHeartbeatOk(text: string): boolean {
   return normalized === 'HEARTBEATOK' || normalized.startsWith('HEARTBEATOK');
 }
 
+async function pageRedCoworkerLivenessTransitions(
+  onMessage: (text: string) => void,
+): Promise<void> {
+  const liveness = await getCoworkerLivenessSummary();
+  for (const probe of liveness.probes) {
+    const previous = lastPagedLivenessStateByAgent.get(probe.agentId);
+    lastPagedLivenessStateByAgent.set(probe.agentId, probe.state);
+    if (probe.state !== 'red' || previous === 'red') continue;
+    onMessage(formatCoworkerLivenessPage(probe));
+  }
+}
+
+function startCoworkerLivenessPaging(
+  interval: number,
+  onMessage: (text: string) => void,
+): void {
+  if (livenessPagingTimer) {
+    clearInterval(livenessPagingTimer);
+    livenessPagingTimer = null;
+  }
+
+  livenessPagingTimer = setInterval(async () => {
+    if (livenessPagingRunning) {
+      logger.debug('Agent liveness paging skipped — previous still running');
+      return;
+    }
+    livenessPagingRunning = true;
+    try {
+      await pageRedCoworkerLivenessTransitions(onMessage);
+    } catch (error) {
+      logger.warn({ error }, 'Agent liveness paging failed');
+    } finally {
+      livenessPagingRunning = false;
+    }
+  }, interval);
+}
+
 export function startHeartbeat(
   agentId: string,
   interval: number,
   onMessage: (text: string) => void,
 ): void {
-  if (!HEARTBEAT_ENABLED) {
-    logger.info('Heartbeat disabled via HEARTBEAT_ENABLED=false');
-    return;
-  }
-
-  logger.info({ interval }, 'Heartbeat started');
   registerChannel({
     kind: 'heartbeat',
     id: HEARTBEAT_CHANNEL || 'heartbeat',
     capabilities: SYSTEM_CAPABILITIES,
   });
+  startCoworkerLivenessPaging(interval, onMessage);
 
-  timer = setInterval(async () => {
-    if (running) {
+  if (!HEARTBEAT_ENABLED) {
+    logger.info(
+      'Heartbeat disabled via HEARTBEAT_ENABLED=false; agent liveness paging remains active',
+    );
+    return;
+  }
+
+  logger.info({ interval }, 'Heartbeat started');
+
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  heartbeatTimer = setInterval(async () => {
+    if (heartbeatRunning) {
       logger.debug('Heartbeat skipped — previous still running');
       return;
     }
-    if (!isWithinActiveHours()) {
-      logger.debug(
-        { activeHours: proactiveWindowLabel() },
-        'Heartbeat skipped — outside active hours window',
-      );
-      return;
-    }
-    running = true;
+    heartbeatRunning = true;
 
     const sessionId = buildSessionKey(
       agentId,
@@ -132,6 +178,14 @@ export function startHeartbeat(
     let turnIndex = 1;
 
     try {
+      if (!isWithinActiveHours()) {
+        logger.debug(
+          { activeHours: proactiveWindowLabel() },
+          'Heartbeat skipped — outside active hours window',
+        );
+        return;
+      }
+
       const session = memoryService.getOrCreateSession(
         sessionId,
         null,
@@ -339,6 +393,7 @@ export function startHeartbeat(
         assistant: {
           userId: 'assistant',
           username: null,
+          agentId: resolvedAgentId,
           content: result,
         },
       });
@@ -430,15 +485,25 @@ export function startHeartbeat(
         },
       });
     } finally {
-      running = false;
+      heartbeatRunning = false;
     }
   }, interval);
 }
 
 export function stopHeartbeat(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
     logger.info('Heartbeat stopped');
   }
+  if (livenessPagingTimer) {
+    clearInterval(livenessPagingTimer);
+    livenessPagingTimer = null;
+    logger.info('Agent liveness paging stopped');
+  }
+  heartbeatRunning = false;
+  livenessPagingRunning = false;
+  // In-process edge state is intentionally cleared so a still-red agent
+  // pages again after gateway restart or scheduler restart.
+  lastPagedLivenessStateByAgent.clear();
 }

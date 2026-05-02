@@ -29,13 +29,14 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/secret set <name> <value>');
   expect(labels).toContain('/voice <info|call>');
   expect(labels).toContain('/voice call <e164-number>');
-  expect(labels).toContain('/config [check|reload|set] [key] [value]');
+  expect(labels).toContain('/config [check|reload|get|set] [key] [value]');
   expect(labels).toContain('/config check');
   expect(labels).toContain('/config reload');
+  expect(labels).toContain('/config get <key>');
   expect(labels).toContain('/config set <key> <value>');
   expect(
     labels.filter(
-      (label) => label === '/config [check|reload|set] [key] [value]',
+      (label) => label === '/config [check|reload|get|set] [key] [value]',
     ),
   ).toHaveLength(1);
   expect(labels).toContain('/approve yes [approval_id]');
@@ -61,6 +62,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/skill inspect --all');
   expect(labels).toContain('/skill runs <name>');
   expect(labels).toContain('/skill install <skill> <dependency>');
+  expect(labels).toContain('/skill setup <skill>');
   expect(labels).toContain('/skill learn <name> --apply');
   expect(labels).toContain('/skill history <name>');
   expect(labels).toContain('/skill sync <source>');
@@ -144,7 +146,9 @@ test('root entries with subcommands include arg hints in labels', () => {
 
   // Commands with string options show formatted option suffixes.
   const configEntry = rootEntries.find((entry) => entry.id === 'config');
-  expect(configEntry?.label).toBe('/config [check|reload|set] [key] [value]');
+  expect(configEntry?.label).toBe(
+    '/config [check|reload|get|set] [key] [value]',
+  );
 
   // Commands with no options or subcommands have plain labels.
   const statusEntry = rootEntries.find((entry) => entry.id === 'status');

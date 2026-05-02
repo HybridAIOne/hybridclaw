@@ -96,6 +96,54 @@ test('gatewayChatStream parses approval events before the final result', async (
   });
 });
 
+test('gatewayChatStream parses thinking events separately from text', async () => {
+  const payload = `${JSON.stringify({
+    type: 'thinking',
+    delta: 'checking channels',
+  })}\n${JSON.stringify({
+    type: 'text',
+    delta: 'Visible answer',
+  })}\n${JSON.stringify({
+    type: 'result',
+    result: {
+      status: 'success',
+      result: 'Visible answer',
+      toolsUsed: [],
+    },
+  })}\n`;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(payload, { status: 200 })),
+  );
+
+  const { gatewayChatStream } = await importGatewayClient();
+  const events: unknown[] = [];
+
+  const result = await gatewayChatStream(
+    {
+      sessionId: 's1',
+      guildId: null,
+      channelId: 'web',
+      userId: 'user-1',
+      username: 'web',
+      content: 'hello',
+      stream: true,
+    },
+    (event) => {
+      events.push(event);
+    },
+  );
+
+  expect(events).toEqual([
+    { type: 'thinking', delta: 'checking channels' },
+    { type: 'text', delta: 'Visible answer' },
+  ]);
+  expect(result).toMatchObject({
+    status: 'success',
+    result: 'Visible answer',
+  });
+});
+
 test('fetchGatewayAdminSkills requests the admin skill catalog', async () => {
   vi.stubGlobal(
     'fetch',

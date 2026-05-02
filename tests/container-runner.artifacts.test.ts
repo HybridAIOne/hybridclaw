@@ -70,3 +70,31 @@ test('prefers the longest matching workspace display root when remapping', () =>
     fs.rmSync(workspacePath, { recursive: true, force: true });
   }
 });
+
+test('preserves host artifact paths when the real workspace already lives under /workspace', () => {
+  // No filesystem setup is needed here because remapOutputArtifacts only
+  // normalizes and resolves the path string; it does not stat the workspace.
+  const workspacePath = '/workspace/.data/data/agents/main/workspace';
+  const output: ContainerOutput = {
+    status: 'success',
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [
+      {
+        path: '/workspace/.data/data/agents/main/workspace/output.pdf',
+        filename: 'output.pdf',
+        mimeType: 'application/pdf',
+      },
+    ],
+  };
+
+  remapOutputArtifacts(output, workspacePath);
+
+  expect(output.artifacts).toEqual([
+    {
+      path: '/workspace/.data/data/agents/main/workspace/output.pdf',
+      filename: 'output.pdf',
+      mimeType: 'application/pdf',
+    },
+  ]);
+});

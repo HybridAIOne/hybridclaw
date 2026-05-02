@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
+import type { PromptMode } from './agent/prompt-hooks.js';
+import type { PromptPartName } from './agent/prompt-parts.js';
 import { makeLazyApi, normalizeArgs } from './cli/common.js';
 import {
   isHelpRequest,
@@ -25,6 +27,7 @@ import {
 import { ensureOnboardingApi } from './cli/onboarding-api.js';
 import {
   findUnsupportedGatewayLifecycleFlag,
+  type GatewayToolsMode,
   parseGatewayFlags,
   type SandboxModeOverride,
 } from './config/cli-flags.js';
@@ -42,6 +45,8 @@ import {
   updateRuntimeConfig,
 } from './config/runtime-config.js';
 import {
+  formatRuntimeConfigValue,
+  getRuntimeConfigValueAtPath,
   parseRuntimeConfigCommandValue,
   setRuntimeConfigValueAtPath,
 } from './config/runtime-config-edit.js';
@@ -49,27 +54,38 @@ import { checkConfigFile } from './doctor/checks/config.js';
 import { summarizeCounts } from './doctor/utils.js';
 import {
   ensureGatewayRunDir,
+  GATEWAY_DEBUG_MODEL_RESPONSES_ENV,
   GATEWAY_LOG_FILE_ENV,
   GATEWAY_LOG_PATH,
   GATEWAY_LOG_REQUESTS_ENV,
   GATEWAY_STDIO_TO_LOG_ENV,
+  GATEWAY_SYSTEM_PROMPT_MODE_ENV,
+  GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+  GATEWAY_TOOLS_MODE_ENV,
   type GatewayPidState,
   isPidRunning,
   readGatewayPid,
   removeGatewayPidFile,
   writeGatewayPid,
 } from './gateway/gateway-lifecycle.js';
+import { logger } from './logger.js';
 import { runtimeSecretsPath } from './security/runtime-secrets.js';
 import { sleep } from './utils/sleep.js';
 
 const GATEWAY_LOG_REQUESTS_WARNING =
   'Gateway request logging enabled. request_log stores best-effort redacted prompts, responses, and tool payloads for debugging. Treat this log as potentially sensitive.';
+const GATEWAY_DEBUG_MODEL_RESPONSES_WARNING =
+  'Gateway model response debug logging enabled. Complete upstream model responses, including streamed content and tool-call arguments, may be written to debug logs. Treat logs as sensitive.';
 const PACKAGE_NAME = '@hybridaione/hybridclaw';
 let cachedInstallRoot: string | null = null;
 let foregroundGatewayExitHandler: (() => void) | null = null;
 let foregroundGatewaySigintHandler: (() => void) | null = null;
 let foregroundGatewaySigtermHandler: (() => void) | null = null;
 type ConfigApi = typeof import('./config/config.js');
+
+function serializePromptParts(parts: PromptPartName[]): string {
+  return parts.join(',');
+}
 
 let cachedAppVersion: string | null = null;
 const configApiState = makeLazyApi<ConfigApi>(
@@ -394,16 +410,29 @@ async function ensureGatewayForTui(commandName: string): Promise<void> {
 }
 
 async function resolveTuiPreflightSandboxMode(): Promise<SandboxModeOverride | null> {
-  const { gatewayStatus } = await import('./gateway/gateway-client.js');
+  const { gatewayHealth, gatewayStatus } = await import(
+    './gateway/gateway-client.js'
+  );
+
+  try {
+    const health = await gatewayHealth();
+    if (health.sandbox) {
+      return health.sandbox.mode === 'host' ? 'host' : null;
+    }
+  } catch (err) {
+    logger.debug(
+      { err },
+      'TUI preflight gateway health lookup failed; falling back to authenticated status.',
+    );
+  }
 
   try {
     const status = await gatewayStatus();
-    const runtimeSandboxMode = status.sandbox?.mode;
-    if (runtimeSandboxMode === 'host') {
-      return runtimeSandboxMode;
+    if (status.sandbox?.mode === 'host') {
+      return status.sandbox.mode;
     }
   } catch {
-    // Fall back to the local runtime config when the gateway is not reachable.
+    // Fall back to the local runtime config when gateway status is unavailable.
   }
 
   return null;
@@ -690,6 +719,10 @@ async function runGatewayForeground(
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
   logRequests = false,
+  debugModelResponses = false,
+  systemPromptMode: PromptMode | null = null,
+  systemPromptParts: PromptPartName[] = [],
+  toolsMode: GatewayToolsMode | null = null,
 ): Promise<void> {
   const [{ setSandboxModeOverride }, { ensureRuntimeCredentials }] =
     await Promise.all([ensureConfigApi(), ensureOnboardingApi()]);
@@ -700,23 +733,38 @@ async function runGatewayForeground(
   if (sandboxMode) {
     setSandboxModeOverride(sandboxMode);
   }
-  if (logRequests) {
-    process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
-    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
-  }
-  if (debug) {
-    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
-    const { forceLoggerLevel } = await import('./logger.js');
-    forceLoggerLevel('debug');
-    console.log(`${commandName}: forcing gateway log level to debug.`);
-  }
+  getConfigApi().ensureGatewayApiTokenPersisted();
   ensureGatewayRunDir();
-  const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   if (process.env[GATEWAY_STDIO_TO_LOG_ENV] === '1') {
     delete process.env[GATEWAY_LOG_FILE_ENV];
   } else {
     process.env[GATEWAY_LOG_FILE_ENV] = GATEWAY_LOG_PATH;
   }
+  if (logRequests) {
+    process.env[GATEWAY_LOG_REQUESTS_ENV] = '1';
+    console.warn(GATEWAY_LOG_REQUESTS_WARNING);
+  }
+  if (debugModelResponses) {
+    process.env[GATEWAY_DEBUG_MODEL_RESPONSES_ENV] = '1';
+    console.warn(GATEWAY_DEBUG_MODEL_RESPONSES_WARNING);
+  }
+  if (systemPromptMode) {
+    process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] = systemPromptMode;
+  }
+  if (systemPromptParts.length > 0) {
+    process.env[GATEWAY_SYSTEM_PROMPT_PARTS_ENV] =
+      serializePromptParts(systemPromptParts);
+  }
+  if (toolsMode) {
+    process.env[GATEWAY_TOOLS_MODE_ENV] = toolsMode;
+  }
+  if (debug || debugModelResponses) {
+    process.env.HYBRIDCLAW_FORCE_LOG_LEVEL = 'debug';
+    const { forceLoggerLevel } = await import('./logger.js');
+    forceLoggerLevel('debug');
+    console.log(`${commandName}: forcing gateway log level to debug.`);
+  }
+  const foregroundGatewayPid = registerForegroundGatewayPid(commandName);
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   try {
     await import('./gateway/gateway.js');
@@ -733,6 +781,10 @@ async function startGatewayBackend(
   sandboxMode: SandboxModeOverride | null = null,
   debug = false,
   logRequests = false,
+  debugModelResponses = false,
+  systemPromptMode: PromptMode | null = null,
+  systemPromptParts: PromptPartName[] = [],
+  toolsMode: GatewayToolsMode | null = null,
 ): Promise<void> {
   await ensureConfigApi();
   if (await isGatewayReachable()) {
@@ -787,9 +839,13 @@ async function startGatewayBackend(
     commandName,
     requireCredentials: false,
   });
+  getConfigApi().ensureGatewayApiTokenPersisted();
   await ensureRuntimeContainer(commandName, true, sandboxMode);
   if (logRequests) {
     console.warn(GATEWAY_LOG_REQUESTS_WARNING);
+  }
+  if (debugModelResponses) {
+    console.warn(GATEWAY_DEBUG_MODEL_RESPONSES_WARNING);
   }
 
   ensureGatewayRunDir();
@@ -802,6 +858,12 @@ async function startGatewayBackend(
     '--foreground',
     ...(debug ? ['--debug'] : []),
     ...(logRequests ? ['--log-requests'] : []),
+    ...(debugModelResponses ? ['--debug-model-responses'] : []),
+    ...(systemPromptMode ? [`--system-prompt=${systemPromptMode}`] : []),
+    ...(systemPromptParts.length > 0
+      ? [`--system-prompt=${serializePromptParts(systemPromptParts)}`]
+      : []),
+    ...(toolsMode ? [`--tools=${toolsMode}`] : []),
     ...(sandboxMode ? [`--sandbox=${sandboxMode}`] : []),
   ];
   const child = spawn(process.execPath, [...process.execArgv, ...childArgs], {
@@ -1041,6 +1103,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.sandboxMode,
         flags.debug,
         flags.logRequests,
+        flags.debugModelResponses,
+        flags.systemPromptMode,
+        flags.systemPromptParts,
+        flags.toolsMode,
       );
       return;
     }
@@ -1050,6 +1116,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.sandboxMode,
       flags.debug,
       flags.logRequests,
+      flags.debugModelResponses,
+      flags.systemPromptMode,
+      flags.systemPromptParts,
+      flags.toolsMode,
     );
     return;
   }
@@ -1068,6 +1138,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
         flags.sandboxMode,
         flags.debug,
         flags.logRequests,
+        flags.debugModelResponses,
+        flags.systemPromptMode,
+        flags.systemPromptParts,
+        flags.toolsMode,
       );
       return;
     }
@@ -1077,6 +1151,10 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
       flags.sandboxMode,
       flags.debug,
       flags.logRequests,
+      flags.debugModelResponses,
+      flags.systemPromptMode,
+      flags.systemPromptParts,
+      flags.toolsMode,
     );
     return;
   }
@@ -1257,9 +1335,20 @@ async function handleConfigCommand(args: string[]): Promise<void> {
     await runRuntimeConfigFileCheck();
     return;
   }
+  if (sub === 'get') {
+    const key = (normalized[1] || '').trim();
+    if (!key || normalized.length > 2) {
+      throw new Error('Usage: `hybridclaw config get <key>`');
+    }
+    const value = getRuntimeConfigValueAtPath(getRuntimeConfig(), key);
+    console.log(`Active config: ${runtimeConfigPath()}`);
+    console.log(`Key: ${key}`);
+    console.log(formatRuntimeConfigValue(value));
+    return;
+  }
   if (sub !== 'set') {
     throw new Error(
-      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
+      'Unknown config subcommand. Use `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`.',
     );
   }
 
@@ -1267,7 +1356,7 @@ async function handleConfigCommand(args: string[]): Promise<void> {
   const rawValue = normalized.slice(2).join(' ').trim();
   if (!key || !rawValue) {
     throw new Error(
-      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
+      'Usage: `hybridclaw config`, `hybridclaw config check`, `hybridclaw config reload`, `hybridclaw config get <key>`, `hybridclaw config set <key> <value>`, or `hybridclaw config revisions`',
     );
   }
 
@@ -1458,6 +1547,11 @@ async function handleAgentPackageCommand(args: string[]): Promise<void> {
   await cliAgent.handleAgentPackageCommand(args);
 }
 
+async function handleBackupCommand(args: string[]): Promise<void> {
+  const cliBackup = await import('./cli/backup-command.js');
+  await cliBackup.handleBackupCommand(args);
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<void> {
@@ -1491,6 +1585,9 @@ export async function main(
       break;
     case 'auth':
       await handleAuthCommand(subargs);
+      break;
+    case 'backup':
+      await handleBackupCommand(subargs);
       break;
     case 'config':
       await handleConfigCommand(subargs);
@@ -1669,12 +1766,14 @@ function isWhatsAppAuthLockError(err: unknown): err is Error {
 function printMissingEnvVarError(message: string, envVar?: string): void {
   const envVarMessage: Record<string, string> = {
     HYBRIDAI_API_KEY: 'HybridAI provider is not configured.',
+    ANTHROPIC_API_KEY: 'Anthropic provider is not configured.',
     OPENROUTER_API_KEY: 'OpenRouter provider is not configured.',
     MISTRAL_API_KEY: 'Mistral provider is not configured.',
     HF_TOKEN: 'Hugging Face provider is not configured.',
   };
   const envVarHint: Record<string, string> = {
     HYBRIDAI_API_KEY: `Run \`hybridclaw auth login hybridai\`, or set HYBRIDAI_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
+    ANTHROPIC_API_KEY: `Run \`hybridclaw auth login anthropic --method api-key\`, or run \`claude auth login\` and then \`hybridclaw auth login anthropic --method claude-cli\`, or set ANTHROPIC_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     OPENROUTER_API_KEY: `Run \`hybridclaw auth login openrouter\`, or set OPENROUTER_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     MISTRAL_API_KEY: `Run \`hybridclaw auth login mistral\`, or set MISTRAL_API_KEY in ${runtimeSecretsPath()} or your shell, then run the command again.`,
     HF_TOKEN: `Run \`hybridclaw auth login huggingface\`, or set HF_TOKEN in ${runtimeSecretsPath()} or your shell, then run the command again.`,

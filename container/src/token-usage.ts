@@ -2,6 +2,7 @@ import { isRecord } from './providers/shared.js';
 import type {
   ChatCompletionResponse,
   ChatMessage,
+  ModelCallPerformanceSample,
   TokenUsageStats,
 } from './types.js';
 
@@ -51,6 +52,7 @@ export function createTokenUsageStats(): TokenUsageStats {
     estimatedPromptTokens: 0,
     estimatedCompletionTokens: 0,
     estimatedTotalTokens: 0,
+    performanceSamples: [],
   };
 }
 
@@ -216,6 +218,78 @@ export function accumulateApiUsage(
     stats.apiCacheReadTokens += cacheReadTokens ?? 0;
     stats.apiCacheWriteTokens += cacheWriteTokens ?? 0;
   }
+}
+
+export function readChatCompletionUsageTokens(response: ChatCompletionResponse):
+  | {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    }
+  | undefined {
+  const usage = response.usage;
+  if (!usage) return undefined;
+  const usageRecord = isRecord(usage) ? (usage as Record<string, unknown>) : {};
+
+  const hasTokenUsageFields =
+    usage.prompt_tokens != null ||
+    usage.completion_tokens != null ||
+    usage.total_tokens != null ||
+    usage.input_tokens != null ||
+    usage.output_tokens != null ||
+    usageRecord.promptTokens != null ||
+    usageRecord.completionTokens != null ||
+    usageRecord.totalTokens != null ||
+    usageRecord.inputTokens != null ||
+    usageRecord.outputTokens != null;
+  if (!hasTokenUsageFields) return undefined;
+
+  const promptTokens = parseUsageNumber(
+    firstDefined([
+      usage.prompt_tokens,
+      usage.input_tokens,
+      usageRecord.promptTokens,
+      usageRecord.inputTokens,
+    ]),
+  );
+  const completionTokens = parseUsageNumber(
+    firstDefined([
+      usage.completion_tokens,
+      usage.output_tokens,
+      usageRecord.completionTokens,
+      usageRecord.outputTokens,
+    ]),
+  );
+  let totalTokens = parseUsageNumber(
+    firstDefined([usage.total_tokens, usageRecord.totalTokens]),
+  );
+  if (totalTokens === 0 && (promptTokens > 0 || completionTokens > 0)) {
+    totalTokens = promptTokens + completionTokens;
+  }
+
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+export function recordPerformanceSample(
+  stats: TokenUsageStats,
+  sample: ModelCallPerformanceSample,
+): void {
+  if (
+    sample.durationMs <= 0 ||
+    sample.promptTokens + sample.completionTokens <= 0
+  ) {
+    return;
+  }
+  if (!stats.performanceSamples) stats.performanceSamples = [];
+  stats.performanceSamples.push({
+    promptTokens: Math.max(0, Math.floor(sample.promptTokens)),
+    completionTokens: Math.max(0, Math.floor(sample.completionTokens)),
+    totalTokens: Math.max(0, Math.floor(sample.totalTokens)),
+    durationMs: Math.max(0, Math.floor(sample.durationMs)),
+    ...(sample.firstTextDeltaMs != null && sample.firstTextDeltaMs > 0
+      ? { firstTextDeltaMs: Math.max(0, Math.floor(sample.firstTextDeltaMs)) }
+      : {}),
+  });
 }
 
 export function finalizeTokenUsage(stats: TokenUsageStats): TokenUsageStats {

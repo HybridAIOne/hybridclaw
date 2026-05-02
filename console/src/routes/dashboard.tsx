@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { fetchOverview } from '../api/client';
+import { fetchOverview, reconnectTunnel } from '../api/client';
+import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { useAuth } from '../auth';
 import { ProviderHealthPanel } from '../components/provider-health';
 import {
@@ -14,6 +15,7 @@ import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
+  formatDateTime,
   formatRelativeTime,
   formatTokenBreakdown,
   formatUptime,
@@ -59,14 +61,111 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   lastActive: 'desc',
 } as const;
 
+function tunnelStatusClass(health: AdminTunnelStatus['health']): string {
+  if (health === 'healthy') return 'list-status list-status-success';
+  if (health === 'reconnecting') return 'list-status list-status-warning';
+  return 'list-status list-status-danger';
+}
+
+function tunnelStatusDotClass(health: AdminTunnelStatus['health']): string {
+  if (health === 'healthy') return 'status-dot status-dot-success';
+  if (health === 'reconnecting') return 'status-dot status-dot-warning';
+  return 'status-dot status-dot-danger';
+}
+
+function TunnelStatusPanel(props: {
+  tunnel: AdminTunnelStatus;
+  reconnectPending: boolean;
+  reconnectError: string | null;
+  onReconnect: () => void;
+}) {
+  const { tunnel } = props;
+  const publicUrl = tunnel.publicUrl || 'not configured';
+  const reconnectDisabled =
+    props.reconnectPending || !tunnel.reconnectSupported;
+  const normalizedTunnelError = tunnel.lastError?.trim() || null;
+  const normalizedReconnectError = props.reconnectError?.trim() || null;
+  const distinctReconnectError =
+    props.reconnectError && normalizedReconnectError !== normalizedTunnelError
+      ? props.reconnectError
+      : null;
+
+  return (
+    <Panel title="Public tunnel">
+      <div className="tunnel-panel-grid">
+        <div className="tunnel-url-stack">
+          <span>Public URL</span>
+          {tunnel.publicUrl ? (
+            <a href={tunnel.publicUrl} target="_blank" rel="noreferrer">
+              {publicUrl}
+            </a>
+          ) : (
+            <strong>{publicUrl}</strong>
+          )}
+        </div>
+        <div className="tunnel-action-stack">
+          <button
+            type="button"
+            className="primary-button button-with-spinner"
+            onClick={props.onReconnect}
+            disabled={reconnectDisabled}
+          >
+            {props.reconnectPending ? (
+              <span className="button-spinner" aria-hidden="true" />
+            ) : null}
+            {props.reconnectPending ? 'Reconnecting' : 'Reconnect'}
+          </button>
+        </div>
+      </div>
+      <div className="tunnel-detail-grid">
+        <div className="tunnel-detail">
+          <span>Provider</span>
+          <strong>{tunnel.provider || 'none'}</strong>
+        </div>
+        <div className="tunnel-detail">
+          <span>Status</span>
+          <strong className={tunnelStatusClass(tunnel.health)}>
+            <span className={tunnelStatusDotClass(tunnel.health)} />
+            {tunnel.health}
+          </strong>
+        </div>
+        <div className="tunnel-detail">
+          <span>Last checked</span>
+          <strong>{formatDateTime(tunnel.lastCheckedAt)}</strong>
+        </div>
+        <div className="tunnel-detail">
+          <span>Next reconnect</span>
+          <strong>{formatDateTime(tunnel.nextReconnectAt)}</strong>
+        </div>
+      </div>
+      {tunnel.lastError ? (
+        <p className="supporting-text tunnel-error">{tunnel.lastError}</p>
+      ) : null}
+      {distinctReconnectError ? (
+        <p className="supporting-text tunnel-error">{distinctReconnectError}</p>
+      ) : null}
+    </Panel>
+  );
+}
+
 export function DashboardPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const live = useLiveEvents(auth.token);
   const overviewQuery = useQuery({
     queryKey: ['overview', auth.token],
     queryFn: () => fetchOverview(auth.token),
     refetchInterval: 30_000,
+  });
+  const reconnectMutation = useMutation({
+    mutationFn: () => reconnectTunnel(auth.token),
+    onSuccess: (tunnel) => {
+      queryClient.setQueryData<AdminOverview>(
+        ['overview', auth.token],
+        (current) => (current ? { ...current, tunnel } : current),
+      );
+    },
   });
 
   const overview = live.overview || overviewQuery.data;
@@ -222,9 +321,20 @@ export function DashboardPage() {
         <ProviderHealthPanel
           title="Backend health"
           entries={backendEntries}
-          onLogin={() => void navigate({ to: '/config' })}
+          onLogin={() => void navigate({ to: '/admin/config' })}
         />
       </div>
+
+      <TunnelStatusPanel
+        tunnel={overview.tunnel}
+        reconnectPending={reconnectMutation.isPending}
+        reconnectError={
+          reconnectMutation.isError
+            ? getErrorMessage(reconnectMutation.error)
+            : null
+        }
+        onReconnect={() => reconnectMutation.mutate()}
+      />
 
       <Panel title="Recent sessions">
         <div className="table-shell">

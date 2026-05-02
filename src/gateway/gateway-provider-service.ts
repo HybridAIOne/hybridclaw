@@ -1,3 +1,7 @@
+import {
+  getAnthropicAuthStatus,
+  isAnthropicAuthReadyForMethod,
+} from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
@@ -27,6 +31,7 @@ const PROVIDER_META: Record<
 > = {
   hybridai: { label: 'HybridAI', loginName: 'hybridai' },
   'openai-codex': { label: 'Codex', loginName: 'codex' },
+  anthropic: { label: 'Anthropic', loginName: 'anthropic' },
   openrouter: { label: 'OpenRouter', loginName: 'openrouter' },
   mistral: { label: 'Mistral', loginName: 'mistral' },
   huggingface: { label: 'Hugging Face', loginName: 'huggingface' },
@@ -94,6 +99,7 @@ function unauthorized(
 function unreachable(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
   baseUrl: string | null,
+  detail?: string,
 ): ProviderDiagnostic {
   const { label } = PROVIDER_META[filter];
   return {
@@ -102,6 +108,7 @@ function unreachable(
       baseUrl
         ? `${label} at ${baseUrl} is not reachable.`
         : `${label} is not reachable.`,
+      ...(detail ? [`Last discovery error: ${detail}`] : []),
       'Check your network or the provider status, then rerun',
       `  \`model list ${rerunFilter(filter)}\`.`,
     ].join('\n'),
@@ -131,6 +138,19 @@ export function diagnoseProviderForModels(
       }
       if (providerHealth?.codex?.reachable !== true) {
         return unreachable(filter, null);
+      }
+      return null;
+    }
+    case 'anthropic': {
+      if (!config.anthropic.enabled) {
+        return disabled(filter, buildProviderEnableCommand(filter));
+      }
+      const status = getAnthropicAuthStatus();
+      if (!isAnthropicAuthReadyForMethod(status, config.anthropic.method)) {
+        return unauthorized(filter);
+      }
+      if (providerHealth?.anthropic?.reachable !== true) {
+        return unreachable(filter, config.anthropic.baseUrl);
       }
       return null;
     }
@@ -164,7 +184,11 @@ export function diagnoseProviderForModels(
           status !== 401 &&
           status !== 403
         ) {
-          return unreachable(filter, section.baseUrl ?? null);
+          return unreachable(
+            filter,
+            section.baseUrl ?? null,
+            lastError.message,
+          );
         }
       }
       return null;

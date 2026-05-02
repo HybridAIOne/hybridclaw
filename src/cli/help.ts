@@ -6,8 +6,9 @@ export function printMainUsage(): void {
   console.log(`Usage: hybridclaw <command>
 
   Commands:
-  agent      Export, inspect, install, or uninstall portable agent archives
+  agent      Configure agents or manage portable agent archives
   auth       Unified provider login/logout/status
+  backup     Create or restore a full-state backup of ~/.hybridclaw
   config     Show or edit the local runtime config
   secret     Manage encrypted runtime secrets and HTTP auth routes
   policy     Manage workspace HTTP/network access rules
@@ -15,7 +16,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Slack, Telegram, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, Signal, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -36,8 +37,8 @@ export function printGatewayUsage(): void {
 
 Commands:
   hybridclaw gateway
-  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+  hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
+  hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
   hybridclaw gateway stop
   hybridclaw gateway status
   hybridclaw gateway sessions [active|clear-active]
@@ -135,7 +136,7 @@ Interactive slash commands inside TUI:
   /compact
   /concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]
   /eval [list|env|<suite>|<command...>]
-  /config   /config check   /config reload   /config set <key> <value>   /config revisions
+  /config   /config check   /config reload   /config get <key>   /config set <key> <value>
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
@@ -204,9 +205,9 @@ export function printAuthUsage(): void {
 
 Commands:
   hybridclaw auth login
-  hybridclaw auth login <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack> ...
-  hybridclaw auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
-  hybridclaw auth logout <hybridai|codex|openrouter|mistral|huggingface|local|msteams|slack>
+  hybridclaw auth login <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack> ...
+  hybridclaw auth status <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
+  hybridclaw auth logout <hybridai|codex|anthropic|openrouter|mistral|huggingface|google|local|msteams|slack>
   hybridclaw auth whatsapp reset
 
 Examples:
@@ -214,23 +215,30 @@ Examples:
   hybridclaw auth login hybridai --browser
   hybridclaw auth login hybridai --base-url http://localhost:5000
   hybridclaw auth login codex --import
+  hybridclaw auth login anthropic --method claude-cli --set-default
+  hybridclaw auth login anthropic anthropic/claude-sonnet-4-6 --method api-key --api-key sk-ant-...
   hybridclaw auth login openrouter anthropic/claude-sonnet-4 --api-key sk-or-...
   hybridclaw auth login mistral mistral-large-latest --api-key mistral_...
   hybridclaw auth login huggingface meta-llama/Llama-3.1-8B-Instruct --api-key hf_...
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
   hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
   hybridclaw auth login local ollama llama3.2
   hybridclaw auth login local llamacpp Meta-Llama-3-8B-Instruct --base-url http://127.0.0.1:8081
   hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
   hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
   hybridclaw auth whatsapp reset
+  hybridclaw auth status anthropic
   hybridclaw auth status openrouter
   hybridclaw auth status mistral
   hybridclaw auth status huggingface
+  hybridclaw auth status google
   hybridclaw auth status msteams
   hybridclaw auth status slack
+  hybridclaw auth logout anthropic
   hybridclaw auth logout codex
   hybridclaw auth logout mistral
   hybridclaw auth logout huggingface
+  hybridclaw auth logout google
   hybridclaw auth logout msteams
   hybridclaw auth logout slack
 
@@ -240,11 +248,36 @@ Notes:
   - \`auth login msteams\` enables Microsoft Teams and stores \`MSTEAMS_APP_PASSWORD\` in ${runtimeSecretsPath()}.
   - \`auth login slack\` enables Slack and stores \`SLACK_BOT_TOKEN\` plus \`SLACK_APP_TOKEN\` in ${runtimeSecretsPath()}.
   - \`auth whatsapp reset\` clears linked WhatsApp Web auth so you can re-pair cleanly.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\` in ${runtimeSecretsPath()} and uses the direct Anthropic Messages API.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
   - \`auth login openrouter\` prompts for the API key when \`--api-key\` and \`OPENROUTER_API_KEY\` are both absent.
   - \`auth login mistral\` prompts for the API key when \`--api-key\` and \`MISTRAL_API_KEY\` are both absent.
   - \`auth login huggingface\` prompts for the token when \`--api-key\` and \`HF_TOKEN\` are both absent.
   - \`auth login msteams\` prompts for the app id, app password, and optional tenant id when the terminal is interactive.
   - \`auth login slack\` prompts for the bot token and app token when the terminal is interactive.`);
+}
+
+export function printGoogleUsage(): void {
+  console.log(`Usage: hybridclaw auth login google [options]
+
+Options:
+  --client-id <id>          Google OAuth desktop client id
+  --client-secret <secret>  Google OAuth desktop client secret
+  --account <email>         Google account used by gog
+  --scopes <scopes>         Space- or comma-separated OAuth scopes
+  --refresh-token <token>   Store an existing refresh token instead of opening the browser flow
+  --redirect-port <port>    Fixed localhost callback port (optional)
+
+Examples:
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com
+  hybridclaw auth login google --client-id ... --client-secret ... --account you@gmail.com --scopes "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar"
+  hybridclaw auth status google
+  hybridclaw auth logout google
+
+Notes:
+  - The Google refresh token and client secret are stored in encrypted runtime secrets.
+  - Agent containers receive only short-lived Google Workspace access tokens minted by the host.
+  - Use a Google OAuth desktop client with an authorized redirect URI matching the printed localhost callback URL.`);
 }
 
 export function printChannelsUsage(): void {
@@ -255,6 +288,7 @@ Commands:
   hybridclaw channels slack manifest [--format <yaml|json>]
   hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
+  hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
@@ -265,6 +299,7 @@ Notes:
   - Telegram setup stores \`TELEGRAM_BOT_TOKEN\` only when \`--token\` is provided or pasted interactively.
   - Telegram defaults to inbound deny-by-default: without \`--allow-from\` or \`--dm-policy open\`, DMs stay disabled.
   - Telegram groups stay disabled by default, and \`requireMention\` defaults to \`true\`.
+  - Signal setup uses a signal-cli linked device; link with \`signal-cli link -n HybridClaw\`, start the daemon, then configure HybridClaw to connect to it.
   - WhatsApp setup starts a temporary pairing session and prints the QR code here when needed.
   - Use \`--reset\` to wipe stale WhatsApp auth files and force a fresh QR.
   - \`hybridclaw auth whatsapp reset\` clears linked WhatsApp auth without starting a new pairing session.
@@ -453,6 +488,21 @@ Notes:
   - \`auth logout openrouter\` clears the stored API key but leaves runtime config unchanged.`);
 }
 
+export function printAnthropicUsage(): void {
+  console.log(`Usage:
+  hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
+  hybridclaw auth status anthropic
+  hybridclaw auth logout anthropic
+
+Notes:
+  - Model IDs use the \`anthropic/\` prefix in HybridClaw, for example \`anthropic/claude-sonnet-4-6\`.
+  - \`auth login anthropic --method api-key\` stores \`ANTHROPIC_API_KEY\`, uses the direct Anthropic API transport, and can set the global default model.
+  - \`auth login anthropic --method claude-cli\` uses the official \`claude -p\` transport after \`claude auth login\`, and currently requires host sandbox mode.
+  - If \`--method\` is omitted, HybridClaw defaults to \`api-key\`.
+  - If \`--api-key\` is omitted for \`--method api-key\`, HybridClaw prompts you to paste the key.
+  - \`auth logout anthropic\` clears the stored API key, but Claude Code credentials are managed separately by the \`claude\` CLI.`);
+}
+
 export function printHuggingFaceUsage(): void {
   console.log(`Usage:
   hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
@@ -490,6 +540,12 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
+  verify-usage-batch <batchId>       Verify a token-usage batch hash
+  scan-leaks [sessionId] [--quiet|--all] [--level <sev>] [--type <list>] [--json]
+                                     Scan audit logs for confidential-info leaks. Verbosity: --quiet | (default) | --all.
+                                     Filters: --level critical|high|medium|low (≥ floor),
+                                              --type in,out,tool,url (allowlist).
+                                     Rules from ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global).
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
@@ -540,7 +596,13 @@ Commands:
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
+  hybridclaw skill install <source>
   hybridclaw skill install <skill-name> <dependency>
+  hybridclaw skill upgrade <source>
+  hybridclaw skill uninstall <skill-name>
+  hybridclaw skill revisions <skill-name>
+  hybridclaw skill rollback <skill-name> <revision-id>
+  hybridclaw skill setup <skill-name>
   hybridclaw skill learn <skill-name>
   hybridclaw skill learn <skill-name> --apply
   hybridclaw skill learn <skill-name> --reject
@@ -551,7 +613,10 @@ Commands:
 
 Notes:
   - \`list\` shows declared dependency ids from skill frontmatter.
-  - \`install\` requires \`hybridclaw skill install <skill-name> <dependency>\`.
+  - \`install <source>\` installs a packaged skill into \`~/.hybridclaw/skills\`, records a package manifest, and snapshots it for rollback.
+  - \`install <skill> <dependency>\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter.
+  - \`upgrade\`, \`uninstall\`, \`revisions\`, and \`rollback\` manage packaged skills through audited lifecycle records.
+  - \`setup\` installs every declared dependency for a skill in order.
   - Omit \`--channel\` to change the global disabled list.
   - \`--channel teams\` is normalized to \`msteams\`.
   - \`inspect\` shows observation-based health metrics for a skill or all observed skills.
@@ -561,8 +626,7 @@ Notes:
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
-  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.
-  - \`install\` runs one declared installer from a skill's \`metadata.hybridclaw.install:\` frontmatter (brew, uv, npm, node, go, download).`);
+  - \`import --force\` can override a \`caution\` scanner verdict for a community skill, but it never overrides a \`dangerous\` verdict.`);
 }
 
 export function printToolUsage(): void {
@@ -620,12 +684,13 @@ Notes:
 }
 
 export function printConfigUsage(): void {
-  console.log(`Usage: hybridclaw config [check|reload|set <key> <value>]
+  console.log(`Usage: hybridclaw config [check|reload|get <key>|set <key> <value>]
 
 Commands:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
+  hybridclaw config get <key>
   hybridclaw config set <key> <value>
   hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 
@@ -633,6 +698,7 @@ Examples:
   hybridclaw config
   hybridclaw config check
   hybridclaw config reload
+  hybridclaw config get hybridai.maxTokens
   hybridclaw config set hybridai.maxTokens 8192
   hybridclaw config revisions
   hybridclaw config revisions rollback 12
@@ -643,9 +709,29 @@ Notes:
   - \`config\` prints the current runtime config from ${runtimeConfigPath()}.
   - \`check\` validates only the runtime config file itself.
   - \`reload\` forces an immediate in-process hot reload from disk, then runs a config check.
+  - \`get\` prints one existing dotted key path from the current runtime config.
   - \`set\` only updates existing dotted key paths; it does not create new keys, then immediately runs a config check.
   - \`revisions\` lists saved config snapshots, including the actor and route that caused each tracked change.
   - Values are parsed as JSON when possible, otherwise they are stored as plain strings.`);
+}
+
+export function printBackupUsage(): void {
+  console.log(`Usage: hybridclaw backup [options]
+       hybridclaw backup restore <archive.zip> [--force]
+
+Commands:
+  hybridclaw backup                       Create a timestamped backup of the HybridClaw runtime home
+  hybridclaw backup --output <path>       Write the backup archive to a specific path
+  hybridclaw backup restore <archive>     Restore the runtime home from a backup archive
+  hybridclaw backup restore <archive> --force   Overwrite without prompting
+
+Notes:
+  - Backups include everything under the HybridClaw runtime home (default: ~/.hybridclaw, or $HYBRIDCLAW_DATA_DIR when set).
+  - SQLite databases are snapshotted via the SQLite backup API, so WAL-mode databases produce consistent copies.
+  - Ephemeral state is excluded: WAL/SHM sidecars, cache/, container-image-state/, evals/, migration-backups/, gateway.pid, cron.pid, node_modules, and .git.
+  - The archive name defaults to hybridclaw-backup-YYYYMMDD-HHMMSS.zip in the current directory.
+  - \`backup restore\` prompts before overwriting an existing runtime home; pass \`--force\` to skip the prompt (for scripts and non-interactive shells).
+  - Restore validates an embedded manifest plus \`config.json\` and \`credentials.json\` marker files before replacing any data.`);
 }
 
 export function printSecretUsage(): void {
@@ -657,7 +743,7 @@ Commands:
   hybridclaw secret show <name>
   hybridclaw secret unset <name>
   hybridclaw secret route list
-  hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+  hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
   hybridclaw secret route remove <url-prefix> [header]
 
 Examples:
@@ -666,12 +752,13 @@ Examples:
   hybridclaw secret show SF_FULL_USERNAME
   hybridclaw secret unset SF_FULL_USERNAME
   hybridclaw secret route add https://staging.hybridai.one/api/v1/ STAGING_HYBRIDAI_API_KEY X-API-Key none
+  hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
 
 Notes:
   - \`secret\` reads and writes the encrypted store at ${runtimeSecretsPath()}.
   - Secret names must use uppercase letters, digits, and underscores.
   - \`show\` reports whether a secret is stored; it never outputs decrypted values. Secrets are only resolved gateway-side via \`<secret:NAME>\` placeholders or auth rules.
-  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref.
+  - \`route add\` writes \`tools.httpRequest.authRules[]\` in ${runtimeConfigPath()} with a store-backed secret ref or the Google OAuth runtime token provider.
   - Use \`prefix\` for \`Bearer <secret>\` or \`none\` for raw header injection.`);
 }
 
@@ -680,6 +767,7 @@ export function printAgentUsage(): void {
 
 Commands:
   hybridclaw agent list
+  hybridclaw agent config <json|--json <json>> [--activate]
   hybridclaw agent export [agent-id] [-o <path>] [--description <text>] [--author <text>] [--version <value>] [--dry-run] [--skills <ask|active|all|some>] [--skill <name>]... [--plugins <ask|active|all|some>] [--plugin <id>]...
   hybridclaw agent inspect <file.claw>
   hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
@@ -688,6 +776,10 @@ Commands:
 
 Notes:
   - \`list\` prints registered agents in a script-friendly tab-separated format.
+  - \`config\` upserts an agent from a quoted JSON payload. The payload may be an agent object directly, or \`{"agent": {...}, "markdown": {"IDENTITY.md": "..."}}\`.
+  - \`config\` writes \`markdown\` or \`files\` entries as top-level \`.md\` files in the agent workspace, overwriting existing files.
+  - \`config\` imports \`imageAsset\` URLs or local file paths into the agent workspace \`assets/\` directory.
+  - Use \`--activate\` with \`config\` to make the configured agent the default for new requests.
   - \`export\` exports an agent workspace, bundled workspace skills, and bundled home plugins into a portable \`.claw\` archive.
   - Use \`--description\`, \`--author\`, and \`--version\` to set optional manifest metadata during export.
   - Use \`--dry-run\` to preview the generated manifest path and archive entries without writing a file.
@@ -715,6 +807,7 @@ export function printHelpUsage(): void {
 Topics:
   agent       Help for portable agent archive commands
   auth        Help for unified provider login/logout/status
+  backup      Help for full-state backup and restore commands
   gateway     Help for gateway lifecycle and passthrough commands
   eval        Help for local eval recipes and benchmark runs
   tui         Help for terminal client
@@ -787,6 +880,9 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
     case 'auth':
       printAuthUsage();
       return true;
+    case 'backup':
+      printBackupUsage();
+      return true;
     case 'gateway':
       printGatewayUsage();
       return true;
@@ -832,6 +928,10 @@ export async function printHelpTopic(topic: string): Promise<boolean> {
       return true;
     case 'openrouter':
       printOpenRouterUsage();
+      return true;
+    case 'anthropic':
+    case 'claude':
+      printAnthropicUsage();
       return true;
     case 'mistral':
       printMistralUsage();

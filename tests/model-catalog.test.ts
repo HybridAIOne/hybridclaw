@@ -13,6 +13,7 @@ const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ORIGINAL_MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const ORIGINAL_HF_TOKEN = process.env.HF_TOKEN;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-model-catalog-'));
@@ -88,6 +89,77 @@ afterEach(async () => {
   } else {
     process.env.HF_TOKEN = ORIGINAL_HF_TOKEN;
   }
+  if (ORIGINAL_ANTHROPIC_API_KEY === undefined) {
+    delete process.env.ANTHROPIC_API_KEY;
+  } else {
+    process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_API_KEY;
+  }
+  vi.doUnmock('../src/auth/anthropic-auth.js');
+});
+
+test('model catalog metadata resolves context and capabilities from static data', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  const metadata = catalog.getModelCatalogMetadata('hybridai/gpt-5-nano');
+
+  expect(metadata.known).toBe(true);
+  expect(metadata.contextWindow).toBe(400_000);
+  expect(metadata.pricingUsdPerToken).toEqual({ input: null, output: null });
+  expect(metadata.capabilities).toEqual({
+    vision: true,
+    tools: true,
+    jsonMode: true,
+    reasoning: true,
+  });
+  expect(metadata.sources).toEqual(
+    expect.arrayContaining(['https://developers.openai.com/api/docs/models']),
+  );
+
+  const flagship = catalog.getModelCatalogMetadata('hybridai/gpt-5.5');
+  expect(flagship.known).toBe(true);
+  expect(flagship.contextWindow).toBe(1_000_000);
+  expect(flagship.maxTokens).toBe(128_000);
+  expect(flagship.pricingUsdPerToken).toEqual({ input: null, output: null });
+});
+
+test('static context and vision lookups share versioned metadata', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/gpt-5.4').contextWindow,
+  ).toBe(1_050_000);
+  expect(catalog.isModelVisionCapable('hybridai/gpt-5-nano')).toBe(true);
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/gpt-5-nano').capabilities.vision,
+  ).toBe(true);
+});
+
+test('model catalog metadata falls back safely for missing models', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir);
+  const { catalog } = await importFreshCatalog(homeDir);
+
+  const metadata = catalog.getModelCatalogMetadata(
+    'unknown-provider/not-real-model',
+  );
+
+  expect(metadata).toMatchObject({
+    known: false,
+    pricingUsdPerToken: { input: null, output: null },
+    contextWindow: null,
+    maxTokens: null,
+    capabilities: {
+      vision: false,
+      tools: false,
+      jsonMode: false,
+      reasoning: false,
+    },
+    sources: [],
+  });
 });
 
 test('available model catalog falls back to HybridAI /v1/models when /models is unavailable', async () => {
@@ -197,6 +269,10 @@ test('available model catalog merges the current default model with discovered l
   expect(catalog.getAvailableModelList('local')).toEqual([
     'lmstudio/qwen/qwen3.5-9b',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('lmstudio/qwen/qwen3.5-9b')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0, output: 0 });
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/gpt-4.1-mini',
   );
@@ -223,6 +299,10 @@ test('available model catalog prefixes HybridAI provider-family models', async (
               id: 'mistral-small',
               provider: 'mistral',
               context_length: 131_072,
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+              },
             },
           ],
         }),
@@ -247,6 +327,64 @@ test('available model catalog prefixes HybridAI provider-family models', async (
   expect(catalog.getAvailableModelList('hybridai')).toContain(
     'hybridai/mistral/mistral-small',
   );
+  expect(
+    catalog.getModelCatalogMetadata('hybridai/mistral/mistral-small')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0.000001, output: 0.000002 });
+});
+
+test('model catalog selects the cheapest model matching capability flags', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-model-catalog-cheap-selector';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-5',
+              context_length: 400_000,
+              pricing: {
+                prompt: '0.00001',
+                completion: '0.00003',
+              },
+            },
+            {
+              id: 'gpt-5-nano',
+              context_length: 400_000,
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }),
+  );
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs({ includeHybridAI: true });
+
+  expect(catalog.findCheapestModelMeetingCapabilities({ jsonMode: true })).toBe(
+    'hybridai/gpt-5-nano',
+  );
+  expect(
+    catalog
+      .selectModelsByCapabilityAndCost({ jsonMode: true })
+      .map((selection) => selection.model)
+      .slice(0, 2),
+  ).toEqual(['hybridai/gpt-5-nano', 'hybridai/gpt-5']);
 });
 
 test('available model catalog reloads OpenRouter discovery after 60 minutes', async () => {
@@ -324,6 +462,10 @@ test('available model catalog reloads OpenRouter discovery after 60 minutes', as
     'openrouter/beta/model-c:free',
     'openrouter/zeta/model-b',
   ]);
+  expect(
+    catalog.getModelCatalogMetadata('openrouter/zeta/model-b')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 1, output: 1 });
   expect(catalog.getAvailableModelList('codex')).toEqual([]);
 });
 
@@ -362,7 +504,7 @@ test('available model catalog discovers Codex models from the models endpoint', 
     homeDir,
   );
 
-  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (
       url.origin === 'https://chatgpt.com' &&
@@ -410,6 +552,7 @@ test('available model catalog discovers Codex models from the models endpoint', 
     'openai-codex/gpt-5.3-codex-spark',
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
+    'openai-codex/gpt-5.5',
   ]);
   const codexRequest = fetchMock.mock.calls
     .map(([input, init]) => ({
@@ -427,6 +570,211 @@ test('available model catalog discovers Codex models from the models endpoint', 
     Authorization: `Bearer ${accessToken}`,
     'Chatgpt-Account-Id': 'acct_catalog',
     'OpenAI-Beta': 'responses=experimental',
+  });
+  expect(
+    catalog.getModelCatalogMetadata('openai-codex/gpt-5-codex')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0, output: 0 });
+});
+
+test('available model catalog discovers Anthropic models from /v1/models', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-model-catalog-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/old-configured-model'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'claude-opus-4-20250514',
+              max_input_tokens: 200_000,
+              max_tokens: 32_000,
+              pricing: { input_per_million: 15, output_per_million: 75 },
+              capabilities: { vision: true },
+            },
+            {
+              id: 'claude-sonnet-4-20250514',
+              max_input_tokens: 200_000,
+              max_tokens: 64_000,
+            },
+          ],
+          has_more: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+  const models = catalog.getAvailableModelList('anthropic');
+
+  expect(models).toEqual([
+    'anthropic/claude-opus-4-20250514',
+    'anthropic/claude-sonnet-4-20250514',
+  ]);
+  expect(catalog.isModelVisionCapable('anthropic/claude-opus-4-20250514')).toBe(
+    true,
+  );
+  expect(
+    catalog.getModelCatalogMetadata('anthropic/claude-opus-4-20250514')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 15 / 1_000_000, output: 75 / 1_000_000 });
+  const anthropicRequest = fetchMock.mock.calls
+    .map(([input, init]) => ({
+      url: new URL(String(input)),
+      init: init as RequestInit | undefined,
+    }))
+    .find(
+      ({ url }) =>
+        url.origin === 'https://api.anthropic.com' &&
+        url.pathname === '/v1/models',
+    );
+  expect(anthropicRequest?.init?.headers).toMatchObject({
+    'x-api-key': 'sk-ant-model-catalog-test',
+    'anthropic-version': '2023-06-01',
+  });
+});
+
+test('available model catalog uses bearer auth for Anthropic OAuth tokens in api-key mode', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-oat-model-catalog-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/old-configured-model'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 'claude-sonnet-4-6' }],
+          has_more: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('anthropic')).toEqual([
+    'anthropic/claude-sonnet-4-6',
+  ]);
+  expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+    Authorization: 'Bearer sk-ant-oat-model-catalog-test',
+    'anthropic-version': '2023-06-01',
+    'x-app': 'cli',
+  });
+  expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty('x-api-key');
+});
+
+test('available model catalog falls back to configured Anthropic models when discovery fails', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-model-catalog-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'api-key';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(JSON.stringify({ error: 'unavailable' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(catalog.getAvailableModelList('anthropic')).toEqual([
+    'anthropic/claude-sonnet-4-6',
+  ]);
+  expect(catalog.getAvailableModelList()).toContain(
+    'anthropic/claude-sonnet-4-6',
+  );
+});
+
+test('available model catalog uses Claude CLI auth for Anthropic model discovery', async () => {
+  const homeDir = makeTempHome();
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    requireAnthropicApiKey: vi.fn(() => {
+      throw new Error('unexpected api-key auth');
+    }),
+    requireAnthropicClaudeCliCredential: vi.fn(() => ({
+      type: 'oauth' as const,
+      provider: 'anthropic' as const,
+      accessToken: 'sk-ant-oat-model-catalog-test',
+      refreshToken: 'refresh-test',
+      expiresAt: Date.now() + 60_000,
+      source: 'claude-cli-file' as const,
+    })),
+  }));
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.method = 'claude-cli';
+    config.anthropic.models = ['anthropic/claude-sonnet-4-6'];
+  });
+
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (
+      url.origin === 'https://api.anthropic.com' &&
+      url.pathname === '/v1/models'
+    ) {
+      return new Response(
+        JSON.stringify({
+          data: [{ id: 'claude-sonnet-4-6' }, { id: 'claude-opus-4-1' }],
+          has_more: false,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs();
+  const models = catalog.getAvailableModelList('anthropic');
+
+  expect(models).toEqual([
+    'anthropic/claude-sonnet-4-6',
+    'anthropic/claude-opus-4-1',
+  ]);
+  expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+    Authorization: 'Bearer sk-ant-oat-model-catalog-test',
+    'anthropic-version': '2023-06-01',
+    'x-app': 'cli',
   });
 });
 
@@ -465,7 +813,7 @@ test('available model catalog discovers Codex models from the current models pay
     homeDir,
   );
 
-  const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (
       url.origin === 'https://chatgpt.com' &&
@@ -535,6 +883,7 @@ test('available model catalog discovers Codex models from the current models pay
     'openai-codex/gpt-5.3-codex-spark',
     'openai-codex/gpt-5.4',
     'openai-codex/gpt-5.4-mini',
+    'openai-codex/gpt-5.5',
   ]);
   expect(catalog.getAvailableModelList('codex')).not.toContain(
     'openai-codex/GPT-5.2 Codex (Preview)',
@@ -668,6 +1017,7 @@ test('available model catalog merges discovered Mistral models from /models', as
               name: 'mistral-medium-2508',
               aliases: ['mistral-medium-2508', 'mistral-medium'],
               max_context_length: 131_072,
+              pricing: { prompt: '0.000002', completion: '0.000006' },
             },
             {
               id: 'mistral-medium-2508',
@@ -701,6 +1051,10 @@ test('available model catalog merges discovered Mistral models from /models', as
   expect(catalog.getAvailableModelList('mistral')).not.toContain(
     'mistral/mistral-medium-latest',
   );
+  expect(
+    catalog.getModelCatalogMetadata('mistral/mistral-medium-2508')
+      .pricingUsdPerToken,
+  ).toEqual({ input: 0.000002, output: 0.000006 });
 });
 
 test('available model catalog reads Hugging Face provider-level context windows', async () => {
@@ -731,6 +1085,10 @@ test('available model catalog reads Hugging Face provider-level context windows'
                     provider: 'novita',
                     status: 'live',
                     context_length: 262144,
+                    pricing: {
+                      input_per_million: 0.07,
+                      output_per_million: 0.21,
+                    },
                   },
                 ],
               },
@@ -753,6 +1111,11 @@ test('available model catalog reads Hugging Face provider-level context windows'
       'huggingface/XiaomiMiMo/MiMo-V2-Flash',
     ),
   ).toBe(262_144);
+  expect(
+    discovery.getDiscoveredHuggingFaceModelPricingUsdPerToken(
+      'huggingface/XiaomiMiMo/MiMo-V2-Flash',
+    ),
+  ).toEqual({ input: 0.07 / 1_000_000, output: 0.21 / 1_000_000 });
 });
 
 test('available model catalog does not cap the default Hugging Face list', async () => {

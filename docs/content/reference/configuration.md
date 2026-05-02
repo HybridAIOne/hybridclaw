@@ -15,8 +15,9 @@ full runtime config surface before editing your local file.
 Use `hybridclaw config` to print the active runtime config,
 `hybridclaw config check` to validate only the config file itself,
 `hybridclaw config reload` to force an immediate in-process hot reload from
-disk, `hybridclaw config set <key> <value>` to edit an existing dotted key
-path without rewriting the whole file manually, and
+disk, `hybridclaw config get <key>` to print one resolved dotted key,
+`hybridclaw config set <key> <value>` to edit an existing dotted key path
+without rewriting the whole file manually, and
 `hybridclaw config revisions [list|rollback <id>|delete <id>|clear]` to audit
 or restore tracked config snapshots.
 
@@ -26,6 +27,8 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/credentials.json` for encrypted runtime secrets
 - `~/.hybridclaw/credentials.master.key` for the local owner-only fallback
   master key when no external key source is configured
+- `./.confidential.yml` or `~/.hybridclaw/.confidential.yml` for optional
+  confidential-info rules used before model calls and by audit leak scans
 - `~/.hybridclaw/codex-auth.json` for Codex OAuth state
 - `~/.hybridclaw/data/hybridclaw.db` for persistent runtime data
 - `~/.hybridclaw/data/config-revisions.db` for tracked runtime config history
@@ -38,8 +41,10 @@ or restore tracked config snapshots.
 - `~/.hybridclaw/data/agents/` for agent workspaces, session files, and related
   runtime state
 
-HybridClaw does not keep runtime state in the current working directory. If
-`./.env` exists, supported secrets are imported once for compatibility.
+HybridClaw does not keep runtime state in the current working directory.
+Project-local `.confidential.yml` is an opt-in rule file rather than runtime
+state. If `./.env` exists, supported secrets are imported once for
+compatibility.
 Headless or containerized deployments should prefer `HYBRIDCLAW_MASTER_KEY` or
 `/run/secrets/hybridclaw_master_key` instead of the local fallback key file.
 Set `HYBRIDCLAW_DATA_DIR` to an absolute path when you want to relocate the
@@ -80,7 +85,17 @@ saved revision history directly.
 ## Important Config Areas
 
 - `container.*` for execution isolation, including `sandboxMode`, `memory`,
-  `memorySwap`, `cpus`, `network`, `binds`, and additional mounts
+  `memorySwap`, `cpus`, `network`, `binds`, additional mounts, and
+  `persistBashState`
+- `container.persistBashState` controls whether `bash` tool calls reuse shell
+  state (`cd`, exported env vars, aliases) for the active runtime session
+  (`true`, default) or start fresh on each call (`false`)
+- `container.warmPool.*` controls the adaptive idle runtime pool used by host
+  and container execution. `enabled` turns the pool on, `minIdlePerActiveAgent`
+  and `maxIdlePerAgent` bound per-agent prewarming, `trafficWindowMs` decides
+  which agents count as recently active, `coldStartBudgetMs` is the target
+  startup budget, and `memoryPressureRssMb` trims idle entries under memory
+  pressure.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
@@ -98,6 +113,10 @@ saved revision history directly.
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `anthropic.*` for first-class Anthropic provider enablement, base URL,
+  auth method (`api-key` or `claude-cli`), and pinned `anthropic/...` model
+  list. Store direct API keys as `ANTHROPIC_API_KEY` in the encrypted runtime
+  secret store; Claude CLI credentials are managed by the `claude` CLI.
 - `mcpServers.*` for Model Context Protocol servers; HybridClaw connects to
   them per session and exposes their tools as namespaced functions such as
   `server__tool`
@@ -127,11 +146,19 @@ saved revision history directly.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short"
-- `skills.disabled` and `skills.channelDisabled.*` for skill availability
-- `plugins.list[]` for plugin overrides and config; use
-  `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused
-  edits
-- `adaptiveSkills.*` for skill observation, amendment staging, and rollback
+- `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
+- `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
+- `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
+- `auxiliaryModels.session_title` controls optional AI-generated session
+  titles. When enabled, HybridClaw forwards up to 500 characters from the first
+  user message to the configured auxiliary provider. Set
+  `auxiliaryModels.session_title.provider` to `"disabled"` to skip this
+  forwarding and leave recent-session titles derived locally from conversation
+  previews.
+- `adaptiveSkills.*` for skill observation, amendment staging, rollback, and opt-in trajectory capture via `adaptiveSkills.trajectoryCapture.enabledAgentIds`
+- Captured trajectories run through PII/secret redaction, and configured confidential-info rules preserve the documented `«CONF:<RULE_ID>»` placeholder format before trajectories are written
+- `adaptiveSkills.trajectoryCapture.storeDir` controls trajectory storage; empty stores beside the runtime database, absolute paths are used as-is, and relative paths resolve under the runtime home directory
+- Trajectory retention defaults to `adaptiveSkills.trajectoryCapture.retentionDays: 365` and can be overridden per agent with `adaptiveSkills.trajectoryCapture.retentionDaysByTenant`
 - `imessage.*` for the dual-backend local or BlueBubbles iMessage transport;
   prefer storing the BlueBubbles password as `IMESSAGE_PASSWORD` in the
   encrypted secret store instead of plaintext config
@@ -139,6 +166,14 @@ saved revision history directly.
   as `TELEGRAM_BOT_TOKEN` or `telegram.botToken` via SecretRef instead of
   plaintext config; a running gateway usually hot-reloads Telegram config
   changes by restarting the integration in place
+- `signal.*` for the Signal transport through a separately managed
+  `signal-cli` compatible daemon; use `hybridclaw channels signal setup` to
+  configure `signal.daemonUrl`, `signal.account`, and private-by-default DM or
+  group policies before enabling inbound traffic. `signal.reconnectIntervalMs`
+  controls event stream reconnect backoff, and `signal.outboundDelayMs`
+  controls pacing between split outbound text chunks. HybridClaw Cloud gateway
+  images include `signal-cli` on amd64 hosts for admin QR linking; arm64 and
+  custom hosts can use an external daemon or sidecar
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
@@ -148,6 +183,13 @@ saved revision history directly.
   the auth token can stay empty in config when you store `TWILIO_AUTH_TOKEN`
   in the encrypted runtime secret store or use a SecretRef-backed
   `voice.twilio.authToken`
+- `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs behind a cloud URL or a local tunnel; cloud mode requires `deployment.public_url`, while local mode requires a tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`
+- The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default
+- The built-in Tailscale Funnel tunnel provider reads `TS_AUTHKEY` from the encrypted runtime secret store when the host is not already logged in to `tailscaled`
+- Tunnel health checks call the public tunnel URL, so they consume provider request quota and generate traffic visible to the tunnel provider edge; increase the interval when that cost matters
+- `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` disables confidential-info redaction for
+  local debugging. Leave it unset in normal operation so `.confidential.yml`
+  rules can redact NDA-class matches before prompts are sent to models
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for
@@ -158,6 +200,10 @@ saved revision history directly.
   injection used by the `http_request` tool, for example mapping a URL prefix
   such as `https://staging.hybridai.one/api/v1/` to an auth header plus a
   stored secret ref
+- Web-search API keys for Brave, Perplexity, and Tavily can be stored as
+  encrypted runtime secrets named `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, and
+  `TAVILY_API_KEY`; process environment variables with the same names are
+  fallback values when no encrypted secret is present
 - `media.audio` for inbound audio transcription backend selection
 
 Operator-facing controls for `skills.disabled`, `skills.channelDisabled.*`,
@@ -204,14 +250,15 @@ For the local speech and fallback workflow, see
 
 Keep runtime secrets in the encrypted `~/.hybridclaw/credentials.json` store.
 Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
-`MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`, `GROQ_API_KEY`,
-`DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`,
-`XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`, `MINIMAX_API_KEY`,
-`DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`, `VLLM_API_KEY`,
-`BRAVE_API_KEY`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
-`TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, `IMESSAGE_PASSWORD`,
-`TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`, `WEB_API_TOKEN`, and
-`GATEWAY_API_TOKEN`.
+`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `HF_TOKEN`, `OPENAI_API_KEY`,
+`GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+`DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
+`MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`,
+`VLLM_API_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `TAVILY_API_KEY`,
+`NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+`TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
+`IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
+`WEB_API_TOKEN`, and `GATEWAY_API_TOKEN`.
 
 Local TUI/web sessions and the local CLI manage this store through:
 
@@ -221,7 +268,7 @@ hybridclaw secret set <NAME> <VALUE>
 hybridclaw secret show <NAME>
 hybridclaw secret unset <NAME>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -231,7 +278,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <NAME>
 /secret unset <NAME>
 /secret route list
-/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -240,6 +287,7 @@ hybridclaw secret route remove <url-prefix> [header]
   store
 - `/secret route ...` is a convenience surface for editing
   `tools.httpRequest.authRules[]` without hand-editing `config.json`
+- `secret: { "source": "google-oauth" }` routes mint and inject the Google OAuth access token from `hybridclaw auth login google` for matching `*.googleapis.com` requests
 
 Codex OAuth sessions are stored separately in `~/.hybridclaw/codex-auth.json`.
 Trust-model acceptance is persisted in `config.json` under `security.*` and is
@@ -265,6 +313,9 @@ credential checks run.
   encrypted secret store instead of plaintext `imessage.password`
 - prefer storing email passwords as `EMAIL_PASSWORD` or a SecretRef-backed
   `email.password` value instead of plaintext config
+- keep `.confidential.yml` rules narrow and review them like policy: broad
+  regexes can redact useful prompt context, while missing client/project labels
+  reduce leak-scanner coverage
 - keep `~/.hybridclaw/` permissions tight (`0700` on the directory, `0600` on
   secret-bearing files)
 - prefer low-privilege tokens

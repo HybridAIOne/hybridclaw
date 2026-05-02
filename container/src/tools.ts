@@ -1,7 +1,13 @@
-import { execSync, spawnSync } from 'node:child_process';
+import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  formatMessageToolChannelList,
+  normalizeMessageToolChannelKinds,
+} from '../shared/message-tool-channels.js';
+import { buildSanitizedEnv } from '../shared/sensitive-env.js';
 import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
@@ -9,6 +15,7 @@ import {
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
+  setBrowserGatewayContext,
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
@@ -97,6 +104,7 @@ let gatewayChannelId = '';
 let currentModelProvider:
   | 'hybridai'
   | 'openai-codex'
+  | 'anthropic'
   | 'openrouter'
   | 'mistral'
   | 'huggingface'
@@ -110,6 +118,7 @@ let currentModelName = '';
 let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
+let currentModelDebugResponses = false;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -172,13 +181,71 @@ function parseStructuredToolOutput(
   }
 }
 
+class ContainerSecretHandle {
+  readonly sinkKind = 'dom' as const;
+  #buffer: Buffer | null;
+
+  constructor(value: string) {
+    this.#buffer = Buffer.from(value, 'utf-8');
+  }
+
+  unsafeReadStringForInjection(): string {
+    if (!this.#buffer) {
+      throw new Error('Secret handle was already disposed.');
+    }
+    return this.#buffer.toString('utf-8');
+  }
+
+  get characterLength(): number {
+    return [...this.unsafeReadStringForInjection()].length;
+  }
+
+  dispose(): void {
+    this.#buffer?.fill(0);
+    this.#buffer = null;
+  }
+
+  toString(): never {
+    throw new Error(
+      'SecretHandle cannot be string-coerced; use an audited injection API.',
+    );
+  }
+
+  toJSON(): never {
+    throw new Error(
+      'SecretHandle cannot be JSON-stringified; use an audited injection API.',
+    );
+  }
+
+  [Symbol.toPrimitive](): never {
+    throw new Error(
+      'SecretHandle cannot be coerced; use an audited injection API.',
+    );
+  }
+}
+
+type Assert<T extends true> = T;
+export type ContainerSecretHandleCompileTimeGuards = {
+  readonly notAssignableToString: Assert<
+    ContainerSecretHandle extends string ? false : true
+  >;
+};
+
 const MESSAGE_TOOL_ACTION_LIST =
   'read, member-info, channel-info, send, react, quote-reply, edit, delete, pin, unpin, thread-create, thread-reply';
 const MESSAGE_TOOL_DESCRIPTION_BASE =
-  'Send messages and uploads across supported channels (Discord, current Microsoft Teams chat, WhatsApp, email, local TUI), plus read Discord channel history, read ingested email thread history, and look up member info on Discord. Use this when asked to send/post/DM/notify someone, post a local file/image, read Discord messages or ingested email threads, or look up Discord users.';
+  'Send or read messages on active communication channels.';
 let gatewayConfiguredChannels: string[] = [];
 const DISCORD_SNOWFLAKE_RE = /^\d{16,22}$/;
 const TEAMS_SESSION_ID_RE = /^teams:/i;
+let persistentBashStateEnabled = true;
+type PersistentBashSession = {
+  sessionDir: string;
+  snapshotPath: string;
+  cwdPath: string;
+  defaultCwd: string;
+  initialized: boolean;
+};
 const BASH_DOCKER_CONTAINER = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CONTAINER || '',
 ).trim();
@@ -186,6 +253,249 @@ const BASH_DOCKER_CWD = String(
   process.env.HYBRIDCLAW_BASH_DOCKER_CWD || '/app',
 ).trim();
 const TASK_SANDBOX_FS_ENABLED = Boolean(BASH_DOCKER_CONTAINER);
+let persistentBashSession: PersistentBashSession | null = null;
+const PERSISTENT_BASH_SESSION_PREFIX = 'hybridclaw-shell';
+const PERSISTENT_BASH_WRAPPER_SCRIPT = `
+__hybridclaw_session_dir=$1
+__hybridclaw_snapshot=$2
+__hybridclaw_cwd_file=$3
+__hybridclaw_default_cwd=$4
+__hybridclaw_command=$5
+__hybridclaw_snapshot_tmp="\${__hybridclaw_snapshot}.tmp"
+__hybridclaw_cwd_tmp="\${__hybridclaw_cwd_file}.tmp"
+umask 077
+mkdir -p -- "$__hybridclaw_session_dir" || exit 125
+chmod 700 "$__hybridclaw_session_dir" 2>/dev/null || true
+__hybridclaw_write_snapshot() {
+  {
+    export -p
+    alias -p
+    echo 'shopt -s expand_aliases'
+    echo 'set +e'
+    echo 'set +u'
+  } > "$__hybridclaw_snapshot_tmp" &&
+    mv -f -- "$__hybridclaw_snapshot_tmp" "$__hybridclaw_snapshot"
+}
+__hybridclaw_write_cwd() {
+  pwd -P > "$__hybridclaw_cwd_tmp" 2>/dev/null &&
+    mv -f -- "$__hybridclaw_cwd_tmp" "$__hybridclaw_cwd_file"
+}
+if [ -f "$__hybridclaw_snapshot" ]; then
+  source "$__hybridclaw_snapshot" 2>/dev/null || true
+else
+  shopt -s expand_aliases
+  set +e
+  set +u
+fi
+__hybridclaw_cwd="$__hybridclaw_default_cwd"
+if [ -f "$__hybridclaw_cwd_file" ]; then
+  __hybridclaw_saved_cwd="$(cat "$__hybridclaw_cwd_file" 2>/dev/null)"
+  if [ -n "$__hybridclaw_saved_cwd" ]; then
+    __hybridclaw_cwd="$__hybridclaw_saved_cwd"
+  fi
+fi
+if ! cd -- "$__hybridclaw_cwd"; then
+  if [ "$__hybridclaw_cwd" != "$__hybridclaw_default_cwd" ] &&
+    cd -- "$__hybridclaw_default_cwd"; then
+    __hybridclaw_write_cwd || true
+  else
+    exit 126
+  fi
+fi
+eval "$__hybridclaw_command"
+__hybridclaw_ec=$?
+__hybridclaw_write_snapshot || true
+__hybridclaw_write_cwd || true
+exit $__hybridclaw_ec
+`.trim();
+
+function getPersistentBashTempRoot(): string {
+  if (TASK_SANDBOX_FS_ENABLED) return '/tmp';
+  const resolved = String(os.tmpdir() || '').trim();
+  return resolved ? path.resolve(resolved) : '/tmp';
+}
+
+function cleanupPersistentBashSessionArtifacts(
+  session: PersistentBashSession | undefined,
+): void {
+  if (!session) return;
+  try {
+    if (TASK_SANDBOX_FS_ENABLED) {
+      spawnSync(
+        'docker',
+        [
+          'exec',
+          '-i',
+          BASH_DOCKER_CONTAINER,
+          'rm',
+          '-rf',
+          '--',
+          session.sessionDir,
+        ],
+        {
+          encoding: 'utf-8',
+          timeout: 5_000,
+          maxBuffer: 1024 * 1024,
+          env: { ...process.env },
+        },
+      );
+      return;
+    }
+    fs.rmSync(session.sessionDir, { recursive: true, force: true });
+  } catch {
+    // Cleanup is best-effort; execution should not fail if temp artifacts linger.
+  }
+}
+
+export function resetPersistentBashSessions(): void {
+  cleanupPersistentBashSessionArtifacts(persistentBashSession || undefined);
+  persistentBashSession = null;
+}
+
+function buildBashToolDescription(): string {
+  const sessionBehavior = persistentBashStateEnabled
+    ? 'The first shell starts in the workspace root; within the active session, `cd`, exported env vars, and aliases persist across later bash calls.'
+    : 'Each bash call starts fresh in the workspace root, so `cd`, exported env vars, and aliases do not persist to later bash calls.';
+  return `Run a shell command and return stdout/stderr. ${sessionBehavior} Use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`;
+}
+
+export function setPersistentBashStateEnabled(enabled: boolean): void {
+  const normalized = enabled !== false;
+  if (normalized !== persistentBashStateEnabled) {
+    persistentBashStateEnabled = normalized;
+    resetPersistentBashSessions();
+    BASH_TOOL_DEFINITION.function.description = buildBashToolDescription();
+  }
+}
+
+function getPersistentBashSession(): PersistentBashSession {
+  if (persistentBashSession) {
+    return persistentBashSession;
+  }
+
+  const prefix = `${PERSISTENT_BASH_SESSION_PREFIX}-${randomUUID()}`;
+  const tempRoot = getPersistentBashTempRoot();
+  const joinPath = TASK_SANDBOX_FS_ENABLED ? path.posix.join : path.join;
+  const sessionDir = joinPath(tempRoot, prefix);
+  persistentBashSession = {
+    sessionDir,
+    snapshotPath: joinPath(sessionDir, 'state.snapshot'),
+    cwdPath: joinPath(sessionDir, 'state.cwd'),
+    defaultCwd: TASK_SANDBOX_FS_ENABLED
+      ? BASH_DOCKER_CWD || '/app'
+      : WORKSPACE_ROOT,
+    initialized: false,
+  };
+  return persistentBashSession;
+}
+
+function buildPersistentBashWrapperArgs(
+  session: PersistentBashSession,
+  command: string,
+): string[] {
+  return [
+    session.initialized ? '-c' : '-lc',
+    PERSISTENT_BASH_WRAPPER_SCRIPT,
+    'hybridclaw-bash-wrapper',
+    session.sessionDir,
+    session.snapshotPath,
+    session.cwdPath,
+    session.defaultCwd,
+    command,
+  ];
+}
+
+function runPersistentBash(params: {
+  command: string;
+  timeoutMs: number;
+}): string {
+  const session = getPersistentBashSession();
+  const wrapperArgs = buildPersistentBashWrapperArgs(session, params.command);
+  const result = TASK_SANDBOX_FS_ENABLED
+    ? runDockerExecBash(wrapperArgs, params.timeoutMs)
+    : runHostBash(wrapperArgs, params.timeoutMs);
+  if (result.error === undefined || result.status !== null) {
+    session.initialized = true;
+  }
+
+  return formatBashExecutionResult(result, params.timeoutMs);
+}
+
+function runDockerExecBash(
+  args: string[],
+  timeoutMs: number,
+): SpawnSyncReturns<string> {
+  return spawnSync(
+    'docker',
+    [
+      'exec',
+      '-i',
+      '-w',
+      BASH_DOCKER_CWD || '/app',
+      BASH_DOCKER_CONTAINER,
+      'bash',
+      ...args,
+    ],
+    {
+      timeout: timeoutMs,
+      encoding: 'utf-8',
+      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+      env: { ...process.env },
+    },
+  );
+}
+
+function runHostBash(
+  args: string[],
+  timeoutMs: number,
+): SpawnSyncReturns<string> {
+  return spawnSync('bash', args, {
+    timeout: timeoutMs,
+    encoding: 'utf-8',
+    cwd: WORKSPACE_ROOT,
+    maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
+    env: buildSanitizedEnv(process.env),
+  });
+}
+
+function formatBashExecutionResult(
+  result: SpawnSyncReturns<string>,
+  timeoutMs: number,
+): string {
+  const stdout = result.stdout || '';
+  const stderr = result.stderr || '';
+  const formattedStdout = formatBashOutput(
+    replaceWorkspaceRootInOutput(stdout || '(no output)'),
+  );
+
+  if (result.status === 0) {
+    return formattedStdout;
+  }
+
+  const combinedOutput = [stdout, stderr].filter(Boolean).join('\n').trim();
+  const timeoutLikely =
+    result.error?.name === 'Error' &&
+    /ETIMEDOUT|timed out/i.test(result.error.message || '');
+  const summary = timeoutLikely
+    ? `Command timed out after ${timeoutMs}ms`
+    : result.error?.message ||
+      `${TASK_SANDBOX_FS_ENABLED ? 'docker exec' : 'bash'} failed with exit code ${result.status ?? 'unknown'}`;
+  if (!combinedOutput) return failTool(`Error: ${summary}`);
+  return failTool(
+    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
+  );
+}
+
+function runStatelessBash(params: {
+  command: string;
+  timeoutMs: number;
+}): string {
+  const args = ['-lc', params.command];
+  const result = TASK_SANDBOX_FS_ENABLED
+    ? runDockerExecBash(args, params.timeoutMs)
+    : runHostBash(args, params.timeoutMs);
+  return formatBashExecutionResult(result, params.timeoutMs);
+}
 
 function normalizeConfiguredChannelList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -200,53 +510,6 @@ function normalizeConfiguredChannelList(value: unknown): string[] {
     out.push(id);
   }
   return out;
-}
-
-function runDockerExecBash(params: {
-  command: string;
-  timeoutMs: number;
-}): string {
-  const result = spawnSync(
-    'docker',
-    [
-      'exec',
-      '-i',
-      '-w',
-      BASH_DOCKER_CWD || '/app',
-      BASH_DOCKER_CONTAINER,
-      'bash',
-      '-lc',
-      params.command,
-    ],
-    {
-      timeout: params.timeoutMs,
-      encoding: 'utf-8',
-      maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-      env: { ...process.env },
-    },
-  );
-
-  if (result.status === 0) {
-    return formatBashOutput(
-      replaceWorkspaceRootInOutput(result.stdout || '(no output)'),
-    );
-  }
-
-  const combinedOutput = [result.stdout, result.stderr]
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-  const timeoutLikely =
-    result.error?.name === 'Error' &&
-    /ETIMEDOUT|timed out/i.test(result.error.message || '');
-  const summary = timeoutLikely
-    ? `Command timed out after ${params.timeoutMs}ms`
-    : result.error?.message ||
-      `docker exec failed with exit code ${result.status ?? 'unknown'}`;
-  if (!combinedOutput) return failTool(`Error: ${summary}`);
-  return failTool(
-    `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
-  );
 }
 
 function shellEscape(value: string): string {
@@ -396,13 +659,24 @@ function resolveGatewayMessageSendChannelFallback(): string {
   );
 }
 
-export function getMessageToolDescription(channelId?: string): string {
+export function getMessageToolDescription(
+  channelId?: string,
+  activeMessageChannels?: string[],
+): string {
   const explicitChannelId = normalizeDiscordMessageTarget(channelId);
   const activeChannelId =
     explicitChannelId && DISCORD_SNOWFLAKE_RE.test(explicitChannelId)
       ? explicitChannelId
       : resolveGatewayDiscordChannelFallback();
   const activeTeamsChannelId = resolveGatewayMSTeamsChannelFallback();
+  let activeChannels = normalizeMessageToolChannelKinds(activeMessageChannels);
+  if (activeMessageChannels === undefined) {
+    const inferredChannels = new Set(activeChannels);
+    if (activeChannelId) inferredChannels.add('discord');
+    if (activeTeamsChannelId) inferredChannels.add('msteams');
+    activeChannels = [...inferredChannels].sort();
+  }
+  const activeChannelList = formatMessageToolChannelList(activeChannels);
   const configuredChannels = normalizeConfiguredChannelList(
     gatewayConfiguredChannels,
   );
@@ -414,16 +688,19 @@ export function getMessageToolDescription(channelId?: string): string {
       otherChannels.length > 0
         ? ` Other configured channels: ${otherChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
         : '';
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Discord channel (${activeChannelId}) supports: ${MESSAGE_TOOL_ACTION_LIST}. Omit channelId/to to target the current Discord channel for read/channel-info/send.${withOthers}`;
   }
   if (activeTeamsChannelId) {
-    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads. Discord-only actions such as read/member-info/channel-info still require explicit Discord targets.`;
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Current Teams conversation (${activeTeamsChannelId}) supports: send. Omit channelId/to to target the current Teams conversation for send, including local file uploads.`;
+  }
+  if (activeChannels.length === 0) {
+    return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: none.`;
   }
   const withOthers =
     configuredChannels.length > 0
       ? ` Configured channels: ${configuredChannels.map((id) => `${id} (${MESSAGE_TOOL_ACTION_LIST})`).join(', ')}.`
       : '';
-  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
+  return `${MESSAGE_TOOL_DESCRIPTION_BASE} Active channels: ${activeChannelList}. Supports actions: ${MESSAGE_TOOL_ACTION_LIST}.${withOthers}`;
 }
 
 function cloneTaskModelPolicies(
@@ -469,7 +746,11 @@ export function setScheduledTasks(
 }
 
 export function setSessionContext(sessionId: string): void {
-  currentSessionId = String(sessionId || '');
+  const normalized = String(sessionId || '');
+  if (normalized !== currentSessionId) {
+    resetPersistentBashSessions();
+  }
+  currentSessionId = normalized;
 }
 
 export function setGatewayContext(
@@ -480,6 +761,7 @@ export function setGatewayContext(
 ): void {
   gatewayBaseUrl = String(baseUrl || '').trim();
   gatewayApiToken = String(apiToken || '').trim();
+  setBrowserGatewayContext(gatewayBaseUrl, gatewayApiToken);
   gatewayChannelId = String(channelId || '').trim();
   gatewayConfiguredChannels =
     normalizeConfiguredChannelList(configuredChannels);
@@ -489,6 +771,7 @@ export function setModelContext(
   provider:
     | 'hybridai'
     | 'openai-codex'
+    | 'anthropic'
     | 'openrouter'
     | 'mistral'
     | 'huggingface'
@@ -497,12 +780,14 @@ export function setModelContext(
     | 'llamacpp'
     | 'vllm'
     | undefined,
+  providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
   maxTokens?: number,
+  debugModelResponses = false,
 ): void {
   currentModelProvider = provider || 'hybridai';
   currentModelBaseUrl = String(baseUrl || '').trim();
@@ -514,14 +799,17 @@ export function setModelContext(
     typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
       ? Math.floor(maxTokens)
       : undefined;
+  currentModelDebugResponses = debugModelResponses;
   setBrowserModelContext(
     provider,
+    providerMethod,
     baseUrl,
     apiKey,
     model,
     chatbotId,
     requestHeaders,
     currentModelMaxTokens,
+    debugModelResponses,
   );
 }
 
@@ -534,13 +822,33 @@ export function setMediaContext(media?: MediaContextItem[]): void {
   currentMediaContext = Array.isArray(media) ? media : [];
 }
 
+function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
+  return Boolean(
+    config?.braveApiKey || config?.perplexityApiKey || config?.tavilyApiKey,
+  );
+}
+
 export function setWebSearchConfig(config?: WebSearchRuntimeConfig): void {
-  currentWebSearchConfig = config
-    ? {
-        ...config,
-        fallbackProviders: [...config.fallbackProviders],
-      }
-    : undefined;
+  const previous = currentWebSearchConfig;
+  if (!config) {
+    if (hasWebSearchProviderKeys(previous)) {
+      console.warn(
+        '[web-search] runtime config cleared; provider API keys supplied through runtime config will be unavailable until a new config arrives.',
+      );
+    }
+    currentWebSearchConfig = undefined;
+    return;
+  }
+
+  currentWebSearchConfig = {
+    ...config,
+    fallbackProviders: [...config.fallbackProviders],
+    // Follow-up IPC files redact provider keys, so keep the first in-memory
+    // values until this long-lived agent process restarts.
+    braveApiKey: config.braveApiKey ?? previous?.braveApiKey,
+    perplexityApiKey: config.perplexityApiKey ?? previous?.perplexityApiKey,
+    tavilyApiKey: config.tavilyApiKey ?? previous?.tavilyApiKey,
+  };
 }
 
 export function setMcpClientManager(manager: McpClientManager | null): void {
@@ -589,9 +897,6 @@ function readStringValue(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-// Duplicated on purpose instead of importing the gateway helper. The container
-// runtime is packaged independently and should keep its input normalization
-// self-contained at the sandbox boundary.
 function readStringListValue(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -753,6 +1058,12 @@ function resolveGatewayHttpRequestUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
   return `${base}/api/http/request`;
+}
+
+function resolveGatewaySecretInjectUrl(): string | null {
+  const base = gatewayBaseUrl.replace(/\/+$/, '');
+  if (!base) return null;
+  return `${base}/api/secret/inject`;
 }
 
 async function callGatewayMessageAction(
@@ -925,7 +1236,10 @@ async function callGatewayHttpRequest(
     response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(args),
+      body: JSON.stringify({
+        ...args,
+        ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+      }),
     });
   } catch (err) {
     return failTool(
@@ -956,6 +1270,150 @@ async function callGatewayHttpRequest(
 
   if (parsed) return JSON.stringify(parsed, null, 2);
   return rawText;
+}
+
+async function callGatewaySecretInject(
+  args: Record<string, unknown>,
+): Promise<ContainerSecretHandle> {
+  const url = resolveGatewaySecretInjectUrl();
+  if (!url) {
+    return failTool(
+      'Error: browser_secret_type is unavailable because gatewayBaseUrl is not configured.',
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (gatewayApiToken) {
+    headers.Authorization = `Bearer ${gatewayApiToken}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...args,
+        sinkKind: 'dom',
+        ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+      }),
+    });
+  } catch (err) {
+    return failTool(
+      `Error: secret injection request failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const rawText = await response.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const maybe = JSON.parse(rawText) as unknown;
+    if (maybe && typeof maybe === 'object' && !Array.isArray(maybe)) {
+      parsed = maybe as Record<string, unknown>;
+    }
+  } catch {
+    parsed = null;
+  }
+
+  if (!response.ok) {
+    const errorText =
+      parsed && typeof parsed.error === 'string'
+        ? parsed.error
+        : rawText || `HTTP ${response.status}`;
+    return failTool(`Error: ${errorText}`);
+  }
+
+  const value = typeof parsed?.value === 'string' ? parsed.value : '';
+  if (!value) {
+    return failTool(
+      'Error: secret injection response did not include a value.',
+    );
+  }
+  return new ContainerSecretHandle(value);
+}
+
+async function resolveCurrentBrowserHost(): Promise<string> {
+  try {
+    const snapshot = await executeBrowserTool(
+      'browser_snapshot',
+      { mode: 'interactive' },
+      currentSessionId || 'default',
+    );
+    const structured = parseStructuredToolOutput(snapshot);
+    const url = typeof structured?.url === 'string' ? structured.url : '';
+    if (!url) return '';
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+async function executeBrowserSecretType(
+  args: Record<string, unknown>,
+): Promise<string> {
+  const selector = String(args.selector || '').trim();
+  const ref = String(args.ref || '').trim();
+  if (!selector && !ref) {
+    return failTool('Error: ref or selector is required.');
+  }
+  const host = await resolveCurrentBrowserHost();
+  if (!host) {
+    return failTool(
+      'Error: browser_secret_type requires an active browser page with a resolvable host.',
+    );
+  }
+  const handle = await callGatewaySecretInject({
+    secretName: args.secretName,
+    skillName: args.skillName,
+    selector: selector || (ref.startsWith('@') ? ref : `@${ref}`),
+    host,
+  });
+  return injectIntoElement(handle, {
+    ...(selector ? { selector } : { ref }),
+    ...(typeof args.frame === 'string' ? { frame: args.frame } : {}),
+  });
+}
+
+async function injectIntoElement(
+  handle: ContainerSecretHandle,
+  locator: { ref?: string; selector?: string; frame?: string },
+): Promise<string> {
+  try {
+    const output = await executeBrowserTool(
+      'browser_type',
+      {
+        ...(locator.selector ? { selector: locator.selector } : {}),
+        ...(locator.ref ? { ref: locator.ref } : {}),
+        text: handle.unsafeReadStringForInjection(),
+        ...(locator.frame ? { frame: locator.frame } : {}),
+      },
+      currentSessionId || 'default',
+    );
+    const structured = parseStructuredToolOutput(output);
+    if (structured?.success === false) return output;
+    return JSON.stringify(
+      {
+        success: true,
+        ...(locator.selector
+          ? { selector: locator.selector }
+          : {
+              element: locator.ref?.startsWith('@')
+                ? locator.ref
+                : `@${locator.ref || ''}`,
+            }),
+        typed_chars: handle.characterLength,
+        secret_injected: true,
+      },
+      null,
+      2,
+    );
+  } finally {
+    handle.dispose();
+  }
 }
 
 function normalizeDelegationTask(
@@ -1690,6 +2148,7 @@ function currentAuxiliaryFallbackContext() {
     chatbotId: currentChatbotId,
     requestHeaders: { ...currentModelHeaders },
     maxTokens: currentModelMaxTokens,
+    debugModelResponses: currentModelDebugResponses,
   };
 }
 
@@ -1946,7 +2405,8 @@ async function executeToolInternal(
   }
   const args =
     parsedArgs && typeof parsedArgs === 'object'
-      ? (parsedArgs as Record<string, any>)
+      ? // biome-ignore lint/suspicious/noExplicitAny: args is passed through a wide range of tool handlers that each narrow property types at the use site; a single shared Record<string, unknown> would require narrowing at every call site.
+        (parsedArgs as Record<string, any>)
       : {};
   const auxiliaryRuntimeContext = captureAuxiliaryRuntimeContext();
 
@@ -2178,66 +2638,13 @@ async function executeToolInternal(
       const blocked = guardCommand(args.command);
       if (blocked) return failTool(blocked);
       const timeoutMs = resolveBashTimeoutMs(args);
-      if (BASH_DOCKER_CONTAINER) {
-        return runDockerExecBash({
-          command: args.command,
-          timeoutMs,
-        });
-      }
-      try {
-        // Strip secrets from subprocess environment (belt-and-suspenders)
-        const cleanEnv = { ...process.env };
-        delete cleanEnv.HYBRIDAI_API_KEY;
-        const result = execSync(args.command, {
-          timeout: timeoutMs,
-          encoding: 'utf-8',
-          cwd: WORKSPACE_ROOT,
-          maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-          env: cleanEnv,
-        });
-        return formatBashOutput(
-          replaceWorkspaceRootInOutput(result || '(no output)'),
-        );
-      } catch (err: unknown) {
-        const execErr = err as {
-          code?: string | number;
-          signal?: string;
-          stdout?: string | Buffer;
-          stderr?: string | Buffer;
-          message?: string;
-        };
-
-        const stdout =
-          typeof execErr.stdout === 'string'
-            ? execErr.stdout
-            : Buffer.isBuffer(execErr.stdout)
-              ? execErr.stdout.toString('utf-8')
-              : '';
-        const stderr =
-          typeof execErr.stderr === 'string'
-            ? execErr.stderr
-            : Buffer.isBuffer(execErr.stderr)
-              ? execErr.stderr.toString('utf-8')
-              : '';
-        const combinedOutput = [stdout, stderr]
-          .filter(Boolean)
-          .join('\n')
-          .trim();
-
-        const errorMessage = execErr.message || 'Command failed';
-        const timeoutLikely =
-          execErr.code === 'ETIMEDOUT' ||
-          /ETIMEDOUT|timed out/i.test(errorMessage) ||
-          (execErr.signal === 'SIGTERM' && /spawnSync/i.test(errorMessage));
-        const summary = timeoutLikely
-          ? `Command timed out after ${timeoutMs}ms`
-          : errorMessage;
-
-        if (!combinedOutput) return failTool(`Error: ${summary}`);
-        return failTool(
-          `Error: ${summary}\n\n${formatBashOutput(replaceWorkspaceRootInOutput(combinedOutput))}`,
-        );
-      }
+      const runBash = persistentBashStateEnabled
+        ? runPersistentBash
+        : runStatelessBash;
+      return runBash({
+        command: args.command,
+        timeoutMs,
+      });
     }
 
     case 'memory': {
@@ -2847,9 +3254,12 @@ async function executeToolInternal(
     }
 
     case 'browser_navigate':
+    case 'browser_await_two_factor':
+    case 'browser_resume_interaction':
     case 'browser_snapshot':
     case 'browser_click':
     case 'browser_type':
+    case 'browser_secret_type':
     case 'browser_upload':
     case 'browser_press':
     case 'browser_scroll':
@@ -2861,11 +3271,10 @@ async function executeToolInternal(
     case 'browser_console':
     case 'browser_network':
     case 'browser_close': {
-      const output = await executeBrowserTool(
-        name,
-        args,
-        currentSessionId || 'default',
-      );
+      const output =
+        name === 'browser_secret_type'
+          ? await executeBrowserSecretType(args)
+          : await executeBrowserTool(name, args, currentSessionId || 'default');
       const structured = parseStructuredToolOutput(output);
       if (structured?.success === false) {
         return failTool(output);
@@ -3076,7 +3485,7 @@ async function executeToolInternal(
 
       pendingDelegations.push(effect);
       const labelPrefix = label ? `${label}: ` : '';
-      return `Delegation accepted (${mode}, auto-announces on completion, do not poll): ${labelPrefix}${summary}`;
+      return `Delegation accepted (${mode}; gateway will collect results for final synthesis, do not poll): ${labelPrefix}${summary}`;
     }
 
     default:
@@ -3114,6 +3523,31 @@ export async function executeTool(
   const result = await executeToolWithMetadata(name, argsJson);
   return result.output;
 }
+
+const BASH_TOOL_DEFINITION: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'bash',
+    description: buildBashToolDescription(),
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Shell command to execute' },
+        timeoutMs: {
+          type: 'number',
+          description:
+            'Optional command timeout in milliseconds (default 240000, max 900000)',
+        },
+        timeoutSeconds: {
+          type: 'number',
+          description:
+            'Optional command timeout in seconds (used when timeoutMs is omitted)',
+        },
+      },
+      required: ['command'],
+    },
+  },
+};
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
@@ -3193,30 +3627,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
   ...SEARCH_TOOL_DEFINITIONS,
-  {
-    type: 'function',
-    function: {
-      name: 'bash',
-      description: `Run a shell command and return stdout/stderr. The shell starts in the workspace root; use relative workspace paths instead of literal ${WORKSPACE_ROOT_DISPLAY} paths. Use bash for absolute paths outside the workspace, and prefer /tmp only for temporary scratch files. Final user-visible outputs should be written to workspace-relative paths so they persist and can be attached. Do not use for file creation or file editing; use write/edit tools for file authoring.`,
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Shell command to execute' },
-          timeoutMs: {
-            type: 'number',
-            description:
-              'Optional command timeout in milliseconds (default 240000, max 900000)',
-          },
-          timeoutSeconds: {
-            type: 'number',
-            description:
-              'Optional command timeout in seconds (used when timeoutMs is omitted)',
-          },
-        },
-        required: ['command'],
-      },
-    },
-  },
+  BASH_TOOL_DEFINITION,
   {
     type: 'function',
     function: {
@@ -3297,17 +3708,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           channelId: {
             type: 'string',
             description:
-              'Send target or Discord channel selector. For `send`, accepts Discord ids/mentions/#channel, email addresses, WhatsApp JIDs or phone numbers, and local channel ids like `tui`. For Discord-only actions, use a Discord channel id/mention/#channel.',
+              'Message target or channel selector for send/read actions.',
           },
           guildId: {
             type: 'string',
             description:
-              'Discord guild id (required for member-info; optional for Discord channel-name sends).',
+              'Server or workspace id for channel/member lookups when required.',
           },
           userId: {
             type: 'string',
             description:
-              'Discord user id (required for member-info; optional requester id for send allowlist checks).',
+              'User id for member lookups or send allowlist checks when required.',
           },
           memberId: {
             type: 'string',
@@ -3316,17 +3727,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           username: {
             type: 'string',
             description:
-              'Discord username/display name/@handle to resolve for member-info, or as DM target for send when channelId/to/target is omitted.',
+              'Username, display name, or handle to resolve for member lookups or user-targeted sends.',
           },
           user: {
             type: 'string',
             description:
-              'Alias for username/userId in member-info; for send, used as DM target when channelId/to/target is omitted.',
+              'Alias for username/userId in member lookups or user-targeted sends.',
           },
           resolveAmbiguous: {
             type: 'string',
             description:
-              'Ambiguity policy for Discord name lookups. For action="member-info", user-target sends, and channel-name targets: "error" (default) returns an error/candidates, "best" auto-picks the top score.',
+              'Ambiguity policy for name lookups. "error" returns an error/candidates; "best" auto-picks the top score.',
             enum: ['error', 'best'],
           },
           limit: {
@@ -3352,7 +3763,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           subject: {
             type: 'string',
             description:
-              'Optional email subject override for action="send" when channelId/to targets an email address. If omitted, email can still use an inline `[Subject: ...]` prefix in content.',
+              'Optional subject override for action="send" when supported by the active channel.',
           },
           cc: {
             type: ['string', 'array'],
@@ -3360,7 +3771,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional email CC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+              'Optional copied recipient or list of recipients for action="send" when supported by the active channel.',
           },
           bcc: {
             type: ['string', 'array'],
@@ -3368,12 +3779,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional email BCC recipient or list of recipients for action="send" when channelId/to targets an email address.',
+              'Optional blind-copied recipient or list of recipients for action="send" when supported by the active channel.',
           },
           inReplyTo: {
             type: 'string',
             description:
-              'Optional email Message-ID for the parent message being replied to on action="send" when channelId/to targets an email address. Use the latest message in the thread.',
+              'Optional parent message id for threaded replies when supported by the active channel.',
           },
           references: {
             type: ['string', 'array'],
@@ -3381,22 +3792,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'string',
             },
             description:
-              'Optional ordered email Message-ID chain for the References header on action="send" when channelId/to targets an email address. End the list with the same parent message used for inReplyTo.',
+              'Optional ordered parent message id chain for threaded replies when supported by the active channel.',
           },
           filePath: {
             type: 'string',
             description:
-              'Optional local file to upload for action="send". Discord, the current Teams conversation, WhatsApp, and email support filePath; local queued sends do not. Use a workspace-relative path or an absolute /discord-media-cache path.',
+              'Optional local file to upload for action="send" when supported by the active channel. Use a workspace-relative path or an absolute managed media path.',
           },
           attachmentPath: {
             type: 'string',
-            description:
-              'Alias for filePath in action="send". Use for local Discord uploads.',
+            description: 'Alias for filePath in action="send".',
           },
           mediaPath: {
             type: 'string',
-            description:
-              'Alias for filePath in action="send". Use for local Discord uploads.',
+            description: 'Alias for filePath in action="send".',
           },
           imagePath: {
             type: 'string',
@@ -3414,7 +3823,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               type: 'object',
             },
             description:
-              'Optional Discord components payload for action="send" (buttons/selects/action rows). Supported only for Discord sends, not Teams/WhatsApp/email/local sends.',
+              'Optional interactive components payload for action="send" when supported by the active channel.',
           },
           text: {
             type: 'string',
@@ -3432,12 +3841,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           contextChannelId: {
             type: 'string',
             description:
-              'Context Discord channel id used to infer guild for Discord user-target sends.',
+              'Context channel id used to infer routing for user-targeted sends.',
           },
           messageId: {
             type: 'string',
             description:
-              'Discord message id for actions: react, quote-reply, edit, delete, pin, unpin, thread-create.',
+              'Message id for actions: react, quote-reply, edit, delete, pin, unpin, thread-create.',
           },
           emoji: {
             type: 'string',
@@ -3454,13 +3863,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           target: {
             type: 'string',
-            description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+            description: 'Target user or channel for action="send".',
           },
           to: {
             type: 'string',
-            description:
-              'Target user or channel. For `send`, accepts Discord channel IDs, user IDs, @usernames, #channel-name, email addresses, WhatsApp JIDs or phone numbers, or local channel ids like `tui`.',
+            description: 'Target user or channel for action="send".',
           },
         },
         required: ['action'],
@@ -3539,7 +3946,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'web_extract',
       description:
-        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost, Hermes-style companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
+        'Fetch a URL and return a processed markdown summary of the readable content. This is the higher-cost companion to web_fetch: it first extracts readable content, then routes that content through the auxiliary web_extract model by default. Use web_fetch instead when you want the raw extracted page text without model post-processing.',
       parameters: {
         type: 'object',
         properties: {
@@ -3748,7 +4155,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'delegate',
       description:
-        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). Completion is push-delivered automatically; do not poll/sleep.',
+        'Delegate narrow, self-contained subtasks to background subagents. Use for reasoning-heavy/context-heavy work or independent parallel branches; avoid for trivial single tool calls. Modes: single (`prompt`), parallel (`tasks[]`), chain (`chain[]` with `{previous}`). Never forward the user prompt verbatim. Provide self-contained task context (goal, paths, constraints, expected output). The gateway collects delegated results and uses them for final synthesis; after spawning delegates, acknowledge start only and do not present final findings or poll/sleep.',
       parameters: {
         type: 'object',
         properties: {

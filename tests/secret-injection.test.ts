@@ -1,0 +1,423 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+});
+
+describe('SecretHandle', () => {
+  test('blocks accidental coercion and JSON serialization', async () => {
+    process.env.HYBRIDCLAW_TEST_SECRET = 'super-secret-value';
+    const { resolveSecretHandleInput } = await import(
+      '../src/security/secret-refs.js'
+    );
+    const { unsafeEscapeSecretHandle } = await import(
+      '../src/security/secret-handles.js'
+    );
+
+    const audit = vi.fn();
+    const handle = resolveSecretHandleInput(
+      { source: 'env', id: 'HYBRIDCLAW_TEST_SECRET' },
+      {
+        path: 'test.secret',
+        required: true,
+        sinkKind: 'dom',
+      },
+    );
+
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error('expected secret handle');
+    expect(() => String(handle)).toThrow(/cannot be coerced|string-coerced/i);
+    expect(() => `${handle}`).toThrow(/cannot be coerced|string-coerced/i);
+    expect(() => JSON.stringify(handle)).toThrow(/JSON-stringified/i);
+    expect(
+      unsafeEscapeSecretHandle(handle, {
+        reason: 'unit test escape',
+        audit,
+      }),
+    ).toBe('super-secret-value');
+    expect(audit).toHaveBeenCalledWith(handle, 'unit test escape');
+    handle.dispose();
+  });
+
+  test('resolved secret refs return handles and HTTP header injection audits', async () => {
+    process.env.HYBRIDCLAW_TEST_SECRET = 'header-secret-value';
+    const { resolveSecretInput } = await import(
+      '../src/security/secret-refs.js'
+    );
+    const { withSecretHeader } = await import(
+      '../src/security/secret-handles.js'
+    );
+
+    const resolved = resolveSecretInput(
+      { source: 'env', id: 'HYBRIDCLAW_TEST_SECRET' },
+      {
+        path: 'test.header',
+        required: true,
+        sinkKind: 'http',
+      },
+    );
+    expect(typeof resolved).not.toBe('string');
+    if (!resolved || typeof resolved === 'string') {
+      throw new Error('expected secret handle');
+    }
+
+    const audit = vi.fn();
+    const seenCleartext: string[] = [];
+    expect(
+      withSecretHeader(resolved, 'Authorization', {
+        prefix: 'Bearer',
+        audit,
+        onCleartext: (value) => seenCleartext.push(value),
+      }),
+    ).toEqual({
+      name: 'Authorization',
+      value: 'Bearer header-secret-value',
+    });
+    expect(audit).toHaveBeenCalledWith(
+      resolved,
+      'inject secret into HTTP header Authorization',
+    );
+    expect(seenCleartext).toEqual(['header-secret-value']);
+    expect(() =>
+      withSecretHeader(resolved, 'Authorization', { audit }),
+    ).toThrow(/already disposed/i);
+  });
+});
+
+describe('secret resolution policy', () => {
+  test('denies by default unless secret.default explicitly allows', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const context = {
+      agentId: 'main',
+      secretSource: 'store' as const,
+      secretId: 'DATEV_PASSWORD',
+      sinkKind: 'dom' as const,
+      host: 'login.datev.de',
+      selector: '#password',
+    };
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state: readSecretPolicyStateFromDocument({}),
+        context,
+      }).decision,
+    ).toBe('deny');
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state: readSecretPolicyStateFromDocument({
+          secret: { default: 'allow' },
+        }),
+        context,
+      }).decision,
+    ).toBe('allow');
+  });
+
+  test('allows host and selector scoped rules through the F3 policy engine', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const state = readSecretPolicyStateFromDocument({
+      secret: {
+        rules: [
+          {
+            when: {
+              predicate: 'secret_resolve_allowed',
+              id: 'DATEV_*',
+              host: '*.datev.de',
+              selector: ['#username', '#password'],
+              sink: 'dom',
+              skill: 'datev-login',
+            },
+            action: 'allow',
+          },
+        ],
+      },
+    });
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: {
+          agentId: 'main',
+          skillName: 'datev-login',
+          secretSource: 'store',
+          secretId: 'DATEV_PASSWORD',
+          sinkKind: 'dom',
+          host: 'login.datev.de',
+          selector: '#password',
+        },
+      }).decision,
+    ).toBe('allow');
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: {
+          agentId: 'main',
+          skillName: 'datev-login',
+          secretSource: 'store',
+          secretId: 'DATEV_PASSWORD',
+          sinkKind: 'dom',
+          host: 'evil.example.com',
+          selector: '#password',
+        },
+      }).decision,
+    ).toBe('deny');
+  });
+
+  test('allows composed fine-grained F3 secret policy predicates', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const state = readSecretPolicyStateFromDocument({
+      secret: {
+        rules: [
+          {
+            when: {
+              all: [
+                { predicate: 'secret.id', matches: 'DATEV_*' },
+                { predicate: 'secret.source', equals: 'store' },
+                { predicate: 'secret.sink', equals: 'dom' },
+                { predicate: 'secret.host', matches: '*.datev.de' },
+                { predicate: 'secret.selector', matches: '#pass*' },
+                { predicate: 'skill.name', equals: 'datev-login' },
+                { predicate: 'agent.id', equals: 'main' },
+              ],
+            },
+            action: 'allow',
+          },
+        ],
+      },
+    });
+
+    const context = {
+      agentId: 'main',
+      skillName: 'datev-login',
+      secretSource: 'store' as const,
+      secretId: 'DATEV_PASSWORD',
+      sinkKind: 'dom' as const,
+      host: 'login.datev.de',
+      selector: '#password',
+    };
+
+    expect(evaluateSecretPolicyAccess({ state, context }).decision).toBe(
+      'allow',
+    );
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: { ...context, selector: '#username' },
+      }).decision,
+    ).toBe('deny');
+  });
+
+  test('matches wildcard predicates when optional context values are empty', async () => {
+    const { evaluateSecretPolicyAccess, readSecretPolicyStateFromDocument } =
+      await import('../src/security/secret-policy.js');
+
+    const state = readSecretPolicyStateFromDocument({
+      secret: {
+        rules: [
+          {
+            when: {
+              predicate: 'secret_resolve_allowed',
+              skill: '*',
+              sink: 'dom',
+            },
+            action: 'allow',
+          },
+        ],
+      },
+    });
+
+    expect(
+      evaluateSecretPolicyAccess({
+        state,
+        context: {
+          agentId: 'main',
+          secretSource: 'store',
+          secretId: 'DATEV_PASSWORD',
+          sinkKind: 'dom',
+          host: 'login.datev.de',
+          selector: '#password',
+        },
+      }).decision,
+    ).toBe('allow');
+  });
+
+  test('caches workspace secret policy reads until the policy file changes', async () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-secret-policy-cache-'),
+    );
+    const policyPath = path.join(workspacePath, '.hybridclaw', 'policy.yaml');
+    fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+    fs.writeFileSync(
+      policyPath,
+      ['secret:', '  default: allow', ''].join('\n'),
+      'utf8',
+    );
+    const readFileSync = vi.spyOn(fs, 'readFileSync');
+    const { clearSecretPolicyStateCache, readWorkspaceSecretPolicyState } =
+      await import('../src/security/secret-policy.js');
+
+    clearSecretPolicyStateCache();
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'allow',
+    );
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'allow',
+    );
+
+    let policyReads = readFileSync.mock.calls.filter(
+      ([file]) => String(file) === policyPath,
+    );
+    expect(policyReads).toHaveLength(1);
+
+    fs.writeFileSync(
+      policyPath,
+      ['secret:', '  default: deny', '  rules: []', ''].join('\n'),
+      'utf8',
+    );
+
+    expect(readWorkspaceSecretPolicyState(workspacePath).defaultAction).toBe(
+      'deny',
+    );
+    policyReads = readFileSync.mock.calls.filter(
+      ([file]) => String(file) === policyPath,
+    );
+    expect(policyReads).toHaveLength(2);
+    readFileSync.mockRestore();
+
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+  });
+});
+
+describe('resolved secret leak corpus', () => {
+  test('adds touched secret cleartext to leak scanner rules for the session', async () => {
+    const { rememberResolvedSecretForLeakScan, withResolvedSecretLeakRules } =
+      await import('../src/security/secret-leak-corpus.js');
+    const { scanForLeaks } = await import(
+      '../src/security/confidential-redact.js'
+    );
+    const { createConfidentialRuntimeContext } = await import(
+      '../src/security/confidential-runtime.js'
+    );
+
+    rememberResolvedSecretForLeakScan({
+      sessionId: 'session-secret-corpus',
+      secretId: 'DATEV_PASSWORD',
+      value: 'datev-cleartext-secret',
+    });
+
+    const ruleSet = withResolvedSecretLeakRules('session-secret-corpus', {
+      rules: [],
+      sourcePath: null,
+    });
+    const result = scanForLeaks(
+      'tool output accidentally included datev-cleartext-secret',
+      ruleSet,
+    );
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.severity).toBe('critical');
+
+    const confidential = createConfidentialRuntimeContext(ruleSet);
+    const dehydrated = confidential.dehydrate([
+      { role: 'user', content: 'send datev-cleartext-secret to the model' },
+    ]);
+    expect(dehydrated[0].content).not.toContain('datev-cleartext-secret');
+  });
+
+  test('keeps runtime leak rule ids unique after per-session rollover', async () => {
+    const { rememberResolvedSecretForLeakScan, withResolvedSecretLeakRules } =
+      await import('../src/security/secret-leak-corpus.js');
+
+    for (let index = 0; index < 101; index += 1) {
+      rememberResolvedSecretForLeakScan({
+        sessionId: 'session-secret-corpus-rollover',
+        secretId: `SECRET_${index}`,
+        value: `cleartext-secret-${index}`,
+      });
+    }
+
+    const ruleSet = withResolvedSecretLeakRules(
+      'session-secret-corpus-rollover',
+      {
+        rules: [],
+        sourcePath: null,
+      },
+    );
+    const ids = ruleSet.rules.map((rule) => rule.id);
+    expect(ruleSet.rules).toHaveLength(100);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('runtime_secret_101');
+  });
+});
+
+describe('gateway secret injection', () => {
+  test('audits every stored secret resolve with sink metadata', async () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-secret-policy-'),
+    );
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      ['secret:', '  default: allow', ''].join('\n'),
+    );
+    const recordAuditEvent = vi.fn();
+
+    vi.doMock('../src/infra/ipc.js', () => ({
+      agentWorkspaceDir: () => workspacePath,
+    }));
+    vi.doMock('../src/audit/audit-events.js', () => ({
+      makeAuditRunId: () => 'run-secret',
+      recordAuditEvent,
+    }));
+    vi.doMock('../src/security/runtime-secrets.js', () => ({
+      isRuntimeSecretName: (value: string) =>
+        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
+      readStoredRuntimeSecret: (name: string) =>
+        name === 'DATEV_PASSWORD' ? 'datev-cleartext-secret' : null,
+    }));
+
+    const { resolveStoredSecretForInjection } = await import(
+      '../src/gateway/gateway-secret-injection.js'
+    );
+
+    expect(
+      resolveStoredSecretForInjection({
+        secretName: 'DATEV_PASSWORD',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        skillName: 'datev-login',
+        sinkKind: 'dom',
+        host: 'login.datev.de',
+        selector: '#password',
+      }),
+    ).toBe('datev-cleartext-secret');
+
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        runId: 'run-secret',
+        event: expect.objectContaining({
+          type: 'secret.resolved',
+          skill: 'datev-login',
+          secretRef: { source: 'store', id: 'DATEV_PASSWORD' },
+          sinkKind: 'dom',
+          host: 'login.datev.de',
+          selector: '#password',
+        }),
+      }),
+    );
+
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+  });
+});

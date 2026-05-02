@@ -42,3 +42,39 @@ test('getAllSessions applies an optional cap and warns on truncation', async () 
   expect(logOutput).toContain('1000');
   expect(logOutput).toContain('1001');
 });
+
+test('getRecentSessionsForAgents applies a per-agent cap', async () => {
+  setupHome();
+
+  const { getOrCreateSession, getRecentSessionsForAgents, initDatabase } =
+    await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  for (const agentId of ['main', 'ops']) {
+    for (let index = 0; index < 3; index += 1) {
+      getOrCreateSession(
+        `session-${agentId}-${index}`,
+        null,
+        `channel-${agentId}-${index}`,
+        agentId,
+      );
+    }
+  }
+  getOrCreateSession(
+    'session-research-0',
+    null,
+    'channel-research-0',
+    'research',
+  );
+
+  const sessions = getRecentSessionsForAgents(['main', 'ops'], 2);
+
+  expect(sessions).toHaveLength(4);
+  expect(
+    sessions.filter((session) => session.agent_id === 'main'),
+  ).toHaveLength(2);
+  expect(sessions.filter((session) => session.agent_id === 'ops')).toHaveLength(
+    2,
+  );
+  expect(sessions.map((session) => session.agent_id)).not.toContain('research');
+});

@@ -76,6 +76,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'agent',
   'auth',
   'bot',
+  'btw',
   'config',
   'policy',
   'dream',
@@ -101,6 +102,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'clear',
   'reset',
   'compact',
+  'context',
   'help',
 ]);
 
@@ -112,6 +114,8 @@ const APPROVAL_ACTION_CHOICES = [
   { name: 'all', value: 'all' },
   { name: 'no', value: 'no' },
 ] satisfies Array<{ name: string; value: string }>;
+const BTW_COMMAND_DESCRIPTION =
+  'Ask an ephemeral side question about the current session (no tools, not persisted)';
 
 const CHANNEL_MODE_CHOICES = [
   { name: 'off', value: 'off' },
@@ -209,14 +213,22 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     command: '/bot [info|list|set <id|name>|clear]',
     description: 'Manage the chatbot for this session',
   },
+  btw: {
+    command: '/btw <question>',
+    description: BTW_COMMAND_DESCRIPTION,
+  },
   concierge: {
     command:
       '/concierge [info|on|off|model [name]|profile <asap|balanced|no_hurry> [model]]',
     description: 'Configure concierge routing',
   },
   config: {
-    command: '/config [check|reload|set <key> <value>]',
+    command: '/config [check|reload|get <key>|set <key> <value>]',
     description: 'Show or update local runtime config',
+  },
+  context: {
+    command: '/context',
+    description: 'Show context window usage and compaction headroom',
   },
   policy: {
     command: '/policy [status|list|allow|deny|delete|preset|default|reset]',
@@ -364,6 +376,9 @@ export function mapCanonicalCommandToGatewayArgs(
       if (sub === 'set') return ['bot', 'set', ...parts.slice(2)];
       return ['bot', 'set', ...parts.slice(1)];
     }
+
+    case 'btw':
+      return ['btw', ...parts.slice(1)];
 
     case 'model': {
       const sub = (parts[1] || '').trim().toLowerCase();
@@ -524,6 +539,10 @@ export function mapCanonicalCommandToGatewayArgs(
       if (!sub) return ['config'];
       if (sub === 'check') return ['config', 'check'];
       if (sub === 'reload') return ['config', 'reload'];
+      if (sub === 'get') {
+        const key = (parts[2] || '').trim();
+        return key ? ['config', 'get', key] : ['config', 'get'];
+      }
       if (sub === 'set') {
         const key = (parts[2] || '').trim();
         const value = parts.slice(3).join(' ').trim();
@@ -570,6 +589,9 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'context':
+      return ['context'];
 
     case 'clear':
       return ['clear'];
@@ -623,6 +645,18 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'status',
       description: 'Show HybridClaw runtime status (only visible to you)',
+    },
+    {
+      name: 'btw',
+      description: BTW_COMMAND_DESCRIPTION,
+      options: [
+        {
+          kind: 'string',
+          name: 'question',
+          description: 'The side question to answer',
+          required: true,
+        },
+      ],
     },
     {
       name: 'memory',
@@ -734,6 +768,10 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'compact',
       description: 'Archive older session history and compact it into memory',
+    },
+    {
+      name: 'context',
+      description: 'Show context window usage and compaction headroom',
     },
     {
       name: 'dream',
@@ -1136,9 +1174,19 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'config',
       description:
-        'Show, validate, reload, or set the local runtime config file',
+        'Show, validate, reload, get, or set the local runtime config file',
       tuiOnly: true,
+      tuiMenu: {
+        label: '/config [check|reload|get|set] [key] [value]',
+        insertText: '/config ',
+      },
       tuiMenuEntries: [
+        {
+          id: 'config.get',
+          label: '/config get <key>',
+          insertText: '/config get ',
+          description: 'Show one runtime config value',
+        },
         {
           id: 'config.set',
           label: '/config set <key> <value>',
@@ -1166,6 +1214,7 @@ function buildSlashCommandCatalogDefinitions(
           choices: [
             { name: 'check', value: 'check' },
             { name: 'reload', value: 'reload' },
+            { name: 'get', value: 'get' },
             { name: 'set', value: 'set' },
           ],
         },
@@ -1398,9 +1447,10 @@ function buildSlashCommandCatalogDefinitions(
         },
         {
           id: 'secret.route.add',
-          label: '/secret route add <url-prefix> <secret-name>',
+          label: '/secret route add <url-prefix> <secret-name|google-oauth>',
           insertText: '/secret route add ',
-          description: 'Auto-attach a stored secret to matching HTTP requests',
+          description:
+            'Auto-attach a stored secret or Google OAuth token to matching HTTP requests',
         },
       ],
       options: [
@@ -2278,23 +2328,140 @@ function buildSlashCommandCatalogDefinitions(
         {
           kind: 'subcommand',
           name: 'install',
-          description: 'Install one declared dependency for a skill',
+          description:
+            'Install a packaged skill, or one declared dependency for a skill',
           tuiMenu: {
-            label: '/skill install <skill> <dependency>',
+            label: '/skill install <source>',
             insertText: '/skill install ',
-            aliases: ['/skill install <skill> <dependency>'],
+            aliases: [
+              '/skill install <source>',
+              '/skill install <skill> <dependency>',
+            ],
+          },
+          tuiMenuEntries: [
+            {
+              id: 'skill.install.dependency',
+              label: '/skill install <skill> <dependency>',
+              insertText: '/skill install ',
+              description: 'Install one declared dependency for a skill',
+            },
+          ],
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source or skill name',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'dependency',
+              description:
+                'Optional dependency id declared by that skill; omit to install a package',
+            },
+            {
+              kind: 'string',
+              name: 'force',
+              description: 'Optional --force override for caution findings',
+              choices: [{ name: '--force', value: '--force' }],
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'upgrade',
+          description: 'Upgrade an installed packaged skill from a source',
+          tuiMenu: {
+            label: '/skill upgrade <source>',
+            insertText: '/skill upgrade ',
+            aliases: ['/skill upgrade <source> [--skip-skill-scan]'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'source',
+              description: 'Skill source identifier or URL',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'skip-skill-scan',
+              description:
+                'Optional --skip-skill-scan override to bypass the scanner',
+              choices: [
+                { name: '--skip-skill-scan', value: '--skip-skill-scan' },
+              ],
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'uninstall',
+          description: 'Uninstall a managed packaged skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'revisions',
+          description: 'List package revisions for a managed skill',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'rollback',
+          description: 'Restore a managed skill package revision',
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Skill name',
+              required: true,
+            },
+            {
+              kind: 'string',
+              name: 'revision-id',
+              description: 'Revision id from /skill revisions',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'setup',
+          description: 'Install every declared dependency for a skill',
+          tuiMenu: {
+            label: '/skill setup <skill>',
+            insertText: '/skill setup ',
+            aliases: ['/skill setup <skill>'],
           },
           options: [
             {
               kind: 'string',
               name: 'skill',
               description: 'Skill name',
-              required: true,
-            },
-            {
-              kind: 'string',
-              name: 'dependency',
-              description: 'Dependency id declared by that skill',
               required: true,
             },
           ],
@@ -2519,6 +2686,11 @@ export function parseCanonicalSlashCommandArgs(
     case 'status':
       return ['status'];
 
+    case 'btw': {
+      const question = normalizeStringOption(interaction, 'question', true);
+      return question ? ['btw', question] : null;
+    }
+
     case 'auth': {
       const subcommand = normalizeSubcommand(interaction);
       if (subcommand !== 'status') return null;
@@ -2533,6 +2705,7 @@ export function parseCanonicalSlashCommandArgs(
       if (!action && !key && !value) return ['config'];
       if (action === 'check' && !key && !value) return ['config', 'check'];
       if (action === 'reload' && !key && !value) return ['config', 'reload'];
+      if (action === 'get' && key && !value) return ['config', 'get', key];
       if (action !== 'set' || !key || !value) return null;
       return ['config', 'set', key, value];
     }
@@ -2664,6 +2837,9 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'compact':
       return ['compact'];
+
+    case 'context':
+      return ['context'];
 
     case 'dream': {
       const subcommand = normalizeSubcommand(interaction);

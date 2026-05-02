@@ -50,6 +50,7 @@ afterEach(() => {
   vi.doUnmock('../src/infra/ipc.js');
   vi.doUnmock('../src/providers/factory.js');
   vi.doUnmock('../src/logger.js');
+  vi.unstubAllEnvs();
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
 });
@@ -63,7 +64,7 @@ function mockHostRuntimeReady(): void {
   }));
 }
 
-test('HostExecutor redacts result and error strings from agent output', async () => {
+test('HostExecutor preserves user-visible result and error strings from agent output', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -71,10 +72,12 @@ test('HostExecutor redacts result and error strings from agent output', async ()
   const spawn = vi.fn(() => makeFakeChildProcess() as never);
   const readOutput = vi.fn(async () => ({
     status: 'error' as const,
-    result: 'OPENAI_API_KEY=sk-1234567890abcdefghijklmnop',
+    result:
+      'Invited max.noller@hybridai.one and used OPENAI_API_KEY=sk-1234567890abcdefghijklmnop.',
     toolsUsed: [],
     artifacts: [],
-    error: 'Authorization: Bearer 1234567890abcdefghijklmnopqrstuv',
+    error:
+      'Could not notify stephan.noller@hybridai.one with Authorization: Bearer 1234567890abcdefghijklmnopqrstuv',
   }));
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'hybridai' as const,
@@ -139,11 +142,116 @@ test('HostExecutor redacts result and error strings from agent output', async ()
     channelId: 'tui',
   });
 
-  expect(output.result).toBe('OPENAI_API_KEY=sk-123...mnop');
-  expect(output.error).toBe('Authorization: Bearer 123456...stuv');
+  expect(output.result).toBe(
+    'Invited max.noller@hybridai.one and used OPENAI_API_KEY=sk-123...mnop.',
+  );
+  expect(output.error).toBe(
+    'Could not notify stephan.noller@hybridai.one with Authorization: Bearer 123456...stuv',
+  );
 });
 
-test('HostExecutor preserves approval ids while redacting approval text fields', async () => {
+test('HostExecutor preserves user-visible streamed text and tool progress while redacting credentials', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => {
+    const delta = Buffer.from(
+      'Invited max.noller@hybridai.one with token sk-1234567890abcdefghijklmnop.',
+      'utf-8',
+    ).toString('base64');
+    proc.stderr.emit('data', Buffer.from(`[stream] ${delta}\n`));
+    proc.stderr.emit(
+      'data',
+      Buffer.from(
+        '[tool] bash result (12ms): emailed user@example.com with OPENAI_API_KEY=sk-1234567890abcdefghijklmnop\n',
+      ),
+    );
+    return {
+      status: 'success' as const,
+      result: 'ok',
+      toolsUsed: [],
+      artifacts: [],
+    };
+  });
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+  mockHostRuntimeReady();
+
+  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+  const deltas: string[] = [];
+  const toolEvents: Array<{ preview?: string }> = [];
+  await executor.exec({
+    sessionId: 'session-stream-visible',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+    onTextDelta: (delta) => deltas.push(delta),
+    onToolProgress: (event) => toolEvents.push(event),
+  });
+
+  expect(deltas).toEqual([
+    'Invited max.noller@hybridai.one with token sk-123...mnop.',
+  ]);
+  expect(toolEvents[0]?.preview).toBe(
+    'emailed user@example.com with OPENAI_API_KEY=sk-123...mnop',
+  );
+});
+
+test('HostExecutor preserves user-visible approval details while redacting credentials', async () => {
   const homeDir = makeTempHome();
   process.env.HOME = homeDir;
   vi.resetModules();
@@ -157,7 +265,7 @@ test('HostExecutor preserves approval ids while redacting approval text fields',
     pendingApproval: {
       approvalId: '089 4233232',
       prompt:
-        'I need your approval before I call +49 170 3330160 and contact user@example.com.',
+        'I need your approval before I call +49 170 3330160, contact user@example.com, and use OPENAI_API_KEY=sk-1234567890abcdefghijklmnop.',
       intent: 'contact +49 170 3330160',
       reason: 'notify user@example.com',
       allowSession: true,
@@ -230,10 +338,13 @@ test('HostExecutor preserves approval ids while redacting approval text fields',
   });
 
   expect(output.pendingApproval?.approvalId).toBe('089 4233232');
-  expect(output.pendingApproval?.prompt).toContain('***PHONE_REDACTED***');
-  expect(output.pendingApproval?.prompt).toContain('***EMAIL_REDACTED***');
-  expect(output.pendingApproval?.intent).toContain('***PHONE_REDACTED***');
-  expect(output.pendingApproval?.reason).toContain('***EMAIL_REDACTED***');
+  expect(output.pendingApproval?.prompt).toContain('+49 170 3330160');
+  expect(output.pendingApproval?.prompt).toContain('user@example.com');
+  expect(output.pendingApproval?.prompt).toContain(
+    'OPENAI_API_KEY=sk-123...mnop',
+  );
+  expect(output.pendingApproval?.intent).toContain('+49 170 3330160');
+  expect(output.pendingApproval?.reason).toContain('user@example.com');
 });
 
 test('HostExecutor exposes the uploaded media cache root to host agent processes', async () => {
@@ -324,6 +435,126 @@ test('HostExecutor exposes the uploaded media cache root to host agent processes
   expect(JSON.parse(spawnEnv?.HYBRIDCLAW_AGENT_ALLOWED_ROOTS || '[]')).toEqual(
     expect.arrayContaining([os.homedir(), process.cwd(), os.tmpdir()]),
   );
+});
+
+test('HostExecutor strips ambient credentials from host agent process env', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.stubEnv('OPENAI_API_KEY', 'openai-secret');
+  vi.stubEnv('ANTHROPIC_API_KEY', 'anthropic-secret');
+  vi.stubEnv('AWS_ACCESS_KEY_ID', 'aws-access-key');
+  vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'aws-secret-key');
+  vi.stubEnv('AWS_SESSION_TOKEN', 'aws-session-token');
+  vi.stubEnv('GITHUB_TOKEN', 'github-token');
+  vi.stubEnv('GH_TOKEN', 'gh-token');
+  vi.stubEnv('CUSTOM_SERVICE_API_KEY', 'custom-service-key');
+  vi.stubEnv('CUSTOM_PASSWORD', 'custom-password');
+  vi.stubEnv('SSH_AUTH_SOCK', '/tmp/ssh-agent.sock');
+  vi.stubEnv('BRAVE_API_KEY', 'brave-secret');
+  vi.stubEnv('PERPLEXITY_API_KEY', 'perplexity-secret');
+  vi.stubEnv('TAVILY_API_KEY', 'tavily-secret');
+  vi.stubEnv('HYBRIDCLAW_TEST_VISIBLE', 'visible');
+  vi.resetModules();
+
+  const proc = makeFakeChildProcess();
+  const spawn = vi.fn(() => proc as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+  mockHostRuntimeReady();
+
+  const { HostExecutor } = await import('../src/infra/host-runner.js');
+  const executor = new HostExecutor();
+
+  await executor.exec({
+    sessionId: 'session-sanitized-env',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'web',
+  });
+
+  const spawnEnv = spawn.mock.calls[0]?.[2]?.env as
+    | NodeJS.ProcessEnv
+    | undefined;
+  expect(spawnEnv?.HYBRIDCLAW_AGENT_SANDBOX_MODE).toBe('host');
+  expect(spawnEnv?.HYBRIDCLAW_TEST_VISIBLE).toBe('visible');
+  expect(spawnEnv?.OPENAI_API_KEY).toBeUndefined();
+  expect(spawnEnv?.ANTHROPIC_API_KEY).toBeUndefined();
+  expect(spawnEnv?.AWS_ACCESS_KEY_ID).toBeUndefined();
+  expect(spawnEnv?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+  expect(spawnEnv?.AWS_SESSION_TOKEN).toBeUndefined();
+  expect(spawnEnv?.GITHUB_TOKEN).toBeUndefined();
+  expect(spawnEnv?.GH_TOKEN).toBeUndefined();
+  expect(spawnEnv?.CUSTOM_SERVICE_API_KEY).toBeUndefined();
+  expect(spawnEnv?.CUSTOM_PASSWORD).toBeUndefined();
+  expect(spawnEnv?.SSH_AUTH_SOCK).toBeUndefined();
+  expect(spawnEnv?.BRAVE_API_KEY).toBeUndefined();
+  expect(spawnEnv?.PERPLEXITY_API_KEY).toBeUndefined();
+  expect(spawnEnv?.TAVILY_API_KEY).toBeUndefined();
+
+  const firstInput = JSON.parse(
+    String(proc.stdin.write.mock.calls[0]?.[0] || '').trim(),
+  ) as { webSearch?: Record<string, unknown> };
+  expect(firstInput.webSearch).toMatchObject({
+    braveApiKey: 'brave-secret',
+    perplexityApiKey: 'perplexity-secret',
+    tavilyApiKey: 'tavily-secret',
+  });
 });
 
 test('HostExecutor disables internal text streaming when no text callback is provided', async () => {

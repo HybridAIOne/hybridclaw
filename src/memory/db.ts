@@ -2,15 +2,35 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import type { AgentConfig, AgentModelConfig } from '../agents/agent-types.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import type {
+  AgentConfig,
+  AgentCv,
+  AgentModelConfig,
+} from '../agents/agent-types.js';
+import {
+  DEFAULT_AGENT_ID,
+  normalizeAgentCv,
+  normalizeAgentEscalationTarget,
+  validateAgentOrgChart,
+} from '../agents/agent-types.js';
+import {
+  type AgentTeamStructureEntry,
+  serializeAgentTeamStructure,
+} from '../agents/team-structure.js';
+import { agentTeamStructureAssetPath } from '../agents/team-structure-revisions.js';
 import type { WireRecord } from '../audit/audit-trail.js';
 import { DB_PATH } from '../config/config.js';
 import {
   getRuntimeConfig,
   resolveDefaultAgentId,
 } from '../config/runtime-config.js';
+import {
+  type RuntimeConfigChangeMeta,
+  runtimeConfigRevisionStorePath,
+  syncRuntimeAssetRevisionStateInOpenDatabase,
+} from '../config/runtime-config-revisions.js';
 import { logger } from '../logger.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import {
   buildRecentChatSearchMatchQuery,
   MAX_RECENT_CHAT_SESSION_LIMIT,
@@ -39,6 +59,7 @@ import {
 } from '../session/session-reset.js';
 import { resolveSessionRoutingScope } from '../session/session-routing.js';
 import type {
+  AgentSkillScore,
   SkillAmendment,
   SkillAmendmentStatus,
   SkillErrorCategory,
@@ -54,6 +75,7 @@ import type {
   AuditEntry,
   StructuredAuditEntry,
 } from '../types/audit.js';
+import type { ArtifactMetadata } from '../types/execution.js';
 import {
   type KnowledgeEntity,
   KnowledgeEntityType,
@@ -78,10 +100,12 @@ import type {
   ForkSessionBranchResult,
   Session,
   SessionShowMode,
+  SessionTitleSource,
   StoredMessage,
 } from '../types/session.js';
 import type {
   UsageAgentAggregate,
+  UsageAgentRollup,
   UsageDailyAggregate,
   UsageModelAggregate,
   UsageSessionAggregate,
@@ -105,8 +129,9 @@ import {
 
 let db: Database.Database;
 let databaseInitialized = false;
+let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 19;
+export const DATABASE_SCHEMA_VERSION = 29;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -138,6 +163,14 @@ interface TableInfoRow {
   name: string;
 }
 
+interface ColumnInfoRow {
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
+}
+
 type AgentRow = {
   id: AgentConfig['id'];
   name: string | null;
@@ -148,6 +181,13 @@ type AgentRow = {
   chatbot_id: string | null;
   enable_rag: number | null;
   workspace: string | null;
+  owner: string | null;
+  role: string | null;
+  reports_to: string | null;
+  delegates_to: string | null;
+  peers: string | null;
+  cv: string | null;
+  escalation_target: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -160,7 +200,9 @@ interface ConversationHistoryPageRow {
   user_id: string | null;
   username: string | null;
   role: string | null;
+  agent_id: string | null;
   content: string | null;
+  artifacts_json: string | null;
   created_at: string | null;
 }
 
@@ -260,6 +302,15 @@ function tableExists(database: Database.Database, table: string): boolean {
   return Boolean(row?.name);
 }
 
+function indexExists(database: Database.Database, index: string): boolean {
+  const row = queryOne<{ name: string }, [string]>(
+    database,
+    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+    index,
+  );
+  return Boolean(row?.name);
+}
+
 function ensureSessionBranchesTable(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS session_branches (
@@ -350,6 +401,10 @@ function getTableSql(database: Database.Database, table: string): string {
   return row?.sql || '';
 }
 
+function quoteSqlIdentifier(identifier: string): string {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
 function columnExists(
   database: Database.Database,
   table: string,
@@ -398,6 +453,133 @@ function skillObservationsNeedConstraintMigration(
       "feedback_sentiment in ('positive', 'negative', 'neutral')",
     )
   );
+}
+
+function skillObservationsNeedAgentMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'skill_observations') &&
+    !columnExists(database, 'skill_observations', 'agent_id')
+  );
+}
+
+function agentSkillScoresNeedMigration(database: Database.Database): boolean {
+  return !tableExists(database, 'agent_skill_scores');
+}
+
+function messageAgentIdentityNeedMigration(
+  database: Database.Database,
+): boolean {
+  return (
+    tableExists(database, 'messages') &&
+    !columnExists(database, 'messages', 'agent_id')
+  );
+}
+
+function adminStatisticsIndexesNeedMigration(
+  database: Database.Database,
+): boolean {
+  const messagesHasCreatedAt =
+    tableExists(database, 'messages') &&
+    columnExists(database, 'messages', 'created_at');
+  if (
+    messagesHasCreatedAt &&
+    !indexExists(database, 'idx_messages_created_at')
+  ) {
+    return true;
+  }
+  if (
+    messagesHasCreatedAt &&
+    columnExists(database, 'messages', 'session_id') &&
+    !indexExists(database, 'idx_messages_session_created_at')
+  ) {
+    return true;
+  }
+
+  const sessionsExists = tableExists(database, 'sessions');
+  if (
+    sessionsExists &&
+    columnExists(database, 'sessions', 'created_at') &&
+    !indexExists(database, 'idx_sessions_created_at')
+  ) {
+    return true;
+  }
+  if (
+    sessionsExists &&
+    columnExists(database, 'sessions', 'last_active') &&
+    !indexExists(database, 'idx_sessions_last_active')
+  ) {
+    return true;
+  }
+  if (
+    sessionsExists &&
+    columnExists(database, 'sessions', 'channel_id') &&
+    columnExists(database, 'sessions', 'last_active') &&
+    !indexExists(database, 'idx_sessions_channel_last_active')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function messageArtifactsNeedMigration(database: Database.Database): boolean {
+  return (
+    tableExists(database, 'messages') &&
+    !columnExists(database, 'messages', 'artifacts_json')
+  );
+}
+
+function sessionTitleSourceConstraintNeedMigration(
+  database: Database.Database,
+): boolean {
+  if (!tableExists(database, 'sessions')) return false;
+  if (!columnExists(database, 'sessions', 'title_source')) return false;
+  const definition = getTableSql(database, 'sessions').toLowerCase();
+  return (
+    !definition.includes('check') ||
+    !definition.includes('title_source') ||
+    !definition.includes("'auto'")
+  );
+}
+
+function backfillAgentSkillScoreQuality(database: Database.Database): void {
+  if (!tableExists(database, 'skill_observations')) return;
+  if (!tableExists(database, 'agent_skill_scores')) return;
+
+  const aggregates = queryAll<AgentSkillScoreAggregate>(
+    database,
+    `SELECT
+       agent_id,
+       skill_name AS skill_id,
+       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+       SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+       SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+       MAX(created_at) AS last_run_at,
+       SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+       SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+       COALESCE(SUM(tool_calls_attempted), 0) AS tool_calls_attempted,
+       COALESCE(SUM(tool_calls_failed), 0) AS tool_calls_failed
+     FROM skill_observations
+     WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+     GROUP BY agent_id, skill_name`,
+  );
+  const updateScore = database.prepare(
+    `UPDATE agent_skill_scores
+     SET quality_score = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE agent_id = ? AND skill_id = ?`,
+  );
+  const updateScores = database.transaction(
+    (rows: AgentSkillScoreAggregate[]) => {
+      for (const row of rows) {
+        const score = mapAgentSkillScoreRow(row);
+        updateScore.run(score.quality_score, score.agent_id, score.skill_id);
+      }
+    },
+  );
+  updateScores(aggregates);
 }
 
 function addColumnIfMissing(params: {
@@ -473,7 +655,9 @@ function migrateV1(database: Database.Database): void {
       user_id TEXT NOT NULL,
       username TEXT,
       role TEXT NOT NULL,
+      agent_id TEXT,
       content TEXT NOT NULL,
+      artifacts_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -797,12 +981,15 @@ function migrateV4(database: Database.Database): void {
       output_tokens INTEGER NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd REAL NOT NULL DEFAULT 0.0,
-      tool_calls INTEGER NOT NULL DEFAULT 0
+      tool_calls INTEGER NOT NULL DEFAULT 0,
+      batch_id TEXT,
+      batch_hash TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_usage_events_agent_time ON usage_events(agent_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_time ON usage_events(timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_model_time ON usage_events(model, timestamp);
     CREATE INDEX IF NOT EXISTS idx_usage_events_session_time ON usage_events(session_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
   `);
 
   recordMigration(
@@ -1713,6 +1900,424 @@ function migrateV19(database: Database.Database): void {
   );
 }
 
+function migrateV20(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'agent_id',
+    ddl: 'agent_id TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 20, 'Persist assistant message agent identity');
+}
+
+function migrateV21(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'owner',
+    ddl: 'owner TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'role',
+    ddl: 'role TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'cv',
+    ddl: 'cv TEXT',
+    quiet,
+  });
+  recordMigration(
+    database,
+    21,
+    'Persist agent owner, role, and CV profile for stable agent identity',
+  );
+}
+
+function migrateV22(database: Database.Database): void {
+  // Some legacy databases — and a couple of migration tests — start partway
+  // through the schema with only the tables (and columns) they care about.
+  // Guard each CREATE INDEX behind table+column existence so this migration
+  // is safe to run regardless of which earlier tables/columns are present;
+  // earlier migrations are responsible for creating the targeted columns
+  // when they're missing on legacy DBs.
+  const messagesHasCreatedAt =
+    tableExists(database, 'messages') &&
+    columnExists(database, 'messages', 'created_at');
+  if (messagesHasCreatedAt) {
+    database.exec(
+      `CREATE INDEX IF NOT EXISTS idx_messages_created_at
+         ON messages(created_at);`,
+    );
+    if (columnExists(database, 'messages', 'session_id')) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_messages_session_created_at
+           ON messages(session_id, created_at);`,
+      );
+    }
+  }
+  if (tableExists(database, 'sessions')) {
+    if (columnExists(database, 'sessions', 'created_at')) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_created_at
+           ON sessions(created_at);`,
+      );
+    }
+    if (columnExists(database, 'sessions', 'last_active')) {
+      database.exec(
+        `CREATE INDEX IF NOT EXISTS idx_sessions_last_active
+           ON sessions(last_active);`,
+      );
+      if (columnExists(database, 'sessions', 'channel_id')) {
+        database.exec(
+          `CREATE INDEX IF NOT EXISTS idx_sessions_channel_last_active
+             ON sessions(channel_id, last_active);`,
+        );
+      }
+    }
+  }
+  recordMigration(
+    database,
+    22,
+    'Index timestamp columns for admin statistics aggregations',
+  );
+}
+
+function migrateV23(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'skill_observations',
+    column: 'agent_id',
+    ddl: 'agent_id TEXT',
+    quiet,
+  });
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_skill_scores (
+      agent_id TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      partial_count INTEGER NOT NULL DEFAULT 0,
+      avg_duration_ms REAL NOT NULL DEFAULT 0,
+      last_run_at TEXT,
+      quality_score REAL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      PRIMARY KEY (agent_id, skill_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_skill_scores_skill_quality
+      ON agent_skill_scores(skill_id, quality_score DESC, last_run_at DESC);
+  `);
+
+  if (!tableExists(database, 'skill_observations')) {
+    recordMigration(
+      database,
+      23,
+      'Persist agent identity and per-skill score aggregates',
+    );
+    return;
+  }
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_skill_observations_agent_skill_created
+      ON skill_observations(agent_id, skill_name, created_at);
+  `);
+  database.exec(`
+    INSERT INTO agent_skill_scores (
+      agent_id,
+      skill_id,
+      success_count,
+      failure_count,
+      partial_count,
+      avg_duration_ms,
+      last_run_at,
+      quality_score,
+      updated_at
+    )
+    SELECT
+      agent_id,
+      skill_name,
+      SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END),
+      SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END),
+      COALESCE(AVG(duration_ms), 0),
+      MAX(created_at),
+      0,
+      strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM skill_observations
+    WHERE agent_id IS NOT NULL AND TRIM(agent_id) != ''
+    GROUP BY agent_id, skill_name
+    ON CONFLICT(agent_id, skill_id) DO UPDATE SET
+      success_count = excluded.success_count,
+      failure_count = excluded.failure_count,
+      partial_count = excluded.partial_count,
+      avg_duration_ms = excluded.avg_duration_ms,
+      last_run_at = excluded.last_run_at,
+      quality_score = excluded.quality_score,
+      updated_at = excluded.updated_at;
+  `);
+  backfillAgentSkillScoreQuality(database);
+  recordMigration(
+    database,
+    23,
+    'Persist agent identity and per-skill score aggregates',
+  );
+}
+
+function migrateV24(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'messages',
+    column: 'artifacts_json',
+    ddl: 'artifacts_json TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 24, 'Persist assistant message artifacts');
+}
+
+function migrateV25(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'escalation_target',
+    ddl: 'escalation_target TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(
+    database,
+    25,
+    'Persist per-agent escalation targets for approval routing',
+  );
+}
+
+function migrateV26(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'reports_to',
+    ddl: 'reports_to TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'delegates_to',
+    ddl: 'delegates_to TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'peers',
+    ddl: 'peers TEXT',
+    quiet,
+  });
+  recordMigration(database, 26, 'Persist agent org-chart relationships');
+}
+
+function migrateV27(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'batch_id',
+    ddl: 'batch_id TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'usage_events',
+    column: 'batch_hash',
+    ddl: 'batch_hash TEXT',
+    quiet,
+  });
+  if (
+    tableExists(database, 'usage_events') &&
+    columnExists(database, 'usage_events', 'batch_id')
+  ) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_events_batch ON usage_events(batch_id);
+    `);
+  }
+
+  recordMigration(
+    database,
+    27,
+    'Persist token usage batch identifiers and hashes',
+  );
+}
+
+function migrateV28(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  const quiet = opts?.quiet === true;
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'title',
+    ddl: 'title TEXT',
+    quiet,
+  });
+  addColumnIfMissing({
+    database,
+    table: 'sessions',
+    column: 'title_source',
+    ddl: "title_source TEXT CHECK (title_source IS NULL OR title_source = 'auto')",
+    quiet,
+  });
+  recordMigration(database, 28, 'Persist per-session AI-generated titles');
+}
+
+function buildSessionColumnDefinition(column: ColumnInfoRow): string {
+  if (column.name === 'title_source') {
+    const quotedName = quoteSqlIdentifier(column.name);
+    return `${quotedName} TEXT CHECK (${quotedName} IS NULL OR ${quotedName} = 'auto')`;
+  }
+
+  const parts = [quoteSqlIdentifier(column.name)];
+  const type = column.type.trim();
+  if (type) parts.push(type);
+  if (column.pk > 0) parts.push('PRIMARY KEY');
+  if (column.notnull !== 0) parts.push('NOT NULL');
+  if (column.dflt_value !== null) {
+    parts.push(`DEFAULT ${normalizeSqlColumnDefault(column.dflt_value)}`);
+  }
+  return parts.join(' ');
+}
+
+function normalizeSqlColumnDefault(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith('(')) return trimmed;
+  if (/^CURRENT_(TIME|DATE|TIMESTAMP)$/i.test(trimmed)) return trimmed;
+  return `(${trimmed})`;
+}
+
+function recreateSessionIndexes(database: Database.Database): void {
+  if (columnExists(database, 'sessions', 'agent_id')) {
+    database.exec(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id)',
+    );
+  }
+  if (columnExists(database, 'sessions', 'legacy_session_id')) {
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_legacy_session_id
+        ON sessions(legacy_session_id)
+        WHERE legacy_session_id IS NOT NULL;
+    `);
+  }
+  if (columnExists(database, 'sessions', 'session_key')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_key ON sessions(session_key);
+    `);
+    if (columnExists(database, 'sessions', 'is_current')) {
+      database.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_current_key
+          ON sessions(session_key)
+          WHERE is_current = 1;
+      `);
+    }
+  }
+  if (columnExists(database, 'sessions', 'main_session_key')) {
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS idx_sessions_main_key
+        ON sessions(main_session_key);
+    `);
+  }
+  migrateV22(database);
+}
+
+function migrateV29(database: Database.Database): void {
+  if (!sessionTitleSourceConstraintNeedMigration(database)) {
+    recordMigration(
+      database,
+      29,
+      'Constrain session title sources to automatic titles',
+    );
+    return;
+  }
+
+  const backupTable = 'sessions_v29_backup';
+  if (!tableExists(database, backupTable)) {
+    database.exec(`
+      DROP INDEX IF EXISTS idx_sessions_agent;
+      DROP INDEX IF EXISTS idx_sessions_legacy_session_id;
+      DROP INDEX IF EXISTS idx_sessions_key;
+      DROP INDEX IF EXISTS idx_sessions_current_key;
+      DROP INDEX IF EXISTS idx_sessions_main_key;
+      DROP INDEX IF EXISTS idx_sessions_created_at;
+      DROP INDEX IF EXISTS idx_sessions_last_active;
+      DROP INDEX IF EXISTS idx_sessions_channel_last_active;
+      ALTER TABLE sessions RENAME TO ${backupTable};
+    `);
+  }
+
+  const columns = queryAll<ColumnInfoRow>(
+    database,
+    `PRAGMA table_info(${backupTable})`,
+  );
+  if (columns.length === 0) {
+    throw new Error('Unable to migrate sessions title source constraint.');
+  }
+
+  const columnNames = columns.map((column) => quoteSqlIdentifier(column.name));
+  const selectColumns = columns.map((column) =>
+    column.name === 'title_source'
+      ? `CASE WHEN ${quoteSqlIdentifier(column.name)} = 'auto' THEN ${quoteSqlIdentifier(column.name)} ELSE NULL END`
+      : quoteSqlIdentifier(column.name),
+  );
+
+  database.exec(`
+    DROP TABLE IF EXISTS sessions;
+
+    CREATE TABLE sessions (
+      ${columns.map(buildSessionColumnDefinition).join(',\n      ')}
+    );
+
+    INSERT INTO sessions (${columnNames.join(', ')})
+    SELECT ${selectColumns.join(', ')}
+    FROM ${backupTable};
+
+    DROP TABLE ${backupTable};
+  `);
+  recreateSessionIndexes(database);
+  recordMigration(
+    database,
+    29,
+    'Constrain session title sources to automatic titles',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -1753,6 +2358,33 @@ function runMigrations(
   if (currentVersion < 17) migrateV17(database, opts);
   if (currentVersion < 18) migrateV18(database, opts);
   if (currentVersion < 19) migrateV19(database);
+  if (currentVersion < 20 || messageAgentIdentityNeedMigration(database)) {
+    migrateV20(database, opts);
+  }
+  if (currentVersion < 21) migrateV21(database, opts);
+  if (currentVersion < 22 || adminStatisticsIndexesNeedMigration(database)) {
+    migrateV22(database);
+  }
+  if (
+    currentVersion < 23 ||
+    skillObservationsNeedAgentMigration(database) ||
+    agentSkillScoresNeedMigration(database)
+  ) {
+    migrateV23(database, opts);
+  }
+  if (currentVersion < 24 || messageArtifactsNeedMigration(database)) {
+    migrateV24(database, opts);
+  }
+  if (currentVersion < 25) migrateV25(database, opts);
+  if (currentVersion < 26) migrateV26(database, opts);
+  if (currentVersion < 27) migrateV27(database, opts);
+  if (currentVersion < 28) migrateV28(database, opts);
+  if (
+    currentVersion < 29 ||
+    sessionTitleSourceConstraintNeedMigration(database)
+  ) {
+    migrateV29(database);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -1768,6 +2400,7 @@ export function initDatabase(opts?: InitDatabaseOptions): void {
   const dbPath = path.resolve(opts?.dbPath || DB_PATH);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new Database(dbPath);
+  usageEventBatchInsertStatement = null;
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   runMigrations(db, opts);
@@ -1872,6 +2505,110 @@ function serializeAgentSkillsConfig(skills?: string[]): string | null {
   return JSON.stringify(normalizeTrimmedUniqueStringArray(skills));
 }
 
+function serializeAgentCv(cv: AgentCv | undefined): string | null {
+  return cv ? JSON.stringify(cv) : null;
+}
+
+function serializeAgentStringArray(
+  values: string[] | undefined,
+): string | null {
+  if (!Array.isArray(values)) return null;
+  return JSON.stringify(normalizeTrimmedUniqueStringArray(values));
+}
+
+const RUNTIME_REVISION_ATTACHMENT = 'runtime_revisions';
+
+function withRuntimeRevisionDatabaseAttached<T>(fn: () => T): T {
+  const revisionDbPath = runtimeConfigRevisionStorePath();
+  fs.mkdirSync(path.dirname(revisionDbPath), { recursive: true });
+  db.prepare(`ATTACH DATABASE ? AS ${RUNTIME_REVISION_ATTACHMENT}`).run(
+    revisionDbPath,
+  );
+  try {
+    return fn();
+  } finally {
+    db.exec(`DETACH DATABASE ${RUNTIME_REVISION_ATTACHMENT}`);
+  }
+}
+
+function syncAttachedTeamRevisionState(
+  agents: AgentConfig[],
+  meta: RuntimeConfigChangeMeta,
+): void {
+  syncRuntimeAssetRevisionStateInOpenDatabase(
+    db,
+    'team',
+    agentTeamStructureAssetPath(),
+    meta,
+    {
+      exists: true,
+      content: serializeAgentTeamStructure(agents, { validate: false }),
+    },
+    new Date().toISOString(),
+    {
+      schemaName: RUNTIME_REVISION_ATTACHMENT,
+    },
+  );
+}
+
+function parseAgentStringArray(
+  rawValues: string | null,
+  fieldName: string,
+): string[] | undefined {
+  const normalized = rawValues?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    return normalizeTrimmedUniqueStringArray(parsed);
+  } catch {
+    logger.warn(
+      { fieldName, payloadLength: normalized.length },
+      'Failed to parse persisted agent org-chart relationship list',
+    );
+    return undefined;
+  }
+}
+
+function parseAgentCv(rawCv: string | null): AgentCv | undefined {
+  const normalized = rawCv?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentCv(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { cvLength: normalized.length },
+      'Failed to parse persisted agent CV configuration',
+    );
+    return undefined;
+  }
+}
+
+function serializeAgentEscalationTarget(
+  target: AgentConfig['escalationTarget'],
+): string | null {
+  return target ? JSON.stringify(target) : null;
+}
+
+function parseAgentEscalationTarget(
+  rawTarget: string | null,
+): AgentConfig['escalationTarget'] {
+  const normalized = rawTarget?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentEscalationTarget(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { targetLength: normalized.length },
+      'Failed to parse persisted agent escalation target',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -1880,6 +2617,13 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const skills = parseAgentSkillsConfig(row.skills);
   const chatbotId = row.chatbot_id?.trim() || '';
   const workspace = row.workspace?.trim() || '';
+  const owner = row.owner?.trim() || '';
+  const role = row.role?.trim() || '';
+  const reportsTo = row.reports_to?.trim() || '';
+  const delegatesTo = parseAgentStringArray(row.delegates_to, 'delegates_to');
+  const peers = parseAgentStringArray(row.peers, 'peers');
+  const cv = parseAgentCv(row.cv);
+  const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -1892,15 +2636,25 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(typeof row.enable_rag === 'number'
       ? { enableRag: row.enable_rag !== 0 }
       : {}),
+    ...(owner ? { owner } : {}),
+    ...(role ? { role } : {}),
+    ...(reportsTo ? { reportsTo } : {}),
+    ...(delegatesTo !== undefined ? { delegatesTo } : {}),
+    ...(peers !== undefined ? { peers } : {}),
+    ...(cv ? { cv } : {}),
+    ...(escalationTarget ? { escalationTarget } : {}),
   };
 }
+
+const AGENT_SELECT_COLUMNS =
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return null;
   const row = queryOne<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT ${AGENT_SELECT_COLUMNS}
      FROM agents
      WHERE id = ?`,
     normalizedAgentId,
@@ -1911,7 +2665,7 @@ export function getAgentById(agentId: string): AgentConfig | null {
 export function listAgents(): AgentConfig[] {
   const rows = queryAll<AgentRow, [string]>(
     db,
-    `SELECT id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, created_at, updated_at
+    `SELECT ${AGENT_SELECT_COLUMNS}
      FROM agents
      ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC`,
     DEFAULT_AGENT_ID,
@@ -1931,6 +2685,15 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedSkills = serializeAgentSkillsConfig(agent.skills);
   const normalizedChatbotId = agent.chatbotId?.trim() || null;
   const normalizedWorkspace = agent.workspace?.trim() || null;
+  const normalizedOwner = agent.owner?.trim() || null;
+  const normalizedRole = agent.role?.trim() || null;
+  const normalizedReportsTo = agent.reportsTo?.trim() || null;
+  const normalizedDelegatesTo = serializeAgentStringArray(agent.delegatesTo);
+  const normalizedPeers = serializeAgentStringArray(agent.peers);
+  const normalizedCv = serializeAgentCv(agent.cv);
+  const normalizedEscalationTarget = serializeAgentEscalationTarget(
+    agent.escalationTarget,
+  );
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -1944,9 +2707,16 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        chatbot_id,
        enable_rag,
        workspace,
+       owner,
+       role,
+       reports_to,
+       delegates_to,
+       peers,
+       cv,
+       escalation_target,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -1956,6 +2726,13 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        chatbot_id = excluded.chatbot_id,
        enable_rag = excluded.enable_rag,
        workspace = excluded.workspace,
+       owner = excluded.owner,
+       role = excluded.role,
+       reports_to = excluded.reports_to,
+       delegates_to = excluded.delegates_to,
+       peers = excluded.peers,
+       cv = excluded.cv,
+       escalation_target = excluded.escalation_target,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -1967,12 +2744,131 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedChatbotId,
     enableRag,
     normalizedWorkspace,
+    normalizedOwner,
+    normalizedRole,
+    normalizedReportsTo,
+    normalizedDelegatesTo,
+    normalizedPeers,
+    normalizedCv,
+    normalizedEscalationTarget,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {
     throw new Error(`Failed to read persisted agent: ${normalizedId}`);
   }
   return storedAgent;
+}
+
+export function upsertAgentWithTeamRevision(params: {
+  agent: AgentConfig;
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): AgentConfig {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const upsert = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
+      const stored = upsertAgent(params.agent);
+      syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      return stored;
+    });
+    return upsert();
+  });
+}
+
+export function upsertAgentsWithTeamRevision(params: {
+  agents: AgentConfig[];
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): AgentConfig[] {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const upsert = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
+      for (const agent of params.agents) {
+        upsertAgent(agent);
+      }
+      syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      return listAgents();
+    });
+    return upsert();
+  });
+}
+
+export function replaceAgentOrgChart(
+  entries: AgentTeamStructureEntry[],
+  revisionMeta?: RuntimeConfigChangeMeta,
+): AgentConfig[] {
+  const currentAgents = listAgents();
+  const currentAgentIds = new Set(currentAgents.map((agent) => agent.id));
+  const entriesById = new Map<string, AgentTeamStructureEntry>();
+  for (const entry of entries) {
+    const id = entry.id.trim();
+    if (!id) {
+      throw new Error('Team structure agent id is required.');
+    }
+    if (entriesById.has(id)) {
+      throw new Error(
+        `Team structure revision contains duplicate agent "${id}".`,
+      );
+    }
+    if (!currentAgentIds.has(id)) {
+      throw new Error(
+        `Cannot restore team structure because agent "${id}" does not exist.`,
+      );
+    }
+    entriesById.set(id, entry);
+  }
+
+  const nextAgentsById = new Map<string, AgentConfig>();
+  for (const agent of currentAgents) {
+    const entry = entriesById.get(agent.id);
+    nextAgentsById.set(agent.id, {
+      ...agent,
+      role: entry?.role,
+      reportsTo: entry?.reportsTo,
+      delegatesTo: entry?.delegatesTo ? [...entry.delegatesTo] : undefined,
+      peers: entry?.peers ? [...entry.peers] : undefined,
+    });
+  }
+  const nextAgents = Array.from(nextAgentsById.values());
+  validateAgentOrgChart(nextAgents);
+
+  const updateOrgChart = db.transaction(() => {
+    if (revisionMeta) {
+      syncAttachedTeamRevisionState(currentAgents, revisionMeta);
+    }
+    const statement = db.prepare(
+      `UPDATE agents
+       SET role = ?,
+           reports_to = ?,
+           delegates_to = ?,
+           peers = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
+    );
+    for (const agent of nextAgents) {
+      const result = statement.run(
+        agent.role?.trim() || null,
+        agent.reportsTo?.trim() || null,
+        serializeAgentStringArray(agent.delegatesTo),
+        serializeAgentStringArray(agent.peers),
+        agent.id,
+      );
+      if (result.changes !== 1) {
+        throw new Error(
+          `Cannot restore team structure because agent "${agent.id}" does not exist.`,
+        );
+      }
+    }
+    if (revisionMeta) {
+      syncAttachedTeamRevisionState(nextAgents, revisionMeta);
+    }
+  });
+  if (revisionMeta) {
+    withRuntimeRevisionDatabaseAttached(() => updateOrgChart());
+  } else {
+    updateOrgChart();
+  }
+  return listAgents();
 }
 
 export function deleteAgent(agentId: string): boolean {
@@ -1984,6 +2880,24 @@ export function deleteAgent(agentId: string): boolean {
     db.prepare('DELETE FROM agents WHERE id = ?').run(normalizedAgentId)
       .changes > 0
   );
+}
+
+export function deleteAgentWithTeamRevision(params: {
+  agentId: string;
+  finalAgents: AgentConfig[];
+  meta: RuntimeConfigChangeMeta;
+}): boolean {
+  return withRuntimeRevisionDatabaseAttached(() => {
+    const deleteWithRevision = db.transaction(() => {
+      syncAttachedTeamRevisionState(listAgents(), params.meta);
+      const deleted = deleteAgent(params.agentId);
+      if (deleted) {
+        syncAttachedTeamRevisionState(params.finalAgents, params.meta);
+      }
+      return deleted;
+    });
+    return deleteWithRevision();
+  });
 }
 
 type MemoryKvRow = Omit<StructuredMemoryEntry, 'value'> & {
@@ -2424,14 +3338,14 @@ function usageWindowWhereClause(window: UsageWindow): string | null {
   return null;
 }
 
-function normalizeUsageNumber(value: unknown): number {
+export function normalizeUsageNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value));
   }
   return 0;
 }
 
-function normalizeUsageCost(value: unknown): number {
+export function normalizeUsageCost(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(0, value);
   }
@@ -2454,7 +3368,7 @@ function applyUsageFilters(params: {
   if (windowClause) params.whereClauses.push(windowClause);
 }
 
-export function recordUsageEvent(params: {
+export interface RecordUsageEventEntry {
   sessionId: string;
   agentId: string;
   model: string;
@@ -2464,39 +3378,183 @@ export function recordUsageEvent(params: {
   toolCalls?: number;
   costUsd?: number;
   timestamp?: string;
-}): void {
-  const sessionId = resolveSessionIdCompat(params.sessionId.trim());
-  const agentId = params.agentId.trim();
-  const model = params.model.trim() || 'unknown';
-  if (!sessionId || !agentId) return;
-  const inputTokens = normalizeUsageNumber(params.inputTokens);
-  const outputTokens = normalizeUsageNumber(params.outputTokens);
+}
+
+export interface RecordUsageEventBatchEntry extends RecordUsageEventEntry {
+  id?: string;
+  batchId?: string;
+  batchHash?: string;
+}
+
+type NormalizedUsageEventRow = {
+  id: string;
+  sessionId: string;
+  agentId: string;
+  timestamp: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  toolCalls: number;
+  batchId: string | null;
+  batchHash: string | null;
+};
+
+function normalizeUsageEntry(
+  entry: RecordUsageEventBatchEntry,
+): NormalizedUsageEventRow | null {
+  const sessionId = resolveSessionIdCompat(entry.sessionId.trim());
+  const agentId = entry.agentId.trim();
+  if (!sessionId || !agentId) return null;
+  const inputTokens = normalizeUsageNumber(entry.inputTokens);
+  const outputTokens = normalizeUsageNumber(entry.outputTokens);
   const totalTokens = normalizeUsageNumber(
-    params.totalTokens ?? inputTokens + outputTokens,
+    entry.totalTokens ?? inputTokens + outputTokens,
   );
-  const toolCalls = normalizeUsageNumber(params.toolCalls);
-  const costUsd = normalizeUsageCost(params.costUsd);
-  const timestamp =
-    typeof params.timestamp === 'string' && params.timestamp.trim()
-      ? params.timestamp.trim()
-      : new Date().toISOString();
+  return {
+    id:
+      typeof entry.id === 'string' && entry.id.trim()
+        ? entry.id.trim()
+        : randomUUID(),
+    sessionId,
+    agentId,
+    timestamp:
+      typeof entry.timestamp === 'string' && entry.timestamp.trim()
+        ? entry.timestamp.trim()
+        : new Date().toISOString(),
+    model: entry.model.trim() || 'unknown',
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd: normalizeUsageCost(entry.costUsd),
+    toolCalls: normalizeUsageNumber(entry.toolCalls),
+    batchId:
+      typeof entry.batchId === 'string' && entry.batchId.trim()
+        ? entry.batchId.trim()
+        : null,
+    batchHash:
+      typeof entry.batchHash === 'string' && entry.batchHash.trim()
+        ? entry.batchHash.trim()
+        : null,
+  };
+}
+
+function getUsageEventBatchInsertStatement(): Database.Statement {
+  if (!usageEventBatchInsertStatement) {
+    usageEventBatchInsertStatement = db.prepare(
+      `INSERT INTO usage_events
+        (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls, batch_id, batch_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+  }
+  return usageEventBatchInsertStatement;
+}
+
+export function recordUsageEvent(params: RecordUsageEventEntry): void {
+  const row = normalizeUsageEntry(params);
+  if (!row) return;
 
   db.prepare(
     `INSERT INTO usage_events
       (id, session_id, agent_id, timestamp, model, input_tokens, output_tokens, total_tokens, cost_usd, tool_calls)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    randomUUID(),
-    sessionId,
-    agentId,
-    timestamp,
-    model,
-    inputTokens,
-    outputTokens,
-    totalTokens,
-    costUsd,
-    toolCalls,
+    row.id,
+    row.sessionId,
+    row.agentId,
+    row.timestamp,
+    row.model,
+    row.inputTokens,
+    row.outputTokens,
+    row.totalTokens,
+    row.costUsd,
+    row.toolCalls,
   );
+}
+
+export interface UsageBatchHashRecord {
+  sessionId: string;
+  agentId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  toolCalls: number;
+  costUsd: number;
+  timestamp: string;
+  batchId: string;
+  batchHash: string | null;
+}
+
+/**
+ * Bulk-insert usage events inside a single SQLite transaction.
+ *
+ * Used by the asynchronous token-usage buffer to amortize the write cost
+ * of high-frequency model invocations. Each row is normalized identically
+ * to {@link recordUsageEvent}; rows with missing session/agent ids are
+ * silently dropped to preserve drop-on-the-floor semantics.
+ */
+export function recordUsageEventBatch(
+  entries: RecordUsageEventBatchEntry[],
+): void {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+
+  const normalized: NormalizedUsageEventRow[] = [];
+  for (const entry of entries) {
+    const row = normalizeUsageEntry(entry);
+    if (row) normalized.push(row);
+  }
+  if (normalized.length === 0) return;
+
+  const insert = getUsageEventBatchInsertStatement();
+  const transaction = db.transaction((rows: NormalizedUsageEventRow[]) => {
+    for (const row of rows) {
+      insert.run(
+        row.id,
+        row.sessionId,
+        row.agentId,
+        row.timestamp,
+        row.model,
+        row.inputTokens,
+        row.outputTokens,
+        row.totalTokens,
+        row.costUsd,
+        row.toolCalls,
+        row.batchId,
+        row.batchHash,
+      );
+    }
+  });
+  transaction(normalized);
+}
+
+export function listUsageEventsByBatchId(
+  batchId: string,
+): UsageBatchHashRecord[] {
+  ensureDatabaseReady();
+  const normalizedBatchId = batchId.trim();
+  if (!normalizedBatchId) return [];
+  const rows = db
+    .prepare(
+      `SELECT
+         session_id AS sessionId,
+         agent_id AS agentId,
+         model,
+         input_tokens AS inputTokens,
+         output_tokens AS outputTokens,
+         total_tokens AS totalTokens,
+         tool_calls AS toolCalls,
+         cost_usd AS costUsd,
+         timestamp,
+         batch_id AS batchId,
+         batch_hash AS batchHash
+       FROM usage_events
+       WHERE batch_id = ?
+       ORDER BY id ASC`,
+    )
+    .all(normalizedBatchId) as UsageBatchHashRecord[];
+  return rows;
 }
 
 function serializeRequestLogJson(value: unknown): string | null {
@@ -2584,6 +3642,7 @@ export function getUsageTotals(params?: {
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
@@ -2594,18 +3653,34 @@ export function getUsageTotals(params?: {
     total_output_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
+    cost_per_call_usd: 0,
     call_count: 0,
     total_tool_calls: 0,
   };
 
+  const callCount = normalizeUsageNumber(row.call_count);
+  const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
-    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
-    call_count: normalizeUsageNumber(row.call_count),
+    total_cost_usd: totalCostUsd,
+    cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
+    call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
+}
+
+export function monthlySpendUsd(agentId: string): number {
+  agentId = agentId.trim();
+  if (!agentId) {
+    throw new Error('Agent id is required.');
+  }
+  return getUsageTotals({ agentId, window: 'monthly' }).total_cost_usd;
+}
+
+export function monthlySpendEur(agentId: string): number {
+  return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {
@@ -2675,6 +3750,7 @@ export function getSessionUsageTotalsSince(
          COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
          COALESCE(SUM(total_tokens), 0) AS total_tokens,
          COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+         COALESCE(SUM(cost_usd) / NULLIF(COUNT(*), 0), 0.0) AS cost_per_call_usd,
          COUNT(*) AS call_count,
          COALESCE(SUM(tool_calls), 0) AS total_tool_calls
        FROM usage_events
@@ -2688,16 +3764,20 @@ export function getSessionUsageTotalsSince(
     total_output_tokens: 0,
     total_tokens: 0,
     total_cost_usd: 0,
+    cost_per_call_usd: 0,
     call_count: 0,
     total_tool_calls: 0,
   };
 
+  const callCount = normalizeUsageNumber(row.call_count);
+  const totalCostUsd = normalizeUsageCost(row.total_cost_usd);
   return {
     total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
     total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
     total_tokens: normalizeUsageNumber(row.total_tokens),
-    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
-    call_count: normalizeUsageNumber(row.call_count),
+    total_cost_usd: totalCostUsd,
+    cost_per_call_usd: normalizeUsageCost(row.cost_per_call_usd),
+    call_count: callCount,
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   };
 }
@@ -2975,6 +4055,40 @@ export function listUsageByAgent(params?: {
   }));
 }
 
+export function listUsageByAgentRollups(): UsageAgentRollup[] {
+  const rows = queryAll<UsageAgentRollup>(
+    db,
+    `SELECT
+       agent_id,
+       COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+       COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+       COALESCE(SUM(
+         CASE
+           WHEN timestamp >= datetime('now', 'start of month') THEN cost_usd
+           ELSE 0
+         END
+       ), 0.0) AS monthly_cost_usd,
+       COUNT(*) AS call_count,
+       COALESCE(SUM(tool_calls), 0) AS total_tool_calls
+     FROM usage_events
+     GROUP BY agent_id
+     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+  );
+
+  return rows.map((row) => ({
+    agent_id: row.agent_id,
+    total_input_tokens: normalizeUsageNumber(row.total_input_tokens),
+    total_output_tokens: normalizeUsageNumber(row.total_output_tokens),
+    total_tokens: normalizeUsageNumber(row.total_tokens),
+    total_cost_usd: normalizeUsageCost(row.total_cost_usd),
+    monthly_cost_usd: normalizeUsageCost(row.monthly_cost_usd),
+    call_count: normalizeUsageNumber(row.call_count),
+    total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
+  }));
+}
+
 export function listUsageBySession(params?: {
   window?: UsageWindow;
 }): UsageSessionAggregate[] {
@@ -3055,6 +4169,218 @@ export function listUsageDailyBreakdown(params?: {
     call_count: normalizeUsageNumber(row.call_count),
     total_tool_calls: normalizeUsageNumber(row.total_tool_calls),
   }));
+}
+
+export interface MessageTrendDay {
+  day: string;
+  user_messages: number;
+  assistant_messages: number;
+  total_messages: number;
+}
+
+export function listMessageTrendByDay(params?: {
+  days?: number;
+}): MessageTrendDay[] {
+  ensureDatabaseReady();
+  const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
+  const rows = queryAll<{
+    day: string;
+    user_messages: number;
+    assistant_messages: number;
+    total_messages: number;
+  }>(
+    db,
+    `SELECT
+       date(created_at) AS day,
+       SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_messages,
+       SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_messages,
+       COUNT(*) AS total_messages
+     FROM messages
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')
+     GROUP BY day
+     ORDER BY day ASC`,
+  );
+  return rows.map((row) => ({
+    day: String(row.day || ''),
+    user_messages: normalizeUsageNumber(row.user_messages),
+    assistant_messages: normalizeUsageNumber(row.assistant_messages),
+    total_messages: normalizeUsageNumber(row.total_messages),
+  }));
+}
+
+export interface SessionTrendDay {
+  day: string;
+  new_sessions: number;
+  active_sessions: number;
+}
+
+export function listSessionTrendByDay(params?: {
+  days?: number;
+}): SessionTrendDay[] {
+  ensureDatabaseReady();
+  const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
+  const createdRows = queryAll<{ day: string; new_sessions: number }>(
+    db,
+    `SELECT date(created_at) AS day, COUNT(*) AS new_sessions
+     FROM sessions
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')
+     GROUP BY day`,
+  );
+  const activeRows = queryAll<{ day: string; active_sessions: number }>(
+    db,
+    `SELECT date(created_at) AS day, COUNT(DISTINCT session_id) AS active_sessions
+     FROM messages
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')
+     GROUP BY day`,
+  );
+  const byDay = new Map<string, SessionTrendDay>();
+  for (const row of createdRows) {
+    const day = String(row.day || '');
+    if (!day) continue;
+    byDay.set(day, {
+      day,
+      new_sessions: normalizeUsageNumber(row.new_sessions),
+      active_sessions: 0,
+    });
+  }
+  for (const row of activeRows) {
+    const day = String(row.day || '');
+    if (!day) continue;
+    const existing = byDay.get(day);
+    if (existing) {
+      existing.active_sessions = normalizeUsageNumber(row.active_sessions);
+    } else {
+      byDay.set(day, {
+        day,
+        new_sessions: 0,
+        active_sessions: normalizeUsageNumber(row.active_sessions),
+      });
+    }
+  }
+  return Array.from(byDay.values()).sort((a, b) =>
+    a.day < b.day ? -1 : a.day > b.day ? 1 : 0,
+  );
+}
+
+export interface ChannelStatsRow {
+  channel_id: string;
+  session_count: number;
+  user_messages: number;
+  assistant_messages: number;
+  total_messages: number;
+}
+
+export function listStatsByChannel(params?: {
+  days?: number;
+}): ChannelStatsRow[] {
+  ensureDatabaseReady();
+  const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
+  const sessionRows = queryAll<{ channel_id: string; session_count: number }>(
+    db,
+    `SELECT COALESCE(channel_id, '') AS channel_id, COUNT(*) AS session_count
+     FROM sessions
+     WHERE last_active >= datetime('now', 'start of day', '-${dayOffset} days')
+     GROUP BY channel_id`,
+  );
+  const messageRows = queryAll<{
+    channel_id: string;
+    user_messages: number;
+    assistant_messages: number;
+    total_messages: number;
+  }>(
+    db,
+    `SELECT
+       COALESCE(s.channel_id, '') AS channel_id,
+       SUM(CASE WHEN m.role = 'user' THEN 1 ELSE 0 END) AS user_messages,
+       SUM(CASE WHEN m.role = 'assistant' THEN 1 ELSE 0 END) AS assistant_messages,
+       COUNT(m.id) AS total_messages
+     FROM messages m
+     JOIN sessions s ON s.id = m.session_id
+     WHERE m.created_at >= datetime('now', 'start of day', '-${dayOffset} days')
+     GROUP BY s.channel_id`,
+  );
+  const byChannel = new Map<string, ChannelStatsRow>();
+  for (const row of sessionRows) {
+    const channelId = String(row.channel_id || '');
+    byChannel.set(channelId, {
+      channel_id: channelId,
+      session_count: normalizeUsageNumber(row.session_count),
+      user_messages: 0,
+      assistant_messages: 0,
+      total_messages: 0,
+    });
+  }
+  for (const row of messageRows) {
+    const channelId = String(row.channel_id || '');
+    const existing = byChannel.get(channelId) || {
+      channel_id: channelId,
+      session_count: 0,
+      user_messages: 0,
+      assistant_messages: 0,
+      total_messages: 0,
+    };
+    existing.user_messages = normalizeUsageNumber(row.user_messages);
+    existing.assistant_messages = normalizeUsageNumber(row.assistant_messages);
+    existing.total_messages = normalizeUsageNumber(row.total_messages);
+    byChannel.set(channelId, existing);
+  }
+  return Array.from(byChannel.values()).sort(
+    (a, b) =>
+      b.total_messages - a.total_messages || b.session_count - a.session_count,
+  );
+}
+
+export interface StatisticsTotals {
+  new_sessions: number;
+  active_sessions: number;
+  total_messages: number;
+  user_messages: number;
+  assistant_messages: number;
+}
+
+export function getStatisticsTotals(params?: {
+  days?: number;
+}): StatisticsTotals {
+  ensureDatabaseReady();
+  const days = Math.max(1, Math.min(365, Math.floor(params?.days || 30)));
+  const dayOffset = days - 1;
+  const sessionRow = queryOne<{ new_sessions: number }>(
+    db,
+    `SELECT COUNT(*) AS new_sessions
+     FROM sessions
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')`,
+  );
+  const activeRow = queryOne<{ active_sessions: number }>(
+    db,
+    `SELECT COUNT(DISTINCT session_id) AS active_sessions
+     FROM messages
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')`,
+  );
+  const messageRow = queryOne<{
+    total_messages: number;
+    user_messages: number;
+    assistant_messages: number;
+  }>(
+    db,
+    `SELECT
+       COUNT(*) AS total_messages,
+       SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) AS user_messages,
+       SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) AS assistant_messages
+     FROM messages
+     WHERE created_at >= datetime('now', 'start of day', '-${dayOffset} days')`,
+  );
+  return {
+    new_sessions: normalizeUsageNumber(sessionRow?.new_sessions ?? 0),
+    active_sessions: normalizeUsageNumber(activeRow?.active_sessions ?? 0),
+    total_messages: normalizeUsageNumber(messageRow?.total_messages ?? 0),
+    user_messages: normalizeUsageNumber(messageRow?.user_messages ?? 0),
+    assistant_messages: normalizeUsageNumber(
+      messageRow?.assistant_messages ?? 0,
+    ),
+  };
 }
 
 type RawKnowledgeGraphRow = {
@@ -3959,8 +5285,8 @@ export function forkSessionBranch(
     ).run(nextSessionId, sourceSession.id, beforeMessageId, copiedMessageCount);
     copySessionKvStore(sourceSession.id, nextSessionId);
     db.prepare(
-      `INSERT INTO messages (session_id, user_id, username, role, content, created_at)
-       SELECT ?, user_id, username, role, content, created_at
+      `INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json, created_at)
+       SELECT ?, user_id, username, role, agent_id, content, artifacts_json, created_at
        FROM messages
        WHERE session_id = ?
          AND id < ?
@@ -4169,6 +5495,36 @@ export function updateSessionShowMode(
   );
 }
 
+export function getSessionTitle(sessionId: string): {
+  title: string | null;
+  source: SessionTitleSource | null;
+} {
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const row = queryOne<{ title: string | null; title_source: string | null }>(
+    db,
+    'SELECT title, title_source FROM sessions WHERE id = ?',
+    resolvedSessionId,
+  );
+  if (!row) return { title: null, source: null };
+  const source = row.title_source === 'auto' ? row.title_source : null;
+  return { title: row.title, source };
+}
+
+function normalizeSessionTitleForStorage(title: string): string | null {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) return null;
+  return normalizedTitle.slice(0, RECENT_CHAT_SESSION_TITLE_MAX_LENGTH);
+}
+
+export function setSessionTitle(sessionId: string, title: string): void {
+  const normalizedTitle = normalizeSessionTitleForStorage(title);
+  if (!normalizedTitle) return;
+  const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  db.prepare(
+    'UPDATE sessions SET title = ?, title_source = ? WHERE id = ? AND title IS NULL',
+  ).run(normalizedTitle, 'auto', resolvedSessionId);
+}
+
 export function getAllSessions(options?: {
   limit?: number;
   warnLabel?: string;
@@ -4197,6 +5553,45 @@ export function getAllSessions(options?: {
   return rows;
 }
 
+export function getRecentSessionsForAgents(
+  agentIds: readonly string[],
+  perAgentLimit = 8,
+): Session[] {
+  ensureDatabaseReady();
+  const normalizedAgentIds = Array.from(
+    new Set(
+      agentIds
+        .map((agentId) => (agentId || DEFAULT_AGENT_ID).trim())
+        .filter(Boolean),
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+  if (normalizedAgentIds.length === 0) return [];
+  const limit = Math.max(1, Math.min(64, Math.trunc(perAgentLimit || 8)));
+  const placeholders = normalizedAgentIds.map(() => '?').join(', ');
+  const currentWhere = hasSessionCurrentColumn(db) ? 'is_current = 1 AND ' : '';
+  return queryAll<Session, Array<string | number>>(
+    db,
+    `WITH ranked_sessions AS (
+       SELECT
+         *,
+         ROW_NUMBER() OVER (
+           PARTITION BY COALESCE(NULLIF(TRIM(agent_id), ''), ?)
+           ORDER BY last_active DESC, id DESC
+         ) AS liveness_rank
+       FROM sessions
+       WHERE ${currentWhere}COALESCE(NULLIF(TRIM(agent_id), ''), ?) IN (${placeholders})
+     )
+     SELECT *
+     FROM ranked_sessions
+     WHERE liveness_rank <= ?
+     ORDER BY last_active DESC, id DESC`,
+    DEFAULT_AGENT_ID,
+    DEFAULT_AGENT_ID,
+    ...normalizedAgentIds,
+    limit,
+  );
+}
+
 export interface RecentUserSessionSummary {
   sessionId: string;
   lastActive: string;
@@ -4205,10 +5600,13 @@ export interface RecentUserSessionSummary {
   searchSnippet?: string | null;
 }
 
-type RecentUserSessionRow = Pick<
-  Session,
-  'id' | 'last_active' | 'message_count'
->;
+interface RecentUserSessionRow {
+  id: string;
+  last_active: string;
+  last_message_at: string | null;
+  message_count: number;
+  title: string | null;
+}
 
 interface RecentSessionBoundaryRow {
   session_id: string;
@@ -4249,7 +5647,7 @@ function batchQueryAllBySessionIds<Row>(
 
 function getRecentSessionBoundaryRows(
   sessionIds: string[],
-  userId: string,
+  userId: string | null,
 ): RecentSessionBoundaryRow[] {
   return batchQueryAllBySessionIds(sessionIds, (batch, placeholders) =>
     queryAll<RecentSessionBoundaryRow>(
@@ -4259,11 +5657,11 @@ function getRecentSessionBoundaryRows(
            session_id,
            role,
            content,
-           CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END AS is_target_user,
+           CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END AS is_target_user,
            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id ASC) AS rn_first,
            ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY id DESC) AS rn_last,
            ROW_NUMBER() OVER (
-             PARTITION BY session_id, CASE WHEN role = 'user' AND user_id = ? THEN 1 ELSE 0 END
+             PARTITION BY session_id, CASE WHEN role = 'user' AND (? IS NULL OR user_id = ?) THEN 1 ELSE 0 END
              ORDER BY id ASC
            ) AS rn_target_group
          FROM messages
@@ -4277,6 +5675,8 @@ function getRecentSessionBoundaryRows(
          MAX(CASE WHEN rn_last = 1 THEN role END) AS last_role
        FROM ranked
        GROUP BY session_id`,
+      userId,
+      userId,
       userId,
       userId,
       ...batch,
@@ -4322,62 +5722,42 @@ function getRecentSessionContentMatches(
   );
 }
 
-export function getRecentSessionsForUser(params: {
-  userId: string;
-  channelId?: string | null;
-  limit?: number;
-  query?: string | null;
+function normalizeRecentSessionTimestamp(raw: string): string {
+  const timestamp = parseTimestamp(raw);
+  return timestamp > 0 ? new Date(timestamp).toISOString() : raw;
+}
+
+function buildRecentSessionSummaries(params: {
+  rows: RecentUserSessionRow[];
+  boundaryUserId: string | null;
+  searchQuery: string;
+  limit: number;
 }): RecentUserSessionSummary[] {
-  const userId = params.userId.trim();
-  if (!userId) return [];
-  const channelId = String(params.channelId || '').trim();
-  const searchQuery = normalizeRecentChatSearchQuery(
-    params.query,
-  ).toLowerCase();
-  const limit = normalizeRecentChatSessionLimit(params.limit);
-
-  const rows = channelId
-    ? queryAll<RecentUserSessionRow, [string, string]>(
-        db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
-           FROM sessions s
-           INNER JOIN messages m
-             ON m.session_id = s.id
-           WHERE m.user_id = ?
-             AND s.channel_id = ?`,
-        userId,
-        channelId,
-      )
-    : queryAll<RecentUserSessionRow, [string]>(
-        db,
-        `SELECT DISTINCT s.id, s.last_active, s.message_count
-           FROM sessions s
-           INNER JOIN messages m
-             ON m.session_id = s.id
-           WHERE m.user_id = ?`,
-        userId,
-      );
-
-  const sortedRows = rows.sort((left, right) => {
-    const rightTimestamp = parseTimestamp(right.last_active);
-    const leftTimestamp = parseTimestamp(left.last_active);
+  const sortedRows = [...params.rows].sort((left, right) => {
+    const rightTimestamp = parseTimestamp(
+      right.last_message_at || right.last_active,
+    );
+    const leftTimestamp = parseTimestamp(
+      left.last_message_at || left.last_active,
+    );
     if (rightTimestamp !== leftTimestamp) {
       return rightTimestamp - leftTimestamp;
     }
     return right.id.localeCompare(left.id);
   });
-  const targetRows = searchQuery
+  const targetRows = params.searchQuery
     ? sortedRows.slice(0, MAX_RECENT_CHAT_SESSION_LIMIT)
-    : sortedRows.slice(0, limit);
+    : sortedRows.slice(0, params.limit);
   if (targetRows.length === 0) return [];
 
+  const sessionIds = targetRows.map((row) => row.id);
   const boundaryRows = getRecentSessionBoundaryRows(
-    targetRows.map((row) => row.id),
-    userId,
+    sessionIds,
+    params.boundaryUserId,
   );
   const contentMatchesBySessionId = getRecentSessionContentMatches(
-    targetRows.map((row) => row.id),
-    searchQuery,
+    sessionIds,
+    params.searchQuery,
   );
   const boundariesBySessionId = new Map(
     boundaryRows.map((row) => [row.session_id, row] as const),
@@ -4397,21 +5777,26 @@ export function getRecentSessionsForUser(params: {
       boundary?.last_content && !shouldHideApprovalPrompt
         ? boundary.last_content
         : null;
-    const title = buildSessionBoundaryPreview({
-      firstMessage,
-      lastMessage,
-      maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
-    });
-    const rawSearchSnippet = searchQuery
+    const storedTitle = (row.title || '').trim();
+    const title =
+      storedTitle ||
+      buildSessionBoundaryPreview({
+        firstMessage,
+        lastMessage,
+        maxLength: RECENT_CHAT_SESSION_TITLE_MAX_LENGTH,
+      });
+    const rawSearchSnippet = params.searchQuery
       ? buildSessionSearchSnippet(
           contentMatchesBySessionId.get(row.id) || null,
-          searchQuery,
+          params.searchQuery,
         )
       : null;
 
     return {
       sessionId: row.id,
-      lastActive: row.last_active,
+      lastActive: normalizeRecentSessionTimestamp(
+        row.last_message_at || row.last_active,
+      ),
       messageCount: normalizeUsageNumber(row.message_count),
       title,
       ...(shouldIncludeSessionSearchSnippet(title, rawSearchSnippet)
@@ -4420,15 +5805,119 @@ export function getRecentSessionsForUser(params: {
     };
   });
 
-  if (!searchQuery) return sessions;
+  if (!params.searchQuery) return sessions;
   return sessions
     .filter((session) => {
       const titleMatches = String(session.title || '')
         .toLowerCase()
-        .includes(searchQuery);
+        .includes(params.searchQuery);
       return titleMatches || Boolean(session.searchSnippet);
     })
-    .slice(0, limit);
+    .slice(0, params.limit);
+}
+
+export function getRecentSessionsForUser(params: {
+  userId: string;
+  channelId?: string | null;
+  limit?: number;
+  query?: string | null;
+}): RecentUserSessionSummary[] {
+  const userId = params.userId.trim();
+  if (!userId) return [];
+  const channelId = String(params.channelId || '').trim();
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
+
+  const rows = channelId
+    ? queryAll<RecentUserSessionRow, [string, string]>(
+        db,
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           s.title,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
+           FROM sessions s
+           INNER JOIN messages m
+             ON m.session_id = s.id
+           WHERE m.user_id = ?
+             AND s.channel_id = ?
+           GROUP BY s.id`,
+        userId,
+        channelId,
+      )
+    : queryAll<RecentUserSessionRow, [string]>(
+        db,
+        `SELECT
+           s.id,
+           s.last_active,
+           s.message_count,
+           s.title,
+           (
+             SELECT MAX(all_messages.created_at)
+               FROM messages all_messages
+              WHERE all_messages.session_id = s.id
+           ) AS last_message_at
+           FROM sessions s
+           INNER JOIN messages m
+             ON m.session_id = s.id
+           WHERE m.user_id = ?
+           GROUP BY s.id`,
+        userId,
+      );
+
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: userId,
+    searchQuery,
+    limit,
+  });
+}
+
+export function getRecentSessionsForChannel(params: {
+  channelId: string;
+  limit?: number;
+  query?: string | null;
+}): RecentUserSessionSummary[] {
+  const channelId = params.channelId.trim();
+  if (!channelId) return [];
+  const searchQuery = normalizeRecentChatSearchQuery(
+    params.query,
+  ).toLowerCase();
+  const limit = normalizeRecentChatSessionLimit(params.limit);
+  const sqlLimit = searchQuery ? MAX_RECENT_CHAT_SESSION_LIMIT : limit;
+
+  const rows = queryAll<RecentUserSessionRow, [string, number]>(
+    db,
+    `SELECT
+       s.id,
+       s.last_active,
+       s.message_count,
+       s.title,
+       MAX(m.created_at) AS last_message_at
+       FROM sessions s
+       INNER JOIN messages m
+          ON m.session_id = s.id
+      WHERE s.channel_id = ?
+      GROUP BY s.id
+      ORDER BY last_message_at DESC
+      LIMIT ?`,
+    channelId,
+    sqlLimit,
+  );
+
+  return buildRecentSessionSummaries({
+    rows,
+    boundaryUserId: null,
+    searchQuery,
+    limit,
+  });
 }
 
 export function getFullAutoSessionCount(): number {
@@ -4540,19 +6029,68 @@ export function deleteSessionData(sessionId: string): {
   return transaction(resolvedSessionId);
 }
 
+function normalizeMessageArtifacts(
+  artifacts?: ArtifactMetadata[] | null,
+): ArtifactMetadata[] {
+  if (!Array.isArray(artifacts)) return [];
+  return artifacts
+    .map((artifact) => ({
+      path: String(artifact?.path || '').trim(),
+      filename: String(artifact?.filename || '').trim(),
+      mimeType: String(artifact?.mimeType || '').trim(),
+    }))
+    .filter(
+      (artifact) =>
+        artifact.path.length > 0 &&
+        artifact.filename.length > 0 &&
+        artifact.mimeType.length > 0,
+    );
+}
+
+function serializeMessageArtifacts(
+  artifacts?: ArtifactMetadata[] | null,
+): string | null {
+  const normalized = normalizeMessageArtifacts(artifacts);
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
+function parseMessageArtifacts(raw: string | null): ArtifactMetadata[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return normalizeMessageArtifacts(
+      Array.isArray(parsed) ? (parsed as ArtifactMetadata[]) : null,
+    );
+  } catch {
+    return [];
+  }
+}
+
 export function storeMessage(
   sessionId: string,
   userId: string,
   username: string | null,
   role: string,
   content: string,
+  agentId?: string | null,
+  artifacts?: ArtifactMetadata[] | null,
 ): number {
   const resolvedSessionId = resolveSessionIdCompat(sessionId);
+  const normalizedAgentId = agentId?.trim() || null;
+  const artifactsJson = serializeMessageArtifacts(artifacts);
   const result = db
     .prepare(
-      'INSERT INTO messages (session_id, user_id, username, role, content) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO messages (session_id, user_id, username, role, agent_id, content, artifacts_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(resolvedSessionId, userId, username, role, content);
+    .run(
+      resolvedSessionId,
+      userId,
+      username,
+      role,
+      normalizedAgentId,
+      content,
+      artifactsJson,
+    );
 
   db.prepare(
     "UPDATE sessions SET message_count = message_count + 1, last_active = datetime('now') WHERE id = ?",
@@ -4698,7 +6236,9 @@ export function getConversationHistoryPage(
          m.user_id,
          m.username,
          m.role,
+         m.agent_id,
          m.content,
+         m.artifacts_json,
          m.created_at
        FROM sessions s
        LEFT JOIN (
@@ -4719,6 +6259,7 @@ export function getConversationHistoryPage(
 
   if (rows.length === 0) {
     return {
+      sessionId: resolvedSessionId,
       sessionKey: null,
       mainSessionKey: null,
       history: [],
@@ -4744,12 +6285,15 @@ export function getConversationHistoryPage(
       user_id: row.user_id,
       username: row.username,
       role: row.role,
+      agent_id: row.agent_id,
       content: row.content,
+      artifacts: parseMessageArtifacts(row.artifacts_json),
       created_at: row.created_at,
     });
   }
 
   return {
+    sessionId: resolvedSessionId,
     sessionKey: rows[0]?.session_key || null,
     mainSessionKey: rows[0]?.main_session_key || null,
     history,
@@ -6082,6 +7626,7 @@ function mapSkillObservationRow(row: SkillObservationRow): SkillObservation {
   return {
     id: Math.floor(row.id),
     skill_name: row.skill_name,
+    agent_id: row.agent_id,
     session_id: row.session_id,
     run_id: row.run_id,
     outcome: normalizeSkillOutcome(row.outcome),
@@ -6191,6 +7736,7 @@ export function recordSkillObservation(input: {
   skillName: string;
   sessionId: string;
   runId: string;
+  agentId?: string | null;
   outcome: SkillExecutionOutcome;
   errorCategory?: SkillErrorCategory | null;
   errorDetail?: string | null;
@@ -6202,6 +7748,7 @@ export function recordSkillObservation(input: {
     .prepare(
       `INSERT INTO skill_observations (
          skill_name,
+         agent_id,
          session_id,
          run_id,
          outcome,
@@ -6210,10 +7757,11 @@ export function recordSkillObservation(input: {
          tool_calls_attempted,
          tool_calls_failed,
          duration_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.skillName.trim(),
+      input.agentId?.trim() || null,
       input.sessionId.trim(),
       input.runId.trim(),
       input.outcome,
@@ -6237,6 +7785,7 @@ export function recordSkillObservation(input: {
 
 export function getSkillObservations(params?: {
   skillName?: string;
+  agentId?: string;
   sessionId?: string;
   runId?: string;
   createdAfter?: string | null;
@@ -6246,6 +7795,7 @@ export function getSkillObservations(params?: {
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
   const sessionId = params?.sessionId?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const runId = params?.runId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
@@ -6255,6 +7805,10 @@ export function getSkillObservations(params?: {
   if (sessionId) {
     clauses.push('session_id = ?');
     args.push(sessionId);
+  }
+  if (agentId) {
+    clauses.push('agent_id = ?');
+    args.push(agentId);
   }
   if (runId) {
     clauses.push('run_id = ?');
@@ -6317,12 +7871,14 @@ export function pruneSkillObservations(params: {
 
 export function getSkillObservationSummary(params?: {
   skillName?: string;
+  agentId?: string;
   createdAfter?: string | null;
 }): SkillObservationSummary[] {
   ensureDatabaseReady();
   const clauses: string[] = [];
   const args: Array<string | number> = [];
   const skillName = params?.skillName?.trim() || '';
+  const agentId = params?.agentId?.trim() || '';
   const createdAfter = params?.createdAfter?.trim() || '';
   if (skillName) {
     clauses.push('skill_name = ?');
@@ -6331,6 +7887,10 @@ export function getSkillObservationSummary(params?: {
   if (createdAfter) {
     clauses.push('created_at >= ?');
     args.push(createdAfter);
+  }
+  if (agentId) {
+    clauses.push('agent_id = ?');
+    args.push(agentId);
   }
   const whereClause =
     clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -6384,6 +7944,327 @@ export function getSkillObservationSummary(params?: {
     summaryRows,
     clusterRows,
   });
+}
+
+interface AgentSkillScoreAggregate {
+  agent_id: string;
+  skill_id: string;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  avg_duration_ms: number;
+  last_run_at: string | null;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+}
+
+const AGENT_SKILL_SUCCESS_POINTS = 100;
+const AGENT_SKILL_PARTIAL_POINTS = 75;
+const AGENT_SKILL_FAILURE_POINTS = 10;
+const AGENT_SKILL_FEEDBACK_POINT_STEP = 5;
+const AGENT_SKILL_MAX_FEEDBACK_POINTS = 15;
+const AGENT_SKILL_MAX_SCORE = 100;
+const AGENT_SKILL_RELIABILITY_ERROR_WEIGHT = 70;
+const AGENT_SKILL_RELIABILITY_RETRY_WEIGHT = 10;
+const AGENT_SKILL_MAX_RETRY_PENALTY = 30;
+const AGENT_SKILL_TIMING_BASELINE_MS = 30_000;
+const AGENT_SKILL_TIMING_PENALTY_STEP = 20;
+const AGENT_SKILL_QUALITY_WEIGHT = 0.6;
+const AGENT_SKILL_RELIABILITY_WEIGHT = 0.25;
+const AGENT_SKILL_TIMING_WEIGHT = 0.15;
+
+function clampAgentSkillScore(value: number): number {
+  return Math.max(0, Math.min(AGENT_SKILL_MAX_SCORE, Math.round(value)));
+}
+
+function scoreAgentSkillQuality(row: {
+  total_executions: number;
+  success_count: number;
+  failure_count: number;
+  partial_count: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+}): number {
+  const resultPoints =
+    row.total_executions > 0
+      ? (row.success_count * AGENT_SKILL_SUCCESS_POINTS +
+          row.partial_count * AGENT_SKILL_PARTIAL_POINTS +
+          row.failure_count * AGENT_SKILL_FAILURE_POINTS) /
+        row.total_executions
+      : 0;
+  const feedbackBalance =
+    row.positive_feedback_count - row.negative_feedback_count;
+  const feedbackPoints = Math.max(
+    -AGENT_SKILL_MAX_FEEDBACK_POINTS,
+    Math.min(
+      AGENT_SKILL_MAX_FEEDBACK_POINTS,
+      feedbackBalance * AGENT_SKILL_FEEDBACK_POINT_STEP,
+    ),
+  );
+  return clampAgentSkillScore(resultPoints + feedbackPoints);
+}
+
+function scoreAgentSkillReliability(row: {
+  total_executions: number;
+  tool_calls_attempted: number;
+  tool_calls_failed: number;
+}): number {
+  const failureRate =
+    row.tool_calls_attempted > 0
+      ? row.tool_calls_failed / row.tool_calls_attempted
+      : 0;
+  const avgToolCalls =
+    row.total_executions > 0
+      ? row.tool_calls_attempted / row.total_executions
+      : 0;
+  const retryPenalty = Math.min(
+    AGENT_SKILL_MAX_RETRY_PENALTY,
+    Math.max(0, avgToolCalls - 1) * AGENT_SKILL_RELIABILITY_RETRY_WEIGHT,
+  );
+  return clampAgentSkillScore(
+    AGENT_SKILL_MAX_SCORE -
+      failureRate * AGENT_SKILL_RELIABILITY_ERROR_WEIGHT -
+      retryPenalty,
+  );
+}
+
+function scoreAgentSkillTiming(avgDurationMs: number): number {
+  if (avgDurationMs <= 0) return AGENT_SKILL_MAX_SCORE;
+  const penalty =
+    Math.log2(avgDurationMs / AGENT_SKILL_TIMING_BASELINE_MS + 1) *
+    AGENT_SKILL_TIMING_PENALTY_STEP;
+  return clampAgentSkillScore(AGENT_SKILL_MAX_SCORE - penalty);
+}
+
+function scoreAgentSkillOverall(row: {
+  quality_score: number;
+  reliability_score: number;
+  timing_score: number;
+}): number {
+  return clampAgentSkillScore(
+    row.quality_score * AGENT_SKILL_QUALITY_WEIGHT +
+      row.reliability_score * AGENT_SKILL_RELIABILITY_WEIGHT +
+      row.timing_score * AGENT_SKILL_TIMING_WEIGHT,
+  );
+}
+
+function mapAgentSkillScoreRow(row: AgentSkillScoreAggregate): AgentSkillScore {
+  const successCount = Math.max(0, Math.floor(row.success_count || 0));
+  const failureCount = Math.max(0, Math.floor(row.failure_count || 0));
+  const partialCount = Math.max(0, Math.floor(row.partial_count || 0));
+  const totalExecutions = successCount + failureCount + partialCount;
+  const toolCallsAttempted = Math.max(
+    0,
+    Math.floor(row.tool_calls_attempted || 0),
+  );
+  const toolCallsFailed = Math.max(0, Math.floor(row.tool_calls_failed || 0));
+  const normalized = {
+    agent_id: row.agent_id,
+    skill_id: row.skill_id,
+    skill_name: row.skill_id,
+    total_executions: totalExecutions,
+    success_count: successCount,
+    failure_count: failureCount,
+    partial_count: partialCount,
+    success_rate: totalExecutions > 0 ? successCount / totalExecutions : 0,
+    avg_duration_ms: Math.max(0, Number(row.avg_duration_ms || 0)),
+    tool_breakage_rate:
+      toolCallsAttempted > 0 ? toolCallsFailed / toolCallsAttempted : 0,
+    positive_feedback_count: Math.max(
+      0,
+      Math.floor(row.positive_feedback_count || 0),
+    ),
+    negative_feedback_count: Math.max(
+      0,
+      Math.floor(row.negative_feedback_count || 0),
+    ),
+    last_run_at: row.last_run_at,
+    last_observed_at: row.last_run_at,
+  };
+  const qualityScore = scoreAgentSkillQuality({
+    total_executions: normalized.total_executions,
+    success_count: normalized.success_count,
+    failure_count: normalized.failure_count,
+    partial_count: normalized.partial_count,
+    positive_feedback_count: normalized.positive_feedback_count,
+    negative_feedback_count: normalized.negative_feedback_count,
+  });
+  const reliabilityScore = scoreAgentSkillReliability({
+    total_executions: normalized.total_executions,
+    tool_calls_attempted: toolCallsAttempted,
+    tool_calls_failed: toolCallsFailed,
+  });
+  const timingScore = scoreAgentSkillTiming(normalized.avg_duration_ms);
+  const score = scoreAgentSkillOverall({
+    quality_score: qualityScore,
+    reliability_score: reliabilityScore,
+    timing_score: timingScore,
+  });
+  return {
+    ...normalized,
+    quality_score: qualityScore,
+    reliability_score: reliabilityScore,
+    timing_score: timingScore,
+    score,
+  };
+}
+
+export function recomputeAgentSkillScore(input: {
+  agentId: string;
+  skillId: string;
+}): AgentSkillScore | null {
+  ensureDatabaseReady();
+  const agentId = input.agentId.trim();
+  const skillId = input.skillId.trim();
+  if (!agentId || !skillId) return null;
+
+  const recompute = db.transaction((): AgentSkillScore | null => {
+    const aggregate = queryOne<AgentSkillScoreAggregate, [string, string]>(
+      db,
+      `SELECT
+         agent_id,
+         skill_name AS skill_id,
+         SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success_count,
+         SUM(CASE WHEN outcome = 'failure' THEN 1 ELSE 0 END) AS failure_count,
+         SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partial_count,
+         COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+         MAX(created_at) AS last_run_at,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         SUM(tool_calls_attempted) AS tool_calls_attempted,
+         SUM(tool_calls_failed) AS tool_calls_failed
+       FROM skill_observations
+       WHERE agent_id = ? AND skill_name = ?
+       GROUP BY agent_id, skill_name`,
+      agentId,
+      skillId,
+    );
+
+    if (!aggregate) {
+      db.prepare(
+        `DELETE FROM agent_skill_scores
+         WHERE agent_id = ? AND skill_id = ?`,
+      ).run(agentId, skillId);
+      return null;
+    }
+
+    const score = mapAgentSkillScoreRow(aggregate);
+    db.prepare(
+      `INSERT INTO agent_skill_scores (
+         agent_id,
+         skill_id,
+         success_count,
+         failure_count,
+         partial_count,
+         avg_duration_ms,
+         last_run_at,
+         quality_score,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+       ON CONFLICT(agent_id, skill_id) DO UPDATE SET
+         success_count = excluded.success_count,
+         failure_count = excluded.failure_count,
+         partial_count = excluded.partial_count,
+         avg_duration_ms = excluded.avg_duration_ms,
+         last_run_at = excluded.last_run_at,
+         quality_score = excluded.quality_score,
+         updated_at = excluded.updated_at`,
+    ).run(
+      score.agent_id,
+      score.skill_id,
+      score.success_count,
+      score.failure_count,
+      score.partial_count,
+      score.avg_duration_ms,
+      score.last_run_at,
+      score.quality_score,
+    );
+    return score;
+  });
+
+  return recompute();
+}
+
+export function getAgentSkillScores(params?: {
+  agentId?: string;
+  skillName?: string;
+  skillNames?: string[];
+  createdAfter?: string | null;
+  limit?: number;
+}): AgentSkillScore[] {
+  ensureDatabaseReady();
+  const clauses = ['score.agent_id IS NOT NULL', "TRIM(score.agent_id) != ''"];
+  const args: Array<string | number> = [];
+  const agentId = params?.agentId?.trim() || '';
+  const skillName = params?.skillName?.trim() || '';
+  const skillNames = [
+    ...new Set(
+      (params?.skillNames || []).map((value) => value.trim()).filter(Boolean),
+    ),
+  ].sort();
+  const createdAfter = params?.createdAfter?.trim() || '';
+  if (agentId) {
+    clauses.push('score.agent_id = ?');
+    args.push(agentId);
+  }
+  if (skillName) {
+    clauses.push('score.skill_id = ?');
+    args.push(skillName);
+  } else if (skillNames.length > 0) {
+    clauses.push(`score.skill_id IN (${skillNames.map(() => '?').join(', ')})`);
+    args.push(...skillNames);
+  }
+  if (createdAfter) {
+    clauses.push('score.last_run_at >= ?');
+    args.push(createdAfter);
+  }
+  const limit =
+    params?.limit == null ? null : Math.max(1, Math.min(params.limit, 2_000));
+  const rows = queryAll<AgentSkillScoreAggregate, Array<string | number>>(
+    db,
+    `SELECT
+       score.agent_id,
+       score.skill_id,
+       score.success_count,
+       score.failure_count,
+       score.partial_count,
+       score.avg_duration_ms,
+       score.last_run_at,
+       COALESCE(feedback.positive_feedback_count, 0) AS positive_feedback_count,
+       COALESCE(feedback.negative_feedback_count, 0) AS negative_feedback_count,
+       COALESCE(feedback.tool_calls_attempted, 0) AS tool_calls_attempted,
+       COALESCE(feedback.tool_calls_failed, 0) AS tool_calls_failed
+     FROM agent_skill_scores score
+     LEFT JOIN (
+       SELECT
+         agent_id,
+         skill_name,
+         SUM(CASE WHEN feedback_sentiment = 'positive' THEN 1 ELSE 0 END) AS positive_feedback_count,
+         SUM(CASE WHEN feedback_sentiment = 'negative' THEN 1 ELSE 0 END) AS negative_feedback_count,
+         SUM(tool_calls_attempted) AS tool_calls_attempted,
+         SUM(tool_calls_failed) AS tool_calls_failed
+       FROM skill_observations
+       GROUP BY agent_id, skill_name
+     ) feedback
+       ON feedback.agent_id = score.agent_id
+      AND feedback.skill_name = score.skill_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY score.last_run_at DESC, score.agent_id ASC, score.skill_id ASC`,
+    ...args,
+  );
+
+  const sorted = rows
+    .map(mapAgentSkillScoreRow)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.total_executions - left.total_executions ||
+        left.agent_id.localeCompare(right.agent_id) ||
+        left.skill_id.localeCompare(right.skill_id),
+    );
+  return limit == null ? sorted : sorted.slice(0, limit);
 }
 
 export function attachFeedbackToObservation(input: {
@@ -6813,6 +8694,60 @@ export function getRecentStructuredAuditForSession(
     orderBy: 'seq',
     sortDirection: 'DESC',
   });
+}
+
+export function getRecentStructuredAuditForSessions(
+  sessionIds: readonly string[],
+  perSessionLimit = 20,
+): StructuredAuditEntry[] {
+  ensureDatabaseReady();
+  const normalizedSessionIds = Array.from(
+    new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
+  if (normalizedSessionIds.length === 0) return [];
+  const limit = Math.max(1, Math.min(200, Math.trunc(perSessionLimit || 20)));
+  const placeholders = normalizedSessionIds.map(() => '?').join(', ');
+  return queryAll<StructuredAuditEntry, Array<string | number>>(
+    db,
+    `WITH ranked_events AS (
+       SELECT
+         ${STRUCTURED_AUDIT_SELECT_COLUMNS},
+         ROW_NUMBER() OVER (
+           PARTITION BY session_id
+           ORDER BY seq DESC
+         ) AS liveness_rank
+       FROM audit_events
+       WHERE session_id IN (${placeholders})
+     )
+     SELECT ${STRUCTURED_AUDIT_SELECT_COLUMNS}
+     FROM ranked_events
+     WHERE liveness_rank <= ?
+     ORDER BY session_id ASC, seq DESC`,
+    ...normalizedSessionIds,
+    limit,
+  );
+}
+
+export function listStructuredAuditSessionIdsByPrefix(
+  prefix: string,
+  limit = 64,
+): string[] {
+  ensureDatabaseReady();
+  const normalizedPrefix = String(prefix || '').trim();
+  if (!normalizedPrefix) return [];
+  const normalizedLimit = Math.max(1, Math.min(512, Math.trunc(limit || 64)));
+  const rows = queryAll<{ sessionId: string }, [string, number]>(
+    db,
+    `SELECT session_id AS sessionId
+     FROM audit_events
+     WHERE session_id LIKE ? || '%'
+     GROUP BY session_id
+     ORDER BY MAX(id) DESC
+     LIMIT ?`,
+    normalizedPrefix,
+    normalizedLimit,
+  );
+  return rows.map((row) => String(row.sessionId || '').trim()).filter(Boolean);
 }
 
 export function getStructuredAuditForSession(

@@ -1,7 +1,7 @@
 ---
 title: Connect Your First Channel
 description: Pick one transport, keep it private, and verify the first successful round trip.
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Connect Your First Channel
@@ -24,6 +24,8 @@ Keep the first rollout narrow:
   private guild test bot
 - [Telegram](../channels/telegram.md) when you want a fast private DM flow
   with BotFather setup
+- [Signal](../channels/signal.md) when you want private Signal DMs through a
+  linked `signal-cli` companion device
 - [Email](../channels/email.md) when the bot should watch a mailbox and reply
   into message threads
 - [WhatsApp](../channels/whatsapp.md) when you want phone-linked testing and a
@@ -43,6 +45,7 @@ jump directly to one transport:
 - [Discord](../channels/discord.md)
 - [Slack](../channels/slack.md)
 - [Telegram](../channels/telegram.md)
+- [Signal](../channels/signal.md)
 - [Email](../channels/email.md)
 - [WhatsApp](../channels/whatsapp.md)
 - [Twilio Voice](../guides/twilio-voice.md)

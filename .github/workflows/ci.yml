@@ -16,7 +16,7 @@ permissions:
 jobs:
   # Build Docker images (no push) to catch Dockerfile regressions before merge.
   docker-preflight:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       HAS_HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY != '' }}
@@ -28,12 +28,14 @@ jobs:
             context: ./container
             file: ./container/Dockerfile
             target: runtime
+            cache_scope: hybridclaw-agent
           - name: gateway
             context: .
             file: ./Dockerfile
+            cache_scope: hybridclaw-gateway
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
 
       - name: Setup Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
@@ -47,8 +49,8 @@ jobs:
           push: false
           load: true
           tags: hybridclaw-${{ matrix.name }}:preflight
-          cache-from: type=gha,scope=${{ matrix.name }}-preflight
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-preflight
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.cache_scope }}
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
@@ -79,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
@@ -134,7 +136,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace
@@ -187,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
 
       - name: Setup Node.js workspace
         uses: ./.github/actions/setup-node-workspace

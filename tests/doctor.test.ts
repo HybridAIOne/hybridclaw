@@ -11,8 +11,6 @@ const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 const createTempDir = useTempDir();
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Timestamps within the 30-day unused-activity window; computed at runtime so
-// fixtures don't drift stale as the wall clock advances past a hardcoded date.
 const recentIso = () => new Date(Date.now() - 5 * DAY_MS).toISOString();
 const staleIso = () => new Date(Date.now() - 90 * DAY_MS).toISOString();
 
@@ -160,7 +158,9 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
       'image',
     ],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => structuredClone(runtimeConfigState),
@@ -264,7 +264,9 @@ test('checkConfig does not flag a single unused browser subtool when other brows
       'web_extract',
     ],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
@@ -316,7 +318,9 @@ test('checkConfig describes a grouped browser warning as a toolset when singular
   vi.doMock('../src/agent/tool-summary.js', () => ({
     listKnownToolNames: () => ['read', 'browser_close', 'browser_navigate'],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
@@ -363,7 +367,9 @@ test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () =>
   vi.doMock('../src/agent/tool-summary.js', () => ({
     listKnownToolNames: () => ['read', 'browser_navigate'],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
@@ -441,6 +447,112 @@ test('checkProviders treats probe failures as provider health failures', async (
 
   expect(result.severity).toBe('error');
   expect(result.message).toContain('HybridAI network down');
+});
+
+test('probeAnthropic sends bearer auth for OAuth tokens', async () => {
+  vi.doUnmock('../src/doctor/provider-probes.js');
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({
+      ops: { logLevel: 'silent' },
+    }),
+    onRuntimeConfigChange: vi.fn(),
+  }));
+  vi.doMock('../src/config/config.js', () => ({
+    ANTHROPIC_BASE_URL: 'https://api.anthropic.com/v1',
+    ANTHROPIC_ENABLED: true,
+    ANTHROPIC_METHOD: 'api-key',
+    CODEX_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+    CONTAINER_SANDBOX_MODE: 'container',
+    HUGGINGFACE_BASE_URL: 'https://router.huggingface.co/v1',
+    HUGGINGFACE_ENABLED: false,
+    MISTRAL_BASE_URL: 'https://api.mistral.ai/v1',
+    MISTRAL_ENABLED: false,
+    OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+    OPENROUTER_ENABLED: false,
+  }));
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    requireAnthropicApiKey: vi.fn(() => ({
+      method: 'api-key',
+      source: 'env',
+      apiKey: 'sk-ant-oat-doctor-test',
+      headers: {
+        'anthropic-version': '2023-06-01',
+        'x-app': 'cli',
+      },
+      path: '/tmp/credentials.json',
+    })),
+    requireAnthropicClaudeCliCredential: vi.fn(),
+  }));
+  const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+    expect(init?.headers).toMatchObject({
+      Authorization: 'Bearer sk-ant-oat-doctor-test',
+      'anthropic-version': '2023-06-01',
+      'x-app': 'cli',
+    });
+    expect(init?.headers).not.toHaveProperty('x-api-key');
+    return new Response(JSON.stringify({ data: [{ id: 'claude' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { probeAnthropic } = await import('../src/doctor/provider-probes.js');
+  const result = await probeAnthropic();
+
+  expect(result).toMatchObject({ reachable: true, modelCount: 1 });
+});
+
+test('probeAnthropic sends x-api-key auth for API keys', async () => {
+  vi.doUnmock('../src/doctor/provider-probes.js');
+  vi.doMock('../src/config/runtime-config.js', () => ({
+    getRuntimeConfig: () => ({
+      ops: { logLevel: 'silent' },
+    }),
+    onRuntimeConfigChange: vi.fn(),
+  }));
+  vi.doMock('../src/config/config.js', () => ({
+    ANTHROPIC_BASE_URL: 'https://api.anthropic.com/v1',
+    ANTHROPIC_ENABLED: true,
+    ANTHROPIC_METHOD: 'api-key',
+    CODEX_BASE_URL: 'https://chatgpt.com/backend-api/codex',
+    CONTAINER_SANDBOX_MODE: 'container',
+    HUGGINGFACE_BASE_URL: 'https://router.huggingface.co/v1',
+    HUGGINGFACE_ENABLED: false,
+    MISTRAL_BASE_URL: 'https://api.mistral.ai/v1',
+    MISTRAL_ENABLED: false,
+    OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+    OPENROUTER_ENABLED: false,
+  }));
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    requireAnthropicApiKey: vi.fn(() => ({
+      method: 'api-key',
+      source: 'env',
+      apiKey: 'sk-ant-api03-doctor-test',
+      headers: {
+        'anthropic-version': '2023-06-01',
+      },
+      path: '/tmp/credentials.json',
+    })),
+    requireAnthropicClaudeCliCredential: vi.fn(),
+  }));
+  const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+    expect(init?.headers).toMatchObject({
+      'x-api-key': 'sk-ant-api03-doctor-test',
+      'anthropic-version': '2023-06-01',
+    });
+    expect(init?.headers).not.toHaveProperty('Authorization');
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { probeAnthropic } = await import('../src/doctor/provider-probes.js');
+  const result = await probeAnthropic();
+
+  expect(result).toMatchObject({ reachable: true, modelCount: 0 });
 });
 
 test('checkDatabase reports a stale schema as warn with a migration fix', async () => {

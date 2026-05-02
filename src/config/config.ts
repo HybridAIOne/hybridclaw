@@ -13,6 +13,8 @@ import {
   loadRuntimeSecrets,
   type RuntimeSecretKey,
   readStoredRuntimeSecrets,
+  runtimeSecretsPath,
+  saveRuntimeSecrets,
 } from '../security/runtime-secrets.js';
 import { bootstrapRuntimeSecrets } from '../security/runtime-secrets-bootstrap.js';
 import {
@@ -43,6 +45,8 @@ export class MissingRequiredEnvVarError extends Error {
         'Mistral provider is not configured. Use `/auth login mistral` in the TUI, or switch to a model from another configured provider.',
       HF_TOKEN:
         'Hugging Face provider is not configured. Use `/auth login huggingface` in the TUI, or switch to a model from another configured provider.',
+      ANTHROPIC_API_KEY:
+        'Anthropic provider is not configured. Use `/auth login anthropic --method api-key` in the TUI, or switch to a model from another configured provider.',
       GEMINI_API_KEY:
         'Google Gemini provider is not configured. Use `/auth login gemini` in the TUI, or switch to a model from another configured provider.',
       DEEPSEEK_API_KEY:
@@ -133,20 +137,18 @@ function readRuntimeSecretValue(
   storedKey: RuntimeSecretKey,
   storedSecrets: Record<string, string>,
 ): string {
-  for (const envKey of envKeys) {
-    const value = String(process.env[envKey] || '').trim();
-    if (value) return value;
-  }
-  // Prefer the canonical `storedKey`, then fall back to any alias env-var name
-  // the user may have persisted (e.g. `GOOGLE_API_KEY` for Gemini,
-  // `GLM_API_KEY` / `Z_AI_API_KEY` for Z.AI, `KILOCODE_API_KEY` for Kilo).
-  // Without this, stored alias values would be orphaned — readable from disk
-  // but never surfaced because only the canonical key was consulted.
+  // Prefer the encrypted runtime store over the live process environment so
+  // persisted credentials remain authoritative for long-running gateway and
+  // runner processes.
   const canonical = storedSecrets[storedKey]?.trim();
   if (canonical) return canonical;
   for (const envKey of envKeys) {
     const stored = storedSecrets[envKey]?.trim();
     if (stored) return stored;
+  }
+  for (const envKey of envKeys) {
+    const value = String(process.env[envKey] || '').trim();
+    if (value) return value;
   }
   return '';
 }
@@ -208,6 +210,11 @@ function syncRuntimeSecretExports(): void {
     'MISTRAL_API_KEY',
     storedSecrets,
   );
+  ANTHROPIC_API_KEY = readRuntimeSecretValue(
+    ['ANTHROPIC_API_KEY'],
+    'ANTHROPIC_API_KEY',
+    storedSecrets,
+  );
   HUGGINGFACE_API_KEY = readRuntimeSecretValue(
     ['HF_TOKEN', 'HUGGINGFACE_API_KEY'],
     'HF_TOKEN',
@@ -258,9 +265,23 @@ function syncRuntimeSecretExports(): void {
     'KILO_API_KEY',
     storedSecrets,
   );
+  BRAVE_API_KEY = readRuntimeSecretValue(
+    ['BRAVE_API_KEY'],
+    'BRAVE_API_KEY',
+    storedSecrets,
+  );
+  PERPLEXITY_API_KEY = readRuntimeSecretValue(
+    ['PERPLEXITY_API_KEY'],
+    'PERPLEXITY_API_KEY',
+    storedSecrets,
+  );
+  TAVILY_API_KEY = readRuntimeSecretValue(
+    ['TAVILY_API_KEY'],
+    'TAVILY_API_KEY',
+    storedSecrets,
+  );
 }
 
-// Secrets come from the shell environment or ~/.hybridclaw/credentials.json.
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
@@ -269,10 +290,10 @@ export let TWILIO_AUTH_TOKEN = '';
 export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
-// Keep module import side-effect free so CLI can guide onboarding/hints before hard-failing.
 export let HYBRIDAI_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
+export let ANTHROPIC_API_KEY = '';
 export let HUGGINGFACE_API_KEY = '';
 export let GEMINI_API_KEY = '';
 export let DEEPSEEK_API_KEY = '';
@@ -283,6 +304,9 @@ export let MINIMAX_API_KEY = '';
 export let DASHSCOPE_API_KEY = '';
 export let XIAOMI_API_KEY = '';
 export let KILO_API_KEY = '';
+export let BRAVE_API_KEY = '';
+export let PERPLEXITY_API_KEY = '';
+export let TAVILY_API_KEY = '';
 syncRuntimeSecretExports();
 
 export function refreshRuntimeSecretsFromEnv(): void {
@@ -290,7 +314,6 @@ export function refreshRuntimeSecretsFromEnv(): void {
   syncRuntimeSecretExports();
 }
 
-// Runtime settings hot-reload from ~/.hybridclaw/config.json by default
 export let DISCORD_PREFIX = '!claw';
 export let DISCORD_GUILD_MEMBERS_INTENT = false;
 export let DISCORD_PRESENCE_INTENT = false;
@@ -440,6 +463,9 @@ export let HYBRIDAI_CHATBOT_ID = '';
 export let HYBRIDAI_MAX_TOKENS = 4_096;
 export let HYBRIDAI_ENABLE_RAG = true;
 export let CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL;
+export let ANTHROPIC_ENABLED = false;
+export let ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
+export let ANTHROPIC_METHOD: RuntimeConfig['anthropic']['method'] = 'api-key';
 export let OPENROUTER_ENABLED = false;
 export let OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export let MISTRAL_ENABLED = false;
@@ -505,6 +531,15 @@ export let ADDITIONAL_MOUNTS = '';
 
 export let CONTAINER_MAX_OUTPUT_SIZE = 10_485_760;
 export let MAX_CONCURRENT_CONTAINERS = 5;
+export let CONTAINER_PERSIST_BASH_STATE = true;
+export let CONTAINER_WARM_POOL: RuntimeConfig['container']['warmPool'] = {
+  enabled: true,
+  coldStartBudgetMs: 200,
+  trafficWindowMs: 3_600_000,
+  minIdlePerActiveAgent: 1,
+  maxIdlePerAgent: 2,
+  memoryPressureRssMb: 2_048,
+};
 export let MCP_SERVERS: RuntimeConfig['mcpServers'] = {};
 export let WEB_SEARCH_PROVIDER: RuntimeConfig['web']['search']['provider'] =
   'auto';
@@ -526,8 +561,144 @@ export let HEALTH_HOST = '127.0.0.1';
 export let HEALTH_PORT = 9090;
 export let WEB_API_TOKEN = '';
 export let GATEWAY_BASE_URL = 'http://127.0.0.1:9090';
-const INTERNAL_GATEWAY_API_TOKEN = randomBytes(24).toString('hex');
-export let GATEWAY_API_TOKEN = INTERNAL_GATEWAY_API_TOKEN;
+const GATEWAY_API_TOKEN_LOCK_STALE_MS = 10_000;
+const GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS = 5_000;
+const GATEWAY_API_TOKEN_LOCK_RETRY_MS = 25;
+let internalGatewayApiToken = '';
+let internalGatewayApiTokenPersisted = false;
+let gatewayApiTokenUsesGeneratedFallback = false;
+function getInternalGatewayApiToken(): string {
+  if (!internalGatewayApiToken) {
+    internalGatewayApiToken = randomBytes(24).toString('hex');
+  }
+  return internalGatewayApiToken;
+}
+
+function getGeneratedGatewayApiTokenFallback(): string {
+  gatewayApiTokenUsesGeneratedFallback = true;
+  return getInternalGatewayApiToken();
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function readStoredGatewayApiToken(): string {
+  return readStoredRuntimeSecrets().GATEWAY_API_TOKEN?.trim() || '';
+}
+
+function acquireGatewayApiTokenLock(): () => void {
+  const lockPath = `${runtimeSecretsPath()}.gateway-token.lock`;
+  const deadline = Date.now() + GATEWAY_API_TOKEN_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+      const fd = fs.openSync(lockPath, 'wx', 0o600);
+      try {
+        fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`);
+      } catch (err) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best effort
+        }
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // best effort
+        }
+        throw err;
+      }
+      return () => {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best effort
+        }
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // best effort
+        }
+      };
+    } catch (err) {
+      if (
+        !(err instanceof Error) ||
+        (err as NodeJS.ErrnoException).code !== 'EEXIST'
+      ) {
+        throw err;
+      }
+
+      try {
+        const stats = fs.statSync(lockPath);
+        if (Date.now() - stats.mtimeMs > GATEWAY_API_TOKEN_LOCK_STALE_MS) {
+          fs.rmSync(lockPath, { force: true });
+          continue;
+        }
+      } catch (statErr) {
+        if (
+          statErr instanceof Error &&
+          (statErr as NodeJS.ErrnoException).code === 'ENOENT'
+        ) {
+          continue;
+        }
+        throw statErr;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for gateway API token lock at ${lockPath}.`,
+        );
+      }
+      sleepSync(GATEWAY_API_TOKEN_LOCK_RETRY_MS);
+    }
+  }
+}
+
+export function ensureGatewayApiTokenPersisted(): string {
+  if (!gatewayApiTokenUsesGeneratedFallback) return GATEWAY_API_TOKEN;
+  if (internalGatewayApiTokenPersisted) return GATEWAY_API_TOKEN;
+
+  // Gateway startup persists generated fallbacks so separate local clients can
+  // authenticate. Plain config imports stay side-effect free.
+  const existing = readStoredGatewayApiToken();
+  if (existing) {
+    internalGatewayApiToken = existing;
+    GATEWAY_API_TOKEN = existing;
+    internalGatewayApiTokenPersisted = true;
+    gatewayApiTokenUsesGeneratedFallback = false;
+    return existing;
+  }
+
+  let releaseLock: (() => void) | null = null;
+  try {
+    releaseLock = acquireGatewayApiTokenLock();
+    const lockedExisting = readStoredGatewayApiToken();
+    if (lockedExisting) {
+      internalGatewayApiToken = lockedExisting;
+      GATEWAY_API_TOKEN = lockedExisting;
+      internalGatewayApiTokenPersisted = true;
+      gatewayApiTokenUsesGeneratedFallback = false;
+      return lockedExisting;
+    }
+
+    const token = getInternalGatewayApiToken();
+    saveRuntimeSecrets({ GATEWAY_API_TOKEN: token });
+    internalGatewayApiToken = readStoredGatewayApiToken() || token;
+    GATEWAY_API_TOKEN = internalGatewayApiToken;
+    internalGatewayApiTokenPersisted = true;
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Failed to persist generated gateway API token; local gateway clients in other processes may need an explicit GATEWAY_API_TOKEN.',
+    );
+  } finally {
+    releaseLock?.();
+  }
+  return GATEWAY_API_TOKEN;
+}
+export let GATEWAY_API_TOKEN = '';
 export let DB_PATH = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'data',
@@ -571,6 +742,7 @@ export let PROACTIVE_ACTIVE_HOURS_END = 22;
 export let PROACTIVE_QUEUE_OUTSIDE_HOURS = true;
 
 export let PROACTIVE_DELEGATION_ENABLED = true;
+export let PROACTIVE_DELEGATION_MODEL = '';
 export let PROACTIVE_DELEGATION_MAX_CONCURRENT = 3;
 export let PROACTIVE_DELEGATION_MAX_DEPTH = 2;
 export let PROACTIVE_DELEGATION_MAX_PER_TURN = 3;
@@ -595,6 +767,7 @@ export const FULLAUTO_STALL_RECOVERY_DELAY_MS = 5_000;
 
 const DOCKER_ENV_PATH = '/.dockerenv';
 let sandboxAutoDetectLogged = '';
+let warmPoolClampWarningSignature = '';
 let sandboxModeOverride: RuntimeConfig['container']['sandboxMode'] | null =
   (() => {
     const raw = String(process.env.HYBRIDCLAW_SANDBOX_MODE_OVERRIDE || '')
@@ -641,6 +814,28 @@ function normalizeConfiguredBaseUrl(
     .trim()
     .replace(/\/+$/, '');
   return trimmed || fallback;
+}
+
+function warnIfWarmPoolMinIdleIsClamped(
+  config: RuntimeConfig['container']['warmPool'],
+): void {
+  if (!config.enabled) return;
+  if (config.minIdlePerActiveAgent <= config.maxIdlePerAgent) {
+    warmPoolClampWarningSignature = '';
+    return;
+  }
+
+  const signature = `${config.minIdlePerActiveAgent}:${config.maxIdlePerAgent}`;
+  if (warmPoolClampWarningSignature === signature) return;
+  warmPoolClampWarningSignature = signature;
+  logger.warn(
+    {
+      requestedMinIdlePerActiveAgent: config.minIdlePerActiveAgent,
+      maxIdlePerAgent: config.maxIdlePerAgent,
+      effectiveMinIdlePerActiveAgent: config.maxIdlePerAgent,
+    },
+    'Warm process pool minIdlePerActiveAgent exceeds maxIdlePerAgent; clamping effective minimum idle workers',
+  );
 }
 
 function applyRuntimeConfig(config: RuntimeConfig): void {
@@ -827,10 +1022,15 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   HYBRIDAI_ENABLE_RAG = config.hybridai.enableRag;
   CODEX_BASE_URL = config.codex.baseUrl;
+  ANTHROPIC_ENABLED = config.anthropic.enabled;
+  ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
+  ANTHROPIC_METHOD = config.anthropic.method;
   OPENROUTER_ENABLED = config.openrouter.enabled;
   OPENROUTER_BASE_URL = config.openrouter.baseUrl;
   MISTRAL_ENABLED = config.mistral.enabled;
   MISTRAL_BASE_URL = config.mistral.baseUrl;
+  ANTHROPIC_ENABLED = config.anthropic.enabled;
+  ANTHROPIC_BASE_URL = config.anthropic.baseUrl;
   HUGGINGFACE_ENABLED = config.huggingface.enabled;
   HUGGINGFACE_BASE_URL = config.huggingface.baseUrl;
   GEMINI_ENABLED = config.gemini.enabled;
@@ -881,6 +1081,9 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   ADDITIONAL_MOUNTS = config.container.additionalMounts;
   CONTAINER_MAX_OUTPUT_SIZE = config.container.maxOutputBytes;
   MAX_CONCURRENT_CONTAINERS = Math.max(1, config.container.maxConcurrent);
+  CONTAINER_PERSIST_BASH_STATE = config.container.persistBashState;
+  warnIfWarmPoolMinIdleIsClamped(config.container.warmPool);
+  CONTAINER_WARM_POOL = structuredClone(config.container.warmPool);
   MCP_SERVERS = structuredClone(config.mcpServers || {});
   WEB_SEARCH_PROVIDER = config.web.search.provider;
   WEB_SEARCH_FALLBACK_PROVIDERS = [...config.web.search.fallbackProviders];
@@ -909,6 +1112,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     readRuntimeSecretValue(['WEB_API_TOKEN'], 'WEB_API_TOKEN', storedSecrets) ||
     config.ops.webApiToken;
   GATEWAY_BASE_URL = config.ops.gatewayBaseUrl;
+  gatewayApiTokenUsesGeneratedFallback = false;
   GATEWAY_API_TOKEN =
     readRuntimeSecretValue(
       ['GATEWAY_API_TOKEN'],
@@ -917,7 +1121,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     ) ||
     config.ops.gatewayApiToken ||
     WEB_API_TOKEN ||
-    INTERNAL_GATEWAY_API_TOKEN;
+    getGeneratedGatewayApiTokenFallback();
   DB_PATH = config.ops.dbPath;
   DATA_DIR = path.dirname(DB_PATH);
 
@@ -996,6 +1200,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
     config.proactive.activeHours.queueOutsideHours;
 
   PROACTIVE_DELEGATION_ENABLED = config.proactive.delegation.enabled;
+  PROACTIVE_DELEGATION_MODEL = config.proactive.delegation.model.trim();
   PROACTIVE_DELEGATION_MAX_CONCURRENT = Math.max(
     1,
     config.proactive.delegation.maxConcurrent,

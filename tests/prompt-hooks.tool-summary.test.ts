@@ -6,7 +6,10 @@ import {
 } from '../src/agent/prompt-hooks.js';
 import { buildToolsSummary } from '../src/agent/tool-summary.js';
 import { EMAIL_CAPABILITIES } from '../src/channels/channel.js';
-import { registerChannel } from '../src/channels/channel-registry.js';
+import {
+  registerChannel,
+  unregisterChannel,
+} from '../src/channels/channel-registry.js';
 import * as runtimeConfig from '../src/config/runtime-config.js';
 import * as providerFactory from '../src/providers/factory.js';
 import type { Skill } from '../src/skills/skills.js';
@@ -136,13 +139,10 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'For fresh deliverable-generation tasks from a folder of source files, use the primary source inputs directly and create a new output.',
   );
   expect(prompt).toContain(
-    'For channel catch-up or recap requests with partial scope, infer a reasonable recent scope from available context, do a best-effort read first, and note assumptions after the summary instead of blocking on a clarification.',
+    'Use the `message` tool for sending or reading messages on active communication channels: none.',
   );
   expect(prompt).toContain(
-    'For local Discord, the current Teams conversation, WhatsApp, or email uploads, call `message` with `action="send"` and `filePath` pointing to a file in the current workspace or `/discord-media-cache`.',
-  );
-  expect(prompt).toContain(
-    'If you already created a file earlier in this session and the user asks to post/upload/send it here, reuse that existing `filePath` with `message action="send"` instead of replying with the path alone.',
+    'No active communication channels are registered right now.',
   );
   expect(prompt).toContain(
     'When the user asks you to create or generate a file and return/upload/post it, include the file immediately in the final delivery. Do not ask a follow-up question offering to upload it later.',
@@ -174,22 +174,8 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'Never write plain text placeholder content to binary office files such as `.docx`, `.xlsx`, `.pptx`, or `.pdf`. If generation fails, report the error instead of creating a fake file.',
   );
-  expect(prompt).toContain(
-    'User: "Post `invoices/dashboard.html.png` here on Discord"',
-  );
-  expect(prompt).toContain(
-    'Tool call: `message` {"action":"send","filePath":"invoices/dashboard.html.png"}',
-  );
-  expect(prompt).toContain(
-    'User: "Post `.browser-artifacts/hybridclaw-homepage.png` here in Teams"',
-  );
-  expect(prompt).toContain(
-    'Earlier in this session you created `.browser-artifacts/hybridclaw-homepage.png`.',
-  );
-  expect(prompt).toContain('User: "Post screenshot here"');
-  expect(prompt).toContain(
-    'User: "Send this to WhatsApp +491701234567: landed safely"',
-  );
+  expect(prompt).not.toContain('Send this to WhatsApp');
+  expect(prompt).not.toContain('Post this file in the current Teams chat');
   expect(prompt).toContain(
     'Tool call: `cron` {"action":"add","at":"2026-04-10T09:00:00+02:00","prompt":"Reply with: submit report"}',
   );
@@ -197,13 +183,13 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'User: "Pull the key fields from this attached invoice PDF."',
   );
   expect(prompt).toContain(
-    'Action: use that attachment content directly; do not call `message` `read`, `glob`, `find`, or read `skills/pdf/SKILL.md` first.',
+    'Action: use that attachment content directly and answer from the extracted text.',
   );
   expect(prompt).toContain(
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
   );
   expect(prompt).toContain(
-    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. Never emit the real token in prose or tool arguments.',
   );
   expect(prompt).toContain(
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
@@ -369,23 +355,32 @@ test('buildSystemPromptFromHooks includes email signature guidance for email con
     capabilities: EMAIL_CAPABILITIES,
   });
 
-  const prompt = buildSystemPromptFromHooks({
-    agentId: 'test-agent',
-    skills: [],
-    runtimeInfo: {
-      channelType: 'email',
-      channelId: 'peer@example.com',
-    },
-  });
+  try {
+    const prompt = buildSystemPromptFromHooks({
+      agentId: 'test-agent',
+      skills: [],
+      runtimeInfo: {
+        channelType: 'email',
+        channelId: 'peer@example.com',
+      },
+    });
 
-  expect(prompt).toContain('Current email peer: `peer@example.com`');
-  expect(prompt).toContain(
-    'append a polished corporate signature block derived from the identity details already loaded from `IDENTITY.md`',
-  );
-  expect(prompt).toContain('do not use emoji or mascot-style sign-offs');
-  expect(prompt).toContain(
-    'make a reasonable best-effort assumption, do the useful work first, and mention the assumption after the answer',
-  );
+    expect(prompt).toContain('Current email peer: `peer@example.com`');
+    expect(prompt).toContain(
+      'Use the `message` tool for sending or reading messages on active communication channels: email.',
+    );
+    expect(prompt).toContain('Email: send email and read ingested email');
+    expect(prompt).not.toContain('WhatsApp: send messages');
+    expect(prompt).toContain(
+      'append a polished corporate signature block derived from the identity details already loaded from `IDENTITY.md`',
+    );
+    expect(prompt).toContain('do not use emoji or mascot-style sign-offs');
+    expect(prompt).toContain(
+      'make a reasonable best-effort assumption, do the useful work first, and mention the assumption after the answer',
+    );
+  } finally {
+    unregisterChannel('email');
+  }
 });
 
 test('buildSystemPromptFromHooks includes spoken-output guidance for voice context without channel registration', () => {

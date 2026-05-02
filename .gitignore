@@ -24,6 +24,7 @@ data/
 .env.*.local
 config.json
 config.local.json
+.confidential.yml
 
 # Backups
 *.bak

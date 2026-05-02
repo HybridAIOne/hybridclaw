@@ -7,17 +7,33 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { Suspense } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { TestRouter } from './__test-utils/router-mock';
+
+vi.mock('@tanstack/react-router', async () => {
+  const { createRouterMock } = await import('./__test-utils/router-mock');
+  return createRouterMock('session-a');
+});
+
 import type {
   BranchResponse,
+  ChatContextResponse,
   ChatHistoryResponse,
+  ChatMobileQrResponse,
   ChatRecentResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
-import type { GatewayStatus } from '../../api/types';
+import type {
+  AdminModelsResponse,
+  AgentListItem,
+  GatewayStatus,
+} from '../../api/types';
+import { SidebarProvider } from '../../components/sidebar/index';
 import { ChatPage } from './chat-page';
 
-const validateTokenMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
+const fetchAppStatusMock = vi.fn<(token: string) => Promise<GatewayStatus>>();
 const fetchChatRecentMock =
   vi.fn<
     (
@@ -30,6 +46,15 @@ const fetchChatRecentMock =
   >();
 const fetchChatHistoryMock =
   vi.fn<(token: string, sessionId: string) => Promise<ChatHistoryResponse>>();
+const fetchChatContextMock =
+  vi.fn<(token: string, sessionId: string) => Promise<ChatContextResponse>>();
+const createChatMobileQrMock =
+  vi.fn<
+    (
+      token: string,
+      payload: { userId: string; sessionId: string; baseUrl?: string },
+    ) => Promise<ChatMobileQrResponse>
+  >();
 const createChatBranchMock =
   vi.fn<
     (
@@ -40,6 +65,9 @@ const createChatBranchMock =
   >();
 const uploadMediaMock =
   vi.fn<(token: string, file: File) => Promise<MediaUploadResponse>>();
+const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
+const fetchModelsMock =
+  vi.fn<(token: string) => Promise<AdminModelsResponse>>();
 const useAuthMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopRequestMock = vi.fn();
@@ -47,6 +75,7 @@ const isActiveMock = vi.fn();
 const useChatStreamMock = vi.fn();
 
 vi.mock('../../api/chat', () => ({
+  fetchAppStatus: (token: string) => fetchAppStatusMock(token),
   fetchChatRecent: (
     token: string,
     userId: string,
@@ -56,6 +85,12 @@ vi.mock('../../api/chat', () => ({
   ) => fetchChatRecentMock(token, userId, channelId, limit, query),
   fetchChatHistory: (token: string, sessionId: string) =>
     fetchChatHistoryMock(token, sessionId),
+  fetchChatContext: (token: string, sessionId: string) =>
+    fetchChatContextMock(token, sessionId),
+  createChatMobileQr: (
+    token: string,
+    payload: { userId: string; sessionId: string; baseUrl?: string },
+  ) => createChatMobileQrMock(token, payload),
   createChatBranch: (
     token: string,
     sessionId: string,
@@ -65,7 +100,8 @@ vi.mock('../../api/chat', () => ({
 }));
 
 vi.mock('../../api/client', () => ({
-  validateToken: (token: string) => validateTokenMock(token),
+  fetchAgentList: (token: string) => fetchAgentListMock(token),
+  fetchModels: (token: string) => fetchModelsMock(token),
 }));
 
 vi.mock('../../auth', () => ({
@@ -75,6 +111,47 @@ vi.mock('../../auth', () => ({
 vi.mock('./use-chat-stream', () => ({
   useChatStream: (...args: unknown[]) => useChatStreamMock(...args),
 }));
+
+vi.mock('../../components/view-switch', () => ({
+  ViewSwitchNav: () => null,
+}));
+
+vi.mock('../../components/theme-toggle', () => ({
+  ThemeToggle: () => null,
+}));
+
+function ensureLocalStorage() {
+  if (typeof globalThis.localStorage?.clear === 'function') return;
+  const store = new Map<string, string>();
+  const storage = {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(key) ?? null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  } satisfies Storage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    configurable: true,
+  });
+  Object.defineProperty(window, 'localStorage', {
+    value: storage,
+    configurable: true,
+  });
+}
 
 function renderChatPage() {
   const queryClient = new QueryClient({
@@ -86,7 +163,11 @@ function renderChatPage() {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <ChatPage />
+      <SidebarProvider>
+        <Suspense fallback={<div>Loading chat…</div>}>
+          <ChatPage />
+        </Suspense>
+      </SidebarProvider>
     </QueryClientProvider>,
   );
 
@@ -98,17 +179,34 @@ describe('ChatPage', () => {
     vi.useRealTimers();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    ensureLocalStorage();
     localStorage.clear();
     localStorage.setItem('hybridclaw_session', 'session-a');
     localStorage.setItem('hybridclaw_user_id', 'web-user-1');
 
-    validateTokenMock.mockReset();
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.reset();
+
+    fetchAppStatusMock.mockReset();
     fetchChatRecentMock.mockReset();
     fetchChatHistoryMock.mockReset();
+    fetchChatContextMock.mockReset();
+    createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
+    fetchAgentListMock.mockReset();
+    fetchModelsMock.mockReset();
+    fetchModelsMock.mockResolvedValue({
+      defaultModel: 'gpt-5',
+      providerStatus: {},
+      models: [],
+    } as AdminModelsResponse);
     useAuthMock.mockReset();
     sendMessageMock.mockReset();
     stopRequestMock.mockReset();
@@ -116,7 +214,7 @@ describe('ChatPage', () => {
     useChatStreamMock.mockReset();
 
     useAuthMock.mockReturnValue({ token: 'test-token' });
-    validateTokenMock.mockResolvedValue({
+    fetchAppStatusMock.mockResolvedValue({
       status: 'ok',
       webAuthConfigured: true,
       version: '0.0.0',
@@ -157,6 +255,19 @@ describe('ChatPage', () => {
             ],
       }),
     );
+    fetchChatContextMock.mockResolvedValue({
+      sessionId: 'session-a',
+      snapshot: null,
+    });
+    fetchAgentListMock.mockResolvedValue([
+      { id: 'main', name: 'Assistant' },
+      { id: 'charly', name: 'Charly' },
+    ]);
+    createChatMobileQrMock.mockResolvedValue({
+      launchUrl: 'https://example.test/chat/continue?token=test-token',
+      expiresAt: '2026-04-14T10:10:00.000Z',
+      qrSvg: '<svg viewBox="0 0 1 1"></svg>',
+    });
     isActiveMock.mockReturnValue(false);
     useChatStreamMock.mockReturnValue({
       sendMessage: sendMessageMock,
@@ -215,6 +326,80 @@ describe('ChatPage', () => {
     );
   });
 
+  it('switches agents from the composer dropdown using the slash command path', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    sendMessageMock.mockResolvedValue(true);
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() => expect(fetchAgentListMock).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Switch agent'), {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('/agent switch charly', [], {
+        hideUser: true,
+      }),
+    );
+  });
+
+  it('syncs the model dropdown from the session context snapshot', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+    fetchModelsMock.mockResolvedValue({
+      defaultModel: 'hybridai/qwen3.6-27b-fp8',
+      providerStatus: {},
+      models: [
+        {
+          id: 'hybridai/qwen3.6-27b-fp8',
+          provider: 'hybridai',
+          backend: null,
+          contextWindow: null,
+          isReasoning: false,
+          family: null,
+          parameterSize: null,
+        },
+      ],
+    } as AdminModelsResponse);
+    fetchChatContextMock.mockResolvedValue({
+      sessionId: 'session-a',
+      snapshot: {
+        sessionId: 'session-a',
+        model: 'hybridai/grok-4.20-0309-non-reasoning',
+        contextUsedTokens: null,
+        contextBudgetTokens: null,
+        contextUsagePercent: null,
+        contextRemainingTokens: null,
+        compactionCount: 0,
+        compactionTokenBudget: 0,
+        compactionMessageThreshold: 0,
+        compactionKeepRecent: 0,
+        messageCount: 1,
+        promptTokens: null,
+        completionTokens: null,
+      },
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    const trigger = await screen.findByRole('combobox', {
+      name: 'Switch model',
+    });
+    await waitFor(() =>
+      expect(trigger.textContent).toContain('Grok 4.20 0309 Non Reasoning'),
+    );
+    expect(trigger.textContent).not.toContain('Qwen3.6 27b Fp8');
+  });
+
   it('reuses cached history when switching back to a recent session inside the stale window', async () => {
     fetchChatHistoryMock.mockImplementation(
       async (_token, sessionId): Promise<ChatHistoryResponse> => ({
@@ -251,6 +436,55 @@ describe('ChatPage', () => {
       ['test-token', 'session-a'],
       ['test-token', 'session-b'],
     ]);
+  });
+
+  it('assigns branch controls to loaded history and opens sibling branches', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history: [
+          {
+            id: 42,
+            role: 'assistant',
+            content:
+              sessionId === 'session-b'
+                ? 'Alternate assistant reply'
+                : 'Primary assistant reply',
+          },
+        ],
+        branchFamilies: [
+          {
+            anchorSessionId: 'session-a',
+            anchorMessageId: 42,
+            variants: [
+              { sessionId: 'session-a', messageId: 42 },
+              { sessionId: 'session-b', messageId: 42 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    renderChatPage();
+
+    const initialCounter = await screen.findByText('1/2');
+    const initialActions = initialCounter.parentElement;
+    if (!(initialActions instanceof HTMLElement)) {
+      throw new Error('Missing branch action container');
+    }
+
+    fireEvent.click(
+      within(initialActions).getByRole('button', { name: 'Next branch' }),
+    );
+
+    expect(await screen.findByText('Alternate assistant reply')).not.toBeNull();
+    expect(await screen.findByText('2/2')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-b',
+      ),
+    );
   });
 
   it('searches conversation titles beyond the default recent list', async () => {
@@ -404,75 +638,82 @@ describe('ChatPage', () => {
     );
   });
 
-  it('assigns branch controls to loaded history and opens sibling branches', async () => {
-    fetchChatHistoryMock.mockImplementation(
-      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
-        sessionId,
-        history: [
-          {
-            id: 42,
-            role: 'assistant',
-            content:
-              sessionId === 'session-b'
-                ? 'Alternate assistant reply'
-                : 'Primary assistant reply',
-          },
-        ],
-        branchFamilies: [
-          {
-            anchorSessionId: 'session-a',
-            anchorMessageId: 42,
-            variants: [
-              { sessionId: 'session-a', messageId: 42 },
-              { sessionId: 'session-b', messageId: 42 },
-            ],
-          },
-        ],
-      }),
-    );
-
-    renderChatPage();
-
-    const initialCounter = await screen.findByText('1/2');
-    const initialActions = initialCounter.parentElement;
-    if (!(initialActions instanceof HTMLElement)) {
-      throw new Error('Missing branch action container');
-    }
-
-    fireEvent.click(within(initialActions).getByRole('button', { name: '›' }));
-
-    expect(await screen.findByText('Alternate assistant reply')).not.toBeNull();
-    expect(await screen.findByText('2/2')).not.toBeNull();
-    await waitFor(() =>
-      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
-        'test-token',
-        'session-b',
-      ),
-    );
-  });
-
-  it('keeps a single sidebar tree when the mobile drawer opens', async () => {
+  it('does not refetch or clear messages when the already-active session is clicked', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
-      history: [
-        {
-          id: 101,
-          role: 'assistant',
-          content: 'Opened session A',
-        },
-      ],
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
     });
 
     renderChatPage();
 
     expect(await screen.findByText('Opened session A')).not.toBeNull();
+    const callsBefore = fetchChatHistoryMock.mock.calls.length;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }));
+    fireEvent.click(
+      screen.getByText('Session A').closest('button') as HTMLButtonElement,
+    );
 
-    expect(screen.getAllByText('Recent')).toHaveLength(1);
-    expect(
-      screen.getByRole('button', { name: 'Close sidebar' }),
-    ).not.toBeNull();
+    // Flush any pending microtasks so an erroneous refetch would have landed.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('Opened session A')).not.toBeNull();
+    expect(fetchChatHistoryMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('creates a branch, prefetches its history, then sends the edited message', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history:
+          sessionId === 'session-branch'
+            ? []
+            : [{ id: 501, role: 'user', content: 'Original question' }],
+      }),
+    );
+    createChatBranchMock.mockResolvedValue({ sessionId: 'session-branch' });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Original question')).not.toBeNull();
+
+    fireEvent.click(screen.getByTitle('Edit'));
+    const editBox = screen.getByLabelText(
+      'Edit message',
+    ) as HTMLTextAreaElement;
+    fireEvent.change(editBox, { target: { value: 'Edited question' } });
+    expect(screen.getByDisplayValue('Edited question')).not.toBeNull();
+    const saveButtons = screen.getAllByRole('button', { name: 'Save' });
+    expect(saveButtons).toHaveLength(1);
+    fireEvent.click(saveButtons[0] as HTMLButtonElement);
+
+    await waitFor(() =>
+      expect(createChatBranchMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        501,
+      ),
+    );
+    await waitFor(() =>
+      expect(fetchChatHistoryMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-branch',
+      ),
+    );
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('Edited question', []),
+    );
+
+    // Branch history must resolve before the deferred sendMessage fires.
+    const branchFetchIdx = fetchChatHistoryMock.mock.calls.findIndex(
+      (call) => call[1] === 'session-branch',
+    );
+    expect(branchFetchIdx).toBeGreaterThanOrEqual(0);
+    const branchFetchOrder =
+      fetchChatHistoryMock.mock.invocationCallOrder[branchFetchIdx];
+    const sendOrder = sendMessageMock.mock.invocationCallOrder[0];
+    expect(branchFetchOrder).toBeLessThan(sendOrder);
   });
 
   it('shows an error and keeps edit mode open when the message cannot be branched', async () => {
@@ -509,7 +750,7 @@ describe('ChatPage', () => {
 
   it('surfaces gateway status load failures instead of swallowing them', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    validateTokenMock.mockRejectedValue(new Error('Gateway offline'));
+    fetchAppStatusMock.mockRejectedValue(new Error('Gateway offline'));
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [],
@@ -528,5 +769,136 @@ describe('ChatPage', () => {
     );
 
     errorSpy.mockRestore();
+  });
+
+  it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
+
+    const aside = document.querySelector('aside[data-side="left"]');
+    expect(aside?.getAttribute('data-state')).toBe('expanded');
+
+    const collapseTrigger = within(aside as HTMLElement).getByRole('button', {
+      name: 'Collapse sidebar',
+    });
+    fireEvent.click(collapseTrigger);
+    expect(aside?.getAttribute('data-state')).toBe('collapsed');
+
+    const expandTrigger = within(aside as HTMLElement).getByRole('button', {
+      name: 'Expand sidebar',
+    });
+    expect(aside?.contains(expandTrigger)).toBe(true);
+    fireEvent.click(expandTrigger);
+    expect(aside?.getAttribute('data-state')).toBe('expanded');
+  });
+
+  it('surfaces a sidebar trigger in the chat topbar only on mobile viewports', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    function openTriggersInChatTopbar() {
+      const topbar = document.querySelector('[class*="chatTopbar"]');
+      if (!topbar) return 0;
+      return topbar.querySelectorAll('button[aria-label="Open sidebar"]')
+        .length;
+    }
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 800,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatHistoryMock).toHaveBeenCalled());
+    expect(openTriggersInChatTopbar()).toBe(1);
+
+    act(() => {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: 1440,
+      });
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    expect(openTriggersInChatTopbar()).toBe(0);
+  });
+
+  it('refreshes recent sessions when the mobile sidebar opens', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [],
+    });
+
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 800,
+    });
+
+    renderChatPage();
+
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(1));
+
+    const topbar = document.querySelector('[class*="chatTopbar"]');
+    if (!(topbar instanceof HTMLElement)) {
+      throw new Error('Missing chat topbar');
+    }
+
+    fireEvent.click(
+      within(topbar).getByRole('button', { name: 'Open sidebar' }),
+    );
+
+    await waitFor(() => expect(fetchChatRecentMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('creates a mobile handoff QR code for the active chat session', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show mobile QR code' }),
+    );
+
+    await waitFor(() =>
+      expect(createChatMobileQrMock).toHaveBeenCalledWith('test-token', {
+        userId: 'web-user-1',
+        sessionId: 'session-a',
+        baseUrl: 'http://localhost:3000',
+      }),
+    );
+    expect(await screen.findByText('Open on mobile')).not.toBeNull();
+    expect(screen.getByText('Open link')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Close mobile QR code' })).toBe(
+      document.activeElement,
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() =>
+      expect(screen.queryByText('Open on mobile')).toBeNull(),
+    );
   });
 });

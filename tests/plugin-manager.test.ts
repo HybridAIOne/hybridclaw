@@ -2142,3 +2142,442 @@ test('plugin manager rolls back partial registration when register throws', asyn
     }),
   ]);
 });
+
+function writeOutputGuardPlugin(
+  rootDir: string,
+  pluginId: string,
+  options: {
+    priority?: number;
+    behavior: 'allow' | 'rewrite' | 'block' | 'throw';
+    rewriteText?: string;
+    blockReason?: string;
+  },
+): void {
+  const pluginDir = path.join(rootDir, '.hybridclaw', 'plugins', pluginId);
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    [`id: ${pluginId}`, `name: ${pluginId}`, 'kind: output-guard', ''].join(
+      '\n',
+    ),
+    'utf-8',
+  );
+  const decisionLiteral =
+    options.behavior === 'allow'
+      ? "{ action: 'allow' }"
+      : options.behavior === 'rewrite'
+        ? `{ action: 'rewrite', text: ${JSON.stringify(options.rewriteText || 'rewritten')} }`
+        : options.behavior === 'block'
+          ? `{ action: 'block', reason: ${JSON.stringify(options.blockReason || 'blocked')} }`
+          : "(() => { throw new Error('boom'); })()";
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      `  id: '${pluginId}',`,
+      "  kind: 'output-guard',",
+      '  register(api) {',
+      '    api.registerOutputGuard({',
+      `      id: '${pluginId}-guard',`,
+      `      priority: ${options.priority ?? 0},`,
+      '      inspect() {',
+      `        return ${decisionLiteral};`,
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
+test('plugin manager applies output guards in declared order and short-circuits on block', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeOutputGuardPlugin(cwd, 'guard-allow', {
+    priority: 10,
+    behavior: 'allow',
+  });
+  writeOutputGuardPlugin(cwd, 'guard-rewrite', {
+    priority: 20,
+    behavior: 'rewrite',
+    rewriteText: 'cleaned-up output',
+  });
+  writeOutputGuardPlugin(cwd, 'guard-block', {
+    priority: 30,
+    behavior: 'block',
+    blockReason: 'unsafe',
+  });
+  writeOutputGuardPlugin(cwd, 'guard-after-block', {
+    priority: 40,
+    behavior: 'rewrite',
+    rewriteText: 'should-not-run',
+  });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [
+    { id: 'guard-allow', enabled: true, config: {} },
+    { id: 'guard-rewrite', enabled: true, config: {} },
+    { id: 'guard-block', enabled: true, config: {} },
+    { id: 'guard-after-block', enabled: true, config: {} },
+  ];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  expect(manager.hasOutputGuards()).toBe(true);
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+  });
+
+  expect(outcome.blocked).toBe(true);
+  expect(outcome.resultText).toBe('unsafe');
+  expect(outcome.events.map((event) => event.action)).toEqual([
+    'allow',
+    'rewrite',
+    'block',
+  ]);
+  expect(outcome.events[1]).toMatchObject({
+    pluginId: 'guard-rewrite',
+    before: 'original draft',
+    after: 'cleaned-up output',
+  });
+  expect(outcome.events[2]).toMatchObject({
+    pluginId: 'guard-block',
+    before: 'cleaned-up output',
+    after: 'unsafe',
+    reason: 'unsafe',
+  });
+});
+
+test('plugin manager applies registered pre-send middleware', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'pre-send-demo');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: pre-send-demo\nname: pre-send-demo\nkind: middleware\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'pre-send-demo',",
+      "  kind: 'middleware',",
+      '  register(api) {',
+      '    api.registerMiddleware({',
+      "      id: 'pre-send-demo',",
+      '      pre_send(context) {',
+      "        return { action: 'transform', payload: context.userContent + ' [scoped]', reason: 'scoped' };",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyMiddleware('pre_send', {
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    messages: [{ role: 'user', content: 'hello' }],
+    userContent: 'hello',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.userContent).toBe('hello [scoped]');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      skillId: 'pre-send-demo:pre-send-demo',
+      action: 'transform',
+      reason: 'scoped',
+    }),
+  ]);
+});
+
+test('plugin manager applies post-receive middleware with turn context through output guard compatibility', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(
+    cwd,
+    '.hybridclaw',
+    'plugins',
+    'post-receive-demo',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: post-receive-demo\nname: post-receive-demo\nkind: middleware\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'post-receive-demo',",
+      "  kind: 'middleware',",
+      '  register(api) {',
+      '    api.registerMiddleware({',
+      "      id: 'post-receive-demo',",
+      '      post_receive(context) {',
+      '        const last = context.messages[context.messages.length - 1];',
+      '        if (context.workspacePath !== "/workspace/project") return { action: "block", reason: "missing workspace" };',
+      '        if (!context.toolExecutions?.some((tool) => tool.name === "shell")) return { action: "block", reason: "missing tools" };',
+      '        return { action: "transform", payload: `${context.resultText} (${last.role})`, reason: "scoped" };',
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    workspacePath: '/workspace/project',
+    messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'draft' },
+    ],
+    userContent: 'hi',
+    resultText: 'draft',
+    toolExecutions: [
+      {
+        name: 'shell',
+        arguments: '{}',
+        result: 'ok',
+        durationMs: 1,
+      },
+    ],
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe('draft (assistant)');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'post-receive-demo',
+      guardId: 'post-receive-demo',
+      action: 'rewrite',
+      reason: 'scoped',
+    }),
+  ]);
+});
+
+test('plugin manager swallows errors from output guards and keeps original output', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  writeOutputGuardPlugin(cwd, 'guard-throws', {
+    priority: 10,
+    behavior: 'throw',
+  });
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe('original draft');
+  expect(outcome.events).toEqual([]);
+});
+
+test('plugin manager applies output guard predicates through middleware adapter', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'guard-scoped');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: guard-scoped\nname: guard-scoped\nkind: output-guard\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'guard-scoped',",
+      "  kind: 'output-guard',",
+      '  register(api) {',
+      '    api.registerOutputGuard({',
+      "      id: 'guard-scoped-guard',",
+      '      predicate(context) {',
+      "        return context.skill?.name === 'brand-voice';",
+      '      },',
+      '      inspect(context) {',
+      "        return { action: 'rewrite', text: `${context.resultText} scoped` };",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const skipped = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+    skill: {
+      name: 'other',
+      middleware: { preSend: false, postReceive: true },
+    },
+  });
+  expect(skipped.resultText).toBe('original draft');
+  expect(skipped.events).toEqual([]);
+
+  const applied = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+    skill: {
+      name: 'brand-voice',
+      middleware: { preSend: false, postReceive: true },
+    },
+  });
+  expect(applied.resultText).toBe('original draft scoped');
+  expect(applied.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'guard-scoped',
+      guardId: 'guard-scoped-guard',
+      action: 'rewrite',
+    }),
+  ]);
+});
+
+test('plugin manager treats unknown output-guard actions as allow', async () => {
+  const homeDir = makeTempDir('hybridclaw-plugin-home-');
+  const cwd = makeTempDir('hybridclaw-plugin-project-');
+  const pluginDir = path.join(cwd, '.hybridclaw', 'plugins', 'guard-bogus');
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: guard-bogus\nname: guard-bogus\nkind: output-guard\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'guard-bogus',",
+      "  kind: 'output-guard',",
+      '  register(api) {',
+      '    api.registerOutputGuard({',
+      "      id: 'guard-bogus-guard',",
+      '      priority: 10,',
+      '      inspect() {',
+      "        return { action: 'shrug' };",
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  const config = loadRuntimeConfig();
+  config.plugins.list = [];
+
+  const { PluginManager } = await import('../src/plugins/plugin-manager.js');
+  const manager = new PluginManager({
+    homeDir,
+    cwd,
+    getRuntimeConfig: () => config,
+  });
+  await manager.ensureInitialized();
+
+  const outcome = await manager.applyOutputGuards({
+    sessionId: 'session-1',
+    userId: 'user-1',
+    agentId: 'main',
+    channelId: 'web',
+    userContent: 'hi',
+    resultText: 'original draft',
+  });
+
+  expect(outcome.blocked).toBe(false);
+  expect(outcome.resultText).toBe('original draft');
+  expect(outcome.events).toEqual([
+    expect.objectContaining({
+      pluginId: 'guard-bogus',
+      guardId: 'guard-bogus-guard',
+      action: 'allow',
+    }),
+  ]);
+});

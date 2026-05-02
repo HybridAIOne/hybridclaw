@@ -1,0 +1,20 @@
+id: workflow_monthly_invoice_run
+name: Monthly invoice run
+steps:
+  - id: harvest
+    owner_coworker_id: coworker_invoice_harvester
+    action: Fetch monthly SaaS invoices using download-platform-invoices and write normalized records plus PDFs.
+    stakes_threshold: medium
+  - id: review
+    owner_coworker_id: coworker_bookkeeping_reviewer
+    action: Review the invoice manifest for missing providers, duplicates, and failed MFA or captcha escalations.
+    stakes_threshold: high
+  - id: datev_upload
+    owner_coworker_id: coworker_datev_operator
+    action: Upload approved invoice PDFs and metadata to DATEV using the downstream bookkeeping workflow.
+    stakes_threshold: high
+transitions:
+  - from: harvest
+    to: review
+  - from: review
+    to: datev_upload

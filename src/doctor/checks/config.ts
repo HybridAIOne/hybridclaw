@@ -3,9 +3,12 @@ import { buildMcpServerNamespaces } from '../../../container/shared/mcp-tool-nam
 import { listKnownToolNames } from '../../agent/tool-summary.js';
 import {
   CONFIG_VERSION,
+  DEFAULT_RUNTIME_CONFIG,
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   getRuntimeDisabledToolNames,
+  normalizeDeploymentConfig,
+  RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS,
   runtimeConfigPath,
   setRuntimeToolEnabled,
   updateRuntimeConfig,
@@ -33,6 +36,16 @@ type UnusedEntry = {
 type UsageEntry = UnusedEntry & {
   toolNames: string[];
 };
+
+const LOCAL_DEPLOYMENT_MODE_FALLBACK = {
+  ...DEFAULT_RUNTIME_CONFIG.deployment,
+  mode: 'local',
+} satisfies typeof DEFAULT_RUNTIME_CONFIG.deployment;
+
+const CLOUD_DEPLOYMENT_MODE_FALLBACK = {
+  ...DEFAULT_RUNTIME_CONFIG.deployment,
+  mode: 'cloud',
+} satisfies typeof DEFAULT_RUNTIME_CONFIG.deployment;
 
 function formatUnusedEntries(entries: readonly UnusedEntry[]): string {
   return entries
@@ -223,6 +236,102 @@ function buildUnusedMcpServersResult(
   );
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function getRawDeployment(
+  rawConfig: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const rawDeployment = rawConfig.deployment;
+  if (
+    !rawDeployment ||
+    typeof rawDeployment !== 'object' ||
+    Array.isArray(rawDeployment)
+  ) {
+    return null;
+  }
+  return rawDeployment as Record<string, unknown>;
+}
+
+function hasInvalidDeploymentMode(
+  rawDeployment: Record<string, unknown> | null,
+): boolean {
+  if (!rawDeployment || !Object.hasOwn(rawDeployment, 'mode')) return false;
+  const localFallback = normalizeDeploymentConfig(
+    rawDeployment,
+    LOCAL_DEPLOYMENT_MODE_FALLBACK,
+  );
+  const cloudFallback = normalizeDeploymentConfig(
+    rawDeployment,
+    CLOUD_DEPLOYMENT_MODE_FALLBACK,
+  );
+  return localFallback.mode !== cloudFallback.mode;
+}
+
+function hasInvalidDeploymentTunnelProvider(
+  rawDeployment: Record<string, unknown> | null,
+  provider: string | undefined,
+): boolean {
+  const rawTunnel = rawDeployment?.tunnel;
+  if (!rawTunnel || typeof rawTunnel !== 'object' || Array.isArray(rawTunnel)) {
+    return false;
+  }
+  if (!Object.hasOwn(rawTunnel, 'provider')) return false;
+  if (!provider) return false;
+  return !(RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS as readonly string[]).includes(
+    provider,
+  );
+}
+
+function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
+  missingFields: string[];
+  invalidFields: string[];
+} {
+  const missingFields: string[] = [];
+  const invalidFields: string[] = [];
+  const rawDeployment = getRawDeployment(rawConfig);
+  // Missing deployment fields fall back to defaults so pre-v22 configs do not fail config check.
+  const deployment = normalizeDeploymentConfig(
+    rawDeployment,
+    DEFAULT_RUNTIME_CONFIG.deployment,
+  );
+
+  const invalidDeploymentMode = hasInvalidDeploymentMode(rawDeployment);
+  if (invalidDeploymentMode) {
+    invalidFields.push('deployment.mode must be "cloud" or "local"');
+  }
+  if (
+    hasInvalidDeploymentTunnelProvider(
+      rawDeployment,
+      deployment.tunnel.provider,
+    )
+  ) {
+    invalidFields.push(
+      `deployment.tunnel.provider must be one of ${RUNTIME_DEPLOYMENT_TUNNEL_PROVIDERS.join(', ')}`,
+    );
+  }
+
+  if (!invalidDeploymentMode) {
+    if (deployment.mode === 'cloud' && !deployment.public_url) {
+      missingFields.push('deployment.public_url');
+    }
+    if (deployment.mode === 'local' && !deployment.tunnel.provider) {
+      missingFields.push('deployment.tunnel.provider');
+    }
+  }
+  if (deployment.public_url && !isHttpUrl(deployment.public_url)) {
+    invalidFields.push('deployment.public_url must be an HTTP(S) URL');
+  }
+
+  return { missingFields, invalidFields };
+}
+
 export async function checkConfigFile(): Promise<DiagResult[]> {
   const filePath = runtimeConfigPath();
   const displayPath = shortenHomePath(filePath);
@@ -263,6 +372,7 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     ];
   }
 
+  const rawConfig = raw as Record<string, unknown>;
   const config = getRuntimeConfig();
   const mode = readUnixMode(filePath);
   const writableByOthers = isGroupOrWorldWritable(mode);
@@ -271,22 +381,25 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     config.ops.dbPath.trim() ? null : 'ops.dbPath',
     config.container.image.trim() ? null : 'container.image',
   ].filter(Boolean) as string[];
+  const deploymentIssues = getDeploymentConfigIssues(rawConfig);
+  missingFields.push(...deploymentIssues.missingFields);
 
-  if (missingFields.length > 0) {
+  if (missingFields.length > 0 || deploymentIssues.invalidFields.length > 0) {
+    const detail = [
+      missingFields.length > 0
+        ? `missing required field${missingFields.length === 1 ? '' : 's'}: ${missingFields.join(', ')}`
+        : null,
+      ...deploymentIssues.invalidFields,
+    ]
+      .filter(Boolean)
+      .join('; ');
     return [
-      makeResult(
-        'config',
-        'Config',
-        'error',
-        `${displayPath} missing required field${missingFields.length === 1 ? '' : 's'}: ${missingFields.join(', ')}`,
-      ),
+      makeResult('config', 'Config', 'error', `${displayPath} ${detail}`),
     ];
   }
 
   const version =
-    typeof (raw as { version?: unknown }).version === 'number'
-      ? (raw as { version: number }).version
-      : null;
+    typeof rawConfig.version === 'number' ? rawConfig.version : null;
   const severity = writableByOthers ? 'warn' : 'ok';
   const message =
     version === CONFIG_VERSION

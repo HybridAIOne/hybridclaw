@@ -24,14 +24,14 @@ jobs:
             context: ./container
             file: ./container/Dockerfile
             target: runtime
-            scope: agent-main
+            scope: hybridclaw-agent
           - image: hybridclaw-gateway
             context: .
             file: ./Dockerfile
-            scope: gateway-main
+            scope: hybridclaw-gateway
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
 
       - name: Resolve image tags
         id: meta
@@ -43,6 +43,9 @@ jobs:
           IMAGE="ghcr.io/${OWNER_LC}/${{ matrix.image }}"
           TAGS="${IMAGE}:sha-${SHA_SHORT}"$'\n'"${IMAGE}:main"
           { echo "tags<<EOF"; echo "${TAGS}"; echo "EOF"; } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Setup Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -63,10 +66,10 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.scope }}
+          cache-to: type=gha,mode=max,ignore-error=true,timeout=5m,scope=${{ matrix.scope }}

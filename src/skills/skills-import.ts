@@ -5,12 +5,13 @@ import path from 'node:path';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
+import { expandHomePath } from '../utils/path.js';
 import { SkillImportError } from './skill-errors.js';
+import { normalizeImportedSkillRelativePath } from './skill-import-commons.js';
 import type { SkillGuardDecision, SkillGuardVerdict } from './skills-guard.js';
 import { guardSkillDirectory } from './skills-guard.js';
 import {
   type GitHubSkillImportSource,
-  normalizeImportedSkillRelativePath,
   populateFromGitHubSource,
 } from './skills-import-github.js';
 import {
@@ -64,6 +65,7 @@ export interface ImportSkillOptions {
   installRootDir?: string;
   replaceExisting?: boolean;
   skipGuard?: boolean;
+  validateSkillFile?: (skillFilePath: string, skillName: string) => void;
 }
 
 function resolveManagedCommunitySkillsDir(
@@ -157,16 +159,14 @@ function parseLocalSource(input: string): LocalSkillImportSource | null {
 
   const isExplicitLocal =
     trimmed.startsWith('~/') ||
+    trimmed.startsWith('~\\') ||
     trimmed.startsWith('./') ||
     trimmed.startsWith('../') ||
     path.isAbsolute(trimmed);
 
   if (!isExplicitLocal) return null;
 
-  const expanded = trimmed.startsWith('~/')
-    ? path.join(os.homedir(), trimmed.slice(2))
-    : trimmed;
-  const resolved = path.resolve(expanded);
+  const resolved = path.resolve(expandHomePath(trimmed));
 
   return {
     kind: 'local',
@@ -663,6 +663,7 @@ export async function importSkill(
     }
 
     const skillName = readSkillNameFromFile(skillFilePath);
+    options.validateSkillFile?.(skillFilePath, skillName);
     let guardDecision: SkillGuardDecision | null = null;
     let guardVerdict: SkillGuardVerdict | undefined;
     let guardFindingsCount = 0;
