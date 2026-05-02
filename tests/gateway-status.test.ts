@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import YAML from 'yaml';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -39,6 +40,28 @@ function writeRuntimeConfig(
   mutator?.(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
   fs.chmodSync(configPath, 0o600);
+}
+
+function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
+  return YAML.parse(
+    fs.readFileSync(
+      mainAgentPolicyPath(homeDir),
+      'utf-8',
+    ),
+  ) as Record<string, unknown>;
+}
+
+function mainAgentPolicyPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'main',
+    'workspace',
+    '.hybridclaw',
+    'policy.yaml',
+  );
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -1408,6 +1431,24 @@ test('secret commands manage encrypted secrets and HTTP auth routes', async () =
       },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'NEW_HAI_API_KEY',
+            source: 'store',
+            sink: 'http',
+            host: 'hybridai.one',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 });
 
 test('secret route add normalizes URL prefixes before saving auth rules', async () => {
@@ -1456,6 +1497,60 @@ test('secret route add normalizes URL prefixes before saving auth rules', async 
       },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'NEW_HAI_API_KEY',
+            source: 'store',
+            sink: 'http',
+            host: 'hybridai.one',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
+});
+
+test('secret route add does not leave runtime config changed when policy is invalid', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+  writeRuntimeConfig(homeDir);
+  const policyPath = mainAgentPolicyPath(homeDir);
+  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+  fs.writeFileSync(policyPath, 'secret:\n  rules: [\n', 'utf-8');
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-secret-route-invalid-policy',
+    guildId: null,
+    channelId: 'tui',
+    args: [
+      'secret',
+      'route',
+      'add',
+      'https://hybridai.one/v1/',
+      'NEW_HAI_API_KEY',
+    ],
+  });
+
+  expect(result.kind).toBe('error');
+  const storedConfig = JSON.parse(
+    fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
+  ) as RuntimeConfig;
+  expect(storedConfig.tools.httpRequest.authRules).toEqual([]);
 });
 
 test('secret route add accepts Google OAuth runtime provider routes', async () => {
@@ -1497,6 +1592,24 @@ test('secret route add accepts Google OAuth runtime provider routes', async () =
       },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'GOOGLE_WORKSPACE_CLI_TOKEN',
+            source: 'env',
+            sink: 'http',
+            host: 'analyticsadmin.googleapis.com',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 });
 
 test('secret route add rejects Google OAuth runtime provider routes outside googleapis', async () => {
