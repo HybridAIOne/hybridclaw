@@ -6,6 +6,7 @@ export const DOCTOR_CATEGORIES = [
   'database',
   'providers',
   'local-backends',
+  'browser-use',
   'docker',
   'channels',
   'skills',

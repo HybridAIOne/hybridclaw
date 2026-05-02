@@ -554,7 +554,7 @@ export function printDoctorUsage(): void {
   hybridclaw doctor
   hybridclaw doctor --fix
   hybridclaw doctor --json
-  hybridclaw doctor <runtime|gateway|config|credentials|database|providers|local-backends|docker|channels|skills|security|disk>
+  hybridclaw doctor <runtime|gateway|config|credentials|database|providers|local-backends|browser-use|docker|channels|skills|security|disk>
 
 Notes:
   - Runs independent diagnostic categories in parallel and reports ok, warning, and error states.

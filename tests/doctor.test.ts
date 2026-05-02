@@ -1449,6 +1449,8 @@ test('normalizeComponent keeps the minimal doctor aliases', async () => {
 
   expect(normalizeComponent('local-backends')).toBe('local-backends');
   expect(normalizeComponent('backends')).toBe('local-backends');
+  expect(normalizeComponent('browser-use')).toBe('browser-use');
+  expect(normalizeComponent('browser')).toBe('browser-use');
   expect(normalizeComponent('db')).toBe('database');
   expect(normalizeComponent('creds')).toBe('credentials');
   expect(normalizeComponent('container')).toBe('docker');
