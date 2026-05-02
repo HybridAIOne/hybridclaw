@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -41,16 +42,6 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
-const HEADED_BROWSER_ARGS = [
-  '--no-first-run',
-  '--no-default-browser-check',
-  '--disable-background-networking',
-  '--disable-sync',
-  '--disable-translate',
-  '--metrics-recording-only',
-  '--password-store=basic',
-  '--use-mock-keychain',
-];
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -479,7 +470,7 @@ function resolveBrowserLaunchArgs(session: BrowserSession): string | undefined {
     : [];
   const merged = [...configuredArgs];
   const existing = new Set(merged);
-  for (const arg of HEADED_BROWSER_ARGS) {
+  for (const arg of BROWSER_PROFILE_CHROMIUM_ARGS) {
     if (!existing.has(arg)) merged.push(arg);
   }
   return merged.length > 0 ? merged.join('\n') : undefined;

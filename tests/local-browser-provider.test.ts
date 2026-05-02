@@ -152,6 +152,28 @@ test('local browser provider rejects profile hints outside the browser profile r
   expect(mock.launchPersistentContext).not.toHaveBeenCalled();
 });
 
+test('local browser provider rejects profile hints that resolve outside the profile root', async () => {
+  const root = makeTempRoot();
+  const profileRoot = path.join(root, 'browser-profiles');
+  const outsideDir = path.join(root, 'outside');
+  const linkedProfile = path.join(profileRoot, 'linked-profile');
+  fs.mkdirSync(profileRoot, { recursive: true });
+  fs.mkdirSync(outsideDir, { recursive: true });
+  fs.symlinkSync(outsideDir, linkedProfile);
+  const mock = createMockPlaywright();
+  const provider = new LocalBrowserProvider({
+    profileRoot,
+    playwright: mock.playwright,
+  });
+
+  await expect(
+    provider.launchSession({
+      profileDirHint: linkedProfile,
+    }),
+  ).rejects.toThrow(/resolves outside/u);
+  expect(mock.launchPersistentContext).not.toHaveBeenCalled();
+});
+
 test('local browser provider rejects unsafe navigation schemes', async () => {
   const root = makeTempRoot();
   const mock = createMockPlaywright();

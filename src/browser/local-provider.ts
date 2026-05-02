@@ -2,16 +2,14 @@ import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../../container/shared/browser-profile.js';
 import { DATA_DIR } from '../config/config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   resolveSecretInputUnsafe,
   type SecretInput,
 } from '../security/secret-refs.js';
-import {
-  BROWSER_PROFILE_CHROMIUM_ARGS,
-  getBrowserProfileDir,
-} from './browser-login.js';
+import { getBrowserProfileDir } from './browser-login.js';
 import type {
   BrowserEvaluateFunction,
   BrowserProvider,
@@ -87,6 +85,7 @@ export interface LocalBrowserProviderOptions {
 }
 
 const DEFAULT_SCROLL_DELTA = 800;
+const noopSecretAudit = () => {};
 
 function isPathWithin(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -108,12 +107,21 @@ function ensurePrivateDir(dir: string): void {
 
 function resolveProfileRoot(options: LocalBrowserProviderOptions): string {
   const envProfileRoot = process.env.BROWSER_SHARED_PROFILE_DIR?.trim();
-  return path.resolve(
-    options.profileRoot ||
-      (options.dataDir ? getBrowserProfileDir(options.dataDir) : undefined) ||
-      envProfileRoot ||
-      getBrowserProfileDir(DATA_DIR),
-  );
+  if (options.profileRoot) return path.resolve(options.profileRoot);
+  if (options.dataDir)
+    return path.resolve(getBrowserProfileDir(options.dataDir));
+  if (envProfileRoot) return path.resolve(envProfileRoot);
+  return path.resolve(getBrowserProfileDir(DATA_DIR));
+}
+
+function nearestExistingAncestor(targetPath: string): string {
+  let current = path.resolve(targetPath);
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
 }
 
 function resolveConstrainedProfileDir(
@@ -121,6 +129,7 @@ function resolveConstrainedProfileDir(
   hint?: string,
 ): string {
   ensurePrivateDir(profileRoot);
+  const realRoot = fs.realpathSync(profileRoot);
   const profileDir = path.resolve(hint || profileRoot);
 
   if (!isPathWithin(profileRoot, profileDir)) {
@@ -129,9 +138,18 @@ function resolveConstrainedProfileDir(
     );
   }
 
+  if (profileDir === profileRoot) return realRoot;
+
+  const existingAncestor = nearestExistingAncestor(profileDir);
+  const realAncestor = fs.realpathSync(existingAncestor);
+  if (!isPathWithin(realRoot, realAncestor)) {
+    throw new Error(
+      `Browser profile directory resolves outside ${realRoot}: ${realAncestor}`,
+    );
+  }
+
   ensurePrivateDir(profileDir);
 
-  const realRoot = fs.realpathSync(profileRoot);
   const realProfileDir = fs.realpathSync(profileDir);
   if (!isPathWithin(realRoot, realProfileDir)) {
     throw new Error(
@@ -194,7 +212,6 @@ async function loadPlaywright(
 
 class LocalBrowserSession implements BrowserSession {
   constructor(
-    private readonly context: PlaywrightContext,
     private readonly page: PlaywrightPage,
     private readonly secretAudit?: (
       handle: SecretHandle,
@@ -236,15 +253,21 @@ class LocalBrowserSession implements BrowserSession {
   }
 
   async fill(selector: string, value: SecretInput): Promise<void> {
-    const resolved =
-      typeof value === 'string'
-        ? value
-        : resolveSecretInputUnsafe(value, {
-            path: `browser.fill(${selector})`,
-            required: true,
-            reason: `fill browser field ${selector}`,
-            audit: this.secretAudit || (() => {}),
-          }) || '';
+    let resolved: string;
+    if (typeof value === 'string') {
+      resolved = value;
+    } else {
+      const resolvedSecret = resolveSecretInputUnsafe(value, {
+        path: `browser.fill(${selector})`,
+        required: true,
+        reason: `fill browser field ${selector}`,
+        audit: this.secretAudit || noopSecretAudit,
+      });
+      if (resolvedSecret == null) {
+        throw new Error(`browser.fill(${selector}) secret did not resolve`);
+      }
+      resolved = resolvedSecret;
+    }
     await this.page.fill(selector, resolved);
   }
 
@@ -268,14 +291,14 @@ class LocalBrowserSession implements BrowserSession {
       timeout: opts?.timeoutMs,
     });
   }
-
-  async close(): Promise<void> {
-    await this.context.close();
-  }
 }
 
 export class LocalBrowserProvider implements BrowserProvider {
   private readonly profileRoot: string;
+  private readonly contexts = new WeakMap<
+    LocalBrowserSession,
+    PlaywrightContext
+  >();
 
   constructor(private readonly options: LocalBrowserProviderOptions = {}) {
     this.profileRoot = resolveProfileRoot(options);
@@ -296,13 +319,20 @@ export class LocalBrowserProvider implements BrowserProvider {
       },
     );
     const page = context.pages()[0] || (await context.newPage());
-    return new LocalBrowserSession(context, page, this.options.secretAudit);
+    const session = new LocalBrowserSession(page, this.options.secretAudit);
+    this.contexts.set(session, context);
+    return session;
   }
 
   async closeSession(session: BrowserSession): Promise<void> {
     if (!(session instanceof LocalBrowserSession)) {
       throw new Error('LocalBrowserProvider can only close its own sessions');
     }
-    await session.close();
+    const context = this.contexts.get(session);
+    if (!context) {
+      throw new Error('LocalBrowserProvider session is not active');
+    }
+    this.contexts.delete(session);
+    await context.close();
   }
 }

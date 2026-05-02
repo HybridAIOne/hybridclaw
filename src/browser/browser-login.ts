@@ -11,26 +11,14 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../../container/shared/browser-profile.js';
+
+export { BROWSER_PROFILE_CHROMIUM_ARGS };
 
 export interface BrowserLoginOptions {
   /** URL to open when the browser starts (default: about:blank). */
   url?: string;
 }
-
-export const BROWSER_PROFILE_CHROMIUM_ARGS = [
-  '--no-first-run',
-  '--no-default-browser-check',
-  '--disable-background-networking',
-  '--disable-sync',
-  '--disable-translate',
-  '--metrics-recording-only',
-  // Use Chromium's basic password store for this dedicated automation profile
-  // so the persisted session stays readable to the automation runtime. This
-  // intentionally avoids the OS keychain and should not be treated as a safe
-  // default for general-purpose browsing profiles.
-  '--password-store=basic',
-  '--use-mock-keychain',
-] as const;
 
 function buildBrowserLoginArgs(
   profileDir: string,
