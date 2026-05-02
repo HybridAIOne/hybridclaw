@@ -198,6 +198,7 @@ class DashboardScrapeInvoiceAdapter {
     this.loginUrl = plan.loginUrl;
     this.driver = options.driver;
     this.requiredCredentials = ['username', 'password'];
+    this.unverifiedSelectors = true;
   }
 
   async login(credentials, context) {

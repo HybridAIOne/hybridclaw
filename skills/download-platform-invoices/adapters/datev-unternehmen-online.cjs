@@ -27,6 +27,8 @@ class DatevUnternehmenOnlineUploadAdapter {
     this.profileDir = options.profileDir;
     this.apiClient = options.apiClient || options.dataServiceClient || null;
     this.mcpClient = options.mcpClient || null;
+    this.id = 'datev-unternehmen-online';
+    this.unverifiedSelectors = !this.apiClient && !this.mcpClient;
     this.driver =
       options.driver ||
       new PlaywrightDatevUnternehmenOnlineUploadDriver(

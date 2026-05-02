@@ -4,7 +4,9 @@ const path = require('node:path');
 
 const { emitInvoiceFetchedAudit, makeAuditRunId } = require('./helpers/audit.cjs');
 const {
+  createInvoiceQuarantineError,
   hasRotatableInvoiceCredentials,
+  isUnverifiedSelectorAllowed,
   resolveInvoiceCredentials,
   rollbackInvoiceCredentialRotations,
   rotateInvoiceCredentials,
@@ -219,6 +221,7 @@ async function runMonthlyInvoiceRun(input) {
     const outputDir = provider.outputDir || input.config.outputDir;
     const credentialRefs = provider.credentials || {};
     try {
+      assertInvoiceAdapterNotQuarantined(adapter, provider.id);
       const credentials = resolveInvoiceCredentials(provider.id, credentialRefs, {
         required: adapter.requiredCredentials || [],
         credentialStore: input.credentialStore,
@@ -279,6 +282,17 @@ async function runMonthlyInvoiceRun(input) {
             type: 'invoice.operator_escalation_required',
           },
         });
+      } else if (error?.code === 'INVOICE_QUARANTINED') {
+        providerErrors.push({ providerId: provider.id, error: message, quarantined: true });
+        audit({
+          sessionId: input.sessionId,
+          runId,
+          event: {
+            type: 'invoice.quarantine_blocked',
+            provider: provider.id,
+            error: message,
+          },
+        });
       } else {
         providerErrors.push({ providerId: provider.id, error: message });
       }
@@ -299,6 +313,23 @@ async function runMonthlyInvoiceRun(input) {
   if (shouldUpload) {
     if (!input.datev) {
       throw new Error('DATEV handoff is enabled but no upload adapter was provided.');
+    }
+    const datevProviderId = input.datev.id || 'datev-unternehmen-online';
+    try {
+      assertInvoiceAdapterNotQuarantined(input.datev, datevProviderId);
+    } catch (error) {
+      if (error?.code === 'INVOICE_QUARANTINED') {
+        audit({
+          sessionId: input.sessionId,
+          runId,
+          event: {
+            type: 'invoice.quarantine_blocked',
+            provider: datevProviderId,
+            error: error.message,
+          },
+        });
+      }
+      throw error;
     }
     const workflowId = input.config.datev?.workflowId || 'monthly-invoice-run';
     await input.datev.uploadInvoices({
@@ -325,6 +356,12 @@ async function runMonthlyInvoiceRun(input) {
     operatorEscalations,
     datevUploaded: shouldUpload,
   };
+}
+
+function assertInvoiceAdapterNotQuarantined(adapter, providerId) {
+  if (!adapter?.unverifiedSelectors) return;
+  if (isUnverifiedSelectorAllowed(providerId)) return;
+  throw createInvoiceQuarantineError(providerId);
 }
 
 async function harvestProviderInvoicesWithRotation(input) {
@@ -406,5 +443,6 @@ module.exports = {
   loadInvoiceManifest,
   runMonthlyInvoiceRun,
   saveInvoiceManifest,
+  assertInvoiceAdapterNotQuarantined,
   shouldRotateInvoiceCredentials,
 };

@@ -61,6 +61,7 @@ class GcpInvoiceAdapter {
       options.cloudBillingEndpoint || 'https://cloudbilling.googleapis.com/v1';
     this.tokenEndpoint = options.tokenEndpoint || GOOGLE_TOKEN_ENDPOINT;
     this.documentDriver = options.documentDriver || null;
+    this.unverifiedSelectors = Boolean(this.documentDriver);
   }
 
   async login(credentials, context = {}) {

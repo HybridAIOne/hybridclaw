@@ -38,6 +38,7 @@ type InvoiceAdapter<Session = unknown> = {
   id: string;
   displayName: string;
   requiredCredentials?: string[];
+  unverifiedSelectors?: boolean;
   login(credentials: Record<string, string>, context: unknown): Promise<Session>;
   listInvoices(session: Session, options: unknown): Promise<InvoiceMeta[]>;
   download(session: Session, invoice: InvoiceMeta): Promise<Uint8Array>;
@@ -92,6 +93,7 @@ const invoiceMeta: InvoiceMeta = {
 
 afterEach(() => {
   delete process.env.HYBRIDCLAW_INVOICE_TEST_SECRET;
+  delete process.env.INVOICE_UNVERIFIED_SELECTORS;
   vi.restoreAllMocks();
 });
 
@@ -1143,6 +1145,65 @@ describe('invoice harvester config and monthly workflow', () => {
     );
   });
 
+  test('quarantines unverified selector adapters unless explicitly allowed', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-'));
+    const adapter: InvoiceAdapter<undefined> = {
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      unverifiedSelectors: true,
+      async login() {
+        return undefined;
+      },
+      async listInvoices() {
+        return [invoiceMeta];
+      },
+      async download() {
+        return new TextEncoder().encode('%PDF anthropic');
+      },
+    };
+    const recordAudit = vi.fn();
+
+    const blocked = await runMonthlyInvoiceRun({
+      sessionId: 'session-monthly-invoice-test',
+      adapters: [adapter],
+      recordAudit,
+      config: {
+        outputDir,
+        providers: [{ id: 'anthropic', credentials: {} }],
+      },
+    });
+
+    expect(blocked.providerResults).toHaveLength(0);
+    expect(blocked.providerErrors).toEqual([
+      expect.objectContaining({
+        providerId: 'anthropic',
+        quarantined: true,
+        error: expect.stringContaining('#778'),
+      }),
+    ]);
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: 'invoice.quarantine_blocked',
+          provider: 'anthropic',
+        }),
+      }),
+    );
+
+    process.env.INVOICE_UNVERIFIED_SELECTORS = 'anthropic';
+    const allowed = await runMonthlyInvoiceRun({
+      sessionId: 'session-monthly-invoice-test',
+      adapters: [adapter],
+      config: {
+        outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-allowed-')),
+        providers: [{ id: 'anthropic', credentials: {} }],
+      },
+    });
+
+    expect(allowed.providerResults).toHaveLength(1);
+    expect(allowed.providerErrors).toEqual([]);
+  });
+
   test('DATEV Unternehmen Online uploader sends harvested PDFs through a browser driver', async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-'));
     const pdfPath = path.join(
@@ -1298,6 +1359,64 @@ describe('invoice harvester config and monthly workflow', () => {
     expect(DATEV_UNTERNEHMEN_ONLINE_UPLOAD_PLAN.uploadButtonSelector).toContain(
       'Belege hochladen',
     );
+  });
+
+  test('quarantines DATEV browser handoff unless unverified selectors are explicitly allowed', async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-quarantine-'));
+    const recordAudit = vi.fn();
+    const datev = new DatevUnternehmenOnlineUploadAdapter({
+      credentials: { username: 'datev-user', password: 'datev-password' },
+      profileDir: '/tmp/datev-profile',
+      driver: {
+        login: vi.fn(async () => ({ close: vi.fn(async () => undefined) })),
+      },
+    });
+
+    await expect(
+      runMonthlyInvoiceRun({
+        sessionId: 'session-monthly-invoice-test',
+        adapters: [],
+        datev,
+        recordAudit,
+        config: {
+          outputDir,
+          providers: [],
+          datev: { enabled: true },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVOICE_QUARANTINED',
+      providerId: 'datev-unternehmen-online',
+    });
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: 'invoice.quarantine_blocked',
+          provider: 'datev-unternehmen-online',
+        }),
+      }),
+    );
+
+    process.env.INVOICE_UNVERIFIED_SELECTORS = 'datev-unternehmen-online';
+    const uploadInvoices = vi.fn(async () => undefined);
+    const allowedDatev = {
+      id: 'datev-unternehmen-online',
+      unverifiedSelectors: true,
+      uploadInvoices,
+    };
+    await expect(
+      runMonthlyInvoiceRun({
+        sessionId: 'session-monthly-invoice-test',
+        adapters: [],
+        datev: allowedDatev,
+        config: {
+          outputDir,
+          providers: [],
+          datev: { enabled: true },
+        },
+      }),
+    ).resolves.toMatchObject({ datevUploaded: true });
+    expect(uploadInvoices).toHaveBeenCalledOnce();
   });
 
   test('keeps monthly runs going after one provider fails', async () => {

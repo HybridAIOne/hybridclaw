@@ -11,6 +11,8 @@ const INVOICE_PROVIDER_IDS = [
   'azure',
 ];
 
+const INVOICE_QUARANTINE_ISSUE = '#778';
+
 function validateInvoiceHarvesterConfig(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Invalid invoice harvester config: / must be object.');
@@ -191,6 +193,33 @@ function normalizeCredentialStoreResult(result) {
   return null;
 }
 
+function parseUnverifiedSelectorAllowList(value = process.env.INVOICE_UNVERIFIED_SELECTORS) {
+  if (!value) return { all: false, providers: new Set() };
+  const tokens = String(value)
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return {
+    all: tokens.includes('1') || tokens.includes('all') || tokens.includes('*'),
+    providers: new Set(tokens),
+  };
+}
+
+function isUnverifiedSelectorAllowed(providerId, value) {
+  const allowList = parseUnverifiedSelectorAllowList(value);
+  const normalized = String(providerId || '').toLowerCase();
+  return allowList.all || allowList.providers.has(normalized);
+}
+
+function createInvoiceQuarantineError(providerId) {
+  const error = new Error(
+    `Invoice adapter ${providerId} uses unverified selectors and is quarantined until ${INVOICE_QUARANTINE_ISSUE}. Set INVOICE_UNVERIFIED_SELECTORS=${providerId} or INVOICE_UNVERIFIED_SELECTORS=all to run it explicitly.`,
+  );
+  error.code = 'INVOICE_QUARANTINED';
+  error.providerId = providerId;
+  return error;
+}
+
 function secretId(value) {
   if (typeof value === 'string') {
     const match = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/u);
@@ -203,8 +232,12 @@ function secretId(value) {
 }
 
 module.exports = {
+  createInvoiceQuarantineError,
   hasRotatableInvoiceCredentials,
   INVOICE_PROVIDER_IDS,
+  INVOICE_QUARANTINE_ISSUE,
+  isUnverifiedSelectorAllowed,
+  parseUnverifiedSelectorAllowList,
   resolveInvoiceCredentials,
   rollbackInvoiceCredentialRotations,
   rotateInvoiceCredentials,
