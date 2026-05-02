@@ -19,6 +19,12 @@ import {
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
+import {
+  runAudioTranscribeTool,
+  runDiagramCreateTool,
+  runImageGenerateTool,
+  runTextToSpeechTool,
+} from './content-tools.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
@@ -38,6 +44,7 @@ import {
   SEARCH_TOOL_DEFINITIONS,
 } from './tools/search-tools.js';
 import {
+  type ContentToolConfig,
   type DelegationSideEffect,
   type DelegationTaskSpec,
   type MediaContextItem,
@@ -119,9 +126,13 @@ let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
 let currentModelDebugResponses = false;
+let currentModelIsLocal: boolean | undefined;
+let currentModelContextWindow: number | undefined;
+let currentModelThinkingFormat: 'qwen' | undefined;
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
+let currentContentToolConfig: ContentToolConfig | undefined;
 let mcpClientManager: McpClientManager | null = null;
 let pluginTools: PluginRuntimeToolDefinition[] = [];
 const MAX_PENDING_DELEGATIONS = 3;
@@ -786,6 +797,9 @@ export function setModelContext(
   model: string,
   chatbotId: string,
   requestHeaders?: Record<string, string>,
+  isLocal?: boolean,
+  contextWindow?: number,
+  thinkingFormat?: 'qwen',
   maxTokens?: number,
   debugModelResponses = false,
 ): void {
@@ -795,6 +809,12 @@ export function setModelContext(
   currentModelName = String(model || '').trim();
   currentChatbotId = String(chatbotId || '').trim();
   currentModelHeaders = { ...(requestHeaders || {}) };
+  currentModelIsLocal = isLocal === true;
+  currentModelContextWindow =
+    typeof contextWindow === 'number' && Number.isFinite(contextWindow)
+      ? Math.floor(contextWindow)
+      : undefined;
+  currentModelThinkingFormat = thinkingFormat;
   currentModelMaxTokens =
     typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0
       ? Math.floor(maxTokens)
@@ -826,6 +846,16 @@ function hasWebSearchProviderKeys(config?: WebSearchRuntimeConfig): boolean {
   return Boolean(
     config?.braveApiKey || config?.perplexityApiKey || config?.tavilyApiKey,
   );
+}
+
+export function setContentToolConfig(config?: ContentToolConfig): void {
+  currentContentToolConfig = config
+    ? {
+        imageGeneration: { ...config.imageGeneration },
+        speech: { ...config.speech },
+        transcription: { ...config.transcription },
+      }
+    : undefined;
 }
 
 export function setWebSearchConfig(config?: WebSearchRuntimeConfig): void {
@@ -3249,8 +3279,61 @@ async function executeToolInternal(
     }
 
     case 'vision_analyze':
+    case 'vision':
     case 'image': {
       return await runVisionAnalyze(args, auxiliaryRuntimeContext);
+    }
+
+    case 'image_generate': {
+      if (!currentContentToolConfig) {
+        return failTool('Error: image generation config is unavailable');
+      }
+      return await runImageGenerateTool({
+        args,
+        config: currentContentToolConfig.imageGeneration,
+      });
+    }
+
+    case 'text_to_speech':
+    case 'tts': {
+      if (!currentContentToolConfig) {
+        return failTool('Error: text-to-speech config is unavailable');
+      }
+      return await runTextToSpeechTool({
+        args,
+        config: currentContentToolConfig.speech,
+      });
+    }
+
+    case 'audio_transcribe':
+    case 'transcribe_audio': {
+      if (!currentContentToolConfig) {
+        return failTool('Error: audio transcription config is unavailable');
+      }
+      return await runAudioTranscribeTool({
+        args,
+        config: currentContentToolConfig.transcription,
+        mediaContext: currentMediaContext,
+      });
+    }
+
+    case 'diagram_create':
+    case 'diagram': {
+      return await runDiagramCreateTool({
+        args,
+        modelContext: {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          chatbotId: currentChatbotId,
+          requestHeaders: currentModelHeaders,
+          isLocal: currentModelIsLocal,
+          contextWindow: currentModelContextWindow,
+          thinkingFormat: currentModelThinkingFormat,
+          maxTokens: currentModelMaxTokens,
+        },
+      });
     }
 
     case 'browser_navigate':
@@ -4122,6 +4205,36 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'vision',
+      description: 'Alias of vision_analyze for image analysis.',
+      parameters: {
+        type: 'object',
+        properties: {
+          image_url: {
+            type: 'string',
+            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+          },
+          question: {
+            type: 'string',
+            description: 'Question to ask about the image.',
+          },
+          fallback_url: {
+            type: 'string',
+            description:
+              'Optional fallback Discord CDN URL if image_url cannot be read.',
+          },
+          original_url: {
+            type: 'string',
+            description: 'Optional original URL alias for fallback_url.',
+          },
+        },
+        required: ['image_url', 'question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'image',
       description: 'Alias of vision_analyze for image analysis.',
       parameters: {
@@ -4146,6 +4259,296 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ['image_url', 'question'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'audio_transcribe',
+      description:
+        'Transcribe a local audio file with Whisper-style speech recognition via the configured OpenAI audio endpoint. Use for voice notes, interviews, podcasts, or meeting clips that live in /workspace or the current media context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          audio_path: {
+            type: 'string',
+            description:
+              'Local audio file path under /workspace, /discord-media-cache, or /uploaded-media-cache.',
+          },
+          model: {
+            type: 'string',
+            description:
+              'Optional transcription model override. Default: whisper-1.',
+          },
+          language: {
+            type: 'string',
+            description: 'Optional ISO language hint such as en or de.',
+          },
+          prompt: {
+            type: 'string',
+            description:
+              'Optional domain/context hint to improve proper nouns and jargon.',
+          },
+          max_chars: {
+            type: 'number',
+            description:
+              'Optional max transcript characters to return (256-32000, default 8000).',
+          },
+          timeout_ms: {
+            type: 'number',
+            description: 'Optional timeout override in milliseconds.',
+          },
+        },
+        required: ['audio_path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'transcribe_audio',
+      description: 'Alias of audio_transcribe.',
+      parameters: {
+        type: 'object',
+        properties: {
+          audio_path: {
+            type: 'string',
+            description:
+              'Local audio file path under /workspace, /discord-media-cache, or /uploaded-media-cache.',
+          },
+          model: {
+            type: 'string',
+            description:
+              'Optional transcription model override. Default: whisper-1.',
+          },
+          language: {
+            type: 'string',
+            description: 'Optional ISO language hint such as en or de.',
+          },
+          prompt: {
+            type: 'string',
+            description:
+              'Optional domain/context hint to improve proper nouns and jargon.',
+          },
+          max_chars: {
+            type: 'number',
+            description:
+              'Optional max transcript characters to return (256-32000, default 8000).',
+          },
+          timeout_ms: {
+            type: 'number',
+            description: 'Optional timeout override in milliseconds.',
+          },
+        },
+        required: ['audio_path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_create',
+      description:
+        'Create a diagram as Mermaid source or SVG and save it under /workspace. Use for architecture diagrams, flows, swimlanes, entity relationships, timelines, and process maps.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'What the diagram should communicate.',
+          },
+          format: {
+            type: 'string',
+            description:
+              'Output format. Mermaid is the default and most reliable.',
+            enum: ['mermaid', 'svg'],
+          },
+          title: {
+            type: 'string',
+            description: 'Optional title or heading for the diagram.',
+          },
+          output_path: {
+            type: 'string',
+            description:
+              'Optional output file path under /workspace. Defaults to .generated-content/diagrams/.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram',
+      description: 'Alias of diagram_create.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'What the diagram should communicate.',
+          },
+          format: {
+            type: 'string',
+            description:
+              'Output format. Mermaid is the default and most reliable.',
+            enum: ['mermaid', 'svg'],
+          },
+          title: {
+            type: 'string',
+            description: 'Optional title or heading for the diagram.',
+          },
+          output_path: {
+            type: 'string',
+            description:
+              'Optional output file path under /workspace. Defaults to .generated-content/diagrams/.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'image_generate',
+      description:
+        'Generate new images with FAL / FLUX 2 and save them under /workspace. Use for concept art, product shots, marketing visuals, thumbnails, mockups, and illustrations.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'What to generate.',
+          },
+          model: {
+            type: 'string',
+            description:
+              'Optional FAL model override. Default: fal-ai/flux-2/klein/9b.',
+          },
+          aspect_ratio: {
+            type: 'string',
+            description: 'Optional aspect ratio override.',
+            enum: ['1:1', '4:3', '3:4', '16:9', '9:16'],
+          },
+          resolution: {
+            type: 'string',
+            description: 'Optional resolution tier override.',
+            enum: ['1K', '2K', '4K'],
+          },
+          count: {
+            type: 'number',
+            description: 'Optional number of images to generate (1-4).',
+          },
+          output_format: {
+            type: 'string',
+            description: 'Optional output image format.',
+            enum: ['png', 'jpeg'],
+          },
+          output_dir: {
+            type: 'string',
+            description:
+              'Optional output directory under /workspace. Defaults to .generated-content/images/.',
+          },
+          timeout_ms: {
+            type: 'number',
+            description: 'Optional timeout override in milliseconds.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'text_to_speech',
+      description:
+        'Synthesize speech from text with the configured OpenAI TTS endpoint and save the audio under /workspace. Use for voiceovers, spoken drafts, announcements, and narration.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: {
+            type: 'string',
+            description: 'Text to synthesize.',
+          },
+          model: {
+            type: 'string',
+            description:
+              'Optional speech model override. Default: gpt-4o-mini-tts.',
+          },
+          voice: {
+            type: 'string',
+            description:
+              'Optional voice name such as alloy, ash, echo, sage, or shimmer.',
+          },
+          output_format: {
+            type: 'string',
+            description: 'Optional audio format.',
+            enum: ['mp3', 'wav', 'opus'],
+          },
+          speed: {
+            type: 'number',
+            description: 'Optional playback speed (0.25-4).',
+          },
+          output_path: {
+            type: 'string',
+            description:
+              'Optional output file path under /workspace. Defaults to .generated-content/audio/.',
+          },
+          timeout_ms: {
+            type: 'number',
+            description: 'Optional timeout override in milliseconds.',
+          },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tts',
+      description: 'Alias of text_to_speech.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: {
+            type: 'string',
+            description: 'Text to synthesize.',
+          },
+          model: {
+            type: 'string',
+            description:
+              'Optional speech model override. Default: gpt-4o-mini-tts.',
+          },
+          voice: {
+            type: 'string',
+            description:
+              'Optional voice name such as alloy, ash, echo, sage, or shimmer.',
+          },
+          output_format: {
+            type: 'string',
+            description: 'Optional audio format.',
+            enum: ['mp3', 'wav', 'opus'],
+          },
+          speed: {
+            type: 'number',
+            description: 'Optional playback speed (0.25-4).',
+          },
+          output_path: {
+            type: 'string',
+            description:
+              'Optional output file path under /workspace. Defaults to .generated-content/audio/.',
+          },
+          timeout_ms: {
+            type: 'number',
+            description: 'Optional timeout override in milliseconds.',
+          },
+        },
+        required: ['text'],
       },
     },
   },

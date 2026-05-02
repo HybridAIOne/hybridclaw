@@ -342,6 +342,14 @@ autonomy:
       }),
       latestUserPrompt: 'Analyze the attached image',
     });
+    const visionAlias = runtime.evaluateToolCall({
+      toolName: 'vision',
+      argsJson: JSON.stringify({
+        image_url: '/tmp/example.jpg',
+        question: 'What is in this image?',
+      }),
+      latestUserPrompt: 'Analyze the attached image',
+    });
 
     expect(visionAnalyze.tier).toBe('green');
     expect(visionAnalyze.decision).toBe('auto');
@@ -349,6 +357,56 @@ autonomy:
     expect(imageAlias.tier).toBe('green');
     expect(imageAlias.decision).toBe('auto');
     expect(imageAlias.implicitDelayMs).toBeUndefined();
+    expect(visionAlias.tier).toBe('green');
+    expect(visionAlias.decision).toBe('auto');
+    expect(visionAlias.implicitDelayMs).toBeUndefined();
+  });
+
+  test('content creation tools are green and write into the workspace', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const imageGenerate = runtime.evaluateToolCall({
+      toolName: 'image_generate',
+      argsJson: JSON.stringify({
+        prompt: 'A branded keynote cover',
+        output_dir: '.generated-content/images',
+      }),
+      latestUserPrompt: 'Generate a cover image',
+    });
+    const textToSpeech = runtime.evaluateToolCall({
+      toolName: 'text_to_speech',
+      argsJson: JSON.stringify({
+        text: 'Hello from HybridClaw.',
+        output_path: '.generated-content/audio/intro.mp3',
+      }),
+      latestUserPrompt: 'Create a voiceover',
+    });
+    const audioTranscribe = runtime.evaluateToolCall({
+      toolName: 'audio_transcribe',
+      argsJson: JSON.stringify({
+        audio_path: '/workspace/audio/clip.wav',
+      }),
+      latestUserPrompt: 'Transcribe this recording',
+    });
+    const diagramCreate = runtime.evaluateToolCall({
+      toolName: 'diagram_create',
+      argsJson: JSON.stringify({
+        prompt: 'A three-step deployment flow',
+        output_path: '.generated-content/diagrams/deploy.mmd',
+      }),
+      latestUserPrompt: 'Draw a deployment diagram',
+    });
+
+    expect(imageGenerate.tier).toBe('green');
+    expect(imageGenerate.writeIntent).toBe(true);
+    expect(textToSpeech.tier).toBe('green');
+    expect(textToSpeech.writeIntent).toBe(true);
+    expect(audioTranscribe.tier).toBe('green');
+    expect(audioTranscribe.writeIntent).toBe(true);
+    expect(diagramCreate.tier).toBe('green');
+    expect(diagramCreate.writeIntent).toBe(true);
   });
 
   test('delegate tool is green by default', () => {

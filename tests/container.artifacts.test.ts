@@ -20,6 +20,8 @@ test('infers OOXML artifact mime types', () => {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   );
   expect(inferArtifactMimeType('preview.png')).toBe('image/png');
+  expect(inferArtifactMimeType('voiceover.mp3')).toBe('audio/mpeg');
+  expect(inferArtifactMimeType('diagram.mmd')).toBe('text/vnd.mermaid');
 });
 
 test('discovers recently created artifact files under the workspace root', () => {

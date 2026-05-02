@@ -160,6 +160,7 @@ export interface ToolApprovalEvaluation {
   reason: string;
   commandPreview: string;
   pinned: boolean;
+  writeIntent: boolean;
   implicitDelayMs?: number;
   hostHints: string[];
 }
@@ -1403,6 +1404,7 @@ export class TrustedAgentApprovalRuntime {
           reason: classified.reason,
           commandPreview: classified.commandPreview,
           pinned: pinnedByPolicy,
+          writeIntent: classified.writeIntent,
           hostHints: classified.hostHints,
         };
       }
@@ -1468,6 +1470,7 @@ export class TrustedAgentApprovalRuntime {
             reason: `Approval queue is full (${this.loadedPolicy.maxPendingApprovals} pending).`,
             commandPreview: classified.commandPreview,
             pinned: pinnedByPolicy,
+            writeIntent: classified.writeIntent,
             hostHints: classified.hostHints,
           };
         }
@@ -1501,6 +1504,7 @@ export class TrustedAgentApprovalRuntime {
           reason: classified.reason,
           commandPreview: classified.commandPreview,
           pinned: pinnedByPolicy,
+          writeIntent: classified.writeIntent,
           hostHints: classified.hostHints,
         };
       }
@@ -1548,6 +1552,7 @@ export class TrustedAgentApprovalRuntime {
       reason: classified.reason,
       commandPreview: classified.commandPreview,
       pinned: pinnedByPolicy,
+      writeIntent: classified.writeIntent,
       implicitDelayMs:
         tier === 'yellow' &&
         decision === 'implicit' &&
@@ -2000,7 +2005,11 @@ export class TrustedAgentApprovalRuntime {
       });
     }
 
-    if (lowerTool === 'vision_analyze' || lowerTool === 'image') {
+    if (
+      lowerTool === 'vision_analyze' ||
+      lowerTool === 'vision' ||
+      lowerTool === 'image'
+    ) {
       return {
         tier: 'green',
         actionKey: lowerTool,
@@ -2011,6 +2020,32 @@ export class TrustedAgentApprovalRuntime {
         pathHints: [],
         hostHints: [],
         writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (
+      lowerTool === 'image_generate' ||
+      lowerTool === 'text_to_speech' ||
+      lowerTool === 'tts' ||
+      lowerTool === 'audio_transcribe' ||
+      lowerTool === 'transcribe_audio' ||
+      lowerTool === 'diagram_create' ||
+      lowerTool === 'diagram'
+    ) {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: `run ${toolName}`,
+        consequenceIfDenied:
+          'I will continue without generating the requested content.',
+        reason:
+          'this action creates user-requested media or diagram files inside the workspace',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: true,
         promotableRed: false,
         stickyYellow: false,
       };

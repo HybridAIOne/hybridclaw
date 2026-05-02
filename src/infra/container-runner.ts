@@ -75,6 +75,7 @@ import {
 import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
 import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
+import { resolveContentToolConfig } from './content-tool-config.js';
 import {
   agentWorkspaceDir,
   cleanupIpc,
@@ -1034,6 +1035,7 @@ async function runContainerInner(
     enableRag,
     agentId,
   });
+  const contentTools = resolveContentToolConfig();
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
@@ -1141,6 +1143,7 @@ async function runContainerInner(
       tavilyApiKey: TAVILY_API_KEY,
     },
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
+    contentTools,
     escalationTarget,
   };
   const workerSignature = computeWorkerSignature({
@@ -1151,6 +1154,7 @@ async function runContainerInner(
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
     taskModels: input.taskModels,
+    contentTools: input.contentTools,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,

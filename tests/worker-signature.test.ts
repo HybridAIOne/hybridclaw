@@ -108,3 +108,85 @@ test('computeWorkerSignature changes when auxiliary task routing changes', () =>
     }),
   ).not.toBe(baseline);
 });
+
+test('computeWorkerSignature changes when content tool routing changes', () => {
+  const baseline = computeWorkerSignature({
+    agentId: 'main',
+    provider: 'hybridai',
+    baseUrl: 'https://hybridai.one',
+    apiKey: 'main-secret',
+    requestHeaders: {},
+    contentTools: {
+      imageGeneration: {
+        apiKey: 'fal-secret-a',
+        baseUrl: 'https://fal.run',
+        defaultModel: 'fal-ai/flux-2/klein/9b',
+        defaultCount: 1,
+        defaultAspectRatio: '1:1',
+        defaultResolution: '1K',
+        defaultOutputFormat: 'png',
+        timeoutMs: 120000,
+      },
+      speech: {
+        apiKey: 'openai-secret-a',
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: 'gpt-4o-mini-tts',
+        defaultVoice: 'alloy',
+        defaultOutputFormat: 'mp3',
+        defaultSpeed: 1,
+        maxChars: 4000,
+        timeoutMs: 60000,
+      },
+      transcription: {
+        apiKey: 'openai-secret-a',
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: 'whisper-1',
+        defaultLanguage: '',
+        defaultPrompt: '',
+        maxBytes: 25000000,
+        timeoutMs: 120000,
+      },
+    },
+  });
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'hybridai',
+      baseUrl: 'https://hybridai.one',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      contentTools: {
+        imageGeneration: {
+          apiKey: 'fal-secret-b',
+          baseUrl: 'https://fal.run',
+          defaultModel: 'fal-ai/flux-2-pro',
+          defaultCount: 1,
+          defaultAspectRatio: '1:1',
+          defaultResolution: '1K',
+          defaultOutputFormat: 'png',
+          timeoutMs: 120000,
+        },
+        speech: {
+          apiKey: 'openai-secret-a',
+          baseUrl: 'https://api.openai.com/v1',
+          defaultModel: 'gpt-4o-mini-tts',
+          defaultVoice: 'alloy',
+          defaultOutputFormat: 'mp3',
+          defaultSpeed: 1,
+          maxChars: 4000,
+          timeoutMs: 60000,
+        },
+        transcription: {
+          apiKey: 'openai-secret-a',
+          baseUrl: 'https://api.openai.com/v1',
+          defaultModel: 'whisper-1',
+          defaultLanguage: '',
+          defaultPrompt: '',
+          maxBytes: 25000000,
+          timeoutMs: 120000,
+        },
+      },
+    }),
+  ).not.toBe(baseline);
+});

@@ -40,6 +40,26 @@ describe('normalizePlaceholderToolReply', () => {
     });
   });
 
+  test('uses the last successful content tool result instead of a Done placeholder', () => {
+    const result = makeResult({
+      toolsUsed: ['audio_transcribe'],
+      toolExecutions: [
+        {
+          name: 'audio_transcribe',
+          arguments: '{"audio_path":"/workspace/audio/interview.wav"}',
+          result:
+            'Transcript from interview.wav (whisper-1):\nThe launch is on Friday.',
+          durationMs: 1290,
+        },
+      ],
+    });
+
+    expect(normalizePlaceholderToolReply(result)).toMatchObject({
+      result:
+        'Transcript from interview.wav (whisper-1):\nThe launch is on Friday.',
+    });
+  });
+
   test('leaves non-placeholder replies unchanged', () => {
     const result = makeResult({
       result: 'Direct model answer',

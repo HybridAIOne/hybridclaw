@@ -83,6 +83,7 @@ import {
   getPluginToolDefinitions,
   resetPersistentBashSessions,
   resetSideEffects,
+  setContentToolConfig,
   setGatewayContext,
   setMcpClientManager,
   setMediaContext,
@@ -1729,6 +1730,7 @@ async function main(): Promise<void> {
     firstInput.configuredDiscordChannels,
   );
   setWebSearchConfig(firstInput.webSearch);
+  setContentToolConfig(firstInput.contentTools);
   setModelContext(
     firstInput.provider,
     firstInput.providerMethod,
@@ -1737,6 +1739,9 @@ async function main(): Promise<void> {
     firstInput.model,
     firstInput.chatbotId,
     storedRequestHeaders,
+    firstInput.isLocal,
+    firstInput.contextWindow,
+    firstInput.thinkingFormat,
     firstInput.maxTokens,
     firstInput.debugModelResponses === true,
   );
@@ -1900,6 +1905,7 @@ async function main(): Promise<void> {
       input.configuredDiscordChannels,
     );
     setWebSearchConfig(input.webSearch);
+    setContentToolConfig(input.contentTools);
     setModelContext(
       input.provider,
       input.providerMethod,
@@ -1908,6 +1914,9 @@ async function main(): Promise<void> {
       input.model,
       input.chatbotId,
       requestHeaders,
+      input.isLocal,
+      input.contextWindow,
+      input.thinkingFormat,
       input.maxTokens,
       input.debugModelResponses === true,
     );

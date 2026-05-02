@@ -32,6 +32,29 @@ function extractVisionAnalysisFromToolResult(raw: unknown): string | null {
   return analysis || null;
 }
 
+function extractContentToolResultText(
+  toolName: string,
+  raw: unknown,
+): string | null {
+  const normalizedTool = toolName.trim().toLowerCase();
+  if (
+    ![
+      'audio_transcribe',
+      'transcribe_audio',
+      'diagram',
+      'diagram_create',
+      'image_generate',
+      'text_to_speech',
+      'tts',
+    ].includes(normalizedTool)
+  ) {
+    return null;
+  }
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  return text || null;
+}
+
 function normalizeToolErrorText(raw: string): string | null {
   const normalized = raw.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
@@ -193,12 +216,26 @@ export function normalizePlaceholderToolReply(
     const toolName = String(execution.name || '')
       .trim()
       .toLowerCase();
-    if (toolName !== 'vision_analyze' && toolName !== 'image') continue;
-    const analysis = extractVisionAnalysisFromToolResult(execution.result);
-    if (!analysis) continue;
+    if (
+      toolName === 'vision_analyze' ||
+      toolName === 'vision' ||
+      toolName === 'image'
+    ) {
+      const analysis = extractVisionAnalysisFromToolResult(execution.result);
+      if (!analysis) continue;
+      return {
+        ...result,
+        result: analysis,
+      };
+    }
+    const contentToolText = extractContentToolResultText(
+      toolName,
+      execution.result,
+    );
+    if (!contentToolText) continue;
     return {
       ...result,
-      result: analysis,
+      result: contentToolText,
     };
   }
   const failureSummary = summarizePlaceholderToolFailure(result);
