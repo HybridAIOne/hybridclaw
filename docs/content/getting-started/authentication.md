@@ -34,8 +34,8 @@ hybridclaw auth login kilo anthropic/claude-sonnet-4.6 --api-key ...
 hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
-hybridclaw auth login google --client-id 000000000000-example.apps.googleusercontent.com --client-secret GOCSPX-example --account you@example.com
-hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
+hybridclaw auth login google --client-id <google-oauth-client-id>.apps.googleusercontent.com --client-secret GOCSPX-example --account you@example.com
+hybridclaw auth login msteams --app-id <msteams-app-id> --tenant-id <msteams-tenant-id> --app-password secret
 hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
 hybridclaw auth status hybridai
 hybridclaw auth status codex
@@ -303,6 +303,105 @@ The configured Google OAuth auth routes should attach Authorization.
 - `PERMISSION_DENIED` for a GA4 property: grant the authorized Google account Viewer or Analyst access to that GA4 property.
 - `insufficient authentication scopes`: rerun `hybridclaw auth login google` with all required scopes.
 - `401 Unauthorized`: rerun `hybridclaw auth login google`; the stored refresh token may have been revoked or the OAuth client may have changed.
+
+## Google Ads Invoice Harvesting
+
+Google Ads invoice harvesting follows Google's `InvoiceService` flow:
+list invoices for a `customer_id`, `billing_setup`, `issue_year`, and
+`issue_month`, then download the returned `pdf_url` with the same OAuth
+account.
+
+### Required Google Setup
+
+1. Open [Google Cloud Console APIs](https://console.cloud.google.com/apis/library/googleads.googleapis.com) in the project that owns your HybridClaw OAuth client.
+2. Enable **Google Ads API** for that project.
+3. Make sure the Google OAuth consent/app configuration can grant
+   `https://www.googleapis.com/auth/adwords`.
+4. In Google Ads, use a manager account to open
+   [API Center](https://ads.google.com/aw/apicenter) and copy the developer
+   token. Google Ads API calls require this token in the `developer-token`
+   header.
+5. Identify the target serving customer ID and billing setup resource name.
+   Customer IDs are sent without hyphens. Billing setup resource names look
+   like `customers/<customer-id>/billingSetups/<billing-setup-id>`.
+6. If access goes through a manager/MCC account, note the manager customer ID
+   as `login-customer-id`, also without hyphens.
+
+### Store And Route Credentials
+
+Authorize Google OAuth with the Google Ads scope. If this OAuth login also
+powers Workspace or Analytics access, include those scopes in the same command;
+`--scopes` is the complete grant to store.
+
+```bash
+hybridclaw auth login google \
+  --client-id "<client-id>" \
+  --client-secret "<client-secret>" \
+  --account you@example.com \
+  --scopes "https://www.googleapis.com/auth/adwords"
+
+hybridclaw auth status google
+```
+
+Store the developer token:
+
+```bash
+hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"
+```
+
+Allow `http_request` to inject both headers only for Google Ads API calls:
+
+```bash
+hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none
+```
+
+Store non-secret Google Ads identifiers in the secret store when you want the
+invoice harvester config to reference them uniformly:
+
+```bash
+hybridclaw secret set GOOGLEADS_CUSTOMER_ID "<client-customer-id-without-hyphens>"
+hybridclaw secret set GOOGLEADS_BILLING_SETUP "customers/<client-customer-id-without-hyphens>/billingSetups/<billing-setup-id>"
+hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-hyphens>"
+```
+
+`GOOGLEADS_LOGIN_CUSTOMER_ID` is optional. Use it only when Google Ads returns
+`USER_PERMISSION_DENIED` with guidance that a manager customer ID must be set.
+
+### API Calls
+
+Use the current Google Ads API version:
+
+```text
+GET https://googleads.googleapis.com/v24/customers/<customer-id>/invoices?billingSetup=customers/<customer-id>/billingSetups/<billing-setup-id>&issueYear=<yyyy>&issueMonth=<MONTH>
+```
+
+Then download the returned `pdfUrl` with `Authorization: Bearer <access-token>`.
+The `google-oauth` route injects that header for HybridClaw agents.
+
+If identifiers are missing, use these discovery calls:
+
+```text
+GET https://googleads.googleapis.com/v24/customers:listAccessibleCustomers
+POST https://googleads.googleapis.com/v24/customers/<manager-customer-id>/googleAds:search
+POST https://googleads.googleapis.com/v24/customers/<customer-id>/googleAds:search
+```
+
+Use `customer_client` fields for the manager/client relationship and
+`billing_setup.resource_name` for the `billingSetup` parameter.
+
+### Google Ads Troubleshooting
+
+- `SERVICE_DISABLED`: enable **Google Ads API** in the Google Cloud project
+  named by the error's `consumer` field. This is the project that owns the
+  OAuth client.
+- `USER_PERMISSION_DENIED`: verify the OAuth user has access to the target
+  Google Ads customer, and add `login-customer-id` if access is through an
+  MCC/manager account.
+- `insufficient authentication scopes`: rerun `hybridclaw auth login google`
+  with `https://www.googleapis.com/auth/adwords`.
+- `404` from `POST /customers/<id>:search`: the endpoint is wrong. Use
+  `/v24/customers/<id>/googleAds:search`.
 
 ## Where Credentials Live
 
