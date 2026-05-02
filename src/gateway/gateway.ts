@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
+  startWebhookOutboxProcessor,
+  stopWebhookOutboxProcessor,
+} from '../a2a/webhook-outbound.js';
+import {
   getActiveExecutorCount,
   stopAllExecutions,
 } from '../agent/executor.js';
@@ -2805,6 +2809,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       runManagedMediaCleanup('shutdown'),
     );
     stopHeartbeat();
+    stopWebhookOutboxProcessor();
     stopObservabilityIngest();
     await stopTokenUsageBuffer().catch((error) => {
       logger.debug({ error }, 'Failed to drain token usage buffer at shutdown');
@@ -3049,6 +3054,7 @@ async function main(): Promise<void> {
   const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
+  startWebhookOutboxProcessor();
   startObservabilityIngest();
   startTokenUsageBuffer();
   startDiscoveryLoop();

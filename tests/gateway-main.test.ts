@@ -278,6 +278,8 @@ function createGatewayMainTestState(options?: {
       setReady: vi.fn(),
     })),
     startHeartbeat: vi.fn(),
+    startWebhookOutboxProcessor: vi.fn(),
+    stopWebhookOutboxProcessor: vi.fn(),
     startDiscoveryLoop: vi.fn(),
     hybridAIProbeGet: vi.fn(async () => ({})),
     localBackendsProbeGet: vi.fn(async () => new Map()),
@@ -577,6 +579,10 @@ async function importFreshGatewayMain(options?: {
     startHeartbeat: state.startHeartbeat,
     stopHeartbeat: vi.fn(),
   }));
+  vi.doMock('../src/a2a/webhook-outbound.js', () => ({
+    startWebhookOutboxProcessor: state.startWebhookOutboxProcessor,
+    stopWebhookOutboxProcessor: state.stopWebhookOutboxProcessor,
+  }));
   vi.doMock('../src/scheduler/scheduler.js', () => ({
     rearmScheduler: state.rearmScheduler,
     startScheduler: state.startScheduler,
@@ -666,6 +672,7 @@ useCleanMocks({
     '../src/memory/db.js',
     '../src/memory/memory-service.js',
     '../src/agents/agent-registry.js',
+    '../src/a2a/webhook-outbound.js',
     '../src/providers/local-discovery.js',
     '../src/providers/local-health.js',
     '../src/scheduler/heartbeat.js',
@@ -696,6 +703,7 @@ describe('gateway bootstrap', () => {
       1_000,
       expect.any(Function),
     );
+    expect(state.startWebhookOutboxProcessor).toHaveBeenCalledTimes(1);
     expect(state.startDiscoveryLoop).toHaveBeenCalledTimes(1);
     expect(state.startObservabilityIngest).toHaveBeenCalledTimes(1);
     expect(state.startScheduler).toHaveBeenCalledTimes(1);
