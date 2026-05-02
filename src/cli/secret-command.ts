@@ -9,6 +9,12 @@ import {
   runtimeConfigPath,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
+import {
+  allowHttpSecretRouteInWorkspacePolicy,
+  removeHttpSecretRouteFromWorkspacePolicy,
+} from '../policy/secret-route-policy.js';
 import {
   isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
@@ -237,6 +243,13 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
           source: 'internal',
         },
       );
+      const policyRuleId = allowHttpSecretRouteInWorkspacePolicy({
+        workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+        urlPrefix,
+        header,
+        secret,
+        agentId: DEFAULT_AGENT_ID,
+      });
       const authLabel = prefix
         ? `${header}: ${prefix} <secret>`
         : `${header}: <secret>`;
@@ -244,6 +257,9 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
         `Added secret route for \`${urlPrefix}\` using \`${formatRouteSecretLabel(secret)}\` as \`${authLabel}\`.`,
       );
       console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+      if (policyRuleId) {
+        console.log(`Allowed this route in secret policy rule \`${policyRuleId}\`.`);
+      }
       return;
     }
 
@@ -258,6 +274,15 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       }
       const urlPrefix = normalizeUrlPrefix(rawPrefix);
       const header = rawHeader ? normalizeSecretRouteHeader(rawHeader) : '';
+      const currentRules = getRuntimeConfig().tools.httpRequest.authRules.filter(
+        (rule) => {
+          if (rule.urlPrefix !== urlPrefix) return false;
+          if (header && rule.header.toLowerCase() !== header.toLowerCase()) {
+            return false;
+          }
+          return true;
+        },
+      );
       let removed = 0;
       updateRuntimeConfig(
         (draft) => {
@@ -280,6 +305,15 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
           source: 'internal',
         },
       );
+      for (const rule of currentRules) {
+        removeHttpSecretRouteFromWorkspacePolicy({
+          workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+          urlPrefix,
+          header: rule.header,
+          secret: rule.secret,
+          agentId: DEFAULT_AGENT_ID,
+        });
+      }
       console.log(
         removed > 0
           ? `Removed ${removed} secret route${removed === 1 ? '' : 's'} for \`${urlPrefix}\`.`

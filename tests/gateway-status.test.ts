@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import YAML from 'yaml';
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
 const ORIGINAL_HOME = process.env.HOME;
@@ -39,6 +40,24 @@ function writeRuntimeConfig(
   mutator?.(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
   fs.chmodSync(configPath, 0o600);
+}
+
+function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
+  return YAML.parse(
+    fs.readFileSync(
+      path.join(
+        homeDir,
+        '.hybridclaw',
+        'data',
+        'agents',
+        'main',
+        'workspace',
+        '.hybridclaw',
+        'policy.yaml',
+      ),
+      'utf-8',
+    ),
+  ) as Record<string, unknown>;
 }
 
 function restoreEnvVar(name: string, value: string | undefined): void {
@@ -1408,6 +1427,24 @@ test('secret commands manage encrypted secrets and HTTP auth routes', async () =
       },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'NEW_HAI_API_KEY',
+            source: 'store',
+            sink: 'http',
+            host: 'hybridai.one',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 });
 
 test('secret route add normalizes URL prefixes before saving auth rules', async () => {
@@ -1456,6 +1493,24 @@ test('secret route add normalizes URL prefixes before saving auth rules', async 
       },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'NEW_HAI_API_KEY',
+            source: 'store',
+            sink: 'http',
+            host: 'hybridai.one',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 });
 
 test('secret route add accepts Google OAuth runtime provider routes', async () => {
@@ -1497,6 +1552,24 @@ test('secret route add accepts Google OAuth runtime provider routes', async () =
       },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'GOOGLE_WORKSPACE_CLI_TOKEN',
+            source: 'env',
+            sink: 'http',
+            host: 'analyticsadmin.googleapis.com',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 });
 
 test('secret route add rejects Google OAuth runtime provider routes outside googleapis', async () => {

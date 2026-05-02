@@ -220,6 +220,10 @@ import {
   updatePolicyRule,
 } from '../policy/policy-store.js';
 import {
+  allowHttpSecretRouteInWorkspacePolicy,
+  removeHttpSecretRouteFromWorkspacePolicy,
+} from '../policy/secret-route-policy.js';
+import {
   discoverCodexModels,
   getDiscoveredCodexModelNames,
 } from '../providers/codex-discovery.js';
@@ -9082,8 +9086,16 @@ export async function handleGatewayCommand(
                         rule.urlPrefix === urlPrefix &&
                         rule.header.toLowerCase() === header.toLowerCase()
                       ),
-                  );
+                );
                 draft.tools.httpRequest.authRules.push(nextRule);
+              });
+              const agentId = resolveSessionAgentId(session);
+              allowHttpSecretRouteInWorkspacePolicy({
+                workspacePath: agentWorkspaceDir(agentId),
+                urlPrefix,
+                header,
+                secret,
+                agentId,
               });
               const authLabel = prefix
                 ? `${header}: ${prefix} <secret>`
@@ -9113,6 +9125,19 @@ export async function handleGatewayCommand(
               const header = rawHeader
                 ? normalizeSecretRouteHeader(rawHeader)
                 : '';
+              const currentRules =
+                getRuntimeConfig().tools.httpRequest.authRules.filter(
+                  (rule) => {
+                    if (rule.urlPrefix !== urlPrefix) return false;
+                    if (
+                      header &&
+                      rule.header.toLowerCase() !== header.toLowerCase()
+                    ) {
+                      return false;
+                    }
+                    return true;
+                  },
+                );
               let removed = 0;
               updateRuntimeConfig((draft) => {
                 const before = draft.tools.httpRequest.authRules.length;
@@ -9126,9 +9151,19 @@ export async function handleGatewayCommand(
                       return true;
                     }
                     return false;
-                  });
+                });
                 removed = before - draft.tools.httpRequest.authRules.length;
               });
+              const agentId = resolveSessionAgentId(session);
+              for (const rule of currentRules) {
+                removeHttpSecretRouteFromWorkspacePolicy({
+                  workspacePath: agentWorkspaceDir(agentId),
+                  urlPrefix,
+                  header: rule.header,
+                  secret: rule.secret,
+                  agentId,
+                });
+              }
               return plainCommand(
                 removed > 0
                   ? `Removed ${removed} secret route${removed === 1 ? '' : 's'} for \`${urlPrefix}\`.`

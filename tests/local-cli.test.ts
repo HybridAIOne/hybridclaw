@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import YAML from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
@@ -54,6 +55,24 @@ function readRuntimeConfig(homeDir: string): RuntimeConfig {
   return JSON.parse(
     fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
   ) as RuntimeConfig;
+}
+
+function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
+  return YAML.parse(
+    fs.readFileSync(
+      path.join(
+        homeDir,
+        '.hybridclaw',
+        'data',
+        'agents',
+        'main',
+        'workspace',
+        '.hybridclaw',
+        'policy.yaml',
+      ),
+      'utf-8',
+    ),
+  ) as Record<string, unknown>;
 }
 
 async function readRuntimeSecrets(
@@ -286,6 +305,24 @@ test('secret route add and remove update store-backed auth rules', async () => {
       secret: { source: 'store', id: 'SF_FULL_SECRET' },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'SF_FULL_SECRET',
+            source: 'store',
+            sink: 'http',
+            host: 'api.example.com',
+            selector: 'X-API-Key',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 
   await cli.main([
     'secret',
@@ -297,6 +334,11 @@ test('secret route add and remove update store-backed auth rules', async () => {
 
   config = readRuntimeConfig(homeDir);
   expect(config.tools.httpRequest.authRules).toEqual([]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [],
+    },
+  });
 });
 
 test('secret route add supports Google OAuth runtime auth rules', async () => {
@@ -320,6 +362,24 @@ test('secret route add supports Google OAuth runtime auth rules', async () => {
       secret: { source: 'google-oauth' },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'GOOGLE_WORKSPACE_CLI_TOKEN',
+            source: 'env',
+            sink: 'http',
+            host: 'analyticsdata.googleapis.com',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 });
 
 test('secret route add rejects Google OAuth routes for non-Google APIs', async () => {
