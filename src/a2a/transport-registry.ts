@@ -14,9 +14,10 @@ import {
 } from './peer-descriptor.js';
 import { A2A_TRANSPORT_PATTERN, normalizeTransportString } from './utils.js';
 
-export interface TransportAdapter {
+export interface TransportAdapter<WirePayload = unknown> {
   readonly transport: A2APeerTransport;
-  encode(envelope: A2AEnvelope, descriptor?: PeerDescriptor): A2AEnvelope;
+  encode(envelope: A2AEnvelope, descriptor?: PeerDescriptor): WirePayload;
+  decode(payload: WirePayload, descriptor?: PeerDescriptor): A2AEnvelope;
 }
 
 export class TransportRegistryError extends Error {
@@ -66,10 +67,13 @@ export class TransportRegistry {
   }
 }
 
-export const internalTransportAdapter: TransportAdapter = {
+export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
   transport: 'internal',
   encode(envelope) {
     return envelope;
+  },
+  decode(payload) {
+    return validateA2AEnvelope(payload);
   },
 };
 
@@ -269,11 +273,10 @@ export function encodeForRegisteredTransport(params: {
     });
     throw new TransportRegistryError(descriptor.transport);
   }
-  if (descriptor.transport !== 'internal') {
-    throw new TransportRegistryError(
-      descriptor.transport,
-      `A2A transport "${descriptor.transport}" has no delivery implementation.`,
-    );
+  if (descriptor.transport === 'internal') {
+    return validateA2AEnvelope(adapter.encode(normalizedEnvelope, descriptor));
   }
-  return adapter.encode(normalizedEnvelope, descriptor);
+
+  adapter.encode(normalizedEnvelope, descriptor);
+  return normalizedEnvelope;
 }

@@ -10,7 +10,6 @@ import {
   encodeForRegisteredTransport,
   internalTransportAdapter,
   type TransportAdapter,
-  TransportRegistryError,
 } from '../src/a2a/transport-registry.ts';
 
 describe('A2A transport adapter registry', () => {
@@ -37,6 +36,7 @@ describe('A2A transport adapter registry', () => {
       agentId: 'writer',
     });
     expect(adapter?.encode(envelope)).toEqual(envelope);
+    expect(adapter?.decode(envelope)).toEqual(envelope);
   });
 
   test('falls through when a transport has no registered adapter', () => {
@@ -146,13 +146,20 @@ describe('A2A transport adapter registry', () => {
     expect(registry.resolveByTransport(' INTERNAL ')).toBe(adapter);
   });
 
-  test('does not invoke non-internal adapters before delivery is implemented', () => {
+  test('invokes registered non-internal adapters and returns the canonical envelope', () => {
     const registry = createDefaultTransportRegistry();
     let encodeCalled = false;
     registry.register({
       transport: 'a2a',
       encode(envelope) {
         encodeCalled = true;
+        return {
+          jsonrpc: '2.0',
+          method: 'message/send',
+          params: envelope,
+        };
+      },
+      decode() {
         return envelope;
       },
     });
@@ -166,7 +173,7 @@ describe('A2A transport adapter registry', () => {
       created_at: '2026-05-01T10:00:00.000Z',
     });
 
-    expect(() =>
+    expect(
       encodeForRegisteredTransport({
         envelope,
         peerDescriptor: {
@@ -175,7 +182,7 @@ describe('A2A transport adapter registry', () => {
         },
         registry,
       }),
-    ).toThrow(TransportRegistryError);
-    expect(encodeCalled).toBe(false);
+    ).toEqual(envelope);
+    expect(encodeCalled).toBe(true);
   });
 });
