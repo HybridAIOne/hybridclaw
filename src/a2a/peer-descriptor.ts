@@ -6,6 +6,8 @@ export const A2A_PEER_TRANSPORTS = ['internal', 'a2a', 'webhook'] as const;
 
 export type A2APeerTransport = (typeof A2A_PEER_TRANSPORTS)[number];
 
+const TRANSPORT_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
+
 export interface InternalPeerDescriptor {
   transport: 'internal';
   agentId?: string;
@@ -52,10 +54,6 @@ function readAlias(
   return record[camelKey] !== undefined ? record[camelKey] : record[snakeKey];
 }
 
-function normalizeOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value.trim() || undefined : undefined;
-}
-
 function readRequiredString(
   value: unknown,
   field: string,
@@ -68,6 +66,29 @@ function readRequiredString(
   const normalized = value.trim();
   if (!normalized) {
     issues.push(`${field} is required`);
+  }
+  return normalized;
+}
+
+function readOptionalStringAlias(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+  field: string,
+  issues: string[],
+): string | undefined {
+  if (!Object.hasOwn(record, camelKey) && !Object.hasOwn(record, snakeKey)) {
+    return undefined;
+  }
+  const value = readAlias(record, camelKey, snakeKey);
+  if (typeof value !== 'string') {
+    issues.push(`${field} must be a string when provided`);
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    issues.push(`${field} must not be empty when provided`);
+    return undefined;
   }
   return normalized;
 }
@@ -111,6 +132,10 @@ function normalizeTransport(value: unknown, issues: string[]): string {
   const normalized = value.trim().toLowerCase();
   if (!normalized) {
     issues.push('transport is required');
+  } else if (!TRANSPORT_PATTERN.test(normalized)) {
+    issues.push(
+      'transport must match /^[a-z][a-z0-9._-]{0,63}$/ after trimming and lowercasing',
+    );
   }
   return normalized;
 }
@@ -147,8 +172,12 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
 
   if (transport === 'internal') {
     validateAllowedFields(value, ['transport', 'agentId', 'agent_id'], issues);
-    const agentId = normalizeOptionalString(
-      readAlias(value, 'agentId', 'agent_id'),
+    const agentId = readOptionalStringAlias(
+      value,
+      'agentId',
+      'agent_id',
+      'agentId',
+      issues,
     );
     if (issues.length > 0) {
       throw new PeerDescriptorValidationError(issues);

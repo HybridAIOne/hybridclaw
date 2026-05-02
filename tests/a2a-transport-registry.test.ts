@@ -7,7 +7,10 @@ import {
 } from '../src/a2a/peer-descriptor.ts';
 import {
   createDefaultTransportRegistry,
+  encodeForRegisteredTransport,
   internalTransportAdapter,
+  type TransportAdapter,
+  TransportDeliveryNotImplementedError,
 } from '../src/a2a/transport-registry.ts';
 
 describe('A2A transport adapter registry', () => {
@@ -78,6 +81,22 @@ describe('A2A transport adapter registry', () => {
         host: 'mail.example.com',
       }),
     ).toThrow(PeerDescriptorValidationError);
+    expect(() =>
+      normalizePeerDescriptor({
+        transport: 'internal',
+        agentId: 123,
+      }),
+    ).toThrow(PeerDescriptorValidationError);
+    expect(() =>
+      normalizePeerDescriptor({
+        transport: 'bad transport',
+      }),
+    ).toThrow(PeerDescriptorValidationError);
+    expect(() =>
+      normalizePeerDescriptor({
+        transport: `a${'b'.repeat(64)}`,
+      }),
+    ).toThrow(PeerDescriptorValidationError);
   });
 
   test('normalizes transport-specific descriptor fields', () => {
@@ -92,5 +111,54 @@ describe('A2A transport adapter registry', () => {
       url: 'https://hooks.example.com/a2a',
       secretRef: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },
     });
+  });
+
+  test('normalizes registered adapter transport keys', () => {
+    const registry = createDefaultTransportRegistry();
+    const adapter = {
+      ...internalTransportAdapter,
+      transport: ' Internal ',
+    } as unknown as TransportAdapter;
+
+    registry.register(adapter);
+
+    expect(registry.resolveByTransport('internal')).toBe(adapter);
+    expect(registry.resolveByTransport(' INTERNAL ')).toBe(adapter);
+  });
+
+  test('does not invoke non-internal adapters before delivery is implemented', () => {
+    const registry = createDefaultTransportRegistry();
+    let encodeCalled = false;
+    registry.register({
+      transport: 'a2a',
+      encode(envelope) {
+        encodeCalled = true;
+        return envelope;
+      },
+      decode(payload) {
+        return validateA2AEnvelope(payload);
+      },
+    });
+    const envelope = validateA2AEnvelope({
+      id: 'msg-remote',
+      sender_agent_id: 'main',
+      recipient_agent_id: 'remote@team@peer-instance',
+      thread_id: 'thread-remote',
+      intent: 'chat',
+      content: 'Can your peer agent receive this?',
+      created_at: '2026-05-01T10:00:00.000Z',
+    });
+
+    expect(() =>
+      encodeForRegisteredTransport({
+        envelope,
+        peerDescriptor: {
+          transport: 'a2a',
+          agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        },
+        registry,
+      }),
+    ).toThrow(TransportDeliveryNotImplementedError);
+    expect(encodeCalled).toBe(false);
   });
 });

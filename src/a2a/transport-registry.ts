@@ -4,11 +4,7 @@ import {
   emitInteractionNeededEvent,
 } from '../gateway/interactive-escalation.js';
 import type { EscalationTarget } from '../types/execution.js';
-import {
-  type A2AEnvelope,
-  A2AEnvelopeValidationError,
-  validateA2AEnvelope,
-} from './envelope.js';
+import { type A2AEnvelope, validateA2AEnvelope } from './envelope.js';
 import {
   type A2APeerTransport,
   isKnownPeerDescriptor,
@@ -32,16 +28,33 @@ export class TransportRegistryError extends Error {
   }
 }
 
+export class TransportDeliveryNotImplementedError extends Error {
+  readonly transport: string;
+
+  constructor(transport: string) {
+    super(`A2A transport "${transport}" has no delivery implementation.`);
+    this.name = 'TransportDeliveryNotImplementedError';
+    this.transport = transport;
+  }
+}
+
+function normalizeAdapterTransport(transport: string): string {
+  const normalized = transport.trim().toLowerCase();
+  if (!normalized) {
+    throw new TransportRegistryError('<empty>');
+  }
+  return normalized;
+}
+
 export class TransportRegistry {
   private readonly adapters = new Map<string, TransportAdapter>();
 
   register(adapter: TransportAdapter): void {
-    this.adapters.set(adapter.transport, adapter);
+    this.adapters.set(normalizeAdapterTransport(adapter.transport), adapter);
   }
 
   resolveByTransport(transport: string): TransportAdapter | null {
-    const normalized = transport.trim().toLowerCase();
-    return this.adapters.get(normalized) ?? null;
+    return this.adapters.get(normalizeAdapterTransport(transport)) ?? null;
   }
 
   resolve(descriptor: unknown): {
@@ -253,11 +266,9 @@ export function encodeForRegisteredTransport(params: {
     throw new TransportRegistryError(descriptor.transport);
   }
 
-  const encoded = adapter.encode(normalizedEnvelope, descriptor);
   if (descriptor.transport !== 'internal') {
-    throw new A2AEnvelopeValidationError([
-      `transport ${descriptor.transport} has no delivery implementation`,
-    ]);
+    throw new TransportDeliveryNotImplementedError(descriptor.transport);
   }
+  const encoded = adapter.encode(normalizedEnvelope, descriptor);
   return validateA2AEnvelope(encoded);
 }
