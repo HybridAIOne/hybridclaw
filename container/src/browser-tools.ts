@@ -1,13 +1,12 @@
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-
 import { parseOptionalBoolean } from '../shared/boolean-utils.js';
+import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -43,16 +42,6 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
-const HEADED_BROWSER_ARGS = [
-  '--no-first-run',
-  '--no-default-browser-check',
-  '--disable-background-networking',
-  '--disable-sync',
-  '--disable-translate',
-  '--metrics-recording-only',
-  '--password-store=basic',
-  '--use-mock-keychain',
-];
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -481,7 +470,7 @@ function resolveBrowserLaunchArgs(session: BrowserSession): string | undefined {
     : [];
   const merged = [...configuredArgs];
   const existing = new Set(merged);
-  for (const arg of HEADED_BROWSER_ARGS) {
+  for (const arg of BROWSER_PROFILE_CHROMIUM_ARGS) {
     if (!existing.has(arg)) merged.push(arg);
   }
   return merged.length > 0 ? merged.join('\n') : undefined;
@@ -708,95 +697,6 @@ export async function cleanupAllBrowserSessions(): Promise<void> {
   for (const session of sessions) {
     await closeSession(session.sessionKey);
   }
-}
-
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().split('%')[0];
-  if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  if (/^fe[89ab]/.test(lower)) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice('::ffff:'.length);
-    return net.isIP(mapped) === 4 ? isPrivateIpv4(mapped) : false;
-  }
-  return false;
-}
-
-function isPrivateIp(ip: string): boolean {
-  const version = net.isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return false;
-}
-
-async function isPrivateHost(hostname: string): Promise<boolean> {
-  const host = hostname.trim().toLowerCase();
-  if (!host) return true;
-  if (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local')
-  )
-    return true;
-  if (net.isIP(host) > 0) return isPrivateIp(host);
-  try {
-    const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateIp(entry.address));
-  } catch {
-    // If DNS cannot be resolved here, do not hard-block.
-    return false;
-  }
-}
-
-async function assertNavigationUrl(raw: unknown): Promise<URL> {
-  const input = String(raw || '').trim();
-  if (!input) {
-    throw new Error('url is required');
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(input);
-  } catch {
-    throw new Error(`Invalid URL: ${input}`);
-  }
-
-  if (parsed.protocol === 'about:' && parsed.href === 'about:blank') {
-    return parsed;
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL protocol: ${parsed.protocol}`);
-  }
-
-  const allowPrivate =
-    String(process.env.BROWSER_ALLOW_PRIVATE_NETWORK || '').toLowerCase() ===
-    'true';
-  if (!allowPrivate && (await isPrivateHost(parsed.hostname))) {
-    throw new Error(
-      `Navigation blocked by SSRF guard: private or loopback host (${parsed.hostname}). ` +
-        'Set BROWSER_ALLOW_PRIVATE_NETWORK=true to override.',
-    );
-  }
-  return parsed;
 }
 
 function truncateSnapshot(text: string): { text: string; truncated: boolean } {
@@ -1616,7 +1516,7 @@ export async function executeBrowserTool(
     const effectiveSessionId = normalizeSessionKey(sessionId || 'default');
     switch (name) {
       case 'browser_navigate': {
-        const parsed = await assertNavigationUrl(args.url);
+        const parsed = await assertBrowserNavigationUrl(args.url);
         const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,

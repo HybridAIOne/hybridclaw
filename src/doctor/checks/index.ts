@@ -1,4 +1,5 @@
 import type { DoctorCheck } from '../types.js';
+import { checkBrowserUse } from './browser-use.js';
 import { checkChannels } from './channels.js';
 import { checkConfig } from './config.js';
 import { checkCredentials } from './credentials.js';
@@ -49,6 +50,11 @@ export function doctorChecks(): DoctorCheck[] {
       category: 'local-backends',
       label: 'Local backends',
       run: checkLocalBackendsCategory,
+    },
+    {
+      category: 'browser-use',
+      label: 'Browser use',
+      run: checkBrowserUse,
     },
     {
       category: 'docker',
