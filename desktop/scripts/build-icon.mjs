@@ -14,16 +14,28 @@ if (process.platform === 'darwin') {
     cwd: desktopDir,
     stdio: 'inherit',
   });
+  if (result.error) {
+    console.error(
+      `Failed to invoke swift scripts/generate-mac-icon.swift: ${result.error.message}`,
+    );
+    process.exit(1);
+  }
   process.exit(result.status ?? 1);
 }
 
-const committedAssets = [
-  path.join(buildDir, 'icon.png'),
-  path.join(buildDir, 'icon.icns'),
-  path.join(buildDir, 'background.png'),
-  path.join(buildDir, 'background@2x.png'),
-];
-const missing = committedAssets.filter((target) => !fs.existsSync(target));
+const isLinuxBuild =
+  process.platform === 'linux' ||
+  process.env.HYBRIDCLAW_DESKTOP_TARGET === 'linux';
+
+const requiredAssets = isLinuxBuild
+  ? [path.join(buildDir, 'icon.png')]
+  : [
+      path.join(buildDir, 'icon.png'),
+      path.join(buildDir, 'icon.icns'),
+      path.join(buildDir, 'background.png'),
+      path.join(buildDir, 'background@2x.png'),
+    ];
+const missing = requiredAssets.filter((target) => !fs.existsSync(target));
 
 if (missing.length > 0) {
   console.error(
