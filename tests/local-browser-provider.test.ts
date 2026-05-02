@@ -135,6 +135,35 @@ test('local browser provider launches a persistent profile and completes a smoke
   expect(mock.context.close).toHaveBeenCalledTimes(1);
 });
 
+test('local browser provider reuses the same persistent profile across sessions', async () => {
+  const root = makeTempRoot();
+  const dataDir = path.join(root, 'data');
+  const profileDir = getBrowserProfileDir(dataDir);
+  const mock = createMockPlaywright();
+  const provider = new LocalBrowserProvider({
+    dataDir,
+    playwright: mock.playwright,
+  });
+
+  const first = await provider.launchSession({});
+  await provider.closeSession(first);
+  const second = await provider.launchSession({});
+  await provider.closeSession(second);
+
+  expect(mock.launchPersistentContext).toHaveBeenCalledTimes(2);
+  expect(mock.launchPersistentContext).toHaveBeenNthCalledWith(
+    1,
+    fs.realpathSync(profileDir),
+    expect.any(Object),
+  );
+  expect(mock.launchPersistentContext).toHaveBeenNthCalledWith(
+    2,
+    fs.realpathSync(profileDir),
+    expect.any(Object),
+  );
+  expect(mock.context.close).toHaveBeenCalledTimes(2);
+});
+
 test('local browser provider rejects profile hints outside the browser profile root', async () => {
   const root = makeTempRoot();
   const dataDir = path.join(root, 'data');

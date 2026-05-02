@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { resolveInstallRoot } from '../../infra/install-root.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, shortenHomePath } from '../utils.js';
@@ -17,10 +18,10 @@ function runPlaywrightInstall(): Promise<void> {
   return new Promise((resolve, reject) => {
     let cliPath: string;
     try {
-      cliPath = new URL(
+      cliPath = path.join(
+        path.dirname(require.resolve('playwright/package.json')),
         'cli.js',
-        `file://${require.resolve('playwright/package.json')}`,
-      ).pathname;
+      );
     } catch (error) {
       reject(
         new Error(
