@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   createSuspendedSession,
@@ -7,41 +9,36 @@ import type { EscalationTarget } from '../types/execution.js';
 import { type A2AEnvelope, validateA2AEnvelope } from './envelope.js';
 import {
   type A2APeerTransport,
-  isKnownPeerDescriptor,
-  type KnownPeerDescriptor,
   normalizePeerDescriptor,
+  type PeerDescriptor,
 } from './peer-descriptor.js';
+import { A2A_TRANSPORT_PATTERN, normalizeTransportString } from './utils.js';
 
-export interface TransportAdapter<WirePayload = unknown> {
+export interface TransportAdapter {
   readonly transport: A2APeerTransport;
-  encode(envelope: A2AEnvelope, descriptor?: KnownPeerDescriptor): WirePayload;
-  decode(payload: WirePayload, descriptor?: KnownPeerDescriptor): A2AEnvelope;
+  encode(envelope: A2AEnvelope, descriptor?: PeerDescriptor): A2AEnvelope;
 }
 
 export class TransportRegistryError extends Error {
   readonly transport: string;
 
-  constructor(transport: string) {
-    super(`No A2A transport adapter registered for "${transport}".`);
+  constructor(
+    transport: string,
+    message = `No A2A transport adapter registered for "${transport}".`,
+  ) {
+    super(message);
     this.name = 'TransportRegistryError';
     this.transport = transport;
   }
 }
 
-export class TransportDeliveryNotImplementedError extends Error {
-  readonly transport: string;
-
-  constructor(transport: string) {
-    super(`A2A transport "${transport}" has no delivery implementation.`);
-    this.name = 'TransportDeliveryNotImplementedError';
-    this.transport = transport;
-  }
-}
-
 function normalizeAdapterTransport(transport: string): string {
-  const normalized = transport.trim().toLowerCase();
-  if (!normalized) {
-    throw new TransportRegistryError('<empty>');
+  const normalized = normalizeTransportString(transport);
+  if (!A2A_TRANSPORT_PATTERN.test(normalized)) {
+    throw new TransportRegistryError(
+      normalized || '<empty>',
+      'A2A transport adapter keys must match /^[a-z][a-z0-9._-]{0,63}$/ after trimming and lowercasing.',
+    );
   }
   return normalized;
 }
@@ -69,13 +66,10 @@ export class TransportRegistry {
   }
 }
 
-export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
+export const internalTransportAdapter: TransportAdapter = {
   transport: 'internal',
   encode(envelope) {
-    return validateA2AEnvelope(envelope);
-  },
-  decode(payload) {
-    return validateA2AEnvelope(payload);
+    return envelope;
   },
 };
 
@@ -85,38 +79,28 @@ export function createDefaultTransportRegistry(): TransportRegistry {
   return registry;
 }
 
-export const defaultTransportRegistry = createDefaultTransportRegistry();
+const defaultTransportRegistry = createDefaultTransportRegistry();
 
 export interface TransportEscalationAuditInput {
-  envelope: unknown;
+  envelope: A2AEnvelope;
   transport: string;
   sessionId?: string;
   runId?: string;
   escalationTarget?: EscalationTarget;
 }
 
-function summarizeEnvelopeForAudit(envelope: unknown): {
+function summarizeEnvelopeForAudit(envelope: A2AEnvelope): {
   messageId: string | null;
   threadId: string | null;
   senderAgentId: string | null;
   recipientAgentId: string | null;
 } {
-  try {
-    const normalized = validateA2AEnvelope(envelope);
-    return {
-      messageId: normalized.id,
-      threadId: normalized.thread_id,
-      senderAgentId: normalized.sender_agent_id,
-      recipientAgentId: normalized.recipient_agent_id,
-    };
-  } catch {
-    return {
-      messageId: null,
-      threadId: null,
-      senderAgentId: null,
-      recipientAgentId: null,
-    };
-  }
+  return {
+    messageId: envelope.id,
+    threadId: envelope.thread_id,
+    senderAgentId: envelope.sender_agent_id,
+    recipientAgentId: envelope.recipient_agent_id,
+  };
 }
 
 function transportEscalationPrompt(params: {
@@ -144,20 +128,12 @@ function createTransportEscalationSession(input: {
   summary: ReturnType<typeof summarizeEnvelopeForAudit>;
   escalationTarget?: EscalationTarget;
   runId: string;
+  sessionId: string;
+  approvalId: string;
 }): void {
-  const sessionId = [
-    'a2a-transport',
-    input.transport,
-    input.summary.threadId || 'thread',
-    input.summary.messageId || 'message',
-  ].join(':');
   const session = createSuspendedSession({
-    sessionId,
-    approvalId: [
-      'a2a-transport',
-      input.transport,
-      input.summary.messageId || Date.now().toString(36),
-    ].join('-'),
+    sessionId: input.sessionId,
+    approvalId: input.approvalId,
     prompt: transportEscalationPrompt(input),
     userId: input.escalationTarget?.recipient || 'operator',
     modality: 'push',
@@ -179,13 +155,42 @@ function createTransportEscalationSession(input: {
   });
 }
 
+const COMPOSITE_KEY_PART_PATTERN = /^[A-Za-z0-9._@-]{1,128}$/;
+
+function encodeCompositeKeyPart(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const raw = value?.trim() || fallback;
+  if (COMPOSITE_KEY_PART_PATTERN.test(raw)) {
+    return raw;
+  }
+  return Buffer.from(raw).toString('base64url');
+}
+
+function makeEscalationSessionId(
+  summary: ReturnType<typeof summarizeEnvelopeForAudit>,
+): string {
+  return `a2a:${encodeCompositeKeyPart(summary.threadId, 'sendMessage')}`;
+}
+
+function makeEscalationApprovalId(
+  transport: string,
+  summary: ReturnType<typeof summarizeEnvelopeForAudit>,
+): string {
+  return [
+    'a2a-transport',
+    transport,
+    encodeCompositeKeyPart(summary.messageId || summary.threadId, 'message'),
+  ].join('-');
+}
+
 export function recordTransportEscalationAudit(
   input: TransportEscalationAuditInput,
 ): void {
   const summary = summarizeEnvelopeForAudit(input.envelope);
-  const sessionId =
-    input.sessionId ||
-    (summary.threadId ? `a2a:${summary.threadId}` : 'a2a:sendMessage');
+  const sessionId = input.sessionId || makeEscalationSessionId(summary);
+  const approvalId = makeEscalationApprovalId(input.transport, summary);
   const runId = input.runId || makeAuditRunId('a2a-transport');
   const action = `a2a.transport:${input.transport}`;
   const reason = `No registered A2A transport adapter for "${input.transport}".`;
@@ -238,6 +243,8 @@ export function recordTransportEscalationAudit(
     summary,
     escalationTarget: input.escalationTarget,
     runId,
+    sessionId,
+    approvalId,
   });
 }
 
@@ -262,13 +269,11 @@ export function encodeForRegisteredTransport(params: {
     });
     throw new TransportRegistryError(descriptor.transport);
   }
-  if (!isKnownPeerDescriptor(descriptor)) {
-    throw new TransportRegistryError(descriptor.transport);
-  }
-
   if (descriptor.transport !== 'internal') {
-    throw new TransportDeliveryNotImplementedError(descriptor.transport);
+    throw new TransportRegistryError(
+      descriptor.transport,
+      `A2A transport "${descriptor.transport}" has no delivery implementation.`,
+    );
   }
-  const encoded = adapter.encode(normalizedEnvelope, descriptor);
-  return validateA2AEnvelope(encoded);
+  return adapter.encode(normalizedEnvelope, descriptor);
 }

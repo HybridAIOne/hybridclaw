@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -171,6 +172,7 @@ describe('A2A runtime API', () => {
       10,
     );
     expect(events.map((event) => event.event_type)).toEqual([
+      'escalation.interaction_needed',
       'approval.request',
       'escalation.decision',
       'authorization.check',
@@ -190,9 +192,7 @@ describe('A2A runtime API', () => {
         approvalDecision: 'required',
       }),
     );
-    const suspended = escalation.getSuspendedSession(
-      'a2a-transport:a2a:thread-remote:msg-remote',
-    );
+    const suspended = escalation.getSuspendedSession('session-a2a-transport');
     expect(suspended).toMatchObject({
       approvalId: 'a2a-transport-a2a-msg-remote',
       status: 'pending',
@@ -205,12 +205,44 @@ describe('A2A runtime API', () => {
       },
     });
     expect(suspended?.prompt).toContain('no adapter is registered for "a2a"');
-    const f14Events = getRecentStructuredAuditForSession(
-      'a2a-transport:a2a:thread-remote:msg-remote',
-      10,
-    );
-    expect(f14Events.map((event) => event.event_type)).toEqual([
-      'escalation.interaction_needed',
-    ]);
+  });
+
+  test('encodes envelope ids before composing default escalation keys', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const escalation = await import('../src/gateway/interactive-escalation.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+
+    initDatabase({ quiet: true });
+
+    expect(() =>
+      runtime.sendMessage(
+        {
+          id: 'msg:remote',
+          sender_agent_id: 'main',
+          recipient_agent_id: 'remote@team@peer-instance',
+          thread_id: 'thread:remote',
+          intent: 'chat',
+          content: 'Can your peer agent receive this?',
+          created_at: '2026-05-01T10:00:00.000Z',
+        },
+        {
+          auditRunId: 'run-a2a-transport',
+          peerDescriptor: {
+            transport: 'a2a',
+            agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+          },
+        },
+      ),
+    ).toThrow(transport.TransportRegistryError);
+
+    const threadKey = Buffer.from('thread:remote').toString('base64url');
+    const messageKey = Buffer.from('msg:remote').toString('base64url');
+    const suspended = escalation.getSuspendedSession(`a2a:${threadKey}`);
+
+    expect(suspended).toMatchObject({
+      approvalId: `a2a-transport-a2a-${messageKey}`,
+      status: 'pending',
+    });
   });
 });

@@ -1,12 +1,27 @@
 import type { SecretRef } from '../security/secret-refs.js';
 import { parseSecretInput } from '../security/secret-refs.js';
-import { isRecord } from './utils.js';
+import {
+  A2A_TRANSPORT_PATTERN,
+  isRecord,
+  normalizeTransportString,
+} from './utils.js';
 
 export const A2A_PEER_TRANSPORTS = ['internal', 'a2a', 'webhook'] as const;
 
 export type A2APeerTransport = (typeof A2A_PEER_TRANSPORTS)[number];
 
-const TRANSPORT_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
+const INTERNAL_ALLOWED_FIELDS = new Set(['transport', 'agentId', 'agent_id']);
+const A2A_ALLOWED_FIELDS = new Set([
+  'transport',
+  'agentCardUrl',
+  'agent_card_url',
+]);
+const WEBHOOK_ALLOWED_FIELDS = new Set([
+  'transport',
+  'url',
+  'secretRef',
+  'secret_ref',
+]);
 
 export interface InternalPeerDescriptor {
   transport: 'internal';
@@ -95,12 +110,11 @@ function readOptionalStringAlias(
 
 function validateAllowedFields(
   record: Record<string, unknown>,
-  allowedFields: readonly string[],
+  allowedFields: ReadonlySet<string>,
   issues: string[],
 ): void {
-  const allowed = new Set(allowedFields);
   for (const field of Object.keys(record)) {
-    if (!allowed.has(field)) {
+    if (!allowedFields.has(field)) {
       issues.push(`unexpected field: ${field}`);
     }
   }
@@ -115,8 +129,8 @@ function readHttpUrl(
   if (!value) return '';
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-      issues.push(`${field} must use http or https`);
+    if (url.protocol !== 'https:') {
+      issues.push(`${field} must use https`);
     }
   } catch {
     issues.push(`${field} must be a valid URL`);
@@ -129,10 +143,10 @@ function normalizeTransport(value: unknown, issues: string[]): string {
     issues.push('transport must be a string');
     return '';
   }
-  const normalized = value.trim().toLowerCase();
+  const normalized = normalizeTransportString(value);
   if (!normalized) {
     issues.push('transport is required');
-  } else if (!TRANSPORT_PATTERN.test(normalized)) {
+  } else if (!A2A_TRANSPORT_PATTERN.test(normalized)) {
     issues.push(
       'transport must match /^[a-z][a-z0-9._-]{0,63}$/ after trimming and lowercasing',
     );
@@ -144,6 +158,10 @@ function normalizeWebhookSecretRef(
   value: unknown,
   issues: string[],
 ): SecretRef | undefined {
+  if (value === undefined || value === null) {
+    issues.push('secretRef is required');
+    return undefined;
+  }
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
     issues.push(`secretRef ${parsed.reason}`);
@@ -166,12 +184,12 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
 
   const issues: string[] = [];
   const transport = normalizeTransport(value.transport, issues);
-  if (!transport) {
+  if (issues.length > 0) {
     throw new PeerDescriptorValidationError(issues);
   }
 
   if (transport === 'internal') {
-    validateAllowedFields(value, ['transport', 'agentId', 'agent_id'], issues);
+    validateAllowedFields(value, INTERNAL_ALLOWED_FIELDS, issues);
     const agentId = readOptionalStringAlias(
       value,
       'agentId',
@@ -189,11 +207,7 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
   }
 
   if (transport === 'a2a') {
-    validateAllowedFields(
-      value,
-      ['transport', 'agentCardUrl', 'agent_card_url'],
-      issues,
-    );
+    validateAllowedFields(value, A2A_ALLOWED_FIELDS, issues);
     const agentCardUrl = readHttpUrl(
       { agentCardUrl: readAlias(value, 'agentCardUrl', 'agent_card_url') },
       'agentCardUrl',
@@ -209,11 +223,7 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
   }
 
   if (transport === 'webhook') {
-    validateAllowedFields(
-      value,
-      ['transport', 'url', 'secretRef', 'secret_ref'],
-      issues,
-    );
+    validateAllowedFields(value, WEBHOOK_ALLOWED_FIELDS, issues);
     const url = readHttpUrl(value, 'url', issues);
     const secretRef = normalizeWebhookSecretRef(
       readAlias(value, 'secretRef', 'secret_ref'),
@@ -229,10 +239,6 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
     };
   }
 
-  validateAllowedFields(value, ['transport'], issues);
-  if (issues.length > 0) {
-    throw new PeerDescriptorValidationError(issues);
-  }
   return {
     transport,
     raw: { ...value },

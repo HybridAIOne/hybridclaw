@@ -1,12 +1,15 @@
 import type { EscalationTarget } from '../types/execution.js';
-import { type A2AEnvelope, A2AEnvelopeValidationError } from './envelope.js';
+import {
+  type A2AEnvelope,
+  A2AEnvelopeValidationError,
+  validateA2AEnvelope,
+} from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
 import {
   encodeForRegisteredTransport,
   type TransportRegistry,
 } from './transport-registry.js';
-import { isRecord } from './utils.js';
 
 // Public server-side A2A runtime API required by roadmap #425.
 export interface A2ADeliveryConfirmation {
@@ -25,11 +28,8 @@ export interface A2ASendMessageMeta {
   escalationTarget?: EscalationTarget;
 }
 
-function normalizeRuntimeEnvelope(envelope: unknown): unknown {
-  if (!isRecord(envelope)) {
-    throw new A2AEnvelopeValidationError(['envelope must be an object']);
-  }
-  return envelope;
+function validateRuntimeEnvelope(envelope: unknown): A2AEnvelope {
+  return validateA2AEnvelope(envelope);
 }
 
 /**
@@ -41,7 +41,7 @@ export function sendMessage(
   meta?: A2ASendMessageMeta,
 ): A2ADeliveryConfirmation {
   const encodedEnvelope = encodeForRegisteredTransport({
-    envelope: attachA2AHandoffContext(normalizeRuntimeEnvelope(envelope)),
+    envelope: attachA2AHandoffContext(validateRuntimeEnvelope(envelope)),
     peerDescriptor: meta?.peerDescriptor,
     registry: meta?.transportRegistry,
     sessionId: meta?.sessionId,

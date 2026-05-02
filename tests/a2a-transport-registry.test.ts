@@ -10,7 +10,7 @@ import {
   encodeForRegisteredTransport,
   internalTransportAdapter,
   type TransportAdapter,
-  TransportDeliveryNotImplementedError,
+  TransportRegistryError,
 } from '../src/a2a/transport-registry.ts';
 
 describe('A2A transport adapter registry', () => {
@@ -37,7 +37,6 @@ describe('A2A transport adapter registry', () => {
       agentId: 'writer',
     });
     expect(adapter?.encode(envelope)).toEqual(envelope);
-    expect(adapter?.decode(envelope)).toEqual(envelope);
   });
 
   test('falls through when a transport has no registered adapter', () => {
@@ -77,12 +76,6 @@ describe('A2A transport adapter registry', () => {
     ).toThrow(PeerDescriptorValidationError);
     expect(() =>
       normalizePeerDescriptor({
-        transport: 'smtp',
-        host: 'mail.example.com',
-      }),
-    ).toThrow(PeerDescriptorValidationError);
-    expect(() =>
-      normalizePeerDescriptor({
         transport: 'internal',
         agentId: 123,
       }),
@@ -97,6 +90,33 @@ describe('A2A transport adapter registry', () => {
         transport: `a${'b'.repeat(64)}`,
       }),
     ).toThrow(PeerDescriptorValidationError);
+    expect(() =>
+      normalizePeerDescriptor({
+        transport: 'a2a',
+        agentCardUrl: 'http://peer.example.com/.well-known/agent.json',
+      }),
+    ).toThrow(PeerDescriptorValidationError);
+    expect(() =>
+      normalizePeerDescriptor({
+        transport: 'webhook',
+        url: 'https://hooks.example.com/a2a',
+      }),
+    ).toThrow('secretRef is required');
+  });
+
+  test('preserves raw fields for unknown transports', () => {
+    expect(
+      normalizePeerDescriptor({
+        transport: 'smtp',
+        host: 'mail.example.com',
+      }),
+    ).toEqual({
+      transport: 'smtp',
+      raw: {
+        transport: 'smtp',
+        host: 'mail.example.com',
+      },
+    });
   });
 
   test('normalizes transport-specific descriptor fields', () => {
@@ -135,9 +155,6 @@ describe('A2A transport adapter registry', () => {
         encodeCalled = true;
         return envelope;
       },
-      decode(payload) {
-        return validateA2AEnvelope(payload);
-      },
     });
     const envelope = validateA2AEnvelope({
       id: 'msg-remote',
@@ -158,7 +175,7 @@ describe('A2A transport adapter registry', () => {
         },
         registry,
       }),
-    ).toThrow(TransportDeliveryNotImplementedError);
+    ).toThrow(TransportRegistryError);
     expect(encodeCalled).toBe(false);
   });
 });
