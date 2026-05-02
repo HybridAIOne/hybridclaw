@@ -9,6 +9,7 @@ const EXPECTED_TRANSPORT_ERROR_CODES = new Set([
   'ENOTFOUND',
   'ERR_SOCKET_CLOSED',
   'ESOCKETTIMEDOUT',
+  'ETIMEOUT',
   'ETIMEDOUT',
   'UND_ERR_BODY_TIMEOUT',
   'UND_ERR_CONNECT_TIMEOUT',
@@ -17,7 +18,7 @@ const EXPECTED_TRANSPORT_ERROR_CODES = new Set([
 ]);
 
 const EXPECTED_TRANSPORT_ERROR_MESSAGE_RE =
-  /\b(opening handshake has timed out|client network socket disconnected|connect econnrefused|connect etimedout|connection reset|connection terminated|econnaborted|econnrefused|econnreset|ehostunreach|enetunreach|enotfound|eai_again|err_socket_closed|esockettimedout|etimedout|fetch failed|network error|opening handshake|read econnreset|socket hang up|und_err_body_timeout|und_err_connect_timeout|und_err_headers_timeout|und_err_socket|websocket (?:connection |client )?(?:closed|error|timed out))\b/i;
+  /\b(opening handshake has timed out|client network socket disconnected|connect econnrefused|connect etimedout|connection reset|connection terminated|econnaborted|econnrefused|econnreset|ehostunreach|enetunreach|enotfound|eai_again|err_socket_closed|esockettimedout|etimeout|etimedout|fetch failed|network error|opening handshake|read econnreset|socket hang up|socket timeout|und_err_body_timeout|und_err_connect_timeout|und_err_headers_timeout|und_err_socket|websocket (?:connection |client )?(?:closed|error|timed out))\b/i;
 
 interface ErrorLike {
   cause?: unknown;
@@ -140,6 +141,7 @@ export function describeExpectedTransportError(
         ? `${subject} DNS lookup for ${host} is temporarily unavailable.`
         : `${subject} DNS lookup is temporarily unavailable.`;
     case 'ETIMEDOUT':
+    case 'ETIMEOUT':
     case 'ESOCKETTIMEDOUT':
     case 'UND_ERR_CONNECT_TIMEOUT':
     case 'UND_ERR_HEADERS_TIMEOUT':

@@ -19,6 +19,16 @@ describe('isExpectedTransportError', () => {
     expect(isExpectedTransportError(error)).toBe(true);
   });
 
+  test('matches IMAP socket timeout errors', () => {
+    const error = Object.assign(new Error('Socket timeout'), {
+      code: 'ETIMEOUT',
+    });
+    expect(isExpectedTransportError(error)).toBe(true);
+    expect(describeExpectedTransportError(error, 'Email IMAP')).toBe(
+      'Email IMAP connection timed out.',
+    );
+  });
+
   test('matches nested transport causes', () => {
     const error = new Error('Discord shard error', {
       cause: new Error('socket hang up'),

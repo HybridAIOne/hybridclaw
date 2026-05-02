@@ -188,7 +188,24 @@ export function createEmailConnectionManager(
     const activeClient = client;
     client = null;
     if (!activeClient) return;
-    activeClient.removeAllListeners();
+    activeClient.removeAllListeners('close');
+    activeClient.removeAllListeners('error');
+    activeClient.on('error', (error) => {
+      if (isExpectedTransportError(error)) {
+        childLogger.debug(
+          {
+            code: getEmailConnectionErrorCode(error) || undefined,
+            host: config.imapHost,
+          },
+          `${describeExpectedTransportError(error, 'Email IMAP', config.imapHost)} Ignoring error from closing client.`,
+        );
+        return;
+      }
+      childLogger.warn(
+        { error, host: config.imapHost },
+        'Email IMAP client emitted an error while closing',
+      );
+    });
     await activeClient.logout().catch((error) => {
       if (
         error &&
