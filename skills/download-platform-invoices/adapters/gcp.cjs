@@ -66,7 +66,9 @@ class GcpInvoiceAdapter {
 
   async login(credentials, context = {}) {
     if (!credentials.billingAccountId) {
-      throw new Error('GCP invoice adapter requires credentials.billingAccountId.');
+      throw new Error(
+        'GCP invoice adapter requires credentials.billingAccountId.',
+      );
     }
     const accessToken = await resolveGcpAccessToken({
       credentials,
@@ -95,10 +97,13 @@ class GcpInvoiceAdapter {
         'GCP invoice PDFs are not exposed by the public Cloud Billing REST API. Configure a browser documentDriver for the Cloud Billing Documents page.',
       );
     }
-    const invoices = await this.documentDriver.listInvoices(session.documentSession, {
-      ...options,
-      billingAccountId: session.accountName,
-    });
+    const invoices = await this.documentDriver.listInvoices(
+      session.documentSession,
+      {
+        ...options,
+        billingAccountId: session.accountName,
+      },
+    );
     return invoices.map((invoice) => {
       if (invoice.vendor === 'gcp') return invoice;
       return normalizeGcpInvoice(invoice, invoiceIssuePeriod(options));
@@ -107,7 +112,10 @@ class GcpInvoiceAdapter {
 
   async download(session, invoice) {
     if (this.documentDriver?.downloadInvoice && session.documentSession) {
-      return this.documentDriver.downloadInvoice(session.documentSession, invoice);
+      return this.documentDriver.downloadInvoice(
+        session.documentSession,
+        invoice,
+      );
     }
     const response = await this.fetch(invoice.source_url, {
       headers: { Authorization: `Bearer ${session.credentials.accessToken}` },
@@ -130,7 +138,9 @@ class GcpInvoiceAdapter {
       headers: { Authorization: `Bearer ${credentials.accessToken}` },
     });
     if (!response.ok) {
-      throw new Error(`GCP Cloud Billing API request failed with HTTP ${response.status}.`);
+      throw new Error(
+        `GCP Cloud Billing API request failed with HTTP ${response.status}.`,
+      );
     }
     return response.json();
   }
@@ -145,7 +155,9 @@ class PlaywrightGcpBillingDocumentsDriver {
 
   async login(credentials, context) {
     if (!context.profileDir) {
-      throw new Error('GCP billing document browser driver requires context.profileDir.');
+      throw new Error(
+        'GCP billing document browser driver requires context.profileDir.',
+      );
     }
     const playwright = await import('playwright');
     this.context = await playwright.chromium.launchPersistentContext(
@@ -154,7 +166,9 @@ class PlaywrightGcpBillingDocumentsDriver {
     );
     this.page = await this.context.newPage();
     if (credentials.username && credentials.password) {
-      await this.page.goto(this.plan.loginUrl, { waitUntil: 'domcontentloaded' });
+      await this.page.goto(this.plan.loginUrl, {
+        waitUntil: 'domcontentloaded',
+      });
       await this.page.fill(this.plan.usernameSelector, credentials.username);
       await this.page.click(this.plan.nextSelector);
       await this.page.fill(this.plan.passwordSelector, credentials.password);
@@ -180,14 +194,19 @@ class PlaywrightGcpBillingDocumentsDriver {
           const headers = Array.from(
             table?.querySelectorAll('thead th, [role="columnheader"]') || [],
           ).map((header) =>
-            (header.textContent || '').trim().toLowerCase().replace(/\s+/gu, ' '),
+            (header.textContent || '')
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/gu, ' '),
           );
           const aliases = plan.headerAliases[field] || [];
           const index = headers.findIndex((header) =>
             aliases.some((alias) => header.includes(alias)),
           );
           if (index < 0) return '';
-          const cells = Array.from(row.querySelectorAll('td, [role="gridcell"]'));
+          const cells = Array.from(
+            row.querySelectorAll('td, [role="gridcell"]'),
+          );
           return (cells[index]?.textContent || '').trim();
         };
         return rows.map((row) => ({
@@ -267,7 +286,9 @@ async function exchangeGoogleToken(fetchImpl, tokenEndpoint, body) {
     body,
   });
   if (!response.ok) {
-    throw new Error(`GCP OAuth token exchange failed with HTTP ${response.status}.`);
+    throw new Error(
+      `GCP OAuth token exchange failed with HTTP ${response.status}.`,
+    );
   }
   const payload = await response.json();
   if (!payload.access_token) {
@@ -307,7 +328,8 @@ function base64Url(value) {
 
 function billingAccountName(value) {
   const normalized = String(value || '').trim();
-  if (!normalized) throw new Error('GCP invoice adapter requires billingAccountId.');
+  if (!normalized)
+    throw new Error('GCP invoice adapter requires billingAccountId.');
   return normalized.startsWith('billingAccounts/')
     ? normalized
     : `billingAccounts/${normalized}`;
@@ -322,23 +344,39 @@ function normalizeGcpInvoice(document, period) {
       document.name ||
       '',
   );
-  if (!invoiceNo) throw new Error('GCP invoice document is missing invoice number.');
+  if (!invoiceNo)
+    throw new Error('GCP invoice document is missing invoice number.');
   const issueDate = isoDate(
-    document.issue_date || document.issueDate || document.documentDate || document.createdAt,
+    document.issue_date ||
+      document.issueDate ||
+      document.documentDate ||
+      document.createdAt,
     'issueDate',
   );
   const dueDate = isoDate(
-    document.due_date || document.dueDate || document.paymentDueDate || issueDate,
+    document.due_date ||
+      document.dueDate ||
+      document.paymentDueDate ||
+      issueDate,
     'dueDate',
   );
   const net = moneyFromDecimal(
-    document.net ?? unwrapGcpAmount(document.subtotal || document.netAmount || document.amountBeforeTax),
+    document.net ??
+      unwrapGcpAmount(
+        document.subtotal || document.netAmount || document.amountBeforeTax,
+      ),
   );
   const vat = moneyFromDecimal(
-    document.vat ?? unwrapGcpAmount(document.taxAmount || document.vatAmount || document.totalTax),
+    document.vat ??
+      unwrapGcpAmount(
+        document.taxAmount || document.vatAmount || document.totalTax,
+      ),
   );
   const gross = moneyFromDecimal(
-    document.gross ?? unwrapGcpAmount(document.totalAmount || document.amountDue || document.balanceDue),
+    document.gross ??
+      unwrapGcpAmount(
+        document.totalAmount || document.amountDue || document.balanceDue,
+      ),
   );
   const currency = String(
     document.currency ||
@@ -364,7 +402,9 @@ function normalizeGcpInvoice(document, period) {
     period: document.period
       ? String(document.period)
       : document.servicePeriodStart
-        ? periodFromDate(isoDate(document.servicePeriodStart, 'servicePeriodStart'))
+        ? periodFromDate(
+            isoDate(document.servicePeriodStart, 'servicePeriodStart'),
+          )
         : `${period.year.toString().padStart(4, '0')}-${String(period.month).padStart(2, '0')}`,
     issue_date: issueDate,
     due_date: dueDate,

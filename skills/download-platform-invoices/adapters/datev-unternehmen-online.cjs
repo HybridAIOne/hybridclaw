@@ -76,11 +76,23 @@ async function uploadInvoicesViaDatevApiClient(client, params) {
       invoiceRoots: params.invoiceRoots,
     });
     if (typeof client.uploadInvoice === 'function') {
-      await client.uploadInvoice({ record, pdfPath, workflowId: params.workflowId });
+      await client.uploadInvoice({
+        record,
+        pdfPath,
+        workflowId: params.workflowId,
+      });
     } else if (typeof client.uploadDocument === 'function') {
-      await client.uploadDocument({ record, pdfPath, workflowId: params.workflowId });
+      await client.uploadDocument({
+        record,
+        pdfPath,
+        workflowId: params.workflowId,
+      });
     } else if (typeof client.createAttachment === 'function') {
-      await client.createAttachment({ record, pdfPath, workflowId: params.workflowId });
+      await client.createAttachment({
+        record,
+        pdfPath,
+        workflowId: params.workflowId,
+      });
     } else {
       throw new Error(
         'DATEV API client must expose uploadInvoice, uploadDocument, or createAttachment.',
@@ -184,9 +196,12 @@ class PlaywrightDatevUnternehmenOnlineUploadDriver {
       }
     }
     await page.setInputFiles(this.plan.fileInputSelector, input.pdfPath);
-    if (this.plan.uploadSubmitSelector) await page.click(this.plan.uploadSubmitSelector);
+    if (this.plan.uploadSubmitSelector)
+      await page.click(this.plan.uploadSubmitSelector);
     if (this.plan.successSelector) {
-      await page.waitForSelector(this.plan.successSelector, { timeout: 30_000 });
+      await page.waitForSelector(this.plan.successSelector, {
+        timeout: 30_000,
+      });
     }
   }
 

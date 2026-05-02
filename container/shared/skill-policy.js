@@ -81,19 +81,27 @@ function equalsText(candidate, expected) {
   const normalizedCandidate = normalizeStringLower(candidate);
   if (!normalizedCandidate) return false;
   if (Array.isArray(expected)) {
-    return expected.some((entry) => normalizedCandidate === normalizeStringLower(entry));
+    return expected.some(
+      (entry) => normalizedCandidate === normalizeStringLower(entry),
+    );
   }
   const normalizedExpected = normalizeStringLower(expected);
-  return normalizedExpected === '*' || normalizedCandidate === normalizedExpected;
+  return (
+    normalizedExpected === '*' || normalizedCandidate === normalizedExpected
+  );
 }
 
 function matchesText(candidate, params) {
-  if (Object.hasOwn(params, 'equals')) return equalsText(candidate, params.equals);
+  if (Object.hasOwn(params, 'equals'))
+    return equalsText(candidate, params.equals);
   if (Object.hasOwn(params, 'in')) return equalsText(candidate, params.in);
-  if (Object.hasOwn(params, 'oneOf')) return equalsText(candidate, params.oneOf);
+  if (Object.hasOwn(params, 'oneOf'))
+    return equalsText(candidate, params.oneOf);
   if (Object.hasOwn(params, 'matches')) {
     try {
-      return new RegExp(String(params.matches), 'i').test(normalizeString(candidate));
+      return new RegExp(String(params.matches), 'i').test(
+        normalizeString(candidate),
+      );
     } catch {
       return false;
     }
@@ -103,16 +111,22 @@ function matchesText(candidate, params) {
 
 function listContains(values, params) {
   const normalized = values.map(normalizeStringLower).filter(Boolean);
-  const candidates = normalizeStringList(params.includes ?? params.equals ?? params.any);
+  const candidates = normalizeStringList(
+    params.includes ?? params.equals ?? params.any,
+  );
   if (candidates.length === 0) return normalized.length > 0;
-  return candidates.some((candidate) => normalized.includes(normalizeStringLower(candidate)));
+  return candidates.some((candidate) =>
+    normalized.includes(normalizeStringLower(candidate)),
+  );
 }
 
 function compareNumber(value, params) {
   if (!Number.isFinite(value)) return false;
-  if (Object.hasOwn(params, 'gte') && !(value >= Number(params.gte))) return false;
+  if (Object.hasOwn(params, 'gte') && !(value >= Number(params.gte)))
+    return false;
   if (Object.hasOwn(params, 'gt') && !(value > Number(params.gt))) return false;
-  if (Object.hasOwn(params, 'lte') && !(value <= Number(params.lte))) return false;
+  if (Object.hasOwn(params, 'lte') && !(value <= Number(params.lte)))
+    return false;
   if (Object.hasOwn(params, 'lt') && !(value < Number(params.lt))) return false;
   if (Object.hasOwn(params, 'equals') && !(value === Number(params.equals))) {
     return false;

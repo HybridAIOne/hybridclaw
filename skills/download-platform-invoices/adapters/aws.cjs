@@ -1,5 +1,10 @@
 const { createHash, createHmac } = require('node:crypto');
-const { invoiceIssuePeriod, isoDate, moneyFromDecimal, vatRate } = require('../helpers/money.cjs');
+const {
+  invoiceIssuePeriod,
+  isoDate,
+  moneyFromDecimal,
+  vatRate,
+} = require('../helpers/money.cjs');
 
 class AwsInvoiceAdapter {
   id = 'aws';
@@ -21,14 +26,22 @@ class AwsInvoiceAdapter {
 
   async listInvoices(session, options = {}) {
     const period = invoiceIssuePeriod(options);
-    const payload = await this.awsJson(session.credentials, 'ListInvoiceSummaries', {
-      Selector: { ResourceType: 'ACCOUNT_ID', Value: session.credentials.accountId },
-      Filter: { BillingPeriod: { Month: period.month, Year: period.year } },
-      MaxResults: 100,
-    });
+    const payload = await this.awsJson(
+      session.credentials,
+      'ListInvoiceSummaries',
+      {
+        Selector: {
+          ResourceType: 'ACCOUNT_ID',
+          Value: session.credentials.accountId,
+        },
+        Filter: { BillingPeriod: { Month: period.month, Year: period.year } },
+        MaxResults: 100,
+      },
+    );
     return (payload.InvoiceSummaries || []).map((summary) => {
       const invoiceNo = String(summary.InvoiceId || '');
-      if (!invoiceNo) throw new Error('AWS invoice summary is missing InvoiceId.');
+      if (!invoiceNo)
+        throw new Error('AWS invoice summary is missing InvoiceId.');
       const amount = summary.PaymentCurrencyAmount || {};
       const net = moneyFromDecimal(amount.TotalAmountBeforeTax);
       const gross = moneyFromDecimal(amount.TotalAmount);
@@ -64,7 +77,9 @@ class AwsInvoiceAdapter {
     });
     const documentUrl = String(payload.InvoicePDF?.DocumentUrl || '');
     if (!documentUrl) {
-      throw new Error(`AWS invoice ${invoice.invoice_no} PDF response is missing DocumentUrl.`);
+      throw new Error(
+        `AWS invoice ${invoice.invoice_no} PDF response is missing DocumentUrl.`,
+      );
     }
     const response = await this.fetch(documentUrl);
     if (!response.ok) {
@@ -92,8 +107,13 @@ class AwsInvoiceAdapter {
       body,
       now: new Date(),
     });
-    const response = await this.fetch(endpoint, { method: 'POST', headers, body });
-    if (!response.ok) throw new Error(`AWS ${action} failed with HTTP ${response.status}.`);
+    const response = await this.fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    if (!response.ok)
+      throw new Error(`AWS ${action} failed with HTTP ${response.status}.`);
     return response.json();
   }
 }
@@ -108,13 +128,21 @@ function signAwsJsonRequest(input) {
     'x-amz-date': amzDate,
     'x-amz-target': input.target,
   };
-  if (input.sessionToken) baseHeaders['x-amz-security-token'] = input.sessionToken;
+  if (input.sessionToken)
+    baseHeaders['x-amz-security-token'] = input.sessionToken;
   const signedHeaders = Object.keys(baseHeaders).sort().join(';');
   const canonicalHeaders = Object.keys(baseHeaders)
     .sort()
     .map((key) => `${key}:${baseHeaders[key]}\n`)
     .join('');
-  const canonicalRequest = ['POST', '/', '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const canonicalRequest = [
+    'POST',
+    '/',
+    '',
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join('\n');
   const credentialScope = `${dateStamp}/${input.region}/${input.service}/aws4_request`;
   const stringToSign = [
     'AWS4-HMAC-SHA256',
@@ -123,10 +151,15 @@ function signAwsJsonRequest(input) {
     createHash('sha256').update(canonicalRequest).digest('hex'),
   ].join('\n');
   const signingKey = hmac(
-    hmac(hmac(hmac(`AWS4${input.secretAccessKey}`, dateStamp), input.region), input.service),
+    hmac(
+      hmac(hmac(`AWS4${input.secretAccessKey}`, dateStamp), input.region),
+      input.service,
+    ),
     'aws4_request',
   );
-  const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+  const signature = createHmac('sha256', signingKey)
+    .update(stringToSign)
+    .digest('hex');
   return {
     ...baseHeaders,
     authorization: `AWS4-HMAC-SHA256 Credential=${input.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,

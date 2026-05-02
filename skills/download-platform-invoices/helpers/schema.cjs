@@ -37,7 +37,9 @@ function formatJsonSchemaError(error) {
 
 function validateInvoiceRecord(value) {
   if (!validator(value)) {
-    const message = (validator.errors || []).map(formatJsonSchemaError).join(' ');
+    const message = (validator.errors || [])
+      .map(formatJsonSchemaError)
+      .join(' ');
     throw new Error(`Invalid invoice record: ${message}`);
   }
   return value;

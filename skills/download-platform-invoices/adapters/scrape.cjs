@@ -1,4 +1,7 @@
-const { parseInvoiceMoneyText, sinceTimestamp } = require('../helpers/money.cjs');
+const {
+  parseInvoiceMoneyText,
+  sinceTimestamp,
+} = require('../helpers/money.cjs');
 const { generateTotp } = require('../helpers/totp.cjs');
 const {
   createCaptchaEscalation,
@@ -17,7 +20,8 @@ const INVOICE_SCRAPE_PLANS = {
     submitSelector: 'input[type="submit"], button[type="submit"]',
     totpSelector,
     captchaSelector: '[data-testid="captcha"], iframe[src*="captcha"]',
-    pushMfaSelector: '[data-testid="two-factor-app"], .two-factor-app, #webauthn-form',
+    pushMfaSelector:
+      '[data-testid="two-factor-app"], .two-factor-app, #webauthn-form',
     invoiceRowSelector:
       '[data-hc-provider="github"] [data-hc-invoice-row], [data-testid="billing-history-row"], [data-targets*="billing"] tr, table[aria-label*="billing" i] tbody tr',
     invoiceNoSelector:
@@ -60,8 +64,7 @@ const INVOICE_SCRAPE_PLANS = {
     issueDateSelector:
       '[data-hc-issue-date], [data-testid="invoice-date"], time',
     dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
-    periodSelector:
-      '[data-hc-period], [data-testid="invoice-period"]',
+    periodSelector: '[data-hc-period], [data-testid="invoice-period"]',
     netSelector: '[data-hc-net], [data-testid="invoice-subtotal"]',
     vatSelector: '[data-hc-vat], [data-testid="invoice-tax"]',
     grossSelector: '[data-hc-gross], [data-testid="invoice-total"]',
@@ -97,8 +100,7 @@ const INVOICE_SCRAPE_PLANS = {
     issueDateSelector:
       '[data-hc-issue-date], [data-testid="invoice-date"], time',
     dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
-    periodSelector:
-      '[data-hc-period], [data-testid="billing-period"]',
+    periodSelector: '[data-hc-period], [data-testid="billing-period"]',
     netSelector: '[data-hc-net], [data-testid="subtotal"]',
     vatSelector: '[data-hc-vat], [data-testid="tax"]',
     grossSelector: '[data-hc-gross], [data-testid="total"]',
@@ -131,7 +133,8 @@ const INVOICE_SCRAPE_PLANS = {
       '[data-hc-provider="atlassian"] [data-hc-invoice-row], [data-testid="invoice-row"], [data-testid="billing-history-row"], table[data-testid*="invoice" i] tbody tr',
     invoiceNoSelector:
       '[data-hc-invoice-no], [data-testid="invoice-number"], a[href*="invoice"]',
-    issueDateSelector: '[data-hc-issue-date], [data-testid="invoice-date"], time',
+    issueDateSelector:
+      '[data-hc-issue-date], [data-testid="invoice-date"], time',
     dueDateSelector: '[data-hc-due-date], [data-testid="due-date"]',
     periodSelector: '[data-hc-period], [data-testid="billing-period"]',
     netSelector: '[data-hc-net], [data-testid="subtotal"]',
@@ -166,7 +169,8 @@ const INVOICE_SCRAPE_PLANS = {
       '[data-hc-provider="linkedin"] [data-hc-invoice-row], [data-test-id="billing-history-row"], [data-control-name*="invoice" i], table tbody tr',
     invoiceNoSelector:
       '[data-hc-invoice-no], [data-test-id="invoice-number"], a[href*="invoice"]',
-    issueDateSelector: '[data-hc-issue-date], [data-test-id="invoice-date"], time',
+    issueDateSelector:
+      '[data-hc-issue-date], [data-test-id="invoice-date"], time',
     dueDateSelector: '[data-hc-due-date], [data-test-id="due-date"]',
     periodSelector: '[data-hc-period], [data-test-id="billing-period"]',
     netSelector: '[data-hc-net], [data-test-id="subtotal"]',
@@ -192,7 +196,8 @@ const INVOICE_SCRAPE_PLANS = {
 class DashboardScrapeInvoiceAdapter {
   constructor(options) {
     const plan = INVOICE_SCRAPE_PLANS[options.id];
-    if (!plan) throw new Error(`Missing invoice scrape plan for ${options.id}.`);
+    if (!plan)
+      throw new Error(`Missing invoice scrape plan for ${options.id}.`);
     this.id = options.id;
     this.displayName = options.displayName;
     this.loginUrl = plan.loginUrl;
@@ -250,11 +255,16 @@ class PlaywrightScrapeInvoiceDriver {
     await this.detectEscalationBlockers();
     if (this.plan.totpSelector && credentials.totpSecret) {
       await this.page.waitForSelector(this.plan.totpSelector);
-      await this.page.fill(this.plan.totpSelector, generateTotp(credentials.totpSecret));
+      await this.page.fill(
+        this.plan.totpSelector,
+        generateTotp(credentials.totpSecret),
+      );
       await this.page.click(this.plan.submitSelector);
       await this.detectEscalationBlockers();
     }
-    await this.page.goto(this.plan.billingUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.goto(this.plan.billingUrl, {
+      waitUntil: 'domcontentloaded',
+    });
   }
 
   async detectEscalationBlockers() {
@@ -291,19 +301,28 @@ class PlaywrightScrapeInvoiceDriver {
           const headers = Array.from(
             table?.querySelectorAll('thead th, [role="columnheader"]') || [],
           ).map((header) =>
-            (header.textContent || '').trim().toLowerCase().replace(/\s+/gu, ' '),
+            (header.textContent || '')
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/gu, ' '),
           );
           const aliases = plan.headerAliases[field] || [];
           const index = headers.findIndex((header) =>
             aliases.some((alias) => header.includes(alias)),
           );
           if (index < 0) {
-            throw new Error(`Unable to extract ${field} for ${plan.vendor} invoice row.`);
+            throw new Error(
+              `Unable to extract ${field} for ${plan.vendor} invoice row.`,
+            );
           }
-          const cells = Array.from(row.querySelectorAll('td, [role="gridcell"]'));
+          const cells = Array.from(
+            row.querySelectorAll('td, [role="gridcell"]'),
+          );
           const value = (cells[index]?.textContent || '').trim();
           if (!value) {
-            throw new Error(`Unable to extract ${field} for ${plan.vendor} invoice row.`);
+            throw new Error(
+              `Unable to extract ${field} for ${plan.vendor} invoice row.`,
+            );
           }
           return value;
         };
@@ -368,7 +387,10 @@ class PlaywrightScrapeInvoiceDriver {
         } catch {
           return { base64: '', contentType: '', status: 0 };
         }
-        if (url.protocol !== 'https:' || !params.allowedHosts.includes(url.hostname)) {
+        if (
+          url.protocol !== 'https:' ||
+          !params.allowedHosts.includes(url.hostname)
+        ) {
           return { base64: '', contentType: 'blocked-url', status: 0 };
         }
         const response = await fetch(url.href);
@@ -446,6 +468,7 @@ module.exports = {
     createScrapeAdapter('linkedin', 'LinkedIn Campaign Manager', options),
   createOpenAIInvoiceAdapter: (options) =>
     createScrapeAdapter('openai', 'OpenAI', options),
-  createPlaywrightScrapeDriver: (plan) => new PlaywrightScrapeInvoiceDriver(plan),
+  createPlaywrightScrapeDriver: (plan) =>
+    new PlaywrightScrapeInvoiceDriver(plan),
   parseInvoiceMoneyText,
 };

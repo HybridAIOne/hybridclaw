@@ -26,20 +26,30 @@ function validateInvoiceHarvesterConfig(value) {
   const seen = new Set();
   for (const provider of value.providers) {
     if (!provider || typeof provider !== 'object' || Array.isArray(provider)) {
-      throw new Error('Invalid invoice harvester config: /providers is invalid.');
+      throw new Error(
+        'Invalid invoice harvester config: /providers is invalid.',
+      );
     }
     if (!INVOICE_PROVIDER_IDS.includes(provider.id)) {
-      throw new Error('Invalid invoice harvester config: /providers/id is invalid.');
+      throw new Error(
+        'Invalid invoice harvester config: /providers/id is invalid.',
+      );
     }
     if (seen.has(provider.id)) {
-      throw new Error(`Invalid invoice harvester config: duplicate ${provider.id}.`);
+      throw new Error(
+        `Invalid invoice harvester config: duplicate ${provider.id}.`,
+      );
     }
     seen.add(provider.id);
     if (provider.since && !/^\d{4}-\d{2}-\d{2}$/u.test(provider.since)) {
-      throw new Error('Invalid invoice harvester config: /providers/since has invalid format.');
+      throw new Error(
+        'Invalid invoice harvester config: /providers/since has invalid format.',
+      );
     }
     if (!provider.credentials || typeof provider.credentials !== 'object') {
-      throw new Error('Invalid invoice harvester config: /providers/credentials is invalid.');
+      throw new Error(
+        'Invalid invoice harvester config: /providers/credentials is invalid.',
+      );
     }
     for (const [key, credential] of Object.entries(provider.credentials)) {
       if (typeof credential === 'string') {
@@ -73,14 +83,19 @@ function resolveInvoiceCredentials(providerId, inputs, opts = {}) {
     if (secret) {
       resolved[key] = secret;
       opts.audit?.(
-        { source: typeof value === 'object' ? value.source : 'env', id: secretId(value) },
+        {
+          source: typeof value === 'object' ? value.source : 'env',
+          id: secretId(value),
+        },
         `resolve ${providerId} invoice credential ${key}`,
       );
     }
   }
   for (const key of required) {
     if (!resolved[key]) {
-      throw new Error(`Missing required ${providerId} invoice credential ${key}.`);
+      throw new Error(
+        `Missing required ${providerId} invoice credential ${key}.`,
+      );
     }
   }
   return resolved;
@@ -110,7 +125,10 @@ function resolveSecretInput(providerId, key, value, opts = {}) {
 async function rotateInvoiceCredentials(providerId, inputs, opts = {}) {
   const refs = rotatableCredentialRefs(inputs);
   if (refs.length === 0) return null;
-  if (!opts.credentialStore || typeof opts.credentialStore.rotate !== 'function') {
+  if (
+    !opts.credentialStore ||
+    typeof opts.credentialStore.rotate !== 'function'
+  ) {
     throw new Error(
       `Cannot rotate ${providerId} invoice credentials: credentialStore.rotate is not configured.`,
     );
@@ -130,7 +148,11 @@ async function rotateInvoiceCredentials(providerId, inputs, opts = {}) {
       );
     }
     rotated[ref.key] = secret;
-    rotations.push({ key: ref.key, id: ref.id, revision: result?.revision || null });
+    rotations.push({
+      key: ref.key,
+      id: ref.id,
+      revision: result?.revision || null,
+    });
     opts.audit?.(
       { source: 'store', id: ref.id, revision: result?.revision || null },
       `rotate ${providerId} invoice credential ${ref.key}`,
@@ -139,9 +161,16 @@ async function rotateInvoiceCredentials(providerId, inputs, opts = {}) {
   return { credentials: rotated, rotations };
 }
 
-async function rollbackInvoiceCredentialRotations(providerId, rotations, opts = {}) {
+async function rollbackInvoiceCredentialRotations(
+  providerId,
+  rotations,
+  opts = {},
+) {
   if (!rotations || rotations.length === 0) return;
-  if (!opts.credentialStore || typeof opts.credentialStore.rollback !== 'function') {
+  if (
+    !opts.credentialStore ||
+    typeof opts.credentialStore.rollback !== 'function'
+  ) {
     throw new Error(
       `Cannot rollback ${providerId} invoice credentials: credentialStore.rollback is not configured.`,
     );
@@ -171,29 +200,46 @@ function rotatableCredentialRefs(inputs) {
 }
 
 function isStoreSecretRef(value) {
-  return Boolean(value && typeof value === 'object' && value.source === 'store');
+  return Boolean(
+    value && typeof value === 'object' && value.source === 'store',
+  );
 }
 
 function readCredentialStore(store, id) {
   if (!store) return process.env[id] || null;
-  if (typeof store.get === 'function') return normalizeCredentialStoreResult(store.get(id));
-  if (typeof store.read === 'function') return normalizeCredentialStoreResult(store.read(id));
-  if (typeof store.resolve === 'function') return normalizeCredentialStoreResult(store.resolve(id));
-  throw new Error('Credential store must expose get(id), read(id), or resolve(id).');
+  if (typeof store.get === 'function')
+    return normalizeCredentialStoreResult(store.get(id));
+  if (typeof store.read === 'function')
+    return normalizeCredentialStoreResult(store.read(id));
+  if (typeof store.resolve === 'function')
+    return normalizeCredentialStoreResult(store.resolve(id));
+  throw new Error(
+    'Credential store must expose get(id), read(id), or resolve(id).',
+  );
 }
 
 function normalizeCredentialStoreResult(result) {
   if (typeof result === 'string') return result;
-  if (result && typeof result === 'object' && typeof result.value === 'string') {
+  if (
+    result &&
+    typeof result === 'object' &&
+    typeof result.value === 'string'
+  ) {
     return result.value;
   }
-  if (result && typeof result === 'object' && typeof result.secret === 'string') {
+  if (
+    result &&
+    typeof result === 'object' &&
+    typeof result.secret === 'string'
+  ) {
     return result.secret;
   }
   return null;
 }
 
-function parseUnverifiedSelectorAllowList(value = process.env.INVOICE_UNVERIFIED_SELECTORS) {
+function parseUnverifiedSelectorAllowList(
+  value = process.env.INVOICE_UNVERIFIED_SELECTORS,
+) {
   if (!value) return { all: false, providers: new Set() };
   const tokens = String(value)
     .split(',')

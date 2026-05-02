@@ -4,12 +4,14 @@ function isoDate(value, fieldName) {
   }
   if (typeof value === 'string' && value.trim()) {
     const parsed = new Date(value);
-    if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    if (Number.isFinite(parsed.getTime()))
+      return parsed.toISOString().slice(0, 10);
   }
   if (typeof value === 'number') {
     const millis = value > 10_000_000_000 ? value : value * 1000;
     const parsed = new Date(millis);
-    if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    if (Number.isFinite(parsed.getTime()))
+      return parsed.toISOString().slice(0, 10);
   }
   throw new Error(`Invoice payload is missing valid ${fieldName}.`);
 }
@@ -73,8 +75,12 @@ function parseInvoiceMoneyText(value) {
       const firstIndex = compact.indexOf(separator);
       const lastIndex = compact.lastIndexOf(separator);
       if (firstIndex === lastIndex) {
-        const digitsAfter = compact.slice(lastIndex + 1).replace(/\D/g, '').length;
-        const digitsBefore = compact.slice(0, lastIndex).replace(/\D/g, '').length;
+        const digitsAfter = compact
+          .slice(lastIndex + 1)
+          .replace(/\D/g, '').length;
+        const digitsBefore = compact
+          .slice(0, lastIndex)
+          .replace(/\D/g, '').length;
         decimalSeparator =
           digitsAfter === 3 && digitsBefore > 0 ? '' : separator;
       }

@@ -101,10 +101,7 @@ test('salesforce helper validates Salesforce request URLs and reuses resolved op
     '<secret:SF_INSTANCE_URL>/services/data/v61.0/query',
     'https://example.my.salesforce.com/services/data/v61.0/query',
   ]);
-  expect(payload.errors).toEqual([
-    'http://stubs',
-    'services/data/v61.0/query',
-  ]);
+  expect(payload.errors).toEqual(['http://stubs', 'services/data/v61.0/query']);
   expect(payload.capturedTargets).toEqual(['006000000000001AAA']);
 });
 
@@ -115,7 +112,7 @@ test('salesforce helper validates planned actions before writes and ignores malf
   const payload = JSON.parse(result.stdout);
   expect(payload.latest).toBe('61.0');
   expect(payload.invalidVersionError).toContain('invalid API version payload');
-  expect(payload.planError).toContain("missing: openOnly");
+  expect(payload.planError).toContain('missing: openOnly');
   expect(payload.writeCount).toBe(0);
 });
 

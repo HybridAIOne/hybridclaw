@@ -38,16 +38,32 @@ class AzureInvoiceAdapter {
     const response = await this.fetch(url, {
       headers: { Authorization: `Bearer ${session.credentials.accessToken}` },
     });
-    if (!response.ok) throw new Error(`Azure invoice list failed with HTTP ${response.status}.`);
+    if (!response.ok)
+      throw new Error(
+        `Azure invoice list failed with HTTP ${response.status}.`,
+      );
     const payload = await response.json();
     return (payload.value || []).map((invoice) => {
       const props = invoice.properties || invoice;
-      const invoiceNo = String(invoice.name || props.invoiceName || props.id || '');
+      const invoiceNo = String(
+        invoice.name || props.invoiceName || props.id || '',
+      );
       if (!invoiceNo) throw new Error('Azure invoice payload is missing name.');
-      const net = moneyFromDecimal(unwrapAzureAmount(props.subTotal || props.subtotal || props.amountDue));
-      const vat = moneyFromDecimal(unwrapAzureAmount(props.taxAmount || props.totalTax));
-      const gross = moneyFromDecimal(unwrapAzureAmount(props.totalAmount || props.amountDue));
-      const currency = String(props.currency || props.currencyCode || session.credentials.currency || '');
+      const net = moneyFromDecimal(
+        unwrapAzureAmount(props.subTotal || props.subtotal || props.amountDue),
+      );
+      const vat = moneyFromDecimal(
+        unwrapAzureAmount(props.taxAmount || props.totalTax),
+      );
+      const gross = moneyFromDecimal(
+        unwrapAzureAmount(props.totalAmount || props.amountDue),
+      );
+      const currency = String(
+        props.currency ||
+          props.currencyCode ||
+          session.credentials.currency ||
+          '',
+      );
       if (!/^[A-Z]{3}$/u.test(currency)) {
         throw new Error(`Azure invoice ${invoiceNo} is missing currency.`);
       }
@@ -55,7 +71,10 @@ class AzureInvoiceAdapter {
         vendor: 'azure',
         invoice_no: invoiceNo,
         period: periodFromDate(
-          isoDate(props.billingPeriodStartDate || props.invoiceDate, 'billingPeriodStartDate'),
+          isoDate(
+            props.billingPeriodStartDate || props.invoiceDate,
+            'billingPeriodStartDate',
+          ),
         ),
         issue_date: isoDate(props.invoiceDate, 'invoiceDate'),
         due_date: isoDate(props.dueDate || props.invoiceDate, 'dueDate'),
@@ -64,7 +83,11 @@ class AzureInvoiceAdapter {
         vat,
         gross,
         currency,
-        source_url: azureDownloadUrl(session.credentials.billingAccountId, invoiceNo, this.apiVersion),
+        source_url: azureDownloadUrl(
+          session.credentials.billingAccountId,
+          invoiceNo,
+          this.apiVersion,
+        ),
       };
     });
   }
@@ -75,16 +98,27 @@ class AzureInvoiceAdapter {
       headers: { Authorization: `Bearer ${session.credentials.accessToken}` },
     });
     if (!response.ok) {
-      throw new Error(`Azure invoice ${invoice.invoice_no} download URL failed with HTTP ${response.status}.`);
+      throw new Error(
+        `Azure invoice ${invoice.invoice_no} download URL failed with HTTP ${response.status}.`,
+      );
     }
     const payload = await response.json();
-    const downloadUrl = String(payload.url || payload.downloadUrl || payload.properties?.downloadUrl || '');
+    const downloadUrl = String(
+      payload.url ||
+        payload.downloadUrl ||
+        payload.properties?.downloadUrl ||
+        '',
+    );
     if (!downloadUrl) {
-      throw new Error(`Azure invoice ${invoice.invoice_no} response is missing downloadUrl.`);
+      throw new Error(
+        `Azure invoice ${invoice.invoice_no} response is missing downloadUrl.`,
+      );
     }
     const pdfResponse = await this.fetch(downloadUrl);
     if (!pdfResponse.ok) {
-      throw new Error(`Azure invoice ${invoice.invoice_no} PDF download failed with HTTP ${pdfResponse.status}.`);
+      throw new Error(
+        `Azure invoice ${invoice.invoice_no} PDF download failed with HTTP ${pdfResponse.status}.`,
+      );
     }
     return new Uint8Array(await pdfResponse.arrayBuffer());
   }
@@ -93,8 +127,10 @@ class AzureInvoiceAdapter {
 function unwrapAzureAmount(value) {
   if (typeof value === 'string' || typeof value === 'number') return value;
   if (value && typeof value === 'object') {
-    if (typeof value.value === 'string' || typeof value.value === 'number') return value.value;
-    if (typeof value.amount === 'string' || typeof value.amount === 'number') return value.amount;
+    if (typeof value.value === 'string' || typeof value.value === 'number')
+      return value.value;
+    if (typeof value.amount === 'string' || typeof value.amount === 'number')
+      return value.amount;
   }
   return undefined;
 }
