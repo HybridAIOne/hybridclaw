@@ -1,6 +1,6 @@
 ---
 title: Agent, That Really Works — Roadmap
-description: Internal product roadmap derived from the Trusted Coworker Manifesto. Not linked from the public docs nav.
+description: Internal product roadmap derived from the HybridClaw manifesto ("The AI Coworker Who's Already On It"). Not linked from the public docs nav.
 ---
 
 > **Internal document.** This page is intentionally excluded from the docs sidebar, navigation, and search — but it remains web-accessible by direct URL, which is how GitHub issue bodies reference it. Source of truth for roadmap planning. Tracked in the umbrella issue [HybridAIOne/hybridclaw#466](https://github.com/HybridAIOne/hybridclaw/issues/466).
@@ -9,7 +9,7 @@ description: Internal product roadmap derived from the Trusted Coworker Manifest
 
 21 features grouped into three priority tiers. **P0** = Very High Priority (launch package). **P1** = High Priority (depth). **P2** = Priority (breadth). Sequencing within a tier is driven by technical dependencies.
 
-The roadmap is anchored in the [Trusted Coworker Manifesto](../manifesto.md). Numbers in *italic* below each feature link the work back to the principle it serves.
+The roadmap is anchored in the [HybridClaw manifesto — *The AI Coworker Who's Already On It*](../manifesto.md). Numbers in *italic* below each feature link the work back to the principle it serves.
 
 > **Naming convention.** Product, manifesto, and marketing surfaces use **Coworker** (*"hire Lena"*). Code, admin UI, CV, scoreboard, types, and APIs use **Agent**. The two refer to the same entity. This roadmap uses *Agent* in technical descriptions and reverts to *Coworker* when paraphrasing the manifesto. See `docs/content/manifesto.md` for the customer-facing voice.
 

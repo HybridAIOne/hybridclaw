@@ -1,5 +1,5 @@
 ---
-title: The Trusted Coworker Manifesto
+title: 'HybridClaw: The AI Coworker Who''s Already On It'
 description: The product principles HybridClaw is built around — what we will and will not ship.
 sidebar_position: 2
 ---
