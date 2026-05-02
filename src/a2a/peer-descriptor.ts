@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 import type { SecretRef } from '../security/secret-refs.js';
 import { parseSecretInput } from '../security/secret-refs.js';
 import {
@@ -21,6 +23,9 @@ const WEBHOOK_ALLOWED_FIELDS = new Set([
   'url',
   'secretRef',
   'secret_ref',
+  'signatureHeader',
+  'signature_header',
+  'version',
 ]);
 
 export interface InternalPeerDescriptor {
@@ -37,6 +42,8 @@ export interface WebhookPeerDescriptor {
   transport: 'webhook';
   url: string;
   secretRef: SecretRef;
+  signatureHeader?: string;
+  version?: string;
 }
 
 export interface UnknownPeerDescriptor {
@@ -108,6 +115,25 @@ function readOptionalStringAlias(
   return normalized;
 }
 
+function readOptionalString(
+  record: Record<string, unknown>,
+  field: string,
+  issues: string[],
+): string | undefined {
+  if (!Object.hasOwn(record, field)) return undefined;
+  const value = record[field];
+  if (typeof value !== 'string') {
+    issues.push(`${field} must be a string when provided`);
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    issues.push(`${field} must not be empty when provided`);
+    return undefined;
+  }
+  return normalized;
+}
+
 function validateAllowedFields(
   record: Record<string, unknown>,
   allowedFields: ReadonlySet<string>,
@@ -134,6 +160,57 @@ function readHttpUrl(
     }
   } catch {
     issues.push(`${field} must be a valid URL`);
+  }
+  return value;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  if (normalized === 'localhost' || normalized === '::1') return true;
+  if (isIP(normalized) !== 4) return false;
+  const [firstOctet] = normalized.split('.');
+  return firstOctet === '127';
+}
+
+function readWebhookUrl(
+  record: Record<string, unknown>,
+  field: string,
+  issues: string[],
+): string {
+  const value = readRequiredString(record[field], field, issues);
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== 'https:' &&
+      !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))
+    ) {
+      issues.push(`${field} must use https unless targeting loopback`);
+    }
+  } catch {
+    issues.push(`${field} must be a valid URL`);
+  }
+  return value;
+}
+
+function readHttpHeaderName(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+  field: string,
+  issues: string[],
+): string | undefined {
+  const value = readOptionalStringAlias(
+    record,
+    camelKey,
+    snakeKey,
+    field,
+    issues,
+  );
+  if (!value) return undefined;
+  if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(value)) {
+    issues.push(`${field} must be a valid HTTP header name`);
+    return undefined;
   }
   return value;
 }
@@ -224,11 +301,22 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
 
   if (transport === 'webhook') {
     validateAllowedFields(value, WEBHOOK_ALLOWED_FIELDS, issues);
-    const url = readHttpUrl(value, 'url', issues);
+    const url = readWebhookUrl(value, 'url', issues);
     const secretRef = normalizeWebhookSecretRef(
       readAlias(value, 'secretRef', 'secret_ref'),
       issues,
     );
+    const signatureHeader = readHttpHeaderName(
+      value,
+      'signatureHeader',
+      'signature_header',
+      'signatureHeader',
+      issues,
+    );
+    const version = readOptionalString(value, 'version', issues);
+    if (version && version !== '1') {
+      issues.push('version must be 1 when provided');
+    }
     if (issues.length > 0 || !secretRef) {
       throw new PeerDescriptorValidationError(issues);
     }
@@ -236,6 +324,8 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
       transport: 'webhook',
       url,
       secretRef,
+      ...(signatureHeader ? { signatureHeader } : {}),
+      ...(version ? { version } : {}),
     };
   }
 
