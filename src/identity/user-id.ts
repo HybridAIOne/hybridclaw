@@ -7,14 +7,17 @@ export const RESERVED_USER_AUTHORITIES = [
 
 export type ReservedUserAuthority = (typeof RESERVED_USER_AUTHORITIES)[number];
 
+/**
+ * Parsed canonical user ID. `id` is always `${username}@${authority}`.
+ */
 export interface ParsedUserId {
-  id: string;
-  username: string;
-  authority: string;
+  readonly id: string;
+  readonly username: string;
+  readonly authority: string;
 }
 
 export class UserIdValidationError extends Error {
-  readonly issues: string[];
+  readonly issues: readonly string[];
 
   constructor(issues: string[]) {
     super(`Invalid user id: ${issues.join('; ')}`);
@@ -26,9 +29,7 @@ export class UserIdValidationError extends Error {
 const USER_ID_COMPONENT_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 
 function normalizeUserIdComponent(value: string): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
+  return value.trim().toLowerCase();
 }
 
 function validateUserIdComponent(
@@ -77,7 +78,7 @@ export function formatUserId(
 }
 
 export function parseUserId(value: string): ParsedUserId {
-  const normalized = String(value || '').trim();
+  const normalized = value.trim();
 
   if (!normalized) {
     throw new UserIdValidationError(['user id is required']);
@@ -98,7 +99,7 @@ function normalizeComparableUserId(value: string | ParsedUserId): string {
   if (typeof value === 'string') {
     return parseUserId(value).id;
   }
-  return normalizeAndValidateUserIdParts(value.username, value.authority).id;
+  return value.id;
 }
 
 export function compareUserIds(
