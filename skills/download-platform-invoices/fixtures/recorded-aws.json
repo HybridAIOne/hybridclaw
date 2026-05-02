@@ -1,0 +1,68 @@
+{
+  "provider": "aws",
+  "invoices": [
+    {
+      "vendor": "aws",
+      "invoice_no": "AWS-2026-03-001",
+      "period": "2026-03",
+      "issue_date": "2026-04-01",
+      "due_date": "2026-04-15",
+      "net": 100,
+      "vat_rate": 0.19,
+      "vat": 19,
+      "gross": 119,
+      "currency": "EUR",
+      "source_url": "https://console.aws.amazon.com/billing/home",
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgYXdzIGludm9pY2UgcmVwbGF5IGZpeHR1cmUKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKJSVFT0YK"
+    }
+  ],
+  "recorded_session": {
+    "recorded_at": "2026-05-01T00:00:00.000Z",
+    "sanitized": true,
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
+    "steps": [
+      {
+        "kind": "authenticate_or_list",
+        "url": "https://invoicing.us-east-1.amazonaws.com/",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "POST",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "ee9e219343a762769fba8bedec26953e22d828a2722d6433ff6b6eb127f75cf8"
+        }
+      },
+      {
+        "kind": "download",
+        "url": "https://aws.example.invalid/invoices/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "adf6e7e7345f9bf9f5a84b356ad811c1d8b7a0eee643fbd62cea0798abc2a7ed"
+        }
+      }
+    ],
+    "evidence": {
+      "dom_snapshot": "<main data-hc-provider=\"aws\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>AWS-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://aws.example.invalid/invoices/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "ea6a799bedb773ed4f42c040cc725c194dc2dfe83c0555d1219258763b9d2801"
+    }
+  }
+}

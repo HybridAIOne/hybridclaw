@@ -102,6 +102,26 @@ describe('workflow definition schema', () => {
     ]);
   });
 
+  test('parses the monthly invoice run fixture', () => {
+    const fixture = fs.readFileSync(
+      new URL(
+        './fixtures/workflows/monthly-invoice-run.workflow.yaml',
+        import.meta.url,
+      ),
+      'utf-8',
+    );
+
+    const workflow = parseWorkflowDefinitionYaml(fixture);
+
+    expect(workflow.id).toBe('workflow_monthly_invoice_run');
+    expect(workflow.steps.map((step) => step.id)).toEqual([
+      'harvest',
+      'review',
+      'datev_upload',
+    ]);
+    expect(workflow.steps[1]?.stakes_threshold).toBe('high');
+  });
+
   test('rejects hard-coded approval booleans in steps', () => {
     expect(() =>
       parseWorkflowDefinitionYaml(`

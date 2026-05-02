@@ -722,6 +722,10 @@ describe('gateway bootstrap', () => {
       },
       'Warm process pool enabled; idle workers prewarm runtime process startup only',
     );
+    expect(state.loggerWarn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Warm process pool enabled; idle workers prewarm runtime process startup only',
+    );
   });
 
   test('runs a missed dream consolidation on startup when nightly scheduling is enabled', async () => {
