@@ -128,6 +128,32 @@ Engineering hygiene that ships alongside P0:
 - Voice (#18) and calendar (#19) are channel expansions on top of the existing channel layer.
 - RTBF (#20) is the GDPR baseline; mostly implementation work on top of the audit log.
 
+
+## Thick skills, thin gateway guardrail
+
+To keep roadmap execution aligned with **Principle I** and avoid accidental core bloat, apply this guardrail to every roadmap issue and PR:
+
+- **Placement preference (hard order):** **Skill > Plugin > Gateway/Agent `src`**. Start in `skills/<name>/`; if reuse across skills/channels/operators is needed, promote to a plugin; touch gateway/container core only for unavoidable platform seams.
+- **Gateway change admission test:** a core change is allowed only if at least one is true: (a) security boundary (F3/F8/F13/F14), (b) cross-skill/plugin primitive reused by 3+ surfaces, (c) transport/runtime substrate impossible to host in a skill or plugin.
+- **Plugin promotion trigger:** when logic is tenant-portable and reused by multiple skills/channels, package it as a plugin (`src/plugins/` + install rail), not duplicated helpers across skills.
+- **Plugin-first channel rule:** new channels ship as plugins once F15/F16 land; avoid direct `src/channels/*` expansion except for foundational substrate fixes.
+- **Issue template addition (R21.x, R30, channel work):** add a required "Why not a skill-only change?" section plus a "core LOC budget" estimate to force explicit tradeoffs before implementation.
+- **Review metric:** track per-issue `skill LOC : core LOC` ratio; target **>= 4:1** for feature work (exceptions documented for foundation issues like F2/F4/F7/F8).
+- **Done criteria update:** every feature PR must show (1) skill entrypoint path, (2) core seam touched, (3) rationale for each non-skill file changed.
+
+## Roadmap re-scope candidates (toward Skill/Plugin-first)
+
+Review existing roadmap items with the new preference order (**Skill > Plugin > Gateway/Agent `src`**):
+
+- **#18 Voice / outbound phone channel:** keep Twilio runtime substrate thin in core; implement call-flow orchestration + operator UX as a channel plugin and expose task-specific behaviors via skills.
+- **#19 Calendar / meeting presence:** treat each meeting provider connector (Zoom/Meet) as plugin surfaces; keep summarization/action-item behavior in skills.
+- **#24 SMS channel:** implement provider adapters as plugins (Twilio/Telekom/Vodafone), keeping only shared channel contracts in core.
+- **#26 Fax gateway + outbound skill:** gateway stays transport seam; provider integrations should be plugin packages, while fax workflows remain in skills.
+- **R36 / R37 / R39 channel expansions:** execute through F15/F16 plugin registry + signed install path, not direct core channel additions.
+- **R21.x SaaS adapters (especially R21.17–R21.20, R21.12–R21.16):** default to skill-owned adapters; extract shared auth/session/tooling to plugins only when reused by multiple skills.
+
+Operationally: any issue in the list above should add a "Skill-only? Plugin? Core?" decision note before implementation begins.
+
 ## Sequencing rules
 
 - **Foundations first.** F1, F2, F3 unblock the majority of P0 children. F4 and F5 unblock specific items. F6 and F7 are critical-path the moment any cross-instance work or local-install demo is involved. F8, F9, F10 are needed as soon as the launch demo (A1) tries to honour Principles II / III / VI.
