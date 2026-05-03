@@ -36,10 +36,14 @@ class GoogleAdsInvoiceAdapter {
     const { credentials } = session;
     const period = invoiceIssuePeriod(options);
     const customerId = credentials.customerId.replace(/-/g, '');
+    const billingSetup = normalizeBillingSetupResourceName(
+      credentials.billingSetup,
+      customerId,
+    );
     const url = new URL(
       `https://googleads.googleapis.com/${this.apiVersion}/customers/${customerId}/invoices`,
     );
-    url.searchParams.set('billingSetup', credentials.billingSetup);
+    url.searchParams.set('billingSetup', billingSetup);
     url.searchParams.set('issueYear', String(period.year));
     url.searchParams.set('issueMonth', period.googleAdsMonth);
     const response = await this.fetch(url, {
@@ -239,6 +243,27 @@ function googleAdsHeaders(credentials, extra = {}) {
       ? { 'login-customer-id': credentials.loginCustomerId.replace(/-/g, '') }
       : {}),
   };
+}
+
+function normalizeBillingSetupResourceName(value, customerId) {
+  const resourceName = String(value || '').trim();
+  const match = /^customers\/([^/]+)\/billingSetups\/([^/]+)$/u.exec(
+    resourceName,
+  );
+  if (!match) {
+    throw new Error(
+      'Google Ads invoice adapter requires credentials.billingSetup as customers/<customer-id>/billingSetups/<billing-setup-id>.',
+    );
+  }
+
+  const billingSetupCustomerId = match[1].replace(/-/g, '');
+  if (billingSetupCustomerId !== customerId) {
+    throw new Error(
+      `Google Ads billingSetup customer id ${billingSetupCustomerId} does not match customerId ${customerId}.`,
+    );
+  }
+
+  return `customers/${billingSetupCustomerId}/billingSetups/${match[2]}`;
 }
 
 async function googleAdsHttpError(response, context) {

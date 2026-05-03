@@ -1,5 +1,5 @@
-import fs from 'node:fs';
 import { generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,7 +41,10 @@ type InvoiceAdapter<Session = unknown> = {
   displayName: string;
   requiredCredentials?: string[];
   unverifiedSelectors?: boolean;
-  login(credentials: Record<string, string>, context: unknown): Promise<Session>;
+  login(
+    credentials: Record<string, string>,
+    context: unknown,
+  ): Promise<Session>;
   listInvoices(session: Session, options: unknown): Promise<InvoiceMeta[]>;
   download(session: Session, invoice: InvoiceMeta): Promise<Uint8Array>;
   close?(session: Session): void | Promise<void>;
@@ -487,9 +490,13 @@ describe('reference invoice adapters', () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url.includes('/customers/1234567890/invoices')) {
+        const requestUrl = new URL(url);
         expect(url).toContain('/v24/');
-        expect(url).toContain('issueYear=2026');
-        expect(url).toContain('issueMonth=MARCH');
+        expect(requestUrl.searchParams.get('billingSetup')).toBe(
+          'customers/1234567890/billingSetups/111',
+        );
+        expect(requestUrl.searchParams.get('issueYear')).toBe('2026');
+        expect(requestUrl.searchParams.get('issueMonth')).toBe('MARCH');
         return new Response(
           JSON.stringify({
             invoices: [
@@ -521,7 +528,7 @@ describe('reference invoice adapters', () => {
         accessToken: 'token',
         developerToken: 'developer',
         customerId: '123-456-7890',
-        billingSetup: 'customers/1234567890/billingSetups/111',
+        billingSetup: 'customers/123-456-7890/billingSetups/111',
       },
       { providerId: 'google-ads' },
     );
@@ -879,7 +886,8 @@ describe('reference invoice adapters', () => {
           vat: 19,
           gross: 119,
           currency: 'EUR',
-          source_url: 'https://console.cloud.google.com/billing/documents/redacted.pdf',
+          source_url:
+            'https://console.cloud.google.com/billing/documents/redacted.pdf',
         },
       ]),
       downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF gcp')),
@@ -897,7 +905,9 @@ describe('reference invoice adapters', () => {
       { providerId: 'gcp', profileDir: '/tmp/gcp-profile' },
     );
 
-    const invoices = await adapter.listInvoices(session, { since: '2026-03-01' });
+    const invoices = await adapter.listInvoices(session, {
+      since: '2026-03-01',
+    });
     const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
 
     expect(invoices[0]?.vendor).toBe('gcp');
@@ -939,7 +949,9 @@ describe('reference invoice adapters', () => {
         status: 200,
       });
     });
-    const adapter = createGcpInvoiceAdapter({ fetch: fetchMock as typeof fetch });
+    const adapter = createGcpInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
 
     await expect(
       adapter.login(
@@ -960,7 +972,9 @@ describe('reference invoice adapters', () => {
     const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const jwt = createGcpServiceAccountJwt({
       clientEmail: 'billing@example.iam.gserviceaccount.com',
-      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      privateKey: privateKey
+        .export({ type: 'pkcs8', format: 'pem' })
+        .toString(),
       tokenEndpoint: 'https://oauth2.googleapis.com/token',
       now: 1_777_777_777_000,
     });
@@ -1403,7 +1417,9 @@ describe('invoice harvester config and monthly workflow', () => {
       sessionId: 'session-monthly-invoice-test',
       adapters: [adapter],
       config: {
-        outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-allowed-')),
+        outputDir: fs.mkdtempSync(
+          path.join(os.tmpdir(), 'hc-monthly-allowed-'),
+        ),
         providers: [{ id: 'anthropic', credentials: {} }],
       },
     });
@@ -1570,7 +1586,9 @@ describe('invoice harvester config and monthly workflow', () => {
   });
 
   test('quarantines DATEV browser handoff unless unverified selectors are explicitly allowed', async () => {
-    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-quarantine-'));
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hc-datev-quarantine-'),
+    );
     const recordAudit = vi.fn();
     const datev = new DatevUnternehmenOnlineUploadAdapter({
       credentials: { username: 'datev-user', password: 'datev-password' },
