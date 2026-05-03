@@ -606,12 +606,14 @@ test('browser_click can resolve visible text and save a download', async () => {
   ]);
 });
 
-test('browser_click rejects download capture for coordinate fallback clicks', async () => {
+test('browser_click can resolve coordinates and save a download', async () => {
   tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-browser-click-coordinate-download-'),
   );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
 
   const { executeBrowserTool } = await import(
     '../container/src/browser-tools.js'
@@ -628,11 +630,41 @@ test('browser_click rejects download capture for coordinate fallback clicks', as
     'session-1',
   );
   const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 
-  expect(parsed.success).toBe(false);
-  expect(String(parsed.error)).toContain(
-    'waitForDownload requires a snapshot ref or CSS selector target',
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.clicked).toBe('1183,536');
+  expect(parsed.x).toBe(1183);
+  expect(parsed.y).toBe(536);
+  expect(parsed.download_path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
   );
+  expect(commands).toEqual([
+    {
+      command: 'eval',
+      args: [expect.stringContaining('elementFromPoint')],
+    },
+    {
+      command: 'download',
+      args: [
+        '[data-hybridclaw-download-target="download-test"]',
+        path.join(
+          tempRoot,
+          '.browser-artifacts',
+          'downloads',
+          'invoice-5563916179.pdf',
+        ),
+      ],
+    },
+    {
+      command: 'eval',
+      args: [expect.stringContaining('removeAttribute')],
+    },
+  ]);
 });
 
 test('browser_click selector fallback resolves to the clickable card ancestor', async () => {

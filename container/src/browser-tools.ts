@@ -1366,6 +1366,71 @@ function buildTextDownloadTargetScript(
 })()`;
 }
 
+function buildCoordinateDownloadTargetScript(
+  x: number,
+  y: number,
+  marker: string,
+): string {
+  return `(() => {
+  const x = ${JSON.stringify(x)};
+  const y = ${JSON.stringify(y)};
+  const marker = ${JSON.stringify(marker)};
+  const start = document.elementFromPoint(x, y);
+  if (!start) {
+    return { ok: false, error: 'no element at viewport coordinate ' + x + ',' + y };
+  }
+  const isClickable = (element) => {
+    const tag = String(element.tagName || '').toLowerCase();
+    const role =
+      typeof element.getAttribute === 'function'
+        ? String(element.getAttribute('role') || '').toLowerCase()
+        : '';
+    const tabIndexValue =
+      typeof element.tabIndex === 'number' && Number.isFinite(element.tabIndex)
+        ? element.tabIndex
+        : typeof element.getAttribute === 'function'
+            ? Number.parseInt(String(element.getAttribute('tabindex') || ''), 10)
+            : Number.NaN;
+    const style =
+      typeof window.getComputedStyle === 'function'
+        ? window.getComputedStyle(element)
+        : null;
+    const cursor = style && typeof style.cursor === 'string'
+      ? style.cursor.toLowerCase()
+      : '';
+    return (
+      tag === 'a' ||
+      tag === 'button' ||
+      tag === 'input' ||
+      tag === 'select' ||
+      tag === 'textarea' ||
+      tag === 'summary' ||
+      tag === 'label' ||
+      role === 'button' ||
+      role === 'link' ||
+      cursor === 'pointer' ||
+      (Number.isFinite(tabIndexValue) && Number(tabIndexValue) >= 0) ||
+      typeof element.onclick === 'function'
+    );
+  };
+  let target = start;
+  while (target && !isClickable(target)) {
+    target = target.parentElement || null;
+  }
+  target = target || start;
+  target.setAttribute('data-hybridclaw-download-target', marker);
+  return {
+    ok: true,
+    selector: '[data-hybridclaw-download-target="' + marker + '"]',
+    tag: String(target.tagName || '').toLowerCase(),
+    text: String(('innerText' in target ? target.innerText : target.textContent) || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .slice(0, 200),
+  };
+})()`;
+}
+
 function parseOptionalFrame(raw: unknown): FrameTarget | null {
   if (raw == null) return null;
   const frame = String(raw).trim();
@@ -1917,9 +1982,79 @@ export async function executeBrowserTool(
         await applyFrameTarget(effectiveSessionId, frame);
         if (target.source === 'coordinate') {
           if (waitForDownload) {
-            return failure(
-              'waitForDownload requires a snapshot ref or CSS selector target; coordinate clicks cannot be captured as downloads by this browser runtime',
+            if (
+              typeof target.x !== 'number' ||
+              typeof target.y !== 'number' ||
+              !Number.isFinite(target.x) ||
+              !Number.isFinite(target.y)
+            ) {
+              return failure('x and y must both be finite viewport coordinates');
+            }
+            const marker = `download-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 10)}`;
+            const selectorEval = await runBrowserEval(
+              effectiveSessionId,
+              buildCoordinateDownloadTargetScript(target.x, target.y, marker),
+              30_000,
             );
+            if (!selectorEval.success) {
+              return failure(
+                selectorEval.error ||
+                  `failed to resolve viewport coordinate ${target.x},${target.y} for download`,
+              );
+            }
+            const selectorData = asRecord(selectorEval.result);
+            if (selectorData?.ok !== true) {
+              return failure(
+                typeof selectorData?.error === 'string'
+                  ? selectorData.error
+                  : `failed to resolve viewport coordinate ${target.x},${target.y} for download`,
+              );
+            }
+            const selector =
+              typeof selectorData.selector === 'string'
+                ? selectorData.selector
+                : '';
+            if (!selector) {
+              return failure(
+                'failed to create download selector for coordinate target',
+              );
+            }
+            const result = await runAgentBrowser(
+              effectiveSessionId,
+              'download',
+              [selector, downloadPath],
+              { timeoutMs: 120_000 },
+            );
+            await runBrowserEval(
+              effectiveSessionId,
+              `(() => {
+                const element = document.querySelector(${JSON.stringify(selector)});
+                if (element) element.removeAttribute('data-hybridclaw-download-target');
+                return true;
+              })()`,
+              10_000,
+            ).catch(() => undefined);
+            const downloadResult = await collectClickDownloadResult(
+              Promise.resolve(result),
+              downloadPath,
+            );
+            if (!downloadResult.ok) return failure(downloadResult.error);
+            return success({
+              clicked: target.raw,
+              x: target.x,
+              y: target.y,
+              button: target.button || 'left',
+              ...(typeof selectorData.text === 'string'
+                ? { matched_text: selectorData.text }
+                : {}),
+              ...(typeof selectorData.tag === 'string'
+                ? { matched_tag: selectorData.tag }
+                : {}),
+              ...downloadResult.fields,
+              ...(frame ? { frame: frame.raw } : {}),
+            });
           }
           if (
             typeof target.x !== 'number' ||
@@ -2736,7 +2871,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. Use x/y only when snapshot refs and visible text are not viable, especially for cross-origin iframe content.',
+        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. For downloads, use waitForDownload with the same fallback chain; x/y download capture works when the coordinate resolves to a DOM element in the active frame.',
       parameters: {
         type: 'object',
         properties: {
@@ -2759,7 +2894,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           waitForDownload: {
             type: 'boolean',
             description:
-              'When true, start a browser download listener before clicking and return the saved download_path.',
+              'When true, capture the download triggered by the click and return download_path. Works with ref, visible text, selector, or x/y when the coordinate can be resolved to a DOM element.',
           },
           downloadPath: {
             type: 'string',
