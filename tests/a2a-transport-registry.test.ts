@@ -157,6 +157,26 @@ describe('A2A transport adapter registry', () => {
     });
     expect(
       normalizePeerDescriptor({
+        transport: 'a2a',
+        url: 'https://peer.example.com/a2a',
+        bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+      }),
+    ).toEqual({
+      transport: 'a2a',
+      agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+    });
+    expect(
+      normalizePeerDescriptor({
+        transport: 'a2a',
+        peer_url: 'http://127.0.0.1:8787/a2a',
+      }),
+    ).toEqual({
+      transport: 'a2a',
+      agentCardUrl: 'http://127.0.0.1:8787/.well-known/agent.json',
+    });
+    expect(
+      normalizePeerDescriptor({
         transport: 'webhook',
         url: 'http://127.0.0.1:8787/a2a',
         secret_ref: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },

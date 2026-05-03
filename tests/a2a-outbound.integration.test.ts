@@ -96,7 +96,7 @@ describe('A2A outbound integration', () => {
       runtime.sendMessage(envelope, {
         peerDescriptor: {
           transport: 'a2a',
-          agentCardUrl: `http://127.0.0.1:${port}/.well-known/agent.json`,
+          url: `http://127.0.0.1:${port}/a2a`,
         },
         transportRegistry: registry,
       });

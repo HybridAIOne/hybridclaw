@@ -15,6 +15,11 @@ export type A2APeerTransport = (typeof A2A_PEER_TRANSPORTS)[number];
 const INTERNAL_ALLOWED_FIELDS = new Set(['transport', 'agentId', 'agent_id']);
 const A2A_ALLOWED_FIELDS = new Set([
   'transport',
+  'url',
+  'peerUrl',
+  'peer_url',
+  'baseUrl',
+  'base_url',
   'agentCardUrl',
   'agent_card_url',
   'bearerTokenRef',
@@ -168,6 +173,74 @@ function readWebhookUrl(
   return value;
 }
 
+function readOptionalUrlAlias(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+  field: string,
+  issues: string[],
+): string | undefined {
+  const value = readOptionalStringAlias(
+    record,
+    camelKey,
+    snakeKey,
+    field,
+    issues,
+  );
+  if (!value) return undefined;
+  try {
+    new URL(value);
+  } catch {
+    issues.push(`${field} must be a valid URL`);
+    return undefined;
+  }
+  if (!isA2AAllowedHttpUrl(value)) {
+    issues.push(`${field} must use https unless targeting loopback`);
+  }
+  return value;
+}
+
+function deriveAgentCardUrl(peerUrl: string): string {
+  const url = new URL(peerUrl);
+  return new URL('/.well-known/agent.json', url.origin).toString();
+}
+
+function readA2AAgentCardUrl(
+  record: Record<string, unknown>,
+  issues: string[],
+): string {
+  const explicitAgentCardUrl = readAlias(
+    record,
+    'agentCardUrl',
+    'agent_card_url',
+  );
+  if (explicitAgentCardUrl !== undefined) {
+    return readWebhookUrl(
+      { agentCardUrl: explicitAgentCardUrl },
+      'agentCardUrl',
+      issues,
+    );
+  }
+
+  const hasPeerUrl =
+    Object.hasOwn(record, 'peerUrl') ||
+    Object.hasOwn(record, 'peer_url') ||
+    Object.hasOwn(record, 'baseUrl') ||
+    Object.hasOwn(record, 'base_url') ||
+    Object.hasOwn(record, 'url');
+  const peerUrl =
+    readOptionalUrlAlias(record, 'peerUrl', 'peer_url', 'peerUrl', issues) ||
+    readOptionalUrlAlias(record, 'baseUrl', 'base_url', 'baseUrl', issues) ||
+    readOptionalUrlAlias(record, 'url', 'url', 'url', issues);
+  if (!peerUrl) {
+    if (!hasPeerUrl) {
+      issues.push('agentCardUrl or url is required');
+    }
+    return '';
+  }
+  return deriveAgentCardUrl(peerUrl);
+}
+
 function readHttpHeaderName(
   record: Record<string, unknown>,
   camelKey: string,
@@ -264,11 +337,7 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
 
   if (transport === 'a2a') {
     validateAllowedFields(value, A2A_ALLOWED_FIELDS, issues);
-    const agentCardUrl = readWebhookUrl(
-      { agentCardUrl: readAlias(value, 'agentCardUrl', 'agent_card_url') },
-      'agentCardUrl',
-      issues,
-    );
+    const agentCardUrl = readA2AAgentCardUrl(value, issues);
     const bearerTokenRef = normalizeSecretRef(
       readAlias(value, 'bearerTokenRef', 'bearer_token_ref'),
       'bearerTokenRef',
