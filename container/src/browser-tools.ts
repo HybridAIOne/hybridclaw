@@ -1773,18 +1773,12 @@ export async function executeBrowserTool(
           ? resolveDownloadOutputPath(args.downloadPath || args.path)
           : '';
         await applyFrameTarget(effectiveSessionId, frame);
-        const downloadPromise = waitForDownload
-          ? runAgentBrowser(
-              effectiveSessionId,
-              'waitfordownload',
-              [downloadPath],
-              { timeoutMs: 120_000 },
-            )
-          : null;
-        if (downloadPromise) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
         if (target.source === 'coordinate') {
+          if (waitForDownload) {
+            return failure(
+              'waitForDownload requires a snapshot ref or CSS selector target; coordinate clicks cannot be captured as downloads by this browser runtime',
+            );
+          }
           if (
             typeof target.x !== 'number' ||
             typeof target.y !== 'number' ||
@@ -1818,37 +1812,69 @@ export async function executeBrowserTool(
           if (!up.success) {
             return failure(up.error || 'failed to release mouse button');
           }
-          const downloadResult = await collectClickDownloadResult(
-            downloadPromise,
-            downloadPath,
-          );
-          if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
             clicked: target.raw,
             x: target.x,
             y: target.y,
             button: target.button || 'left',
-            ...downloadResult.fields,
             ...(frame ? { frame: frame.raw } : {}),
           });
         }
         if (target.source === 'ref') {
+          if (waitForDownload) {
+            const result = await runAgentBrowser(
+              effectiveSessionId,
+              'download',
+              [target.raw, downloadPath],
+              { timeoutMs: 120_000 },
+            );
+            const downloadResult = await collectClickDownloadResult(
+              Promise.resolve(result),
+              downloadPath,
+            );
+            if (!downloadResult.ok) return failure(downloadResult.error);
+            return success({
+              clicked: target.raw,
+              ref: target.raw,
+              ...downloadResult.fields,
+              ...(frame ? { frame: frame.raw } : {}),
+            });
+          }
           const result = await runAgentBrowser(effectiveSessionId, 'click', [
             target.raw,
           ]);
           if (!result.success)
             return failure(result.error || `failed to click ${target.raw}`);
+          return success({
+            clicked: target.raw,
+            ref: target.raw,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
+
+        if (target.source === 'selector' && waitForDownload) {
+          const result = await runAgentBrowser(
+            effectiveSessionId,
+            'download',
+            [target.raw, downloadPath],
+            { timeoutMs: 120_000 },
+          );
           const downloadResult = await collectClickDownloadResult(
-            downloadPromise,
+            Promise.resolve(result),
             downloadPath,
           );
           if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
             clicked: target.raw,
-            ref: target.raw,
+            selector: target.raw,
             ...downloadResult.fields,
             ...(frame ? { frame: frame.raw } : {}),
           });
+        }
+        if (target.source === 'text' && waitForDownload) {
+          return failure(
+            'waitForDownload requires a snapshot ref or CSS selector target; visible-text clicks cannot be captured as downloads by this browser runtime',
+          );
         }
 
         const clickEval = await runBrowserEval(
@@ -1872,11 +1898,6 @@ export async function executeBrowserTool(
               : `failed to click ${target.source} "${target.raw}"`;
           return failure(error);
         }
-        const downloadResult = await collectClickDownloadResult(
-          downloadPromise,
-          downloadPath,
-        );
-        if (!downloadResult.ok) return failure(downloadResult.error);
         return success({
           clicked: target.raw,
           ...(target.source === 'selector'
@@ -1889,7 +1910,6 @@ export async function executeBrowserTool(
           ...(typeof clickData.matched_kind === 'string'
             ? { matched_kind: clickData.matched_kind }
             : {}),
-          ...downloadResult.fields,
           ...(frame ? { frame: frame.raw } : {}),
         });
       }

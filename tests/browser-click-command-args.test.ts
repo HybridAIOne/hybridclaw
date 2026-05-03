@@ -32,8 +32,8 @@ if (command === 'click') {
       args: commandArgs
     }
   }));
-} else if (command === 'waitfordownload') {
-  const targetPath = commandArgs[0] || '';
+} else if (command === 'download') {
+  const targetPath = commandArgs[1] || '';
   if (targetPath) {
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, '%PDF test download');
@@ -480,7 +480,7 @@ test('browser_click treats legacy @viewport refs as coordinate clicks', async ()
   ]);
 });
 
-test('browser_click can wait for and save a coordinate-triggered download', async () => {
+test('browser_click can download and save from a ref target', async () => {
   tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-browser-click-download-'),
   );
@@ -488,6 +488,57 @@ test('browser_click can wait for and save a coordinate-triggered download', asyn
   vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
   vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
   vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    {
+      ref: 'e25',
+      waitForDownload: true,
+      downloadPath: 'invoice-5563916179.pdf',
+    },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.clicked).toBe('@e25');
+  expect(parsed.ref).toBe('@e25');
+  expect(parsed.download_path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  );
+  expect(parsed.suggested_filename).toBe('invoice.pdf');
+  expect(parsed.download_url).toBe('https://example.com/invoice.pdf');
+  expect(commands).toEqual([
+    {
+      command: 'download',
+      args: [
+        '@e25',
+        path.join(
+          tempRoot,
+          '.browser-artifacts',
+          'downloads',
+          'invoice-5563916179.pdf',
+        ),
+      ],
+    },
+  ]);
+});
+
+test('browser_click rejects download capture for coordinate fallback clicks', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-coordinate-download-'),
+  );
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
 
   const { executeBrowserTool } = await import(
     '../container/src/browser-tools.js'
@@ -504,35 +555,11 @@ test('browser_click can wait for and save a coordinate-triggered download', asyn
     'session-1',
   );
   const parsed = JSON.parse(output) as Record<string, unknown>;
-  const commands = fs
-    .readFileSync(logPath, 'utf-8')
-    .trim()
-    .split('\n')
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
 
-  expect(parsed.success, output).toBe(true);
-  expect(parsed.clicked).toBe('1183,536');
-  expect(parsed.download_path).toBe(
-    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  expect(parsed.success).toBe(false);
+  expect(String(parsed.error)).toContain(
+    'waitForDownload requires a snapshot ref or CSS selector target',
   );
-  expect(parsed.suggested_filename).toBe('invoice.pdf');
-  expect(parsed.download_url).toBe('https://example.com/invoice.pdf');
-  expect(commands).toEqual([
-    {
-      command: 'waitfordownload',
-      args: [
-        path.join(
-          tempRoot,
-          '.browser-artifacts',
-          'downloads',
-          'invoice-5563916179.pdf',
-        ),
-      ],
-    },
-    { command: 'mouse', args: ['move', '1183', '536'] },
-    { command: 'mouse', args: ['down', 'left'] },
-    { command: 'mouse', args: ['up', 'left'] },
-  ]);
 });
 
 test('browser_click selector fallback resolves to the clickable card ancestor', async () => {
