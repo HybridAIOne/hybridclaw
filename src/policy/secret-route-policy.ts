@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import YAML from 'yaml';
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   isGoogleOAuthSecretRef,
   type RuntimeHttpRequestAuthRuleSecret,
 } from '../config/runtime-config.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import type { SecretRef } from '../security/secret-refs.js';
 import { resolveWorkspacePolicyPath } from './policy-store.js';
 
@@ -50,7 +50,9 @@ function writeRawPolicyObject(
   fs.writeFileSync(policyPath, YAML.stringify(document), 'utf-8');
 }
 
-export function captureHttpSecretRoutePolicySnapshot(workspacePath: string): SecretRoutePolicySnapshot {
+export function captureHttpSecretRoutePolicySnapshot(
+  workspacePath: string,
+): SecretRoutePolicySnapshot {
   const policyPath = resolveWorkspacePolicyPath(workspacePath);
   if (!fs.existsSync(policyPath)) {
     return {
@@ -66,7 +68,9 @@ export function captureHttpSecretRoutePolicySnapshot(workspacePath: string): Sec
   };
 }
 
-export function restoreHttpSecretRoutePolicySnapshot(snapshot: SecretRoutePolicySnapshot): void {
+export function restoreHttpSecretRoutePolicySnapshot(
+  snapshot: SecretRoutePolicySnapshot,
+): void {
   if (!snapshot.exists) {
     if (fs.existsSync(snapshot.policyPath)) {
       fs.unlinkSync(snapshot.policyPath);

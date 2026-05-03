@@ -51,3 +51,44 @@ Use `parseUserId()` and `formatUserId()` from `src/identity/user-id.ts` at
 boundaries instead of hand-parsing strings. Use `userIdsEqual()` or
 `compareUserIds()` when comparing IDs so case and whitespace are normalized
 before comparison.
+
+## Agent Identities
+
+HybridClaw canonical agent identities use this format:
+
+```text
+agent-slug@user@instance-id
+```
+
+Examples:
+
+```text
+support-lena@acme@inst-7f3a
+main@local@inst-550e8400-e29b-41d4-a716-446655440000
+research.agent@team_1@local-dev
+```
+
+The canonical form is lowercase ASCII. `agent-slug`, `user`, and
+`instance-id` must:
+
+- start with a lowercase letter or digit
+- contain only lowercase letters, digits, dots, underscores, or hyphens
+- be 1-128 characters long
+
+The `@` separator is required and must appear exactly twice. The `user`
+component is a routing slug derived from the agent owner or local operator, not
+an embedded `username@authority` user ID.
+
+Local HybridClaw instances allocate `instance-id` on first use and persist it
+under the runtime home at `identity/instance-id.json`. Auto-allocated IDs are
+UUID-backed and use the `inst-<uuid>` form. Once allocated, the same instance ID
+is reused for every local agent identity so remote peers can distinguish one
+stable runtime instance from another. Operators may set `HYBRIDCLAW_INSTANCE_ID`
+for explicit deployments; in that case the configured component is used as-is
+after normalization and no local state file is written.
+
+Use `parseAgentIdentity()` and `formatAgentIdentity()` from
+`src/identity/agent-id.ts` at boundaries instead of hand-parsing strings. Use
+`resolveLocalInstanceId()` for local allocation and
+`slugifyAgentIdentityComponent()` when deriving a canonical component from a
+display name, config value, or environment value.

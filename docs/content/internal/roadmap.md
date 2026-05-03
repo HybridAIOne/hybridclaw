@@ -271,7 +271,7 @@ Cross-cutting work that several roadmap items depend on. Decomposed under the `f
 - ✅ **F4** — Versioning + rollback for skills, knowledge, CVs, and classifier weights. Extends `runtime-config-revisions`. Required by Principle VII.
 - ✅ **F5** — Model pricing & capability matrix on top of `model-catalog`. Required by #5 cost compute and future routing.
 - 🟡 **F6** — Deployment-mode + public-URL abstraction. See **Foundation Sub-Issues** below for F6 rows.
-- 🟡 **F7** — Global identity primitives. Agent-ID format and canonical user IDs are in production ([`src/a2a/identity.ts`](../../../src/a2a/identity.ts) + F7.1 ✅ via PR #776); instance-ID allocation, cross-instance resolver, and TOFU trust remain. See **Foundation Sub-Issues** below for F7 rows.
+- 🟡 **F7** — Global identity primitives. Agent-ID format, canonical user IDs, and local instance-ID allocation are in production ([`src/identity/agent-id.ts`](../../../src/identity/agent-id.ts), [`src/identity/user-id.ts`](../../../src/identity/user-id.ts), and F7.1 ✅ via PR #776); cross-instance resolver and TOFU trust remain. See **Foundation Sub-Issues** below for F7 rows.
 - 🟡 **F8** — Autonomy + escalation policy framework. Stakes classification and escalation routing are substantially shipped; policy-pipeline work remains. See **Foundation Sub-Issues** below for F8 rows.
 - 🟡 **F9** — Always-on runtime guarantees. Warm process pool and liveness probes are done; restart and fleet visibility remain. See **Foundation Sub-Issues** below for F9 rows.
 - 🟡 **F10** — Agent org-chart / team primitive. Schema, persistence, and resolution helpers are done; admin editing remains. See **Foundation Sub-Issues** below for F10 rows.
@@ -298,7 +298,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | F6.7 | Public URL | Cloudflare Tunnel provider | ⬜ #645 |
 | F6.8 | Public URL | Admin UI for tunnel provider configuration | ⬜ #681 |
 | F7.1 | Identity | Canonical user IDs | ✅ #571 via PR #776 |
-| F7.2 | Identity | Instance-ID allocation | ⬜ #572 |
+| F7.2 | Identity | Instance-ID allocation | ✅ #572 |
 | F7.3 | Identity | Cross-instance identity resolver | ⬜ #573 |
 | F7.4 | Identity | TOFU trust ledger for peer instances | ⬜ #574 |
 | F8.1 | Policy | Autonomy levels | ✅ Done |
