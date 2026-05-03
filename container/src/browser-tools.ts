@@ -1112,6 +1112,50 @@ async function adoptNativeDownload(
   };
 }
 
+function formatDownloadSnapshot(snapshot: DownloadSnapshot): Record<string, unknown> | null {
+  const relativePath = toWorkspaceRelativePath(snapshot.path);
+  if (!relativePath) return null;
+  return {
+    path: relativePath,
+    filename: path.basename(snapshot.path),
+    size_bytes: snapshot.size,
+    modified_at: new Date(snapshot.mtimeMs).toISOString(),
+  };
+}
+
+function listManagedDownloads(
+  filter: string,
+  limit: number,
+): Record<string, unknown>[] {
+  return Array.from(listDownloadSnapshots(ensureWritableDir(BROWSER_DOWNLOAD_ROOT)).values())
+    .filter((snapshot) => {
+      if (!filter) return true;
+      const normalizedFilter = filter.toLowerCase();
+      return (
+        snapshot.path.toLowerCase().includes(normalizedFilter) ||
+        path.basename(snapshot.path).toLowerCase().includes(normalizedFilter)
+      );
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, limit)
+    .map(formatDownloadSnapshot)
+    .filter((item): item is Record<string, unknown> => item !== null);
+}
+
+async function waitForManagedDownloads(
+  filter: string,
+  limit: number,
+  waitMs: number,
+): Promise<Record<string, unknown>[]> {
+  const deadline = Date.now() + waitMs;
+  do {
+    const downloads = listManagedDownloads(filter, limit);
+    if (downloads.length > 0) return downloads;
+    await sleep(250);
+  } while (Date.now() <= deadline);
+  return [];
+}
+
 function createTempScreenshotPath(prefix: string): string {
   fs.mkdirSync(BROWSER_ARTIFACT_ROOT, { recursive: true });
   const nonce = Math.random().toString(36).slice(2, 10);
@@ -2919,6 +2963,31 @@ export async function executeBrowserTool(
         });
       }
 
+      case 'browser_downloads': {
+        const filter = String(args.filter || '').trim();
+        const rawLimit = Number(args.limit);
+        const limit =
+          Number.isFinite(rawLimit) && rawLimit > 0
+            ? Math.min(Math.floor(rawLimit), 50)
+            : 10;
+        const rawWaitMs = Number(args.waitMs);
+        const waitMs =
+          Number.isFinite(rawWaitMs) && rawWaitMs > 0
+            ? Math.min(Math.floor(rawWaitMs), 30_000)
+            : 0;
+        const downloads =
+          waitMs > 0
+            ? await waitForManagedDownloads(filter, limit, waitMs)
+            : listManagedDownloads(filter, limit);
+        return success({
+          count: downloads.length,
+          downloads,
+          root: toWorkspaceRelativePath(BROWSER_DOWNLOAD_ROOT),
+          ...(filter ? { filter } : {}),
+          ...(waitMs > 0 ? { waited_ms: waitMs } : {}),
+        });
+      }
+
       case 'browser_await_two_factor': {
         assertGatewayInteractiveEscalationConfigured();
         const modality = String(args.modality || 'totp').trim();
@@ -3541,6 +3610,34 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'boolean',
             description:
               'When true, clear recorded network request history first.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_downloads',
+      description:
+        'List recent files in the managed browser downloads directory. Use after download clicks to verify the file path when the page or Chrome UI downloads outside the normal automation event.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: {
+            type: 'string',
+            description:
+              'Optional filename/path substring filter, for example an invoice number when the requested downloadPath included it.',
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum files to return, newest first. Defaults to 10.',
+          },
+          waitMs: {
+            type: 'number',
+            description:
+              'Optional time in milliseconds to wait for at least one matching stable download. Maximum 30000.',
           },
         },
         required: [],

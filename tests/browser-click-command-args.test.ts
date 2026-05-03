@@ -752,6 +752,52 @@ test('browser_click adopts native Chrome downloads when automation capture times
   );
 });
 
+test('browser_downloads lists managed browser downloads newest first', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-downloads-'),
+  );
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+
+  const downloadRoot = path.join(tempRoot, '.browser-artifacts', 'downloads');
+  fs.mkdirSync(downloadRoot, { recursive: true });
+  const older = path.join(downloadRoot, 'older.pdf');
+  const newer = path.join(downloadRoot, 'invoice-5563916179.pdf');
+  fs.writeFileSync(older, '%PDF older');
+  fs.writeFileSync(newer, '%PDF newer');
+  const oldDate = new Date('2026-05-03T10:00:00Z');
+  const newDate = new Date('2026-05-03T11:00:00Z');
+  fs.utimesSync(older, oldDate, oldDate);
+  fs.utimesSync(newer, newDate, newDate);
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_downloads',
+    { limit: 5 },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as {
+    success: boolean;
+    count: number;
+    downloads: Array<Record<string, unknown>>;
+    root: string;
+  };
+
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.root).toBe('.browser-artifacts/downloads');
+  expect(parsed.count).toBe(2);
+  expect(parsed.downloads[0]?.path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  );
+  expect(parsed.downloads[0]?.filename).toBe('invoice-5563916179.pdf');
+  expect(parsed.downloads[1]?.path).toBe(
+    '.browser-artifacts/downloads/older.pdf',
+  );
+});
+
 test('browser_click can enter an iframe for coordinate download capture', async () => {
   tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-browser-click-iframe-download-'),
