@@ -1431,6 +1431,40 @@ function buildCoordinateDownloadTargetScript(
 })()`;
 }
 
+function buildCoordinateFrameTargetScript(
+  x: number,
+  y: number,
+  marker: string,
+): string {
+  return `(() => {
+  const x = ${JSON.stringify(x)};
+  const y = ${JSON.stringify(y)};
+  const marker = ${JSON.stringify(marker)};
+  const element = document.elementFromPoint(x, y);
+  if (!element) {
+    return { ok: false, error: 'no element at viewport coordinate ' + x + ',' + y };
+  }
+  const tag = String(element.tagName || '').toLowerCase();
+  if (tag !== 'iframe' && tag !== 'frame') {
+    return { ok: true, iframe: false };
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return { ok: false, error: 'iframe at viewport coordinate has no visible bounds' };
+  }
+  element.setAttribute('data-hybridclaw-frame-target', marker);
+  return {
+    ok: true,
+    iframe: true,
+    selector: '[data-hybridclaw-frame-target="' + marker + '"]',
+    x: Math.max(0, Math.round(x - rect.left)),
+    y: Math.max(0, Math.round(y - rect.top)),
+    frame_left: Math.round(rect.left),
+    frame_top: Math.round(rect.top),
+  };
+})()`;
+}
+
 function parseOptionalFrame(raw: unknown): FrameTarget | null {
   if (raw == null) return null;
   const frame = String(raw).trim();
@@ -1993,12 +2027,96 @@ export async function executeBrowserTool(
             const marker = `download-${Date.now()}-${Math.random()
               .toString(36)
               .slice(2, 10)}`;
+            const frameMarker = `frame-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 10)}`;
+            let downloadX = target.x;
+            let downloadY = target.y;
+            let iframeSelector = '';
+            const cleanupIframeTarget = async () => {
+              if (!iframeSelector) return;
+              await runAgentBrowser(effectiveSessionId, 'frame', [
+                'main',
+              ]).catch(() => undefined);
+              await runBrowserEval(
+                effectiveSessionId,
+                `(() => {
+                  const element = document.querySelector(${JSON.stringify(iframeSelector)});
+                  if (element) element.removeAttribute('data-hybridclaw-frame-target');
+                  return true;
+                })()`,
+                10_000,
+              ).catch(() => undefined);
+            };
+            const frameEval = await runBrowserEval(
+              effectiveSessionId,
+              buildCoordinateFrameTargetScript(
+                target.x,
+                target.y,
+                frameMarker,
+              ),
+              30_000,
+            );
+            if (!frameEval.success) {
+              return failure(
+                frameEval.error ||
+                  `failed to inspect viewport coordinate ${target.x},${target.y} for iframe target`,
+              );
+            }
+            const frameData = asRecord(frameEval.result);
+            if (frameData?.ok !== true) {
+              return failure(
+                typeof frameData?.error === 'string'
+                  ? frameData.error
+                  : `failed to inspect viewport coordinate ${target.x},${target.y} for iframe target`,
+              );
+            }
+            if (frameData.iframe === true) {
+              iframeSelector =
+                typeof frameData.selector === 'string'
+                  ? frameData.selector
+                  : '';
+              const localX = Number(frameData.x);
+              const localY = Number(frameData.y);
+              if (
+                !iframeSelector ||
+                !Number.isFinite(localX) ||
+                !Number.isFinite(localY)
+              ) {
+                return failure(
+                  `failed to resolve iframe-local coordinate for viewport coordinate ${target.x},${target.y}`,
+                );
+              }
+              const switchFrame = await runAgentBrowser(
+                effectiveSessionId,
+                'frame',
+                [iframeSelector],
+              );
+              if (!switchFrame.success) {
+                await runBrowserEval(
+                  effectiveSessionId,
+                  `(() => {
+                    const element = document.querySelector(${JSON.stringify(iframeSelector)});
+                    if (element) element.removeAttribute('data-hybridclaw-frame-target');
+                    return true;
+                  })()`,
+                  10_000,
+                ).catch(() => undefined);
+                return failure(
+                  switchFrame.error ||
+                    `failed to switch to iframe at viewport coordinate ${target.x},${target.y}`,
+                );
+              }
+              downloadX = Math.round(localX);
+              downloadY = Math.round(localY);
+            }
             const selectorEval = await runBrowserEval(
               effectiveSessionId,
-              buildCoordinateDownloadTargetScript(target.x, target.y, marker),
+              buildCoordinateDownloadTargetScript(downloadX, downloadY, marker),
               30_000,
             );
             if (!selectorEval.success) {
+              await cleanupIframeTarget();
               return failure(
                 selectorEval.error ||
                   `failed to resolve viewport coordinate ${target.x},${target.y} for download`,
@@ -2006,6 +2124,7 @@ export async function executeBrowserTool(
             }
             const selectorData = asRecord(selectorEval.result);
             if (selectorData?.ok !== true) {
+              await cleanupIframeTarget();
               return failure(
                 typeof selectorData?.error === 'string'
                   ? selectorData.error
@@ -2017,6 +2136,7 @@ export async function executeBrowserTool(
                 ? selectorData.selector
                 : '';
             if (!selector) {
+              await cleanupIframeTarget();
               return failure(
                 'failed to create download selector for coordinate target',
               );
@@ -2036,6 +2156,7 @@ export async function executeBrowserTool(
               })()`,
               10_000,
             ).catch(() => undefined);
+            await cleanupIframeTarget();
             const downloadResult = await collectClickDownloadResult(
               Promise.resolve(result),
               downloadPath,
@@ -2051,6 +2172,13 @@ export async function executeBrowserTool(
                 : {}),
               ...(typeof selectorData.tag === 'string'
                 ? { matched_tag: selectorData.tag }
+                : {}),
+              ...(iframeSelector
+                ? {
+                    iframe: iframeSelector,
+                    frame_x: downloadX,
+                    frame_y: downloadY,
+                  }
                 : {}),
               ...downloadResult.fields,
               ...(frame ? { frame: frame.raw } : {}),
@@ -2871,7 +2999,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. For downloads, use waitForDownload with the same fallback chain; x/y download capture works when the coordinate resolves to a DOM element in the active frame.',
+        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. For downloads, use waitForDownload with the same fallback chain; x/y download capture auto-enters an iframe when the coordinate hits one, then restores the main frame.',
       parameters: {
         type: 'object',
         properties: {

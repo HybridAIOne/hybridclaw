@@ -47,6 +47,24 @@ if (command === 'click') {
   }));
 } else if (command === 'eval') {
   const script = commandArgs[0] || '';
+  if (
+    script.includes('data-hybridclaw-frame-target') &&
+    !script.includes('removeAttribute')
+  ) {
+    const result = process.env.AGENT_BROWSER_STUB_IFRAME_AT_POINT
+      ? {
+          ok: true,
+          iframe: true,
+          selector: '[data-hybridclaw-frame-target="frame-test"]',
+          x: 150,
+          y: 80,
+          frame_left: 800,
+          frame_top: 240
+        }
+      : { ok: true, iframe: false };
+    process.stdout.write(JSON.stringify({ data: { result } }));
+    process.exit(0);
+  }
   if (script.includes('data-hybridclaw-download-target')) {
     process.stdout.write(JSON.stringify({
       data: {
@@ -646,7 +664,11 @@ test('browser_click can resolve coordinates and save a download', async () => {
   expect(commands).toEqual([
     {
       command: 'eval',
-      args: [expect.stringContaining('elementFromPoint')],
+      args: [expect.stringContaining('data-hybridclaw-frame-target')],
+    },
+    {
+      command: 'eval',
+      args: [expect.stringContaining('data-hybridclaw-download-target')],
     },
     {
       command: 'download',
@@ -663,6 +685,86 @@ test('browser_click can resolve coordinates and save a download', async () => {
     {
       command: 'eval',
       args: [expect.stringContaining('removeAttribute')],
+    },
+  ]);
+});
+
+test('browser_click can enter an iframe for coordinate download capture', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-iframe-download-'),
+  );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+  vi.stubEnv('AGENT_BROWSER_STUB_IFRAME_AT_POINT', '1');
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    {
+      x: 950,
+      y: 320,
+      waitForDownload: true,
+      downloadPath: 'invoice-5563916179.pdf',
+    },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.clicked).toBe('950,320');
+  expect(parsed.x).toBe(950);
+  expect(parsed.y).toBe(320);
+  expect(parsed.frame_x).toBe(150);
+  expect(parsed.frame_y).toBe(80);
+  expect(parsed.download_path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  );
+  expect(commands).toEqual([
+    {
+      command: 'eval',
+      args: [expect.stringContaining('data-hybridclaw-frame-target')],
+    },
+    {
+      command: 'frame',
+      args: ['[data-hybridclaw-frame-target="frame-test"]'],
+    },
+    {
+      command: 'eval',
+      args: [expect.stringContaining('data-hybridclaw-download-target')],
+    },
+    {
+      command: 'download',
+      args: [
+        '[data-hybridclaw-download-target="download-test"]',
+        path.join(
+          tempRoot,
+          '.browser-artifacts',
+          'downloads',
+          'invoice-5563916179.pdf',
+        ),
+      ],
+    },
+    {
+      command: 'eval',
+      args: [expect.stringContaining('removeAttribute')],
+    },
+    {
+      command: 'frame',
+      args: ['main'],
+    },
+    {
+      command: 'eval',
+      args: [expect.stringContaining('data-hybridclaw-frame-target')],
     },
   ]);
 });
