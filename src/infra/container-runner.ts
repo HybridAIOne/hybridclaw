@@ -1037,7 +1037,7 @@ async function runContainerInner(
   const taskModels = await resolveTaskModelPolicies({
     agentId,
     chatbotId: modelRuntime.chatbotId,
-    sessionModel: model,
+    sessionModel: modelRuntime.model || model,
   });
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv().catch((error) => {
     logger.warn(

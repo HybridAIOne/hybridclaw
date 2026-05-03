@@ -141,6 +141,31 @@ if (command === 'eval') {
   return scriptPath;
 }
 
+function createAgentBrowserScreenshotStub(root: string, logPath: string): string {
+  const scriptPath = path.join(root, 'agent-browser-screenshot-stub.mjs');
+  fs.writeFileSync(
+    scriptPath,
+    `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+
+const args = process.argv.slice(2);
+const jsonIndex = args.indexOf('--json');
+const command = jsonIndex >= 0 ? args[jsonIndex + 1] : '';
+const commandArgs = jsonIndex >= 0 ? args.slice(jsonIndex + 2) : [];
+fs.writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({ command, commandArgs }));
+if (command === 'screenshot') {
+  fs.mkdirSync(path.dirname(commandArgs.at(-1)), { recursive: true });
+  fs.writeFileSync(commandArgs.at(-1), 'png');
+}
+process.stdout.write(JSON.stringify({ data: {} }));
+`,
+    'utf-8',
+  );
+  fs.chmodSync(scriptPath, 0o755);
+  return scriptPath;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -211,6 +236,47 @@ test.each([
   expect(parsed.success).toBe(true);
   expect(parsed.mode).toBe(expectedMode);
   expect(JSON.parse(parsed.snapshot) as string[]).toEqual(expectedArgs);
+});
+
+test('browser_screenshot returns a vision-ready artifact path', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-screenshot-'),
+  );
+  const logPath = path.join(tempRoot, 'screenshot-command.json');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv(
+    'AGENT_BROWSER_BIN',
+    createAgentBrowserScreenshotStub(tempRoot, logPath),
+  );
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_screenshot',
+    { path: 'documents-page-visible.png' },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as {
+    success: boolean;
+    path: string;
+    image_url: string;
+  };
+  const command = JSON.parse(fs.readFileSync(logPath, 'utf-8')) as {
+    command: string;
+    commandArgs: string[];
+  };
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.path).toBe('.browser-artifacts/documents-page-visible.png');
+  expect(parsed.image_url).toBe(
+    '.browser-artifacts/documents-page-visible.png',
+  );
+  expect(command.command).toBe('screenshot');
+  expect(command.commandArgs.at(-1)).toBe(
+    path.join(tempRoot, '.browser-artifacts', 'documents-page-visible.png'),
+  );
 });
 
 test('browser_snapshot reuses the shared browser profile directly', async () => {

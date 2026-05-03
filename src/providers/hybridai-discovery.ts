@@ -77,6 +77,53 @@ function readHybridAIContextWindow(
   return readPositiveInteger(entry.context_length);
 }
 
+function readBooleanVisionCapability(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (isRecord(value) && typeof value.supported === 'boolean') {
+    return value.supported;
+  }
+  return null;
+}
+
+function arrayIncludesImageInput(value: unknown): boolean | null {
+  if (!Array.isArray(value)) return null;
+  return value.some(
+    (item) => typeof item === 'string' && /^(image|vision)$/i.test(item),
+  );
+}
+
+function readHybridAIVisionCapability(
+  entry: Record<string, unknown>,
+): boolean | null {
+  const capabilities = isRecord(entry.capabilities) ? entry.capabilities : null;
+  if (capabilities) {
+    const explicit =
+      readBooleanVisionCapability(capabilities.vision) ??
+      readBooleanVisionCapability(capabilities.image);
+    if (explicit != null) return explicit;
+  }
+  if (Array.isArray(entry.capabilities)) {
+    return entry.capabilities.some(
+      (cap: unknown) => typeof cap === 'string' && /vision|image/i.test(cap),
+    );
+  }
+
+  const architecture = isRecord(entry.architecture) ? entry.architecture : null;
+  const modality = String(architecture?.modality || '').toLowerCase();
+  if (modality) {
+    const inputSide = modality.includes('->')
+      ? (modality.split('->').at(0) ?? '')
+      : modality;
+    return inputSide.includes('image');
+  }
+
+  return (
+    arrayIncludesImageInput(entry.input_modalities) ??
+    arrayIncludesImageInput(entry.inputModalities) ??
+    arrayIncludesImageInput(entry.modalities)
+  );
+}
+
 function getDiscoveryEntries(payload: unknown): unknown[] {
   // Observed HybridAI discovery responses in
   // tests/model-catalog.test.ts and tests/gateway-status.test.ts use
@@ -155,6 +202,7 @@ export interface HybridAIDiscoveryStore {
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
+  getModelVisionCapability: (model: string) => boolean | null;
   getModelPricingUsdPerToken: (
     model: string,
   ) => { input: number | null; output: number | null } | null;
@@ -166,6 +214,8 @@ interface HybridAIDiscoveryState {
   contextWindowModelKeyLookup: HybridAIModelKeyLookup;
   maxTokensByModel: Map<string, number>;
   maxTokensModelKeyLookup: HybridAIModelKeyLookup;
+  visionCapabilityByModel: Map<string, boolean>;
+  visionCapabilityModelKeyLookup: HybridAIModelKeyLookup;
   pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   pricingModelKeyLookup: HybridAIModelKeyLookup;
 }
@@ -176,6 +226,8 @@ const buildEmptyHybridAIDiscoveryState = (): HybridAIDiscoveryState => ({
   contextWindowModelKeyLookup: buildHybridAIModelKeyLookup([]),
   maxTokensByModel: new Map(),
   maxTokensModelKeyLookup: buildHybridAIModelKeyLookup([]),
+  visionCapabilityByModel: new Map(),
+  visionCapabilityModelKeyLookup: buildHybridAIModelKeyLookup([]),
   pricingByModel: new Map(),
   pricingModelKeyLookup: buildHybridAIModelKeyLookup([]),
 });
@@ -214,6 +266,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
+    const visionCapabilities = new Map<string, boolean>();
     const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
 
     for (const entry of getDiscoveryEntries(payload)) {
@@ -235,6 +288,10 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       if (modelMaxTokens != null) {
         maxTokens.set(normalized, modelMaxTokens);
       }
+      const visionCapability = readHybridAIVisionCapability(entry);
+      if (visionCapability != null) {
+        visionCapabilities.set(normalized, visionCapability);
+      }
       const pricing = readDiscoveredModelPricingUsdPerToken(entry);
       if (pricing) {
         pricingByModel.set(normalized, pricing);
@@ -249,6 +306,10 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       ),
       maxTokensByModel: maxTokens,
       maxTokensModelKeyLookup: buildHybridAIModelKeyLookup(maxTokens.keys()),
+      visionCapabilityByModel: visionCapabilities,
+      visionCapabilityModelKeyLookup: buildHybridAIModelKeyLookup(
+        visionCapabilities.keys(),
+      ),
       pricingByModel,
       pricingModelKeyLookup: buildHybridAIModelKeyLookup(pricingByModel.keys()),
     };
@@ -305,6 +366,15 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       );
       return state.maxTokensByModel.get(normalized) ?? null;
     },
+    getModelVisionCapability: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = resolveCachedHybridAIModelKey(
+        model,
+        state.visionCapabilityByModel,
+        state.visionCapabilityModelKeyLookup,
+      );
+      return state.visionCapabilityByModel.get(normalized) ?? null;
+    },
     getModelPricingUsdPerToken: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
@@ -339,6 +409,12 @@ export function getDiscoveredHybridAIModelMaxTokens(
   model: string,
 ): number | null {
   return defaultHybridAIDiscoveryStore.getModelMaxTokens(model);
+}
+
+export function getDiscoveredHybridAIModelVisionCapability(
+  model: string,
+): boolean | null {
+  return defaultHybridAIDiscoveryStore.getModelVisionCapability(model);
 }
 
 export function getDiscoveredHybridAIModelPricingUsdPerToken(

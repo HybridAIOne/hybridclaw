@@ -11,10 +11,18 @@ function createAgentBrowserStub(root: string): string {
   fs.writeFileSync(
     scriptPath,
     `#!/usr/bin/env node
+import fs from 'node:fs';
+
 const args = process.argv.slice(2);
 const jsonIndex = args.indexOf('--json');
 const command = jsonIndex >= 0 ? args[jsonIndex + 1] : '';
 const commandArgs = jsonIndex >= 0 ? args.slice(jsonIndex + 2) : [];
+if (process.env.AGENT_BROWSER_STUB_LOG) {
+  fs.appendFileSync(
+    process.env.AGENT_BROWSER_STUB_LOG,
+    JSON.stringify({ command, args: commandArgs }) + '\\n',
+  );
+}
 
 if (command === 'click') {
   process.stdout.write(JSON.stringify({
@@ -353,6 +361,78 @@ test('browser_click preserves backward-compatible text priority for mixed target
   expect(parsed.exact).toBe(false);
   expect(parsed.ref).toBeUndefined();
   expect(parsed.selector).toBeUndefined();
+});
+
+test('browser_click supports viewport coordinate clicks', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-coordinate-'),
+  );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    { x: 1180, y: 650 },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.clicked).toBe('1180,650');
+  expect(parsed.x).toBe(1180);
+  expect(parsed.y).toBe(650);
+  expect(commands).toEqual([
+    { command: 'mouse', args: ['move', '1180', '650'] },
+    { command: 'mouse', args: ['down', 'left'] },
+    { command: 'mouse', args: ['up', 'left'] },
+  ]);
+});
+
+test('browser_click treats legacy @viewport refs as coordinate clicks', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-viewport-ref-'),
+  );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    { ref: '@viewport-1180-650' },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.clicked).toBe('@viewport-1180-650');
+  expect(parsed.x).toBe(1180);
+  expect(parsed.y).toBe(650);
+  expect(commands).toEqual([
+    { command: 'mouse', args: ['move', '1180', '650'] },
+    { command: 'mouse', args: ['down', 'left'] },
+    { command: 'mouse', args: ['up', 'left'] },
+  ]);
 });
 
 test('browser_click selector fallback resolves to the clickable card ancestor', async () => {

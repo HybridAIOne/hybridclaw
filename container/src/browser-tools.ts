@@ -177,7 +177,10 @@ type UploadTarget = {
 };
 type ClickTarget = {
   raw: string;
-  source: 'ref' | 'selector' | 'text';
+  source: 'ref' | 'selector' | 'text' | 'coordinate';
+  x?: number;
+  y?: number;
+  button?: 'left' | 'right' | 'middle';
 };
 type BrowserModelContext = {
   provider:
@@ -721,15 +724,71 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
   const ref = String(args.ref || '').trim();
   const text = String(args.text || '').trim();
   const selector = String(args.selector || '').trim();
+  const button = parseMouseButton(args.button);
+  const coordinate = parseViewportCoordinates(args.x, args.y);
 
+  if (coordinate) {
+    return {
+      raw: `${coordinate.x},${coordinate.y}`,
+      source: 'coordinate',
+      x: coordinate.x,
+      y: coordinate.y,
+      button,
+    };
+  }
   if (text) return { raw: text, source: 'text' };
   if (selector) return { raw: selector, source: 'selector' };
   if (!ref) {
-    throw new Error('ref is required (or provide selector or text)');
+    throw new Error('ref is required (or provide selector, text, or x/y)');
+  }
+  const refCoordinate = parseViewportRef(ref);
+  if (refCoordinate) {
+    return {
+      raw: ref.startsWith('@') ? ref : `@${ref}`,
+      source: 'coordinate',
+      x: refCoordinate.x,
+      y: refCoordinate.y,
+      button,
+    };
   }
   return {
     raw: ref.startsWith('@') ? ref : `@${ref}`,
     source: 'ref',
+  };
+}
+
+function parseMouseButton(raw: unknown): 'left' | 'right' | 'middle' {
+  const button = String(raw || 'left')
+    .trim()
+    .toLowerCase();
+  if (button === 'left' || button === 'right' || button === 'middle') {
+    return button;
+  }
+  throw new Error('button must be one of "left", "right", or "middle"');
+}
+
+function parseViewportCoordinates(
+  rawX: unknown,
+  rawY: unknown,
+): { x: number; y: number } | null {
+  if (rawX == null && rawY == null) return null;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error('x and y must both be finite viewport coordinates');
+  }
+  if (x < 0 || y < 0) {
+    throw new Error('x and y must be non-negative viewport coordinates');
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function parseViewportRef(rawRef: string): { x: number; y: number } | null {
+  const match = rawRef.match(/^@?viewport-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/i);
+  if (!match) return null;
+  return {
+    x: Math.round(Number(match[1])),
+    y: Math.round(Number(match[2])),
   };
 }
 
@@ -1637,6 +1696,48 @@ export async function executeBrowserTool(
         const target = resolveClickTarget(args);
         const frame = parseOptionalFrame(args.frame);
         await applyFrameTarget(effectiveSessionId, frame);
+        if (target.source === 'coordinate') {
+          if (
+            typeof target.x !== 'number' ||
+            typeof target.y !== 'number' ||
+            !Number.isFinite(target.x) ||
+            !Number.isFinite(target.y)
+          ) {
+            return failure('x and y must both be finite viewport coordinates');
+          }
+          const move = await runAgentBrowser(effectiveSessionId, 'mouse', [
+            'move',
+            String(target.x),
+            String(target.y),
+          ]);
+          if (!move.success) {
+            return failure(
+              move.error ||
+                `failed to move mouse to viewport coordinate ${target.x},${target.y}`,
+            );
+          }
+          const down = await runAgentBrowser(effectiveSessionId, 'mouse', [
+            'down',
+            target.button || 'left',
+          ]);
+          if (!down.success) {
+            return failure(down.error || 'failed to press mouse button');
+          }
+          const up = await runAgentBrowser(effectiveSessionId, 'mouse', [
+            'up',
+            target.button || 'left',
+          ]);
+          if (!up.success) {
+            return failure(up.error || 'failed to release mouse button');
+          }
+          return success({
+            clicked: target.raw,
+            x: target.x,
+            y: target.y,
+            button: target.button || 'left',
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
         if (target.source === 'ref') {
           const result = await runAgentBrowser(effectiveSessionId, 'click', [
             target.raw,
@@ -1824,6 +1925,7 @@ export async function executeBrowserTool(
         }
         return success({
           path: relativePath,
+          image_url: relativePath,
           full_page: fullPage,
         });
       }
@@ -2306,13 +2408,30 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match. For backward compatibility, if multiple targeting fields are provided, browser_click prefers text, then selector, then ref.',
+        'Click an element by snapshot ref (example: "@e5"), by exact viewport coordinates with x/y, or by fallback CSS selector/visible text. Use x/y when the user or vision has identified a coordinate on the current viewport, especially for cross-origin iframe content. For backward compatibility, if multiple non-coordinate targeting fields are provided, browser_click prefers text, then selector, then ref.',
       parameters: {
         type: 'object',
         properties: {
+          x: {
+            type: 'number',
+            description:
+              'Viewport x coordinate to click. Provide together with y for a real mouse click at that point.',
+          },
+          y: {
+            type: 'number',
+            description:
+              'Viewport y coordinate to click. Provide together with x for a real mouse click at that point.',
+          },
+          button: {
+            type: 'string',
+            enum: ['left', 'right', 'middle'],
+            description:
+              'Mouse button for coordinate clicks. Defaults to left.',
+          },
           ref: {
             type: 'string',
-            description: 'Element reference from browser_snapshot.',
+            description:
+              'Element reference from browser_snapshot. Legacy @viewport-X-Y coordinate refs are accepted, but prefer x/y.',
           },
           selector: {
             type: 'string',
@@ -2511,7 +2630,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           path: {
             type: 'string',
             description:
-              'Optional relative output path under .browser-artifacts.',
+              'Optional filename or subpath relative to .browser-artifacts, for example "shot.png". Do not include a .browser-artifacts/ prefix.',
           },
           fullPage: {
             type: 'boolean',
