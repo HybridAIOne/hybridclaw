@@ -171,6 +171,35 @@ export function ConfigPage() {
             </section>
 
             <section className="config-section">
+              <h4>Security</h4>
+              <BooleanField
+                label="Confidential leak guard"
+                value={draft.security?.confidentialRedactionEnabled ?? false}
+                trueLabel="on"
+                falseLabel="off"
+                onChange={(confidentialRedactionEnabled) =>
+                  setDraft((current) => {
+                    if (!current) return current;
+                    const security = current.security ?? {
+                      trustModelAccepted: false,
+                      trustModelAcceptedAt: '',
+                      trustModelVersion: '',
+                      trustModelAcceptedBy: '',
+                      confidentialRedactionEnabled: false,
+                    };
+                    return {
+                      ...current,
+                      security: {
+                        ...security,
+                        confidentialRedactionEnabled,
+                      },
+                    };
+                  })
+                }
+              />
+            </section>
+
+            <section className="config-section">
               <h4>HybridAI</h4>
               <label className="field">
                 <span>Base URL</span>

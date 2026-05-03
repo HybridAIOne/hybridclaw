@@ -37,6 +37,13 @@ vi.mock('../auth', () => ({
 function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
   return {
     version: 1,
+    security: {
+      trustModelAccepted: false,
+      trustModelAcceptedAt: '',
+      trustModelVersion: '',
+      trustModelAcceptedBy: '',
+      confidentialRedactionEnabled: false,
+    },
     hybridai: {
       baseUrl: 'https://hybridai.one',
       defaultModel: 'gpt-5',

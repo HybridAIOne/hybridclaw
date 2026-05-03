@@ -164,6 +164,9 @@ Once the gateway is running, open HybridClaw locally:
 - `container.persistBashState` controls whether bash tool calls share shell
   state (`cd`, exported env vars, aliases) across turns in the same active
   runtime session; `/admin/config` exposes the same setting as `Persistent bash state`.
+- `security.confidentialRedactionEnabled` controls whether optional
+  `.confidential.yml` rules redact prompts and block matching outbound text;
+  `/admin/config` exposes the same setting as `Confidential leak guard`.
 - `hybridclaw audit scan-leaks` scans historical audit logs against optional
   `.confidential.yml` rules for NDA-class client, project, person, keyword,
   and regex matches.

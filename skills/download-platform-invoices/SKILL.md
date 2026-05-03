@@ -97,69 +97,32 @@ The runtime implementation is colocated with this skill:
 
 ## Google Ads InvoiceService
 
-Use Google's documented InvoiceService flow for Google Ads invoices:
+Use secret credentials plus the official Google Ads API calls.
+
+Secret credentials:
+
+- OAuth: `hybridclaw auth login google --scopes "https://www.googleapis.com/auth/adwords"`
+- Routes:
+  `hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer`
+  `hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none`
+- Optional store values:
+  `GOOGLEADS_CUSTOMER_ID`, `GOOGLEADS_BILLING_SETUP`,
+  `GOOGLEADS_LOGIN_CUSTOMER_ID`
+
+API calls:
 
 ```text
+GET https://googleads.googleapis.com/v24/customers:listAccessibleCustomers
+POST https://googleads.googleapis.com/v24/customers/<manager-customer-id>/googleAds:search
+POST https://googleads.googleapis.com/v24/customers/<customer-id>/googleAds:search
 GET https://googleads.googleapis.com/v24/customers/<customer-id>/invoices?billingSetup=customers/<customer-id>/billingSetups/<billing-setup-id>&issueYear=<yyyy>&issueMonth=<MONTH>
+GET <invoice.pdfUrl>
 ```
 
-Then download the returned `pdfUrl` with the same OAuth identity. Do not write
-one-off Node or shell scripts for live Google Ads calls unless the user
-explicitly asks for diagnostics.
-
-Required inputs:
-
-- Google OAuth from `hybridclaw auth login google` with
-  `https://www.googleapis.com/auth/adwords`.
-- `GOOGLEADS_DEVELOPER_TOKEN`, routed to the `developer-token` header.
-- Target serving `customerId`, without hyphens.
-- `billingSetup` resource name:
-  `customers/<customer-id>/billingSetups/<billing-setup-id>`.
-- Optional `loginCustomerId`, without hyphens, if access goes through an
-  MCC/manager account.
-
-Set the routes once:
-
-```bash
-hybridclaw auth status google
-hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer
-hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none
-```
-
-If identifiers are missing, use only these Google Ads API calls:
-
-- Accessible customers:
-  `GET https://googleads.googleapis.com/v24/customers:listAccessibleCustomers`
-- MCC children:
-  `POST https://googleads.googleapis.com/v24/customers/<manager-customer-id>/googleAds:search`
-  with `SELECT customer_client.client_customer, customer_client.descriptive_name, customer_client.manager, customer_client.level, customer_client.status FROM customer_client WHERE customer_client.level <= 1`
-- Billing setups:
-  `POST https://googleads.googleapis.com/v24/customers/<customer-id>/googleAds:search`
-  with `SELECT billing_setup.resource_name, billing_setup.payments_account, billing_setup.status FROM billing_setup`
-
-Never call `POST /v24/customers/<customer-id>:search`; GoogleAdsService REST
-search is `/customers/<customer-id>/googleAds:search`.
-
-Built-in adapter helpers:
-
-- `listAccessibleCustomers(credentials)`
-- `discoverCustomerClients(credentials)`
-- `discoverBillingSetups(credentials)`
-- `listInvoices(session, { since })`
-- `download(session, invoice)`
-
-Google Ads error handling:
-
-- Report the exact Google Ads response body, especially `status`, `reason`,
-  `message`, `request-id`, and `consumer` project. Do not infer setup problems
-  from fallback-token failures.
-- `SERVICE_DISABLED` means the Google Cloud project that owns the OAuth client
-  has not enabled `googleads.googleapis.com`.
-- `USER_PERMISSION_DENIED` usually means the OAuth user lacks access to the
-  target client account, or the request needs a `login-customer-id` header for
-  the managing MCC account.
-- `insufficient authentication scopes` means the stored Google OAuth grant must
-  be refreshed with `https://www.googleapis.com/auth/adwords`.
+Use `customer_client` to find MCC children, `billing_setup.resource_name` for
+`billingSetup`, and `InvoiceService` `pdfUrl` for the PDF. Never call
+`POST /v24/customers/<customer-id>:search`; use
+`/v24/customers/<customer-id>/googleAds:search`.
 
 ## Run Discipline
 

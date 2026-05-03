@@ -7,6 +7,7 @@ import { withSpan } from '../observability/otel.js';
 import {
   createConfidentialRuntimeContext,
   getConfidentialRuleSet,
+  isConfidentialRedactionEnabled,
 } from '../security/confidential-runtime.js';
 import { withResolvedSecretLeakRules } from '../security/secret-leak-corpus.js';
 import type { ContainerOutput } from '../types/container.js';
@@ -152,11 +153,12 @@ async function runAgentInner(
     workspaceRoot,
     media,
   });
-  const confidentialRuleSet = withResolvedSecretLeakRules(
-    sessionId,
-    getConfidentialRuleSet(),
-  );
-  const confidential = createConfidentialRuntimeContext(confidentialRuleSet);
+  const confidentialRuleSet = isConfidentialRedactionEnabled()
+    ? withResolvedSecretLeakRules(sessionId, getConfidentialRuleSet())
+    : null;
+  const confidential = confidentialRuleSet
+    ? createConfidentialRuntimeContext(confidentialRuleSet)
+    : createConfidentialRuntimeContext({ rules: [], sourcePath: null });
   const confidentialLeakMiddleware =
     createConfidentialLeakMiddlewareSkill(confidentialRuleSet);
   const dehydratedMessages = confidential.dehydrate(preparedMessages);

@@ -417,6 +417,13 @@ export interface AdminChannelsResponse {
 
 export interface AdminConfig {
   version: number;
+  security: {
+    trustModelAccepted: boolean;
+    trustModelAcceptedAt: string;
+    trustModelVersion: string;
+    trustModelAcceptedBy: string;
+    confidentialRedactionEnabled: boolean;
+  };
   hybridai: {
     baseUrl: string;
     defaultModel: string;
