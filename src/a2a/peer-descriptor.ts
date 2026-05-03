@@ -1,9 +1,9 @@
-import { isIP } from 'node:net';
-
 import type { SecretRef } from '../security/secret-refs.js';
 import { parseSecretInput } from '../security/secret-refs.js';
 import {
   A2A_TRANSPORT_PATTERN,
+  isA2AAllowedHttpUrl,
+  isA2ALoopbackHttpUrl,
   isRecord,
   normalizeTransportString,
 } from './utils.js';
@@ -15,8 +15,15 @@ export type A2APeerTransport = (typeof A2A_PEER_TRANSPORTS)[number];
 const INTERNAL_ALLOWED_FIELDS = new Set(['transport', 'agentId', 'agent_id']);
 const A2A_ALLOWED_FIELDS = new Set([
   'transport',
+  'url',
+  'peerUrl',
+  'peer_url',
+  'baseUrl',
+  'base_url',
   'agentCardUrl',
   'agent_card_url',
+  'bearerTokenRef',
+  'bearer_token_ref',
 ]);
 const WEBHOOK_ALLOWED_FIELDS = new Set([
   'transport',
@@ -36,6 +43,7 @@ export interface InternalPeerDescriptor {
 export interface A2APeerDescriptor {
   transport: 'a2a';
   agentCardUrl: string;
+  bearerTokenRef?: SecretRef;
 }
 
 export interface WebhookPeerDescriptor {
@@ -146,32 +154,6 @@ function validateAllowedFields(
   }
 }
 
-function readHttpUrl(
-  record: Record<string, unknown>,
-  field: string,
-  issues: string[],
-): string {
-  const value = readRequiredString(record[field], field, issues);
-  if (!value) return '';
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:') {
-      issues.push(`${field} must use https`);
-    }
-  } catch {
-    issues.push(`${field} must be a valid URL`);
-  }
-  return value;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
-  if (normalized === 'localhost' || normalized === '::1') return true;
-  if (isIP(normalized) !== 4) return false;
-  const [firstOctet] = normalized.split('.');
-  return firstOctet === '127';
-}
-
 function readWebhookUrl(
   record: Record<string, unknown>,
   field: string,
@@ -180,17 +162,83 @@ function readWebhookUrl(
   const value = readRequiredString(record[field], field, issues);
   if (!value) return '';
   try {
-    const url = new URL(value);
-    if (
-      url.protocol !== 'https:' &&
-      !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))
-    ) {
-      issues.push(`${field} must use https unless targeting loopback`);
-    }
+    new URL(value);
   } catch {
     issues.push(`${field} must be a valid URL`);
+    return value;
+  }
+  if (!isA2AAllowedHttpUrl(value)) {
+    issues.push(`${field} must use https unless targeting loopback`);
   }
   return value;
+}
+
+function readOptionalUrlAlias(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+  field: string,
+  issues: string[],
+): string | undefined {
+  const value = readOptionalStringAlias(
+    record,
+    camelKey,
+    snakeKey,
+    field,
+    issues,
+  );
+  if (!value) return undefined;
+  try {
+    new URL(value);
+  } catch {
+    issues.push(`${field} must be a valid URL`);
+    return undefined;
+  }
+  if (!isA2AAllowedHttpUrl(value)) {
+    issues.push(`${field} must use https unless targeting loopback`);
+  }
+  return value;
+}
+
+function deriveAgentCardUrl(peerUrl: string): string {
+  const url = new URL(peerUrl);
+  return new URL('/.well-known/agent.json', url.origin).toString();
+}
+
+function readA2AAgentCardUrl(
+  record: Record<string, unknown>,
+  issues: string[],
+): string {
+  const explicitAgentCardUrl = readAlias(
+    record,
+    'agentCardUrl',
+    'agent_card_url',
+  );
+  if (explicitAgentCardUrl !== undefined) {
+    return readWebhookUrl(
+      { agentCardUrl: explicitAgentCardUrl },
+      'agentCardUrl',
+      issues,
+    );
+  }
+
+  const hasPeerUrl =
+    Object.hasOwn(record, 'peerUrl') ||
+    Object.hasOwn(record, 'peer_url') ||
+    Object.hasOwn(record, 'baseUrl') ||
+    Object.hasOwn(record, 'base_url') ||
+    Object.hasOwn(record, 'url');
+  const peerUrl =
+    readOptionalUrlAlias(record, 'peerUrl', 'peer_url', 'peerUrl', issues) ||
+    readOptionalUrlAlias(record, 'baseUrl', 'base_url', 'baseUrl', issues) ||
+    readOptionalUrlAlias(record, 'url', 'url', 'url', issues);
+  if (!peerUrl) {
+    if (!hasPeerUrl) {
+      issues.push('agentCardUrl or url is required');
+    }
+    return '';
+  }
+  return deriveAgentCardUrl(peerUrl);
 }
 
 function readHttpHeaderName(
@@ -231,21 +279,25 @@ function normalizeTransport(value: unknown, issues: string[]): string {
   return normalized;
 }
 
-function normalizeWebhookSecretRef(
+function normalizeSecretRef(
   value: unknown,
+  field: string,
   issues: string[],
+  required: boolean,
 ): SecretRef | undefined {
   if (value === undefined || value === null) {
-    issues.push('secretRef is required');
+    if (required) {
+      issues.push(`${field} is required`);
+    }
     return undefined;
   }
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
-    issues.push(`secretRef ${parsed.reason}`);
+    issues.push(`${field} ${parsed.reason}`);
     return undefined;
   }
   if (parsed.kind === 'plain') {
-    issues.push('secretRef must be a secret reference');
+    issues.push(`${field} must be a secret reference`);
     return undefined;
   }
   return parsed.ref;
@@ -285,26 +337,38 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
 
   if (transport === 'a2a') {
     validateAllowedFields(value, A2A_ALLOWED_FIELDS, issues);
-    const agentCardUrl = readHttpUrl(
-      { agentCardUrl: readAlias(value, 'agentCardUrl', 'agent_card_url') },
-      'agentCardUrl',
+    const agentCardUrl = readA2AAgentCardUrl(value, issues);
+    const bearerTokenRef = normalizeSecretRef(
+      readAlias(value, 'bearerTokenRef', 'bearer_token_ref'),
+      'bearerTokenRef',
       issues,
+      false,
     );
+    if (
+      agentCardUrl &&
+      !isA2ALoopbackHttpUrl(agentCardUrl) &&
+      !bearerTokenRef
+    ) {
+      issues.push('bearerTokenRef is required for non-loopback a2a peers');
+    }
     if (issues.length > 0) {
       throw new PeerDescriptorValidationError(issues);
     }
     return {
       transport: 'a2a',
       agentCardUrl,
+      ...(bearerTokenRef ? { bearerTokenRef } : {}),
     };
   }
 
   if (transport === 'webhook') {
     validateAllowedFields(value, WEBHOOK_ALLOWED_FIELDS, issues);
     const url = readWebhookUrl(value, 'url', issues);
-    const secretRef = normalizeWebhookSecretRef(
+    const secretRef = normalizeSecretRef(
       readAlias(value, 'secretRef', 'secret_ref'),
+      'secretRef',
       issues,
+      true,
     );
     const signatureHeader = readHttpHeaderName(
       value,

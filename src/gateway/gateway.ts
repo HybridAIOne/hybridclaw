@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import { AttachmentBuilder } from 'discord.js';
 import { resolveEffectiveTimezone } from '../../container/shared/workspace-time.js';
 import {
+  startA2AOutboxProcessor,
+  stopA2AOutboxProcessor,
+} from '../a2a/a2a-outbound.js';
+import {
   startWebhookOutboxProcessor,
   stopWebhookOutboxProcessor,
 } from '../a2a/webhook-outbound.js';
@@ -2809,6 +2813,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
       runManagedMediaCleanup('shutdown'),
     );
     stopHeartbeat();
+    stopA2AOutboxProcessor();
     stopWebhookOutboxProcessor();
     stopObservabilityIngest();
     await stopTokenUsageBuffer().catch((error) => {
@@ -3054,6 +3059,7 @@ async function main(): Promise<void> {
   const imessageActive = await startIMessageIntegration();
 
   startOrRestartHeartbeat();
+  startA2AOutboxProcessor();
   startWebhookOutboxProcessor();
   startObservabilityIngest();
   startTokenUsageBuffer();

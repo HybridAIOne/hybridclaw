@@ -27,6 +27,7 @@ import type {
   TransportAdapter,
   TransportAdapterContext,
 } from './transport-registry.js';
+import { normalizePositiveInteger } from './utils.js';
 
 export const WEBHOOK_SIGNATURE_HEADER = 'X-HybridClaw-Signature';
 export const WEBHOOK_BODY_VERSION = '1';
@@ -323,14 +324,6 @@ function makeOutboxItem(
     runId: context?.runId,
     escalationTarget: context?.escalationTarget,
   };
-}
-
-function normalizePositiveInteger(
-  value: number | undefined,
-  fallback: number,
-): number {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.max(1, Math.trunc(value as number));
 }
 
 export function enqueueWebhookEnvelope(
