@@ -2,6 +2,7 @@ import http from 'node:http';
 
 import { describe, expect, test } from 'vitest';
 
+import { decodeA2AJsonRpcRequest } from '../src/a2a/a2a-json-rpc.ts';
 import { setupA2AWebhookTestEnv } from './helpers/a2a-webhook-fixtures.ts';
 
 setupA2AWebhookTestEnv('hc-a2a-outbound-int-');
@@ -46,7 +47,7 @@ describe('A2A outbound integration', () => {
 
     initDatabase({ quiet: true });
     const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    registry.register(new a2a.A2AOutboundAdapter());
 
     const envelope = {
       id: 'msg-int-a2a',
@@ -76,7 +77,7 @@ describe('A2A outbound integration', () => {
 
       if (request.url === '/a2a' && request.method === 'POST') {
         const body = await readRequestBody(request);
-        const decoded = a2a.decodeA2AJsonRpcRequest(body);
+        const decoded = decodeA2AJsonRpcRequest(body);
         received.push({
           request: JSON.parse(body),
           decoded,

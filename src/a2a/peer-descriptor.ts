@@ -1,9 +1,9 @@
-import { isIP } from 'node:net';
-
 import type { SecretRef } from '../security/secret-refs.js';
 import { parseSecretInput } from '../security/secret-refs.js';
 import {
   A2A_TRANSPORT_PATTERN,
+  isA2AAllowedHttpUrl,
+  isA2ALoopbackHttpUrl,
   isRecord,
   normalizeTransportString,
 } from './utils.js';
@@ -149,14 +149,6 @@ function validateAllowedFields(
   }
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
-  if (normalized === 'localhost' || normalized === '::1') return true;
-  if (isIP(normalized) !== 4) return false;
-  const [firstOctet] = normalized.split('.');
-  return firstOctet === '127';
-}
-
 function readWebhookUrl(
   record: Record<string, unknown>,
   field: string,
@@ -165,15 +157,13 @@ function readWebhookUrl(
   const value = readRequiredString(record[field], field, issues);
   if (!value) return '';
   try {
-    const url = new URL(value);
-    if (
-      url.protocol !== 'https:' &&
-      !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))
-    ) {
-      issues.push(`${field} must use https unless targeting loopback`);
-    }
+    new URL(value);
   } catch {
     issues.push(`${field} must be a valid URL`);
+    return value;
+  }
+  if (!isA2AAllowedHttpUrl(value)) {
+    issues.push(`${field} must use https unless targeting loopback`);
   }
   return value;
 }
@@ -285,6 +275,13 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
       issues,
       false,
     );
+    if (
+      agentCardUrl &&
+      !isA2ALoopbackHttpUrl(agentCardUrl) &&
+      !bearerTokenRef
+    ) {
+      issues.push('bearerTokenRef is required for non-loopback a2a peers');
+    }
     if (issues.length > 0) {
       throw new PeerDescriptorValidationError(issues);
     }

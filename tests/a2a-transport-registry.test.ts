@@ -46,6 +46,7 @@ describe('A2A transport adapter registry', () => {
     const a2a = registry.resolve({
       transport: 'a2a',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
     });
     const unknown = registry.resolve({ transport: 'smtp' });
 
@@ -53,6 +54,7 @@ describe('A2A transport adapter registry', () => {
     expect(a2a.descriptor).toEqual({
       transport: 'a2a',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
     });
     expect(unknown.adapter).toBeNull();
     expect(unknown.descriptor).toEqual({
@@ -98,6 +100,12 @@ describe('A2A transport adapter registry', () => {
         agentCardUrl: 'http://peer.example.com/.well-known/agent.json',
       }),
     ).toThrow(PeerDescriptorValidationError);
+    expect(() =>
+      normalizePeerDescriptor({
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+      }),
+    ).toThrow('bearerTokenRef is required for non-loopback a2a peers');
     expect(() =>
       normalizePeerDescriptor({
         transport: 'webhook',
@@ -221,6 +229,7 @@ describe('A2A transport adapter registry', () => {
         peerDescriptor: {
           transport: 'a2a',
           agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+          bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
         },
         registry,
       }),

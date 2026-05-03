@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
-import { isIP } from 'node:net';
 
 import type { A2AAgentCard } from './a2a-json-rpc.js';
-import { isRecord } from './utils.js';
+import {
+  isA2AAllowedHttpUrl,
+  isRecord,
+  normalizePositiveInteger,
+} from './utils.js';
 
 export const A2A_AGENT_CARD_CACHE_TTL_MS = 5 * 60_000;
+export const A2A_AGENT_CARD_CACHE_MAX_ENTRIES = 256;
 
 interface CachedAgentCard {
   card: A2AAgentCard;
@@ -31,36 +35,8 @@ export class A2AFailFastError extends Error {
   }
 }
 
-function normalizePositiveInteger(
-  value: number | undefined,
-  fallback: number,
-): number {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.max(1, Math.trunc(value as number));
-}
-
 function isAgentCard(value: unknown): value is A2AAgentCard {
   return isRecord(value) && typeof value.url === 'string' && !!value.url.trim();
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
-  if (normalized === 'localhost' || normalized === '::1') return true;
-  if (isIP(normalized) !== 4) return false;
-  const [firstOctet] = normalized.split('.');
-  return firstOctet === '127';
-}
-
-export function isA2AAllowedHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === 'https:' ||
-      (url.protocol === 'http:' && isLoopbackHostname(url.hostname))
-    );
-  } catch {
-    return false;
-  }
 }
 
 function cacheKeyFor(input: {
@@ -74,6 +50,32 @@ function cacheKeyFor(input: {
   return `${input.agentCardUrl}#auth=${authHash}`;
 }
 
+function evictExpiredAgentCards(nowMs: number): void {
+  for (const [key, cached] of agentCardCache) {
+    if (cached.expiresAt <= nowMs) {
+      agentCardCache.delete(key);
+    }
+  }
+}
+
+function cacheAgentCard(
+  cacheKey: string,
+  card: CachedAgentCard,
+  nowMs: number,
+): void {
+  evictExpiredAgentCards(nowMs);
+  if (
+    !agentCardCache.has(cacheKey) &&
+    agentCardCache.size >= A2A_AGENT_CARD_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = agentCardCache.keys().next().value;
+    if (oldestKey) {
+      agentCardCache.delete(oldestKey);
+    }
+  }
+  agentCardCache.set(cacheKey, card);
+}
+
 export async function fetchA2AAgentCard(input: {
   agentCardUrl: string;
   fetchImpl?: typeof fetch;
@@ -82,6 +84,11 @@ export async function fetchA2AAgentCard(input: {
   authCacheKey?: string;
   agentCardCacheTtlMs?: number;
 }): Promise<A2AAgentCard> {
+  if (!isA2AAllowedHttpUrl(input.agentCardUrl)) {
+    throw new A2AFailFastError(
+      'Agent Card URL must use https unless targeting loopback',
+    );
+  }
   const nowMs = input.now.getTime();
   const ttlMs = normalizePositiveInteger(
     input.agentCardCacheTtlMs,
@@ -104,10 +111,11 @@ export async function fetchA2AAgentCard(input: {
   const response = await (input.fetchImpl ?? fetch)(input.agentCardUrl, {
     method: 'GET',
     headers,
+    redirect: 'error',
   });
   if (response.status === 304 && cached) {
     const refreshed = { ...cached, expiresAt: nowMs + ttlMs };
-    agentCardCache.set(cacheKey, refreshed);
+    cacheAgentCard(cacheKey, refreshed, nowMs);
     return refreshed.card;
   }
   if (!response.ok) {
@@ -130,11 +138,15 @@ export async function fetchA2AAgentCard(input: {
       'Agent Card url must use https unless targeting loopback',
     );
   }
-  agentCardCache.set(cacheKey, {
-    card,
-    etag: response.headers.get('etag') || undefined,
-    expiresAt: nowMs + ttlMs,
-  });
+  cacheAgentCard(
+    cacheKey,
+    {
+      card,
+      etag: response.headers.get('etag') || undefined,
+      expiresAt: nowMs + ttlMs,
+    },
+    nowMs,
+  );
   return card;
 }
 

@@ -1,5 +1,9 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import {
+  decodeA2AJsonRpcRequest,
+  encodeA2AJsonRpcRequest,
+} from '../src/a2a/a2a-json-rpc.ts';
 import { setupA2AWebhookTestEnv } from './helpers/a2a-webhook-fixtures.ts';
 
 setupA2AWebhookTestEnv('hc-a2a-outbound-');
@@ -27,7 +31,7 @@ describe('A2A outbound adapter', () => {
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
     const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    registry.register(new a2a.A2AOutboundAdapter());
 
     const descriptor = {
       transport: 'a2a',
@@ -48,6 +52,7 @@ describe('A2A outbound adapter', () => {
       authorization: string;
       ifNoneMatch: string;
       body: string;
+      redirect?: RequestRedirect;
     }> = [];
     const fetchImpl = vi.fn(
       async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -58,6 +63,7 @@ describe('A2A outbound adapter', () => {
           authorization: headers?.authorization || '',
           ifNoneMatch: headers?.['if-none-match'] || '',
           body: String(init?.body || ''),
+          redirect: init?.redirect,
         });
         if (init?.method === 'GET') {
           return Response.json(
@@ -89,11 +95,13 @@ describe('A2A outbound adapter', () => {
       url: 'https://peer.example.com/.well-known/agent.json',
       method: 'GET',
       authorization: expect.stringMatching(/^Bearer [A-Za-z0-9_-]+\./),
+      redirect: 'error',
     });
     expect(requests[1]).toMatchObject({
       url: 'https://peer.example.com/a2a',
       method: 'POST',
       authorization: expect.stringMatching(/^Bearer [A-Za-z0-9_-]+\./),
+      redirect: 'error',
     });
     expect(rpc).toMatchObject({
       jsonrpc: '2.0',
@@ -122,7 +130,7 @@ describe('A2A outbound adapter', () => {
       },
     });
     expect(rpc.id).toBeUndefined();
-    expect(a2a.decodeA2AJsonRpcRequest(rpc)).toEqual(
+    expect(decodeA2AJsonRpcRequest(rpc)).toEqual(
       sampleA2AEnvelope('msg-a2a-1'),
     );
 
@@ -139,6 +147,7 @@ describe('A2A outbound adapter', () => {
           authorization: headers?.authorization || '',
           ifNoneMatch: headers?.['if-none-match'] || '',
           body: String(init?.body || ''),
+          redirect: init?.redirect,
         });
         if (init?.method === 'GET') {
           return new Response(null, { status: 304 });
@@ -161,8 +170,7 @@ describe('A2A outbound adapter', () => {
   });
 
   test('uses tasks/send for handoff when the peer advertises task capability', async () => {
-    const a2a = await import('../src/a2a/a2a-outbound.ts');
-    const request = a2a.encodeA2AJsonRpcRequest(
+    const request = encodeA2AJsonRpcRequest(
       sampleA2AEnvelope('msg-task', 'handoff'),
       {
         url: 'https://peer.example.com/a2a',
@@ -185,7 +193,7 @@ describe('A2A outbound adapter', () => {
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
     const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    registry.register(new a2a.A2AOutboundAdapter());
 
     runtime.sendMessage(sampleA2AEnvelope('msg-empty-task', 'handoff'), {
       peerDescriptor: {
@@ -225,7 +233,7 @@ describe('A2A outbound adapter', () => {
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
     const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    registry.register(new a2a.A2AOutboundAdapter());
 
     runtime.sendMessage(sampleA2AEnvelope('msg-bad-card-url'), {
       peerDescriptor: {
@@ -260,7 +268,7 @@ describe('A2A outbound adapter', () => {
 
     initDatabase({ quiet: true });
     const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    registry.register(new a2a.A2AOutboundAdapter());
 
     runtime.sendMessage(sampleA2AEnvelope('msg-remote-delivery-no-auth'), {
       peerDescriptor: {
@@ -300,7 +308,7 @@ describe('A2A outbound adapter', () => {
       A2A_PEER_TOKEN_B: 'peer-secret-b',
     });
     const registry = new transport.TransportRegistry();
-    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    registry.register(new a2a.A2AOutboundAdapter());
     const agentCardUrl = 'https://peer.example.com/.well-known/agent.json';
     const requests: Array<{ url: string; method: string; body: string }> = [];
     let cardFetches = 0;
@@ -353,6 +361,40 @@ describe('A2A outbound adapter', () => {
     ).toHaveLength(1);
   });
 
+  test('caps Agent Card cache size and refetches evicted entries', async () => {
+    const cards = await import('../src/a2a/a2a-agent-card.ts');
+
+    cards.clearA2AAgentCardCache();
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) =>
+      Response.json({
+        url: String(url).replace('/.well-known/agent.json', '/a2a'),
+        capabilities: [],
+      }),
+    );
+
+    for (
+      let index = 0;
+      index <= cards.A2A_AGENT_CARD_CACHE_MAX_ENTRIES;
+      index += 1
+    ) {
+      await cards.fetchA2AAgentCard({
+        agentCardUrl: `https://peer-${index}.example.com/.well-known/agent.json`,
+        fetchImpl,
+        now: new Date('2030-01-01T00:00:00.000Z'),
+      });
+    }
+
+    await cards.fetchA2AAgentCard({
+      agentCardUrl: 'https://peer-0.example.com/.well-known/agent.json',
+      fetchImpl,
+      now: new Date('2030-01-01T00:00:01.000Z'),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(
+      cards.A2A_AGENT_CARD_CACHE_MAX_ENTRIES + 2,
+    );
+  });
+
   test('retries transient responses and fails fast with audit escalation on 4xx', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
@@ -366,9 +408,7 @@ describe('A2A outbound adapter', () => {
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
     const registry = new transport.TransportRegistry();
-    registry.register(
-      new a2a.A2AOutboundAdapter({ autoProcess: false, maxAttempts: 2 }),
-    );
+    registry.register(new a2a.A2AOutboundAdapter({ maxAttempts: 2 }));
 
     runtime.sendMessage(sampleA2AEnvelope('msg-retry'), {
       peerDescriptor: {

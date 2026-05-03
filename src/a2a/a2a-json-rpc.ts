@@ -48,6 +48,8 @@ export interface A2AOutboundJsonRpcRequest {
 
 function hasTaskCapability(card: A2AAgentCard): boolean {
   const values: unknown[] = [];
+  // Agent Cards in the wild expose task support as capabilities arrays,
+  // object-shaped capabilities, or skill entries; accept all three shapes.
   if (Array.isArray(card.capabilities)) values.push(...card.capabilities);
   if (isRecord(card.capabilities)) {
     for (const [key, value] of Object.entries(card.capabilities)) {
