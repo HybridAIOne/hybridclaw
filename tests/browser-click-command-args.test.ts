@@ -34,6 +34,20 @@ if (command === 'click') {
   }));
 } else if (command === 'download') {
   const targetPath = commandArgs[1] || '';
+  if (process.env.AGENT_BROWSER_STUB_NATIVE_DOWNLOAD_ON_TIMEOUT) {
+    const downloadRoot = process.env.AGENT_BROWSER_DOWNLOAD_PATH || '';
+    const nativePath = path.join(
+      downloadRoot,
+      'd13e9d4d-4daa-4b89-bc27-304ae66b9aa7',
+    );
+    fs.mkdirSync(path.dirname(nativePath), { recursive: true });
+    fs.writeFileSync(nativePath, '%PDF native chrome download');
+    process.stdout.write(JSON.stringify({
+      success: false,
+      error: 'Timeout waiting for download'
+    }));
+    process.exit(0);
+  }
   if (targetPath) {
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.writeFileSync(targetPath, '%PDF test download');
@@ -687,6 +701,55 @@ test('browser_click can resolve coordinates and save a download', async () => {
       args: [expect.stringContaining('removeAttribute')],
     },
   ]);
+});
+
+test('browser_click adopts native Chrome downloads when automation capture times out', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-native-download-'),
+  );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+  vi.stubEnv('AGENT_BROWSER_STUB_NATIVE_DOWNLOAD_ON_TIMEOUT', '1');
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    {
+      x: 1183,
+      y: 536,
+      waitForDownload: true,
+      downloadPath: 'invoice-5563916179.pdf',
+    },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const savedPath = path.join(
+    tempRoot,
+    '.browser-artifacts',
+    'downloads',
+    'invoice-5563916179.pdf',
+  );
+
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.clicked).toBe('1183,536');
+  expect(parsed.download_path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  );
+  expect(parsed.download_observer).toBe('filesystem');
+  expect(parsed.suggested_filename).toBe(
+    'd13e9d4d-4daa-4b89-bc27-304ae66b9aa7',
+  );
+  expect(parsed.observed_download_path).toBe(
+    '.browser-artifacts/downloads/d13e9d4d-4daa-4b89-bc27-304ae66b9aa7',
+  );
+  expect(fs.readFileSync(savedPath, 'utf-8')).toBe(
+    '%PDF native chrome download',
+  );
 });
 
 test('browser_click can enter an iframe for coordinate download capture', async () => {

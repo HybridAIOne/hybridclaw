@@ -226,6 +226,19 @@ type BrowserVisionContext = BrowserModelContext & {
   thinkingFormat?: 'qwen';
 };
 
+type DownloadSnapshot = {
+  path: string;
+  size: number;
+  mtimeMs: number;
+};
+
+type NativeDownloadObserver = {
+  root: string;
+  requestedPath: string;
+  before: Map<string, DownloadSnapshot>;
+  startedAt: number;
+};
+
 const activeSessions = new Map<string, BrowserSession>();
 let cachedRunner: BrowserRunner | null | undefined;
 let currentBrowserModelContext: BrowserModelContext = {
@@ -544,6 +557,53 @@ async function prepareSessionMode(
 function ensureWritableDir(dirPath: string): string {
   fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
   return dirPath;
+}
+
+function readJsonObject(filePath: string): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function setNestedValue(
+  root: Record<string, unknown>,
+  keys: string[],
+  value: unknown,
+): void {
+  let current = root;
+  for (const key of keys.slice(0, -1)) {
+    const next = current[key];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1] || ''] = value;
+}
+
+function configureChromeDownloadDirectory(
+  profileDir: string | undefined,
+  downloadDir: string,
+): void {
+  if (!profileDir) return;
+  try {
+    const preferencesPath = path.join(profileDir, 'Default', 'Preferences');
+    const prefs = readJsonObject(preferencesPath) ?? {};
+    setNestedValue(prefs, ['download', 'default_directory'], downloadDir);
+    setNestedValue(prefs, ['download', 'prompt_for_download'], false);
+    setNestedValue(prefs, ['download', 'directory_upgrade'], true);
+    setNestedValue(prefs, ['savefile', 'default_directory'], downloadDir);
+    fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
+    fs.writeFileSync(preferencesPath, JSON.stringify(prefs, null, 2));
+  } catch (err) {
+    process.stderr.write(
+      `[browser-tools] Warning: failed to configure Chrome download directory: ${err}\n`,
+    );
+  }
 }
 
 function resolveWritableHome(): string {
@@ -910,6 +970,146 @@ function resolveDownloadOutputPath(rawPath: unknown): string {
   }
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
   return resolved;
+}
+
+function isTemporaryDownloadFile(filePath: string): boolean {
+  const name = path.basename(filePath).toLowerCase();
+  return (
+    name.startsWith('.') ||
+    name.endsWith('.crdownload') ||
+    name.endsWith('.download') ||
+    name.endsWith('.tmp') ||
+    name.endsWith('.part')
+  );
+}
+
+function listDownloadSnapshots(root: string): Map<string, DownloadSnapshot> {
+  const snapshots = new Map<string, DownloadSnapshot>();
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    if (!dir) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+        continue;
+      }
+      if (!entry.isFile() || isTemporaryDownloadFile(entryPath)) continue;
+      try {
+        const stat = fs.statSync(entryPath);
+        if (!stat.isFile() || stat.size <= 0) continue;
+        snapshots.set(entryPath, {
+          path: entryPath,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+        });
+      } catch {
+        // Ignore files that disappear while Chrome is finalizing them.
+      }
+    }
+  }
+  return snapshots;
+}
+
+function createNativeDownloadObserver(
+  requestedPath: string,
+): NativeDownloadObserver {
+  const root = ensureWritableDir(BROWSER_DOWNLOAD_ROOT);
+  return {
+    root,
+    requestedPath,
+    before: listDownloadSnapshots(root),
+    startedAt: Date.now(),
+  };
+}
+
+function findChangedDownloadSnapshots(
+  observer: NativeDownloadObserver,
+): DownloadSnapshot[] {
+  const current = listDownloadSnapshots(observer.root);
+  const changed: DownloadSnapshot[] = [];
+  for (const snapshot of current.values()) {
+    const previous = observer.before.get(snapshot.path);
+    const sameAsBefore =
+      previous &&
+      previous.size === snapshot.size &&
+      previous.mtimeMs === snapshot.mtimeMs;
+    if (sameAsBefore) continue;
+    if (
+      snapshot.path === observer.requestedPath ||
+      !previous ||
+      snapshot.mtimeMs >= observer.startedAt - 1_000
+    ) {
+      changed.push(snapshot);
+    }
+  }
+  return changed.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForNativeDownload(
+  observer: NativeDownloadObserver,
+  timeoutMs = 8_000,
+): Promise<DownloadSnapshot | null> {
+  const deadline = Date.now() + timeoutMs;
+  const stableSince = new Map<string, DownloadSnapshot & { seenAt: number }>();
+
+  while (Date.now() <= deadline) {
+    for (const snapshot of findChangedDownloadSnapshots(observer)) {
+      const previous = stableSince.get(snapshot.path);
+      if (
+        previous &&
+        previous.size === snapshot.size &&
+        previous.mtimeMs === snapshot.mtimeMs
+      ) {
+        if (Date.now() - previous.seenAt >= 400) {
+          return snapshot;
+        }
+      } else {
+        stableSince.set(snapshot.path, { ...snapshot, seenAt: Date.now() });
+      }
+    }
+    await sleep(250);
+  }
+
+  return null;
+}
+
+async function adoptNativeDownload(
+  observer: NativeDownloadObserver | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!observer) return null;
+  const snapshot = await waitForNativeDownload(observer);
+  if (!snapshot) return null;
+
+  if (snapshot.path !== observer.requestedPath) {
+    fs.mkdirSync(path.dirname(observer.requestedPath), { recursive: true });
+    fs.copyFileSync(snapshot.path, observer.requestedPath);
+  }
+
+  const relativeDownloadPath = toWorkspaceRelativePath(observer.requestedPath);
+  if (!relativeDownloadPath) return null;
+  const observedPath = toWorkspaceRelativePath(snapshot.path);
+
+  return {
+    download_path: relativeDownloadPath,
+    download_observer: 'filesystem',
+    suggested_filename: path.basename(snapshot.path),
+    observed_size_bytes: snapshot.size,
+    ...(observedPath && observedPath !== relativeDownloadPath
+      ? { observed_download_path: observedPath }
+      : {}),
+  };
 }
 
 function createTempScreenshotPath(prefix: string): string {
@@ -1511,6 +1711,7 @@ async function collectClickDownloadResult(
     error?: string;
   }> | null,
   downloadPath: string,
+  observer?: NativeDownloadObserver,
 ): Promise<
   | { ok: true; fields: Record<string, unknown> }
   | { ok: false; error: string }
@@ -1518,9 +1719,13 @@ async function collectClickDownloadResult(
   if (!downloadPromise) return { ok: true, fields: {} };
   const download = await downloadPromise;
   if (!download.success) {
+    const observedDownload = await adoptNativeDownload(observer);
+    if (observedDownload) return { ok: true, fields: observedDownload };
     return {
       ok: false,
-      error: download.error || 'click completed but no download was captured',
+      error:
+        download.error ||
+        'click completed but no download was captured in browser automation or the managed downloads directory',
     };
   }
 
@@ -1770,6 +1975,7 @@ async function runAgentBrowser(
     resolvePlaywrightBrowsersPath(),
   );
   const downloadPath = ensureWritableDir(BROWSER_DOWNLOAD_ROOT);
+  configureChromeDownloadDirectory(session.profileDir, downloadPath);
   const args = [...runner.prefixArgs];
   const cdpUrl = resolveCdpUrl(options.cdpUrl);
   if (cdpUrl) {
@@ -2141,6 +2347,7 @@ export async function executeBrowserTool(
                 'failed to create download selector for coordinate target',
               );
             }
+            const downloadObserver = createNativeDownloadObserver(downloadPath);
             const result = await runAgentBrowser(
               effectiveSessionId,
               'download',
@@ -2160,6 +2367,7 @@ export async function executeBrowserTool(
             const downloadResult = await collectClickDownloadResult(
               Promise.resolve(result),
               downloadPath,
+              downloadObserver,
             );
             if (!downloadResult.ok) return failure(downloadResult.error);
             return success({
@@ -2227,6 +2435,7 @@ export async function executeBrowserTool(
         }
         if (target.source === 'ref') {
           if (waitForDownload) {
+            const downloadObserver = createNativeDownloadObserver(downloadPath);
             const result = await runAgentBrowser(
               effectiveSessionId,
               'download',
@@ -2236,6 +2445,7 @@ export async function executeBrowserTool(
             const downloadResult = await collectClickDownloadResult(
               Promise.resolve(result),
               downloadPath,
+              downloadObserver,
             );
             if (!downloadResult.ok) return failure(downloadResult.error);
             return success({
@@ -2258,6 +2468,7 @@ export async function executeBrowserTool(
         }
 
         if (target.source === 'selector' && waitForDownload) {
+          const downloadObserver = createNativeDownloadObserver(downloadPath);
           const result = await runAgentBrowser(
             effectiveSessionId,
             'download',
@@ -2267,6 +2478,7 @@ export async function executeBrowserTool(
           const downloadResult = await collectClickDownloadResult(
             Promise.resolve(result),
             downloadPath,
+            downloadObserver,
           );
           if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
@@ -2310,6 +2522,7 @@ export async function executeBrowserTool(
           if (!selector) {
             return failure('failed to create download selector for text target');
           }
+          const downloadObserver = createNativeDownloadObserver(downloadPath);
           const result = await runAgentBrowser(
             effectiveSessionId,
             'download',
@@ -2328,6 +2541,7 @@ export async function executeBrowserTool(
           const downloadResult = await collectClickDownloadResult(
             Promise.resolve(result),
             downloadPath,
+            downloadObserver,
           );
           if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
