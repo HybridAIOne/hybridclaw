@@ -186,6 +186,7 @@ saved revision history directly.
 - `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and `deployment.tunnel.health_check_interval_ms` declare whether the gateway runs behind a cloud URL or a local tunnel; cloud mode requires `deployment.public_url`, while local mode requires a tunnel provider such as `manual`, `ssh`, `ngrok`, `cloudflare`, or `tailscale`
 - The built-in ngrok tunnel provider reads `NGROK_AUTHTOKEN` from the encrypted runtime secret store and health-checks active tunnels every 30 seconds by default
 - The built-in Tailscale Funnel tunnel provider reads `TS_AUTHKEY` from the encrypted runtime secret store when the host is not already logged in to `tailscaled`
+- The built-in Cloudflare Tunnel provider reads `CLOUDFLARE_TUNNEL_TOKEN`, or `CLOUDFLARE_CERT_PEM` plus `CLOUDFLARE_TUNNEL_JSON`, from the encrypted runtime secret store and reports `deployment.public_url` as the stable public hostname
 - Tunnel health checks call the public tunnel URL, so they consume provider request quota and generate traffic visible to the tunnel provider edge; increase the interval when that cost matters
 - `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` disables confidential-info redaction for
   local debugging. Leave it unset in normal operation so `.confidential.yml`

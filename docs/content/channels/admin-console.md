@@ -47,7 +47,7 @@ and delete the current workspace network policy rules for a selected agent.
 - `/admin/gateway` can reload runtime config and refresh secrets from the
   browser without tearing down the enclosing workspace container
 - `/admin/gateway` shows the configured public URL and current tunnel provider
-  status for managed ngrok or Tailscale Funnel exposure
+  status for managed ngrok, Tailscale Funnel, or Cloudflare Tunnel exposure
 - `/admin/statistics` shows activity trends, token totals, cost estimates, and
   channel breakdowns across selectable date ranges
 - `/admin/agent-scoreboard` shows observed agent skill scores, best skills,

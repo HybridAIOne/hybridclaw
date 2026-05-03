@@ -10,6 +10,10 @@ export type TunnelTimer = ReturnType<typeof setTimeout>;
 export type TunnelAuditRecorder = (
   input: RecordAuditEventInput,
 ) => void | Promise<void>;
+export type TunnelHealthFetch = (
+  input: string | URL,
+  init?: { method?: string; signal?: AbortSignal },
+) => Promise<Pick<Response, 'ok' | 'status'>>;
 export type TunnelStatusUpdate = {
   lastCheckedAt?: string | null;
   lastError?: string | null;
@@ -31,6 +35,16 @@ export function redactSecret(message: string, secret: string): string {
 export function normalizeDurationMs(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.max(1, Math.trunc(value));
+}
+
+export function normalizeHealthCheckPath(
+  value: unknown,
+  fallback: string,
+): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 export function unrefTimer(timer: TunnelTimer): void {
