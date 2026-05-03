@@ -2201,6 +2201,8 @@ export async function executeBrowserTool(
         const mode = normalizeSnapshotMode(args.mode);
         const full = args.full === true;
         const commandArgs = buildSnapshotCommandArgs(mode, full);
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
 
         const result = await runAgentBrowser(
           effectiveSessionId,
@@ -2243,6 +2245,7 @@ export async function executeBrowserTool(
               : 0,
           url: data.url || data.origin || '',
           mode,
+          ...(frame ? { frame: frame.raw } : {}),
           ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
           ...(twoFactorSelectors.length > 0 || twoFactorTextSignal
             ? {
@@ -3271,6 +3274,11 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             enum: ['default', 'interactive', 'full'],
             description:
               'Snapshot mode. "default" keeps legacy behavior, "interactive" returns interactive refs only, "full" requests full tree.',
+          },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use this to snapshot an embedded iframe, or "main" to target the main document again.',
           },
         },
         required: [],

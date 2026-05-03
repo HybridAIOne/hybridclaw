@@ -24,6 +24,7 @@ test('buildToolsSummary groups the full tool catalog', () => {
   expect(summary).toContain(
     '**Browser**: `browser_navigate`, `browser_snapshot`, `browser_click`',
   );
+  expect(summary).toContain('`browser_downloads`');
   expect(summary).toContain(
     '**Web**: `web_search`, `web_fetch`, `web_extract`, `http_request`',
   );
