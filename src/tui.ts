@@ -108,6 +108,7 @@ import {
   TuiSlashMenuController,
   type TuiSlashMenuPalette,
 } from './tui-slash-menu.js';
+import { stopTuiRun } from './tui-stop.js';
 import {
   appendTerminalRowCount,
   countTerminalRows,
@@ -345,6 +346,7 @@ function formatToolPreview(preview: string | undefined): string {
 }
 
 let activeRunAbortController: AbortController | null = null;
+let activeRunStopInFlight: Promise<GatewayCommandResult> | null = null;
 let proactivePollInFlight = false;
 let delegateStatusRows = 0;
 let delegateStreamActive = false;
@@ -1778,6 +1780,18 @@ async function requestGatewayCommand(
   return result;
 }
 
+function stopActiveRun(): Promise<GatewayCommandResult> | null {
+  activeRunStopInFlight = stopTuiRun({
+    abortController: activeRunAbortController,
+    stopRequest: activeRunStopInFlight,
+    requestStop: () => requestGatewayCommand(['stop']),
+    clearStopRequest: () => {
+      activeRunStopInFlight = null;
+    },
+  });
+  return activeRunStopInFlight;
+}
+
 function collectToolNames(result: GatewayChatResult): string[] {
   const names = new Set<string>();
 
@@ -2004,9 +2018,10 @@ async function syncFullAutoStateFromGateway(
 async function runGatewayCommand(
   args: string[],
   rl: readline.Interface,
+  request: Promise<GatewayCommandResult> = requestGatewayCommand(args),
 ): Promise<void> {
   try {
-    const result = await requestGatewayCommand(args);
+    const result = await request;
     const pendingApproval =
       result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
     if (pendingApproval) {
@@ -2353,18 +2368,16 @@ async function handleSlashCommand(
       await runGatewayCommand(['status'], rl);
       return true;
     case 'stop':
-    case 'abort':
-      if (
-        activeRunAbortController &&
-        !activeRunAbortController.signal.aborted
-      ) {
-        activeRunAbortController.abort();
+    case 'abort': {
+      const stopRequest = stopActiveRun();
+      if (stopRequest) {
         printInfo('Stopping current request and disabling full-auto...');
       } else {
         printInfo('No active foreground request. Disabling full-auto...');
       }
-      await runGatewayCommand(['stop'], rl);
+      await runGatewayCommand(['stop'], rl, stopRequest ?? undefined);
       return true;
+    }
     default:
       break;
   }
@@ -2995,9 +3008,18 @@ async function main(): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on('keypress', (_str, key) => {
     if (key?.name !== 'escape') return;
-    if (!activeRunAbortController || activeRunAbortController.signal.aborted)
-      return;
-    activeRunAbortController.abort();
+    const stopRequest = stopActiveRun();
+    if (!stopRequest) return;
+    void stopRequest
+      .then((result) => {
+        tuiFullAutoState = deriveTuiFullAutoState({
+          current: tuiFullAutoState,
+          args: ['stop'],
+          result,
+        });
+        refreshPrompt(rl);
+      })
+      .catch(() => {});
   });
 
   promptTuiInput(rl);
@@ -3105,6 +3127,7 @@ export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
     String(options?.resumeCommand || 'hybridclaw tui --resume').trim() ||
     'hybridclaw tui --resume';
   activeRunAbortController = null;
+  activeRunStopInFlight = null;
   proactivePollInFlight = false;
   tuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
   fullAutoSteeringInFlight = false;
