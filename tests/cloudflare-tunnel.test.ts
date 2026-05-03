@@ -190,6 +190,116 @@ describe('CloudflareTunnelProvider', () => {
     await provider.stop();
   });
 
+  it('health-checks the active tunnel at the configured interval', async () => {
+    vi.useFakeTimers();
+    try {
+      const fakeProcess = new FakeCloudflaredProcess();
+      const fetch = vi.fn(async () => ({ ok: true, status: 200 }));
+      const statusChanges: unknown[] = [];
+      const runProcess = vi.fn(() => {
+        queueMicrotask(() => fakeProcess.emitReady());
+        return fakeProcess;
+      });
+      const provider = new CloudflareTunnelProvider({
+        fetch,
+        healthCheckIntervalMs: 250,
+        onStatusChange: (status) => statusChanges.push(status),
+        publicUrl: 'https://bot.example.com',
+        readSecret: (name) =>
+          name === CLOUDFLARE_TUNNEL_TOKEN_SECRET ? 'cf-token-secret' : null,
+        recordAuditEvent: makeStatusAuditRecorder(),
+        runProcess,
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(fetch).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetch).toHaveBeenCalledWith('https://bot.example.com/health', {
+        method: 'GET',
+        signal: expect.any(AbortSignal),
+      });
+      expect(provider.status()).toMatchObject({
+        running: true,
+        public_url: 'https://bot.example.com',
+        state: 'up',
+        last_error: null,
+      });
+      expect(provider.status().last_checked_at).toEqual(expect.any(String));
+      expect(statusChanges).toEqual(
+        expect.arrayContaining([expect.objectContaining({ state: 'up' })]),
+      );
+
+      await provider.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reconnects when a health check fails', async () => {
+    vi.useFakeTimers();
+    try {
+      const firstProcess = new FakeCloudflaredProcess();
+      const secondProcess = new FakeCloudflaredProcess();
+      const runProcess = vi
+        .fn()
+        .mockImplementationOnce(() => {
+          queueMicrotask(() => firstProcess.emitReady());
+          return firstProcess;
+        })
+        .mockImplementationOnce(() => {
+          queueMicrotask(() => secondProcess.emitReady());
+          return secondProcess;
+        });
+      const fetch = vi.fn(async () => ({ ok: false, status: 503 }));
+      const recordAuditEvent = makeStatusAuditRecorder();
+      const provider = new CloudflareTunnelProvider({
+        fetch,
+        healthCheckIntervalMs: 100,
+        publicUrl: 'https://bot.example.com',
+        readSecret: (name) =>
+          name === CLOUDFLARE_TUNNEL_TOKEN_SECRET ? 'cf-token-secret' : null,
+        reconnectInitialBackoffMs: 50,
+        reconnectMaxBackoffMs: 75,
+        recordAuditEvent,
+        runProcess,
+      });
+
+      await provider.start();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(firstProcess.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(provider.status()).toMatchObject({
+        running: false,
+        public_url: null,
+        state: 'reconnecting',
+        last_error: 'tunnel health check returned HTTP 503',
+        reconnect_attempt: 1,
+      });
+
+      await vi.advanceTimersByTimeAsync(49);
+      expect(runProcess).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runProcess).toHaveBeenCalledTimes(2);
+      expect(provider.status()).toMatchObject({
+        running: true,
+        public_url: 'https://bot.example.com',
+        state: 'up',
+        last_error: null,
+        reconnect_attempt: 0,
+      });
+      expect(
+        recordAuditEvent.mock.calls.map((call) => call[0].event.type),
+      ).toEqual(['tunnel.up', 'tunnel.down', 'tunnel.up']);
+
+      await provider.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('warns instead of throwing when daemon cleanup fails', async () => {
     const fakeProcess = new FakeCloudflaredProcess();
     fakeProcess.kill.mockImplementation(() => {

@@ -114,6 +114,8 @@ function getManagedTunnelProvider(): TunnelProvider | null {
     } else {
       managedProvider = createCloudflareTunnelProvider({
         addr,
+        healthCheckIntervalMs:
+          config.deployment.tunnel.health_check_interval_ms,
         publicUrl: config.deployment.public_url,
       });
     }

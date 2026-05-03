@@ -40,8 +40,7 @@ Cloudflare dashboard:
 3. Create or select a Cloudflare Tunnel.
 4. Add a published application route.
 5. Set the public hostname, for example `hybridclaw.example.com`.
-6. Set the service URL to the local gateway, for example
-   `http://localhost:9090`.
+6. Set the service URL to the local gateway, for example `http://localhost:9090`.
 7. Copy the tunnel token from the connector install command.
 
 Store the token in HybridClaw's encrypted runtime secret store:
@@ -132,10 +131,6 @@ tunnel reconnect.
 ## Security Notes
 
 - Keep HybridClaw bound to loopback and let Cloudflare own public transport.
-- Treat `CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_CERT_PEM`,
-  `CLOUDFLARE_TUNNEL_JSON`, `ops.webApiToken`, and `ops.gatewayApiToken` as
-  operator secrets.
-- Scope Cloudflare API tokens and tunnel credentials to the minimum account and
-  tunnel needed by this gateway.
-- Cloudflare Tunnel makes the selected service publicly reachable. Token-gate
-  the interactive HybridClaw surfaces before enabling it.
+- Treat `CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_CERT_PEM`, `CLOUDFLARE_TUNNEL_JSON`, `ops.webApiToken`, and `ops.gatewayApiToken` as operator secrets.
+- Scope Cloudflare API tokens and tunnel credentials to the minimum account and tunnel needed by this gateway.
+- Cloudflare Tunnel makes the selected service publicly reachable. Token-gate the interactive HybridClaw surfaces before enabling it.

@@ -240,6 +240,7 @@ test('admin tunnel status creates a managed cloudflare provider', async () => {
   expect(service.createTailscaleTunnelProvider).not.toHaveBeenCalled();
   expect(service.createCloudflareTunnelProvider).toHaveBeenCalledWith({
     addr: '127.0.0.1:9090',
+    healthCheckIntervalMs: 60_000,
     publicUrl: 'https://bot.example.com',
   });
 });
@@ -328,6 +329,65 @@ test('admin tunnel reconnect audits the action and restarts ngrok', async () => 
       type: 'tunnel.manual_reconnect',
       provider: 'ngrok',
       public_url: 'https://old.example.test',
+      state: 'up',
+    },
+  });
+});
+
+test('admin tunnel reconnect audits the action and restarts cloudflare', async () => {
+  let status: TunnelStatus = {
+    ...downStatus,
+    running: true,
+    public_url: 'https://old.example.com',
+    state: 'up',
+  };
+  const provider: TunnelProvider = {
+    status: vi.fn(() => status),
+    stop: vi.fn(async () => {
+      status = { ...downStatus };
+    }),
+    start: vi.fn(async () => {
+      status = {
+        ...downStatus,
+        running: true,
+        public_url: 'https://new.example.com',
+        state: 'up',
+      };
+      return { public_url: 'https://new.example.com' };
+    }),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: 'https://configured.example.com',
+      tunnel: {
+        provider: 'cloudflare',
+        health_check_interval_ms: 45_000,
+      },
+    }),
+    provider,
+  });
+
+  await expect(service.reconnectGatewayAdminTunnel()).resolves.toMatchObject({
+    provider: 'cloudflare',
+    publicUrl: 'https://new.example.com',
+    health: 'healthy',
+  });
+
+  expect(service.createCloudflareTunnelProvider).toHaveBeenCalledWith({
+    addr: '127.0.0.1:9090',
+    healthCheckIntervalMs: 45_000,
+    publicUrl: 'https://configured.example.com',
+  });
+  expect(provider.stop).toHaveBeenCalledTimes(1);
+  expect(provider.start).toHaveBeenCalledTimes(1);
+  expect(service.recordAuditEvent).toHaveBeenCalledWith({
+    sessionId: 'system:tunnel',
+    runId: 'tunnel-admin-run',
+    event: {
+      type: 'tunnel.manual_reconnect',
+      provider: 'cloudflare',
+      public_url: 'https://old.example.com',
       state: 'up',
     },
   });

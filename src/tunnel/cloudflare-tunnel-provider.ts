@@ -4,10 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { recordAuditEvent as defaultRecordAuditEvent } from '../audit/audit-events.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
-import type {
-  TunnelProvider,
-  TunnelStartResult,
-  TunnelStatus,
+import {
+  DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS as DEFAULT_HEALTH_INTERVAL_MS,
+  DEFAULT_TUNNEL_HEALTH_CHECK_TIMEOUT_MS as DEFAULT_HEALTH_TIMEOUT_MS,
+  DEFAULT_TUNNEL_RECONNECT_INITIAL_BACKOFF_MS as DEFAULT_RECONNECT_INITIAL_BACKOFF_MS,
+  DEFAULT_TUNNEL_RECONNECT_MAX_BACKOFF_MS as DEFAULT_RECONNECT_MAX_BACKOFF_MS,
+  type TunnelProvider,
+  type TunnelStartResult,
+  type TunnelStatus,
 } from './tunnel-provider.js';
 import {
   DEFAULT_TUNNEL_AUDIT_SESSION_ID,
@@ -19,6 +23,8 @@ import {
   type TunnelAuditRecorder,
   TunnelStatusTracker,
   type TunnelStatusUpdate,
+  type TunnelTimer,
+  unrefTimer,
 } from './tunnel-provider-utils.js';
 
 export const CLOUDFLARE_TUNNEL_TOKEN_SECRET = 'CLOUDFLARE_TUNNEL_TOKEN';
@@ -28,6 +34,7 @@ export const DEFAULT_CLOUDFLARE_TUNNEL_ADDR = 'localhost:9090';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
+const DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH = '/health';
 const READY_OUTPUT_RE =
   /connection .+ registered|registered tunnel connection|tunnel server connection/i;
 
@@ -55,14 +62,24 @@ type CloudflaredProcessRunner = (
   args: string[],
   options?: CloudflaredProcessOptions,
 ) => CloudflaredProcess;
+type TunnelHealthFetch = (
+  input: string | URL,
+  init?: { method?: string; signal?: AbortSignal },
+) => Promise<Pick<Response, 'ok' | 'status'>>;
 
 export interface CloudflareTunnelProviderOptions {
   addr?: string;
   certPemSecretName?: string;
   cloudflaredCommand?: string;
+  fetch?: TunnelHealthFetch;
+  healthCheckIntervalMs?: number;
+  healthCheckPath?: string;
+  healthCheckTimeoutMs?: number;
   onStatusChange?: (status: TunnelStatus) => void;
   publicUrl?: string;
   readSecret?: (secretName: string) => string | null;
+  reconnectInitialBackoffMs?: number;
+  reconnectMaxBackoffMs?: number;
   recordAuditEvent?: TunnelAuditRecorder;
   runProcess?: CloudflaredProcessRunner;
   startupTimeoutMs?: number;
@@ -99,6 +116,13 @@ function normalizeAddr(value: string | undefined): string {
   const trimmed = value?.trim() || DEFAULT_CLOUDFLARE_TUNNEL_ADDR;
   if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, '');
   return `http://${trimmed.replace(/\/$/, '')}`;
+}
+
+function normalizeHealthCheckPath(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH;
+  const trimmed = value.trim();
+  if (!trimmed) return DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH;
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 function normalizePublicUrl(value: string | undefined): string | null {
@@ -171,8 +195,14 @@ function exitMessage(
 export class CloudflareTunnelProvider implements TunnelProvider {
   private readonly addr: string;
   private readonly certPemSecretName: string;
+  private readonly fetch: TunnelHealthFetch;
+  private readonly healthCheckIntervalMs: number;
+  private readonly healthCheckPath: string;
+  private readonly healthCheckTimeoutMs: number;
   private readonly publicUrl: string | null;
   private readonly readSecret: (secretName: string) => string | null;
+  private readonly reconnectInitialBackoffMs: number;
+  private readonly reconnectMaxBackoffMs: number;
   private readonly recordAuditEvent: TunnelAuditRecorder;
   private readonly runProcess: CloudflaredProcessRunner;
   private readonly startupTimeoutMs: number;
@@ -181,16 +211,42 @@ export class CloudflareTunnelProvider implements TunnelProvider {
   private readonly tempRootDir: string;
   private readonly tokenSecretName: string;
   private readonly tunnelJsonSecretName: string;
+  private healthTimer: TunnelTimer | null = null;
   private process: CloudflaredProcess | null = null;
   private processTempDir: string | null = null;
+  private reconnectTimer: TunnelTimer | null = null;
   private tunnelRunId: string | null = null;
 
   constructor(options: CloudflareTunnelProviderOptions = {}) {
     this.addr = normalizeAddr(options.addr);
     this.certPemSecretName =
       options.certPemSecretName?.trim() || CLOUDFLARE_CERT_PEM_SECRET;
+    this.fetch =
+      options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+    this.healthCheckIntervalMs = normalizeDurationMs(
+      options.healthCheckIntervalMs,
+      DEFAULT_HEALTH_INTERVAL_MS,
+    );
+    this.healthCheckPath = normalizeHealthCheckPath(options.healthCheckPath);
+    this.healthCheckTimeoutMs = normalizeDurationMs(
+      options.healthCheckTimeoutMs,
+      DEFAULT_HEALTH_TIMEOUT_MS,
+    );
     this.publicUrl = normalizePublicUrl(options.publicUrl);
     this.readSecret = options.readSecret ?? readStoredRuntimeSecret;
+    this.reconnectInitialBackoffMs = normalizeDurationMs(
+      options.reconnectInitialBackoffMs,
+      DEFAULT_RECONNECT_INITIAL_BACKOFF_MS,
+    );
+    this.reconnectMaxBackoffMs = normalizeDurationMs(
+      options.reconnectMaxBackoffMs,
+      DEFAULT_RECONNECT_MAX_BACKOFF_MS,
+    );
+    if (this.reconnectInitialBackoffMs > this.reconnectMaxBackoffMs) {
+      throw new Error(
+        `reconnectInitialBackoffMs (${this.reconnectInitialBackoffMs}) must be less than or equal to reconnectMaxBackoffMs (${this.reconnectMaxBackoffMs}).`,
+      );
+    }
     this.recordAuditEvent = options.recordAuditEvent ?? defaultRecordAuditEvent;
     this.runProcess =
       options.runProcess ??
@@ -223,6 +279,8 @@ export class CloudflareTunnelProvider implements TunnelProvider {
       this.statusTracker.state === 'reconnecting'
         ? 'manual_reconnect'
         : 'started';
+    this.clearTimer('healthTimer');
+    this.clearTimer('reconnectTimer');
     this.statusTracker.update({
       lastCheckedAt: null,
       lastError: null,
@@ -237,6 +295,7 @@ export class CloudflareTunnelProvider implements TunnelProvider {
       auth = this.resolveAuth(publicUrl);
       const process = await this.startCloudflared(auth);
       await this.markTunnelUp(process, auth.tempDir, publicUrl, startReason);
+      this.scheduleHealthCheck();
       return { public_url: publicUrl };
     } catch (error) {
       const message = redactSecrets(errorMessage(error), auth?.secrets ?? []);
@@ -257,6 +316,8 @@ export class CloudflareTunnelProvider implements TunnelProvider {
   }
 
   async stop(): Promise<void> {
+    this.clearTimer('healthTimer');
+    this.clearTimer('reconnectTimer');
     const { process, publicUrl, tempDir, tunnelRunId } = this.clearActiveTunnel(
       {
         lastCheckedAt: null,
@@ -284,6 +345,13 @@ export class CloudflareTunnelProvider implements TunnelProvider {
       Boolean(this.process),
       this.process ? this.publicUrl : null,
     );
+  }
+
+  private clearTimer(name: 'healthTimer' | 'reconnectTimer'): void {
+    const timer = this[name];
+    if (!timer) return;
+    clearTimeout(timer);
+    this[name] = null;
   }
 
   private requirePublicUrl(): string {
@@ -433,6 +501,26 @@ export class CloudflareTunnelProvider implements TunnelProvider {
     });
   }
 
+  private async markTunnelDown(params: {
+    lastCheckedAt?: string;
+    message: string;
+    publicUrl: string;
+    reason: string;
+  }): Promise<{ process: CloudflaredProcess | null; tempDir: string | null }> {
+    const { process, tempDir, tunnelRunId } = this.clearActiveTunnel({
+      lastCheckedAt: params.lastCheckedAt ?? null,
+      lastError: params.message,
+      state: 'reconnecting',
+    });
+    await this.recordTunnelAudit('tunnel.down', {
+      error: params.message,
+      publicUrl: params.publicUrl,
+      reason: params.reason,
+      runId: tunnelRunId,
+    });
+    return { process, tempDir };
+  }
+
   private async handleProcessExit(
     process: CloudflaredProcess,
     code: number | null,
@@ -491,6 +579,113 @@ export class CloudflareTunnelProvider implements TunnelProvider {
         finish();
       }
     });
+  }
+
+  private scheduleHealthCheck(): void {
+    this.clearTimer('healthTimer');
+    if (!this.process || !this.publicUrl || this.statusTracker.state !== 'up')
+      return;
+    this.healthTimer = setTimeout(() => {
+      this.healthTimer = null;
+      void this.runHealthCheck();
+    }, this.healthCheckIntervalMs);
+    unrefTimer(this.healthTimer);
+  }
+
+  private async runHealthCheck(): Promise<void> {
+    const process = this.process;
+    const publicUrl = this.publicUrl;
+    if (!process || !publicUrl || this.statusTracker.state !== 'up') return;
+
+    const checkedAt = new Date().toISOString();
+    try {
+      await this.checkTunnelHealth(publicUrl);
+      if (this.process !== process || this.publicUrl !== publicUrl) return;
+      this.statusTracker.update({
+        lastCheckedAt: checkedAt,
+        lastError: null,
+        reconnectAttempt: 0,
+        state: 'up',
+      });
+      this.scheduleHealthCheck();
+    } catch (error) {
+      if (this.process !== process || this.publicUrl !== publicUrl) return;
+      const message = errorMessage(error);
+      const { tempDir } = await this.markTunnelDown({
+        lastCheckedAt: checkedAt,
+        message,
+        publicUrl,
+        reason: 'health_check_failed',
+      });
+      removeTempDir(tempDir);
+      await this.stopProcess(process);
+      this.scheduleReconnect(message);
+    }
+  }
+
+  private async checkTunnelHealth(publicUrl: string): Promise<void> {
+    const healthUrl = new URL(this.healthCheckPath, `${publicUrl}/`).toString();
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.healthCheckTimeoutMs,
+    );
+    unrefTimer(timeout);
+    try {
+      const response = await this.fetch(healthUrl, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`tunnel health check returned HTTP ${response.status}`);
+      }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `tunnel health check timed out after ${this.healthCheckTimeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private scheduleReconnect(message: string): void {
+    const attempt = this.statusTracker.reconnectAttempt + 1;
+    const delayMs = Math.min(
+      this.reconnectMaxBackoffMs,
+      this.reconnectInitialBackoffMs * 2 ** Math.max(0, attempt - 1),
+    );
+    const nextReconnectAt = new Date(Date.now() + delayMs).toISOString();
+    this.statusTracker.update({
+      lastError: message,
+      nextReconnectAt,
+      reconnectAttempt: attempt,
+      state: 'reconnecting',
+    });
+    this.clearTimer('reconnectTimer');
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.reconnect();
+    }, delayMs);
+    unrefTimer(this.reconnectTimer);
+  }
+
+  private async reconnect(): Promise<void> {
+    if (this.statusTracker.state !== 'reconnecting' || this.process) return;
+    let auth: CloudflareAuth | null = null;
+    try {
+      const publicUrl = this.requirePublicUrl();
+      auth = this.resolveAuth(publicUrl);
+      const process = await this.startCloudflared(auth);
+      await this.markTunnelUp(process, auth.tempDir, publicUrl, 'reconnected');
+      this.scheduleHealthCheck();
+    } catch (error) {
+      const message = redactSecrets(errorMessage(error), auth?.secrets ?? []);
+      removeTempDir(auth?.tempDir ?? null);
+      this.scheduleReconnect(message);
+    }
   }
 
   private async recordTunnelAudit(
