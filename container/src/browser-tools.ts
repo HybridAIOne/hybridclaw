@@ -26,6 +26,7 @@ const execFileAsync = promisify(execFile);
 
 const BROWSER_SOCKET_ROOT = '/tmp/hybridclaw-browser';
 const BROWSER_ARTIFACT_ROOT = path.join(WORKSPACE_ROOT, '.browser-artifacts');
+const BROWSER_DOWNLOAD_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'downloads');
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
@@ -886,6 +887,31 @@ function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
   return resolved;
 }
 
+function resolveDownloadOutputPath(rawPath: unknown): string {
+  fs.mkdirSync(BROWSER_DOWNLOAD_ROOT, { recursive: true });
+
+  const fallbackName = `browser-download-${Date.now()}`;
+  const requested = String(rawPath || '').trim() || fallbackName;
+  if (path.isAbsolute(requested)) {
+    throw new Error(
+      'Absolute download paths are not allowed. Use a relative path.',
+    );
+  }
+  const normalized = requested.replace(/\\/g, '/');
+  const clean = path.posix.normalize(normalized);
+  if (clean === '..' || clean.startsWith('../')) {
+    throw new Error('Download path escapes browser downloads directory.');
+  }
+
+  const resolved = path.resolve(BROWSER_DOWNLOAD_ROOT, clean);
+  const root = path.resolve(BROWSER_DOWNLOAD_ROOT);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error('Download path escapes browser downloads directory.');
+  }
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  return resolved;
+}
+
 function createTempScreenshotPath(prefix: string): string {
   fs.mkdirSync(BROWSER_ARTIFACT_ROOT, { recursive: true });
   const nonce = Math.random().toString(36).slice(2, 10);
@@ -1237,6 +1263,51 @@ async function runBrowserEval(
   return { success: true, result: data ? data.result : undefined };
 }
 
+async function collectClickDownloadResult(
+  downloadPromise: Promise<{
+    success: boolean;
+    data?: unknown;
+    error?: string;
+  }> | null,
+  downloadPath: string,
+): Promise<
+  | { ok: true; fields: Record<string, unknown> }
+  | { ok: false; error: string }
+> {
+  if (!downloadPromise) return { ok: true, fields: {} };
+  const download = await downloadPromise;
+  if (!download.success) {
+    return {
+      ok: false,
+      error: download.error || 'click completed but no download was captured',
+    };
+  }
+
+  const downloadData = asRecord(download.data);
+  const savedPath =
+    typeof downloadData?.path === 'string' ? downloadData.path : downloadPath;
+  const relativeDownloadPath = toWorkspaceRelativePath(savedPath);
+  if (!relativeDownloadPath) {
+    return { ok: false, error: 'failed to normalize download artifact path' };
+  }
+  const suggestedFilename =
+    typeof downloadData?.filename === 'string'
+      ? downloadData.filename
+      : typeof downloadData?.suggestedFilename === 'string'
+        ? downloadData.suggestedFilename
+        : undefined;
+  return {
+    ok: true,
+    fields: {
+      download_path: relativeDownloadPath,
+      ...(suggestedFilename ? { suggested_filename: suggestedFilename } : {}),
+      ...(typeof downloadData?.url === 'string'
+        ? { download_url: downloadData.url }
+        : {}),
+    },
+  };
+}
+
 function normalizeFrameMetadata(raw: unknown): Record<string, unknown>[] {
   if (!Array.isArray(raw)) return [];
   const frames: Record<string, unknown>[] = [];
@@ -1457,6 +1528,7 @@ async function runAgentBrowser(
   const playwrightBrowsersPath = ensureWritableDir(
     resolvePlaywrightBrowsersPath(),
   );
+  const downloadPath = ensureWritableDir(BROWSER_DOWNLOAD_ROOT);
   const args = [...runner.prefixArgs];
   const cdpUrl = resolveCdpUrl(options.cdpUrl);
   if (cdpUrl) {
@@ -1473,6 +1545,7 @@ async function runAgentBrowser(
     NPM_CONFIG_CACHE: npmCacheDir,
     npm_config_cache: npmCacheDir,
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
+    AGENT_BROWSER_DOWNLOAD_PATH: downloadPath,
     AGENT_BROWSER_HEADED: session.headed ? '1' : '0',
   };
   if (session.stateName) {
@@ -1695,7 +1768,22 @@ export async function executeBrowserTool(
       case 'browser_click': {
         const target = resolveClickTarget(args);
         const frame = parseOptionalFrame(args.frame);
+        const waitForDownload = args.waitForDownload === true;
+        const downloadPath = waitForDownload
+          ? resolveDownloadOutputPath(args.downloadPath || args.path)
+          : '';
         await applyFrameTarget(effectiveSessionId, frame);
+        const downloadPromise = waitForDownload
+          ? runAgentBrowser(
+              effectiveSessionId,
+              'waitfordownload',
+              [downloadPath],
+              { timeoutMs: 120_000 },
+            )
+          : null;
+        if (downloadPromise) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
         if (target.source === 'coordinate') {
           if (
             typeof target.x !== 'number' ||
@@ -1730,11 +1818,17 @@ export async function executeBrowserTool(
           if (!up.success) {
             return failure(up.error || 'failed to release mouse button');
           }
+          const downloadResult = await collectClickDownloadResult(
+            downloadPromise,
+            downloadPath,
+          );
+          if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
             clicked: target.raw,
             x: target.x,
             y: target.y,
             button: target.button || 'left',
+            ...downloadResult.fields,
             ...(frame ? { frame: frame.raw } : {}),
           });
         }
@@ -1744,9 +1838,15 @@ export async function executeBrowserTool(
           ]);
           if (!result.success)
             return failure(result.error || `failed to click ${target.raw}`);
+          const downloadResult = await collectClickDownloadResult(
+            downloadPromise,
+            downloadPath,
+          );
+          if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
             clicked: target.raw,
             ref: target.raw,
+            ...downloadResult.fields,
             ...(frame ? { frame: frame.raw } : {}),
           });
         }
@@ -1772,6 +1872,11 @@ export async function executeBrowserTool(
               : `failed to click ${target.source} "${target.raw}"`;
           return failure(error);
         }
+        const downloadResult = await collectClickDownloadResult(
+          downloadPromise,
+          downloadPath,
+        );
+        if (!downloadResult.ok) return failure(downloadResult.error);
         return success({
           clicked: target.raw,
           ...(target.source === 'selector'
@@ -1784,6 +1889,7 @@ export async function executeBrowserTool(
           ...(typeof clickData.matched_kind === 'string'
             ? { matched_kind: clickData.matched_kind }
             : {}),
+          ...downloadResult.fields,
           ...(frame ? { frame: frame.raw } : {}),
         });
       }
@@ -2427,6 +2533,16 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             enum: ['left', 'right', 'middle'],
             description:
               'Mouse button for coordinate clicks. Defaults to left.',
+          },
+          waitForDownload: {
+            type: 'boolean',
+            description:
+              'When true, start a browser download listener before clicking and return the saved download_path.',
+          },
+          downloadPath: {
+            type: 'string',
+            description:
+              'Optional filename or subpath under .browser-artifacts/downloads for waitForDownload clicks, for example "invoice.pdf".',
           },
           ref: {
             type: 'string',

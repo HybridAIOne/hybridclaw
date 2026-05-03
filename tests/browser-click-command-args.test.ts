@@ -12,6 +12,7 @@ function createAgentBrowserStub(root: string): string {
     scriptPath,
     `#!/usr/bin/env node
 import fs from 'node:fs';
+import path from 'node:path';
 
 const args = process.argv.slice(2);
 const jsonIndex = args.indexOf('--json');
@@ -29,6 +30,19 @@ if (command === 'click') {
     data: {
       command,
       args: commandArgs
+    }
+  }));
+} else if (command === 'waitfordownload') {
+  const targetPath = commandArgs[0] || '';
+  if (targetPath) {
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, '%PDF test download');
+  }
+  process.stdout.write(JSON.stringify({
+    data: {
+      path: targetPath,
+      filename: 'invoice.pdf',
+      url: 'https://example.com/invoice.pdf'
     }
   }));
 } else if (command === 'eval') {
@@ -387,8 +401,7 @@ test('browser_click supports viewport coordinate clicks', async () => {
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line) as Record<string, unknown>);
-
-  expect(parsed.success).toBe(true);
+  expect(parsed.success, output).toBe(true);
   expect(parsed.clicked).toBe('1180,650');
   expect(parsed.x).toBe(1180);
   expect(parsed.y).toBe(650);
@@ -430,6 +443,61 @@ test('browser_click treats legacy @viewport refs as coordinate clicks', async ()
   expect(parsed.y).toBe(650);
   expect(commands).toEqual([
     { command: 'mouse', args: ['move', '1180', '650'] },
+    { command: 'mouse', args: ['down', 'left'] },
+    { command: 'mouse', args: ['up', 'left'] },
+  ]);
+});
+
+test('browser_click can wait for and save a coordinate-triggered download', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-download-'),
+  );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    {
+      x: 1183,
+      y: 536,
+      waitForDownload: true,
+      downloadPath: 'invoice-5563916179.pdf',
+    },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.clicked).toBe('1183,536');
+  expect(parsed.download_path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  );
+  expect(parsed.suggested_filename).toBe('invoice.pdf');
+  expect(parsed.download_url).toBe('https://example.com/invoice.pdf');
+  expect(commands).toEqual([
+    {
+      command: 'waitfordownload',
+      args: [
+        path.join(
+          tempRoot,
+          '.browser-artifacts',
+          'downloads',
+          'invoice-5563916179.pdf',
+        ),
+      ],
+    },
+    { command: 'mouse', args: ['move', '1183', '536'] },
     { command: 'mouse', args: ['down', 'left'] },
     { command: 'mouse', args: ['up', 'left'] },
   ]);
