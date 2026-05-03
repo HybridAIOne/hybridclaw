@@ -314,12 +314,13 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
     return resolveDefaultAuxiliaryModelForProvider('openrouter');
   }
 
-  const providerPrefix = detectRuntimeProviderPrefix(trimmed);
-  if (providerPrefix === 'openrouter') return trimmed;
+  const upstreamHint = stripHybridAIModelPrefix(trimmed);
+  const providerPrefix = detectRuntimeProviderPrefix(upstreamHint);
+  if (providerPrefix === 'openrouter') return upstreamHint;
   if (providerPrefix === 'anthropic') {
     return normalizeAuxiliaryProviderModel({
       provider: 'openrouter',
-      model: trimmed,
+      model: upstreamHint,
     });
   }
   if (providerPrefix) {
@@ -327,7 +328,7 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
   }
   return normalizeAuxiliaryProviderModel({
     provider: 'openrouter',
-    model: trimmed,
+    model: upstreamHint,
   });
 }
 

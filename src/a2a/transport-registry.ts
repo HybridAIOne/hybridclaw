@@ -6,6 +6,7 @@ import {
   emitInteractionNeededEvent,
 } from '../gateway/interactive-escalation.js';
 import type { EscalationTarget } from '../types/execution.js';
+import { a2aOutboundAdapter } from './a2a-outbound.js';
 import {
   type A2AEnvelope,
   type A2AEnvelopeAuditSummary,
@@ -96,6 +97,7 @@ export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
 export function createDefaultTransportRegistry(): TransportRegistry {
   const registry = new TransportRegistry();
   registry.register(internalTransportAdapter);
+  registry.register(a2aOutboundAdapter);
   registry.register(webhookOutboundAdapter);
   return registry;
 }

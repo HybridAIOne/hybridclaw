@@ -156,8 +156,7 @@ describe('A2A runtime API', () => {
           sessionId: 'session-a2a-transport',
           auditRunId: 'run-a2a-transport',
           peerDescriptor: {
-            transport: 'a2a',
-            agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+            transport: 'smtp',
           },
           escalationTarget: {
             channel: 'slack:COPS',
@@ -183,7 +182,7 @@ describe('A2A runtime API', () => {
     expect(JSON.parse(escalationEvent?.payload || '{}')).toEqual(
       expect.objectContaining({
         type: 'escalation.decision',
-        action: 'a2a.transport:a2a',
+        action: 'a2a.transport:smtp',
         escalationRoute: 'approval_request',
         target: {
           channel: 'slack:COPS',
@@ -194,7 +193,7 @@ describe('A2A runtime API', () => {
     );
     const suspended = escalation.getSuspendedSession('session-a2a-transport');
     expect(suspended).toMatchObject({
-      approvalId: 'a2a-transport-a2a-msg-remote',
+      approvalId: 'a2a-transport-smtp-msg-remote',
       status: 'pending',
       modality: 'push',
       expectedReturnKinds: ['approved', 'declined', 'timeout'],
@@ -204,7 +203,7 @@ describe('A2A runtime API', () => {
         recipient: 'ops-lead',
       },
     });
-    expect(suspended?.prompt).toContain('no adapter is registered for "a2a"');
+    expect(suspended?.prompt).toContain('no adapter is registered for "smtp"');
   });
 
   test('encodes envelope ids before composing default escalation keys', async () => {
@@ -229,8 +228,7 @@ describe('A2A runtime API', () => {
         {
           auditRunId: 'run-a2a-transport',
           peerDescriptor: {
-            transport: 'a2a',
-            agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+            transport: 'smtp',
           },
         },
       ),
@@ -241,7 +239,7 @@ describe('A2A runtime API', () => {
     const suspended = escalation.getSuspendedSession(`a2a:${threadKey}`);
 
     expect(suspended).toMatchObject({
-      approvalId: `a2a-transport-a2a-${messageKey}`,
+      approvalId: `a2a-transport-smtp-${messageKey}`,
       status: 'pending',
     });
   });

@@ -15,9 +15,11 @@ import {
   errorMessage,
   makeTunnelRunId,
   normalizeDurationMs,
+  normalizeHealthCheckPath,
   recordTunnelAudit,
   redactSecret,
   type TunnelAuditRecorder,
+  type TunnelHealthFetch,
   TunnelStatusTracker,
   type TunnelStatusUpdate,
   type TunnelTimer,
@@ -37,11 +39,6 @@ interface NgrokListener {
 interface NgrokClient {
   forward(config: Config | string | number): Promise<NgrokListener>;
 }
-
-type TunnelHealthFetch = (
-  input: string | URL,
-  init?: { method?: string; signal?: AbortSignal },
-) => Promise<Pick<Response, 'ok' | 'status'>>;
 
 export interface NgrokTunnelProviderOptions {
   addr?: Config['addr'];
@@ -89,13 +86,6 @@ function normalizePublicUrl(value: string | null): string {
   return parsed.toString().replace(/\/$/, '');
 }
 
-function normalizeHealthCheckPath(value: unknown): string {
-  if (typeof value !== 'string') return DEFAULT_NGROK_HEALTH_CHECK_PATH;
-  const trimmed = value.trim();
-  if (!trimmed) return DEFAULT_NGROK_HEALTH_CHECK_PATH;
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-}
-
 function jitterReconnectDelayMs(delayMs: number): number {
   const factor =
     1 - RECONNECT_JITTER_RATIO + Math.random() * RECONNECT_JITTER_RATIO * 2;
@@ -138,7 +128,10 @@ export class NgrokTunnelProvider implements TunnelProvider {
       options.healthCheckIntervalMs,
       DEFAULT_HEALTH_INTERVAL_MS,
     );
-    this.healthCheckPath = normalizeHealthCheckPath(options.healthCheckPath);
+    this.healthCheckPath = normalizeHealthCheckPath(
+      options.healthCheckPath,
+      DEFAULT_NGROK_HEALTH_CHECK_PATH,
+    );
     this.healthCheckTimeoutMs = normalizeDurationMs(
       options.healthCheckTimeoutMs,
       DEFAULT_HEALTH_TIMEOUT_MS,
