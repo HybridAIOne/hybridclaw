@@ -50,6 +50,7 @@ describe('CloudflareTunnelProvider', () => {
     });
     const recordAuditEvent = makeStatusAuditRecorder();
     const provider = new CloudflareTunnelProvider({
+      addr: '127.0.0.1:19090',
       publicUrl: 'https://bot.example.com',
       readSecret: (name) =>
         name === CLOUDFLARE_TUNNEL_TOKEN_SECRET ? 'cf-token-secret' : null,
@@ -64,6 +65,7 @@ describe('CloudflareTunnelProvider', () => {
     expect(runProcess).toHaveBeenCalledWith(['tunnel', 'run'], {
       env: { TUNNEL_TOKEN: 'cf-token-secret' },
     });
+    expect(JSON.stringify(runProcess.mock.calls)).not.toContain('19090');
     expect(provider.status()).toMatchObject({
       running: true,
       public_url: 'https://bot.example.com',

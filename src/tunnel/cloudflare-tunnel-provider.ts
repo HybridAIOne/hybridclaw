@@ -358,6 +358,8 @@ export class CloudflareTunnelProvider implements TunnelProvider {
   private resolveAuth(publicUrl: string): CloudflareAuth {
     const token = this.readSecret(this.tokenSecretName)?.trim() || '';
     if (token) {
+      // Remotely managed Cloudflare tunnels bind the local service URL in the
+      // Cloudflare route, so the daemon only needs the tunnel token here.
       return {
         args: ['tunnel', 'run'],
         env: { TUNNEL_TOKEN: token },
