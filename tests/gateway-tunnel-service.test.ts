@@ -56,6 +56,13 @@ async function importService(options: {
     }
     return provider;
   });
+  const createCloudflareTunnelProvider = vi.fn(() => {
+    const provider = providers.shift();
+    if (!provider) {
+      throw new Error('unexpected provider creation');
+    }
+    return provider;
+  });
 
   vi.doMock('../src/config/runtime-config.js', () => ({
     getRuntimeConfig: () => options.config,
@@ -70,11 +77,15 @@ async function importService(options: {
   vi.doMock('../src/tunnel/tailscale-tunnel-provider.js', () => ({
     createTailscaleTunnelProvider,
   }));
+  vi.doMock('../src/tunnel/cloudflare-tunnel-provider.js', () => ({
+    createCloudflareTunnelProvider,
+  }));
 
   const service = await import('../src/gateway/gateway-tunnel-service.js');
   service.resetGatewayAdminTunnelForTests();
   return {
     ...service,
+    createCloudflareTunnelProvider,
     createNgrokTunnelProvider,
     createTailscaleTunnelProvider,
     makeAuditRunId,
@@ -85,6 +96,7 @@ async function importService(options: {
 afterEach(() => {
   vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/audit/audit-events.js');
+  vi.doUnmock('../src/tunnel/cloudflare-tunnel-provider.js');
   vi.doUnmock('../src/tunnel/ngrok-tunnel-provider.js');
   vi.doUnmock('../src/tunnel/tailscale-tunnel-provider.js');
   vi.resetModules();
@@ -114,6 +126,7 @@ test('admin tunnel status reports configured manual public URL as healthy', asyn
   });
   expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
   expect(service.createTailscaleTunnelProvider).not.toHaveBeenCalled();
+  expect(service.createCloudflareTunnelProvider).not.toHaveBeenCalled();
 });
 
 test('admin tunnel status stops stale ngrok provider when config changes', async () => {
@@ -162,7 +175,9 @@ test('admin tunnel status creates a managed tailscale provider', async () => {
       state: 'up',
     })),
     stop: vi.fn(async () => {}),
-    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
+    start: vi.fn(async () => ({
+      public_url: 'https://gateway.example.ts.net',
+    })),
   };
   const service = await importService({
     config: makeRuntimeConfig(
@@ -192,11 +207,50 @@ test('admin tunnel status creates a managed tailscale provider', async () => {
   });
 });
 
+test('admin tunnel status creates a managed cloudflare provider', async () => {
+  const provider: TunnelProvider = {
+    status: vi.fn(() => ({
+      ...downStatus,
+      running: true,
+      public_url: 'https://bot.example.com',
+      state: 'up',
+    })),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://bot.example.com' })),
+  };
+  const service = await importService({
+    config: makeRuntimeConfig({
+      mode: 'local',
+      public_url: 'https://bot.example.com',
+      tunnel: {
+        provider: 'cloudflare',
+        health_check_interval_ms: 60_000,
+      },
+    }),
+    provider,
+  });
+
+  expect(service.getGatewayAdminTunnelStatus()).toMatchObject({
+    provider: 'cloudflare',
+    publicUrl: 'https://bot.example.com',
+    health: 'healthy',
+    reconnectSupported: true,
+  });
+  expect(service.createNgrokTunnelProvider).not.toHaveBeenCalled();
+  expect(service.createTailscaleTunnelProvider).not.toHaveBeenCalled();
+  expect(service.createCloudflareTunnelProvider).toHaveBeenCalledWith({
+    addr: '127.0.0.1:9090',
+    publicUrl: 'https://bot.example.com',
+  });
+});
+
 test('admin tunnel status formats IPv6 tunnel target addresses', async () => {
   const provider: TunnelProvider = {
     status: vi.fn(() => downStatus),
     stop: vi.fn(async () => {}),
-    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
+    start: vi.fn(async () => ({
+      public_url: 'https://gateway.example.ts.net',
+    })),
   };
   const service = await importService({
     config: makeRuntimeConfig(

@@ -145,6 +145,20 @@ If the host is already logged in with `tailscale login`, `TS_AUTHKEY` is
 optional. See [Tailscale Funnel](./tailscale-funnel.md) for install, login,
 Funnel grant, and verification steps.
 
+For managed Cloudflare Tunnel:
+
+```bash
+hybridclaw config set deployment.mode local
+hybridclaw config set deployment.tunnel.provider cloudflare
+hybridclaw config set deployment.public_url https://hybridclaw.example.com
+hybridclaw secret set CLOUDFLARE_TUNNEL_TOKEN "replace-with-your-cloudflare-tunnel-token"
+```
+
+The Cloudflare route should bind the same public hostname to the local gateway
+service URL, for example `http://localhost:9090`. See
+[Cloudflare Tunnel](./cloudflare-tunnel.md) for `cloudflared` install, tunnel
+creation, locally managed credential, and hostname binding steps.
+
 ## macOS: Persistent SSH Tunnel Via LaunchAgent
 
 If your client machine is a Mac, you can make the SSH tunnel persistent across
