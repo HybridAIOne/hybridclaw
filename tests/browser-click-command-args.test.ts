@@ -346,7 +346,7 @@ test('browser_click accepts visible-text fallback clicks', async () => {
   expect(parsed.matched_kind).toBe('text');
 });
 
-test('browser_click preserves backward-compatible text priority for mixed targets', async () => {
+test('browser_click prefers refs over text and coordinates when mixed targets are provided', async () => {
   tempRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-browser-click-ambiguous-'),
   );
@@ -363,7 +363,40 @@ test('browser_click preserves backward-compatible text priority for mixed target
       ref: 'e7',
       selector: 'img[alt="Cover: Leben mit Bots"]',
       text: 'Leben mit Bots',
+      x: 1180,
+      y: 650,
       exact: false,
+    },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+
+  expect(parsed.success).toBe(true);
+  expect(parsed.clicked).toBe('@e7');
+  expect(parsed.ref).toBe('@e7');
+  expect(parsed.text).toBeUndefined();
+  expect(parsed.selector).toBeUndefined();
+  expect(parsed.x).toBeUndefined();
+});
+
+test('browser_click prefers text over coordinates when no ref is provided', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-text-before-coordinate-'),
+  );
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    {
+      text: 'Leben mit Bots',
+      x: 1180,
+      y: 650,
+      exact: true,
     },
     'session-1',
   );
@@ -372,9 +405,8 @@ test('browser_click preserves backward-compatible text priority for mixed target
   expect(parsed.success).toBe(true);
   expect(parsed.clicked).toBe('Leben mit Bots');
   expect(parsed.text).toBe('Leben mit Bots');
-  expect(parsed.exact).toBe(false);
-  expect(parsed.ref).toBeUndefined();
-  expect(parsed.selector).toBeUndefined();
+  expect(parsed.exact).toBe(true);
+  expect(parsed.x).toBeUndefined();
 });
 
 test('browser_click supports viewport coordinate clicks', async () => {

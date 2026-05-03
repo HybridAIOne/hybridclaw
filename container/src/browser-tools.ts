@@ -728,6 +728,24 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
   const button = parseMouseButton(args.button);
   const coordinate = parseViewportCoordinates(args.x, args.y);
 
+  if (ref) {
+    const refCoordinate = parseViewportRef(ref);
+    if (refCoordinate) {
+      return {
+        raw: ref.startsWith('@') ? ref : `@${ref}`,
+        source: 'coordinate',
+        x: refCoordinate.x,
+        y: refCoordinate.y,
+        button,
+      };
+    }
+    return {
+      raw: ref.startsWith('@') ? ref : `@${ref}`,
+      source: 'ref',
+    };
+  }
+  if (text) return { raw: text, source: 'text' };
+  if (selector) return { raw: selector, source: 'selector' };
   if (coordinate) {
     return {
       raw: `${coordinate.x},${coordinate.y}`,
@@ -737,25 +755,7 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
       button,
     };
   }
-  if (text) return { raw: text, source: 'text' };
-  if (selector) return { raw: selector, source: 'selector' };
-  if (!ref) {
-    throw new Error('ref is required (or provide selector, text, or x/y)');
-  }
-  const refCoordinate = parseViewportRef(ref);
-  if (refCoordinate) {
-    return {
-      raw: ref.startsWith('@') ? ref : `@${ref}`,
-      source: 'coordinate',
-      x: refCoordinate.x,
-      y: refCoordinate.y,
-      button,
-    };
-  }
-  return {
-    raw: ref.startsWith('@') ? ref : `@${ref}`,
-    source: 'ref',
-  };
+  throw new Error('ref is required (or provide text, selector, or x/y)');
 }
 
 function parseMouseButton(raw: unknown): 'left' | 'right' | 'middle' {
@@ -2514,19 +2514,19 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"), by exact viewport coordinates with x/y, or by fallback CSS selector/visible text. Use x/y when the user or vision has identified a coordinate on the current viewport, especially for cross-origin iframe content. For backward compatibility, if multiple non-coordinate targeting fields are provided, browser_click prefers text, then selector, then ref.',
+        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. Use x/y only when snapshot refs and visible text are not viable, especially for cross-origin iframe content.',
       parameters: {
         type: 'object',
         properties: {
           x: {
             type: 'number',
             description:
-              'Viewport x coordinate to click. Provide together with y for a real mouse click at that point.',
+              'Fallback viewport x coordinate to click. Provide together with y for a real mouse click at that point when refs/text are not viable.',
           },
           y: {
             type: 'number',
             description:
-              'Viewport y coordinate to click. Provide together with x for a real mouse click at that point.',
+              'Fallback viewport y coordinate to click. Provide together with x for a real mouse click at that point when refs/text are not viable.',
           },
           button: {
             type: 'string',
@@ -2547,12 +2547,12 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           ref: {
             type: 'string',
             description:
-              'Element reference from browser_snapshot. Legacy @viewport-X-Y coordinate refs are accepted, but prefer x/y.',
+              'Preferred element reference from browser_snapshot. Legacy @viewport-X-Y coordinate refs are accepted.',
           },
           selector: {
             type: 'string',
             description:
-              'Optional CSS selector fallback when no snapshot ref is available.',
+              'Optional CSS selector fallback when no snapshot ref or visible text target is available.',
           },
           text: {
             type: 'string',
