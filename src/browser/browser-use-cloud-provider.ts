@@ -149,6 +149,8 @@ interface ActiveCloudSession {
   accruedCostUsd: number;
 }
 
+type BrowserUseCloudResponseRecord = Record<string, unknown>;
+
 const DEFAULT_BASE_URL = 'https://api.browser-use.com/api/v3';
 const DEFAULT_API_KEY_REF: SecretRef = {
   source: 'env',
@@ -269,6 +271,57 @@ function buildCreateBrowserBody(
     ...(browserConfig.enableRecording !== undefined
       ? { enableRecording: browserConfig.enableRecording }
       : {}),
+  };
+}
+
+function readOptionalString(
+  record: BrowserUseCloudResponseRecord,
+  key: string,
+): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readCloudCostValue(
+  record: BrowserUseCloudResponseRecord,
+  key: string,
+): string | number | null {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return null;
+}
+
+function normalizeCloudSessionResponse(
+  payload: unknown,
+  path: string,
+  method: string,
+): BrowserUseCloudSessionResponse {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(
+      `Browser Use Cloud API ${method} ${path} returned a non-object response.`,
+    );
+  }
+
+  const record = payload as BrowserUseCloudResponseRecord;
+  const id = readOptionalString(record, 'id');
+  if (!id) {
+    throw new Error(
+      `Browser Use Cloud API ${method} ${path} returned a response without a valid id.`,
+    );
+  }
+
+  return {
+    id,
+    status: readOptionalString(record, 'status') || 'unknown',
+    timeoutAt: readOptionalString(record, 'timeoutAt'),
+    startedAt: readOptionalString(record, 'startedAt'),
+    liveUrl: readOptionalString(record, 'liveUrl'),
+    cdpUrl: readOptionalString(record, 'cdpUrl'),
+    finishedAt: readOptionalString(record, 'finishedAt'),
+    proxyCost: readCloudCostValue(record, 'proxyCost'),
+    browserCost: readCloudCostValue(record, 'browserCost'),
+    recordingUrl: readOptionalString(record, 'recordingUrl'),
   };
 }
 
@@ -405,63 +458,68 @@ export class BrowserUseCloudProvider implements BrowserProvider {
 
     const apiKey = this.resolveApiKey();
     const cloud = await this.createCloudSession(apiKey, opts);
-    if (!cloud.cdpUrl) {
-      throw new Error('Browser Use Cloud session did not return a cdpUrl.');
-    }
+    let browser: BrowserUseCloudBrowser | null = null;
+    try {
+      if (!cloud.cdpUrl) {
+        throw new Error('Browser Use Cloud session did not return a cdpUrl.');
+      }
 
-    const playwright = await loadPlaywright(this.options.playwright);
-    const browser = await playwright.chromium.connectOverCDP(cloud.cdpUrl);
-    const context = browser.contexts()[0];
-    if (!context) {
-      await browser.close().catch(() => {});
-      throw new Error(
-        'Browser Use Cloud CDP connection did not expose a browser context.',
+      const playwright = await loadPlaywright(this.options.playwright);
+      browser = await playwright.chromium.connectOverCDP(cloud.cdpUrl);
+      const context = browser.contexts()[0];
+      if (!context) {
+        throw new Error(
+          'Browser Use Cloud CDP connection did not expose a browser context.',
+        );
+      }
+      const page = context.pages()[0] || (await context.newPage());
+      const runId = metering.auditRunId || makeAuditRunId('browser_use_cloud');
+      const session = new BrowserUseCloudSession(
+        page,
+        (name) => this.recordActionUsage(metering, name),
+        this.options.secretAudit,
       );
-    }
-    const page = context.pages()[0] || (await context.newPage());
-    const runId = metering.auditRunId || makeAuditRunId('browser_use_cloud');
-    const session = new BrowserUseCloudSession(
-      page,
-      (name) => this.recordActionUsage(metering, name),
-      this.options.secretAudit,
-    );
 
-    const startedAtMs = Date.parse(cloud.startedAt || '') || Date.now();
-    const startingCostUsd = estimateBilledCost({
-      startedAtMs,
-      nowMs: startedAtMs,
-      pricing: this.pricing,
-    });
-    this.recordUsage(metering, {
-      model: 'browser-use-cloud/session',
-      costUsd: startingCostUsd,
-      toolCalls: 0,
-    });
-    recordAuditEvent({
-      sessionId: metering.sessionId,
-      runId,
-      event: {
-        type: 'browser.session_started',
-        provider: 'browser-use-cloud',
-        providerSessionId: cloud.id,
-        sessionUrl: cloud.liveUrl || null,
-        startedAt: cloud.startedAt || null,
-        timeoutAt: cloud.timeoutAt || null,
-        pricing: {
-          browserUsdPerMinute: this.pricing.browserUsdPerMinute,
-          actionUsd: this.pricing.actionUsd,
+      const startedAtMs = Date.parse(cloud.startedAt || '') || Date.now();
+      const startingCostUsd = estimateBilledCost({
+        startedAtMs,
+        nowMs: startedAtMs,
+        pricing: this.pricing,
+      });
+      this.recordUsage(metering, {
+        model: 'browser-use-cloud/session',
+        costUsd: startingCostUsd,
+        toolCalls: 0,
+      });
+      recordAuditEvent({
+        sessionId: metering.sessionId,
+        runId,
+        event: {
+          type: 'browser.session_started',
+          provider: 'browser-use-cloud',
+          providerSessionId: cloud.id,
+          sessionUrl: cloud.liveUrl || null,
+          startedAt: cloud.startedAt || null,
+          timeoutAt: cloud.timeoutAt || null,
+          pricing: {
+            browserUsdPerMinute: this.pricing.browserUsdPerMinute,
+            actionUsd: this.pricing.actionUsd,
+          },
         },
-      },
-    });
+      });
 
-    this.activeSessions.set(session, {
-      cloud,
-      browser,
-      metering,
-      startedAtMs,
-      accruedCostUsd: startingCostUsd,
-    });
-    return session;
+      this.activeSessions.set(session, {
+        cloud,
+        browser,
+        metering,
+        startedAtMs,
+        accruedCostUsd: startingCostUsd,
+      });
+      return session;
+    } catch (error) {
+      await this.cleanupFailedLaunch(cloud, browser);
+      throw error;
+    }
   }
 
   async closeSession(session: BrowserSession): Promise<void> {
@@ -474,16 +532,25 @@ export class BrowserUseCloudProvider implements BrowserProvider {
     if (!active) {
       throw new Error('BrowserUseCloudProvider session is not active');
     }
-    this.activeSessions.delete(session);
 
     let stopped: BrowserUseCloudSessionResponse | null = null;
+    let stopError: unknown = null;
+    let closeError: unknown = null;
     try {
       stopped = await this.stopCloudSession(active.cloud.id);
-    } finally {
+    } catch (error) {
+      stopError = error;
+    }
+    try {
       await active.browser.close();
+    } catch (error) {
+      closeError = error;
     }
 
     this.recordCloseUsage(active, stopped);
+    this.activeSessions.delete(session);
+    if (stopError) throw stopError;
+    if (closeError) throw closeError;
   }
 
   private resolveApiKey(): string {
@@ -526,6 +593,16 @@ export class BrowserUseCloudProvider implements BrowserProvider {
         buildCreateBrowserBody(opts, this.options.browser || {}),
       ),
     });
+  }
+
+  private async cleanupFailedLaunch(
+    cloud: BrowserUseCloudSessionResponse,
+    browser: BrowserUseCloudBrowser | null,
+  ): Promise<void> {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    await this.stopCloudSession(cloud.id).catch(() => {});
   }
 
   private async stopCloudSession(
@@ -573,13 +650,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       );
     }
 
-    if (!payload || typeof payload !== 'object') {
-      throw new Error(
-        `Browser Use Cloud API ${init.method} ${path} returned a non-object response.`,
-      );
-    }
-
-    return payload as BrowserUseCloudSessionResponse;
+    return normalizeCloudSessionResponse(payload, path, init.method);
   }
 
   private recordActionUsage(

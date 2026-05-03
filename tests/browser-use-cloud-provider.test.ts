@@ -288,6 +288,64 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
   expect(totals.total_cost_usd).toBeCloseTo(0.0065, 6);
 });
 
+test('browser-use cloud provider records estimated close usage when cloud stop fails', async () => {
+  const root = makeTempRoot();
+  process.env.HOME = root;
+  process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
+  process.env.TEST_BROWSER_PASSWORD = 'api-key';
+  vi.resetModules();
+
+  const { initDatabase, getSessionUsageTotals } = await import(
+    '../src/memory/db.js'
+  );
+  const { BrowserUseCloudProvider } = await import(
+    '../src/browser/browser-use-cloud-provider.js'
+  );
+  initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse(
+        {
+          id: 'cloud-session-stop-fail',
+          status: 'active',
+          startedAt: '2026-05-01T00:00:00.000Z',
+          liveUrl: 'https://cloud.browser-use.com/sessions/stop-fail',
+          cdpUrl: 'wss://cdp.browser-use.test/stop-fail',
+          proxyCost: '0',
+          browserCost: '0',
+        },
+        201,
+      ),
+    )
+    .mockRejectedValueOnce(new Error('stop failed'));
+  const provider = new BrowserUseCloudProvider({
+    apiKeyRef: { source: 'env', id: 'TEST_BROWSER_PASSWORD' },
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  const session = await provider.launchSession({
+    metering: {
+      sessionId: 'session-stop-fail',
+      agentId: 'agent-stop-fail',
+    },
+  });
+
+  await expect(provider.closeSession(session)).rejects.toThrow(/stop failed/u);
+
+  expect(mock.browser.close).toHaveBeenCalledTimes(1);
+  const totals = getSessionUsageTotals('session-stop-fail');
+  expect(totals.call_count).toBe(2);
+  expect(totals.total_cost_usd).toBeGreaterThan(0.001);
+
+  await expect(provider.closeSession(session)).rejects.toThrow(
+    /session is not active/u,
+  );
+});
+
 test('browser-use cloud provider rejects local profile path hints', async () => {
   const { BrowserUseCloudProvider } = await import(
     '../src/browser/browser-use-cloud-provider.js'
@@ -322,5 +380,129 @@ test('browser-use cloud provider refuses to start unmetered sessions', async () 
     /requires metering\.sessionId and metering\.agentId/u,
   );
   expect(fetchMock).not.toHaveBeenCalled();
+  expect(mock.connectOverCDP).not.toHaveBeenCalled();
+});
+
+test('browser-use cloud provider stops cloud session when CDP connection fails', async () => {
+  const { BrowserUseCloudProvider } = await import(
+    '../src/browser/browser-use-cloud-provider.js'
+  );
+  process.env.TEST_BROWSER_PASSWORD = 'api-key';
+  const mock = createMockPlaywright();
+  mock.connectOverCDP.mockRejectedValueOnce(new Error('cdp unavailable'));
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse(
+        {
+          id: 'cloud-session-connect-fail',
+          status: 'active',
+          cdpUrl: 'wss://cdp.browser-use.test/connect-fail',
+        },
+        201,
+      ),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({
+        id: 'cloud-session-connect-fail',
+        status: 'stopped',
+      }),
+    );
+  const provider = new BrowserUseCloudProvider({
+    apiKeyRef: { source: 'env', id: 'TEST_BROWSER_PASSWORD' },
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  await expect(
+    provider.launchSession({
+      metering: {
+        sessionId: 'session-connect-fail',
+        agentId: 'agent-connect-fail',
+      },
+    }),
+  ).rejects.toThrow(/cdp unavailable/u);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    'https://api.browser-use.com/api/v3/browsers/cloud-session-connect-fail',
+    expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'stop' }),
+    }),
+  );
+  expect(mock.browser.close).not.toHaveBeenCalled();
+});
+
+test('browser-use cloud provider closes CDP handle and stops cloud session when no context is exposed', async () => {
+  const { BrowserUseCloudProvider } = await import(
+    '../src/browser/browser-use-cloud-provider.js'
+  );
+  process.env.TEST_BROWSER_PASSWORD = 'api-key';
+  const mock = createMockPlaywright();
+  mock.browser.contexts.mockReturnValueOnce([]);
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      jsonResponse(
+        {
+          id: 'cloud-session-no-context',
+          status: 'active',
+          cdpUrl: 'wss://cdp.browser-use.test/no-context',
+        },
+        201,
+      ),
+    )
+    .mockResolvedValueOnce(
+      jsonResponse({
+        id: 'cloud-session-no-context',
+        status: 'stopped',
+      }),
+    );
+  const provider = new BrowserUseCloudProvider({
+    apiKeyRef: { source: 'env', id: 'TEST_BROWSER_PASSWORD' },
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  await expect(
+    provider.launchSession({
+      metering: {
+        sessionId: 'session-no-context',
+        agentId: 'agent-no-context',
+      },
+    }),
+  ).rejects.toThrow(/did not expose a browser context/u);
+  expect(mock.browser.close).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    'https://api.browser-use.com/api/v3/browsers/cloud-session-no-context',
+    expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'stop' }),
+    }),
+  );
+});
+
+test('browser-use cloud provider rejects malformed successful API payloads', async () => {
+  const { BrowserUseCloudProvider } = await import(
+    '../src/browser/browser-use-cloud-provider.js'
+  );
+  process.env.TEST_BROWSER_PASSWORD = 'api-key';
+  const mock = createMockPlaywright();
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(jsonResponse({ status: 'active' }));
+  const provider = new BrowserUseCloudProvider({
+    apiKeyRef: { source: 'env', id: 'TEST_BROWSER_PASSWORD' },
+    fetch: fetchMock,
+    playwright: mock.playwright,
+  });
+
+  await expect(
+    provider.launchSession({
+      metering: {
+        sessionId: 'session-malformed',
+        agentId: 'agent-malformed',
+      },
+    }),
+  ).rejects.toThrow(/without a valid id/u);
   expect(mock.connectOverCDP).not.toHaveBeenCalled();
 });
