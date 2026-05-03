@@ -17,6 +17,8 @@ const A2A_ALLOWED_FIELDS = new Set([
   'transport',
   'agentCardUrl',
   'agent_card_url',
+  'bearerTokenRef',
+  'bearer_token_ref',
 ]);
 const WEBHOOK_ALLOWED_FIELDS = new Set([
   'transport',
@@ -36,6 +38,7 @@ export interface InternalPeerDescriptor {
 export interface A2APeerDescriptor {
   transport: 'a2a';
   agentCardUrl: string;
+  bearerTokenRef?: SecretRef;
 }
 
 export interface WebhookPeerDescriptor {
@@ -146,24 +149,6 @@ function validateAllowedFields(
   }
 }
 
-function readHttpUrl(
-  record: Record<string, unknown>,
-  field: string,
-  issues: string[],
-): string {
-  const value = readRequiredString(record[field], field, issues);
-  if (!value) return '';
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:') {
-      issues.push(`${field} must use https`);
-    }
-  } catch {
-    issues.push(`${field} must be a valid URL`);
-  }
-  return value;
-}
-
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
   if (normalized === 'localhost' || normalized === '::1') return true;
@@ -231,21 +216,25 @@ function normalizeTransport(value: unknown, issues: string[]): string {
   return normalized;
 }
 
-function normalizeWebhookSecretRef(
+function normalizeSecretRef(
   value: unknown,
+  field: string,
   issues: string[],
+  required: boolean,
 ): SecretRef | undefined {
   if (value === undefined || value === null) {
-    issues.push('secretRef is required');
+    if (required) {
+      issues.push(`${field} is required`);
+    }
     return undefined;
   }
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
-    issues.push(`secretRef ${parsed.reason}`);
+    issues.push(`${field} ${parsed.reason}`);
     return undefined;
   }
   if (parsed.kind === 'plain') {
-    issues.push('secretRef must be a secret reference');
+    issues.push(`${field} must be a secret reference`);
     return undefined;
   }
   return parsed.ref;
@@ -285,10 +274,16 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
 
   if (transport === 'a2a') {
     validateAllowedFields(value, A2A_ALLOWED_FIELDS, issues);
-    const agentCardUrl = readHttpUrl(
+    const agentCardUrl = readWebhookUrl(
       { agentCardUrl: readAlias(value, 'agentCardUrl', 'agent_card_url') },
       'agentCardUrl',
       issues,
+    );
+    const bearerTokenRef = normalizeSecretRef(
+      readAlias(value, 'bearerTokenRef', 'bearer_token_ref'),
+      'bearerTokenRef',
+      issues,
+      false,
     );
     if (issues.length > 0) {
       throw new PeerDescriptorValidationError(issues);
@@ -296,15 +291,18 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
     return {
       transport: 'a2a',
       agentCardUrl,
+      ...(bearerTokenRef ? { bearerTokenRef } : {}),
     };
   }
 
   if (transport === 'webhook') {
     validateAllowedFields(value, WEBHOOK_ALLOWED_FIELDS, issues);
     const url = readWebhookUrl(value, 'url', issues);
-    const secretRef = normalizeWebhookSecretRef(
+    const secretRef = normalizeSecretRef(
       readAlias(value, 'secretRef', 'secret_ref'),
+      'secretRef',
       issues,
+      true,
     );
     const signatureHeader = readHttpHeaderName(
       value,
