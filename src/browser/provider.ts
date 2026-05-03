@@ -15,6 +15,13 @@ export interface SessionOptions {
   profileDirHint?: string;
   headed?: boolean;
   timeoutMs?: number;
+  metering?: BrowserSessionMeteringContext;
+}
+
+export interface BrowserSessionMeteringContext {
+  sessionId: string;
+  agentId: string;
+  auditRunId?: string;
 }
 
 export interface BrowserSession {
