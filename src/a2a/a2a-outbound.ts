@@ -21,6 +21,7 @@ import {
   A2AFailFastError,
   A2AHttpError,
   fetchA2AAgentCard,
+  isA2AAllowedHttpUrl,
 } from './a2a-agent-card.js';
 import {
   type A2AAgentCard,
@@ -191,7 +192,7 @@ function resolveItemRunId(item: A2AOutboxItem, prefix: string): string {
   return item.runId || makeAuditRunId(prefix);
 }
 
-function isLoopbackUrl(value: string): boolean {
+function isLoopbackDeliveryUrl(value: string): boolean {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
@@ -203,9 +204,12 @@ function isLoopbackUrl(value: string): boolean {
   }
 }
 
-function resolveBearerSecret(item: A2AOutboxItem): string | undefined {
+function resolveBearerSecret(
+  item: A2AOutboxItem,
+  authUrl: string,
+): string | undefined {
   if (!item.bearerTokenRef) {
-    if (isLoopbackUrl(item.agentCardUrl)) return undefined;
+    if (isLoopbackDeliveryUrl(authUrl)) return undefined;
     throw new A2AFailFastError(
       'a2a.bearerTokenRef is required for non-loopback peers',
     );
@@ -219,7 +223,7 @@ function resolveBearerSecret(item: A2AOutboxItem): string | undefined {
         sessionId: resolveItemSessionId(item),
         runId: resolveItemRunId(item, 'a2a-outbound-secret'),
         ref: handle.ref,
-        url: item.agentCardUrl,
+        url: authUrl,
         reason,
       }),
   });
@@ -236,7 +240,7 @@ function authHeaders(params: {
   audience: string;
   now: Date;
 }): Record<string, string> {
-  const secret = resolveBearerSecret(params.item);
+  const secret = resolveBearerSecret(params.item, params.audience);
   if (!secret) return {};
   return {
     authorization: `Bearer ${makeSignedBearer({
@@ -246,6 +250,11 @@ function authHeaders(params: {
       now: params.now,
     })}`,
   };
+}
+
+function agentCardAuthCacheKey(item: A2AOutboxItem): string | undefined {
+  if (!item.bearerTokenRef) return undefined;
+  return `${item.bearerTokenRef.source}:${item.bearerTokenRef.id}`;
 }
 
 function parseOutboxItem(raw: string): A2AOutboxItem | null {
@@ -496,6 +505,24 @@ async function readJsonRpcResponse(response: Response): Promise<unknown> {
   return JSON.parse(text) as unknown;
 }
 
+function requireTasksSendResponse(
+  response: unknown,
+): asserts response is Record<string, unknown> {
+  if (!isRecord(response)) {
+    throw new A2AFailFastError(
+      'tasks/send requires a well-formed JSON-RPC response body',
+    );
+  }
+  if (response.jsonrpc !== '2.0') {
+    throw new A2AFailFastError('tasks/send response must use jsonrpc "2.0"');
+  }
+  if (!Object.hasOwn(response, 'result') && !Object.hasOwn(response, 'error')) {
+    throw new A2AFailFastError(
+      'tasks/send response must include result or error',
+    );
+  }
+}
+
 async function deliverA2AItem(
   item: A2AOutboxItem,
   opts: A2AOutboxProcessOptions,
@@ -515,6 +542,7 @@ async function deliverA2AItem(
       fetchImpl: opts.fetchImpl,
       now,
       headers: authHeaders({ item, audience: item.agentCardUrl, now }),
+      authCacheKey: agentCardAuthCacheKey(item),
       agentCardCacheTtlMs: opts.agentCardCacheTtlMs,
     });
   } catch (error) {
@@ -538,6 +566,14 @@ async function deliverA2AItem(
   }
 
   const request = encodeA2AJsonRpcRequest(item.envelope, card);
+  if (!isA2AAllowedHttpUrl(card.url)) {
+    failA2AItem(
+      item,
+      now,
+      'Agent Card url must use https unless targeting loopback',
+    );
+    return 'failed';
+  }
   const body = JSON.stringify(request);
   let response: Response;
   try {
@@ -551,6 +587,10 @@ async function deliverA2AItem(
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    if (error instanceof A2AFailFastError) {
+      failA2AItem(item, now, reason);
+      return 'failed';
+    }
     if (attemptNumber >= maxAttempts) {
       failA2AItem(item, now, reason);
       return 'failed';
@@ -581,6 +621,9 @@ async function deliverA2AItem(
   let jsonRpcResponse: unknown;
   try {
     jsonRpcResponse = await readJsonRpcResponse(response);
+    if (request.method === 'tasks/send') {
+      requireTasksSendResponse(jsonRpcResponse);
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     failA2AItem(item, now, reason, { statusCode: response.status });
@@ -679,7 +722,9 @@ export async function processA2AOutbox(
   return result;
 }
 
-async function drainA2AOutbox(source: 'startup' | 'interval'): Promise<void> {
+async function drainA2AOutbox(
+  source: 'startup' | 'interval' | 'auto',
+): Promise<void> {
   if (a2aOutboxProcessorRunning) {
     logger.debug(
       { source },
@@ -746,7 +791,7 @@ export class A2AOutboundAdapter implements TransportAdapter<A2AOutboxItem> {
     }
     const item = enqueueA2AEnvelope(envelope, descriptor, context, this.opts);
     if (this.opts.autoProcess !== false) {
-      void processA2AOutbox().catch((error) => {
+      void drainA2AOutbox('auto').catch((error) => {
         logger.warn({ err: error }, 'Failed to process A2A outbound outbox');
       });
     }

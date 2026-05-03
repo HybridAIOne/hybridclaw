@@ -175,6 +175,184 @@ describe('A2A outbound adapter', () => {
     expect(request.params.metadata.hybridclaw.intent).toBe('handoff');
   });
 
+  test('requires a JSON-RPC response body for tasks/send', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const secrets = await import('../src/security/runtime-secrets.ts');
+
+    initDatabase({ quiet: true });
+    secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-empty-task', 'handoff'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        fetchImpl: vi
+          .fn()
+          .mockResolvedValueOnce(
+            Response.json({
+              url: 'https://peer.example.com/a2a',
+              capabilities: ['tasks/send'],
+            }),
+          )
+          .mockResolvedValueOnce(new Response('', { status: 202 })),
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError: 'tasks/send requires a well-formed JSON-RPC response body',
+    });
+  });
+
+  test('validates Agent Card delivery URLs before caching or sending', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const secrets = await import('../src/security/runtime-secrets.ts');
+
+    initDatabase({ quiet: true });
+    secrets.saveNamedRuntimeSecrets({ A2A_PEER_TOKEN: 'peer-secret' });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-bad-card-url'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
+      },
+      transportRegistry: registry,
+    });
+
+    await expect(
+      a2a.processA2AOutbox({
+        fetchImpl: vi.fn().mockResolvedValue(
+          Response.json({
+            url: 'http://169.254.169.254/a2a',
+            capabilities: [],
+          }),
+        ),
+      }),
+    ).resolves.toMatchObject({ processed: 1, failed: 1 });
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError: 'Agent Card url must use https unless targeting loopback',
+    });
+  });
+
+  test('requires bearer auth based on the resolved delivery URL', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-remote-delivery-no-auth'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'http://127.0.0.1:8787/.well-known/agent.json',
+      },
+      transportRegistry: registry,
+    });
+
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      Response.json({
+        url: 'https://peer.example.com/a2a',
+        capabilities: [],
+      }),
+    );
+    await expect(a2a.processA2AOutbox({ fetchImpl })).resolves.toMatchObject({
+      processed: 1,
+      failed: 1,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
+      status: 'failed',
+      lastError: 'a2a.bearerTokenRef is required for non-loopback peers',
+    });
+  });
+
+  test('keys Agent Card cache by auth context', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const secrets = await import('../src/security/runtime-secrets.ts');
+
+    initDatabase({ quiet: true });
+    secrets.saveNamedRuntimeSecrets({
+      A2A_PEER_TOKEN_A: 'peer-secret-a',
+      A2A_PEER_TOKEN_B: 'peer-secret-b',
+    });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter({ autoProcess: false }));
+    const agentCardUrl = 'https://peer.example.com/.well-known/agent.json';
+    const requests: Array<{ url: string; method: string; body: string }> = [];
+    let cardFetches = 0;
+    const fetchImpl = vi.fn(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({
+          url: String(url),
+          method: init?.method || 'GET',
+          body: String(init?.body || ''),
+        });
+        if (init?.method === 'GET') {
+          cardFetches += 1;
+          const suffix = cardFetches === 1 ? 'a' : 'b';
+          return Response.json({
+            url: `https://peer-${suffix}.example.com/a2a`,
+            capabilities: [],
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: {} });
+      },
+    );
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-cache-a'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl,
+        bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN_A' },
+      },
+      transportRegistry: registry,
+    });
+    await a2a.processA2AOutbox({ fetchImpl });
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-cache-b'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl,
+        bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN_B' },
+      },
+      transportRegistry: registry,
+    });
+    await a2a.processA2AOutbox({ fetchImpl });
+
+    expect(requests.filter((request) => request.method === 'GET')).toHaveLength(
+      2,
+    );
+    expect(
+      requests.filter(
+        (request) => request.url === 'https://peer-b.example.com/a2a',
+      ),
+    ).toHaveLength(1);
+  });
+
   test('retries transient responses and fails fast with audit escalation on 4xx', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
