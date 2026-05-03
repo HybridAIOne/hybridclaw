@@ -28,6 +28,7 @@ const BROWSER_SOCKET_ROOT = '/tmp/hybridclaw-browser';
 const BROWSER_ARTIFACT_ROOT = path.join(WORKSPACE_ROOT, '.browser-artifacts');
 const BROWSER_DOWNLOAD_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'downloads');
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
+const BROWSER_DOWNLOAD_TIMEOUT_MS = 120_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
@@ -1112,7 +1113,9 @@ async function adoptNativeDownload(
   };
 }
 
-function formatDownloadSnapshot(snapshot: DownloadSnapshot): Record<string, unknown> | null {
+function formatDownloadSnapshot(
+  snapshot: DownloadSnapshot,
+): Record<string, unknown> | null {
   const relativePath = toWorkspaceRelativePath(snapshot.path);
   if (!relativePath) return null;
   return {
@@ -1127,7 +1130,9 @@ function listManagedDownloads(
   filter: string,
   limit: number,
 ): Record<string, unknown>[] {
-  return Array.from(listDownloadSnapshots(ensureWritableDir(BROWSER_DOWNLOAD_ROOT)).values())
+  return Array.from(
+    listDownloadSnapshots(ensureWritableDir(BROWSER_DOWNLOAD_ROOT)).values(),
+  )
     .filter((snapshot) => {
       if (!filter) return true;
       const normalizedFilter = filter.toLowerCase();
@@ -1757,8 +1762,7 @@ async function collectClickDownloadResult(
   downloadPath: string,
   observer?: NativeDownloadObserver,
 ): Promise<
-  | { ok: true; fields: Record<string, unknown> }
-  | { ok: false; error: string }
+  { ok: true; fields: Record<string, unknown> } | { ok: false; error: string }
 > {
   if (!downloadPromise) return { ok: true, fields: {} };
   const download = await downloadPromise;
@@ -1796,6 +1800,46 @@ async function collectClickDownloadResult(
         : {}),
     },
   };
+}
+
+async function clearDownloadTargetMarker(
+  sessionId: string,
+  selector: string,
+): Promise<void> {
+  await runBrowserEval(
+    sessionId,
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (element) element.removeAttribute('data-hybridclaw-download-target');
+      return true;
+    })()`,
+    10_000,
+  ).catch(() => undefined);
+}
+
+async function runBrowserDownloadTarget(
+  sessionId: string,
+  selector: string,
+  downloadPath: string,
+  options: { clearTargetMarker?: boolean } = {},
+): Promise<
+  { ok: true; fields: Record<string, unknown> } | { ok: false; error: string }
+> {
+  const downloadObserver = createNativeDownloadObserver(downloadPath);
+  const result = await runAgentBrowser(
+    sessionId,
+    'download',
+    [selector, downloadPath],
+    { timeoutMs: BROWSER_DOWNLOAD_TIMEOUT_MS },
+  );
+  if (options.clearTargetMarker === true) {
+    await clearDownloadTargetMarker(sessionId, selector);
+  }
+  return collectClickDownloadResult(
+    Promise.resolve(result),
+    downloadPath,
+    downloadObserver,
+  );
 }
 
 function normalizeFrameMetadata(raw: unknown): Record<string, unknown>[] {
@@ -2275,7 +2319,9 @@ export async function executeBrowserTool(
               !Number.isFinite(target.x) ||
               !Number.isFinite(target.y)
             ) {
-              return failure('x and y must both be finite viewport coordinates');
+              return failure(
+                'x and y must both be finite viewport coordinates',
+              );
             }
             const marker = `download-${Date.now()}-${Math.random()
               .toString(36)
@@ -2303,11 +2349,7 @@ export async function executeBrowserTool(
             };
             const frameEval = await runBrowserEval(
               effectiveSessionId,
-              buildCoordinateFrameTargetScript(
-                target.x,
-                target.y,
-                frameMarker,
-              ),
+              buildCoordinateFrameTargetScript(target.x, target.y, frameMarker),
               30_000,
             );
             if (!frameEval.success) {
@@ -2394,28 +2436,13 @@ export async function executeBrowserTool(
                 'failed to create download selector for coordinate target',
               );
             }
-            const downloadObserver = createNativeDownloadObserver(downloadPath);
-            const result = await runAgentBrowser(
+            const downloadResult = await runBrowserDownloadTarget(
               effectiveSessionId,
-              'download',
-              [selector, downloadPath],
-              { timeoutMs: 120_000 },
-            );
-            await runBrowserEval(
-              effectiveSessionId,
-              `(() => {
-                const element = document.querySelector(${JSON.stringify(selector)});
-                if (element) element.removeAttribute('data-hybridclaw-download-target');
-                return true;
-              })()`,
-              10_000,
-            ).catch(() => undefined);
-            await cleanupIframeTarget();
-            const downloadResult = await collectClickDownloadResult(
-              Promise.resolve(result),
+              selector,
               downloadPath,
-              downloadObserver,
+              { clearTargetMarker: true },
             );
+            await cleanupIframeTarget();
             if (!downloadResult.ok) return failure(downloadResult.error);
             return success({
               clicked: target.raw,
@@ -2482,17 +2509,10 @@ export async function executeBrowserTool(
         }
         if (target.source === 'ref') {
           if (waitForDownload) {
-            const downloadObserver = createNativeDownloadObserver(downloadPath);
-            const result = await runAgentBrowser(
+            const downloadResult = await runBrowserDownloadTarget(
               effectiveSessionId,
-              'download',
-              [target.raw, downloadPath],
-              { timeoutMs: 120_000 },
-            );
-            const downloadResult = await collectClickDownloadResult(
-              Promise.resolve(result),
+              target.raw,
               downloadPath,
-              downloadObserver,
             );
             if (!downloadResult.ok) return failure(downloadResult.error);
             return success({
@@ -2515,17 +2535,10 @@ export async function executeBrowserTool(
         }
 
         if (target.source === 'selector' && waitForDownload) {
-          const downloadObserver = createNativeDownloadObserver(downloadPath);
-          const result = await runAgentBrowser(
+          const downloadResult = await runBrowserDownloadTarget(
             effectiveSessionId,
-            'download',
-            [target.raw, downloadPath],
-            { timeoutMs: 120_000 },
-          );
-          const downloadResult = await collectClickDownloadResult(
-            Promise.resolve(result),
+            target.raw,
             downloadPath,
-            downloadObserver,
           );
           if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
@@ -2567,28 +2580,15 @@ export async function executeBrowserTool(
               ? selectorData.selector
               : '';
           if (!selector) {
-            return failure('failed to create download selector for text target');
+            return failure(
+              'failed to create download selector for text target',
+            );
           }
-          const downloadObserver = createNativeDownloadObserver(downloadPath);
-          const result = await runAgentBrowser(
+          const downloadResult = await runBrowserDownloadTarget(
             effectiveSessionId,
-            'download',
-            [selector, downloadPath],
-            { timeoutMs: 120_000 },
-          );
-          await runBrowserEval(
-            effectiveSessionId,
-            `(() => {
-              const element = document.querySelector(${JSON.stringify(selector)});
-              if (element) element.removeAttribute('data-hybridclaw-download-target');
-              return true;
-            })()`,
-            10_000,
-          ).catch(() => undefined);
-          const downloadResult = await collectClickDownloadResult(
-            Promise.resolve(result),
+            selector,
             downloadPath,
-            downloadObserver,
+            { clearTargetMarker: true },
           );
           if (!downloadResult.ok) return failure(downloadResult.error);
           return success({
@@ -3640,7 +3640,8 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           limit: {
             type: 'number',
-            description: 'Maximum files to return, newest first. Defaults to 10.',
+            description:
+              'Maximum files to return, newest first. Defaults to 10.',
           },
           waitMs: {
             type: 'number',

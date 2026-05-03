@@ -120,41 +120,21 @@ class GoogleAdsInvoiceAdapter {
   }
 
   async discoverCustomerClients(credentials) {
-    assertGoogleAdsCredentials(credentials, [
-      'accessToken',
-      'developerToken',
-      'customerId',
-    ]);
-    const customerId = credentials.customerId.replace(/-/g, '');
-    const response = await this.fetch(
-      `https://googleads.googleapis.com/${this.apiVersion}/customers/${customerId}/googleAds:search`,
-      {
-        method: 'POST',
-        headers: googleAdsHeaders(credentials, {
-          'Content-Type': 'application/json',
-        }),
-        body: JSON.stringify({
-          query: [
-            'SELECT',
-            '  customer_client.client_customer,',
-            '  customer_client.descriptive_name,',
-            '  customer_client.manager,',
-            '  customer_client.level,',
-            '  customer_client.status',
-            'FROM customer_client',
-            'WHERE customer_client.level <= 1',
-          ].join('\n'),
-        }),
-      },
+    const rows = await this.runGoogleAdsSearch(
+      credentials,
+      [
+        'SELECT',
+        '  customer_client.client_customer,',
+        '  customer_client.descriptive_name,',
+        '  customer_client.manager,',
+        '  customer_client.level,',
+        '  customer_client.status',
+        'FROM customer_client',
+        'WHERE customer_client.level <= 1',
+      ].join('\n'),
+      'Google Ads customer client discovery',
     );
-    if (!response.ok) {
-      throw await googleAdsHttpError(
-        response,
-        'Google Ads customer client discovery',
-      );
-    }
-    const payload = await response.json();
-    return (payload.results || []).map((row) => {
+    return rows.map((row) => {
       const customerClient = row.customerClient || {};
       const clientCustomer = String(customerClient.clientCustomer || '');
       return {
@@ -169,6 +149,28 @@ class GoogleAdsInvoiceAdapter {
   }
 
   async discoverBillingSetups(credentials) {
+    const rows = await this.runGoogleAdsSearch(
+      credentials,
+      [
+        'SELECT',
+        '  billing_setup.resource_name,',
+        '  billing_setup.payments_account,',
+        '  billing_setup.status',
+        'FROM billing_setup',
+      ].join('\n'),
+      'Google Ads billing setup discovery',
+    );
+    return rows.map((row) => {
+      const billingSetup = row.billingSetup || {};
+      return {
+        resourceName: String(billingSetup.resourceName || ''),
+        paymentsAccount: String(billingSetup.paymentsAccount || ''),
+        status: String(billingSetup.status || ''),
+      };
+    });
+  }
+
+  async runGoogleAdsSearch(credentials, query, context) {
     assertGoogleAdsCredentials(credentials, [
       'accessToken',
       'developerToken',
@@ -183,31 +185,15 @@ class GoogleAdsInvoiceAdapter {
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({
-          query: [
-            'SELECT',
-            '  billing_setup.resource_name,',
-            '  billing_setup.payments_account,',
-            '  billing_setup.status',
-            'FROM billing_setup',
-          ].join('\n'),
+          query,
         }),
       },
     );
     if (!response.ok) {
-      throw await googleAdsHttpError(
-        response,
-        'Google Ads billing setup discovery',
-      );
+      throw await googleAdsHttpError(response, context);
     }
     const payload = await response.json();
-    return (payload.results || []).map((row) => {
-      const billingSetup = row.billingSetup || {};
-      return {
-        resourceName: String(billingSetup.resourceName || ''),
-        paymentsAccount: String(billingSetup.paymentsAccount || ''),
-        status: String(billingSetup.status || ''),
-      };
-    });
+    return payload.results || [];
   }
 
   async download(session, invoice) {
