@@ -46,6 +46,19 @@ if (command === 'click') {
     }
   }));
 } else if (command === 'eval') {
+  const script = commandArgs[0] || '';
+  if (script.includes('data-hybridclaw-download-target')) {
+    process.stdout.write(JSON.stringify({
+      data: {
+        result: {
+          ok: true,
+          selector: '[data-hybridclaw-download-target="download-test"]',
+          text: 'Herunterladen'
+        }
+      }
+    }));
+    process.exit(0);
+  }
   process.stdout.write(JSON.stringify({
     data: {
       result: {
@@ -529,6 +542,66 @@ test('browser_click can download and save from a ref target', async () => {
           'invoice-5563916179.pdf',
         ),
       ],
+    },
+  ]);
+});
+
+test('browser_click can resolve visible text and save a download', async () => {
+  tempRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-browser-click-text-download-'),
+  );
+  const logPath = path.join(tempRoot, 'commands.jsonl');
+  vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_ROOT', tempRoot);
+  vi.stubEnv('AGENT_BROWSER_BIN', createAgentBrowserStub(tempRoot));
+  vi.stubEnv('AGENT_BROWSER_STUB_LOG', logPath);
+
+  const { executeBrowserTool } = await import(
+    '../container/src/browser-tools.js'
+  );
+
+  const output = await executeBrowserTool(
+    'browser_click',
+    {
+      text: 'Herunterladen',
+      exact: true,
+      waitForDownload: true,
+      downloadPath: 'invoice-5563916179.pdf',
+    },
+    'session-1',
+  );
+  const parsed = JSON.parse(output) as Record<string, unknown>;
+  const commands = fs
+    .readFileSync(logPath, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  expect(parsed.success, output).toBe(true);
+  expect(parsed.clicked).toBe('Herunterladen');
+  expect(parsed.text).toBe('Herunterladen');
+  expect(parsed.download_path).toBe(
+    '.browser-artifacts/downloads/invoice-5563916179.pdf',
+  );
+  expect(commands).toEqual([
+    {
+      command: 'eval',
+      args: [expect.stringContaining('data-hybridclaw-download-target')],
+    },
+    {
+      command: 'download',
+      args: [
+        '[data-hybridclaw-download-target="download-test"]',
+        path.join(
+          tempRoot,
+          '.browser-artifacts',
+          'downloads',
+          'invoice-5563916179.pdf',
+        ),
+      ],
+    },
+    {
+      command: 'eval',
+      args: [expect.stringContaining('removeAttribute')],
     },
   ]);
 });

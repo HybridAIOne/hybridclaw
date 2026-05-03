@@ -1224,6 +1224,148 @@ ${buildElementClickResultScript('\n    matched_kind: match.matchedKind,')}
 })()`;
 }
 
+function buildTextDownloadTargetScript(
+  text: string,
+  exact: boolean,
+  marker: string,
+): string {
+  return `(() => {
+  const query = ${JSON.stringify(text)};
+  const exact = ${JSON.stringify(exact)};
+  const marker = ${JSON.stringify(marker)};
+  const normalize = (value) =>
+    String(value || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const needle = normalize(query);
+  if (!needle) {
+    return { ok: false, error: 'text is required' };
+  }
+  const isVisible = (element) => {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  const resolveClickableTarget = (start) => {
+    let current = start;
+    while (current) {
+      const tag = String(current.tagName || '').toLowerCase();
+      const role =
+        typeof current.getAttribute === 'function'
+          ? String(current.getAttribute('role') || '').toLowerCase()
+          : '';
+      const tabIndexValue =
+        typeof current.tabIndex === 'number' && Number.isFinite(current.tabIndex)
+          ? current.tabIndex
+          : typeof current.getAttribute === 'function'
+              ? Number.parseInt(String(current.getAttribute('tabindex') || ''), 10)
+              : Number.NaN;
+      const style =
+        typeof window.getComputedStyle === 'function'
+          ? window.getComputedStyle(current)
+          : null;
+      const cursor = style && typeof style.cursor === 'string'
+        ? style.cursor.toLowerCase()
+        : '';
+      if (
+        tag === 'a' ||
+        tag === 'button' ||
+        tag === 'input' ||
+        tag === 'select' ||
+        tag === 'textarea' ||
+        tag === 'summary' ||
+        tag === 'label' ||
+        role === 'button' ||
+        role === 'link' ||
+        cursor === 'pointer' ||
+        (Number.isFinite(tabIndexValue) && Number(tabIndexValue) >= 0) ||
+        typeof current.onclick === 'function'
+      ) {
+        return current;
+      }
+      current = current.parentElement || null;
+    }
+    return start;
+  };
+  const findMatch = (matchMode) => {
+    if (!document.body) return null;
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_ELEMENT,
+    );
+    let current = walker.currentNode;
+    let bestMatch = null;
+    while (current) {
+      const element = current;
+      const tag = String(element.tagName || '').toLowerCase();
+      if (
+        tag !== 'script' &&
+        tag !== 'style' &&
+        tag !== 'noscript' &&
+        isVisible(element)
+      ) {
+        const value =
+          ('innerText' in element ? element.innerText : element.textContent) ||
+          element.getAttribute('aria-label') ||
+          element.getAttribute('alt') ||
+          element.getAttribute('title') ||
+          '';
+        const normalized = normalize(value);
+        const matches =
+          matchMode === 'exact'
+            ? normalized === needle
+            : normalized.includes(needle);
+        if (normalized && matches) {
+          const rect = element.getBoundingClientRect();
+          const candidate = {
+            element,
+            textLength: normalized.length,
+            area: Math.round(rect.width * rect.height),
+          };
+          if (
+            !bestMatch ||
+            candidate.textLength < bestMatch.textLength ||
+            (candidate.textLength === bestMatch.textLength &&
+              candidate.area < bestMatch.area)
+          ) {
+            bestMatch = candidate;
+          }
+        }
+      }
+      current = walker.nextNode();
+    }
+    return bestMatch;
+  };
+  const match = findMatch('exact') || (!exact ? findMatch('substring') : null);
+  if (!match) {
+    return {
+      ok: false,
+      error: 'no visible element matches text "' + query + '"',
+    };
+  }
+  const target = resolveClickableTarget(match.element);
+  target.setAttribute('data-hybridclaw-download-target', marker);
+  if (typeof target.scrollIntoView === 'function') {
+    target.scrollIntoView({ block: 'center', inline: 'center' });
+  }
+  return {
+    ok: true,
+    selector: '[data-hybridclaw-download-target="' + marker + '"]',
+    text: String(('innerText' in target ? target.innerText : target.textContent) || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .slice(0, 200),
+  };
+})()`;
+}
+
 function parseOptionalFrame(raw: unknown): FrameTarget | null {
   if (raw == null) return null;
   const frame = String(raw).trim();
@@ -1872,9 +2014,69 @@ export async function executeBrowserTool(
           });
         }
         if (target.source === 'text' && waitForDownload) {
-          return failure(
-            'waitForDownload requires a snapshot ref or CSS selector target; visible-text clicks cannot be captured as downloads by this browser runtime',
+          const marker = `download-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 10)}`;
+          const selectorEval = await runBrowserEval(
+            effectiveSessionId,
+            buildTextDownloadTargetScript(
+              target.raw,
+              args.exact === true,
+              marker,
+            ),
+            30_000,
           );
+          if (!selectorEval.success) {
+            return failure(
+              selectorEval.error ||
+                `failed to resolve visible text "${target.raw}" for download`,
+            );
+          }
+          const selectorData = asRecord(selectorEval.result);
+          if (selectorData?.ok !== true) {
+            return failure(
+              typeof selectorData?.error === 'string'
+                ? selectorData.error
+                : `failed to resolve visible text "${target.raw}" for download`,
+            );
+          }
+          const selector =
+            typeof selectorData.selector === 'string'
+              ? selectorData.selector
+              : '';
+          if (!selector) {
+            return failure('failed to create download selector for text target');
+          }
+          const result = await runAgentBrowser(
+            effectiveSessionId,
+            'download',
+            [selector, downloadPath],
+            { timeoutMs: 120_000 },
+          );
+          await runBrowserEval(
+            effectiveSessionId,
+            `(() => {
+              const element = document.querySelector(${JSON.stringify(selector)});
+              if (element) element.removeAttribute('data-hybridclaw-download-target');
+              return true;
+            })()`,
+            10_000,
+          ).catch(() => undefined);
+          const downloadResult = await collectClickDownloadResult(
+            Promise.resolve(result),
+            downloadPath,
+          );
+          if (!downloadResult.ok) return failure(downloadResult.error);
+          return success({
+            clicked: target.raw,
+            text: target.raw,
+            exact: args.exact === true,
+            ...(typeof selectorData.text === 'string'
+              ? { matched_text: selectorData.text }
+              : {}),
+            ...downloadResult.fields,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
         }
 
         const clickEval = await runBrowserEval(
