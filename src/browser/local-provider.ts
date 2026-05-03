@@ -5,11 +5,15 @@ import { assertBrowserNavigationUrl } from '../../container/shared/browser-navig
 import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../../container/shared/browser-profile.js';
 import { DATA_DIR } from '../config/config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
-import {
-  resolveSecretInputUnsafe,
-  type SecretInput,
-} from '../security/secret-refs.js';
+import type { SecretInput } from '../security/secret-refs.js';
 import { getBrowserProfileDir } from './browser-login.js';
+import {
+  fillBrowserField,
+  loadPlaywrightModule,
+  normalizeScrollDelta,
+  type PlaywrightNavigationOptions,
+  toNavigationOptions,
+} from './playwright-utils.js';
 import type {
   BrowserEvaluateFunction,
   BrowserProvider,
@@ -26,11 +30,6 @@ import type {
 type PlaywrightScreenshotOptions = {
   fullPage?: boolean;
   type?: 'png' | 'jpeg';
-};
-
-type PlaywrightNavigationOptions = {
-  waitUntil?: 'load' | 'domcontentloaded';
-  timeout?: number;
 };
 
 type PlaywrightPage = {
@@ -83,9 +82,6 @@ export interface LocalBrowserProviderOptions {
   playwright?: LocalBrowserPlaywrightModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
-
-const DEFAULT_SCROLL_DELTA = 800;
-const noopSecretAudit = () => {};
 
 function isPathWithin(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -160,54 +156,14 @@ function resolveConstrainedProfileDir(
   return realProfileDir;
 }
 
-function toNavigationOptions(
-  opts?: NavigateOptions | HistoryNavigationOptions,
-): PlaywrightNavigationOptions | undefined {
-  if (!opts) return undefined;
-  return {
-    waitUntil: opts.waitUntil,
-    timeout: opts.timeoutMs,
-  };
-}
-
-function normalizeScrollDelta(opts: ScrollOptions): {
-  deltaX: number;
-  deltaY: number;
-} {
-  const explicitDeltaX = typeof opts.deltaX === 'number';
-  const explicitDeltaY = typeof opts.deltaY === 'number';
-  if (explicitDeltaX || explicitDeltaY) {
-    return {
-      deltaX: explicitDeltaX ? opts.deltaX || 0 : 0,
-      deltaY: explicitDeltaY ? opts.deltaY || 0 : 0,
-    };
-  }
-
-  switch (opts.direction) {
-    case 'up':
-      return { deltaX: 0, deltaY: -DEFAULT_SCROLL_DELTA };
-    case 'left':
-      return { deltaX: -DEFAULT_SCROLL_DELTA, deltaY: 0 };
-    case 'right':
-      return { deltaX: DEFAULT_SCROLL_DELTA, deltaY: 0 };
-    default:
-      return { deltaX: 0, deltaY: DEFAULT_SCROLL_DELTA };
-  }
-}
-
 async function loadPlaywright(
   injected?: LocalBrowserPlaywrightModule,
 ): Promise<LocalBrowserPlaywrightModule> {
-  if (injected) return injected;
-  try {
-    return (await import('playwright')) as LocalBrowserPlaywrightModule;
-  } catch (error) {
-    throw new Error(
-      `Playwright is not available. Run npm install, then hybridclaw doctor browser-use --fix. Cause: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
+  return await loadPlaywrightModule(
+    injected,
+    (cause) =>
+      `Playwright is not available. Run npm install, then hybridclaw doctor browser-use --fix. Cause: ${cause}`,
+  );
 }
 
 class LocalBrowserSession implements BrowserSession {
@@ -253,22 +209,7 @@ class LocalBrowserSession implements BrowserSession {
   }
 
   async fill(selector: string, value: SecretInput): Promise<void> {
-    let resolved: string;
-    if (typeof value === 'string') {
-      resolved = value;
-    } else {
-      const resolvedSecret = resolveSecretInputUnsafe(value, {
-        path: `browser.fill(${selector})`,
-        required: true,
-        reason: `fill browser field ${selector}`,
-        audit: this.secretAudit || noopSecretAudit,
-      });
-      if (resolvedSecret == null) {
-        throw new Error(`browser.fill(${selector}) secret did not resolve`);
-      }
-      resolved = resolvedSecret;
-    }
-    await this.page.fill(selector, resolved);
+    await fillBrowserField(this.page, selector, value, this.secretAudit);
   }
 
   async scroll(opts: ScrollOptions): Promise<void> {
