@@ -245,6 +245,38 @@ test('admin tunnel status creates a managed cloudflare provider', async () => {
   });
 });
 
+test('admin tunnel status does not restart cloudflare on health interval changes', async () => {
+  const config = makeRuntimeConfig({
+    mode: 'local',
+    public_url: 'https://bot.example.com',
+    tunnel: {
+      provider: 'cloudflare',
+      health_check_interval_ms: 30_000,
+    },
+  });
+  const provider: TunnelProvider = {
+    status: vi.fn(() => ({
+      ...downStatus,
+      running: true,
+      public_url: 'https://bot.example.com',
+      state: 'up',
+    })),
+    stop: vi.fn(async () => {}),
+    start: vi.fn(async () => ({ public_url: 'https://bot.example.com' })),
+  };
+  const service = await importService({
+    config,
+    provider,
+  });
+
+  service.getGatewayAdminTunnelStatus();
+  config.deployment.tunnel.health_check_interval_ms = 60_000;
+  service.getGatewayAdminTunnelStatus();
+
+  expect(provider.stop).not.toHaveBeenCalled();
+  expect(service.createCloudflareTunnelProvider).toHaveBeenCalledTimes(1);
+});
+
 test('admin tunnel status formats IPv6 tunnel target addresses', async () => {
   const provider: TunnelProvider = {
     status: vi.fn(() => downStatus),

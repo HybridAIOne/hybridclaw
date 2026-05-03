@@ -50,9 +50,7 @@ function managedProviderKeyFor(params: {
   healthCheckIntervalMs: number;
 }): string {
   const healthKey =
-    params.provider === 'ngrok' ||
-    params.provider === 'tailscale' ||
-    params.provider === 'cloudflare'
+    params.provider === 'ngrok' || params.provider === 'tailscale'
       ? `:${params.healthCheckIntervalMs}`
       : '';
   const publicUrlKey =

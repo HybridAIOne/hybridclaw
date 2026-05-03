@@ -124,6 +124,72 @@ describe('CloudflareTunnelProvider', () => {
     expect(fs.existsSync(path.dirname(String(args[2])))).toBe(false);
   });
 
+  it('cleans up temporary credential files when local config writing fails', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-cf-test-'));
+    const writeFileSync = vi
+      .spyOn(fs, 'writeFileSync')
+      .mockImplementation(() => {
+        throw new Error('disk full');
+      });
+    const tunnelJson = JSON.stringify({
+      AccountTag: 'account',
+      TunnelID: '11111111-2222-3333-4444-555555555555',
+      TunnelSecret: 'local-tunnel-secret',
+    });
+    const provider = new CloudflareTunnelProvider({
+      publicUrl: 'bot.example.com',
+      readSecret: (name) => {
+        if (name === CLOUDFLARE_CERT_PEM_SECRET) return '-----BEGIN CERT-----';
+        if (name === CLOUDFLARE_TUNNEL_JSON_SECRET) return tunnelJson;
+        return null;
+      },
+      recordAuditEvent: makeStatusAuditRecorder(),
+      runProcess: vi.fn(),
+      tempRootDir: tmpDir,
+    });
+
+    try {
+      await expect(provider.start()).rejects.toThrow('disk full');
+      expect(fs.readdirSync(tmpDir)).toEqual([]);
+    } finally {
+      writeFileSync.mockRestore();
+    }
+  });
+
+  it('uses cloudflaredCommand without a custom process runner', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-cf-test-'));
+    const commandPath = path.join(tmpDir, 'fake-cloudflared');
+    fs.writeFileSync(
+      commandPath,
+      [
+        '#!/bin/sh',
+        'echo "Registered tunnel connection" >&2',
+        'while true; do sleep 1; done',
+        '',
+      ].join('\n'),
+      { mode: 0o700 },
+    );
+    const provider = new CloudflareTunnelProvider({
+      cloudflaredCommand: commandPath,
+      healthCheckIntervalMs: 60_000,
+      publicUrl: 'https://bot.example.com',
+      readSecret: (name) =>
+        name === CLOUDFLARE_TUNNEL_TOKEN_SECRET ? 'cf-token-secret' : null,
+      recordAuditEvent: makeStatusAuditRecorder(),
+      startupTimeoutMs: 1_000,
+    });
+
+    await expect(provider.start()).resolves.toEqual({
+      public_url: 'https://bot.example.com',
+    });
+    expect(provider.status()).toMatchObject({
+      running: true,
+      public_url: 'https://bot.example.com',
+      state: 'up',
+    });
+    await provider.stop();
+  });
+
   it('fails gracefully when Cloudflare credentials are missing', async () => {
     const runProcess = vi.fn();
     const provider = new CloudflareTunnelProvider({
@@ -239,6 +305,7 @@ describe('CloudflareTunnelProvider', () => {
 
   it('reconnects when a health check fails', async () => {
     vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     try {
       const firstProcess = new FakeCloudflaredProcess();
       const secondProcess = new FakeCloudflaredProcess();
@@ -296,6 +363,7 @@ describe('CloudflareTunnelProvider', () => {
 
       await provider.stop();
     } finally {
+      random.mockRestore();
       vi.useRealTimers();
     }
   });

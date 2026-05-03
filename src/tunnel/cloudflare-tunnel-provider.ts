@@ -18,9 +18,11 @@ import {
   errorMessage,
   makeTunnelRunId,
   normalizeDurationMs,
+  normalizeHealthCheckPath,
   recordTunnelAudit,
   redactSecret,
   type TunnelAuditRecorder,
+  type TunnelHealthFetch,
   TunnelStatusTracker,
   type TunnelStatusUpdate,
   type TunnelTimer,
@@ -35,6 +37,7 @@ export const DEFAULT_CLOUDFLARE_TUNNEL_ADDR = 'localhost:9090';
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
 const DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH = '/health';
+const RECONNECT_JITTER_RATIO = 0.1;
 const READY_OUTPUT_RE =
   /connection .+ registered|registered tunnel connection|tunnel server connection/i;
 
@@ -62,14 +65,11 @@ type CloudflaredProcessRunner = (
   args: string[],
   options?: CloudflaredProcessOptions,
 ) => CloudflaredProcess;
-type TunnelHealthFetch = (
-  input: string | URL,
-  init?: { method?: string; signal?: AbortSignal },
-) => Promise<Pick<Response, 'ok' | 'status'>>;
 
 export interface CloudflareTunnelProviderOptions {
   addr?: string;
   certPemSecretName?: string;
+  // Production command override. Ignored when runProcess is provided for tests.
   cloudflaredCommand?: string;
   fetch?: TunnelHealthFetch;
   healthCheckIntervalMs?: number;
@@ -89,19 +89,12 @@ export interface CloudflareTunnelProviderOptions {
   tunnelJsonSecretName?: string;
 }
 
-type CloudflareAuth =
-  | {
-      args: string[];
-      env: NodeJS.ProcessEnv;
-      secrets: string[];
-      tempDir: string | null;
-    }
-  | {
-      args: string[];
-      env?: undefined;
-      secrets: string[];
-      tempDir: string;
-    };
+type CloudflareAuth = {
+  args: string[];
+  env?: NodeJS.ProcessEnv;
+  secrets: string[];
+  tempDir: string | null;
+};
 
 function defaultProcessRunner(command: string): CloudflaredProcessRunner {
   return (args, options) =>
@@ -116,13 +109,6 @@ function normalizeAddr(value: string | undefined): string {
   const trimmed = value?.trim() || DEFAULT_CLOUDFLARE_TUNNEL_ADDR;
   if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/$/, '');
   return `http://${trimmed.replace(/\/$/, '')}`;
-}
-
-function normalizeHealthCheckPath(value: unknown): string {
-  if (typeof value !== 'string') return DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH;
-  const trimmed = value.trim();
-  if (!trimmed) return DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH;
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 function normalizePublicUrl(value: string | undefined): string | null {
@@ -172,14 +158,19 @@ function redactSecrets(message: string, secrets: string[]): string {
   );
 }
 
+function jitterReconnectDelayMs(delayMs: number): number {
+  const factor =
+    1 - RECONNECT_JITTER_RATIO + Math.random() * RECONNECT_JITTER_RATIO * 2;
+  return Math.max(1, Math.round(delayMs * factor));
+}
+
 function removeTempDir(tempDir: string | null): void {
   if (!tempDir) return;
   try {
     fs.rmSync(tempDir, { force: true, recursive: true });
-  } catch (error) {
+  } catch {
     console.warn(
       '[tunnel] failed to remove temporary cloudflared credential files.',
-      errorMessage(error),
     );
   }
 }
@@ -227,7 +218,10 @@ export class CloudflareTunnelProvider implements TunnelProvider {
       options.healthCheckIntervalMs,
       DEFAULT_HEALTH_INTERVAL_MS,
     );
-    this.healthCheckPath = normalizeHealthCheckPath(options.healthCheckPath);
+    this.healthCheckPath = normalizeHealthCheckPath(
+      options.healthCheckPath,
+      DEFAULT_CLOUDFLARE_HEALTH_CHECK_PATH,
+    );
     this.healthCheckTimeoutMs = normalizeDurationMs(
       options.healthCheckTimeoutMs,
       DEFAULT_HEALTH_TIMEOUT_MS,
@@ -381,34 +375,40 @@ export class CloudflareTunnelProvider implements TunnelProvider {
     }
 
     const tunnelId = parseTunnelId(tunnelJson);
-    const tempDir = fs.mkdtempSync(
-      path.join(this.tempRootDir, 'hybridclaw-cloudflared-'),
-    );
-    const certPath = path.join(tempDir, 'cert.pem');
-    const credentialsPath = path.join(tempDir, 'tunnel.json');
-    const configPath = path.join(tempDir, 'config.yml');
-    fs.writeFileSync(certPath, certPem, { mode: 0o600 });
-    fs.writeFileSync(credentialsPath, tunnelJson, { mode: 0o600 });
-    fs.writeFileSync(
-      configPath,
-      [
-        `tunnel: ${yamlString(tunnelId)}`,
-        `credentials-file: ${yamlString(credentialsPath)}`,
-        `origincert: ${yamlString(certPath)}`,
-        'ingress:',
-        `  - hostname: ${yamlString(hostnameFromPublicUrl(publicUrl))}`,
-        `    service: ${yamlString(this.addr)}`,
-        '  - service: http_status:404',
-        '',
-      ].join('\n'),
-      { mode: 0o600 },
-    );
+    let tempDir: string | null = null;
+    try {
+      tempDir = fs.mkdtempSync(
+        path.join(this.tempRootDir, 'hybridclaw-cloudflared-'),
+      );
+      const certPath = path.join(tempDir, 'cert.pem');
+      const credentialsPath = path.join(tempDir, 'tunnel.json');
+      const configPath = path.join(tempDir, 'config.yml');
+      fs.writeFileSync(certPath, certPem, { mode: 0o600 });
+      fs.writeFileSync(credentialsPath, tunnelJson, { mode: 0o600 });
+      fs.writeFileSync(
+        configPath,
+        [
+          `tunnel: ${yamlString(tunnelId)}`,
+          `credentials-file: ${yamlString(credentialsPath)}`,
+          `origincert: ${yamlString(certPath)}`,
+          'ingress:',
+          `  - hostname: ${yamlString(hostnameFromPublicUrl(publicUrl))}`,
+          `    service: ${yamlString(this.addr)}`,
+          '  - service: http_status:404',
+          '',
+        ].join('\n'),
+        { mode: 0o600 },
+      );
 
-    return {
-      args: ['tunnel', '--config', configPath, 'run', tunnelId],
-      secrets: [certPem, tunnelJson],
-      tempDir,
-    };
+      return {
+        args: ['tunnel', '--config', configPath, 'run', tunnelId],
+        secrets: [certPem, tunnelJson],
+        tempDir,
+      };
+    } catch (error) {
+      removeTempDir(tempDir);
+      throw error;
+    }
   }
 
   private async startCloudflared(
@@ -653,10 +653,11 @@ export class CloudflareTunnelProvider implements TunnelProvider {
 
   private scheduleReconnect(message: string): void {
     const attempt = this.statusTracker.reconnectAttempt + 1;
-    const delayMs = Math.min(
+    const baseDelayMs = Math.min(
       this.reconnectMaxBackoffMs,
       this.reconnectInitialBackoffMs * 2 ** Math.max(0, attempt - 1),
     );
+    const delayMs = jitterReconnectDelayMs(baseDelayMs);
     const nextReconnectAt = new Date(Date.now() + delayMs).toISOString();
     this.statusTracker.update({
       lastError: message,
