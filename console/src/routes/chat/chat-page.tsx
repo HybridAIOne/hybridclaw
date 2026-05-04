@@ -78,6 +78,14 @@ function buildBranchInfoMap(
   return map;
 }
 
+function chatRecentQueryKey(token: string, userId: string, query = '') {
+  return ['chat-recent', token, userId, query] as const;
+}
+
+function chatRecentQueryPrefix(token: string, userId: string) {
+  return ['chat-recent', token, userId] as const;
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
@@ -140,7 +148,6 @@ export function ChatPage() {
     };
   }, []);
 
-  const getDefaultAgentId = useCallback(() => defaultAgentIdRef.current, []);
   const {
     sessionId,
     getSessionId,
@@ -149,11 +156,11 @@ export function ChatPage() {
     startFreshChat,
     ensureSessionForSend,
     handleSessionIdCorrection,
-  } = useChatSession({ getDefaultAgentId });
+  } = useChatSession();
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['chat-recent', auth.token, userId],
+      queryKey: chatRecentQueryPrefix(auth.token, userId),
     });
     void queryClient.invalidateQueries({
       queryKey: chatHistoryQueryKey(auth.token, getSessionId()),
@@ -239,7 +246,7 @@ export function ChatPage() {
   }, [modelsQuery.error]);
 
   const recentQuery = useQuery({
-    queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+    queryKey: chatRecentQueryKey(auth.token, userId, trimmedSessionSearchQuery),
     queryFn: () =>
       fetchChatRecent(
         auth.token,
@@ -500,6 +507,24 @@ export function ChatPage() {
     [auth.token, queryClient],
   );
 
+  const ensureSwitchHistory = useCallback(
+    async (resolvedSessionId: string) => {
+      await queryClient
+        .ensureQueryData({
+          queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
+          queryFn: () => loadChatHistoryUi(auth.token, resolvedSessionId),
+        })
+        .catch((err: unknown) => {
+          console.warn(
+            'Failed to prefetch chat history before appending switch result',
+            err,
+          );
+          return null;
+        });
+    },
+    [auth.token, queryClient],
+  );
+
   const sendSlashSwitch = useCallback(
     async (
       commandArgs: string[],
@@ -523,12 +548,7 @@ export function ChatPage() {
         );
         const resolvedSessionId =
           result.sessionId?.trim() || requestedSessionId;
-        await queryClient
-          .ensureQueryData({
-            queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
-            queryFn: () => loadChatHistoryUi(auth.token, resolvedSessionId),
-          })
-          .catch(() => null);
+        await ensureSwitchHistory(resolvedSessionId);
         appendLocalCommandResult(resolvedSessionId, result.text);
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });
@@ -546,6 +566,7 @@ export function ChatPage() {
       appendLocalCommandResult,
       auth.token,
       ensureSessionForSend,
+      ensureSwitchHistory,
       getSessionId,
       queryClient,
       refreshRecent,
@@ -602,7 +623,11 @@ export function ChatPage() {
 
   const handleRefreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+      queryKey: chatRecentQueryKey(
+        auth.token,
+        userId,
+        trimmedSessionSearchQuery,
+      ),
     });
   }, [queryClient, auth.token, userId, trimmedSessionSearchQuery]);
 
@@ -675,7 +700,11 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
-            <ContextRing sessionId={sessionId} />
+            <ContextRing
+              sessionId={sessionId}
+              token={auth.token}
+              enabled={chatApiReady}
+            />
             <button
               type="button"
               className={css.mobileQrButton}

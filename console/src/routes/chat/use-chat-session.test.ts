@@ -50,11 +50,7 @@ function ensureLocalStorage() {
 }
 
 function setup() {
-  return renderHook(() =>
-    useChatSession({
-      getDefaultAgentId: () => 'main',
-    }),
-  );
+  return renderHook(() => useChatSession());
 }
 
 describe('useChatSession', () => {

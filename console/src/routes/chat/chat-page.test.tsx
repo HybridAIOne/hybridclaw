@@ -23,10 +23,10 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
-  CommandResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
 import type {
+  AdminCommandResult,
   AdminModelsResponse,
   AgentListItem,
   GatewayStatus,
@@ -73,7 +73,7 @@ const executeCommandMock =
       sessionId: string,
       userId: string,
       args: string[],
-    ) => Promise<CommandResponse>
+    ) => Promise<AdminCommandResult>
   >();
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
@@ -431,7 +431,7 @@ describe('ChatPage', () => {
       history: [],
     }));
     executeCommandMock.mockImplementation(
-      async (_token, sessionId): Promise<CommandResponse> => ({
+      async (_token, sessionId): Promise<AdminCommandResult> => ({
         kind: 'plain',
         text: 'Session agent set to `bk` (model: `openrouter/nvidia/nemotron-3-super-120b-a12b:free`).',
         sessionId,

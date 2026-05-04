@@ -5,7 +5,6 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
-  CommandResponse,
   MediaUploadResponse,
 } from './chat-types';
 import {
@@ -15,6 +14,7 @@ import {
   requestJson,
   validateToken,
 } from './client';
+import type { AdminCommandResult } from './types';
 
 export { validateToken as fetchAppStatus };
 
@@ -100,8 +100,8 @@ export function executeCommand(
   sessionId: string,
   userId: string,
   args: string[],
-): Promise<CommandResponse> {
-  return requestJson<CommandResponse>('/api/command', {
+): Promise<AdminCommandResult> {
+  return requestJson<AdminCommandResult>('/api/command', {
     token,
     method: 'POST',
     body: buildWebCommandRequestBody({

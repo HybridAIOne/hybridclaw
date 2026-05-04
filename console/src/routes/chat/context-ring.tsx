@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchChatContext } from '../../api/chat';
-import { isAuthReadyForApi, useAuth } from '../../auth';
 import { cx } from '../../lib/cx';
 import css from './context-ring.module.css';
 
@@ -39,17 +38,18 @@ function severityFor(percent: number | null): 'nominal' | 'warn' | 'danger' {
 
 interface ContextRingProps {
   sessionId: string;
+  token: string;
+  enabled: boolean;
 }
 
 // ContextRing is only rendered on the chat route (via ChatPage). Callers
 // must not mount it elsewhere — there's no route-based opt-out here.
 export function ContextRing(props: ContextRingProps) {
-  const auth = useAuth();
   const sessionId = props.sessionId;
-  const enabled = isAuthReadyForApi(auth) && Boolean(sessionId);
+  const enabled = props.enabled && Boolean(sessionId);
   const query = useQuery({
-    queryKey: ['chat-context', auth.token, sessionId],
-    queryFn: () => fetchChatContext(auth.token, sessionId),
+    queryKey: ['chat-context', props.token, sessionId],
+    queryFn: () => fetchChatContext(props.token, sessionId),
     enabled,
     staleTime: 15_000,
     refetchOnWindowFocus: false,
