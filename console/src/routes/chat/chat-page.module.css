@@ -932,29 +932,36 @@ aside[data-state="collapsed"] .chatSidebarContent {
   cursor: default;
 }
 
-/* The agent component is a native <select> wrapped in this pill. The select
-   itself stays transparent and inherits the pill's typography. */
+/* The agent component is a native <select> overlaid on top of the pill so any
+   click on the pill (including the padding and chevron) opens the dropdown.
+   The visible label is rendered separately by .composerPillLabel. */
 .agentSelect {
-  max-width: 180px;
-  height: 36px;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border: none;
   appearance: none;
   background: transparent;
-  color: inherit;
   font: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: 36px;
   padding: 0;
+  margin: 0;
   outline: none;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  opacity: 0;
 }
 
 .agentSelect:disabled {
   cursor: default;
+}
+
+.composerPillLabel {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .composerPillChevron {

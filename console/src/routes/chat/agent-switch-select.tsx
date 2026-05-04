@@ -5,6 +5,10 @@ export interface AgentSwitchOption {
   name?: string | null;
 }
 
+function agentLabel(agent: AgentSwitchOption): string {
+  return agent.name?.trim() || agent.id;
+}
+
 function ChevronGlyph() {
   return (
     <svg
@@ -32,11 +36,19 @@ export function AgentSwitchSelect(props: {
 }) {
   if (props.agents.length === 0) return null;
 
+  const selectedAgent =
+    props.agents.find((agent) => agent.id === props.selectedAgentId) ??
+    props.agents[0];
+
   return (
     <span
       className={css.composerPill}
       data-disabled={props.disabled ? '' : undefined}
     >
+      <span className={css.composerPillLabel}>{agentLabel(selectedAgent)}</span>
+      <span aria-hidden="true" className={css.composerPillChevron}>
+        <ChevronGlyph />
+      </span>
       <select
         className={css.agentSelect}
         value={props.selectedAgentId}
@@ -50,13 +62,10 @@ export function AgentSwitchSelect(props: {
       >
         {props.agents.map((agent) => (
           <option key={agent.id} value={agent.id}>
-            {agent.name?.trim() || agent.id}
+            {agentLabel(agent)}
           </option>
         ))}
       </select>
-      <span aria-hidden="true" className={css.composerPillChevron}>
-        <ChevronGlyph />
-      </span>
     </span>
   );
 }
