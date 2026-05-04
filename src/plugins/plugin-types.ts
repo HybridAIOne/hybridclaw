@@ -257,6 +257,8 @@ export type PluginHookName =
   | 'before_prompt_build'
   | 'before_agent_start'
   | 'agent_end'
+  | 'pre_tool_use'
+  | 'post_tool_use'
   | 'before_tool_call'
   | 'after_tool_call'
   | 'before_compaction'
@@ -293,6 +295,8 @@ export interface PluginHookHandlerMap {
     model?: string;
   }) => Promise<void> | void;
   agent_end: (context: PluginAgentEndContext) => Promise<void> | void;
+  pre_tool_use: (context: PluginToolHookContext) => Promise<void> | void;
+  post_tool_use: (context: PluginAfterToolCallContext) => Promise<void> | void;
   before_tool_call: (context: PluginToolHookContext) => Promise<void> | void;
   after_tool_call: (
     context: PluginAfterToolCallContext,

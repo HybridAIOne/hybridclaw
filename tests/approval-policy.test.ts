@@ -4,10 +4,19 @@ import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+  type ApprovalRuleHookEvent,
+  approvalRules,
+  type ClassifiedAction,
+  DEFAULT_APPROVAL_RULE_ORDER,
+  DEFAULT_POLICY,
   loadPolicyFromDisk,
   parsePolicyYaml,
+  runApprovalRulePipeline,
+  type ToolCallContext,
+  type ToolCallContextHelpers,
   TrustedAgentApprovalRuntime,
 } from '../container/src/approval-policy.js';
+import type { StakesScore } from '../container/src/stakes-classifier.js';
 import type { ChatMessage } from '../container/src/types.js';
 
 function userMessage(text: string): ChatMessage {
@@ -26,12 +35,326 @@ function writeTempPolicy(raw: string): string {
   return policyPath;
 }
 
+const LOW_STAKES_SCORE: StakesScore = {
+  level: 'low',
+  score: 0,
+  confidence: 1,
+  reasons: ['test low stakes'],
+  classifier: 'test',
+};
+
+const GREEN_CLASSIFIED: ClassifiedAction = {
+  tier: 'green',
+  actionKey: 'read',
+  intent: 'run read',
+  consequenceIfDenied: 'I will continue without this lookup.',
+  reason: 'this is a read-only operation',
+  commandPreview: '{"path":"README.md"}',
+  pathHints: [],
+  hostHints: [],
+  writeIntent: false,
+  promotableRed: false,
+  stickyYellow: false,
+};
+
+function makeRuleContext(params?: {
+  classified?: ClassifiedAction;
+  helpers?: Partial<ToolCallContextHelpers>;
+  events?: ApprovalRuleHookEvent[];
+}): ToolCallContext {
+  const classified = params?.classified || GREEN_CLASSIFIED;
+  const helpers: ToolCallContextHelpers = {
+    reloadPolicyIfNeeded: () => DEFAULT_POLICY,
+    cleanupExpiredPending: () => {},
+    classifyAction: () => classified,
+    isPinnedRed: () => false,
+    resolveAutonomyLevel: () => 'full-autonomous',
+    runStakesMiddleware: () => ({
+      decision: { action: 'allow' },
+      stakesScore: LOW_STAKES_SCORE,
+    }),
+    hasOneShotFingerprint: () => false,
+    consumeOneShotFingerprint: () => {},
+    hasSessionTrust: () => false,
+    hasAgentTrust: () => false,
+    hasWorkspaceTrust: () => false,
+    getExplicitApprovalCount: () => 0,
+    isFullAutoEnabled: () => false,
+    shouldNeverAutoApprove: () => false,
+    getPendingCount: () => 0,
+    getOrCreatePending: () => ({
+      id: 'req123',
+      fingerprint: 'fp123',
+      actionKey: classified.actionKey,
+      toolName: 'read',
+      intent: classified.intent,
+      consequenceIfDenied: classified.consequenceIfDenied,
+      reason: classified.reason,
+      commandPreview: classified.commandPreview,
+      originalPrompt: 'Read the README',
+      createdAtMs: 1,
+      expiresAtMs: 2,
+      pinned: false,
+    }),
+    getActionExecutionCount: () => 0,
+    shouldApplyImplicitDelay: () => false,
+    emitHookEvent: params?.events
+      ? (event) => params.events?.push(event)
+      : undefined,
+    ...params?.helpers,
+  };
+
+  return {
+    params: {
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    },
+    args: { path: 'README.md' },
+    policy: DEFAULT_POLICY,
+    outOfBoundByAutonomy: false,
+    helpers,
+  };
+}
+
+function prepareRedRuleContext(params?: {
+  classified?: Partial<ClassifiedAction>;
+  helpers?: Partial<ToolCallContextHelpers>;
+  pinned?: boolean;
+}): ToolCallContext {
+  const classified: ClassifiedAction = {
+    ...GREEN_CLASSIFIED,
+    tier: 'red',
+    actionKey: 'bash:delete',
+    intent: 'run destructive command',
+    reason: 'the command deletes files',
+    commandPreview: 'rm -rf dist',
+    writeIntent: true,
+    stickyYellow: true,
+    ...params?.classified,
+  };
+  const context = makeRuleContext({
+    classified,
+    helpers: params?.helpers,
+  });
+  context.classified = classified;
+  context.fingerprint = 'fp123';
+  context.pinnedByPolicy = params?.pinned === true;
+  context.autonomyLevel = 'full-autonomous';
+  context.safetyTier = 'red';
+  context.baseTier = 'red';
+  context.tier = 'red';
+  context.decision = 'auto';
+  context.stakes = 'low';
+  context.stakesScore = LOW_STAKES_SCORE;
+  context.stakesMiddlewareDecision = { action: 'allow' };
+  return context;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
 describe('TrustedAgentApprovalRuntime', () => {
+  test('parsePolicyYaml reads approval rule order and appends missing core rules', () => {
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - classify_action
+    - policy_reload
+    - unknown_future_rule
+`);
+
+    expect(parsed.approvalRuleOrder?.slice(0, 2)).toEqual([
+      'classify_action',
+      'policy_reload',
+    ]);
+    expect(parsed.approvalRuleOrder).toHaveLength(
+      DEFAULT_APPROVAL_RULE_ORDER.length,
+    );
+    expect(new Set(parsed.approvalRuleOrder)).toEqual(
+      new Set(DEFAULT_APPROVAL_RULE_ORDER),
+    );
+  });
+
+  test('approval rules are standalone predicates over a typed tool-call context', () => {
+    const setup = makeRuleContext();
+    expect(approvalRules.policy_reload(setup).kind).toBe('next');
+    expect(approvalRules.classify_action(setup).kind).toBe('next');
+    expect(setup.classified?.actionKey).toBe('read');
+    expect(approvalRules.fingerprint(setup).kind).toBe('next');
+    expect(setup.fingerprint).toBeTruthy();
+    expect(approvalRules.pinned_red(setup).kind).toBe('next');
+    expect(setup.pinnedByPolicy).toBe(false);
+    expect(approvalRules.autonomy(setup).kind).toBe('next');
+    expect(setup.autonomyLevel).toBe('full-autonomous');
+    expect(approvalRules.safety_tier(setup).kind).toBe('next');
+    expect(setup.baseTier).toBe('green');
+    expect(approvalRules.stakes(setup).kind).toBe('next');
+    expect(setup.stakes).toBe('low');
+    expect(approvalRules.autonomy_override(setup).kind).toBe('next');
+
+    const hardDeny = prepareRedRuleContext({
+      classified: { hardDeny: true },
+    });
+    expect(approvalRules.red_hard_deny(hardDeny)).toMatchObject({
+      kind: 'decision',
+      evaluation: { decision: 'denied', escalationRoute: 'policy_denial' },
+    });
+
+    const oneShot = prepareRedRuleContext({
+      helpers: {
+        hasOneShotFingerprint: () => true,
+      },
+    });
+    expect(approvalRules.red_one_shot(oneShot).kind).toBe('next');
+    expect(oneShot.decision).toBe('approved_once');
+
+    const session = prepareRedRuleContext({
+      helpers: {
+        hasSessionTrust: () => true,
+      },
+    });
+    expect(approvalRules.red_session_trust(session).kind).toBe('next');
+    expect(session.decision).toBe('approved_session');
+
+    const agent = prepareRedRuleContext({
+      helpers: {
+        hasAgentTrust: () => true,
+      },
+    });
+    expect(approvalRules.red_agent_trust(agent).kind).toBe('next');
+    expect(agent.decision).toBe('approved_agent');
+
+    const workspace = prepareRedRuleContext({
+      helpers: {
+        hasWorkspaceTrust: () => true,
+      },
+    });
+    expect(approvalRules.red_workspace_trust(workspace).kind).toBe('next');
+    expect(workspace.decision).toBe('approved_all');
+
+    const promotable = prepareRedRuleContext({
+      classified: { promotableRed: true },
+      helpers: {
+        getExplicitApprovalCount: () => 1,
+      },
+    });
+    expect(approvalRules.red_promotable(promotable).kind).toBe('next');
+    expect(promotable.decision).toBe('promoted');
+
+    const fullAuto = prepareRedRuleContext({
+      helpers: {
+        isFullAutoEnabled: () => true,
+      },
+    });
+    expect(approvalRules.red_full_auto(fullAuto).kind).toBe('next');
+    expect(fullAuto.decision).toBe('approved_fullauto');
+
+    const fullQueue = prepareRedRuleContext({
+      helpers: {
+        getPendingCount: () => DEFAULT_POLICY.maxPendingApprovals,
+      },
+    });
+    expect(approvalRules.red_queue(fullQueue)).toMatchObject({
+      kind: 'decision',
+      evaluation: {
+        decision: 'denied',
+        reason: expect.stringContaining('full'),
+      },
+    });
+
+    const prompt = prepareRedRuleContext();
+    expect(approvalRules.red_prompt(prompt)).toMatchObject({
+      kind: 'decision',
+      evaluation: { decision: 'required', requestId: 'req123' },
+    });
+
+    const yellowFullAuto = prepareRedRuleContext({
+      helpers: {
+        isFullAutoEnabled: () => true,
+      },
+    });
+    yellowFullAuto.baseTier = 'yellow';
+    yellowFullAuto.tier = 'yellow';
+    expect(approvalRules.yellow_full_auto(yellowFullAuto).kind).toBe('next');
+    expect(yellowFullAuto.decision).toBe('approved_fullauto');
+
+    const repeatedYellow = prepareRedRuleContext({
+      classified: { stickyYellow: false },
+      helpers: {
+        getActionExecutionCount: () => 1,
+      },
+    });
+    repeatedYellow.baseTier = 'yellow';
+    repeatedYellow.tier = 'yellow';
+    expect(approvalRules.yellow_execution_promotion(repeatedYellow).kind).toBe(
+      'next',
+    );
+    expect(repeatedYellow.tier).toBe('green');
+    expect(repeatedYellow.decision).toBe('promoted');
+
+    const fallback = makeRuleContext();
+    approvalRules.classify_action(fallback);
+    approvalRules.fingerprint(fallback);
+    approvalRules.pinned_red(fallback);
+    approvalRules.autonomy(fallback);
+    approvalRules.safety_tier(fallback);
+    approvalRules.stakes(fallback);
+    expect(approvalRules.green_fallback(fallback)).toMatchObject({
+      kind: 'decision',
+      evaluation: { decision: 'auto', tier: 'green' },
+    });
+  });
+
+  test('approval pipeline emits pre_tool_use and post_tool_use hook events around rules', () => {
+    const events: ApprovalRuleHookEvent[] = [];
+    const context = makeRuleContext({ events });
+
+    const result = runApprovalRulePipeline(context);
+
+    expect(result.evaluation.decision).toBe('auto');
+    expect(events[0]).toMatchObject({
+      hook: 'pre_tool_use',
+      ruleName: 'policy_reload',
+      toolName: 'read',
+    });
+    expect(events.at(-1)).toMatchObject({
+      hook: 'post_tool_use',
+      ruleName: 'green_fallback',
+      decision: 'auto',
+    });
+  });
+
+  test('TrustedAgentApprovalRuntime sends rule hook events through the configured emitter', () => {
+    const events: ApprovalRuleHookEvent[] = [];
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setApprovalRuleHookEmitter((event) => {
+      events.push(event);
+    });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.decision).toBe('auto');
+    expect(events[0]).toMatchObject({
+      hook: 'pre_tool_use',
+      ruleName: 'policy_reload',
+      toolName: 'read',
+    });
+    expect(events.at(-1)).toMatchObject({
+      hook: 'post_tool_use',
+      ruleName: 'green_fallback',
+      decision: 'auto',
+    });
+  });
+
   test('loadPolicyFromDisk logs malformed policy files before falling back to defaults', () => {
     const policyPath = writeTempPolicy(`
 network:

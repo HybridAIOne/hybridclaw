@@ -148,6 +148,15 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
 }
 
 const approvalRuntime = new TrustedAgentApprovalRuntime();
+approvalRuntime.setApprovalRuleHookEmitter((event) =>
+  emitRuntimeEvent({
+    event: event.hook,
+    approvalRule: event.ruleName,
+    toolName: event.toolName,
+    ...(event.actionKey ? { actionKey: event.actionKey } : {}),
+    ...(event.decision ? { decision: event.decision } : {}),
+  }),
+);
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */

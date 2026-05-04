@@ -4,6 +4,8 @@ type RuntimeEventName =
   | 'after_model_call'
   | 'model_retry'
   | 'model_error'
+  | 'pre_tool_use'
+  | 'post_tool_use'
   | 'before_tool_call'
   | 'after_tool_call'
   | 'mcp_server_connected'
