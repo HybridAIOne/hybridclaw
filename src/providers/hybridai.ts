@@ -25,6 +25,7 @@ async function resolveHybridAIRuntimeCredentials(
   await discoverHybridAIModels();
   return {
     provider: 'hybridai',
+    model: params.model,
     apiKey: getHybridAIApiKey(),
     baseUrl: HYBRIDAI_BASE_URL,
     chatbotId,

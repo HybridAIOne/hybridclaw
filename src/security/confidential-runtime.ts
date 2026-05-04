@@ -1,3 +1,4 @@
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
   type ConfidentialPlaceholderMap,
   createPlaceholderMap,
@@ -32,6 +33,7 @@ export function setConfidentialRuleSetForTesting(
 
 export function isConfidentialRedactionEnabled(): boolean {
   if (process.env.HYBRIDCLAW_CONFIDENTIAL_DISABLE === '1') return false;
+  if (!getRuntimeConfig().security.confidentialRedactionEnabled) return false;
   return getConfidentialRuleSet().rules.length > 0;
 }
 
@@ -248,6 +250,12 @@ export function createConfidentialRuntimeContext(
   ruleSetOverride?: ConfidentialRuleSet,
 ): ConfidentialRuntimeContext {
   if (process.env.HYBRIDCLAW_CONFIDENTIAL_DISABLE === '1') {
+    return NOOP_CONTEXT;
+  }
+  if (
+    ruleSetOverride === undefined &&
+    !getRuntimeConfig().security.confidentialRedactionEnabled
+  ) {
     return NOOP_CONTEXT;
   }
   const ruleSet = ruleSetOverride ?? getConfidentialRuleSet();

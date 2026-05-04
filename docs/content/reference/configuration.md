@@ -188,9 +188,11 @@ saved revision history directly.
 - The built-in Tailscale Funnel tunnel provider reads `TS_AUTHKEY` from the encrypted runtime secret store when the host is not already logged in to `tailscaled`
 - The built-in Cloudflare Tunnel provider reads `CLOUDFLARE_TUNNEL_TOKEN`, or `CLOUDFLARE_CERT_PEM` plus `CLOUDFLARE_TUNNEL_JSON`, from the encrypted runtime secret store and reports `deployment.public_url` as the stable public hostname
 - Tunnel health checks call the public tunnel URL, so they consume provider request quota and generate traffic visible to the tunnel provider edge; increase the interval when that cost matters
-- `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` disables confidential-info redaction for
-  local debugging. Leave it unset in normal operation so `.confidential.yml`
-  rules can redact NDA-class matches before prompts are sent to models
+- `security.confidentialRedactionEnabled` enables `.confidential.yml`
+  redaction and outbound leak blocking. It defaults to `false`; turn it on
+  from `/admin/config` only when you want configured confidential rules enforced
+- `HYBRIDCLAW_CONFIDENTIAL_DISABLE=1` forces confidential-info redaction off for
+  local debugging, even when `security.confidentialRedactionEnabled` is enabled
 - `ops.webApiToken` or `WEB_API_TOKEN` for `/chat`, `/agents`, and `/admin`;
   when unset, localhost browser access stays open without a login prompt
 - `ops.gatewayBaseUrl` plus `ops.gatewayApiToken` or `GATEWAY_API_TOKEN` for

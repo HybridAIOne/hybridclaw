@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
 import {
   createConfidentialRuntimeContext,
+  isConfidentialRedactionEnabled,
   resetConfidentialRuleSetCache,
   setConfidentialRuleSetForTesting,
 } from '../src/security/confidential-runtime.js';
@@ -16,9 +17,16 @@ afterEach(() => {
 });
 
 describe('confidential runtime context', () => {
+  test('runtime config keeps confidential redaction off by default', () => {
+    setConfidentialRuleSetForTesting(RULES);
+    expect(isConfidentialRedactionEnabled()).toBe(false);
+  });
+
   test('returns no-op context when no rules exist', () => {
-    setConfidentialRuleSetForTesting({ rules: [], sourcePath: null });
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext({
+      rules: [],
+      sourcePath: null,
+    });
     expect(ctx.enabled).toBe(false);
     const messages = [{ role: 'user', content: 'hello Serviceplan' }];
     expect(ctx.dehydrate(messages)).toEqual(messages);
@@ -28,9 +36,7 @@ describe('confidential runtime context', () => {
   });
 
   test('dehydrates and rehydrates round-trip when rules are present', () => {
-    setConfidentialRuleSetForTesting(RULES);
-
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     expect(ctx.enabled).toBe(true);
 
     const messages = [
@@ -46,15 +52,13 @@ describe('confidential runtime context', () => {
   });
 
   test('honours HYBRIDCLAW_CONFIDENTIAL_DISABLE override', () => {
-    setConfidentialRuleSetForTesting(RULES);
     vi.stubEnv('HYBRIDCLAW_CONFIDENTIAL_DISABLE', '1');
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     expect(ctx.enabled).toBe(false);
   });
 
   test('wrapDelta rehydrates streamed text', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
 
     const seen: string[] = [];
@@ -64,8 +68,7 @@ describe('confidential runtime context', () => {
   });
 
   test('rehydrateFields restores listed string fields and leaves others alone', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
 
     const execution = {
@@ -84,8 +87,7 @@ describe('confidential runtime context', () => {
   });
 
   test('wrapEvent rehydrates listed string fields on each event', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
 
     const seen: { preview?: string }[] = [];
@@ -98,8 +100,7 @@ describe('confidential runtime context', () => {
   });
 
   test('dehydrates assistant tool_calls[].function.arguments JSON', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     const messages = [
       { role: 'user', content: 'search Serviceplan' },
       {
@@ -134,8 +135,7 @@ describe('confidential runtime context', () => {
   });
 
   test('messages with tool_calls but no confidential matches are passed through', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     const messages = [
       {
         role: 'assistant',
@@ -157,8 +157,7 @@ describe('confidential runtime context', () => {
   });
 
   test('wrapDelta buffers placeholders split across delta boundaries', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     ctx.dehydrate([{ role: 'user', content: 'About Serviceplan' }]);
 
     const seen: string[] = [];
@@ -177,8 +176,7 @@ describe('confidential runtime context', () => {
   });
 
   test('wrapDelta releases orphan « after lookahead window expires', () => {
-    setConfidentialRuleSetForTesting(RULES);
-    const ctx = createConfidentialRuntimeContext();
+    const ctx = createConfidentialRuntimeContext(RULES);
     const seen: string[] = [];
     const wrapped = ctx.wrapDelta((delta: string) => seen.push(delta));
     // 80 chars of plain text after the «, well past the 64-char

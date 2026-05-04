@@ -4,7 +4,8 @@
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
     "trustModelVersion": "",
-    "trustModelAcceptedBy": ""
+    "trustModelAcceptedBy": "",
+    "confidentialRedactionEnabled": false
   },
   "deployment": {
     "mode": "local",
