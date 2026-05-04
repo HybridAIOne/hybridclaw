@@ -16,6 +16,39 @@ async function getTestRouter(): Promise<TestRouter> {
   return mod.__testRouter;
 }
 
+function ensureLocalStorage() {
+  if (typeof globalThis.localStorage?.clear === 'function') return;
+  const store = new Map<string, string>();
+  const storage = {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(key) ?? null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  } satisfies Storage;
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    configurable: true,
+  });
+  Object.defineProperty(window, 'localStorage', {
+    value: storage,
+    configurable: true,
+  });
+}
+
 function setup() {
   return renderHook(() =>
     useChatSession({
@@ -26,6 +59,7 @@ function setup() {
 
 describe('useChatSession', () => {
   beforeEach(async () => {
+    ensureLocalStorage();
     localStorage.clear();
     (await getTestRouter()).reset();
   });
@@ -50,9 +84,8 @@ describe('useChatSession', () => {
     const { result } = setup();
     expect(localStorage.getItem('hybridclaw_session')).toBeNull();
 
-    router.setSessionId('session-a');
-    // Flush effect
     await act(async () => {
+      router.setSessionId('session-a');
       await Promise.resolve();
     });
 
@@ -165,15 +198,17 @@ describe('useChatSession', () => {
     const minted = result.current.getSessionId();
 
     // URL catches up
-    router.setSessionId(minted);
-    rerender();
     await act(async () => {
+      router.setSessionId(minted);
+      rerender();
       await Promise.resolve();
     });
 
     // URL navigates to a different session — the old draft must not bleed in
-    router.setSessionId('session-other');
-    rerender();
+    act(() => {
+      router.setSessionId('session-other');
+      rerender();
+    });
 
     expect(result.current.sessionId).toBe('session-other');
   });

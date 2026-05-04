@@ -213,7 +213,7 @@ describe('ChatPage', () => {
     isActiveMock.mockReset();
     useChatStreamMock.mockReset();
 
-    useAuthMock.mockReturnValue({ token: 'test-token' });
+    useAuthMock.mockReturnValue({ status: 'ready', token: 'test-token' });
     fetchAppStatusMock.mockResolvedValue({
       status: 'ok',
       webAuthConfigured: true,
@@ -276,6 +276,28 @@ describe('ChatPage', () => {
       streamingMsgId: null,
       isActive: isActiveMock,
     });
+  });
+
+  it('does not issue chat API queries before auth is ready', async () => {
+    useAuthMock.mockReturnValue({
+      status: 'checking',
+      token: 'stale-token',
+      gatewayStatus: null,
+      error: null,
+    });
+
+    renderChatPage();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchAppStatusMock).not.toHaveBeenCalled();
+    expect(fetchAgentListMock).not.toHaveBeenCalled();
+    expect(fetchModelsMock).not.toHaveBeenCalled();
+    expect(fetchChatRecentMock).not.toHaveBeenCalled();
+    expect(fetchChatHistoryMock).not.toHaveBeenCalled();
+    expect(fetchChatContextMock).not.toHaveBeenCalled();
   });
 
   it('loads history, sends from the composer, and switches recent sessions', async () => {

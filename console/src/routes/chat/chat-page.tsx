@@ -52,6 +52,12 @@ type BranchInfo = {
 const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
 
+function isChatApiReady(auth: ReturnType<typeof useAuth>): boolean {
+  if (auth.status !== 'ready') return false;
+  if (auth.gatewayStatus?.webAuthConfigured !== true) return true;
+  return auth.token.trim().length > 0;
+}
+
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
   branchFamilies: Map<string, BranchVariant[]>,
@@ -167,23 +173,31 @@ export function ChatPage() {
     onSessionIdCorrection: handleSessionIdCorrection,
     onModelResolved: setSelectedModelId,
   });
+  const chatApiReady = isChatApiReady(auth);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
     queryFn: () => fetchAppStatus(auth.token),
     staleTime: Infinity,
+    enabled: chatApiReady,
+    initialData:
+      auth.status === 'ready' && auth.gatewayStatus
+        ? auth.gatewayStatus
+        : undefined,
   });
 
   const agentsQuery = useQuery({
     queryKey: ['agents-list', auth.token],
     queryFn: () => fetchAgentList(auth.token),
     staleTime: 30_000,
+    enabled: chatApiReady,
   });
 
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
     staleTime: 30_000,
+    enabled: chatApiReady,
   });
 
   useEffect(() => {
@@ -240,6 +254,7 @@ export function ChatPage() {
         trimmedSessionSearchQuery || undefined,
       ),
     staleTime: 10_000,
+    enabled: chatApiReady,
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
   const agentOptions = useMemo(
@@ -255,14 +270,14 @@ export function ChatPage() {
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
     queryFn: () => loadChatHistoryUi(auth.token, sessionId),
-    enabled: Boolean(sessionId),
+    enabled: chatApiReady && Boolean(sessionId),
     staleTime: Infinity,
   });
 
   const contextQuery = useQuery({
     queryKey: ['chat-context', auth.token, sessionId],
     queryFn: () => fetchChatContext(auth.token, sessionId),
-    enabled: Boolean(sessionId),
+    enabled: chatApiReady && Boolean(sessionId),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
