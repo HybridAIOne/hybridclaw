@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import {
+  handleA2AWebhookInbound,
+  parseA2AWebhookInboundPath,
+} from '../a2a/webhook-inbound.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import {
@@ -4227,6 +4231,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         pathname === voicePaths.actionPath)
     ) {
       dispatchWebhookRoute(res, () => handleVoiceWebhook(req, res, url));
+      return;
+    }
+
+    if (parseA2AWebhookInboundPath(pathname)) {
+      dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
       return;
     }
 
