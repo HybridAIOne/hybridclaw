@@ -95,6 +95,35 @@ The runtime implementation is colocated with this skill:
 - Push MFA and captchas must stop the provider run and emit
   `invoice.operator_escalation_required` for F8 operator routing.
 
+## Google Ads InvoiceService
+
+Use secret credentials plus the official Google Ads API calls.
+
+Secret credentials:
+
+- OAuth: `hybridclaw auth login google --scopes "https://www.googleapis.com/auth/adwords"`
+- Routes:
+  `hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer`
+  `hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none`
+- Optional store values:
+  `GOOGLEADS_CUSTOMER_ID`, `GOOGLEADS_BILLING_SETUP`,
+  `GOOGLEADS_LOGIN_CUSTOMER_ID`
+
+API calls:
+
+```text
+GET https://googleads.googleapis.com/v24/customers:listAccessibleCustomers
+POST https://googleads.googleapis.com/v24/customers/<manager-customer-id>/googleAds:search
+POST https://googleads.googleapis.com/v24/customers/<customer-id>/googleAds:search
+GET https://googleads.googleapis.com/v24/customers/<customer-id>/invoices?billingSetup=customers/<customer-id>/billingSetups/<billing-setup-id>&issueYear=<yyyy>&issueMonth=<MONTH>
+GET <invoice.pdfUrl>
+```
+
+Use `customer_client` to find MCC children, `billing_setup.resource_name` for
+`billingSetup`, and `InvoiceService` `pdfUrl` for the PDF. Never call
+`POST /v24/customers/<customer-id>:search`; use
+`/v24/customers/<customer-id>/googleAds:search`.
+
 ## Run Discipline
 
 - Process one provider at a time.

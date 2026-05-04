@@ -1504,6 +1504,7 @@ test('scrubs confidential trajectory batches and records audit metadata', async 
   context = await createAdaptiveSkillsTestContext();
   const storeDir = path.join(context.homeDir, 'trajectory-scrub-store');
   context.runtimeConfigModule.updateRuntimeConfig((draft) => {
+    draft.security.confidentialRedactionEnabled = true;
     draft.adaptiveSkills.trajectoryCapture.enabledAgentIds = ['agent-scrub'];
     draft.adaptiveSkills.trajectoryCapture.storeDir = storeDir;
   });

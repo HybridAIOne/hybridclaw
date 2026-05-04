@@ -23,7 +23,7 @@
     "steps": [
       {
         "kind": "authenticate_or_list",
-        "url": "https://googleads.googleapis.com/v20/customers/1234567890/invoices?issueYear=2026&issueMonth=MARCH",
+        "url": "https://googleads.googleapis.com/v24/customers/1234567890/invoices?issueYear=2026&issueMonth=MARCH",
         "recorded_at": "2026-05-01T00:00:00.000Z",
         "request": {
           "method": "GET",
@@ -62,7 +62,7 @@
     ],
     "evidence": {
       "dom_snapshot": "<main data-hc-provider=\"google-ads\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>GA-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://googleads.googleapis.com/redacted/invoice.pdf\">PDF</a></td></tr></tbody></table></main>",
-      "http_trace_sha256": "905f2310b5cb32c3922f1c21f5d7789c9b37d497f6647d0a4899806279f178cc"
+      "http_trace_sha256": "556da72395ddb65c606f6768215643578f453eb4b340be437095dcb5678fa017"
     }
   }
 }

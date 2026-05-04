@@ -39,6 +39,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       'browser_get_images',
       'browser_console',
       'browser_network',
+      'browser_downloads',
       'browser_close',
     ],
   },

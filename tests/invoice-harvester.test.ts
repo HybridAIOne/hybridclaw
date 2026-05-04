@@ -1,5 +1,5 @@
-import fs from 'node:fs';
 import { generateKeyPairSync } from 'node:crypto';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,7 +41,10 @@ type InvoiceAdapter<Session = unknown> = {
   displayName: string;
   requiredCredentials?: string[];
   unverifiedSelectors?: boolean;
-  login(credentials: Record<string, string>, context: unknown): Promise<Session>;
+  login(
+    credentials: Record<string, string>,
+    context: unknown,
+  ): Promise<Session>;
   listInvoices(session: Session, options: unknown): Promise<InvoiceMeta[]>;
   download(session: Session, invoice: InvoiceMeta): Promise<Uint8Array>;
   close?(session: Session): void | Promise<void>;
@@ -487,8 +490,13 @@ describe('reference invoice adapters', () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url.includes('/customers/1234567890/invoices')) {
-        expect(url).toContain('issueYear=2026');
-        expect(url).toContain('issueMonth=MARCH');
+        const requestUrl = new URL(url);
+        expect(url).toContain('/v24/');
+        expect(requestUrl.searchParams.get('billingSetup')).toBe(
+          'customers/1234567890/billingSetups/111',
+        );
+        expect(requestUrl.searchParams.get('issueYear')).toBe('2026');
+        expect(requestUrl.searchParams.get('issueMonth')).toBe('MARCH');
         return new Response(
           JSON.stringify({
             invoices: [
@@ -520,7 +528,7 @@ describe('reference invoice adapters', () => {
         accessToken: 'token',
         developerToken: 'developer',
         customerId: '123-456-7890',
-        billingSetup: 'customers/1234567890/billingSetups/111',
+        billingSetup: 'customers/123-456-7890/billingSetups/111',
       },
       { providerId: 'google-ads' },
     );
@@ -548,6 +556,171 @@ describe('reference invoice adapters', () => {
         }),
       }),
     );
+  });
+
+  test('Google Ads adapter discovers billing setups through GoogleAdsService search', async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        'https://googleads.googleapis.com/v24/customers/1234567890/googleAds:search',
+      );
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer token',
+        'developer-token': 'developer',
+        'login-customer-id': '9998887777',
+      });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        query: expect.stringContaining('FROM billing_setup'),
+      });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              billingSetup: {
+                resourceName: 'customers/1234567890/billingSetups/111',
+                paymentsAccount: 'customers/1234567890/paymentsAccounts/222',
+                status: 'APPROVED',
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(
+      adapter.discoverBillingSetups({
+        accessToken: 'token',
+        developerToken: 'developer',
+        customerId: '123-456-7890',
+        loginCustomerId: '999-888-7777',
+      }),
+    ).resolves.toEqual([
+      {
+        resourceName: 'customers/1234567890/billingSetups/111',
+        paymentsAccount: 'customers/1234567890/paymentsAccounts/222',
+        status: 'APPROVED',
+      },
+    ]);
+  });
+
+  test('Google Ads adapter lists accessible customers for customer id discovery', async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        'https://googleads.googleapis.com/v24/customers:listAccessibleCustomers',
+      );
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer token',
+        'developer-token': 'developer',
+      });
+      return new Response(
+        JSON.stringify({
+          resourceNames: ['customers/9998887777', 'customers/1234567890'],
+        }),
+        { status: 200 },
+      );
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(
+      adapter.listAccessibleCustomers({
+        accessToken: 'token',
+        developerToken: 'developer',
+      }),
+    ).resolves.toEqual([
+      { resourceName: 'customers/9998887777', customerId: '9998887777' },
+      { resourceName: 'customers/1234567890', customerId: '1234567890' },
+    ]);
+  });
+
+  test('Google Ads adapter discovers manager customer clients', async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        'https://googleads.googleapis.com/v24/customers/9998887777/googleAds:search',
+      );
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer token',
+        'developer-token': 'developer',
+        'login-customer-id': '9998887777',
+      });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        query: expect.stringContaining('FROM customer_client'),
+      });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              customerClient: {
+                clientCustomer: 'customers/1234567890',
+                descriptiveName: 'Example Client',
+                manager: false,
+                level: '1',
+                status: 'ENABLED',
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(
+      adapter.discoverCustomerClients({
+        accessToken: 'token',
+        developerToken: 'developer',
+        customerId: '999-888-7777',
+        loginCustomerId: '999-888-7777',
+      }),
+    ).resolves.toEqual([
+      {
+        resourceName: 'customers/1234567890',
+        customerId: '1234567890',
+        descriptiveName: 'Example Client',
+        manager: false,
+        level: 1,
+        status: 'ENABLED',
+      },
+    ]);
+  });
+
+  test('Google Ads adapter includes exact API errors in failures', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 403,
+            message:
+              'Google Ads API has not been used in project PROJECT_ID before or it is disabled.',
+            status: 'PERMISSION_DENIED',
+            details: [{ reason: 'SERVICE_DISABLED' }],
+          },
+        }),
+        {
+          status: 403,
+          headers: { 'request-id': 'request-123' },
+        },
+      );
+    });
+    const adapter = createGoogleAdsInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(
+      adapter.discoverBillingSetups({
+        accessToken: 'token',
+        developerToken: 'developer',
+        customerId: '1234567890',
+      }),
+    ).rejects.toThrow(/request-123.*SERVICE_DISABLED/u);
   });
 
   test('AWS adapter signs Invoicing API requests and downloads invoice PDFs', async () => {
@@ -713,7 +886,8 @@ describe('reference invoice adapters', () => {
           vat: 19,
           gross: 119,
           currency: 'EUR',
-          source_url: 'https://console.cloud.google.com/billing/documents/redacted.pdf',
+          source_url:
+            'https://console.cloud.google.com/billing/documents/redacted.pdf',
         },
       ]),
       downloadInvoice: vi.fn(async () => new TextEncoder().encode('%PDF gcp')),
@@ -731,7 +905,9 @@ describe('reference invoice adapters', () => {
       { providerId: 'gcp', profileDir: '/tmp/gcp-profile' },
     );
 
-    const invoices = await adapter.listInvoices(session, { since: '2026-03-01' });
+    const invoices = await adapter.listInvoices(session, {
+      since: '2026-03-01',
+    });
     const pdf = await adapter.download(session, invoices[0] as InvoiceMeta);
 
     expect(invoices[0]?.vendor).toBe('gcp');
@@ -773,7 +949,9 @@ describe('reference invoice adapters', () => {
         status: 200,
       });
     });
-    const adapter = createGcpInvoiceAdapter({ fetch: fetchMock as typeof fetch });
+    const adapter = createGcpInvoiceAdapter({
+      fetch: fetchMock as typeof fetch,
+    });
 
     await expect(
       adapter.login(
@@ -794,7 +972,9 @@ describe('reference invoice adapters', () => {
     const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const jwt = createGcpServiceAccountJwt({
       clientEmail: 'billing@example.iam.gserviceaccount.com',
-      privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      privateKey: privateKey
+        .export({ type: 'pkcs8', format: 'pem' })
+        .toString(),
       tokenEndpoint: 'https://oauth2.googleapis.com/token',
       now: 1_777_777_777_000,
     });
@@ -1237,7 +1417,9 @@ describe('invoice harvester config and monthly workflow', () => {
       sessionId: 'session-monthly-invoice-test',
       adapters: [adapter],
       config: {
-        outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hc-monthly-allowed-')),
+        outputDir: fs.mkdtempSync(
+          path.join(os.tmpdir(), 'hc-monthly-allowed-'),
+        ),
         providers: [{ id: 'anthropic', credentials: {} }],
       },
     });
@@ -1404,7 +1586,9 @@ describe('invoice harvester config and monthly workflow', () => {
   });
 
   test('quarantines DATEV browser handoff unless unverified selectors are explicitly allowed', async () => {
-    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-datev-quarantine-'));
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hc-datev-quarantine-'),
+    );
     const recordAudit = vi.fn();
     const datev = new DatevUnternehmenOnlineUploadAdapter({
       credentials: { username: 'datev-user', password: 'datev-password' },

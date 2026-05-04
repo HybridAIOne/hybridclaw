@@ -648,6 +648,50 @@ test('available model catalog discovers Anthropic models from /v1/models', async
   });
 });
 
+test('HybridAI discovery uses explicit image-input capability metadata', async () => {
+  const homeDir = makeTempHome();
+  process.env.HYBRIDAI_API_KEY = 'hybridai-model-catalog-test';
+  writeRuntimeConfig(homeDir);
+
+  const fetchMock = vi.fn(async (input: string | URL, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.origin === 'https://hybridai.one' && url.pathname === '/models') {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: 'gpt-5.4',
+              context_length: 400_000,
+              capabilities: { vision: true },
+            },
+            {
+              id: 'qwen/qwen3.6-27b-fp8',
+              context_length: 128_000,
+              capabilities: { vision: false },
+            },
+            {
+              id: 'image-generator',
+              architecture: { modality: 'text->image' },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${input}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { catalog } = await importFreshCatalog(homeDir);
+  await catalog.refreshAvailableModelCatalogs({ includeHybridAI: true });
+
+  expect(catalog.isModelVisionCapable('hybridai/gpt-5.4')).toBe(true);
+  expect(catalog.isModelVisionCapable('hybridai/qwen/qwen3.6-27b-fp8')).toBe(
+    false,
+  );
+  expect(catalog.isModelVisionCapable('hybridai/image-generator')).toBe(false);
+});
+
 test('available model catalog uses bearer auth for Anthropic OAuth tokens in api-key mode', async () => {
   const homeDir = makeTempHome();
   process.env.ANTHROPIC_API_KEY = 'sk-ant-oat-model-catalog-test';

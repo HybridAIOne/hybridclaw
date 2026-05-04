@@ -34,8 +34,8 @@ hybridclaw auth login kilo anthropic/claude-sonnet-4.6 --api-key ...
 hybridclaw auth login local lmstudio --base-url http://127.0.0.1:1234
 hybridclaw auth login local ollama llama3.2
 hybridclaw auth login local vllm mistralai/Mistral-7B-Instruct-v0.3 --base-url http://127.0.0.1:8000 --api-key secret
-hybridclaw auth login google --client-id 000000000000-example.apps.googleusercontent.com --client-secret GOCSPX-example --account you@example.com
-hybridclaw auth login msteams --app-id 00000000-0000-0000-0000-000000000000 --tenant-id 11111111-1111-1111-1111-111111111111 --app-password secret
+hybridclaw auth login google --client-id <google-oauth-client-id>.apps.googleusercontent.com --client-secret GOCSPX-example --account you@example.com
+hybridclaw auth login msteams --app-id <msteams-app-id> --tenant-id <msteams-tenant-id> --app-password secret
 hybridclaw auth login slack --bot-token xoxb-... --app-token xapp-...
 hybridclaw auth status hybridai
 hybridclaw auth status codex
@@ -303,6 +303,39 @@ The configured Google OAuth auth routes should attach Authorization.
 - `PERMISSION_DENIED` for a GA4 property: grant the authorized Google account Viewer or Analyst access to that GA4 property.
 - `insufficient authentication scopes`: rerun `hybridclaw auth login google` with all required scopes.
 - `401 Unauthorized`: rerun `hybridclaw auth login google`; the stored refresh token may have been revoked or the OAuth client may have changed.
+
+## Google Ads Invoice Harvesting
+
+### Secret Credentials
+
+```bash
+hybridclaw auth login google \
+  --client-id "<client-id>" \
+  --client-secret "<client-secret>" \
+  --account you@example.com \
+  --scopes "https://www.googleapis.com/auth/adwords"
+
+hybridclaw auth status google
+hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"
+hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none
+hybridclaw secret set GOOGLEADS_CUSTOMER_ID "<client-customer-id-without-hyphens>"
+hybridclaw secret set GOOGLEADS_BILLING_SETUP "customers/<client-customer-id-without-hyphens>/billingSetups/<billing-setup-id>"
+hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-hyphens>"
+```
+
+### API Calls
+
+```text
+GET https://googleads.googleapis.com/v24/customers:listAccessibleCustomers
+POST https://googleads.googleapis.com/v24/customers/<manager-customer-id>/googleAds:search
+POST https://googleads.googleapis.com/v24/customers/<customer-id>/googleAds:search
+GET https://googleads.googleapis.com/v24/customers/<customer-id>/invoices?billingSetup=customers/<customer-id>/billingSetups/<billing-setup-id>&issueYear=<yyyy>&issueMonth=<MONTH>
+GET <invoice.pdfUrl>
+```
+
+Use `customer_client` to find MCC children, `billing_setup.resource_name` for
+`billingSetup`, and the returned `pdfUrl` for the PDF.
 
 ## Where Credentials Live
 
