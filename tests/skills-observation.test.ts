@@ -12,7 +12,9 @@ const {
   modelPricingUsdPerToken,
 } = vi.hoisted(() => ({
   callAuxiliaryModelMock: vi.fn(),
-  findCheapestModelMeetingCapabilitiesMock: vi.fn(() => 'hybridai/gpt-5-nano'),
+  findCheapestModelMeetingCapabilitiesMock: vi.fn(
+    () => 'hybridai/gpt-5-nano',
+  ),
   modelPricingUsdPerToken: {
     input: 0.00000001,
     output: 0.00000001,
@@ -24,8 +26,7 @@ vi.mock('../src/providers/model-catalog.js', async (importOriginal) => {
     await importOriginal<typeof import('../src/providers/model-catalog.js')>();
   return {
     ...actual,
-    findCheapestModelMeetingCapabilities:
-      findCheapestModelMeetingCapabilitiesMock,
+    findCheapestModelMeetingCapabilities: findCheapestModelMeetingCapabilitiesMock,
     getModelCatalogMetadata: vi.fn((model: string) => ({
       ...actual.getModelCatalogMetadata(model),
       pricingUsdPerToken: { ...modelPricingUsdPerToken },
@@ -746,9 +747,9 @@ test('CV refresh treats invalid persisted render timestamps as never rendered', 
   await vi.advanceTimersByTimeAsync(1);
   await waitForQueuedAgentCvRefreshes();
 
-  expect(fs.readFileSync(path.join(workspace, 'CV.md'), 'utf-8')).toContain(
-    'Completed the timestamp recovery',
-  );
+  expect(
+    fs.readFileSync(path.join(workspace, 'CV.md'), 'utf-8'),
+  ).toContain('Completed the timestamp recovery');
 });
 
 test('CV state normalization drops entries with unknown outcomes', async () => {
@@ -886,9 +887,9 @@ test('CV narration cost history is pruned to the retention window', async () => 
     '2026-01-28',
     0.001,
   );
-  expect(persistedState.narration_cost_usd_by_day['2026-04-27']).toBeCloseTo(
-    0.0012,
-  );
+  expect(
+    persistedState.narration_cost_usd_by_day['2026-04-27'],
+  ).toBeCloseTo(0.0012);
 });
 
 test('CV narration falls back without an aux call when the daily budget would be exceeded', async () => {

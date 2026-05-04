@@ -223,10 +223,7 @@ describe('skill package lifecycle', () => {
 
     expect(rolledBack.manifest.version).toBe('2.0.0');
     expect(
-      fs.readFileSync(
-        path.join(rolledBack.skillDir, 'scripts', 'run.js'),
-        'utf-8',
-      ),
+      fs.readFileSync(path.join(rolledBack.skillDir, 'scripts', 'run.js'), 'utf-8'),
     ).toBe('console.log("v2");\n');
     expect(config.getRuntimeConfig().skills.installed[0]).toMatchObject({
       id: 'deal-desk',
@@ -282,15 +279,15 @@ describe('skill package lifecycle', () => {
       'Cannot upgrade skill package "deal-desk" because it is not installed. Run skill install <source> first.',
     );
     expect(
-      config
-        .getRuntimeConfig()
-        .skills.installed.find((entry) => entry.id === 'deal-desk'),
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'deal-desk',
+      ),
     ).toMatchObject({
       status: 'uninstalled',
     });
-    expect(fs.existsSync(path.join(tempHome, 'skills', 'deal-desk'))).toBe(
-      false,
-    );
+    expect(
+      fs.existsSync(path.join(tempHome, 'skills', 'deal-desk')),
+    ).toBe(false);
   });
 
   test('global enable and disable require installed records for managed community skills', async () => {
@@ -338,9 +335,9 @@ describe('skill package lifecycle', () => {
       scope: 'global',
     });
     expect(
-      config
-        .getRuntimeConfig()
-        .skills.installed.find((entry) => entry.id === 'managed-skill'),
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'managed-skill',
+      ),
     ).toMatchObject({
       status: 'disabled',
     });
@@ -355,9 +352,9 @@ describe('skill package lifecycle', () => {
     });
     expect(enabled.scope).toBe('global');
     expect(
-      config
-        .getRuntimeConfig()
-        .skills.installed.find((entry) => entry.id === 'managed-skill'),
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'managed-skill',
+      ),
     ).toMatchObject({
       status: 'enabled',
     });
@@ -380,9 +377,9 @@ describe('skill package lifecycle', () => {
       'managed-skill',
     );
     expect(
-      config
-        .getRuntimeConfig()
-        .skills.installed.find((entry) => entry.id === 'managed-skill'),
+      config.getRuntimeConfig().skills.installed.find(
+        (entry) => entry.id === 'managed-skill',
+      ),
     ).toMatchObject({
       status: 'enabled',
     });

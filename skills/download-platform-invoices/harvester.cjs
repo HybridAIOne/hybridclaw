@@ -2,10 +2,7 @@ const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const {
-  emitInvoiceFetchedAudit,
-  makeAuditRunId,
-} = require('./helpers/audit.cjs');
+const { emitInvoiceFetchedAudit, makeAuditRunId } = require('./helpers/audit.cjs');
 const {
   createInvoiceQuarantineError,
   hasRotatableInvoiceCredentials,
@@ -46,9 +43,7 @@ function writeInvoicePdf(outputDir, relativePath, bytes) {
   const targetPath = path.resolve(outputDir, relativePath);
   const outputRoot = path.resolve(outputDir);
   if (!targetPath.startsWith(outputRoot + path.sep)) {
-    throw new Error(
-      `Invoice PDF path escapes output directory: ${relativePath}`,
-    );
+    throw new Error(`Invoice PDF path escapes output directory: ${relativePath}`);
   }
   fs.mkdirSync(path.dirname(targetPath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(targetPath, bytes, { mode: 0o600 });
@@ -67,9 +62,7 @@ function loadInvoiceManifest(filePath) {
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   } catch (error) {
-    throw new Error(
-      `Invalid invoice manifest at ${filePath}: ${error.message}`,
-    );
+    throw new Error(`Invalid invoice manifest at ${filePath}: ${error.message}`);
   }
 
   if (
@@ -126,10 +119,7 @@ function findInvoiceDuplicateInIndex(invoice, index) {
   if (index.identities.has(createInvoiceIdentity(invoice))) {
     return { reason: 'identity', invoice };
   }
-  if (
-    'checksum_sha256' in invoice &&
-    index.checksums.has(invoice.checksum_sha256)
-  ) {
+  if ('checksum_sha256' in invoice && index.checksums.has(invoice.checksum_sha256)) {
     return { reason: 'checksum', invoice };
   }
   return null;
@@ -163,10 +153,7 @@ async function harvestProviderInvoices(input) {
     );
 
     for (const invoice of invoices) {
-      const identityDuplicate = findInvoiceDuplicateInIndex(
-        invoice,
-        duplicateIndex,
-      );
+      const identityDuplicate = findInvoiceDuplicateInIndex(invoice, duplicateIndex);
       if (identityDuplicate) {
         duplicates.push(identityDuplicate);
         continue;
@@ -179,10 +166,7 @@ async function harvestProviderInvoices(input) {
         pdfPath: relativePath,
         checksumSha256: sha256(bytes),
       });
-      const checksumDuplicate = findInvoiceDuplicateInIndex(
-        record,
-        duplicateIndex,
-      );
+      const checksumDuplicate = findInvoiceDuplicateInIndex(record, duplicateIndex);
       if (checksumDuplicate) {
         duplicates.push(checksumDuplicate);
         continue;
@@ -223,9 +207,7 @@ async function harvestProviderInvoices(input) {
 async function runMonthlyInvoiceRun(input) {
   const runId = makeAuditRunId('monthly-invoice');
   const audit = input.recordAudit || (() => undefined);
-  const adaptersById = new Map(
-    input.adapters.map((adapter) => [adapter.id, adapter]),
-  );
+  const adaptersById = new Map(input.adapters.map((adapter) => [adapter.id, adapter]));
   const providerResults = [];
   const providerErrors = [];
   const operatorEscalations = [];
@@ -236,34 +218,29 @@ async function runMonthlyInvoiceRun(input) {
 
   for (const provider of providers) {
     const adapter = adaptersById.get(provider.id);
-    if (!adapter)
-      throw new Error(`Invoice adapter ${provider.id} is not registered.`);
+    if (!adapter) throw new Error(`Invoice adapter ${provider.id} is not registered.`);
     const outputDir = provider.outputDir || input.config.outputDir;
     const credentialRefs = provider.credentials || {};
     try {
       assertInvoiceAdapterNotQuarantined(adapter, provider.id);
-      const credentials = resolveInvoiceCredentials(
-        provider.id,
-        credentialRefs,
-        {
-          required: adapter.requiredCredentials || [],
-          credentialStore: input.credentialStore,
-          audit: (secretRef, action) =>
-            audit({
-              sessionId: input.sessionId,
-              runId,
-              event: {
-                type: 'invoice.credential_resolved',
-                provider: provider.id,
-                secret: {
-                  source: secretRef.source,
-                  id: secretRef.id,
-                },
-                action,
+      const credentials = resolveInvoiceCredentials(provider.id, credentialRefs, {
+        required: adapter.requiredCredentials || [],
+        credentialStore: input.credentialStore,
+        audit: (secretRef, action) =>
+          audit({
+            sessionId: input.sessionId,
+            runId,
+            event: {
+              type: 'invoice.credential_resolved',
+              provider: provider.id,
+              secret: {
+                source: secretRef.source,
+                id: secretRef.id,
               },
-            }),
-        },
-      );
+              action,
+            },
+          }),
+      });
       const result = await harvestProviderInvoicesWithRotation({
         adapter,
         credentials,
@@ -307,11 +284,7 @@ async function runMonthlyInvoiceRun(input) {
           },
         });
       } else if (error?.code === 'INVOICE_QUARANTINED') {
-        providerErrors.push({
-          providerId: provider.id,
-          error: message,
-          quarantined: true,
-        });
+        providerErrors.push({ providerId: provider.id, error: message, quarantined: true });
         audit({
           sessionId: input.sessionId,
           runId,
@@ -340,9 +313,7 @@ async function runMonthlyInvoiceRun(input) {
   const shouldUpload = Boolean(input.config.datev?.enabled);
   if (shouldUpload) {
     if (!input.datev) {
-      throw new Error(
-        'DATEV handoff is enabled but no upload adapter was provided.',
-      );
+      throw new Error('DATEV handoff is enabled but no upload adapter was provided.');
     }
     const datevProviderId = input.datev.id || 'datev-unternehmen-online';
     try {
@@ -398,31 +369,26 @@ async function harvestProviderInvoicesWithRotation(input) {
   try {
     return await harvestProviderInvoices(input);
   } catch (error) {
-    if (!shouldRotateInvoiceCredentials(error, input.credentialRefs))
-      throw error;
-    const rotated = await rotateInvoiceCredentials(
-      input.adapter.id,
-      input.credentialRefs,
-      {
-        credentialStore: input.credentialStore,
-        reason: 'invoice_auth_failed',
-        audit: (secretRef, action) =>
-          input.recordAudit?.({
-            sessionId: input.sessionId,
-            runId: input.runId,
-            event: {
-              type: 'invoice.credential_rotation',
-              provider: input.adapter.id,
-              secret: {
-                source: secretRef.source,
-                id: secretRef.id,
-                revision: secretRef.revision || null,
-              },
-              action,
+    if (!shouldRotateInvoiceCredentials(error, input.credentialRefs)) throw error;
+    const rotated = await rotateInvoiceCredentials(input.adapter.id, input.credentialRefs, {
+      credentialStore: input.credentialStore,
+      reason: 'invoice_auth_failed',
+      audit: (secretRef, action) =>
+        input.recordAudit?.({
+          sessionId: input.sessionId,
+          runId: input.runId,
+          event: {
+            type: 'invoice.credential_rotation',
+            provider: input.adapter.id,
+            secret: {
+              source: secretRef.source,
+              id: secretRef.id,
+              revision: secretRef.revision || null,
             },
-          }),
-      },
-    );
+            action,
+          },
+        }),
+    });
     try {
       return await harvestProviderInvoices({
         ...input,

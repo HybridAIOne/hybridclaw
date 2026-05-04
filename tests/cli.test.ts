@@ -3557,9 +3557,7 @@ describe('CLI hybridai commands', () => {
 
     await cli.main(['config', 'get', 'hybridai.maxTokens']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      `Active config: ${runtimeConfigPath()}`,
-    );
+    expect(logSpy).toHaveBeenCalledWith(`Active config: ${runtimeConfigPath()}`);
     expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
     expect(logSpy).toHaveBeenCalledWith('4096');
   });

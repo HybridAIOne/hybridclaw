@@ -26,8 +26,7 @@ class RecordedFixtureInvoiceAdapter {
   async download(session, invoice) {
     const fixtureInvoice = session.fixture.invoices.find(
       (entry) =>
-        entry.vendor === invoice.vendor &&
-        entry.invoice_no === invoice.invoice_no,
+        entry.vendor === invoice.vendor && entry.invoice_no === invoice.invoice_no,
     );
     if (!fixtureInvoice) {
       throw new Error(
@@ -43,15 +42,9 @@ function parseRecordedInvoiceFixture(filePath) {
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   } catch (error) {
-    throw new Error(
-      `Invalid recorded invoice fixture at ${filePath}: ${error.message}`,
-    );
+    throw new Error(`Invalid recorded invoice fixture at ${filePath}: ${error.message}`);
   }
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    !Array.isArray(parsed.invoices)
-  ) {
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.invoices)) {
     throw new Error(`Invalid recorded invoice fixture at ${filePath}.`);
   }
   if (

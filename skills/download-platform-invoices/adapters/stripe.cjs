@@ -1,8 +1,7 @@
 const { periodFromDate, sinceTimestamp } = require('../helpers/money.cjs');
 
 function dateFromUnixSeconds(value, fieldName, invoiceNo) {
-  if (!value)
-    throw new Error(`Stripe invoice ${invoiceNo} is missing ${fieldName}.`);
+  if (!value) throw new Error(`Stripe invoice ${invoiceNo} is missing ${fieldName}.`);
   return new Date(value * 1000).toISOString().slice(0, 10);
 }
 
@@ -41,18 +40,13 @@ class StripeInvoiceAdapter {
     url.searchParams.set('status', 'paid');
     const sinceTime = sinceTimestamp(options, 'Stripe invoice since date');
     if (sinceTime != null) {
-      url.searchParams.set(
-        'created[gte]',
-        String(Math.floor(sinceTime / 1000)),
-      );
+      url.searchParams.set('created[gte]', String(Math.floor(sinceTime / 1000)));
     }
     const response = await this.fetch(url, {
       headers: { Authorization: `Bearer ${session.apiKey}` },
     });
     if (!response.ok) {
-      throw new Error(
-        `Stripe invoice list failed with HTTP ${response.status}.`,
-      );
+      throw new Error(`Stripe invoice list failed with HTTP ${response.status}.`);
     }
     const payload = await response.json();
     return (payload.data || []).map(mapStripeInvoice);
@@ -73,8 +67,7 @@ class StripeInvoiceAdapter {
 
 function mapStripeInvoice(invoice) {
   const invoiceNo = invoice.number || invoice.id || '';
-  if (!invoiceNo)
-    throw new Error('Stripe invoice is missing both number and id.');
+  if (!invoiceNo) throw new Error('Stripe invoice is missing both number and id.');
   const sourceUrl = invoice.invoice_pdf || invoice.hosted_invoice_url || '';
   if (!sourceUrl) {
     throw new Error(`Stripe invoice ${invoiceNo} does not include a PDF URL.`);

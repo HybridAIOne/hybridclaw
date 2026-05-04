@@ -412,8 +412,7 @@ describe('openai-compat discovery — per-provider store', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       {
         provider: 'zai',
-        error:
-          'Failed to fetch https://api.z.ai/api/paas/v4/models: network down',
+        error: 'Failed to fetch https://api.z.ai/api/paas/v4/models: network down',
       },
       'OpenAI-compat model discovery failed',
     );

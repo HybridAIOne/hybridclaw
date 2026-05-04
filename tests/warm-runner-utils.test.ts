@@ -5,9 +5,9 @@ import {
   createWarmSessionId,
   enforceWarmPoolPressure,
   getCachedObservedMemoryBytes,
-  type MemorySample,
   maintainWarmPool,
   observeAgentLifecycleLine,
+  type MemorySample,
   type WarmRunnerEntry,
 } from '../src/infra/warm-runner-utils.js';
 

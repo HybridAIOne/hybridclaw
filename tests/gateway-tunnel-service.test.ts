@@ -162,9 +162,7 @@ test('admin tunnel status creates a managed tailscale provider', async () => {
       state: 'up',
     })),
     stop: vi.fn(async () => {}),
-    start: vi.fn(async () => ({
-      public_url: 'https://gateway.example.ts.net',
-    })),
+    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
   };
   const service = await importService({
     config: makeRuntimeConfig(
@@ -198,9 +196,7 @@ test('admin tunnel status formats IPv6 tunnel target addresses', async () => {
   const provider: TunnelProvider = {
     status: vi.fn(() => downStatus),
     stop: vi.fn(async () => {}),
-    start: vi.fn(async () => ({
-      public_url: 'https://gateway.example.ts.net',
-    })),
+    start: vi.fn(async () => ({ public_url: 'https://gateway.example.ts.net' })),
   };
   const service = await importService({
     config: makeRuntimeConfig(

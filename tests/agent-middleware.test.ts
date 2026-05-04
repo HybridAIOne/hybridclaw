@@ -230,7 +230,8 @@ clients:
     expect(outcome.events[0]).toMatchObject({
       skillId: 'confidential-leak',
       action: 'block',
-      reason: 'Confidential output matched 1 high client rule (high, 1 match).',
+      reason:
+        'Confidential output matched 1 high client rule (high, 1 match).',
     });
   });
 

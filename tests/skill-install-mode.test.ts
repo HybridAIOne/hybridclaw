@@ -18,14 +18,13 @@ test('resolves package skill install arguments', () => {
 });
 
 test('resolves dependency skill install arguments', () => {
-  expect(
-    resolveSkillInstallMode(['pdf', 'poppler'], { commandPrefix: 'skill' }),
-  ).toEqual({
-    ok: true,
-    mode: 'dependency',
-    skillName: 'pdf',
-    installId: 'poppler',
-  });
+  expect(resolveSkillInstallMode(['pdf', 'poppler'], { commandPrefix: 'skill' }))
+    .toEqual({
+      ok: true,
+      mode: 'dependency',
+      skillName: 'pdf',
+      installId: 'poppler',
+    });
 });
 
 test('rejects package flags with dependency skill install arguments', () => {

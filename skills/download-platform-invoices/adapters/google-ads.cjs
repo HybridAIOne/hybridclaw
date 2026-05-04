@@ -21,16 +21,9 @@ class GoogleAdsInvoiceAdapter {
   }
 
   async login(credentials) {
-    for (const key of [
-      'accessToken',
-      'developerToken',
-      'customerId',
-      'billingSetup',
-    ]) {
+    for (const key of ['accessToken', 'developerToken', 'customerId', 'billingSetup']) {
       if (!credentials[key]) {
-        throw new Error(
-          `Google Ads invoice adapter requires credentials.${key}.`,
-        );
+        throw new Error(`Google Ads invoice adapter requires credentials.${key}.`);
       }
     }
     return { credentials };
@@ -56,9 +49,7 @@ class GoogleAdsInvoiceAdapter {
       },
     });
     if (!response.ok) {
-      throw new Error(
-        `Google Ads invoice list failed with HTTP ${response.status}.`,
-      );
+      throw new Error(`Google Ads invoice list failed with HTTP ${response.status}.`);
     }
     const payload = await response.json();
     return (payload.invoices || []).map((invoice) => {
@@ -74,22 +65,18 @@ class GoogleAdsInvoiceAdapter {
       if (!sourceUrl) {
         throw new Error(`Google Ads invoice ${invoiceNo} is missing pdfUrl.`);
       }
-      const currency = String(
-        invoice.currencyCode || credentials.currency || '',
-      );
+      const currency = String(invoice.currencyCode || credentials.currency || '');
       if (!/^[A-Z]{3}$/u.test(currency)) {
-        throw new Error(
-          `Google Ads invoice ${invoiceNo} is missing currencyCode.`,
-        );
+        throw new Error(`Google Ads invoice ${invoiceNo} is missing currencyCode.`);
       }
       return {
         vendor: 'google-ads',
         invoice_no: invoiceNo,
         period: serviceDateRange.startDate
-          ? formatGoogleAdsDate(
-              serviceDateRange.startDate,
-              'service start',
-            ).slice(0, 7)
+          ? formatGoogleAdsDate(serviceDateRange.startDate, 'service start').slice(
+              0,
+              7,
+            )
           : periodFromDate(issueDate),
         issue_date: issueDate,
         due_date: dueDate,
