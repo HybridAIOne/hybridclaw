@@ -709,19 +709,34 @@ export function getRuntimeAssetRevisionState(
 
 export function listRuntimeAssetRevisionStates(
   assetType: RuntimeRevisionAssetType,
+  opts?: { assetPathPrefix?: string },
 ): RuntimeAssetRevisionState[] {
   const normalizedAssetType = normalizeRevisionAssetType(assetType);
-  return withRevisionDatabase((database) =>
-    database
-      .prepare<[string], ConfigRevisionAssetStateRow>(
-        `SELECT config_path, current_content, actor, route, source, updated_at
+  const assetPathPrefix = opts?.assetPathPrefix;
+  return withRevisionDatabase((database) => {
+    const baseQuery = `SELECT config_path, current_content, actor, route, source, updated_at
          FROM config_revision_state
-         WHERE asset_type = ?
+         WHERE asset_type = ?`;
+    if (assetPathPrefix) {
+      return database
+        .prepare<[string, string, string], ConfigRevisionAssetStateRow>(
+          `${baseQuery}
+           AND config_path >= ?
+           AND config_path < ?
+           ORDER BY config_path ASC`,
+        )
+        .all(normalizedAssetType, assetPathPrefix, `${assetPathPrefix}\uffff`)
+        .map((row) => mapRevisionAssetStateRow(row));
+    }
+
+    return database
+      .prepare<[string], ConfigRevisionAssetStateRow>(
+        `${baseQuery}
          ORDER BY config_path ASC`,
       )
       .all(normalizedAssetType)
-      .map((row) => mapRevisionAssetStateRow(row)),
-  );
+      .map((row) => mapRevisionAssetStateRow(row));
+  });
 }
 
 export function getRuntimeConfigRevisionStateMetadata(

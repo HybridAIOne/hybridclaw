@@ -108,6 +108,7 @@ import {
   TuiSlashMenuController,
   type TuiSlashMenuPalette,
 } from './tui-slash-menu.js';
+import { stopTuiRun } from './tui-stop.js';
 import {
   appendTerminalRowCount,
   countTerminalRows,
@@ -345,6 +346,7 @@ function formatToolPreview(preview: string | undefined): string {
 }
 
 let activeRunAbortController: AbortController | null = null;
+let activeRunStopInFlight: Promise<GatewayCommandResult> | null = null;
 let proactivePollInFlight = false;
 let delegateStatusRows = 0;
 let delegateStreamActive = false;
@@ -1379,7 +1381,7 @@ function pickOceanActivityVerb(): string {
   return OCEAN_ACTIVITY_VERBS[index] || 'floating';
 }
 
-interface SpinnerToolEntry {
+export interface SpinnerToolEntry {
   name: string;
   preview: string;
   count: number;
@@ -1403,6 +1405,22 @@ export function formatTuiToolActivityLine(params: {
   const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${countText}${previewText}`;
   const safeColumns = Math.max(1, params.columns - 1);
   return truncateAnsiTuiEnd(body, safeColumns);
+}
+
+export function formatTuiToolActivityBlock(params: {
+  entries: SpinnerToolEntry[];
+  columns: number;
+  frameIndex?: number;
+}): string[] {
+  return params.entries.map((entry) =>
+    formatTuiToolActivityLine({
+      toolName: entry.name,
+      preview: entry.preview,
+      columns: params.columns,
+      frameIndex: params.frameIndex,
+      count: entry.count,
+    }),
+  );
 }
 
 function spinner(): {
@@ -1430,7 +1448,19 @@ function spinner(): {
   let visibleTextState = createTuiStreamFormatState();
   let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
+  let toolActivityRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
+  const clearRows = (rows: number) => {
+    const normalizedRows = Math.max(0, rows);
+    if (normalizedRows <= 0) return;
+    if (!process.stdout.isTTY) return;
+    if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+    for (let row = 0; row < normalizedRows; row += 1) {
+      clearLine();
+      if (row < normalizedRows - 1) process.stdout.write('\n');
+    }
+    if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+  };
   const hideCursor = () => {
     if (cursorHidden || !process.stdout.isTTY) return;
     process.stdout.write(HIDE_CURSOR);
@@ -1441,29 +1471,30 @@ function spinner(): {
     process.stdout.write(SHOW_CURSOR);
     cursorHidden = false;
   };
-  const formatToolLine = (
-    entry: SpinnerToolEntry,
-    frameIdx: number,
-  ): string => {
-    return formatTuiToolActivityLine({
-      toolName: entry.name,
-      preview: entry.preview,
+  const clearToolActivityBlock = () => {
+    if (toolActivityRows > 0) {
+      clearRows(toolActivityRows);
+      toolActivityRows = 0;
+      return;
+    }
+    clearLine();
+  };
+  const repaintToolBlock = (frameIdx: number) => {
+    if (toolEntries.length <= 0) return;
+    clearToolActivityBlock();
+    const lines = formatTuiToolActivityBlock({
+      entries: toolEntries,
       columns: terminalColumns(),
       frameIndex: frameIdx,
-      count: entry.count,
     });
-  };
-  const repaintToolLine = (frameIdx: number) => {
-    const entry = toolEntries.at(-1);
-    if (!entry) return;
-    clearLine();
-    process.stdout.write(`\r${formatToolLine(entry, frameIdx)}`);
+    process.stdout.write(`\r${lines.join('\n')}`);
+    toolActivityRows = lines.length;
   };
   const render = () => {
     if (stopped) return;
     if (hasVisibleText || thinkingPreviewRows > 0) return;
     if (toolEntries.length > 0) {
-      repaintToolLine(i);
+      repaintToolBlock(i);
       i++;
       return;
     }
@@ -1478,7 +1509,7 @@ function spinner(): {
 
   const clearTools = () => {
     if (toolEntries.length <= 0) return;
-    clearLine();
+    clearToolActivityBlock();
     toolEntries.length = 0;
     if (
       !stopped &&
@@ -1551,10 +1582,14 @@ function spinner(): {
         !hasVisibleText &&
         thinkingPreviewRows === 0
       ) {
-        repaintToolLine(i);
+        repaintToolBlock(i);
       }
       if (showActivityPreview && !hasVisibleText && thinkingPreviewRows === 0) {
-        clearLine();
+        if (toolActivityRows > 0) {
+          clearToolActivityBlock();
+        } else {
+          clearLine();
+        }
       }
       showCursor();
     },
@@ -1575,7 +1610,7 @@ function spinner(): {
       }
       if (existingEntry) {
         existingEntry.count += 1;
-        repaintToolLine(i);
+        repaintToolBlock(i);
         return;
       }
       const entry: SpinnerToolEntry = {
@@ -1584,7 +1619,7 @@ function spinner(): {
         count: 1,
       };
       toolEntries.push(entry);
-      repaintToolLine(i);
+      repaintToolBlock(i);
     },
     finishTool: (toolName: string, preview?: string) => {
       if (!showTools) return;
@@ -1603,9 +1638,9 @@ function spinner(): {
         break;
       }
       if (toolEntries.length > 0) {
-        repaintToolLine(i);
+        repaintToolBlock(i);
       } else {
-        clearLine();
+        clearToolActivityBlock();
         if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
           render();
         }
@@ -1743,6 +1778,18 @@ async function requestGatewayCommand(
   });
   syncTuiSessionIdFromResult(result);
   return result;
+}
+
+function stopActiveRun(): Promise<GatewayCommandResult> | null {
+  activeRunStopInFlight = stopTuiRun({
+    abortController: activeRunAbortController,
+    stopRequest: activeRunStopInFlight,
+    requestStop: () => requestGatewayCommand(['stop']),
+    clearStopRequest: () => {
+      activeRunStopInFlight = null;
+    },
+  });
+  return activeRunStopInFlight;
 }
 
 function collectToolNames(result: GatewayChatResult): string[] {
@@ -1971,9 +2018,10 @@ async function syncFullAutoStateFromGateway(
 async function runGatewayCommand(
   args: string[],
   rl: readline.Interface,
+  request: Promise<GatewayCommandResult> = requestGatewayCommand(args),
 ): Promise<void> {
   try {
-    const result = await requestGatewayCommand(args);
+    const result = await request;
     const pendingApproval =
       result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
     if (pendingApproval) {
@@ -2320,18 +2368,16 @@ async function handleSlashCommand(
       await runGatewayCommand(['status'], rl);
       return true;
     case 'stop':
-    case 'abort':
-      if (
-        activeRunAbortController &&
-        !activeRunAbortController.signal.aborted
-      ) {
-        activeRunAbortController.abort();
+    case 'abort': {
+      const stopRequest = stopActiveRun();
+      if (stopRequest) {
         printInfo('Stopping current request and disabling full-auto...');
       } else {
         printInfo('No active foreground request. Disabling full-auto...');
       }
-      await runGatewayCommand(['stop'], rl);
+      await runGatewayCommand(['stop'], rl, stopRequest ?? undefined);
       return true;
+    }
     default:
       break;
   }
@@ -2962,9 +3008,18 @@ async function main(): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on('keypress', (_str, key) => {
     if (key?.name !== 'escape') return;
-    if (!activeRunAbortController || activeRunAbortController.signal.aborted)
-      return;
-    activeRunAbortController.abort();
+    const stopRequest = stopActiveRun();
+    if (!stopRequest) return;
+    void stopRequest
+      .then((result) => {
+        tuiFullAutoState = deriveTuiFullAutoState({
+          current: tuiFullAutoState,
+          args: ['stop'],
+          result,
+        });
+        refreshPrompt(rl);
+      })
+      .catch(() => {});
   });
 
   promptTuiInput(rl);
@@ -3072,6 +3127,7 @@ export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
     String(options?.resumeCommand || 'hybridclaw tui --resume').trim() ||
     'hybridclaw tui --resume';
   activeRunAbortController = null;
+  activeRunStopInFlight = null;
   proactivePollInFlight = false;
   tuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
   fullAutoSteeringInFlight = false;

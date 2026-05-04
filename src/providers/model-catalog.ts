@@ -29,6 +29,7 @@ import {
   getDiscoveredHybridAIModelMaxTokens,
   getDiscoveredHybridAIModelNames,
   getDiscoveredHybridAIModelPricingUsdPerToken,
+  getDiscoveredHybridAIModelVisionCapability,
 } from './hybridai-discovery.js';
 import { isStaticModelVisionCapable } from './hybridai-models.js';
 import {
@@ -621,6 +622,11 @@ export function isModelVisionCapable(model: string): boolean {
   if (!normalized) return false;
   if (hasModelPrefix(normalized, OPENROUTER_MODEL_PREFIX)) {
     return isDiscoveredOpenRouterModelVisionCapable(normalized);
+  }
+  if (resolveModelProvider(normalized) === 'hybridai') {
+    const discoveredHybridAIVision =
+      getDiscoveredHybridAIModelVisionCapability(normalized);
+    if (discoveredHybridAIVision != null) return discoveredHybridAIVision;
   }
   return (
     isDiscoveredMistralModelVisionCapable(normalized) ||

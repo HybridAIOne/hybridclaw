@@ -6,17 +6,34 @@ import {
   emitInteractionNeededEvent,
 } from '../gateway/interactive-escalation.js';
 import type { EscalationTarget } from '../types/execution.js';
-import { type A2AEnvelope, validateA2AEnvelope } from './envelope.js';
+import { a2aOutboundAdapter } from './a2a-outbound.js';
+import {
+  type A2AEnvelope,
+  type A2AEnvelopeAuditSummary,
+  summarizeA2AEnvelopeForAudit,
+  validateA2AEnvelope,
+} from './envelope.js';
 import {
   type A2APeerTransport,
   normalizePeerDescriptor,
   type PeerDescriptor,
 } from './peer-descriptor.js';
 import { A2A_TRANSPORT_PATTERN, normalizeTransportString } from './utils.js';
+import { webhookOutboundAdapter } from './webhook-outbound.js';
+
+export interface TransportAdapterContext {
+  sessionId?: string;
+  runId?: string;
+  escalationTarget?: EscalationTarget;
+}
 
 export interface TransportAdapter<WirePayload = unknown> {
   readonly transport: A2APeerTransport;
-  encode(envelope: A2AEnvelope, descriptor?: PeerDescriptor): WirePayload;
+  encode(
+    envelope: A2AEnvelope,
+    descriptor?: PeerDescriptor,
+    context?: TransportAdapterContext,
+  ): WirePayload;
   decode(payload: WirePayload, descriptor?: PeerDescriptor): A2AEnvelope;
 }
 
@@ -80,6 +97,8 @@ export const internalTransportAdapter: TransportAdapter<A2AEnvelope> = {
 export function createDefaultTransportRegistry(): TransportRegistry {
   const registry = new TransportRegistry();
   registry.register(internalTransportAdapter);
+  registry.register(a2aOutboundAdapter);
+  registry.register(webhookOutboundAdapter);
   return registry;
 }
 
@@ -93,23 +112,9 @@ export interface TransportEscalationAuditInput {
   escalationTarget?: EscalationTarget;
 }
 
-function summarizeEnvelopeForAudit(envelope: A2AEnvelope): {
-  messageId: string | null;
-  threadId: string | null;
-  senderAgentId: string | null;
-  recipientAgentId: string | null;
-} {
-  return {
-    messageId: envelope.id,
-    threadId: envelope.thread_id,
-    senderAgentId: envelope.sender_agent_id,
-    recipientAgentId: envelope.recipient_agent_id,
-  };
-}
-
 function transportEscalationPrompt(params: {
   transport: string;
-  summary: ReturnType<typeof summarizeEnvelopeForAudit>;
+  summary: A2AEnvelopeAuditSummary;
 }): string {
   return [
     `A2A transport escalation: no adapter is registered for "${params.transport}".`,
@@ -129,7 +134,7 @@ function transportEscalationPrompt(params: {
 
 function createTransportEscalationSession(input: {
   transport: string;
-  summary: ReturnType<typeof summarizeEnvelopeForAudit>;
+  summary: A2AEnvelopeAuditSummary;
   escalationTarget?: EscalationTarget;
   runId: string;
   sessionId: string;
@@ -172,15 +177,13 @@ function encodeCompositeKeyPart(
   return Buffer.from(raw).toString('base64url');
 }
 
-function makeEscalationSessionId(
-  summary: ReturnType<typeof summarizeEnvelopeForAudit>,
-): string {
+function makeEscalationSessionId(summary: A2AEnvelopeAuditSummary): string {
   return `a2a:${encodeCompositeKeyPart(summary.threadId, 'sendMessage')}`;
 }
 
 function makeEscalationApprovalId(
   transport: string,
-  summary: ReturnType<typeof summarizeEnvelopeForAudit>,
+  summary: A2AEnvelopeAuditSummary,
 ): string {
   return [
     'a2a-transport',
@@ -192,7 +195,7 @@ function makeEscalationApprovalId(
 export function recordTransportEscalationAudit(
   input: TransportEscalationAuditInput,
 ): void {
-  const summary = summarizeEnvelopeForAudit(input.envelope);
+  const summary = summarizeA2AEnvelopeForAudit(input.envelope);
   const sessionId = input.sessionId || makeEscalationSessionId(summary);
   const approvalId = makeEscalationApprovalId(input.transport, summary);
   const runId = input.runId || makeAuditRunId('a2a-transport');
@@ -277,8 +280,10 @@ export function encodeForRegisteredTransport(params: {
     return validateA2AEnvelope(adapter.encode(normalizedEnvelope, descriptor));
   }
 
-  // R1.10 opens the encoder seam; follow-up transport work owns delivery.
-  // The runtime persists the canonical envelope until a sender consumes this payload.
-  adapter.encode(normalizedEnvelope, descriptor);
+  adapter.encode(normalizedEnvelope, descriptor, {
+    sessionId: params.sessionId,
+    runId: params.runId,
+    escalationTarget: params.escalationTarget,
+  });
   return normalizedEnvelope;
 }

@@ -1,0 +1,660 @@
+import { Buffer } from 'node:buffer';
+import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
+import { recordUsageEvent } from '../memory/db.js';
+import type { SecretHandle } from '../security/secret-handles.js';
+import {
+  resolveSecretInputUnsafe,
+  type SecretInput,
+  type SecretRef,
+} from '../security/secret-refs.js';
+import {
+  fillBrowserField,
+  loadPlaywrightModule,
+  noopSecretAudit,
+  normalizeScrollDelta,
+  toNavigationOptions,
+} from './playwright-utils.js';
+import type {
+  BrowserEvaluateFunction,
+  BrowserProvider,
+  BrowserSession,
+  BrowserSessionMeteringContext,
+  ClickOptions,
+  HistoryNavigationOptions,
+  NavigateOptions,
+  ScreenshotOptions,
+  ScrollOptions,
+  SessionOptions,
+  WaitOptions,
+} from './provider.js';
+
+type BrowserUseCloudFetch = (
+  input: string,
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  },
+) => Promise<{
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text(): Promise<string>;
+}>;
+
+type BrowserUseCloudPage = {
+  evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
+  screenshot(opts?: {
+    fullPage?: boolean;
+    type?: 'png' | 'jpeg';
+  }): Promise<Buffer | Uint8Array>;
+  goto(
+    url: string,
+    opts?: { waitUntil?: NavigateOptions['waitUntil']; timeout?: number },
+  ): Promise<unknown>;
+  goBack(opts?: {
+    waitUntil?: NavigateOptions['waitUntil'];
+    timeout?: number;
+  }): Promise<unknown>;
+  goForward(opts?: {
+    waitUntil?: NavigateOptions['waitUntil'];
+    timeout?: number;
+  }): Promise<unknown>;
+  reload(opts?: {
+    waitUntil?: NavigateOptions['waitUntil'];
+    timeout?: number;
+  }): Promise<unknown>;
+  click(selector: string, opts?: { timeout?: number }): Promise<void>;
+  fill(selector: string, value: string): Promise<void>;
+  mouse: {
+    wheel(deltaX: number, deltaY: number): Promise<void>;
+  };
+  waitForSelector(
+    selector: string,
+    opts?: { state?: WaitOptions['state']; timeout?: number },
+  ): Promise<unknown>;
+  locator(selector: string): {
+    evaluate<TArg>(
+      fn: (element: Element, arg: TArg) => void,
+      arg: TArg,
+    ): Promise<void>;
+  };
+};
+
+type BrowserUseCloudContext = {
+  pages(): BrowserUseCloudPage[];
+  newPage(): Promise<BrowserUseCloudPage>;
+};
+
+type BrowserUseCloudBrowser = {
+  contexts(): BrowserUseCloudContext[];
+  close(): Promise<void>;
+};
+
+export type BrowserUseCloudPlaywrightModule = {
+  chromium: {
+    connectOverCDP(endpointURL: string): Promise<BrowserUseCloudBrowser>;
+  };
+};
+
+export interface BrowserUseCloudSessionConfig {
+  profileId?: string | null;
+  proxyCountryCode?: string | null;
+  timeoutMinutes?: number;
+  browserScreenWidth?: number;
+  browserScreenHeight?: number;
+  allowResizing?: boolean;
+  enableRecording?: boolean;
+}
+
+export interface BrowserUseCloudPricing {
+  browserUsdPerMinute: number;
+  actionUsd: number;
+}
+
+export interface BrowserUseCloudProviderOptions {
+  apiKeyRef?: SecretRef;
+  baseUrl?: string;
+  browser?: BrowserUseCloudSessionConfig;
+  fetch?: BrowserUseCloudFetch;
+  playwright?: BrowserUseCloudPlaywrightModule;
+  pricing?: Partial<BrowserUseCloudPricing>;
+  secretAudit?: (handle: SecretHandle, reason: string) => void;
+}
+
+interface BrowserUseCloudSessionResponse {
+  id: string;
+  status: string;
+  timeoutAt?: string | null;
+  startedAt?: string | null;
+  liveUrl?: string | null;
+  cdpUrl?: string | null;
+  finishedAt?: string | null;
+  proxyCost?: string | number | null;
+  browserCost?: string | number | null;
+  recordingUrl?: string | null;
+}
+
+interface ActiveCloudSession {
+  cloud: BrowserUseCloudSessionResponse;
+  browser: BrowserUseCloudBrowser;
+  apiKey: string;
+  metering: BrowserSessionMeteringContext;
+  startedAtMs: number;
+  accruedCostUsd: number;
+}
+
+const DEFAULT_BASE_URL = 'https://api.browser-use.com/api/v3';
+const DEFAULT_API_KEY_REF: SecretRef = {
+  source: 'env',
+  id: 'BROWSER_USE_API_KEY',
+};
+const DEFAULT_BROWSER_USE_CLOUD_PRICING: BrowserUseCloudPricing = {
+  // Browser Use Cloud documents Pay As You Go browser sessions at $0.06/hour.
+  browserUsdPerMinute: 0.001,
+  actionUsd: 0,
+};
+const MINIMUM_BILLED_MINUTES = 1;
+const MAX_BROWSER_TIMEOUT_MINUTES = 240;
+
+function normalizeBaseUrl(baseUrl?: string): string {
+  return (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/u, '');
+}
+
+function normalizeTimeoutMinutes(
+  opts: SessionOptions,
+  browserConfig: BrowserUseCloudSessionConfig,
+): number | undefined {
+  const raw =
+    typeof browserConfig.timeoutMinutes === 'number'
+      ? browserConfig.timeoutMinutes
+      : typeof opts.timeoutMs === 'number'
+        ? Math.ceil(opts.timeoutMs / 60_000)
+        : undefined;
+  if (raw == null || !Number.isFinite(raw)) return undefined;
+  return Math.max(1, Math.min(MAX_BROWSER_TIMEOUT_MINUTES, Math.ceil(raw)));
+}
+
+function parseCloudCost(value: unknown): number {
+  const cost = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(cost) && cost > 0 ? cost : 0;
+}
+
+function estimateBilledCost(params: {
+  startedAtMs: number;
+  nowMs: number;
+  pricing: BrowserUseCloudPricing;
+}): number {
+  const elapsedMs = Math.max(0, params.nowMs - params.startedAtMs);
+  const billedMinutes = Math.max(
+    MINIMUM_BILLED_MINUTES,
+    Math.ceil(elapsedMs / 60_000),
+  );
+  return billedMinutes * params.pricing.browserUsdPerMinute;
+}
+
+function buildCreateBrowserBody(
+  opts: SessionOptions,
+  browserConfig: BrowserUseCloudSessionConfig,
+): Record<string, unknown> {
+  const timeout = normalizeTimeoutMinutes(opts, browserConfig);
+  const body: Record<string, unknown> = {};
+  if (browserConfig.profileId !== undefined) {
+    body.profileId = browserConfig.profileId;
+  }
+  if (browserConfig.proxyCountryCode !== undefined) {
+    body.proxyCountryCode = browserConfig.proxyCountryCode;
+  }
+  if (timeout !== undefined) {
+    body.timeout = timeout;
+  }
+  if (browserConfig.browserScreenWidth !== undefined) {
+    body.browserScreenWidth = browserConfig.browserScreenWidth;
+  }
+  if (browserConfig.browserScreenHeight !== undefined) {
+    body.browserScreenHeight = browserConfig.browserScreenHeight;
+  }
+  if (browserConfig.allowResizing !== undefined) {
+    body.allowResizing = browserConfig.allowResizing;
+  }
+  if (browserConfig.enableRecording !== undefined) {
+    body.enableRecording = browserConfig.enableRecording;
+  }
+  return body;
+}
+
+function readOptionalString(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readCloudCostValue(
+  record: Record<string, unknown>,
+  key: string,
+): string | number | null {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return null;
+}
+
+function normalizeCloudSessionResponse(
+  payload: unknown,
+  path: string,
+  method: string,
+): BrowserUseCloudSessionResponse {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(
+      `Browser Use Cloud API ${method} ${path} returned a non-object response.`,
+    );
+  }
+
+  const record = payload as Record<string, unknown>;
+  const id = readOptionalString(record, 'id');
+  if (!id) {
+    throw new Error(
+      `Browser Use Cloud API ${method} ${path} returned a response without a valid id.`,
+    );
+  }
+
+  return {
+    id,
+    status: readOptionalString(record, 'status') || 'unknown',
+    timeoutAt: readOptionalString(record, 'timeoutAt'),
+    startedAt: readOptionalString(record, 'startedAt'),
+    liveUrl: readOptionalString(record, 'liveUrl'),
+    cdpUrl: readOptionalString(record, 'cdpUrl'),
+    finishedAt: readOptionalString(record, 'finishedAt'),
+    proxyCost: readCloudCostValue(record, 'proxyCost'),
+    browserCost: readCloudCostValue(record, 'browserCost'),
+    recordingUrl: readOptionalString(record, 'recordingUrl'),
+  };
+}
+
+function normalizeCloudCdpUrl(cdpUrl: string | null | undefined): string {
+  if (!cdpUrl) {
+    throw new Error('Browser Use Cloud session did not return a cdpUrl.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(cdpUrl);
+  } catch {
+    throw new Error(
+      'Browser Use Cloud session returned an invalid cdpUrl; expected a ws:// or wss:// URL.',
+    );
+  }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new Error(
+      'Browser Use Cloud session returned an invalid cdpUrl; expected a ws:// or wss:// URL.',
+    );
+  }
+  return parsed.toString();
+}
+
+async function loadPlaywright(
+  injected?: BrowserUseCloudPlaywrightModule,
+): Promise<BrowserUseCloudPlaywrightModule> {
+  return await loadPlaywrightModule(
+    injected,
+    (cause) =>
+      `Playwright is not available for Browser Use Cloud CDP connection. Cause: ${cause}`,
+  );
+}
+
+class BrowserUseCloudSession implements BrowserSession {
+  constructor(
+    private readonly page: BrowserUseCloudPage,
+    private readonly recordAction: (name: string) => void,
+    private readonly secretAudit?: (
+      handle: SecretHandle,
+      reason: string,
+    ) => void,
+  ) {}
+
+  async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
+    this.recordAction('evaluate');
+    return await this.page.evaluate(fn);
+  }
+
+  async screenshot(opts?: ScreenshotOptions): Promise<Buffer> {
+    this.recordAction('screenshot');
+    const bytes = await this.page.screenshot({
+      fullPage: opts?.fullPage,
+      type: opts?.type,
+    });
+    return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  }
+
+  async navigate(url: string, opts?: NavigateOptions): Promise<void> {
+    this.recordAction('navigate');
+    const parsed = await assertBrowserNavigationUrl(url);
+    await this.page.goto(parsed.toString(), toNavigationOptions(opts));
+  }
+
+  async back(opts?: HistoryNavigationOptions): Promise<void> {
+    this.recordAction('back');
+    await this.page.goBack(toNavigationOptions(opts));
+  }
+
+  async forward(opts?: HistoryNavigationOptions): Promise<void> {
+    this.recordAction('forward');
+    await this.page.goForward(toNavigationOptions(opts));
+  }
+
+  async reload(opts?: HistoryNavigationOptions): Promise<void> {
+    this.recordAction('reload');
+    await this.page.reload(toNavigationOptions(opts));
+  }
+
+  async click(selector: string, opts?: ClickOptions): Promise<void> {
+    this.recordAction('click');
+    await this.page.click(selector, { timeout: opts?.timeoutMs });
+  }
+
+  async fill(selector: string, value: SecretInput): Promise<void> {
+    this.recordAction('fill');
+    await fillBrowserField(this.page, selector, value, this.secretAudit);
+  }
+
+  async scroll(opts: ScrollOptions): Promise<void> {
+    this.recordAction('scroll');
+    const delta = normalizeScrollDelta(opts);
+    if (opts.selector) {
+      await this.page
+        .locator(opts.selector)
+        .evaluate((element, scrollDelta) => {
+          element.scrollBy(scrollDelta.deltaX, scrollDelta.deltaY);
+        }, delta);
+      return;
+    }
+
+    await this.page.mouse.wheel(delta.deltaX, delta.deltaY);
+  }
+
+  async waitForSelector(selector: string, opts?: WaitOptions): Promise<void> {
+    this.recordAction('wait_for_selector');
+    await this.page.waitForSelector(selector, {
+      state: opts?.state,
+      timeout: opts?.timeoutMs,
+    });
+  }
+}
+
+export class BrowserUseCloudProvider implements BrowserProvider {
+  private readonly activeSessions = new WeakMap<
+    BrowserUseCloudSession,
+    ActiveCloudSession
+  >();
+  private readonly baseUrl: string;
+  private readonly pricing: BrowserUseCloudPricing;
+
+  constructor(private readonly options: BrowserUseCloudProviderOptions = {}) {
+    this.baseUrl = normalizeBaseUrl(options.baseUrl);
+    this.pricing = {
+      ...DEFAULT_BROWSER_USE_CLOUD_PRICING,
+      ...options.pricing,
+    };
+  }
+
+  async launchSession(opts: SessionOptions): Promise<BrowserSession> {
+    if (opts.profileDirHint) {
+      throw new Error(
+        'BrowserUseCloudProvider does not accept local profileDirHint paths; configure a Browser Use Cloud profileId instead.',
+      );
+    }
+    const metering = this.resolveMetering(opts);
+
+    const apiKey = this.resolveApiKey();
+    const cloud = await this.createCloudSession(apiKey, opts);
+    let browser: BrowserUseCloudBrowser | null = null;
+    try {
+      const cdpUrl = normalizeCloudCdpUrl(cloud.cdpUrl);
+
+      const playwright = await loadPlaywright(this.options.playwright);
+      browser = await playwright.chromium.connectOverCDP(cdpUrl);
+      const context = browser.contexts()[0];
+      if (!context) {
+        throw new Error(
+          'Browser Use Cloud CDP connection did not expose a browser context.',
+        );
+      }
+      const page = context.pages()[0] || (await context.newPage());
+      const runId = metering.auditRunId ?? makeAuditRunId('browser_use_cloud');
+      const session = new BrowserUseCloudSession(
+        page,
+        (name) => this.recordActionUsage(metering, name),
+        this.options.secretAudit,
+      );
+
+      const startedAtMs = Date.parse(cloud.startedAt || '') || Date.now();
+      const startingCostUsd = estimateBilledCost({
+        startedAtMs,
+        nowMs: startedAtMs,
+        pricing: this.pricing,
+      });
+      this.recordUsage(metering, {
+        model: 'browser-use-cloud/session',
+        costUsd: startingCostUsd,
+        toolCalls: 0,
+      });
+      recordAuditEvent({
+        sessionId: metering.sessionId,
+        runId,
+        event: {
+          type: 'browser.session_started',
+          provider: 'browser-use-cloud',
+          providerSessionId: cloud.id,
+          sessionUrl: cloud.liveUrl || null,
+          startedAt: cloud.startedAt || null,
+          timeoutAt: cloud.timeoutAt || null,
+          pricing: {
+            browserUsdPerMinute: this.pricing.browserUsdPerMinute,
+            actionUsd: this.pricing.actionUsd,
+          },
+        },
+      });
+
+      this.activeSessions.set(session, {
+        cloud,
+        browser,
+        apiKey,
+        metering,
+        startedAtMs,
+        accruedCostUsd: startingCostUsd,
+      });
+      return session;
+    } catch (error) {
+      await this.cleanupFailedLaunch(apiKey, cloud, browser);
+      throw error;
+    }
+  }
+
+  async closeSession(session: BrowserSession): Promise<void> {
+    if (!(session instanceof BrowserUseCloudSession)) {
+      throw new Error(
+        'BrowserUseCloudProvider can only close its own sessions',
+      );
+    }
+    const active = this.activeSessions.get(session);
+    if (!active) {
+      throw new Error('BrowserUseCloudProvider session is not active');
+    }
+
+    const [stopResult, closeResult] = await Promise.allSettled([
+      this.stopCloudSession(active.apiKey, active.cloud.id),
+      active.browser.close(),
+    ]);
+    const stopped = stopResult.status === 'fulfilled' ? stopResult.value : null;
+
+    this.recordCloseUsage(active, stopped);
+    this.activeSessions.delete(session);
+    const errors: unknown[] = [];
+    if (stopResult.status === 'rejected') errors.push(stopResult.reason);
+    if (closeResult.status === 'rejected') errors.push(closeResult.reason);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(
+        errors,
+        'Failed to stop Browser Use Cloud session and close CDP browser.',
+      );
+    }
+  }
+
+  private resolveApiKey(): string {
+    const value = resolveSecretInputUnsafe(
+      this.options.apiKeyRef || DEFAULT_API_KEY_REF,
+      {
+        path: 'BrowserUseCloudProvider.apiKeyRef',
+        required: true,
+        reason: 'call Browser Use Cloud API',
+        audit: this.options.secretAudit || noopSecretAudit,
+      },
+    );
+    if (!value) {
+      throw new Error('Browser Use Cloud API key did not resolve.');
+    }
+    return value;
+  }
+
+  private resolveMetering(opts: SessionOptions): BrowserSessionMeteringContext {
+    const metering = opts.metering;
+    if (!metering?.sessionId?.trim() || !metering.agentId?.trim()) {
+      throw new Error(
+        'BrowserUseCloudProvider requires metering.sessionId and metering.agentId so every cloud session is audited and recorded in UsageTotals.',
+      );
+    }
+    return {
+      sessionId: metering.sessionId.trim(),
+      agentId: metering.agentId.trim(),
+      auditRunId: metering.auditRunId?.trim() || undefined,
+    };
+  }
+
+  private async createCloudSession(
+    apiKey: string,
+    opts: SessionOptions,
+  ): Promise<BrowserUseCloudSessionResponse> {
+    return await this.requestJson(apiKey, '/browsers', {
+      method: 'POST',
+      body: JSON.stringify(
+        buildCreateBrowserBody(opts, this.options.browser || {}),
+      ),
+    });
+  }
+
+  private async cleanupFailedLaunch(
+    apiKey: string,
+    cloud: BrowserUseCloudSessionResponse,
+    browser: BrowserUseCloudBrowser | null,
+  ): Promise<void> {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
+    await this.stopCloudSession(apiKey, cloud.id).catch(() => {});
+  }
+
+  private async stopCloudSession(
+    apiKey: string,
+    providerSessionId: string,
+  ): Promise<BrowserUseCloudSessionResponse> {
+    return await this.requestJson(
+      apiKey,
+      `/browsers/${encodeURIComponent(providerSessionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'stop' }),
+      },
+    );
+  }
+
+  private async requestJson(
+    apiKey: string,
+    path: string,
+    init: { method: string; body?: string },
+  ): Promise<BrowserUseCloudSessionResponse> {
+    const requestFetch = this.options.fetch || fetch;
+    const response = await requestFetch(`${this.baseUrl}${path}`, {
+      method: init.method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Browser-Use-API-Key': apiKey,
+      },
+      body: init.body,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const text = await response.text();
+    let payload: unknown = null;
+    if (text.trim()) {
+      try {
+        payload = JSON.parse(text) as unknown;
+      } catch {
+        payload = null;
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Browser Use Cloud API ${init.method} ${path} failed with HTTP ${response.status} ${response.statusText}: ${text.slice(0, 300)}`,
+      );
+    }
+
+    return normalizeCloudSessionResponse(payload, path, init.method);
+  }
+
+  private recordActionUsage(
+    metering: BrowserSessionMeteringContext,
+    actionName: string,
+  ): void {
+    this.recordUsage(metering, {
+      model: `browser-use-cloud/action:${actionName}`,
+      costUsd: this.pricing.actionUsd,
+      toolCalls: 1,
+    });
+  }
+
+  private recordCloseUsage(
+    active: ActiveCloudSession,
+    stopped: BrowserUseCloudSessionResponse | null,
+  ): void {
+    const cloudCostUsd =
+      parseCloudCost(stopped?.browserCost) + parseCloudCost(stopped?.proxyCost);
+    const estimatedCostUsd = estimateBilledCost({
+      startedAtMs: active.startedAtMs,
+      nowMs: Date.now(),
+      pricing: this.pricing,
+    });
+    const sessionCostUsd = cloudCostUsd > 0 ? cloudCostUsd : estimatedCostUsd;
+    const deltaUsd = Math.max(0, sessionCostUsd - active.accruedCostUsd);
+    if (deltaUsd <= 0) return;
+    this.recordUsage(active.metering, {
+      model: 'browser-use-cloud/session',
+      costUsd: deltaUsd,
+      toolCalls: 0,
+    });
+  }
+
+  private recordUsage(
+    metering: BrowserSessionMeteringContext,
+    params: {
+      model: string;
+      costUsd: number;
+      toolCalls: number;
+    },
+  ): void {
+    recordUsageEvent({
+      sessionId: metering.sessionId,
+      agentId: metering.agentId,
+      model: params.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      toolCalls: params.toolCalls,
+      costUsd: params.costUsd,
+    });
+  }
+}

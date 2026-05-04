@@ -169,6 +169,65 @@ Guard behavior:
 - `--skip-skill-scan` bypasses the scanner entirely for trusted operators
 - `dangerous` verdicts stay blocked
 
+### Troubleshooting: Skill exists but does not appear in `skill list`
+
+If importing or uploading a skill reports that it already exists under
+`~/.hybridclaw/skills/<skill-name>`, but `hybridclaw skill list` or
+`/skill list` does not show it, the directory exists but the scanner did not
+load it as a catalog entry.
+
+Check the installed layout first. A community skill must have an uppercase
+manifest file at `<skill-name>/SKILL.md`:
+
+```bash
+ls -la ~/.hybridclaw/skills/<skill-name>
+find ~/.hybridclaw/skills/<skill-name> -maxdepth 2 -type f
+```
+
+Common fixes:
+
+```bash
+# Fix a lowercase manifest filename.
+mv ~/.hybridclaw/skills/<skill-name>/skill.md \
+  ~/.hybridclaw/skills/<skill-name>/SKILL.md
+
+# Fix a zip that unpacked one directory too deep.
+mv ~/.hybridclaw/skills/<skill-name>/<skill-name>/SKILL.md \
+  ~/.hybridclaw/skills/<skill-name>/SKILL.md
+```
+
+The manifest frontmatter must include at least `name` and `description`:
+
+```markdown
+---
+name: <skill-name>
+description: Describe what this skill helps with.
+---
+```
+
+Restart the gateway after fixing the files:
+
+```bash
+hybridclaw gateway stop
+hybridclaw tui
+```
+
+If the skill still does not appear, inspect the gateway log for parse or guard
+scanner messages:
+
+```bash
+rg "<skill-name>|Failed to parse skill|Blocked skill" \
+  ~/.hybridclaw/data/gateway/gateway.log
+```
+
+When the installed directory is incomplete, move it aside and import the skill
+again:
+
+```bash
+mv ~/.hybridclaw/skills/<skill-name> ~/.hybridclaw/skills/<skill-name>.bak
+hybridclaw skill import ./<skill-name>.zip
+```
+
 ## Package Lifecycle
 
 Packaged business skills use audited lifecycle commands:

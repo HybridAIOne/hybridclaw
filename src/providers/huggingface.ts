@@ -18,6 +18,7 @@ async function resolveHuggingFaceRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'huggingface',
+    model: params.model,
     apiKey: readApiKeyForOpenAICompatProvider('huggingface', {
       required: true,
     }),

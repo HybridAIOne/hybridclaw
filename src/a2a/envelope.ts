@@ -27,6 +27,13 @@ export type CreateA2AEnvelopeInput = Omit<A2AEnvelope, 'id' | 'created_at'> & {
   created_at?: string;
 };
 
+export interface A2AEnvelopeAuditSummary {
+  messageId: string | null;
+  threadId: string | null;
+  senderAgentId: string | null;
+  recipientAgentId: string | null;
+}
+
 export class A2AEnvelopeValidationError extends Error {
   readonly issues: string[];
 
@@ -269,4 +276,15 @@ export function parseA2AEnvelopeJson(raw: string): A2AEnvelope {
 
 export function serializeA2AEnvelope(envelope: A2AEnvelope): string {
   return `${JSON.stringify(envelope, null, 2)}\n`;
+}
+
+export function summarizeA2AEnvelopeForAudit(
+  envelope: A2AEnvelope,
+): A2AEnvelopeAuditSummary {
+  return {
+    messageId: envelope.id,
+    threadId: envelope.thread_id,
+    senderAgentId: envelope.sender_agent_id,
+    recipientAgentId: envelope.recipient_agent_id,
+  };
 }

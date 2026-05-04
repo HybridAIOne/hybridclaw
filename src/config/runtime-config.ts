@@ -168,6 +168,7 @@ export interface RuntimeSecurityConfig {
   trustModelAcceptedAt: string;
   trustModelVersion: string;
   trustModelAcceptedBy: string;
+  confidentialRedactionEnabled: boolean;
 }
 
 export interface RuntimeConfigLoadError {
@@ -1077,6 +1078,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     trustModelAcceptedAt: '',
     trustModelVersion: '',
     trustModelAcceptedBy: '',
+    confidentialRedactionEnabled: false,
   },
   deployment: {
     mode: 'local',
@@ -5003,6 +5005,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.security.trustModelAcceptedBy,
         { allowEmpty: true },
       ),
+      confidentialRedactionEnabled: normalizeBoolean(
+        rawSecurity.confidentialRedactionEnabled,
+        DEFAULT_RUNTIME_CONFIG.security.confidentialRedactionEnabled,
+      ),
     },
     deployment: normalizeDeploymentConfig(
       rawDeployment,
@@ -6258,10 +6264,16 @@ function writeConfigFile(
   const tmpPath = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, nextText, { encoding: 'utf-8', mode: 0o600 });
   fs.renameSync(tmpPath, CONFIG_PATH);
-  syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
-    exists: true,
-    content: nextText,
-  });
+  try {
+    syncRuntimeConfigRevisionState(CONFIG_PATH, meta, {
+      exists: true,
+      content: nextText,
+    });
+  } catch (err) {
+    console.warn(
+      `[runtime-config] revision sync failed after save: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   return true;
 }
 
@@ -6290,7 +6302,13 @@ function loadRuntimeConfigFromSources(
     patch: diskPatch,
     source: diskSource,
   } = loadConfigPatchFromDisk();
-  syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
+  try {
+    syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
+  } catch (err) {
+    console.warn(
+      `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigSource = cloneConfig(diskSource);
   currentConfigMetadata = {

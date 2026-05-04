@@ -1,13 +1,12 @@
 import { execFile, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-
 import { parseOptionalBoolean } from '../shared/boolean-utils.js';
+import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
+import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -27,7 +26,9 @@ const execFileAsync = promisify(execFile);
 
 const BROWSER_SOCKET_ROOT = '/tmp/hybridclaw-browser';
 const BROWSER_ARTIFACT_ROOT = path.join(WORKSPACE_ROOT, '.browser-artifacts');
+const BROWSER_DOWNLOAD_ROOT = path.join(BROWSER_ARTIFACT_ROOT, 'downloads');
 const BROWSER_DEFAULT_TIMEOUT_MS = 45_000;
+const BROWSER_DOWNLOAD_TIMEOUT_MS = 120_000;
 const BROWSER_CLOSE_TIMEOUT_MS = 5_000;
 const BROWSER_MAX_SNAPSHOT_CHARS = 12_000;
 const BROWSER_RUNTIME_ROOT = path.join(WORKSPACE_ROOT, '.hybridclaw-runtime');
@@ -43,16 +44,6 @@ const BROWSER_PROFILE_ROOT = path.join(
   'browser-profiles',
 );
 const ENV_FALSEY = new Set(['0', 'false', 'no', 'off']);
-const HEADED_BROWSER_ARGS = [
-  '--no-first-run',
-  '--no-default-browser-check',
-  '--disable-background-networking',
-  '--disable-sync',
-  '--disable-translate',
-  '--metrics-recording-only',
-  '--password-store=basic',
-  '--use-mock-keychain',
-];
 const SNAPSHOT_CURSOR_FLAGS = ['-C'] as const;
 const BOT_DETECTION_PATTERNS = [
   'access denied',
@@ -188,7 +179,10 @@ type UploadTarget = {
 };
 type ClickTarget = {
   raw: string;
-  source: 'ref' | 'selector' | 'text';
+  source: 'ref' | 'selector' | 'text' | 'coordinate';
+  x?: number;
+  y?: number;
+  button?: 'left' | 'right' | 'middle';
 };
 type BrowserModelContext = {
   provider:
@@ -231,6 +225,19 @@ type BrowserVisionContext = BrowserModelContext & {
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
+};
+
+type DownloadSnapshot = {
+  path: string;
+  size: number;
+  mtimeMs: number;
+};
+
+type NativeDownloadObserver = {
+  root: string;
+  requestedPath: string;
+  before: Map<string, DownloadSnapshot>;
+  startedAt: number;
 };
 
 const activeSessions = new Map<string, BrowserSession>();
@@ -481,7 +488,7 @@ function resolveBrowserLaunchArgs(session: BrowserSession): string | undefined {
     : [];
   const merged = [...configuredArgs];
   const existing = new Set(merged);
-  for (const arg of HEADED_BROWSER_ARGS) {
+  for (const arg of BROWSER_PROFILE_CHROMIUM_ARGS) {
     if (!existing.has(arg)) merged.push(arg);
   }
   return merged.length > 0 ? merged.join('\n') : undefined;
@@ -551,6 +558,53 @@ async function prepareSessionMode(
 function ensureWritableDir(dirPath: string): string {
   fs.mkdirSync(dirPath, { recursive: true, mode: 0o700 });
   return dirPath;
+}
+
+function readJsonObject(filePath: string): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function setNestedValue(
+  root: Record<string, unknown>,
+  keys: string[],
+  value: unknown,
+): void {
+  let current = root;
+  for (const key of keys.slice(0, -1)) {
+    const next = current[key];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1] || ''] = value;
+}
+
+function configureChromeDownloadDirectory(
+  profileDir: string | undefined,
+  downloadDir: string,
+): void {
+  if (!profileDir) return;
+  try {
+    const preferencesPath = path.join(profileDir, 'Default', 'Preferences');
+    const prefs = readJsonObject(preferencesPath) ?? {};
+    setNestedValue(prefs, ['download', 'default_directory'], downloadDir);
+    setNestedValue(prefs, ['download', 'prompt_for_download'], false);
+    setNestedValue(prefs, ['download', 'directory_upgrade'], true);
+    setNestedValue(prefs, ['savefile', 'default_directory'], downloadDir);
+    fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
+    fs.writeFileSync(preferencesPath, JSON.stringify(prefs, null, 2));
+  } catch (err) {
+    process.stderr.write(
+      `[browser-tools] Warning: failed to configure Chrome download directory: ${err}\n`,
+    );
+  }
 }
 
 function resolveWritableHome(): string {
@@ -710,95 +764,6 @@ export async function cleanupAllBrowserSessions(): Promise<void> {
   }
 }
 
-function isPrivateIpv4(ip: string): boolean {
-  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
-  if (
-    parts.length !== 4 ||
-    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
-  ) {
-    return false;
-  }
-  const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 0) return true;
-  return false;
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().split('%')[0];
-  if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
-  if (/^fe[89ab]/.test(lower)) return true;
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice('::ffff:'.length);
-    return net.isIP(mapped) === 4 ? isPrivateIpv4(mapped) : false;
-  }
-  return false;
-}
-
-function isPrivateIp(ip: string): boolean {
-  const version = net.isIP(ip);
-  if (version === 4) return isPrivateIpv4(ip);
-  if (version === 6) return isPrivateIpv6(ip);
-  return false;
-}
-
-async function isPrivateHost(hostname: string): Promise<boolean> {
-  const host = hostname.trim().toLowerCase();
-  if (!host) return true;
-  if (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local')
-  )
-    return true;
-  if (net.isIP(host) > 0) return isPrivateIp(host);
-  try {
-    const resolved = await lookup(host, { all: true, verbatim: true });
-    if (resolved.length === 0) return false;
-    return resolved.some((entry) => isPrivateIp(entry.address));
-  } catch {
-    // If DNS cannot be resolved here, do not hard-block.
-    return false;
-  }
-}
-
-async function assertNavigationUrl(raw: unknown): Promise<URL> {
-  const input = String(raw || '').trim();
-  if (!input) {
-    throw new Error('url is required');
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(input);
-  } catch {
-    throw new Error(`Invalid URL: ${input}`);
-  }
-
-  if (parsed.protocol === 'about:' && parsed.href === 'about:blank') {
-    return parsed;
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL protocol: ${parsed.protocol}`);
-  }
-
-  const allowPrivate =
-    String(process.env.BROWSER_ALLOW_PRIVATE_NETWORK || '').toLowerCase() ===
-    'true';
-  if (!allowPrivate && (await isPrivateHost(parsed.hostname))) {
-    throw new Error(
-      `Navigation blocked by SSRF guard: private or loopback host (${parsed.hostname}). ` +
-        'Set BROWSER_ALLOW_PRIVATE_NETWORK=true to override.',
-    );
-  }
-  return parsed;
-}
-
 function truncateSnapshot(text: string): { text: string; truncated: boolean } {
   if (text.length <= BROWSER_MAX_SNAPSHOT_CHARS) {
     return { text, truncated: false };
@@ -821,15 +786,71 @@ function resolveClickTarget(args: Record<string, unknown>): ClickTarget {
   const ref = String(args.ref || '').trim();
   const text = String(args.text || '').trim();
   const selector = String(args.selector || '').trim();
+  const button = parseMouseButton(args.button);
+  const coordinate = parseViewportCoordinates(args.x, args.y);
 
+  if (ref) {
+    const refCoordinate = parseViewportRef(ref);
+    if (refCoordinate) {
+      return {
+        raw: ref.startsWith('@') ? ref : `@${ref}`,
+        source: 'coordinate',
+        x: refCoordinate.x,
+        y: refCoordinate.y,
+        button,
+      };
+    }
+    return {
+      raw: ref.startsWith('@') ? ref : `@${ref}`,
+      source: 'ref',
+    };
+  }
   if (text) return { raw: text, source: 'text' };
   if (selector) return { raw: selector, source: 'selector' };
-  if (!ref) {
-    throw new Error('ref is required (or provide selector or text)');
+  if (coordinate) {
+    return {
+      raw: `${coordinate.x},${coordinate.y}`,
+      source: 'coordinate',
+      x: coordinate.x,
+      y: coordinate.y,
+      button,
+    };
   }
+  throw new Error('ref is required (or provide text, selector, or x/y)');
+}
+
+function parseMouseButton(raw: unknown): 'left' | 'right' | 'middle' {
+  const button = String(raw || 'left')
+    .trim()
+    .toLowerCase();
+  if (button === 'left' || button === 'right' || button === 'middle') {
+    return button;
+  }
+  throw new Error('button must be one of "left", "right", or "middle"');
+}
+
+function parseViewportCoordinates(
+  rawX: unknown,
+  rawY: unknown,
+): { x: number; y: number } | null {
+  if (rawX == null && rawY == null) return null;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new Error('x and y must both be finite viewport coordinates');
+  }
+  if (x < 0 || y < 0) {
+    throw new Error('x and y must be non-negative viewport coordinates');
+  }
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function parseViewportRef(rawRef: string): { x: number; y: number } | null {
+  const match = rawRef.match(/^@?viewport-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/i);
+  if (!match) return null;
   return {
-    raw: ref.startsWith('@') ? ref : `@${ref}`,
-    source: 'ref',
+    x: Math.round(Number(match[1])),
+    y: Math.round(Number(match[2])),
   };
 }
 
@@ -925,6 +946,219 @@ function resolveOutputPath(rawPath: unknown, extension: 'png' | 'pdf'): string {
   }
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
   return resolved;
+}
+
+function resolveDownloadOutputPath(rawPath: unknown): string {
+  fs.mkdirSync(BROWSER_DOWNLOAD_ROOT, { recursive: true });
+
+  const fallbackName = `browser-download-${Date.now()}`;
+  const requested = String(rawPath || '').trim() || fallbackName;
+  if (path.isAbsolute(requested)) {
+    throw new Error(
+      'Absolute download paths are not allowed. Use a relative path.',
+    );
+  }
+  const normalized = requested.replace(/\\/g, '/');
+  const clean = path.posix.normalize(normalized);
+  if (clean === '..' || clean.startsWith('../')) {
+    throw new Error('Download path escapes browser downloads directory.');
+  }
+
+  const resolved = path.resolve(BROWSER_DOWNLOAD_ROOT, clean);
+  const root = path.resolve(BROWSER_DOWNLOAD_ROOT);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error('Download path escapes browser downloads directory.');
+  }
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  return resolved;
+}
+
+function isTemporaryDownloadFile(filePath: string): boolean {
+  const name = path.basename(filePath).toLowerCase();
+  return (
+    name.startsWith('.') ||
+    name.endsWith('.crdownload') ||
+    name.endsWith('.download') ||
+    name.endsWith('.tmp') ||
+    name.endsWith('.part')
+  );
+}
+
+function listDownloadSnapshots(root: string): Map<string, DownloadSnapshot> {
+  const snapshots = new Map<string, DownloadSnapshot>();
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    if (!dir) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+        continue;
+      }
+      if (!entry.isFile() || isTemporaryDownloadFile(entryPath)) continue;
+      try {
+        const stat = fs.statSync(entryPath);
+        if (!stat.isFile() || stat.size <= 0) continue;
+        snapshots.set(entryPath, {
+          path: entryPath,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+        });
+      } catch {
+        // Ignore files that disappear while Chrome is finalizing them.
+      }
+    }
+  }
+  return snapshots;
+}
+
+function createNativeDownloadObserver(
+  requestedPath: string,
+): NativeDownloadObserver {
+  const root = ensureWritableDir(BROWSER_DOWNLOAD_ROOT);
+  return {
+    root,
+    requestedPath,
+    before: listDownloadSnapshots(root),
+    startedAt: Date.now(),
+  };
+}
+
+function findChangedDownloadSnapshots(
+  observer: NativeDownloadObserver,
+): DownloadSnapshot[] {
+  const current = listDownloadSnapshots(observer.root);
+  const changed: DownloadSnapshot[] = [];
+  for (const snapshot of current.values()) {
+    const previous = observer.before.get(snapshot.path);
+    const sameAsBefore =
+      previous &&
+      previous.size === snapshot.size &&
+      previous.mtimeMs === snapshot.mtimeMs;
+    if (sameAsBefore) continue;
+    if (
+      snapshot.path === observer.requestedPath ||
+      !previous ||
+      snapshot.mtimeMs >= observer.startedAt - 1_000
+    ) {
+      changed.push(snapshot);
+    }
+  }
+  return changed.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForNativeDownload(
+  observer: NativeDownloadObserver,
+  timeoutMs = 8_000,
+): Promise<DownloadSnapshot | null> {
+  const deadline = Date.now() + timeoutMs;
+  const stableSince = new Map<string, DownloadSnapshot & { seenAt: number }>();
+
+  while (Date.now() <= deadline) {
+    for (const snapshot of findChangedDownloadSnapshots(observer)) {
+      const previous = stableSince.get(snapshot.path);
+      if (
+        previous &&
+        previous.size === snapshot.size &&
+        previous.mtimeMs === snapshot.mtimeMs
+      ) {
+        if (Date.now() - previous.seenAt >= 400) {
+          return snapshot;
+        }
+      } else {
+        stableSince.set(snapshot.path, { ...snapshot, seenAt: Date.now() });
+      }
+    }
+    await sleep(250);
+  }
+
+  return null;
+}
+
+async function adoptNativeDownload(
+  observer: NativeDownloadObserver | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!observer) return null;
+  const snapshot = await waitForNativeDownload(observer);
+  if (!snapshot) return null;
+
+  if (snapshot.path !== observer.requestedPath) {
+    fs.mkdirSync(path.dirname(observer.requestedPath), { recursive: true });
+    fs.copyFileSync(snapshot.path, observer.requestedPath);
+  }
+
+  const relativeDownloadPath = toWorkspaceRelativePath(observer.requestedPath);
+  if (!relativeDownloadPath) return null;
+  const observedPath = toWorkspaceRelativePath(snapshot.path);
+
+  return {
+    download_path: relativeDownloadPath,
+    download_observer: 'filesystem',
+    suggested_filename: path.basename(snapshot.path),
+    observed_size_bytes: snapshot.size,
+    ...(observedPath && observedPath !== relativeDownloadPath
+      ? { observed_download_path: observedPath }
+      : {}),
+  };
+}
+
+function formatDownloadSnapshot(
+  snapshot: DownloadSnapshot,
+): Record<string, unknown> | null {
+  const relativePath = toWorkspaceRelativePath(snapshot.path);
+  if (!relativePath) return null;
+  return {
+    path: relativePath,
+    filename: path.basename(snapshot.path),
+    size_bytes: snapshot.size,
+    modified_at: new Date(snapshot.mtimeMs).toISOString(),
+  };
+}
+
+function listManagedDownloads(
+  filter: string,
+  limit: number,
+): Record<string, unknown>[] {
+  return Array.from(
+    listDownloadSnapshots(ensureWritableDir(BROWSER_DOWNLOAD_ROOT)).values(),
+  )
+    .filter((snapshot) => {
+      if (!filter) return true;
+      const normalizedFilter = filter.toLowerCase();
+      return (
+        snapshot.path.toLowerCase().includes(normalizedFilter) ||
+        path.basename(snapshot.path).toLowerCase().includes(normalizedFilter)
+      );
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, limit)
+    .map(formatDownloadSnapshot)
+    .filter((item): item is Record<string, unknown> => item !== null);
+}
+
+async function waitForManagedDownloads(
+  filter: string,
+  limit: number,
+  waitMs: number,
+): Promise<Record<string, unknown>[]> {
+  const deadline = Date.now() + waitMs;
+  do {
+    const downloads = listManagedDownloads(filter, limit);
+    if (downloads.length > 0) return downloads;
+    await sleep(250);
+  } while (Date.now() <= deadline);
+  return [];
 }
 
 function createTempScreenshotPath(prefix: string): string {
@@ -1239,6 +1473,247 @@ ${buildElementClickResultScript('\n    matched_kind: match.matchedKind,')}
 })()`;
 }
 
+function buildTextDownloadTargetScript(
+  text: string,
+  exact: boolean,
+  marker: string,
+): string {
+  return `(() => {
+  const query = ${JSON.stringify(text)};
+  const exact = ${JSON.stringify(exact)};
+  const marker = ${JSON.stringify(marker)};
+  const normalize = (value) =>
+    String(value || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const needle = normalize(query);
+  if (!needle) {
+    return { ok: false, error: 'text is required' };
+  }
+  const isVisible = (element) => {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+  const resolveClickableTarget = (start) => {
+    let current = start;
+    while (current) {
+      const tag = String(current.tagName || '').toLowerCase();
+      const role =
+        typeof current.getAttribute === 'function'
+          ? String(current.getAttribute('role') || '').toLowerCase()
+          : '';
+      const tabIndexValue =
+        typeof current.tabIndex === 'number' && Number.isFinite(current.tabIndex)
+          ? current.tabIndex
+          : typeof current.getAttribute === 'function'
+              ? Number.parseInt(String(current.getAttribute('tabindex') || ''), 10)
+              : Number.NaN;
+      const style =
+        typeof window.getComputedStyle === 'function'
+          ? window.getComputedStyle(current)
+          : null;
+      const cursor = style && typeof style.cursor === 'string'
+        ? style.cursor.toLowerCase()
+        : '';
+      if (
+        tag === 'a' ||
+        tag === 'button' ||
+        tag === 'input' ||
+        tag === 'select' ||
+        tag === 'textarea' ||
+        tag === 'summary' ||
+        tag === 'label' ||
+        role === 'button' ||
+        role === 'link' ||
+        cursor === 'pointer' ||
+        (Number.isFinite(tabIndexValue) && Number(tabIndexValue) >= 0) ||
+        typeof current.onclick === 'function'
+      ) {
+        return current;
+      }
+      current = current.parentElement || null;
+    }
+    return start;
+  };
+  const findMatch = (matchMode) => {
+    if (!document.body) return null;
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_ELEMENT,
+    );
+    let current = walker.currentNode;
+    let bestMatch = null;
+    while (current) {
+      const element = current;
+      const tag = String(element.tagName || '').toLowerCase();
+      if (
+        tag !== 'script' &&
+        tag !== 'style' &&
+        tag !== 'noscript' &&
+        isVisible(element)
+      ) {
+        const value =
+          ('innerText' in element ? element.innerText : element.textContent) ||
+          element.getAttribute('aria-label') ||
+          element.getAttribute('alt') ||
+          element.getAttribute('title') ||
+          '';
+        const normalized = normalize(value);
+        const matches =
+          matchMode === 'exact'
+            ? normalized === needle
+            : normalized.includes(needle);
+        if (normalized && matches) {
+          const rect = element.getBoundingClientRect();
+          const candidate = {
+            element,
+            textLength: normalized.length,
+            area: Math.round(rect.width * rect.height),
+          };
+          if (
+            !bestMatch ||
+            candidate.textLength < bestMatch.textLength ||
+            (candidate.textLength === bestMatch.textLength &&
+              candidate.area < bestMatch.area)
+          ) {
+            bestMatch = candidate;
+          }
+        }
+      }
+      current = walker.nextNode();
+    }
+    return bestMatch;
+  };
+  const match = findMatch('exact') || (!exact ? findMatch('substring') : null);
+  if (!match) {
+    return {
+      ok: false,
+      error: 'no visible element matches text "' + query + '"',
+    };
+  }
+  const target = resolveClickableTarget(match.element);
+  target.setAttribute('data-hybridclaw-download-target', marker);
+  if (typeof target.scrollIntoView === 'function') {
+    target.scrollIntoView({ block: 'center', inline: 'center' });
+  }
+  return {
+    ok: true,
+    selector: '[data-hybridclaw-download-target="' + marker + '"]',
+    text: String(('innerText' in target ? target.innerText : target.textContent) || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .slice(0, 200),
+  };
+})()`;
+}
+
+function buildCoordinateDownloadTargetScript(
+  x: number,
+  y: number,
+  marker: string,
+): string {
+  return `(() => {
+  const x = ${JSON.stringify(x)};
+  const y = ${JSON.stringify(y)};
+  const marker = ${JSON.stringify(marker)};
+  const start = document.elementFromPoint(x, y);
+  if (!start) {
+    return { ok: false, error: 'no element at viewport coordinate ' + x + ',' + y };
+  }
+  const isClickable = (element) => {
+    const tag = String(element.tagName || '').toLowerCase();
+    const role =
+      typeof element.getAttribute === 'function'
+        ? String(element.getAttribute('role') || '').toLowerCase()
+        : '';
+    const tabIndexValue =
+      typeof element.tabIndex === 'number' && Number.isFinite(element.tabIndex)
+        ? element.tabIndex
+        : typeof element.getAttribute === 'function'
+            ? Number.parseInt(String(element.getAttribute('tabindex') || ''), 10)
+            : Number.NaN;
+    const style =
+      typeof window.getComputedStyle === 'function'
+        ? window.getComputedStyle(element)
+        : null;
+    const cursor = style && typeof style.cursor === 'string'
+      ? style.cursor.toLowerCase()
+      : '';
+    return (
+      tag === 'a' ||
+      tag === 'button' ||
+      tag === 'input' ||
+      tag === 'select' ||
+      tag === 'textarea' ||
+      tag === 'summary' ||
+      tag === 'label' ||
+      role === 'button' ||
+      role === 'link' ||
+      cursor === 'pointer' ||
+      (Number.isFinite(tabIndexValue) && Number(tabIndexValue) >= 0) ||
+      typeof element.onclick === 'function'
+    );
+  };
+  let target = start;
+  while (target && !isClickable(target)) {
+    target = target.parentElement || null;
+  }
+  target = target || start;
+  target.setAttribute('data-hybridclaw-download-target', marker);
+  return {
+    ok: true,
+    selector: '[data-hybridclaw-download-target="' + marker + '"]',
+    tag: String(target.tagName || '').toLowerCase(),
+    text: String(('innerText' in target ? target.innerText : target.textContent) || '')
+      .replace(/\\s+/g, ' ')
+      .trim()
+      .slice(0, 200),
+  };
+})()`;
+}
+
+function buildCoordinateFrameTargetScript(
+  x: number,
+  y: number,
+  marker: string,
+): string {
+  return `(() => {
+  const x = ${JSON.stringify(x)};
+  const y = ${JSON.stringify(y)};
+  const marker = ${JSON.stringify(marker)};
+  const element = document.elementFromPoint(x, y);
+  if (!element) {
+    return { ok: false, error: 'no element at viewport coordinate ' + x + ',' + y };
+  }
+  const tag = String(element.tagName || '').toLowerCase();
+  if (tag !== 'iframe' && tag !== 'frame') {
+    return { ok: true, iframe: false };
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return { ok: false, error: 'iframe at viewport coordinate has no visible bounds' };
+  }
+  element.setAttribute('data-hybridclaw-frame-target', marker);
+  return {
+    ok: true,
+    iframe: true,
+    selector: '[data-hybridclaw-frame-target="' + marker + '"]',
+    x: Math.max(0, Math.round(x - rect.left)),
+    y: Math.max(0, Math.round(y - rect.top)),
+    frame_left: Math.round(rect.left),
+    frame_top: Math.round(rect.top),
+  };
+})()`;
+}
+
 function parseOptionalFrame(raw: unknown): FrameTarget | null {
   if (raw == null) return null;
   const frame = String(raw).trim();
@@ -1276,6 +1751,95 @@ async function runBrowserEval(
   }
   const data = asRecord(response.data);
   return { success: true, result: data ? data.result : undefined };
+}
+
+async function collectClickDownloadResult(
+  downloadPromise: Promise<{
+    success: boolean;
+    data?: unknown;
+    error?: string;
+  }> | null,
+  downloadPath: string,
+  observer?: NativeDownloadObserver,
+): Promise<
+  { ok: true; fields: Record<string, unknown> } | { ok: false; error: string }
+> {
+  if (!downloadPromise) return { ok: true, fields: {} };
+  const download = await downloadPromise;
+  if (!download.success) {
+    const observedDownload = await adoptNativeDownload(observer);
+    if (observedDownload) return { ok: true, fields: observedDownload };
+    return {
+      ok: false,
+      error:
+        download.error ||
+        'click completed but no download was captured in browser automation or the managed downloads directory',
+    };
+  }
+
+  const downloadData = asRecord(download.data);
+  const savedPath =
+    typeof downloadData?.path === 'string' ? downloadData.path : downloadPath;
+  const relativeDownloadPath = toWorkspaceRelativePath(savedPath);
+  if (!relativeDownloadPath) {
+    return { ok: false, error: 'failed to normalize download artifact path' };
+  }
+  const suggestedFilename =
+    typeof downloadData?.filename === 'string'
+      ? downloadData.filename
+      : typeof downloadData?.suggestedFilename === 'string'
+        ? downloadData.suggestedFilename
+        : undefined;
+  return {
+    ok: true,
+    fields: {
+      download_path: relativeDownloadPath,
+      ...(suggestedFilename ? { suggested_filename: suggestedFilename } : {}),
+      ...(typeof downloadData?.url === 'string'
+        ? { download_url: downloadData.url }
+        : {}),
+    },
+  };
+}
+
+async function clearDownloadTargetMarker(
+  sessionId: string,
+  selector: string,
+): Promise<void> {
+  await runBrowserEval(
+    sessionId,
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (element) element.removeAttribute('data-hybridclaw-download-target');
+      return true;
+    })()`,
+    10_000,
+  ).catch(() => undefined);
+}
+
+async function runBrowserDownloadTarget(
+  sessionId: string,
+  selector: string,
+  downloadPath: string,
+  options: { clearTargetMarker?: boolean } = {},
+): Promise<
+  { ok: true; fields: Record<string, unknown> } | { ok: false; error: string }
+> {
+  const downloadObserver = createNativeDownloadObserver(downloadPath);
+  const result = await runAgentBrowser(
+    sessionId,
+    'download',
+    [selector, downloadPath],
+    { timeoutMs: BROWSER_DOWNLOAD_TIMEOUT_MS },
+  );
+  if (options.clearTargetMarker === true) {
+    await clearDownloadTargetMarker(sessionId, selector);
+  }
+  return collectClickDownloadResult(
+    Promise.resolve(result),
+    downloadPath,
+    downloadObserver,
+  );
 }
 
 function normalizeFrameMetadata(raw: unknown): Record<string, unknown>[] {
@@ -1498,6 +2062,8 @@ async function runAgentBrowser(
   const playwrightBrowsersPath = ensureWritableDir(
     resolvePlaywrightBrowsersPath(),
   );
+  const downloadPath = ensureWritableDir(BROWSER_DOWNLOAD_ROOT);
+  configureChromeDownloadDirectory(session.profileDir, downloadPath);
   const args = [...runner.prefixArgs];
   const cdpUrl = resolveCdpUrl(options.cdpUrl);
   if (cdpUrl) {
@@ -1514,6 +2080,7 @@ async function runAgentBrowser(
     NPM_CONFIG_CACHE: npmCacheDir,
     npm_config_cache: npmCacheDir,
     PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersPath,
+    AGENT_BROWSER_DOWNLOAD_PATH: downloadPath,
     AGENT_BROWSER_HEADED: session.headed ? '1' : '0',
   };
   if (session.stateName) {
@@ -1616,7 +2183,7 @@ export async function executeBrowserTool(
     const effectiveSessionId = normalizeSessionKey(sessionId || 'default');
     switch (name) {
       case 'browser_navigate': {
-        const parsed = await assertNavigationUrl(args.url);
+        const parsed = await assertBrowserNavigationUrl(args.url);
         const headed = parseOptionalBoolean(args.headed ?? args.headful);
         const result = await runAgentBrowser(
           effectiveSessionId,
@@ -1678,6 +2245,8 @@ export async function executeBrowserTool(
         const mode = normalizeSnapshotMode(args.mode);
         const full = args.full === true;
         const commandArgs = buildSnapshotCommandArgs(mode, full);
+        const frame = parseOptionalFrame(args.frame);
+        await applyFrameTarget(effectiveSessionId, frame);
 
         const result = await runAgentBrowser(
           effectiveSessionId,
@@ -1720,6 +2289,7 @@ export async function executeBrowserTool(
               : 0,
           url: data.url || data.origin || '',
           mode,
+          ...(frame ? { frame: frame.raw } : {}),
           ...(frames.length > 0 ? { frames, frame_count: frames.length } : {}),
           ...(twoFactorSelectors.length > 0 || twoFactorTextSignal
             ? {
@@ -1736,8 +2306,222 @@ export async function executeBrowserTool(
       case 'browser_click': {
         const target = resolveClickTarget(args);
         const frame = parseOptionalFrame(args.frame);
+        const waitForDownload = args.waitForDownload === true;
+        const downloadPath = waitForDownload
+          ? resolveDownloadOutputPath(args.downloadPath || args.path)
+          : '';
         await applyFrameTarget(effectiveSessionId, frame);
+        if (target.source === 'coordinate') {
+          if (waitForDownload) {
+            if (
+              typeof target.x !== 'number' ||
+              typeof target.y !== 'number' ||
+              !Number.isFinite(target.x) ||
+              !Number.isFinite(target.y)
+            ) {
+              return failure(
+                'x and y must both be finite viewport coordinates',
+              );
+            }
+            const marker = `download-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 10)}`;
+            const frameMarker = `frame-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 10)}`;
+            let downloadX = target.x;
+            let downloadY = target.y;
+            let iframeSelector = '';
+            const cleanupIframeTarget = async () => {
+              if (!iframeSelector) return;
+              await runAgentBrowser(effectiveSessionId, 'frame', [
+                'main',
+              ]).catch(() => undefined);
+              await runBrowserEval(
+                effectiveSessionId,
+                `(() => {
+                  const element = document.querySelector(${JSON.stringify(iframeSelector)});
+                  if (element) element.removeAttribute('data-hybridclaw-frame-target');
+                  return true;
+                })()`,
+                10_000,
+              ).catch(() => undefined);
+            };
+            const frameEval = await runBrowserEval(
+              effectiveSessionId,
+              buildCoordinateFrameTargetScript(target.x, target.y, frameMarker),
+              30_000,
+            );
+            if (!frameEval.success) {
+              return failure(
+                frameEval.error ||
+                  `failed to inspect viewport coordinate ${target.x},${target.y} for iframe target`,
+              );
+            }
+            const frameData = asRecord(frameEval.result);
+            if (frameData?.ok !== true) {
+              return failure(
+                typeof frameData?.error === 'string'
+                  ? frameData.error
+                  : `failed to inspect viewport coordinate ${target.x},${target.y} for iframe target`,
+              );
+            }
+            if (frameData.iframe === true) {
+              iframeSelector =
+                typeof frameData.selector === 'string'
+                  ? frameData.selector
+                  : '';
+              const localX = Number(frameData.x);
+              const localY = Number(frameData.y);
+              if (
+                !iframeSelector ||
+                !Number.isFinite(localX) ||
+                !Number.isFinite(localY)
+              ) {
+                return failure(
+                  `failed to resolve iframe-local coordinate for viewport coordinate ${target.x},${target.y}`,
+                );
+              }
+              const switchFrame = await runAgentBrowser(
+                effectiveSessionId,
+                'frame',
+                [iframeSelector],
+              );
+              if (!switchFrame.success) {
+                await runBrowserEval(
+                  effectiveSessionId,
+                  `(() => {
+                    const element = document.querySelector(${JSON.stringify(iframeSelector)});
+                    if (element) element.removeAttribute('data-hybridclaw-frame-target');
+                    return true;
+                  })()`,
+                  10_000,
+                ).catch(() => undefined);
+                return failure(
+                  switchFrame.error ||
+                    `failed to switch to iframe at viewport coordinate ${target.x},${target.y}`,
+                );
+              }
+              downloadX = Math.round(localX);
+              downloadY = Math.round(localY);
+            }
+            const selectorEval = await runBrowserEval(
+              effectiveSessionId,
+              buildCoordinateDownloadTargetScript(downloadX, downloadY, marker),
+              30_000,
+            );
+            if (!selectorEval.success) {
+              await cleanupIframeTarget();
+              return failure(
+                selectorEval.error ||
+                  `failed to resolve viewport coordinate ${target.x},${target.y} for download`,
+              );
+            }
+            const selectorData = asRecord(selectorEval.result);
+            if (selectorData?.ok !== true) {
+              await cleanupIframeTarget();
+              return failure(
+                typeof selectorData?.error === 'string'
+                  ? selectorData.error
+                  : `failed to resolve viewport coordinate ${target.x},${target.y} for download`,
+              );
+            }
+            const selector =
+              typeof selectorData.selector === 'string'
+                ? selectorData.selector
+                : '';
+            if (!selector) {
+              await cleanupIframeTarget();
+              return failure(
+                'failed to create download selector for coordinate target',
+              );
+            }
+            const downloadResult = await runBrowserDownloadTarget(
+              effectiveSessionId,
+              selector,
+              downloadPath,
+              { clearTargetMarker: true },
+            );
+            await cleanupIframeTarget();
+            if (!downloadResult.ok) return failure(downloadResult.error);
+            return success({
+              clicked: target.raw,
+              x: target.x,
+              y: target.y,
+              button: target.button || 'left',
+              ...(typeof selectorData.text === 'string'
+                ? { matched_text: selectorData.text }
+                : {}),
+              ...(typeof selectorData.tag === 'string'
+                ? { matched_tag: selectorData.tag }
+                : {}),
+              ...(iframeSelector
+                ? {
+                    iframe: iframeSelector,
+                    frame_x: downloadX,
+                    frame_y: downloadY,
+                  }
+                : {}),
+              ...downloadResult.fields,
+              ...(frame ? { frame: frame.raw } : {}),
+            });
+          }
+          if (
+            typeof target.x !== 'number' ||
+            typeof target.y !== 'number' ||
+            !Number.isFinite(target.x) ||
+            !Number.isFinite(target.y)
+          ) {
+            return failure('x and y must both be finite viewport coordinates');
+          }
+          const move = await runAgentBrowser(effectiveSessionId, 'mouse', [
+            'move',
+            String(target.x),
+            String(target.y),
+          ]);
+          if (!move.success) {
+            return failure(
+              move.error ||
+                `failed to move mouse to viewport coordinate ${target.x},${target.y}`,
+            );
+          }
+          const down = await runAgentBrowser(effectiveSessionId, 'mouse', [
+            'down',
+            target.button || 'left',
+          ]);
+          if (!down.success) {
+            return failure(down.error || 'failed to press mouse button');
+          }
+          const up = await runAgentBrowser(effectiveSessionId, 'mouse', [
+            'up',
+            target.button || 'left',
+          ]);
+          if (!up.success) {
+            return failure(up.error || 'failed to release mouse button');
+          }
+          return success({
+            clicked: target.raw,
+            x: target.x,
+            y: target.y,
+            button: target.button || 'left',
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
         if (target.source === 'ref') {
+          if (waitForDownload) {
+            const downloadResult = await runBrowserDownloadTarget(
+              effectiveSessionId,
+              target.raw,
+              downloadPath,
+            );
+            if (!downloadResult.ok) return failure(downloadResult.error);
+            return success({
+              clicked: target.raw,
+              ref: target.raw,
+              ...downloadResult.fields,
+              ...(frame ? { frame: frame.raw } : {}),
+            });
+          }
           const result = await runAgentBrowser(effectiveSessionId, 'click', [
             target.raw,
           ]);
@@ -1746,6 +2530,75 @@ export async function executeBrowserTool(
           return success({
             clicked: target.raw,
             ref: target.raw,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
+
+        if (target.source === 'selector' && waitForDownload) {
+          const downloadResult = await runBrowserDownloadTarget(
+            effectiveSessionId,
+            target.raw,
+            downloadPath,
+          );
+          if (!downloadResult.ok) return failure(downloadResult.error);
+          return success({
+            clicked: target.raw,
+            selector: target.raw,
+            ...downloadResult.fields,
+            ...(frame ? { frame: frame.raw } : {}),
+          });
+        }
+        if (target.source === 'text' && waitForDownload) {
+          const marker = `download-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 10)}`;
+          const selectorEval = await runBrowserEval(
+            effectiveSessionId,
+            buildTextDownloadTargetScript(
+              target.raw,
+              args.exact === true,
+              marker,
+            ),
+            30_000,
+          );
+          if (!selectorEval.success) {
+            return failure(
+              selectorEval.error ||
+                `failed to resolve visible text "${target.raw}" for download`,
+            );
+          }
+          const selectorData = asRecord(selectorEval.result);
+          if (selectorData?.ok !== true) {
+            return failure(
+              typeof selectorData?.error === 'string'
+                ? selectorData.error
+                : `failed to resolve visible text "${target.raw}" for download`,
+            );
+          }
+          const selector =
+            typeof selectorData.selector === 'string'
+              ? selectorData.selector
+              : '';
+          if (!selector) {
+            return failure(
+              'failed to create download selector for text target',
+            );
+          }
+          const downloadResult = await runBrowserDownloadTarget(
+            effectiveSessionId,
+            selector,
+            downloadPath,
+            { clearTargetMarker: true },
+          );
+          if (!downloadResult.ok) return failure(downloadResult.error);
+          return success({
+            clicked: target.raw,
+            text: target.raw,
+            exact: args.exact === true,
+            ...(typeof selectorData.text === 'string'
+              ? { matched_text: selectorData.text }
+              : {}),
+            ...downloadResult.fields,
             ...(frame ? { frame: frame.raw } : {}),
           });
         }
@@ -1924,6 +2777,7 @@ export async function executeBrowserTool(
         }
         return success({
           path: relativePath,
+          image_url: relativePath,
           full_page: fullPage,
         });
       }
@@ -2109,6 +2963,31 @@ export async function executeBrowserTool(
           count: requests.length,
           requests,
           ...(filter ? { filter } : {}),
+        });
+      }
+
+      case 'browser_downloads': {
+        const filter = String(args.filter || '').trim();
+        const rawLimit = Number(args.limit);
+        const limit =
+          Number.isFinite(rawLimit) && rawLimit > 0
+            ? Math.min(Math.floor(rawLimit), 50)
+            : 10;
+        const rawWaitMs = Number(args.waitMs);
+        const waitMs =
+          Number.isFinite(rawWaitMs) && rawWaitMs > 0
+            ? Math.min(Math.floor(rawWaitMs), 30_000)
+            : 0;
+        const downloads =
+          waitMs > 0
+            ? await waitForManagedDownloads(filter, limit, waitMs)
+            : listManagedDownloads(filter, limit);
+        return success({
+          count: downloads.length,
+          downloads,
+          root: toWorkspaceRelativePath(BROWSER_DOWNLOAD_ROOT),
+          ...(filter ? { filter } : {}),
+          ...(waitMs > 0 ? { waited_ms: waitMs } : {}),
         });
       }
 
@@ -2396,6 +3275,11 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Snapshot mode. "default" keeps legacy behavior, "interactive" returns interactive refs only, "full" requests full tree.',
           },
+          frame: {
+            type: 'string',
+            description:
+              'Optional frame selector. Use this to snapshot an embedded iframe, or "main" to target the main document again.',
+          },
         },
         required: [],
       },
@@ -2406,18 +3290,45 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'browser_click',
       description:
-        'Click an element by snapshot ref (example: "@e5"). If snapshot refs are missing for JS-only clickable containers, you can fall back to a CSS selector or visible text match. For backward compatibility, if multiple targeting fields are provided, browser_click prefers text, then selector, then ref.',
+        'Click an element by snapshot ref (example: "@e5"), visible text, CSS selector, or exact viewport coordinates with x/y. Use the fallback chain ref -> text -> selector -> coordinates. For downloads, use waitForDownload with the same fallback chain; x/y download capture auto-enters an iframe when the coordinate hits one, then restores the main frame.',
       parameters: {
         type: 'object',
         properties: {
+          x: {
+            type: 'number',
+            description:
+              'Fallback viewport x coordinate to click. Provide together with y for a real mouse click at that point when refs/text are not viable.',
+          },
+          y: {
+            type: 'number',
+            description:
+              'Fallback viewport y coordinate to click. Provide together with x for a real mouse click at that point when refs/text are not viable.',
+          },
+          button: {
+            type: 'string',
+            enum: ['left', 'right', 'middle'],
+            description:
+              'Mouse button for coordinate clicks. Defaults to left.',
+          },
+          waitForDownload: {
+            type: 'boolean',
+            description:
+              'When true, capture the download triggered by the click and return download_path. Works with ref, visible text, selector, or x/y when the coordinate can be resolved to a DOM element.',
+          },
+          downloadPath: {
+            type: 'string',
+            description:
+              'Optional filename or subpath under .browser-artifacts/downloads for waitForDownload clicks, for example "invoice.pdf".',
+          },
           ref: {
             type: 'string',
-            description: 'Element reference from browser_snapshot.',
+            description:
+              'Preferred element reference from browser_snapshot. Legacy @viewport-X-Y coordinate refs are accepted.',
           },
           selector: {
             type: 'string',
             description:
-              'Optional CSS selector fallback when no snapshot ref is available.',
+              'Optional CSS selector fallback when no snapshot ref or visible text target is available.',
           },
           text: {
             type: 'string',
@@ -2611,7 +3522,7 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
           path: {
             type: 'string',
             description:
-              'Optional relative output path under .browser-artifacts.',
+              'Optional filename or subpath relative to .browser-artifacts, for example "shot.png". Do not include a .browser-artifacts/ prefix.',
           },
           fullPage: {
             type: 'boolean',
@@ -2707,6 +3618,35 @@ export const BROWSER_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'boolean',
             description:
               'When true, clear recorded network request history first.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_downloads',
+      description:
+        'List recent files in the managed browser downloads directory. Use after download clicks to verify the file path when the page or Chrome UI downloads outside the normal automation event.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: {
+            type: 'string',
+            description:
+              'Optional filename/path substring filter, for example an invoice number when the requested downloadPath included it.',
+          },
+          limit: {
+            type: 'number',
+            description:
+              'Maximum files to return, newest first. Defaults to 10.',
+          },
+          waitMs: {
+            type: 'number',
+            description:
+              'Optional time in milliseconds to wait for at least one matching stable download. Maximum 30000.',
           },
         },
         required: [],

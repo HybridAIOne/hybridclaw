@@ -56,6 +56,7 @@ function createLocalOpenAICompatProvider(params: {
         String(runtimeParams.agentId || '').trim() || DEFAULT_AGENT_ID;
       return {
         provider: backend,
+        model: `${backend}/${normalizedModel}`,
         apiKey: apiKey?.() || '',
         baseUrl: baseUrl().trim().replace(/\/+$/g, ''),
         chatbotId: '',
