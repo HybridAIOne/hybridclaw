@@ -146,10 +146,3 @@ export function extractClipboardFiles(
   return files;
 }
 
-export function isScrolledNearBottom(
-  el: HTMLElement | null,
-  threshold = 64,
-): boolean {
-  if (!el) return true;
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
-}

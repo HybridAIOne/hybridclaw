@@ -274,7 +274,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
 
   if (msg.role === 'thinking') {
     return (
-      <div className={css.thinking}>
+      <div className={css.thinking} data-message-id={msg.id}>
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
         <span className={css.thinkingDot} />
@@ -301,7 +301,7 @@ export const MessageBlock = memo(function MessageBlock(props: {
   );
 
   return (
-    <div className={blockClass}>
+    <div className={blockClass} data-message-id={msg.id}>
       {isAssistant ? (
         <div className={css.agentLabel}>
           {avatarUrl ? (

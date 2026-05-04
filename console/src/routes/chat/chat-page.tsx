@@ -24,7 +24,6 @@ import {
   buildApprovalCommand,
   copyToClipboard,
   DEFAULT_AGENT_ID,
-  isScrolledNearBottom,
   readStoredUserId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
@@ -350,16 +349,64 @@ export function ChatPage() {
   }, [stream.isStreaming, queryClient, auth.token, sessionId]);
 
   const scrollRafRef = useRef(0);
+  const prevMessageIdsRef = useRef<Set<string>>(new Set());
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
   useEffect(() => {
-    if (scrollRafRef.current) return;
+    const container = messageAreaRef.current;
+    if (!container) {
+      prevMessageIdsRef.current = new Set(messages.map((m) => m.id));
+      return;
+    }
+
+    const prev = prevMessageIdsRef.current;
+    let sharedCount = 0;
+    let newUserMsgId: string | null = null;
+    const next = new Set<string>();
+    for (const m of messages) {
+      next.add(m.id);
+      if (prev.has(m.id)) sharedCount++;
+      else if (m.role === 'user') newUserMsgId = m.id;
+    }
+    prevMessageIdsRef.current = next;
+
+    if (messages.length === 0) return;
+
+    // Wholesale replacement (history loaded, session switch) — jump to the bottom
+    // without animation so the user lands on the latest content. We treat
+    // "previously empty + not actively streaming" as a load too, otherwise the
+    // first paint of cached history would smooth-scroll mid-page.
+    const wasEmpty = prev.size === 0;
+    const isWholesaleReplace = !wasEmpty && sharedCount === 0;
+    const isInitialLoad = wasEmpty && !stream.isStreaming;
+    if (isWholesaleReplace || isInitialLoad) {
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = 0;
-      if (isScrolledNearBottom(messageAreaRef.current)) {
+      const liveContainer = messageAreaRef.current;
+      if (!liveContainer) return;
+      const targetId = newUserMsgId ?? messages[messages.length - 1]?.id;
+      if (!targetId) return;
+      const target = liveContainer.querySelector(
+        `[data-message-id="${CSS.escape(targetId)}"]`,
+      );
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({
+          behavior: 'smooth',
+          block: newUserMsgId ? 'start' : 'end',
+        });
+      } else {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }
     });
-  }, [messages]);
+  }, [messages, stream.isStreaming]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset tracking when the active session changes
+  useEffect(() => {
+    prevMessageIdsRef.current = new Set();
+  }, [sessionId]);
   useEffect(() => {
     return () => {
       if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
@@ -668,7 +715,11 @@ export function ChatPage() {
               <div className={css.messageList}>
                 {messages.map((msg) =>
                   editingId === msg.id && msg.role !== 'thinking' ? (
-                    <div key={msg.id} className={css.messageBlock}>
+                    <div
+                      key={msg.id}
+                      className={css.messageBlock}
+                      data-message-id={msg.id}
+                    >
                       <EditInline
                         initial={msg.rawContent ?? msg.content}
                         onSave={(newContent) =>
