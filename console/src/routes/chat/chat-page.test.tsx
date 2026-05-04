@@ -23,6 +23,7 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
+  CommandResponse,
   MediaUploadResponse,
 } from '../../api/chat-types';
 import type {
@@ -65,6 +66,15 @@ const createChatBranchMock =
   >();
 const uploadMediaMock =
   vi.fn<(token: string, file: File) => Promise<MediaUploadResponse>>();
+const executeCommandMock =
+  vi.fn<
+    (
+      token: string,
+      sessionId: string,
+      userId: string,
+      args: string[],
+    ) => Promise<CommandResponse>
+  >();
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
   vi.fn<(token: string) => Promise<AdminModelsResponse>>();
@@ -97,6 +107,12 @@ vi.mock('../../api/chat', () => ({
     beforeMessageId: number | string,
   ) => createChatBranchMock(token, sessionId, beforeMessageId),
   uploadMedia: (token: string, file: File) => uploadMediaMock(token, file),
+  executeCommand: (
+    token: string,
+    sessionId: string,
+    userId: string,
+    args: string[],
+  ) => executeCommandMock(token, sessionId, userId, args),
 }));
 
 vi.mock('../../api/client', () => ({
@@ -200,6 +216,7 @@ describe('ChatPage', () => {
     createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
+    executeCommandMock.mockReset();
     fetchAgentListMock.mockReset();
     fetchModelsMock.mockReset();
     fetchModelsMock.mockResolvedValue({
@@ -258,6 +275,11 @@ describe('ChatPage', () => {
     fetchChatContextMock.mockResolvedValue({
       sessionId: 'session-a',
       snapshot: null,
+    });
+    executeCommandMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'Session agent set to `charly` (model: `gpt-5`).',
+      sessionId: 'session-a',
     });
     fetchAgentListMock.mockResolvedValue([
       { id: 'main', name: 'Assistant' },
@@ -348,12 +370,11 @@ describe('ChatPage', () => {
     );
   });
 
-  it('switches agents from the composer dropdown using the slash command path', async () => {
+  it('switches agents from the composer dropdown using the command path', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
     });
-    sendMessageMock.mockResolvedValue(true);
 
     renderChatPage();
 
@@ -365,10 +386,60 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() =>
-      expect(sendMessageMock).toHaveBeenCalledWith('/agent switch charly', [], {
-        hideUser: true,
+      expect(executeCommandMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        'web-user-1',
+        ['agent', 'switch', 'charly'],
+      ),
+    );
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'Session agent set to charly',
+      );
+      expect(document.body.textContent).toContain('gpt-5');
+    });
+  });
+
+  it('keeps first agent switch result visible when bare /chat resolves to a server session id', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'sess_20260504_154556_46df76d3',
+      history: [],
+    });
+    executeCommandMock.mockImplementation(
+      async (_token, sessionId): Promise<CommandResponse> => ({
+        kind: 'plain',
+        text: 'Session agent set to `bk` (model: `openrouter/nvidia/nemotron-3-super-120b-a12b:free`).',
+        sessionId: sessionId.startsWith('agent:')
+          ? 'sess_20260504_154556_46df76d3'
+          : sessionId,
       }),
     );
+
+    renderChatPage();
+
+    const agentSelect = await screen.findByLabelText('Switch agent');
+    fireEvent.change(agentSelect, {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Session agent set to bk');
+      expect(document.body.textContent).toContain(
+        'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+      );
+    });
   });
 
   it('syncs the model dropdown from the session context snapshot', async () => {

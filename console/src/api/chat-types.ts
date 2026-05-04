@@ -140,8 +140,14 @@ export interface BranchResponse {
 }
 
 export interface CommandResponse {
+  kind?: 'plain' | 'info' | 'error';
   status?: string;
   error?: string;
+  title?: string;
+  text?: string;
+  sessionId?: string;
+  sessionKey?: string;
+  mainSessionKey?: string;
 }
 
 export interface ChatMessage {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
   createChatMobileQr,
+  executeCommand,
   fetchAppStatus,
   fetchChatContext,
   fetchChatRecent,
@@ -25,12 +26,14 @@ import {
   copyToClipboard,
   DEFAULT_AGENT_ID,
   isScrolledNearBottom,
+  nextMsgId,
   readStoredUserId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
 import {
+  type ChatHistoryUiData,
   chatHistoryQueryKey,
   EMPTY_BRANCH_FAMILIES,
   loadChatHistoryUi,
@@ -476,35 +479,89 @@ export function ChatPage() {
     [ensureSessionForSend, stream.sendMessage],
   );
 
+  const appendLocalCommandResult = useCallback(
+    (targetSessionId: string, content: string) => {
+      const text = content.trim();
+      if (!text) return;
+      queryClient.setQueryData<ChatHistoryUiData>(
+        chatHistoryQueryKey(auth.token, targetSessionId),
+        (prev) => ({
+          messages: [
+            ...(prev?.messages ?? []),
+            {
+              id: nextMsgId(),
+              role: 'assistant',
+              content: text,
+              rawContent: text,
+              sessionId: targetSessionId,
+              artifacts: [],
+              replayRequest: null,
+            },
+          ],
+          branchFamilies: prev?.branchFamilies ?? new Map(),
+          resolvedSessionId: targetSessionId,
+        }),
+      );
+    },
+    [auth.token, queryClient],
+  );
+
   const sendSlashSwitch = useCallback(
     async (
-      command: string,
+      commandArgs: string[],
       value: string,
       onAccepted: (value: string) => void,
       busyMessage: string,
     ) => {
       if (!value || /\s/.test(value)) return;
+      if (stream.isActive()) {
+        setError(busyMessage);
+        return;
+      }
       ensureSessionForSend();
+      const requestedSessionId = getSessionId();
       try {
-        const accepted = await stream.sendMessage(`${command} ${value}`, [], {
-          hideUser: true,
-        });
-        if (accepted) {
-          onAccepted(value);
-        } else {
-          setError(busyMessage);
+        const result = await executeCommand(
+          auth.token,
+          requestedSessionId,
+          userId,
+          [...commandArgs, value],
+        );
+        if (result.kind === 'error') {
+          throw new Error(result.text || result.error || busyMessage);
         }
+        const resolvedSessionId =
+          result.sessionId?.trim() || requestedSessionId;
+        appendLocalCommandResult(resolvedSessionId, result.text ?? 'Done.');
+        if (resolvedSessionId !== requestedSessionId) {
+          await switchToSession(resolvedSessionId, { replace: true });
+        }
+        void queryClient.invalidateQueries({
+          queryKey: ['chat-context', auth.token, resolvedSessionId],
+        });
+        refreshRecent();
+        onAccepted(value);
       } catch (err) {
         setError(getErrorMessage(err));
       }
     },
-    [ensureSessionForSend, stream.sendMessage],
+    [
+      appendLocalCommandResult,
+      auth.token,
+      ensureSessionForSend,
+      getSessionId,
+      queryClient,
+      refreshRecent,
+      stream.isActive,
+      switchToSession,
+      userId,
+    ],
   );
 
   const handleAgentSwitch = useCallback(
     (agentId: string) =>
       sendSlashSwitch(
-        '/agent switch',
+        ['agent', 'switch'],
         agentId,
         setSelectedAgentId,
         'Could not switch agent — stop the current run and try again.',
@@ -515,7 +572,7 @@ export function ChatPage() {
   const handleModelSwitch = useCallback(
     (modelId: string) =>
       sendSlashSwitch(
-        '/model set',
+        ['model', 'set'],
         modelId,
         setSelectedModelId,
         'Could not switch model — stop the current run and try again.',
