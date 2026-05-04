@@ -131,6 +131,7 @@ describe('MessageBlock artifacts', () => {
 
     const preview = await screen.findByTitle('report.pdf preview');
     expect(preview.getAttribute('src')).toBe('blob:artifact');
+    expect(preview.getAttribute('sandbox')).toBe('');
     expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
       'test-token',
       '/tmp/report.pdf',

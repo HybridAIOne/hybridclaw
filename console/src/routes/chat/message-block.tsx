@@ -188,7 +188,11 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
       ) : null}
       {isPdf && previewUrl ? (
         <div className={cx(css.artifactPreview, css.artifactPdfPreview)}>
-          <iframe src={previewUrl} title={`${artifactName} preview`} />
+          <iframe
+            src={previewUrl}
+            title={`${artifactName} preview`}
+            sandbox=""
+          />
         </div>
       ) : null}
     </div>
