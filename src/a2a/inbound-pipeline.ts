@@ -3,7 +3,7 @@ import { type A2ADeliveryConfirmation, sendMessage } from './runtime.js';
 
 export interface A2AInboundPipelineMeta {
   actor: string;
-  source: 'webhook' | 'a2a' | 'federation';
+  source: 'webhook';
   sessionId?: string;
   auditRunId?: string;
 }

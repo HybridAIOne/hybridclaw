@@ -323,6 +323,63 @@ describe('A2A webhook inbound adapter', () => {
     );
   });
 
+  test('rejects unknown peers before reading the request body', async () => {
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const inbound = await import('../src/a2a/webhook-inbound.ts');
+
+    initDatabase({ quiet: true });
+
+    const req = new Readable({
+      read() {
+        this.destroy(new Error('body should not be read'));
+      },
+    }) as IncomingMessage;
+    req.method = 'POST';
+    req.headers = {};
+    const response = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+      writeHead(statusCode: number, headers: Record<string, string>) {
+        this.statusCode = statusCode;
+        this.headers = headers;
+      },
+      end(body?: string) {
+        this.body = body || '';
+      },
+      body: '',
+    } as ServerResponse & {
+      statusCode: number;
+      headers: Record<string, string>;
+      body: string;
+    };
+
+    await inbound.handleA2AWebhookInbound(
+      req,
+      response,
+      new URL('http://localhost/a2a/webhook/unknown-peer'),
+    );
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body)).toEqual({ error: 'Unauthorized' });
+    const audit = getRecentStructuredAuditForSession(
+      'a2a:webhook-inbound:unknown-peer',
+      10,
+    ).map((event) => JSON.parse(event.payload || '{}'));
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'a2a.webhook.inbound_post',
+          signatureOutcome: 'missing_peer',
+          downstreamDisposition: 'rejected',
+          statusCode: 401,
+          reason: 'unknown webhook peer',
+        }),
+      ]),
+    );
+  });
+
   test('audits oversized inbound POSTs that fail before signature verification', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'

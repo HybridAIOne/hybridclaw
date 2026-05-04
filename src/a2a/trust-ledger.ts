@@ -6,12 +6,8 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
-import type { SecretRef } from '../security/secret-refs.js';
-import { A2AEnvelopeValidationError, validateA2AEnvelope } from './envelope.js';
-import {
-  normalizePeerDescriptor,
-  type WebhookPeerDescriptor,
-} from './peer-descriptor.js';
+import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
+import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
 import {
   WEBHOOK_BODY_VERSION,
   WEBHOOK_REPLAY_WINDOW_MS,
@@ -75,40 +71,83 @@ function trustedWebhookPeerAssetPath(peerId: string): string {
   );
 }
 
-function nowIso(now: Date): string {
-  return now.toISOString();
-}
-
 function normalizeSenderAgentId(senderAgentId: string): string {
-  return validateA2AEnvelope({
-    id: 'peer-validation',
-    sender_agent_id: senderAgentId,
-    recipient_agent_id: 'main',
-    thread_id: 'peer-validation',
-    intent: 'chat',
-    content: '',
-    created_at: '2026-05-01T00:00:00.000Z',
-  }).sender_agent_id;
+  const normalized = senderAgentId.trim();
+  const kind = classifyA2AAgentId(normalized);
+  if (kind === 'canonical') return normalized.toLowerCase();
+  if (kind === 'local') return normalized;
+  throw new A2AEnvelopeValidationError([
+    'senderAgentId must be a local agent id or canonical agent id (agent-slug@user@instance-id)',
+  ]);
 }
 
-function normalizeWebhookDescriptor(params: {
-  secretRef: SecretRef;
-  signatureHeader?: string;
-  version?: string;
-}): WebhookPeerDescriptor {
-  const descriptor = normalizePeerDescriptor({
-    transport: 'webhook',
-    url: 'http://127.0.0.1/a2a',
-    secretRef: params.secretRef,
-    ...(params.signatureHeader
-      ? { signatureHeader: params.signatureHeader }
-      : {}),
-    ...(params.version ? { version: params.version } : {}),
-  });
-  if (descriptor.transport !== 'webhook') {
-    throw new A2AEnvelopeValidationError(['peer must use webhook transport']);
+function normalizeSecretRef(value: unknown): SecretRef {
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'invalid') {
+    throw new A2AEnvelopeValidationError([`secretRef ${parsed.reason}`]);
   }
-  return descriptor as WebhookPeerDescriptor;
+  if (parsed.kind === 'plain') {
+    throw new A2AEnvelopeValidationError([
+      'secretRef must be a secret reference',
+    ]);
+  }
+  return parsed.ref;
+}
+
+function normalizeOptionalHttpHeaderName(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new A2AEnvelopeValidationError([
+      'signatureHeader must be a string when provided',
+    ]);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new A2AEnvelopeValidationError([
+      'signatureHeader must not be empty when provided',
+    ]);
+  }
+  if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(normalized)) {
+    throw new A2AEnvelopeValidationError([
+      'signatureHeader must be a valid HTTP header name',
+    ]);
+  }
+  return normalized;
+}
+
+function normalizeWebhookVersion(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new A2AEnvelopeValidationError([
+      'version must be a string when provided',
+    ]);
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new A2AEnvelopeValidationError([
+      'version must not be empty when provided',
+    ]);
+  }
+  if (normalized !== WEBHOOK_BODY_VERSION) {
+    throw new A2AEnvelopeValidationError([
+      `version must be ${WEBHOOK_BODY_VERSION} when provided`,
+    ]);
+  }
+  return normalized;
+}
+
+function normalizeTrustedWebhookPeerConfig(params: {
+  secretRef: unknown;
+  signatureHeader?: unknown;
+  version?: unknown;
+}): Pick<A2ATrustedWebhookPeer, 'secretRef' | 'signatureHeader' | 'version'> {
+  return {
+    secretRef: normalizeSecretRef(params.secretRef),
+    signatureHeader:
+      normalizeOptionalHttpHeaderName(params.signatureHeader) ||
+      WEBHOOK_SIGNATURE_HEADER,
+    version: normalizeWebhookVersion(params.version) || WEBHOOK_BODY_VERSION,
+  };
 }
 
 function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
@@ -117,7 +156,7 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
     if (parsed.schemaVersion !== TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION) {
       return null;
     }
-    const descriptor = normalizeWebhookDescriptor({
+    const webhookConfig = normalizeTrustedWebhookPeerConfig({
       secretRef: parsed.secretRef,
       signatureHeader: parsed.signatureHeader,
       version: parsed.version,
@@ -126,9 +165,9 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
       schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
       peerId: normalizeA2APeerId(parsed.peerId),
       senderAgentId: normalizeSenderAgentId(parsed.senderAgentId),
-      secretRef: descriptor.secretRef,
-      signatureHeader: descriptor.signatureHeader || WEBHOOK_SIGNATURE_HEADER,
-      version: descriptor.version || WEBHOOK_BODY_VERSION,
+      secretRef: webhookConfig.secretRef,
+      signatureHeader: webhookConfig.signatureHeader,
+      version: webhookConfig.version,
       replayWindowMs: normalizePositiveInteger(
         parsed.replayWindowMs,
         WEBHOOK_REPLAY_WINDOW_MS,
@@ -156,15 +195,16 @@ export function upsertA2ATrustedWebhookPeer(
   now = new Date(),
 ): A2ATrustedWebhookPeer {
   const peerId = normalizeA2APeerId(input.peerId);
-  const descriptor = normalizeWebhookDescriptor(input);
+  const webhookConfig = normalizeTrustedWebhookPeerConfig(input);
   const existing = getA2ATrustedWebhookPeer(peerId);
+  const updatedAt = now.toISOString();
   const peer: A2ATrustedWebhookPeer = {
     schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
     peerId,
     senderAgentId: normalizeSenderAgentId(input.senderAgentId),
-    secretRef: descriptor.secretRef,
-    signatureHeader: descriptor.signatureHeader || WEBHOOK_SIGNATURE_HEADER,
-    version: descriptor.version || WEBHOOK_BODY_VERSION,
+    secretRef: webhookConfig.secretRef,
+    signatureHeader: webhookConfig.signatureHeader,
+    version: webhookConfig.version,
     replayWindowMs: normalizePositiveInteger(
       input.replayWindowMs,
       WEBHOOK_REPLAY_WINDOW_MS,
@@ -173,8 +213,8 @@ export function upsertA2ATrustedWebhookPeer(
       input.rateLimitPerMinute,
       A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
     ),
-    createdAt: existing?.createdAt || nowIso(now),
-    updatedAt: nowIso(now),
+    createdAt: existing?.createdAt || updatedAt,
+    updatedAt,
   };
   syncRuntimeAssetRevisionState(
     'a2a',

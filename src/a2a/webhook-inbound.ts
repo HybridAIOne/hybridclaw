@@ -16,17 +16,14 @@ import { resolveA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
 import {
   A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
-  type A2ATrustedWebhookPeer,
-  getA2ATrustedWebhookPeer,
-  listA2ATrustedWebhookPeers,
+  type A2ATrustedWebhookPeer as A2AWebhookInboundPeer,
+  getA2ATrustedWebhookPeer as getA2AWebhookInboundPeer,
+  listA2ATrustedWebhookPeers as listA2AWebhookInboundPeers,
   normalizeA2APeerId,
-  type UpsertA2ATrustedWebhookPeerInput,
-  upsertA2ATrustedWebhookPeer,
+  type UpsertA2ATrustedWebhookPeerInput as UpsertA2AWebhookInboundPeerInput,
+  upsertA2ATrustedWebhookPeer as upsertA2AWebhookInboundPeer,
 } from './trust-ledger.js';
-import {
-  verifyWebhookSignature,
-  WEBHOOK_SIGNATURE_HEADER,
-} from './webhook-outbound.js';
+import { verifyWebhookSignature } from './webhook-outbound.js';
 
 export const A2A_WEBHOOK_INBOUND_PATH_PREFIX = '/a2a/webhook/';
 export const A2A_WEBHOOK_INBOUND_MAX_BODY_BYTES = 1_000_000;
@@ -46,9 +43,12 @@ export type A2AWebhookInboundDownstreamDisposition =
   | 'rate_limited'
   | 'error';
 
-export type A2AWebhookInboundPeer = A2ATrustedWebhookPeer;
-
-export type UpsertA2AWebhookInboundPeerInput = UpsertA2ATrustedWebhookPeerInput;
+export type { A2AWebhookInboundPeer, UpsertA2AWebhookInboundPeerInput };
+export {
+  getA2AWebhookInboundPeer,
+  listA2AWebhookInboundPeers,
+  upsertA2AWebhookInboundPeer,
+};
 
 export interface A2AWebhookInboundResult {
   statusCode: number;
@@ -61,23 +61,10 @@ interface RateLimitBucket {
 }
 
 const rateLimitBuckets = new Map<string, RateLimitBucket>();
-
-export function upsertA2AWebhookInboundPeer(
-  input: UpsertA2AWebhookInboundPeerInput,
-  now = new Date(),
-): A2AWebhookInboundPeer {
-  return upsertA2ATrustedWebhookPeer(input, now);
-}
-
-export function getA2AWebhookInboundPeer(
-  peerId: string,
-): A2AWebhookInboundPeer | null {
-  return getA2ATrustedWebhookPeer(peerId);
-}
-
-export function listA2AWebhookInboundPeers(): A2AWebhookInboundPeer[] {
-  return listA2ATrustedWebhookPeers();
-}
+let localCanonicalRecipientCache: {
+  key: string;
+  canonicalAgentIds: Set<string>;
+} | null = null;
 
 export function resetA2AWebhookInboundRateLimitsForTests(): void {
   rateLimitBuckets.clear();
@@ -144,10 +131,6 @@ function decodeWebhookEnvelope(
   return validateA2AEnvelope(envelope);
 }
 
-function envelopeIntent(envelope: A2AEnvelope | null): string | null {
-  return envelope?.intent || null;
-}
-
 function auditSecretEscape(params: {
   peer: A2AWebhookInboundPeer;
   sessionId: string;
@@ -194,17 +177,72 @@ function resolveInboundSecret(params: {
   return secret;
 }
 
+function localCanonicalRecipientCacheKey(): string {
+  return listAgents()
+    .map((agent) => `${agent.id}\0${agent.owner || ''}`)
+    .join('\n');
+}
+
+function localCanonicalRecipientIds(): Set<string> {
+  const key = localCanonicalRecipientCacheKey();
+  if (localCanonicalRecipientCache?.key === key) {
+    return localCanonicalRecipientCache.canonicalAgentIds;
+  }
+
+  const canonicalAgentIds = new Set<string>();
+  for (const agent of listAgents()) {
+    try {
+      canonicalAgentIds.add(resolveA2AAgentId(agent.id));
+    } catch {
+      // Ignore malformed local agent records here; agent registry validation
+      // owns surfacing those errors on config mutation.
+    }
+  }
+  localCanonicalRecipientCache = { key, canonicalAgentIds };
+  return canonicalAgentIds;
+}
+
 function localRecipientResolves(recipientAgentId: string): boolean {
   if (!recipientAgentId.includes('@')) {
     return Boolean(getAgentById(recipientAgentId));
   }
-  return listAgents().some((agent) => {
-    try {
-      return resolveA2AAgentId(agent.id) === recipientAgentId.toLowerCase();
-    } catch {
-      return false;
+  return localCanonicalRecipientIds().has(recipientAgentId.toLowerCase());
+}
+
+function extractErrorReason(error: unknown): string {
+  if (error instanceof A2AEnvelopeValidationError) {
+    return error.issues.join('; ');
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function validateWebhookEnvelopeForPeer(
+  rawBody: string,
+  peer: A2AWebhookInboundPeer,
+):
+  | { ok: true; envelope: A2AEnvelope }
+  | { ok: false; reason: string; envelope: A2AEnvelope | null } {
+  let envelope: A2AEnvelope | null = null;
+  try {
+    envelope = decodeWebhookEnvelope(rawBody, peer);
+    if (envelope.sender_agent_id !== peer.senderAgentId) {
+      throw new A2AEnvelopeValidationError([
+        'sender_agent_id does not match webhook peer',
+      ]);
     }
-  });
+    if (!localRecipientResolves(envelope.recipient_agent_id)) {
+      throw new A2AEnvelopeValidationError([
+        'recipient_agent_id does not resolve to a local agent',
+      ]);
+    }
+    return { ok: true, envelope };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: extractErrorReason(error),
+      envelope,
+    };
+  }
 }
 
 function recordInboundAudit(params: {
@@ -258,13 +296,14 @@ export function acceptA2AWebhookInboundEnvelope(params: {
   peerId: string;
   rawBody: string;
   signatureHeader: string | null | undefined;
+  peer?: A2AWebhookInboundPeer;
   nowMs?: number;
 }): A2AWebhookInboundResult {
   const peerId = normalizeA2APeerId(params.peerId);
   const runId = makeAuditRunId('a2a-webhook-inbound');
   const sessionId = `a2a:webhook-inbound:${peerId}`;
   const nowMs = params.nowMs ?? Date.now();
-  const peer = getA2AWebhookInboundPeer(peerId);
+  const peer = params.peer ?? getA2AWebhookInboundPeer(peerId);
   if (!peer) {
     recordInboundAudit({
       peerId,
@@ -331,45 +370,22 @@ export function acceptA2AWebhookInboundEnvelope(params: {
     return { statusCode: 429, body: { error: 'Rate limit exceeded' } };
   }
 
-  let envelope: A2AEnvelope | null = null;
-  try {
-    envelope = decodeWebhookEnvelope(params.rawBody, peer);
-    if (envelope.sender_agent_id !== peer.senderAgentId) {
-      throw new A2AEnvelopeValidationError([
-        'sender_agent_id does not match webhook peer',
-      ]);
-    }
-    if (!localRecipientResolves(envelope.recipient_agent_id)) {
-      throw new A2AEnvelopeValidationError([
-        'recipient_agent_id does not resolve to a local agent',
-      ]);
-    }
-  } catch (error) {
-    const reason =
-      error instanceof A2AEnvelopeValidationError
-        ? error.issues.join('; ')
-        : error instanceof Error
-          ? error.message
-          : String(error);
+  const validation = validateWebhookEnvelopeForPeer(params.rawBody, peer);
+  if (!validation.ok) {
     recordInboundAudit({
       peerId,
       runId,
       signatureOutcome: 'passed',
-      intent: envelopeIntent(envelope),
+      intent: validation.envelope?.intent || null,
       downstreamDisposition: 'validation_failed',
-      envelope,
+      envelope: validation.envelope,
       statusCode: 400,
-      reason,
+      reason: validation.reason,
     });
-    return { statusCode: 400, body: { error: reason } };
+    return { statusCode: 400, body: { error: validation.reason } };
   }
 
-  if (!envelope) {
-    throw new Error(
-      'A2A webhook envelope validation did not return an envelope.',
-    );
-  }
-
+  const { envelope } = validation;
   try {
     const confirmation = acceptA2AInboundEnvelope(envelope, {
       source: 'webhook',
@@ -381,7 +397,7 @@ export function acceptA2AWebhookInboundEnvelope(params: {
       peerId,
       runId,
       signatureOutcome: 'passed',
-      intent: envelopeIntent(envelope),
+      intent: envelope.intent,
       downstreamDisposition: 'delivered',
       envelope,
       statusCode: 202,
@@ -392,17 +408,12 @@ export function acceptA2AWebhookInboundEnvelope(params: {
     };
   } catch (error) {
     const isDuplicate = error instanceof A2AEnvelopeDuplicateError;
-    const reason =
-      error instanceof A2AEnvelopeValidationError
-        ? error.issues.join('; ')
-        : error instanceof Error
-          ? error.message
-          : String(error);
+    const reason = extractErrorReason(error);
     recordInboundAudit({
       peerId,
       runId,
       signatureOutcome: 'passed',
-      intent: envelopeIntent(envelope),
+      intent: envelope.intent,
       downstreamDisposition: isDuplicate ? 'duplicate' : 'error',
       envelope,
       statusCode: isDuplicate ? 409 : 500,
@@ -432,15 +443,26 @@ export async function handleA2AWebhookInbound(
 
   try {
     const peer = getA2AWebhookInboundPeer(peerId);
-    const signatureHeaderName =
-      peer?.signatureHeader || WEBHOOK_SIGNATURE_HEADER;
+    if (!peer) {
+      recordA2AWebhookInboundPreflightAudit({
+        peerId,
+        signatureOutcome: 'missing_peer',
+        downstreamDisposition: 'rejected',
+        statusCode: 401,
+        reason: 'unknown webhook peer',
+      });
+      sendJson(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
     const rawBody = (
       await readRequestBody(req, A2A_WEBHOOK_INBOUND_MAX_BODY_BYTES)
     ).toString('utf-8');
     const result = acceptA2AWebhookInboundEnvelope({
       peerId,
       rawBody,
-      signatureHeader: readHeader(req.headers, signatureHeaderName),
+      signatureHeader: readHeader(req.headers, peer.signatureHeader),
+      peer,
     });
     sendJson(res, result.statusCode, result.body);
   } catch (error) {
