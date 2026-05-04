@@ -35,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', ORIGINAL_INSTANCE_ID);
   restoreEnvVar('HYBRIDCLAW_DATA_DIR', ORIGINAL_DATA_DIR);
+  vi.restoreAllMocks();
   vi.resetModules();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -190,5 +191,40 @@ describe('local instance id allocation', () => {
     });
 
     expect(second).toBe(first);
+  });
+
+  test('uses the winning state file when concurrent allocation hits EEXIST', () => {
+    const statePath = path.join(tmpDir, 'identity', 'instance-id.json');
+    const winnerId = 'inst-660e8400-e29b-41d4-a716-446655440000';
+    const winnerState = {
+      currentInstanceId: winnerId,
+      allocatedAt: '2026-05-03T10:01:00.000Z',
+    };
+    const linkSpy = vi
+      .spyOn(fs, 'linkSync')
+      .mockImplementation(
+        (_existingPath: fs.PathLike, newPath: fs.PathLike) => {
+          fs.writeFileSync(
+            newPath,
+            `${JSON.stringify(winnerState, null, 2)}\n`,
+            'utf-8',
+          );
+          const error = new Error('file exists') as NodeJS.ErrnoException;
+          error.code = 'EEXIST';
+          throw error;
+        },
+      );
+
+    const resolved = resolveLocalInstanceId({
+      statePath,
+      randomUuid: () => '550e8400-e29b-41d4-a716-446655440000',
+      now: () => new Date('2026-05-03T10:00:00.000Z'),
+    });
+
+    expect(resolved).toBe(winnerId);
+    expect(linkSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).toEqual(
+      winnerState,
+    );
   });
 });
