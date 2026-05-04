@@ -349,6 +349,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   overflow-x: hidden;
   padding: 16px 24px 12px;
   scroll-behavior: smooth;
+  scroll-padding-top: 16px;
+  scroll-padding-bottom: 30vh;
 }
 
 .messageList {
@@ -358,6 +360,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  padding-bottom: 30vh;
 }
 
 .sidebarCollapseButton {
