@@ -103,9 +103,7 @@ describe('useChatSession', () => {
 
     const minted = result.current.getSessionId();
     expect(minted).not.toBe('');
-    expect(minted.startsWith('agent:main:channel:web:chat:dm:peer:')).toBe(
-      true,
-    );
+    expect(minted).toMatch(/^sess_\d{8}_\d{6}_[0-9a-f]{8}$/);
     expect(router.navigate).toHaveBeenCalledTimes(1);
     expect(router.lastTo).toBe('/chat/$sessionId');
     expect(router.lastReplace).toBe(true);

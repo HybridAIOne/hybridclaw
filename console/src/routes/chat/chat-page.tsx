@@ -532,6 +532,12 @@ export function ChatPage() {
         }
         const resolvedSessionId =
           result.sessionId?.trim() || requestedSessionId;
+        await queryClient
+          .ensureQueryData({
+            queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
+            queryFn: () => loadChatHistoryUi(auth.token, resolvedSessionId),
+          })
+          .catch(() => null);
         appendLocalCommandResult(resolvedSessionId, result.text ?? 'Done.');
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });

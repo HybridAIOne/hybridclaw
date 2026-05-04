@@ -21,9 +21,23 @@ export function randomHex(bytes: number): string {
   return Array.from(arr, (v) => v.toString(16).padStart(2, '0')).join('');
 }
 
-export function generateWebSessionId(agentId = DEFAULT_AGENT_ID): string {
-  const normalized = agentId.trim().toLowerCase();
-  return `agent:${encodeURIComponent(normalized)}:channel:web:chat:dm:peer:${randomHex(8)}`;
+function padSessionTimestampPart(value: number): string {
+  return String(Math.max(0, Math.trunc(value))).padStart(2, '0');
+}
+
+export function generateWebSessionId(_agentId = DEFAULT_AGENT_ID): string {
+  const now = new Date();
+  const date = [
+    String(now.getUTCFullYear()).padStart(4, '0'),
+    padSessionTimestampPart(now.getUTCMonth() + 1),
+    padSessionTimestampPart(now.getUTCDate()),
+  ].join('');
+  const time = [
+    padSessionTimestampPart(now.getUTCHours()),
+    padSessionTimestampPart(now.getUTCMinutes()),
+    padSessionTimestampPart(now.getUTCSeconds()),
+  ].join('');
+  return `sess_${date}_${time}_${randomHex(4)}`;
 }
 
 export function readStoredUserId(): string {

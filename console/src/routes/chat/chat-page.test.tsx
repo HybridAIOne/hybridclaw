@@ -409,17 +409,15 @@ describe('ChatPage', () => {
       __testRouter: TestRouter;
     };
     routerModule.__testRouter.setSessionId(null);
-    fetchChatHistoryMock.mockResolvedValue({
-      sessionId: 'sess_20260504_154556_46df76d3',
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
       history: [],
-    });
+    }));
     executeCommandMock.mockImplementation(
       async (_token, sessionId): Promise<CommandResponse> => ({
         kind: 'plain',
         text: 'Session agent set to `bk` (model: `openrouter/nvidia/nemotron-3-super-120b-a12b:free`).',
-        sessionId: sessionId.startsWith('agent:')
-          ? 'sess_20260504_154556_46df76d3'
-          : sessionId,
+        sessionId,
       }),
     );
 
@@ -434,6 +432,9 @@ describe('ChatPage', () => {
       expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
     );
     expect(routerModule.__testRouter.lastReplace).toBe(true);
+    expect(executeCommandMock.mock.calls[0]?.[1]).toMatch(
+      /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/,
+    );
     await waitFor(() => {
       expect(document.body.textContent).toContain('Session agent set to bk');
       expect(document.body.textContent).toContain(
