@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   AgentIdentityValidationError,
@@ -17,6 +17,7 @@ import {
 } from '../src/identity/agent-id.js';
 
 const ORIGINAL_INSTANCE_ID = process.env.HYBRIDCLAW_INSTANCE_ID;
+const ORIGINAL_DATA_DIR = process.env.HYBRIDCLAW_DATA_DIR;
 
 let tmpDir: string;
 
@@ -35,6 +36,8 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', ORIGINAL_INSTANCE_ID);
+  restoreEnvVar('HYBRIDCLAW_DATA_DIR', ORIGINAL_DATA_DIR);
+  vi.resetModules();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -131,6 +134,44 @@ describe('local instance id allocation', () => {
       allocatedInstanceIds: [first],
       allocatedAt: '2026-05-03T10:00:00.000Z',
     });
+  });
+
+  test('caches the default resolved instance id after first allocation', async () => {
+    process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
+    vi.resetModules();
+    const identity = await import('../src/identity/agent-id.js');
+
+    const first = identity.resolveLocalInstanceId();
+    fs.rmSync(identity.localInstanceIdStatePath(), { force: true });
+    const second = identity.resolveLocalInstanceId();
+
+    expect(second).toBe(first);
+    expect(fs.existsSync(identity.localInstanceIdStatePath())).toBe(false);
+  });
+
+  test('keeps explicit state-path resolution uncached for tests', () => {
+    const statePath = path.join(tmpDir, 'identity', 'instance-id.json');
+    const randomUuid = () => '550e8400-e29b-41d4-a716-446655440000';
+    const now = () => new Date('2026-05-03T10:00:00.000Z');
+
+    const first = resolveLocalInstanceId({ statePath, randomUuid, now });
+    const replacement = 'inst-660e8400-e29b-41d4-a716-446655440000';
+    fs.writeFileSync(
+      statePath,
+      `${JSON.stringify(
+        {
+          version: 1,
+          currentInstanceId: replacement,
+          allocatedInstanceIds: [first, replacement],
+          allocatedAt: '2026-05-03T10:01:00.000Z',
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
+
+    expect(resolveLocalInstanceId({ statePath })).toBe(replacement);
   });
 
   test('honors explicit instance id overrides without mutating persisted state', () => {

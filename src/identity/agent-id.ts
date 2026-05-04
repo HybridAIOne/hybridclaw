@@ -9,6 +9,9 @@ export const AGENT_IDENTITY_COMPONENT_MAX_LENGTH = 128;
 export const LOCAL_INSTANCE_ID_PREFIX = 'inst-';
 export const LOCAL_INSTANCE_ID_MAX_ATTEMPTS = 16;
 
+let cachedDefaultInstanceId: string | undefined;
+let cachedDefaultInstanceEnvValue: string | undefined;
+
 export interface ParsedAgentIdentity {
   readonly id: string;
   readonly agentSlug: string;
@@ -268,12 +271,22 @@ function writeNewLocalInstanceIdState(
   statePath: string,
   state: LocalInstanceIdState,
 ): void {
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  const fd = fs.openSync(statePath, 'wx');
+  const stateDir = path.dirname(statePath);
+  fs.mkdirSync(stateDir, { recursive: true });
+  const tempPath = path.join(
+    stateDir,
+    `.instance-id-${process.pid}-${Date.now().toString(36)}-${randomUUID()}.tmp`,
+  );
   try {
-    fs.writeFileSync(fd, `${JSON.stringify(state, null, 2)}\n`, 'utf-8');
+    fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: 'utf-8',
+      flag: 'wx',
+    });
+    // Hard-linking creates the target only after the complete temp file exists
+    // and fails with EEXIST instead of overwriting a concurrently-created id.
+    fs.linkSync(tempPath, statePath);
   } finally {
-    fs.closeSync(fd);
+    fs.rmSync(tempPath, { force: true });
   }
 }
 
@@ -287,12 +300,37 @@ function readEnvInstanceId(): string {
 export function resolveLocalInstanceId(
   options: ResolveLocalInstanceIdOptions = {},
 ): string {
+  const cacheable =
+    options.statePath === undefined &&
+    options.randomUuid === undefined &&
+    options.now === undefined;
+  const envValue = process.env.HYBRIDCLAW_INSTANCE_ID || '';
+  if (
+    cacheable &&
+    cachedDefaultInstanceId &&
+    cachedDefaultInstanceEnvValue === envValue
+  ) {
+    return cachedDefaultInstanceId;
+  }
+
   const envInstanceId = readEnvInstanceId();
-  if (envInstanceId) return envInstanceId;
+  if (envInstanceId) {
+    if (cacheable) {
+      cachedDefaultInstanceId = envInstanceId;
+      cachedDefaultInstanceEnvValue = envValue;
+    }
+    return envInstanceId;
+  }
 
   const statePath = options.statePath ?? localInstanceIdStatePath();
   const existingState = readLocalInstanceIdState(statePath);
-  if (existingState) return existingState.currentInstanceId;
+  if (existingState) {
+    if (cacheable) {
+      cachedDefaultInstanceId = existingState.currentInstanceId;
+      cachedDefaultInstanceEnvValue = envValue;
+    }
+    return existingState.currentInstanceId;
+  }
 
   const currentInstanceId = allocateUniqueLocalInstanceId(
     [],
@@ -312,9 +350,19 @@ export function resolveLocalInstanceId(
     const err = error as NodeJS.ErrnoException;
     if (err?.code !== 'EEXIST') throw error;
     const racedState = readLocalInstanceIdState(statePath);
-    if (racedState) return racedState.currentInstanceId;
+    if (racedState) {
+      if (cacheable) {
+        cachedDefaultInstanceId = racedState.currentInstanceId;
+        cachedDefaultInstanceEnvValue = envValue;
+      }
+      return racedState.currentInstanceId;
+    }
     throw error;
   }
 
+  if (cacheable) {
+    cachedDefaultInstanceId = currentInstanceId;
+    cachedDefaultInstanceEnvValue = envValue;
+  }
   return currentInstanceId;
 }
