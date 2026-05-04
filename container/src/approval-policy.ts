@@ -376,6 +376,7 @@ const APPROVE_RE =
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 const APPROVAL_RULE_NAME_SET = new Set<string>(DEFAULT_APPROVAL_RULE_ORDER);
 const NEXT_RULE: NextRule = { kind: 'next' };
+const invalidApprovalRuleOrderWarnings = new Set<string>();
 
 function isVoiceChannelId(value: string | undefined): boolean {
   return String(value || '')
@@ -471,7 +472,32 @@ function normalizeApprovalRuleOrder(raw: unknown): ApprovalRuleName[] {
   for (const ruleName of DEFAULT_APPROVAL_RULE_ORDER) {
     if (!ordered.includes(ruleName)) ordered.push(ruleName);
   }
+  if (!isApprovalRuleOrderDependencySafe(ordered)) {
+    warnInvalidApprovalRuleOrder(ordered);
+    return [...DEFAULT_APPROVAL_RULE_ORDER];
+  }
   return ordered;
+}
+
+function isApprovalRuleOrderDependencySafe(
+  ruleOrder: ApprovalRuleName[],
+): boolean {
+  let lastDefaultIndex = -1;
+  for (const ruleName of ruleOrder) {
+    const defaultIndex = DEFAULT_APPROVAL_RULE_ORDER.indexOf(ruleName);
+    if (defaultIndex < lastDefaultIndex) return false;
+    lastDefaultIndex = defaultIndex;
+  }
+  return true;
+}
+
+function warnInvalidApprovalRuleOrder(ruleOrder: ApprovalRuleName[]): void {
+  const key = ruleOrder.join(',');
+  if (invalidApprovalRuleOrderWarnings.has(key)) return;
+  invalidApprovalRuleOrderWarnings.add(key);
+  console.warn(
+    `[approval-policy] invalid approval.rule_order violates built-in rule dependencies; falling back to default order: ${key}`,
+  );
 }
 
 function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {

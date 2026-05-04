@@ -157,24 +157,42 @@ afterEach(() => {
 });
 
 describe('TrustedAgentApprovalRuntime', () => {
-  test('parsePolicyYaml reads approval rule order and appends missing core rules', () => {
+  test('parsePolicyYaml reads dependency-safe approval rule order and appends missing core rules', () => {
     const parsed = parsePolicyYaml(`
 approval:
   rule_order:
-    - classify_action
     - policy_reload
+    - classify_action
     - unknown_future_rule
 `);
 
     expect(parsed.approvalRuleOrder?.slice(0, 2)).toEqual([
-      'classify_action',
       'policy_reload',
+      'classify_action',
     ]);
     expect(parsed.approvalRuleOrder).toHaveLength(
       DEFAULT_APPROVAL_RULE_ORDER.length,
     );
     expect(new Set(parsed.approvalRuleOrder)).toEqual(
       new Set(DEFAULT_APPROVAL_RULE_ORDER),
+    );
+  });
+
+  test('parsePolicyYaml falls back to default rule order when dependencies are misordered', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - fingerprint
+    - classify_action
+`);
+
+    expect(parsed.approvalRuleOrder).toEqual(DEFAULT_APPROVAL_RULE_ORDER);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'invalid approval.rule_order violates built-in rule dependencies',
+      ),
     );
   });
 
