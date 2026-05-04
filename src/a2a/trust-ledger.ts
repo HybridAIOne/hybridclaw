@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import {
+  getRuntimeAssetRevisionState,
   listRuntimeAssetRevisionStates,
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
@@ -193,9 +194,10 @@ export function upsertA2ATrustedWebhookPeer(
 export function getA2ATrustedWebhookPeer(
   peerId: string,
 ): A2ATrustedWebhookPeer | null {
-  const state = listRuntimeAssetRevisionStates('a2a', {
-    assetPathPrefix: TRUSTED_WEBHOOK_PEER_ASSET_PREFIX,
-  }).find((entry) => entry.assetPath === trustedWebhookPeerAssetPath(peerId));
+  const state = getRuntimeAssetRevisionState(
+    'a2a',
+    trustedWebhookPeerAssetPath(peerId),
+  );
   return state ? parseTrustedWebhookPeer(state.content) : null;
 }
 

@@ -279,20 +279,6 @@ export function acceptA2AWebhookInboundEnvelope(params: {
     return { statusCode: 401, body: { error: 'Unauthorized' } };
   }
 
-  if (shouldRateLimit(peer, nowMs)) {
-    recordInboundAudit({
-      peerId,
-      runId,
-      signatureOutcome: 'rate_limited',
-      intent: null,
-      downstreamDisposition: 'rate_limited',
-      envelope: null,
-      statusCode: 429,
-      reason: 'webhook peer rate limit exceeded',
-    });
-    return { statusCode: 429, body: { error: 'Rate limit exceeded' } };
-  }
-
   let secret: string;
   try {
     secret = resolveInboundSecret({ peer, sessionId, runId });
@@ -329,6 +315,20 @@ export function acceptA2AWebhookInboundEnvelope(params: {
       reason: 'invalid webhook signature',
     });
     return { statusCode: 401, body: { error: 'Unauthorized' } };
+  }
+
+  if (shouldRateLimit(peer, nowMs)) {
+    recordInboundAudit({
+      peerId,
+      runId,
+      signatureOutcome: 'rate_limited',
+      intent: null,
+      downstreamDisposition: 'rate_limited',
+      envelope: null,
+      statusCode: 429,
+      reason: 'webhook peer rate limit exceeded',
+    });
+    return { statusCode: 429, body: { error: 'Rate limit exceeded' } };
   }
 
   let envelope: A2AEnvelope | null = null;
@@ -455,6 +455,14 @@ export async function handleA2AWebhookInbound(
       sendJson(res, error.statusCode, { error: error.message });
       return;
     }
-    throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    recordA2AWebhookInboundPreflightAudit({
+      peerId,
+      signatureOutcome: 'failed',
+      downstreamDisposition: 'error',
+      statusCode: 500,
+      reason,
+    });
+    sendJson(res, 500, { error: 'Internal server error' });
   }
 }

@@ -179,7 +179,7 @@ describe('A2A webhook inbound adapter', () => {
     );
   });
 
-  test('rate limits per peer before accepting another signed envelope', async () => {
+  test('rate limits per peer only after signature verification succeeds', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
     );
@@ -199,6 +199,18 @@ describe('A2A webhook inbound adapter', () => {
     const firstBody = JSON.stringify(webhookEnvelope('msg-rate-1'));
     const secondBody = JSON.stringify(webhookEnvelope('msg-rate-2'));
     const nowMs = Date.parse('2030-05-03T00:00:00.000Z');
+
+    expect(
+      inbound.acceptA2AWebhookInboundEnvelope({
+        peerId: 'rate-limited',
+        rawBody: firstBody,
+        signatureHeader: 't=1, v1=bad',
+        nowMs,
+      }),
+    ).toEqual({
+      statusCode: 401,
+      body: { error: 'Unauthorized' },
+    });
 
     expect(
       inbound.acceptA2AWebhookInboundEnvelope({
@@ -240,6 +252,72 @@ describe('A2A webhook inbound adapter', () => {
           signatureOutcome: 'rate_limited',
           downstreamDisposition: 'rate_limited',
           statusCode: 429,
+        }),
+      ]),
+    );
+  });
+
+  test('audits unexpected inbound handler errors before returning 500', async () => {
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const inbound = await import('../src/a2a/webhook-inbound.ts');
+    const secrets = await import('../src/security/runtime-secrets.ts');
+
+    initDatabase({ quiet: true });
+    secrets.saveNamedRuntimeSecrets({ A2A_INBOUND_WEBHOOK_SECRET: 'shared' });
+    inbound.upsertA2AWebhookInboundPeer({
+      peerId: 'broken-stream',
+      senderAgentId: 'remote@team@peer-instance',
+      secretRef: { source: 'store', id: 'A2A_INBOUND_WEBHOOK_SECRET' },
+    });
+
+    const req = new Readable({
+      read() {
+        this.destroy(new Error('stream exploded'));
+      },
+    }) as IncomingMessage;
+    req.method = 'POST';
+    req.headers = {};
+    const response = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+      writeHead(statusCode: number, headers: Record<string, string>) {
+        this.statusCode = statusCode;
+        this.headers = headers;
+      },
+      end(body?: string) {
+        this.body = body || '';
+      },
+      body: '',
+    } as ServerResponse & {
+      statusCode: number;
+      headers: Record<string, string>;
+      body: string;
+    };
+
+    await inbound.handleA2AWebhookInbound(
+      req,
+      response,
+      new URL('http://localhost/a2a/webhook/broken-stream'),
+    );
+
+    expect(response.statusCode).toBe(500);
+    expect(JSON.parse(response.body)).toEqual({
+      error: 'Internal server error',
+    });
+    const audit = getRecentStructuredAuditForSession(
+      'a2a:webhook-inbound:broken-stream',
+      10,
+    ).map((event) => JSON.parse(event.payload || '{}'));
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'a2a.webhook.inbound_post',
+          signatureOutcome: 'failed',
+          downstreamDisposition: 'error',
+          statusCode: 500,
+          reason: 'stream exploded',
         }),
       ]),
     );
