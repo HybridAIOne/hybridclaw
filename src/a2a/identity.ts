@@ -31,10 +31,6 @@ function findLocalAgent(agentId: string): AgentConfig {
   ]);
 }
 
-export function resolveLocalA2AInstanceId(): string {
-  return resolveLocalInstanceId();
-}
-
 export function resolveA2AAgentId(agentId: string): string {
   const normalized = agentId.trim();
   const kind = classifyA2AAgentId(normalized);
@@ -55,7 +51,7 @@ export function resolveA2AAgentId(agentId: string): string {
       '',
     'local',
   );
-  return formatAgentIdentity(agentSlug, userSlug, resolveLocalA2AInstanceId());
+  return formatAgentIdentity(agentSlug, userSlug, resolveLocalInstanceId());
 }
 
 export function resolveA2AEnvelopeAgentIds(envelope: unknown): A2AEnvelope {

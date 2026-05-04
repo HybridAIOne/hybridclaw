@@ -6,11 +6,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   AgentIdentityValidationError,
-  allocateUniqueLocalInstanceId,
   formatAgentIdentity,
   formatLocalInstanceIdFromUuid,
   isCanonicalAgentIdentity,
-  LocalInstanceIdAllocationError,
   parseAgentIdentity,
   resolveLocalInstanceId,
   slugifyAgentIdentityComponent,
@@ -129,9 +127,7 @@ describe('local instance id allocation', () => {
     expect(first).toBe('inst-550e8400-e29b-41d4-a716-446655440000');
     expect(second).toBe(first);
     expect(JSON.parse(fs.readFileSync(statePath, 'utf-8'))).toEqual({
-      version: 1,
       currentInstanceId: first,
-      allocatedInstanceIds: [first],
       allocatedAt: '2026-05-03T10:00:00.000Z',
     });
   });
@@ -154,15 +150,13 @@ describe('local instance id allocation', () => {
     const randomUuid = () => '550e8400-e29b-41d4-a716-446655440000';
     const now = () => new Date('2026-05-03T10:00:00.000Z');
 
-    const first = resolveLocalInstanceId({ statePath, randomUuid, now });
+    resolveLocalInstanceId({ statePath, randomUuid, now });
     const replacement = 'inst-660e8400-e29b-41d4-a716-446655440000';
     fs.writeFileSync(
       statePath,
       `${JSON.stringify(
         {
-          version: 1,
           currentInstanceId: replacement,
-          allocatedInstanceIds: [first, replacement],
           allocatedAt: '2026-05-03T10:01:00.000Z',
         },
         null,
@@ -182,27 +176,19 @@ describe('local instance id allocation', () => {
     expect(fs.existsSync(statePath)).toBe(false);
   });
 
-  test('retries when generated UUID instance ids collide with allocated ids', () => {
-    const duplicateUuid = '550e8400-e29b-41d4-a716-446655440000';
-    const nextUuid = '660e8400-e29b-41d4-a716-446655440000';
-    const uuids = [duplicateUuid, duplicateUuid, nextUuid];
-
-    const allocated = ['inst-550e8400-e29b-41d4-a716-446655440000'];
-    const allocatedId = allocateUniqueLocalInstanceId(allocated, () => {
-      const next = uuids.shift();
-      if (!next) throw new Error('unexpected UUID request');
-      return next;
+  test('preserves an existing state file instead of reallocating', () => {
+    const statePath = path.join(tmpDir, 'identity', 'instance-id.json');
+    const first = resolveLocalInstanceId({
+      statePath,
+      randomUuid: () => '550e8400-e29b-41d4-a716-446655440000',
+      now: () => new Date('2026-05-03T10:00:00.000Z'),
+    });
+    const second = resolveLocalInstanceId({
+      statePath,
+      randomUuid: () => '660e8400-e29b-41d4-a716-446655440000',
+      now: () => new Date('2026-05-03T10:01:00.000Z'),
     });
 
-    expect(allocatedId).toBe('inst-660e8400-e29b-41d4-a716-446655440000');
-  });
-
-  test('fails fast when UUID allocation keeps colliding', () => {
-    expect(() =>
-      allocateUniqueLocalInstanceId(
-        ['inst-550e8400-e29b-41d4-a716-446655440000'],
-        () => '550e8400-e29b-41d4-a716-446655440000',
-      ),
-    ).toThrow(LocalInstanceIdAllocationError);
+    expect(second).toBe(first);
   });
 });

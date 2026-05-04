@@ -4,10 +4,8 @@ import path from 'node:path';
 
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 
-export const AGENT_IDENTITY_STATE_VERSION = 1;
 export const AGENT_IDENTITY_COMPONENT_MAX_LENGTH = 128;
 export const LOCAL_INSTANCE_ID_PREFIX = 'inst-';
-export const LOCAL_INSTANCE_ID_MAX_ATTEMPTS = 16;
 
 let cachedDefaultInstanceId: string | undefined;
 let cachedDefaultInstanceEnvValue: string | undefined;
@@ -20,9 +18,7 @@ export interface ParsedAgentIdentity {
 }
 
 export interface LocalInstanceIdState {
-  readonly version: typeof AGENT_IDENTITY_STATE_VERSION;
   readonly currentInstanceId: string;
-  readonly allocatedInstanceIds: readonly string[];
   readonly allocatedAt: string;
 }
 
@@ -135,21 +131,18 @@ export function parseAgentIdentity(value: string): ParsedAgentIdentity {
 }
 
 export function isCanonicalAgentIdentity(value: string): boolean {
-  try {
-    parseAgentIdentity(value);
-    return true;
-  } catch {
-    return false;
-  }
+  const parts = value.trim().toLowerCase().split('@');
+  return (
+    parts.length === 3 &&
+    parts.every((part) => AGENT_IDENTITY_COMPONENT_PATTERN.test(part))
+  );
 }
 
 export function slugifyAgentIdentityComponent(
   value: string,
   fallback: string,
 ): string {
-  const normalized = value
-    .trim()
-    .toLowerCase()
+  const normalized = normalizeAgentIdentityComponent(value)
     .replace(/@.*$/u, '')
     .replace(/[^a-z0-9._-]+/gu, '-')
     .replace(/^[._-]+|[._-]+$/gu, '')
@@ -174,28 +167,10 @@ export function formatLocalInstanceIdFromUuid(uuid: string): string {
   return `${LOCAL_INSTANCE_ID_PREFIX}${normalized}`;
 }
 
-export function allocateUniqueLocalInstanceId(
-  allocatedInstanceIds: Iterable<string>,
+function allocateLocalInstanceId(
   randomUuid: () => string = randomUUID,
 ): string {
-  const allocated = new Set(
-    Array.from(allocatedInstanceIds, (entry) =>
-      normalizeAgentIdentityComponent(entry),
-    ),
-  );
-
-  for (
-    let attempt = 0;
-    attempt < LOCAL_INSTANCE_ID_MAX_ATTEMPTS;
-    attempt += 1
-  ) {
-    const candidate = formatLocalInstanceIdFromUuid(randomUuid());
-    if (!allocated.has(candidate)) return candidate;
-  }
-
-  throw new LocalInstanceIdAllocationError(
-    `Failed to allocate a unique local instance id after ${LOCAL_INSTANCE_ID_MAX_ATTEMPTS} attempts.`,
-  );
+  return formatLocalInstanceIdFromUuid(randomUuid());
 }
 
 function validateLocalInstanceIdState(value: unknown): LocalInstanceIdState {
@@ -206,34 +181,11 @@ function validateLocalInstanceIdState(value: unknown): LocalInstanceIdState {
   }
 
   const issues: string[] = [];
-  if (value.version !== AGENT_IDENTITY_STATE_VERSION) {
-    issues.push(
-      `local instance identity state version must be ${AGENT_IDENTITY_STATE_VERSION}`,
-    );
-  }
   const currentInstanceId =
     typeof value.currentInstanceId === 'string'
       ? normalizeAgentIdentityComponent(value.currentInstanceId)
       : '';
   validateAgentIdentityComponent('instance id', currentInstanceId, issues);
-
-  const allocatedInstanceIds = Array.isArray(value.allocatedInstanceIds)
-    ? value.allocatedInstanceIds
-        .filter((entry): entry is string => typeof entry === 'string')
-        .map((entry) => normalizeAgentIdentityComponent(entry))
-    : [];
-  if (!Array.isArray(value.allocatedInstanceIds)) {
-    issues.push('allocated instance ids must be an array');
-  }
-  for (const allocatedId of allocatedInstanceIds) {
-    validateAgentIdentityComponent('instance id', allocatedId, issues);
-  }
-  if (
-    currentInstanceId &&
-    !new Set(allocatedInstanceIds).has(currentInstanceId)
-  ) {
-    issues.push('allocated instance ids must include current instance id');
-  }
 
   const allocatedAt =
     typeof value.allocatedAt === 'string' ? value.allocatedAt.trim() : '';
@@ -246,9 +198,7 @@ function validateLocalInstanceIdState(value: unknown): LocalInstanceIdState {
   }
 
   return {
-    version: AGENT_IDENTITY_STATE_VERSION,
     currentInstanceId,
-    allocatedInstanceIds: Array.from(new Set(allocatedInstanceIds)),
     allocatedAt,
   };
 }
@@ -273,10 +223,7 @@ function writeNewLocalInstanceIdState(
 ): void {
   const stateDir = path.dirname(statePath);
   fs.mkdirSync(stateDir, { recursive: true });
-  const tempPath = path.join(
-    stateDir,
-    `.instance-id-${process.pid}-${Date.now().toString(36)}-${randomUUID()}.tmp`,
-  );
+  const tempPath = path.join(stateDir, `.instance-id-${randomUUID()}.tmp`);
   try {
     fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
       encoding: 'utf-8',
@@ -290,13 +237,6 @@ function writeNewLocalInstanceIdState(
   }
 }
 
-function readEnvInstanceId(): string {
-  return slugifyAgentIdentityComponent(
-    process.env.HYBRIDCLAW_INSTANCE_ID || '',
-    '',
-  );
-}
-
 export function resolveLocalInstanceId(
   options: ResolveLocalInstanceIdOptions = {},
 ): string {
@@ -305,6 +245,7 @@ export function resolveLocalInstanceId(
     options.randomUuid === undefined &&
     options.now === undefined;
   const envValue = process.env.HYBRIDCLAW_INSTANCE_ID || '';
+  const envInstanceId = slugifyAgentIdentityComponent(envValue, '');
   if (
     cacheable &&
     cachedDefaultInstanceId &&
@@ -313,7 +254,6 @@ export function resolveLocalInstanceId(
     return cachedDefaultInstanceId;
   }
 
-  const envInstanceId = readEnvInstanceId();
   if (envInstanceId) {
     if (cacheable) {
       cachedDefaultInstanceId = envInstanceId;
@@ -332,15 +272,10 @@ export function resolveLocalInstanceId(
     return existingState.currentInstanceId;
   }
 
-  const currentInstanceId = allocateUniqueLocalInstanceId(
-    [],
-    options.randomUuid,
-  );
+  const currentInstanceId = allocateLocalInstanceId(options.randomUuid);
   const allocatedAt = (options.now ?? (() => new Date()))().toISOString();
   const state: LocalInstanceIdState = {
-    version: AGENT_IDENTITY_STATE_VERSION,
     currentInstanceId,
-    allocatedInstanceIds: [currentInstanceId],
     allocatedAt,
   };
 
@@ -357,7 +292,9 @@ export function resolveLocalInstanceId(
       }
       return racedState.currentInstanceId;
     }
-    throw error;
+    throw new LocalInstanceIdAllocationError(
+      'Local instance id state file was created by another process but was missing on read; state directory may be unstable.',
+    );
   }
 
   if (cacheable) {
