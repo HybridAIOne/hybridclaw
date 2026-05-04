@@ -244,6 +244,7 @@ export function SkillsPage() {
   const [createMode, setCreateMode] = useState<'form' | 'zip'>('form');
   const [draft, setDraft] = useState<SkillDraft>(createEmptyDraft());
   const [zipFile, setZipFile] = useState<File | null>(null);
+  const [zipForce, setZipForce] = useState(false);
   const deferredFilter = useDeferredValue(filter);
   const filterNeedle = deferredFilter.trim().toLowerCase();
 
@@ -337,12 +338,13 @@ export function SkillsPage() {
   const uploadMutation = useMutation({
     mutationFn: () => {
       if (!zipFile) throw new Error('No file selected.');
-      return uploadSkillZip(auth.token, zipFile);
+      return uploadSkillZip(auth.token, zipFile, { force: zipForce });
     },
     onSuccess: (payload) => {
       queryClient.setQueryData(['skills', auth.token], payload);
       setShowCreate(false);
       setZipFile(null);
+      setZipForce(false);
     },
     onError: (error) => {
       toast.error('Upload failed', getErrorMessage(error));
@@ -470,6 +472,7 @@ export function SkillsPage() {
                 setShowCreate(!showCreate);
                 setDraft(createEmptyDraft());
                 setZipFile(null);
+                setZipForce(false);
                 setCreateMode('form');
                 createMutation.reset();
                 uploadMutation.reset();
@@ -498,7 +501,7 @@ export function SkillsPage() {
           />
 
           {createMode === 'zip' ? (
-            <div className="stack-form">
+            <div className="stack-form" style={{ marginTop: '1rem' }}>
               <label className="field">
                 <span>Skill archive (.zip)</span>
                 <input
@@ -514,6 +517,24 @@ export function SkillsPage() {
                 frontmatter field. May include scripts/, references/, and other
                 files.
               </p>
+              <label
+                className="supporting-text"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  cursor: 'pointer',
+                  width: 'fit-content',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={zipForce}
+                  onChange={(event) => setZipForce(event.target.checked)}
+                  style={{ margin: 0 }}
+                />
+                <span>Overwrite existing skill (--force)</span>
+              </label>
               <div className="button-row">
                 <button
                   className="primary-button"
@@ -526,7 +547,7 @@ export function SkillsPage() {
               </div>
             </div>
           ) : (
-            <div className="stack-form">
+            <div className="stack-form" style={{ marginTop: '1rem' }}>
               <div className="field-grid">
                 <label className="field">
                   <span>Name</span>
