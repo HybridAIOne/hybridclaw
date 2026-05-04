@@ -156,9 +156,10 @@ Once the gateway is running, open HybridClaw locally:
   share when that split is configured.
 - `deployment.mode`, `deployment.public_url`, `deployment.tunnel.provider`, and
   `deployment.tunnel.health_check_interval_ms` describe local/cloud exposure
-  and tunnel health cadence. The built-in ngrok and Tailscale Funnel providers
-  read `NGROK_AUTHTOKEN` and `TS_AUTHKEY` from the encrypted runtime secret
-  store.
+  and tunnel health cadence. The built-in ngrok, Tailscale Funnel, and
+  Cloudflare Tunnel providers read `NGROK_AUTHTOKEN`, `TS_AUTHKEY`,
+  `CLOUDFLARE_TUNNEL_TOKEN`, and Cloudflare certificate credentials from the
+  encrypted runtime secret store.
 - `container.warmPool` keeps a bounded adaptive pool of idle host/container
   runtimes for recently active agents when low cold-start latency matters.
 - `container.persistBashState` controls whether bash tool calls share shell
@@ -174,9 +175,12 @@ Once the gateway is running, open HybridClaw locally:
   exposes a custom workspace display root such as `/app`.
 - `hybridclaw tui` includes live delegate progress, pulsing tool rows,
   completion checkmarks, a keyboard-driven approval picker, and a ready-to-run
-  `hybridclaw tui --resume <sessionId>` command on exit.
+  `hybridclaw tui --resume <sessionId>` command on exit. Pressing `Esc` stops
+  the active run and returns control to the prompt.
 - `hybridclaw doctor` checks runtime health including resource hygiene
-  maintenance for stale gateway artifacts.
+  maintenance for stale gateway artifacts. `hybridclaw doctor browser-use`
+  checks the local browser automation substrate and can install missing
+  Playwright Chromium support with `--fix`.
 - `hybridclaw onboarding` and related local setup flows can restore the last
   known-good saved config snapshot or roll back to a tracked revision when
   `config.json` becomes invalid.
@@ -216,6 +220,11 @@ Once the gateway is running, open HybridClaw locally:
 - Google OAuth credentials for Workspace skills live in the encrypted runtime
   secret store; agent runtimes receive short-lived access tokens for `gog` and
   `gws` instead of long-lived refresh tokens.
+- `hybridclaw secret route ...` and `/secret route ...` can attach stored
+  secrets or Google OAuth access tokens to matching `http_request` URL
+  prefixes, including Google Ads API calls.
+- `HYBRIDAI_FALLBACK_CHAIN` can route auth and rate-limit provider failures to
+  alternate models/providers with cooldowns before retrying the primary.
 - Skills can be enabled or disabled globally or per channel from
   `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
   `Skills` page.
@@ -223,8 +232,12 @@ Once the gateway is running, open HybridClaw locally:
   credentials, supported channels, and per-agent autonomy policy.
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
+  monthly SaaS invoice harvesting (`download-platform-invoices`),
   natural-language warehouse SQL (`warehouse-sql`), brand-voice drafting, and
   editable Excalidraw diagram creation.
+- Browser automation can use local persistent Playwright profiles or Browser
+  Use Cloud sessions with encrypted `BROWSER_USE_API_KEY` storage, usage
+  metering, and shared navigation guards.
 - The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
   responses that violate configured voice rules before they reach users.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled

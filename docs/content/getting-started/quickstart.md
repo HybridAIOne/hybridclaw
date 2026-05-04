@@ -98,6 +98,20 @@ Use `/admin/statistics` for activity and cost trends, and
 `/admin/agent-scoreboard` to review observed skill scores, reliability, timing,
 and CV links.
 
+## Open The Desktop Wrapper From Source
+
+From a source checkout, the macOS desktop wrapper builds the runtime and opens
+the same local chat surface in an Electron window:
+
+```bash
+npm install
+npm run desktop
+```
+
+The app reuses an existing local gateway when one is already listening on
+`http://127.0.0.1:9090`; otherwise it starts the bundled gateway. The app menu
+links to the admin console.
+
 ## Ground A Prompt With Files Or Repo Context
 
 - Web chat accepts uploads and pasted clipboard files or images before send.

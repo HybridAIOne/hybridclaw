@@ -96,6 +96,45 @@ keys as environment variables.
 
 ---
 
+## download-platform-invoices
+
+Harvest monthly SaaS billing invoices into normalized records and official PDF
+files for bookkeeping or DATEV handoff.
+
+**Prerequisites** — provider credentials in the encrypted HybridClaw secret
+store. API-backed providers use their own service credentials; browser-backed
+providers need a reusable billing-portal login profile.
+
+> 💡 **Tips & Tricks**
+>
+> Keep provider credentials as SecretRefs such as `{ "source": "store", "id": "STRIPE_INVOICE_API_KEY" }` instead of plaintext config.
+>
+> The skill writes one normalized JSON record per invoice plus the official PDF, then deduplicates reruns by vendor, invoice number, and checksum.
+>
+> Google Ads uses `hybridclaw auth login google --scopes "https://www.googleapis.com/auth/adwords"` plus `/secret route` entries for OAuth and the developer token.
+>
+> DATEV handoff runs after invoice harvesting and prefers an injected DATEV API/MCP client before browser upload.
+
+> 🎯 **Try it yourself**
+>
+> `Collect last month's SaaS invoices for Stripe and Google Ads, save the official PDFs, and produce a manifest for bookkeeping`
+>
+> `Run the monthly invoice workflow fixture with recorded providers and summarize which invoices were fetched`
+>
+> `Prepare a DATEV handoff from the harvested invoice manifest`
+
+**Troubleshooting**
+
+- **Provider asks for MFA or captcha** — stop and route to an operator; the
+  skill must not solve captchas silently.
+- **Google Ads returns auth errors** — verify the Google OAuth login, the
+  `https://googleads.googleapis.com/` secret routes, and the
+  `GOOGLEADS_DEVELOPER_TOKEN` stored secret.
+- **Duplicate invoices** — reruns reuse the manifest and should skip already
+  fetched vendor/invoice/checksum combinations.
+
+---
+
 ## sokosumi
 
 Use Sokosumi for API-key auth, direct agent hires, coworker tasks, job

@@ -2,6 +2,85 @@
 
 ## Unreleased
 
+### Added
+
+- **macOS desktop wrapper**: Source builds can run `npm run desktop` for a
+  native Electron shell around the existing `/chat` experience, with menu
+  access to `/admin`, automatic local-gateway startup, packaged runtime
+  preparation, and DMG build scripts.
+- **Browser provider substrate**: Browser automation can run through a local
+  persistent Playwright profile or Browser Use Cloud CDP sessions. Browser Use
+  Cloud reads `BROWSER_USE_API_KEY` from the encrypted secret store, records
+  usage/audit events, rejects unsafe local profile hints, and reports setup
+  problems through `hybridclaw doctor browser-use`.
+- **Cloudflare Tunnel provider**: Local gateways can use
+  `deployment.tunnel.provider=cloudflare` with `CLOUDFLARE_TUNNEL_TOKEN` or
+  certificate credentials from encrypted runtime secrets, plus a dedicated
+  setup guide and admin tunnel status.
+- **A2A outbound delivery**: Agent-to-agent envelopes can be delivered through
+  JSON-RPC Agent Card peers or signed webhook peers with an outbox processor,
+  retry/backoff, audit events, secret-backed bearer tokens, and operator
+  escalation when delivery cannot continue safely.
+- **Monthly invoice harvester skill**: The bundled
+  `download-platform-invoices` skill collects official SaaS invoice PDFs and
+  normalized records across Stripe, Google Ads, AWS, Azure, GCP, browser-driven
+  SaaS portals, and DATEV Unternehmen Online handoff flows.
+- **Warehouse SQL skill**: The bundled `warehouse-sql` skill reviews and runs
+  read-only natural-language SQL against cached warehouse schemas, with a
+  deterministic SQLite eval fixture and optional connector-backed execution for
+  production warehouses.
+- **Google OAuth secret routes**: `hybridclaw secret route ...` and
+  `/secret route ...` can map URL prefixes to stored secrets or short-lived
+  Google OAuth access tokens for direct `http_request` calls such as Google Ads
+  API access.
+- **Interactive escalation handoff**: Runtime middleware can pause for
+  operator-facing escalation, collect resumable interaction context, and expose
+  browser controls for continuing or resolving pending approvals.
+- **AI-generated session titles**: `auxiliaryModels.session_title` can use an
+  auxiliary model to title recent sessions from the first user message while
+  preserving the local preview fallback when disabled.
+- **Per-agent liveness surface**: Gateway status now includes agent liveness
+  metadata for admin and health surfaces.
+- **Workflow definition schema**: YAML workflow definitions can declare
+  agent-owned steps, transitions, and `stakes_threshold` escalation hints with
+  validation coverage.
+- **Classifier middleware contract**: Agent middleware can classify, warn,
+  transform, block, or escalate pre-send and post-receive content, giving
+  plugins such as `brand-voice` and confidential leak checks a shared runtime
+  surface.
+
+### Changed
+
+- **Provider fallback chains**: `HYBRIDAI_FALLBACK_CHAIN` can route model calls
+  to alternate providers on auth and rate-limit failures, with primary-provider
+  cooldowns and streaming-safe retry gates.
+- **Browser tooling is stricter and more capable**: Browser tools share
+  navigation/profile guards, support reusable browser login state across host
+  and container runtimes, and handle download-heavy invoice flows more
+  predictably.
+- **TUI activity rendering is calmer**: Tool activity rows stack and de-dupe
+  more cleanly, repeated activity lines are suppressed, and `Esc` stops the
+  active run instead of leaving the session running in the background.
+- **Secret-bearing tool calls are narrower**: Gateway-side secret injection
+  resolves non-LLM credentials and Google OAuth tokens at request time instead
+  of exposing long-lived credentials to agent context.
+- **Provider discovery errors are clearer**: Shared discovery-error helpers and
+  normalized OpenRouter fallback hints keep model selection output less noisy.
+- **IMAP polling failures stay local**: Email transport timeouts are contained
+  to the IMAP connection path instead of leaking into broader gateway state.
+
+### Fixed
+
+- **Google Ads invoice harvesting**: Google Ads invoice discovery and PDF
+  downloads use the correct InvoiceService and GoogleAdsService paths,
+  including accessible-customer, manager-client, and billing-setup discovery.
+- **TUI stop behavior**: Pressing `Esc` reliably stops the in-flight TUI
+  session run.
+- **TUI tool activity duplication**: Repeated and stacked tool rows no longer
+  produce noisy duplicate output.
+- **OpenRouter fallback hints**: HybridAI-prefixed model hints are stripped
+  before OpenRouter fallback resolution.
+
 ## [0.15.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.15.0) - 2026-04-29
 
 ### Added

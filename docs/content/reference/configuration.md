@@ -113,6 +113,10 @@ saved revision history directly.
 - `hybridai.maxTokens` for the default completion output budget; the shipped
   default is `4096`; you can change it live with
   `hybridclaw config set hybridai.maxTokens <n>`
+- `HYBRIDAI_FALLBACK_CHAIN` accepts a JSON array of fallback entries with
+  `model`, optional `baseUrl`, `keyEnv`, `chatbotId`, and `agentId`. Gateway
+  model calls use the chain for auth and rate-limit failures, then cool down
+  the primary provider before returning to it.
 - `anthropic.*` for first-class Anthropic provider enablement, base URL,
   auth method (`api-key` or `claude-cli`), and pinned `anthropic/...` model
   list. Store direct API keys as `ANTHROPIC_API_KEY` in the encrypted runtime
@@ -261,7 +265,9 @@ Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
 `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
 `IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
-`WEB_API_TOKEN`, and `GATEWAY_API_TOKEN`.
+`CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_CERT_PEM`,
+`CLOUDFLARE_TUNNEL_JSON`, `BROWSER_USE_API_KEY`, `WEB_API_TOKEN`, and
+`GATEWAY_API_TOKEN`.
 
 Local TUI/web sessions and the local CLI manage this store through:
 

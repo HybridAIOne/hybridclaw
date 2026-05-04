@@ -14,12 +14,13 @@ hybridclaw doctor
 hybridclaw doctor --fix
 hybridclaw doctor --json
 hybridclaw doctor docker
+hybridclaw doctor browser-use
 hybridclaw doctor providers
 ```
 
 `doctor` checks runtime, gateway, config, credentials, database, providers,
-local backends, Docker, channels, skills, security, and disk state in
-parallel.
+local backends, browser automation, Docker, channels, skills, security, and
+disk state in parallel.
 
 Useful flags:
 
@@ -28,13 +29,17 @@ Useful flags:
 - `hybridclaw doctor --json` prints a machine-readable report for CI or
   automation while still returning exit code `1` if errors remain
 - `hybridclaw doctor <category>` narrows the report to one subsystem, for
-  example `docker` or `providers`
+  example `docker`, `browser-use`, or `providers`
 
 When the config checks flag built-in tools that have gone unused for a while,
 use `hybridclaw tool list`, `hybridclaw tool disable <name>`, and
 `hybridclaw tool enable <name>` to keep the prompt surface tighter. The doctor
 report treats the `browser_*` subtools as one browser toolset, so it only
 suggests disabling them when that whole toolset is unused.
+
+The `browser-use` category verifies the Playwright Chromium install used by
+local browser automation. With `--fix`, HybridClaw offers the lazy Chromium
+install remediation when the browser runtime is missing.
 
 ## Resource Hygiene
 

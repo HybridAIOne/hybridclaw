@@ -26,6 +26,18 @@ doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
+- `npm run desktop` launches a native macOS wrapper around the local chat UI,
+  with gateway reuse/startup and admin access from the app menu.
+- Browser automation can run against local persistent Playwright profiles or
+  Browser Use Cloud sessions, with encrypted secret lookup and
+  `hybridclaw doctor browser-use` diagnostics.
+- A2A outbound delivery supports JSON-RPC Agent Card peers and signed webhook
+  peers through an audited retrying outbox.
+- The `download-platform-invoices` skill harvests official monthly SaaS
+  invoice PDFs and normalized records across billing APIs, browser-backed
+  portals, Google Ads, cloud providers, and DATEV handoff flows.
+- The `warehouse-sql` skill reviews and runs read-only natural-language SQL
+  against cached warehouse schemas.
 - Signal joins the channel catalog with a full `signal-cli` daemon setup guide,
   private-by-default DM policy, group controls, and admin QR linking.
 - `.confidential.yml` rules can redact NDA-class business data before model
@@ -39,6 +51,8 @@ doc at once, start from [For Agents](./agents.md).
 - Packaged business skills can declare manifests, capabilities, required
   credentials, supported channels, lifecycle snapshots, and rollback history.
 - Deployment config can describe cloud/local mode and tunnel provider intent; the built-in ngrok, Tailscale, and Cloudflare providers read runtime auth secrets from encrypted storage.
+- `HYBRIDAI_FALLBACK_CHAIN` can route auth and rate-limit provider failures to
+  alternate models/providers with primary-provider cooldowns.
 - Model info, usage summaries, and the admin Models page surface discovered
   context windows, output limits, capabilities, pricing, and monthly spend
   where providers expose the metadata.
