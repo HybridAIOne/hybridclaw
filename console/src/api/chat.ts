@@ -24,6 +24,7 @@ export function fetchChatRecent(
   channelId = 'web',
   limit = 10,
   query?: string,
+  scope?: 'user' | 'all',
 ): Promise<ChatRecentResponse> {
   const params = new URLSearchParams({
     userId,
@@ -31,6 +32,7 @@ export function fetchChatRecent(
     limit: String(limit),
   });
   if (query) params.set('q', query);
+  if (scope) params.set('scope', scope);
   return requestJson<ChatRecentResponse>(
     `/api/chat/recent?${params.toString()}`,
     { token },

@@ -2049,6 +2049,9 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const rawScope = (url.searchParams.get('scope') || '').trim().toLowerCase();
+  const scope =
+    rawScope === 'user' || rawScope === 'all' ? rawScope : undefined;
   const hasWebSessionUser =
     channelId.toLowerCase() === 'web' &&
     Boolean(resolveSessionAuthenticatedUserId(req));
@@ -2071,7 +2074,9 @@ function handleApiChatRecent(
       channelId,
       limit,
       ...(query ? { query } : {}),
-      ...(channelId.toLowerCase() === 'web' && !hasWebSessionUser
+      ...(scope ? { includeScheduled: scope === 'all' } : {}),
+      ...(scope === 'all' ||
+      (!scope && channelId.toLowerCase() === 'web' && !hasWebSessionUser)
         ? { fallbackToChannelRecent: true }
         : {}),
     }),

@@ -11,7 +11,10 @@ import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
 } from './model-names.js';
-import type { RuntimeProviderId } from './provider-ids.js';
+import {
+  isOpenAICompatProviderId,
+  type RuntimeProviderId,
+} from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
@@ -1006,13 +1009,7 @@ async function callAuxiliaryTextProvider(
   if (context.provider === 'ollama') {
     return callOllamaTextModel(context, messages, options);
   }
-  if (
-    context.provider === 'openrouter' ||
-    context.provider === 'huggingface' ||
-    context.provider === 'lmstudio' ||
-    context.provider === 'llamacpp' ||
-    context.provider === 'vllm'
-  ) {
+  if (isOpenAICompatProviderId(context.provider)) {
     return callOpenAICompatTextModel(context, messages, options);
   }
   return callHybridAITextModel(context, messages, options);

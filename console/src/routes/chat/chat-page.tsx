@@ -51,6 +51,7 @@ type BranchInfo = {
 
 const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
+type RecentChatScope = 'user' | 'all';
 
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
@@ -90,6 +91,8 @@ export function ChatPage() {
     defaultAgentIdRef.current,
   );
   const [selectedModelId, setSelectedModelId] = useState('');
+  const [recentChatScope, setRecentChatScope] =
+    useState<RecentChatScope>('user');
 
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const debouncedSessionSearchQuery = useDebouncedValue(
@@ -228,7 +231,13 @@ export function ChatPage() {
   }, [modelsQuery.error]);
 
   const recentQuery = useQuery({
-    queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+    queryKey: [
+      'chat-recent',
+      auth.token,
+      userId,
+      trimmedSessionSearchQuery,
+      recentChatScope,
+    ],
     queryFn: () =>
       fetchChatRecent(
         auth.token,
@@ -238,6 +247,7 @@ export function ChatPage() {
           ? CHAT_UI_CONFIG.maxSearchResults
           : CHAT_UI_CONFIG.maxRecentSessions,
         trimmedSessionSearchQuery || undefined,
+        recentChatScope,
       ),
     staleTime: 10_000,
   });
@@ -533,9 +543,21 @@ export function ChatPage() {
 
   const handleRefreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['chat-recent', auth.token, userId, trimmedSessionSearchQuery],
+      queryKey: [
+        'chat-recent',
+        auth.token,
+        userId,
+        trimmedSessionSearchQuery,
+        recentChatScope,
+      ],
     });
-  }, [queryClient, auth.token, userId, trimmedSessionSearchQuery]);
+  }, [
+    queryClient,
+    auth.token,
+    userId,
+    trimmedSessionSearchQuery,
+    recentChatScope,
+  ]);
 
   const handleOpenMobileQr = useCallback(async () => {
     const activeSessionId = getSessionId();
@@ -594,6 +616,8 @@ export function ChatPage() {
     isPending: isSwitchingSession,
     searchQuery: sessionSearchQuery,
     onSearchQueryChange: setSessionSearchQuery,
+    recentScope: recentChatScope,
+    onRecentScopeChange: setRecentChatScope,
     isLoading: recentQuery.isFetching,
     onRefreshRecent: handleRefreshRecent,
   } as const;

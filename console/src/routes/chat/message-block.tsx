@@ -92,7 +92,14 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   const previewUrlRef = useRef<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
-  const isImage = (artifact.mimeType ?? '').startsWith('image/');
+  const mimeType = (artifact.mimeType ?? '').toLowerCase();
+  const artifactName = artifact.filename ?? 'artifact';
+  const isImage = mimeType.startsWith('image/');
+  const isPdf =
+    mimeType === 'application/pdf' ||
+    /\.pdf$/i.test(artifact.filename ?? '') ||
+    /\.pdf$/i.test(artifact.path ?? '');
+  const canPreview = isImage || isPdf;
 
   useEffect(() => {
     const previousUrl = previewUrlRef.current;
@@ -100,7 +107,7 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
     if (previousUrl) URL.revokeObjectURL(previousUrl);
     setPreviewUrl(null);
 
-    if (!isImage || !artifact.path) return;
+    if (!canPreview || !artifact.path) return;
 
     let cancelled = false;
     void fetchArtifactBlob(token, artifact.path)
@@ -120,7 +127,7 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
       previewUrlRef.current = null;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifact.path, isImage, token]);
+  }, [artifact.path, canPreview, token]);
 
   const downloadLabel = downloading ? 'Downloading…' : 'Download';
   const handleDownload = async () => {
@@ -150,28 +157,38 @@ function ArtifactCard(props: { artifact: ChatArtifact; token: string }) {
   };
 
   return (
-    <div className={css.artifactCard}>
-      <span className={css.artifactFilename}>
-        {artifact.filename ?? 'artifact'}
-      </span>
-      {artifact.type ? (
-        <span className={css.artifactBadge}>{artifact.type}</span>
-      ) : null}
-      {artifact.path ? (
-        <button
-          type="button"
-          className={css.artifactDownload}
-          disabled={downloading}
-          onClick={() => {
-            void handleDownload();
-          }}
-        >
-          {downloadLabel}
-        </button>
-      ) : null}
+    <div
+      className={cx(
+        css.artifactCard,
+        previewUrl && css.artifactCardWithPreview,
+      )}
+    >
+      <div className={css.artifactHeader}>
+        <span className={css.artifactFilename}>{artifactName}</span>
+        {artifact.type ? (
+          <span className={css.artifactBadge}>{artifact.type}</span>
+        ) : null}
+        {artifact.path ? (
+          <button
+            type="button"
+            className={css.artifactDownload}
+            disabled={downloading}
+            onClick={() => {
+              void handleDownload();
+            }}
+          >
+            {downloadLabel}
+          </button>
+        ) : null}
+      </div>
       {isImage && previewUrl ? (
         <div className={css.artifactPreview}>
-          <img src={previewUrl} alt={artifact.filename ?? 'preview'} />
+          <img src={previewUrl} alt={artifactName} />
+        </div>
+      ) : null}
+      {isPdf && previewUrl ? (
+        <div className={cx(css.artifactPreview, css.artifactPdfPreview)}>
+          <iframe src={previewUrl} title={`${artifactName} preview`} />
         </div>
       ) : null}
     </div>
