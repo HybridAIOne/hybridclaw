@@ -158,6 +158,8 @@ afterEach(() => {
 
 describe('TrustedAgentApprovalRuntime', () => {
   test('parsePolicyYaml reads dependency-safe approval rule order and appends missing core rules', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const parsed = parsePolicyYaml(`
 approval:
   rule_order:
@@ -175,6 +177,9 @@ approval:
     );
     expect(new Set(parsed.approvalRuleOrder)).toEqual(
       new Set(DEFAULT_APPROVAL_RULE_ORDER),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[approval-policy] unknown approval.rule_order entry ignored: unknown_future_rule',
     );
   });
 
@@ -335,14 +340,37 @@ approval:
     expect(result.evaluation.decision).toBe('auto');
     expect(events[0]).toMatchObject({
       hook: 'pre_tool_use',
+      kind: 'approval_rule',
       ruleName: 'policy_reload',
       toolName: 'read',
     });
     expect(events.at(-1)).toMatchObject({
       hook: 'post_tool_use',
+      kind: 'approval_rule',
       ruleName: 'green_fallback',
       decision: 'auto',
     });
+  });
+
+  test('approval pipeline denies instead of throwing when a rule runs before prerequisites', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const context = makeRuleContext();
+    context.policy = {
+      ...DEFAULT_POLICY,
+      approvalRuleOrder: ['fingerprint'],
+    };
+
+    const result = runApprovalRulePipeline(context);
+
+    expect(result.evaluation.decision).toBe('denied');
+    expect(result.evaluation.escalationRoute).toBe('policy_denial');
+    expect(result.evaluation.reason).toContain(
+      'Approval policy rule fingerprint failed',
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('approval rule fingerprint failed'),
+      expect.any(Error),
+    );
   });
 
   test('TrustedAgentApprovalRuntime sends rule hook events through the configured emitter', () => {
@@ -363,14 +391,38 @@ approval:
     expect(evaluation.decision).toBe('auto');
     expect(events[0]).toMatchObject({
       hook: 'pre_tool_use',
+      kind: 'approval_rule',
       ruleName: 'policy_reload',
       toolName: 'read',
     });
     expect(events.at(-1)).toMatchObject({
       hook: 'post_tool_use',
+      kind: 'approval_rule',
       ruleName: 'green_fallback',
       decision: 'auto',
     });
+  });
+
+  test('approval rule hook emitter failures are logged', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setApprovalRuleHookEmitter(async () => {
+      throw new Error('hook failed');
+    });
+
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[approval-policy] approval rule hook emitter failed:',
+      expect.any(Error),
+    );
   });
 
   test('loadPolicyFromDisk logs malformed policy files before falling back to defaults', () => {

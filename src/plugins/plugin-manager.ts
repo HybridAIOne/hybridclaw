@@ -2254,12 +2254,14 @@ export class PluginManager {
 
     const toolArgs = isRecord(params.args) ? params.args : {};
     await this.dispatchHook('pre_tool_use', {
+      kind: 'tool_execution',
       sessionId: params.sessionId,
       channelId: params.channelId,
       toolName: params.toolName,
       arguments: toolArgs,
     });
     await this.dispatchHook('before_tool_call', {
+      kind: 'tool_execution',
       sessionId: params.sessionId,
       channelId: params.channelId,
       toolName: params.toolName,
@@ -2277,6 +2279,7 @@ export class PluginManager {
         await entry.tool.handler(toolArgs, context),
       );
       await this.dispatchHook('after_tool_call', {
+        kind: 'tool_execution',
         sessionId: params.sessionId,
         channelId: params.channelId,
         toolName: params.toolName,
@@ -2285,6 +2288,7 @@ export class PluginManager {
         isError: false,
       });
       await this.dispatchHook('post_tool_use', {
+        kind: 'tool_execution',
         sessionId: params.sessionId,
         channelId: params.channelId,
         toolName: params.toolName,
@@ -2299,6 +2303,7 @@ export class PluginManager {
           ? error.message
           : String(error || 'Unknown error');
       await this.dispatchHook('after_tool_call', {
+        kind: 'tool_execution',
         sessionId: params.sessionId,
         channelId: params.channelId,
         toolName: params.toolName,
@@ -2307,6 +2312,7 @@ export class PluginManager {
         isError: true,
       });
       await this.dispatchHook('post_tool_use', {
+        kind: 'tool_execution',
         sessionId: params.sessionId,
         channelId: params.channelId,
         toolName: params.toolName,

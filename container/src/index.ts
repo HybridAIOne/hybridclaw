@@ -64,6 +64,7 @@ import {
   readChatCompletionUsageTokens,
   recordPerformanceSample,
 } from './token-usage.js';
+import { parseToolArgsJson } from './tool-args.js';
 import { validateStructuredToolCalls } from './tool-call-validation.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
@@ -151,6 +152,7 @@ const approvalRuntime = new TrustedAgentApprovalRuntime();
 approvalRuntime.setApprovalRuleHookEmitter((event) =>
   emitRuntimeEvent({
     event: event.hook,
+    kind: event.kind,
     approvalRule: event.ruleName,
     toolName: event.toolName,
     ...(event.actionKey ? { actionKey: event.actionKey } : {}),
@@ -290,21 +292,9 @@ function normalizePathSlashes(raw: string): string {
   return raw.replace(/\\/g, '/');
 }
 
-function parseToolArgs(argsJson: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(argsJson) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function captureSkillSelection(toolName: string, argsJson: string): void {
   if (toolName !== 'read') return;
-  const args = parseToolArgs(argsJson);
+  const args = parseToolArgsJson(argsJson);
   const rawPath = String(args?.path || '').trim();
   if (!rawPath) return;
   const normalized = rawPath.replace(/\\/g, '/');

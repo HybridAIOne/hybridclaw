@@ -4,9 +4,10 @@ The tool approval cascade is implemented as a policy-configured rule pipeline in
 `container/src/approval-policy.ts`. Each rule receives a typed `ToolCallContext`
 and either returns `NextRule` or a terminal `Decision`.
 
-The default order is also the compatibility order. Workspaces may override
-`approval.rule_order` in `.hybridclaw/policy.yaml`; unknown rule names are
-ignored and missing built-in rules are appended in their default order.
+The default order is also the compatibility order. Workspaces may list built-in
+rules in `approval.rule_order` in `.hybridclaw/policy.yaml`; unknown rule names
+warn and are ignored, missing built-in rules are appended in default order, and
+orders that violate built-in dependencies fall back to the full default order.
 
 ## Default Order
 
@@ -39,11 +40,11 @@ allowlisted actions/fingerprints retain their existing storage.
 
 The pipeline emits `pre_tool_use` and `post_tool_use` hook events around each
 rule through the rule context. The container runtime wires those events into
-the F2 runtime event bus via `emitRuntimeEvent`, including `approvalRule`,
-`toolName`, `actionKey`, and current `decision` when available. The plugin
-event bus also exposes `pre_tool_use` and `post_tool_use` as first-class hook
-names while preserving the older `before_tool_call` and `after_tool_call`
-hooks.
+the F2 runtime event bus via `emitRuntimeEvent`, including
+`kind: "approval_rule"`, `approvalRule`, `toolName`, `actionKey`, and current
+`decision` when available. The plugin event bus also exposes `pre_tool_use` and
+`post_tool_use` as first-class hook names with `kind: "tool_execution"` while
+preserving the older `before_tool_call` and `after_tool_call` hooks.
 
 Future approval extensions should add a named rule and place it through
 `approval.rule_order` instead of editing the surrounding cascade.

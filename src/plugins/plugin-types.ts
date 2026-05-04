@@ -196,6 +196,7 @@ export interface PluginAgentEndContext {
 }
 
 export interface PluginToolHookContext {
+  kind: 'tool_execution';
   sessionId: string;
   channelId: string;
   toolName: string;

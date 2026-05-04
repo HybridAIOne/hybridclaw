@@ -258,6 +258,7 @@ export interface ToolCallContextHelpers {
 
 export interface ApprovalRuleHookEvent {
   hook: 'pre_tool_use' | 'post_tool_use';
+  kind: 'approval_rule';
   ruleName: ApprovalRuleName;
   toolName: string;
   actionKey?: string;
@@ -376,7 +377,9 @@ const APPROVE_RE =
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
 const APPROVAL_RULE_NAME_SET = new Set<string>(DEFAULT_APPROVAL_RULE_ORDER);
 const NEXT_RULE: NextRule = { kind: 'next' };
+const unknownApprovalRuleNameWarnings = new Set<string>();
 const invalidApprovalRuleOrderWarnings = new Set<string>();
+const MAX_APPROVAL_RULE_WARNING_KEYS = 50;
 
 function isVoiceChannelId(value: string | undefined): boolean {
   return String(value || '')
@@ -463,9 +466,15 @@ function normalizeStringList(raw: unknown): string[] {
 }
 
 function normalizeApprovalRuleOrder(raw: unknown): ApprovalRuleName[] {
-  const requested = normalizeStringList(raw).filter(
-    (rule): rule is ApprovalRuleName => APPROVAL_RULE_NAME_SET.has(rule),
+  const rawRules = normalizeStringList(raw);
+  const requested = rawRules.filter((rule): rule is ApprovalRuleName =>
+    APPROVAL_RULE_NAME_SET.has(rule),
   );
+  for (const ruleName of rawRules) {
+    if (!APPROVAL_RULE_NAME_SET.has(ruleName)) {
+      warnUnknownApprovalRuleName(ruleName);
+    }
+  }
   if (requested.length === 0) return [...DEFAULT_APPROVAL_RULE_ORDER];
 
   const ordered = [...new Set(requested)];
@@ -482,6 +491,9 @@ function normalizeApprovalRuleOrder(raw: unknown): ApprovalRuleName[] {
 function isApprovalRuleOrderDependencySafe(
   ruleOrder: ApprovalRuleName[],
 ): boolean {
+  // Missing rules have already been appended in default order, so monotonicity
+  // against the default index sequence means built-in prerequisites stay ahead
+  // of their dependents.
   let lastDefaultIndex = -1;
   for (const ruleName of ruleOrder) {
     const defaultIndex = DEFAULT_APPROVAL_RULE_ORDER.indexOf(ruleName);
@@ -493,11 +505,30 @@ function isApprovalRuleOrderDependencySafe(
 
 function warnInvalidApprovalRuleOrder(ruleOrder: ApprovalRuleName[]): void {
   const key = ruleOrder.join(',');
-  if (invalidApprovalRuleOrderWarnings.has(key)) return;
-  invalidApprovalRuleOrderWarnings.add(key);
+  if (!rememberApprovalRuleWarning(invalidApprovalRuleOrderWarnings, key))
+    return;
   console.warn(
     `[approval-policy] invalid approval.rule_order violates built-in rule dependencies; falling back to default order: ${key}`,
   );
+}
+
+function warnUnknownApprovalRuleName(ruleName: string): void {
+  if (!rememberApprovalRuleWarning(unknownApprovalRuleNameWarnings, ruleName)) {
+    return;
+  }
+  console.warn(
+    `[approval-policy] unknown approval.rule_order entry ignored: ${ruleName}`,
+  );
+}
+
+function rememberApprovalRuleWarning(
+  warnings: Set<string>,
+  key: string,
+): boolean {
+  if (warnings.has(key)) return false;
+  if (warnings.size >= MAX_APPROVAL_RULE_WARNING_KEYS) warnings.clear();
+  warnings.add(key);
+  return true;
 }
 
 function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
@@ -657,7 +688,7 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
 
   return {
     approvalRuleOrder: Array.isArray(filePolicy.approvalRuleOrder)
-      ? normalizeApprovalRuleOrder(filePolicy.approvalRuleOrder)
+      ? [...filePolicy.approvalRuleOrder]
       : [...DEFAULT_POLICY.approvalRuleOrder],
     pinnedRed:
       Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
@@ -1311,6 +1342,85 @@ function buildEvaluation(
   };
 }
 
+function buildPipelineFailureEvaluation(
+  context: ToolCallContext,
+  ruleName: ApprovalRuleName | 'pipeline_fallback',
+  error?: unknown,
+): ToolApprovalEvaluation {
+  const classified = context.classified ||
+    safeClassifyAction(context) || {
+      tier: 'red',
+      actionKey: `approval-pipeline:${ruleName}`,
+      intent: `evaluate approval rule ${ruleName}`,
+      consequenceIfDenied:
+        'I will skip this tool call until the approval policy is fixed.',
+      reason: 'approval policy rule evaluation failed',
+      commandPreview: normalizePreview(context.params.argsJson),
+      pathHints: [],
+      hostHints: [],
+      writeIntent: false,
+      promotableRed: false,
+      stickyYellow: true,
+    };
+  const fingerprint =
+    context.fingerprint ||
+    stableHash(
+      [
+        context.params.toolName,
+        classified.actionKey,
+        normalizePreview(classified.commandPreview),
+        normalizeText(JSON.stringify(context.args)),
+      ].join('|'),
+    );
+  const message =
+    error instanceof Error ? error.message : String(error || 'unknown error');
+  const stakesScore: StakesScore = context.stakesScore || {
+    level: 'high',
+    score: 1,
+    confidence: 1,
+    classifier: 'approval-policy',
+    signals: [],
+    reasons: [`approval rule ${ruleName} failed: ${message}`],
+  };
+
+  return {
+    baseTier: 'red',
+    tier: 'red',
+    autonomyLevel: context.autonomyLevel || 'confirm-each',
+    stakes: context.stakes || stakesScore.level,
+    stakesScore,
+    stakesMiddlewareDecision: context.stakesMiddlewareDecision || {
+      action: 'block',
+      reason: `approval rule ${ruleName} failed: ${message}`,
+    },
+    escalationRoute: 'policy_denial',
+    ...(context.escalationTarget
+      ? { escalationTarget: context.escalationTarget }
+      : {}),
+    decision: 'denied',
+    actionKey: classified.actionKey,
+    fingerprint,
+    intent: classified.intent,
+    consequenceIfDenied:
+      'I will skip this tool call until the approval policy is fixed.',
+    reason: `Approval policy rule ${ruleName} failed: ${message}`,
+    commandPreview: classified.commandPreview,
+    pinned: context.pinnedByPolicy === true,
+    hostHints: classified.hostHints,
+  };
+}
+
+function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
+  try {
+    return context.helpers.classifyAction(
+      context.params.toolName,
+      context.args,
+    );
+  } catch {
+    return null;
+  }
+}
+
 function isRedRuleActive(context: ToolCallContext): boolean {
   return requireBaseTier(context) === 'red' && context.decision === 'auto';
 }
@@ -1598,6 +1708,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
 };
 
 export function runApprovalRulePipeline(context: ToolCallContext): Decision {
+  const emitHookEvent = context.helpers.emitHookEvent;
   for (
     let index = 0;
     index < context.policy.approvalRuleOrder.length;
@@ -1605,27 +1716,47 @@ export function runApprovalRulePipeline(context: ToolCallContext): Decision {
   ) {
     const ruleName = context.policy.approvalRuleOrder[index];
     const rule = approvalRules[ruleName];
-    context.helpers.emitHookEvent?.({
-      hook: 'pre_tool_use',
-      ruleName,
-      toolName: context.params.toolName,
-      actionKey: context.classified?.actionKey,
-      decision: context.decision,
-    });
-    const result = rule(context);
-    context.helpers.emitHookEvent?.({
-      hook: 'post_tool_use',
-      ruleName,
-      toolName: context.params.toolName,
-      actionKey: context.classified?.actionKey,
-      decision:
-        result.kind === 'decision'
-          ? result.evaluation.decision
-          : context.decision,
-    });
+    if (emitHookEvent) {
+      emitHookEvent({
+        hook: 'pre_tool_use',
+        kind: 'approval_rule',
+        ruleName,
+        toolName: context.params.toolName,
+        actionKey: context.classified?.actionKey,
+        decision: context.decision,
+      });
+    }
+    let result: ApprovalRuleResult;
+    try {
+      result = rule(context);
+    } catch (error) {
+      console.error(
+        `[approval-policy] approval rule ${ruleName} failed; denying tool call:`,
+        error,
+      );
+      result = decision(
+        buildPipelineFailureEvaluation(context, ruleName, error),
+      );
+    }
+    if (emitHookEvent) {
+      emitHookEvent({
+        hook: 'post_tool_use',
+        kind: 'approval_rule',
+        ruleName,
+        toolName: context.params.toolName,
+        actionKey: context.classified?.actionKey,
+        decision:
+          result.kind === 'decision'
+            ? result.evaluation.decision
+            : context.decision,
+      });
+    }
     if (result.kind === 'decision') return result;
   }
-  return decision(buildEvaluation(context));
+  console.error(
+    '[approval-policy] approval rule pipeline reached fallback without a terminal decision; denying tool call.',
+  );
+  return decision(buildPipelineFailureEvaluation(context, 'pipeline_fallback'));
 }
 
 export class TrustedAgentApprovalRuntime {
@@ -1766,11 +1897,32 @@ export class TrustedAgentApprovalRuntime {
         this.actionExecutionCounts.get(actionKey) || 0,
       shouldApplyImplicitDelay: (toolName, channelId) =>
         this.shouldApplyImplicitDelay(toolName, channelId),
-      emitHookEvent: (event) => {
-        if (!this.approvalRuleHookEmitter) return;
-        void this.approvalRuleHookEmitter(event);
-      },
+      ...(this.approvalRuleHookEmitter
+        ? {
+            emitHookEvent: (event) => this.emitApprovalRuleHookEvent(event),
+          }
+        : {}),
     };
+  }
+
+  private emitApprovalRuleHookEvent(event: ApprovalRuleHookEvent): void {
+    if (!this.approvalRuleHookEmitter) return;
+    try {
+      const result = this.approvalRuleHookEmitter(event);
+      if (result && typeof result === 'object' && 'catch' in result) {
+        void result.catch((error) => {
+          console.error(
+            '[approval-policy] approval rule hook emitter failed:',
+            error,
+          );
+        });
+      }
+    } catch (error) {
+      console.error(
+        '[approval-policy] approval rule hook emitter failed:',
+        error,
+      );
+    }
   }
 
   private getCurrentAgentId(): string {
