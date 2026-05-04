@@ -17,7 +17,7 @@ import type {
 } from '../../api/chat-types';
 import { fetchAgentList, fetchModels } from '../../api/client';
 import type { ChatModel } from '../../api/types';
-import { useAuth } from '../../auth';
+import { isAuthReadyForApi, useAuth } from '../../auth';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
 import {
@@ -54,12 +54,6 @@ type BranchInfo = {
 
 const EMPTY_MESSAGES: ChatUiMessage[] = [];
 const EMPTY_MODELS: ChatModel[] = [];
-
-function isChatApiReady(auth: ReturnType<typeof useAuth>): boolean {
-  if (auth.status !== 'ready') return false;
-  if (auth.gatewayStatus?.webAuthConfigured !== true) return true;
-  return auth.token.trim().length > 0;
-}
 
 function buildBranchInfoMap(
   messages: ChatUiMessage[],
@@ -176,7 +170,7 @@ export function ChatPage() {
     onSessionIdCorrection: handleSessionIdCorrection,
     onModelResolved: setSelectedModelId,
   });
-  const chatApiReady = isChatApiReady(auth);
+  const chatApiReady = isAuthReadyForApi(auth);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
@@ -527,9 +521,6 @@ export function ChatPage() {
           userId,
           [...commandArgs, value],
         );
-        if (result.kind === 'error') {
-          throw new Error(result.text || result.error || busyMessage);
-        }
         const resolvedSessionId =
           result.sessionId?.trim() || requestedSessionId;
         await queryClient
@@ -538,7 +529,7 @@ export function ChatPage() {
             queryFn: () => loadChatHistoryUi(auth.token, resolvedSessionId),
           })
           .catch(() => null);
-        appendLocalCommandResult(resolvedSessionId, result.text ?? 'Done.');
+        appendLocalCommandResult(resolvedSessionId, result.text);
         if (resolvedSessionId !== requestedSessionId) {
           await switchToSession(resolvedSessionId, { replace: true });
         }

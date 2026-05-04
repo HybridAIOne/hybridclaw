@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchChatContext } from '../../api/chat';
-import { useAuth } from '../../auth';
+import { isAuthReadyForApi, useAuth } from '../../auth';
 import { cx } from '../../lib/cx';
 import css from './context-ring.module.css';
 
@@ -46,11 +46,7 @@ interface ContextRingProps {
 export function ContextRing(props: ContextRingProps) {
   const auth = useAuth();
   const sessionId = props.sessionId;
-  const authReady =
-    auth.status === 'ready' &&
-    (auth.gatewayStatus?.webAuthConfigured !== true ||
-      auth.token.trim().length > 0);
-  const enabled = authReady && Boolean(sessionId);
+  const enabled = isAuthReadyForApi(auth) && Boolean(sessionId);
   const query = useQuery({
     queryKey: ['chat-context', auth.token, sessionId],
     queryFn: () => fetchChatContext(auth.token, sessionId),

@@ -121,6 +121,14 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('../../auth', () => ({
+  isAuthReadyForApi: (auth: {
+    status: string;
+    token: string;
+    gatewayStatus?: { webAuthConfigured?: boolean } | null;
+  }) =>
+    auth.status === 'ready' &&
+    (auth.gatewayStatus?.webAuthConfigured !== true ||
+      auth.token.trim().length > 0),
   useAuth: () => useAuthMock(),
 }));
 
@@ -230,8 +238,7 @@ describe('ChatPage', () => {
     isActiveMock.mockReset();
     useChatStreamMock.mockReset();
 
-    useAuthMock.mockReturnValue({ status: 'ready', token: 'test-token' });
-    fetchAppStatusMock.mockResolvedValue({
+    const gatewayStatus: GatewayStatus = {
       status: 'ok',
       webAuthConfigured: true,
       version: '0.0.0',
@@ -243,7 +250,17 @@ describe('ChatPage', () => {
       defaultModel: 'gpt-5',
       ragDefault: false,
       timestamp: '2026-04-14T10:00:00.000Z',
+    };
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      token: 'test-token',
+      gatewayStatus,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
     });
+    fetchAppStatusMock.mockResolvedValue(gatewayStatus);
     fetchChatRecentMock.mockImplementation(
       async (_token, _userId, _channelId, _limit, query) => ({
         sessions: query
@@ -842,9 +859,7 @@ describe('ChatPage', () => {
     expect(screen.getByDisplayValue('Updated draft message')).not.toBeNull();
   });
 
-  it('surfaces gateway status load failures instead of swallowing them', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    fetchAppStatusMock.mockRejectedValue(new Error('Gateway offline'));
+  it('seeds gateway status from auth without refetching it', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [],
@@ -852,17 +867,8 @@ describe('ChatPage', () => {
 
     renderChatPage();
 
-    expect(
-      await screen.findByText(
-        'Failed to load the default agent. New chats will use main until gateway status loads.',
-      ),
-    ).not.toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Failed to load gateway status for chat page',
-      expect.any(Error),
-    );
-
-    errorSpy.mockRestore();
+    expect(await screen.findByText('Ready to claw through your to-do list?'));
+    expect(fetchAppStatusMock).not.toHaveBeenCalled();
   });
 
   it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {

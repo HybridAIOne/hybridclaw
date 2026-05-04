@@ -1,3 +1,5 @@
+import type { AdminCommandResult } from './types';
+
 export interface ChatRecentSession {
   sessionId: string;
   title: string | null;
@@ -139,16 +141,7 @@ export interface BranchResponse {
   sessionId: string;
 }
 
-export interface CommandResponse {
-  kind?: 'plain' | 'info' | 'error';
-  status?: string;
-  error?: string;
-  title?: string;
-  text?: string;
-  sessionId?: string;
-  sessionKey?: string;
-  mainSessionKey?: string;
-}
+export type CommandResponse = AdminCommandResult;
 
 export interface ChatMessage {
   id: string;
