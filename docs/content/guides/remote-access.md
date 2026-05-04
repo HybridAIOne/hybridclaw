@@ -49,6 +49,30 @@ If you prefer env-backed or store-backed secrets for long-lived setups, use the
 SecretRef support described in [Configuration](../reference/configuration.md)
 instead of storing plaintext tokens in `config.json`.
 
+### Troubleshooting: Console unavailable on a public URL
+
+If `/admin`, `/chat`, or `/agents` shows `Console unavailable` with a message
+that the console is localhost-only unless `WEB_API_TOKEN` is configured, the
+gateway is reachable through a non-loopback URL without browser auth enabled.
+This is expected for ngrok, Cloudflare Tunnel, Tailscale Funnel, reverse
+proxies, and other remote origins.
+
+Set a token, restart the gateway, then paste the same token into the browser
+prompt:
+
+```bash
+hybridclaw gateway stop
+hybridclaw secret set WEB_API_TOKEN "$(openssl rand -base64 32)"
+hybridclaw tui
+```
+
+For a one-process development run, export the token on the gateway command
+instead:
+
+```bash
+WEB_API_TOKEN="replace-with-a-long-random-token" hybridclaw gateway
+```
+
 ## SSH Tunnel
 
 SSH is the universal fallback. It keeps the gateway loopback-only on the remote
