@@ -108,11 +108,11 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.1 | Foundation | TypeScript SKILL.md framework | ✅ Done |
 | R21.1.1 | Foundation | NexAU-style skill package support | ⬜ To be filed |
 | R21.2 | Skill | Salesforce skill | ✅ Done |
-| R21.3 | Skill | HubSpot skill | ⬜ To be filed |
+| R21.3 | Skill | HubSpot skill | ⬜ #581 |
 | R21.4 | Skill | SAP ERP skill | ⬜ To be filed |
-| R21.5 | Skill | GA4 skill | ⬜ To be filed |
+| R21.5 | Skill | GA4 skill | ⬜ #583 |
 | R21.6 | Skill | NL-to-SQL warehouse skill | ✅ Done #584 via PR #679 |
-| R21.7 | Skill | Hetzner DevOps skill | ⬜ To be filed |
+| R21.7 | Skill | Hetzner DevOps skill | ⬜ #649 |
 | R21.8 | Skill | SAP Analytics Cloud skill | ⬜ To be filed |
 | R21.9 | Skill | DATEV skill | ⬜ To be filed |
 | R21.10 | Skill | Lexware Office skill | ⬜ To be filed |
@@ -156,7 +156,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.47 | Plugin | Adobe Creative Cloud asset connector | ⬜ To be filed |
 | R21.48 | Plugin | ATS job-posting connector | ⬜ To be filed |
 | R21.49 | Skill | Deutsche Bahn business-travel skill (schedule lookup, ticket booking, BahnCard expense reconciliation) | ⬜ To be filed |
-| R21.50 | Skill | Lufthansa business-travel skill (NDC booking, status/frequent-flyer lookup, irregular-ops rebooking) | ⬜ To be filed |
+| R21.50 | Skill | Lufthansa business-travel skill (NDC booking, status/frequent-flyer lookup, irregular-ops rebooking) | ⬜ #805 |
 | R21.51 | Skill | Workday HR-workflow skill (onboarding, time-off, expense, review prep — consumes R21.34 connector) | ⬜ To be filed |
 
 ## R1 Messaging Work
