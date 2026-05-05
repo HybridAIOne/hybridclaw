@@ -105,6 +105,7 @@ import {
   TWILIO_AUTH_TOKEN,
 } from '../config/config.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
+import { resolveLocalInstanceId } from '../identity/agent-id.js';
 import { logger } from '../logger.js';
 import {
   getDreamTimezone,
@@ -3037,6 +3038,10 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  logger.info(
+    { instanceId: resolveLocalInstanceId() },
+    'Local instance identity ready',
+  );
   logWarmProcessPoolStartup(getConfigSnapshot().container);
   validateGatewayPromptEnvDefaults();
   initDatabase();

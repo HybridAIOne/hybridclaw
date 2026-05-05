@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   getRuntimeConfig,
   isGoogleApisUrlPrefix,
@@ -9,7 +10,6 @@ import {
   runtimeConfigPath,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
-import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   allowHttpSecretRouteInWorkspacePolicy,
@@ -268,7 +268,9 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       );
       console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
       if (policyRuleId) {
-        console.log(`Allowed this route in secret policy rule \`${policyRuleId}\`.`);
+        console.log(
+          `Allowed this route in secret policy rule \`${policyRuleId}\`.`,
+        );
       }
       return;
     }
@@ -284,15 +286,14 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
       }
       const urlPrefix = normalizeUrlPrefix(rawPrefix);
       const header = rawHeader ? normalizeSecretRouteHeader(rawHeader) : '';
-      const currentRules = getRuntimeConfig().tools.httpRequest.authRules.filter(
-        (rule) => {
+      const currentRules =
+        getRuntimeConfig().tools.httpRequest.authRules.filter((rule) => {
           if (rule.urlPrefix !== urlPrefix) return false;
           if (header && rule.header.toLowerCase() !== header.toLowerCase()) {
             return false;
           }
           return true;
-        },
-      );
+        });
       const policyWorkspacePath = agentWorkspaceDir(DEFAULT_AGENT_ID);
       const policySnapshot =
         captureHttpSecretRoutePolicySnapshot(policyWorkspacePath);

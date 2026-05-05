@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+
+import { isCanonicalAgentIdentity } from '../identity/agent-id.js';
 import { isRecord } from './utils.js';
 
 export const A2A_ENVELOPE_INTENTS = [
@@ -70,8 +72,6 @@ const A2A_ENVELOPE_FIELDS = new Set([
 ]);
 
 const LOCAL_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const CANONICAL_AGENT_ID_PATTERN =
-  /^[a-z0-9][a-z0-9._-]{0,127}@[a-z0-9][a-z0-9._-]{0,127}@[a-z0-9][a-z0-9._-]{0,127}$/;
 const OPAQUE_ID_DISALLOWED_PATTERN = /[\p{Cc}\s]/u;
 
 function readRequiredTrimmedString(
@@ -128,10 +128,7 @@ export function isA2AEnvelopeIntent(value: string): value is A2AEnvelopeIntent {
 
 export function classifyA2AAgentId(value: string): A2AAgentIdKind | null {
   const normalized = value.trim();
-  if (
-    normalized.includes('@') &&
-    CANONICAL_AGENT_ID_PATTERN.test(normalized.toLowerCase())
-  ) {
+  if (normalized.includes('@') && isCanonicalAgentIdentity(normalized)) {
     return 'canonical';
   }
   if (!normalized.includes('@') && LOCAL_AGENT_ID_PATTERN.test(normalized)) {
