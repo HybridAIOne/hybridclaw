@@ -5834,6 +5834,7 @@ function resolveUploadedSkillZipRoot(extractedDir: string): string {
 
 export async function uploadGatewayAdminSkillZip(
   zipBuffer: Buffer,
+  options: { force?: boolean } = {},
 ): Promise<GatewayAdminSkillsResponse> {
   if (zipBuffer.length === 0) {
     throw new GatewayRequestError(400, 'Uploaded file is empty.');
@@ -5929,11 +5930,15 @@ export async function uploadGatewayAdminSkillZip(
 
     const projectSkillsDir = resolveManagedCommunitySkillsDir();
     const targetDir = path.join(projectSkillsDir, skillName);
-    if (fs.existsSync(targetDir)) {
+    const targetExists = fs.existsSync(targetDir);
+    if (targetExists && !options.force) {
       throw new GatewayRequestError(
         409,
         `Skill \`${skillName}\` already exists at ${targetDir}.`,
       );
+    }
+    if (targetExists) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
     }
 
     // Copy extracted skill to project skills directory (copy instead of

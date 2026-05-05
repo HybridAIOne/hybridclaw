@@ -6344,7 +6344,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer);
+    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer, {
+      force: false,
+    });
     expect(res.statusCode).toBe(201);
   });
 
