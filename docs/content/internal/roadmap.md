@@ -144,7 +144,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R1.11 | Transport | A2A outbound adapter | ⬜ #766 |
 | R1.12 | Transport | A2A inbound adapter and Agent Card endpoint | ⬜ #767 |
 | R1.13 | Transport | Signed-HMAC webhook outbound adapter with retry and jitter | ✅ #768 via PR #782 |
-| R1.14 | Transport | Signed-HMAC webhook inbound adapter | ⬜ #769 |
+| R1.14 | Transport | Signed-HMAC webhook inbound adapter | ✅ #769 via PR #799 |
 | R1.15 | Transport | A2A streaming SSE for R9 RPC delegation responses | ⬜ #771 |
 
 ## R2 Workflow Work
