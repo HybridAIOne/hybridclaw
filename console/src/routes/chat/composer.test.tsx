@@ -304,6 +304,45 @@ describe('Composer', () => {
       expect(items[1].className).toMatch(/Sub/);
     });
 
+    it('keeps the panel open as the user types subcommand text after a space', async () => {
+      fetchChatCommandsMock.mockResolvedValue({
+        commands: [
+          { ...APPROVE, id: 'agent.info', label: '/agent info', insertText: '/agent info' },
+        ],
+      });
+      renderComposer();
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      // Step 1: typing the bare command shows the panel.
+      textarea.value = '/agent';
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      fireEvent.input(textarea);
+      await screen.findByRole('listbox');
+      // Step 2: adding a trailing space (to start a subcommand) must NOT close it.
+      textarea.value = '/agent ';
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      fireEvent.input(textarea);
+      await waitFor(() =>
+        expect(fetchChatCommandsMock).toHaveBeenLastCalledWith(
+          'test-token',
+          'agent',
+        ),
+      );
+      expect(screen.queryByRole('listbox')).not.toBeNull();
+      // Step 3: typing the subcommand keeps the panel open and queries it.
+      textarea.value = '/agent in';
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      fireEvent.input(textarea);
+      await waitFor(() =>
+        expect(fetchChatCommandsMock).toHaveBeenLastCalledWith(
+          'test-token',
+          'agent in',
+        ),
+      );
+      expect(screen.queryByRole('listbox')).not.toBeNull();
+    });
+
     it('opens for slash tokens that follow a space (mid-line)', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
       renderComposer();

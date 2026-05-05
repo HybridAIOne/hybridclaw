@@ -27,11 +27,32 @@ describe('getSlashContext', () => {
     expect(ctx).toEqual({ query: 'clear', tokenStart: 6, tokenEnd: 12 });
   });
 
-  it('bounds the token by the next whitespace after the cursor', () => {
+  it('captures only what the user has typed so far up to the cursor', () => {
     const value = 'hello /clear world';
-    // Cursor in the middle of the token.
     const ctx = getSlashContext(value, 'hello /cl'.length);
-    expect(ctx).toEqual({ query: 'clear', tokenStart: 6, tokenEnd: 12 });
+    expect(ctx).toEqual({ query: 'cl', tokenStart: 6, tokenEnd: 9 });
+  });
+
+  it('keeps the panel open across spaces so subcommands can be queried', () => {
+    expect(getSlashContext('/agent ', 7)).toEqual({
+      query: 'agent ',
+      tokenStart: 0,
+      tokenEnd: 7,
+    });
+    expect(getSlashContext('/agent install', 14)).toEqual({
+      query: 'agent install',
+      tokenStart: 0,
+      tokenEnd: 14,
+    });
+    expect(getSlashContext('hello /agent install foo', 24)).toEqual({
+      query: 'agent install foo',
+      tokenStart: 6,
+      tokenEnd: 24,
+    });
+  });
+
+  it('a newline ends the slash command run', () => {
+    expect(getSlashContext('/agent\nhello', 12)).toBeNull();
   });
 
   it('handles tab and newline as token separators', () => {
