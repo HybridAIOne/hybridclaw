@@ -1018,11 +1018,13 @@ export function SchedulerPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const requestedId =
-      new URLSearchParams(window.location.search).get('jobId') || '';
-    return requestedId.trim() || null;
+    const requestedId = new URLSearchParams(window.location.search).get('jobId')?.trim() ?? '';
+    return requestedId || null;
   });
   const [draft, setDraft] = useState<SchedulerDraft>(createDraft());
+  const [showEditor, setShowEditor] = useState<boolean>(() => {
+    return Boolean(new URLSearchParams(window.location.search).get('jobId')?.trim());
+  });
 
   const schedulerQuery = useQuery({
     queryKey: ['scheduler', auth.token],
@@ -1149,6 +1151,12 @@ export function SchedulerPage() {
     window.history.replaceState({}, '', currentUrl.toString());
   }, [selectedId]);
 
+  const openNewJob = () => {
+    setSelectedId(null);
+    setDraft(createDraft());
+    setShowEditor(true);
+  };
+
   return (
     <div className="page-stack">
       <PageHeader
@@ -1157,10 +1165,7 @@ export function SchedulerPage() {
           <button
             className="ghost-button"
             type="button"
-            onClick={() => {
-              setSelectedId(null);
-              setDraft(createDraft());
-            }}
+            onClick={openNewJob}
           >
             New job
           </button>
@@ -1185,7 +1190,10 @@ export function SchedulerPage() {
                       : 'selectable-row'
                   }
                   type="button"
-                  onClick={() => setSelectedId(job.id)}
+                  onClick={() => {
+                    setSelectedId(job.id);
+                    setShowEditor(true);
+                  }}
                 >
                   <div>
                     <strong>{job.name}</strong>
@@ -1203,54 +1211,69 @@ export function SchedulerPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state">No scheduled work yet.</div>
+            <div className="empty-state-cta">
+              <p>
+                Scheduled jobs let you run agent tasks automatically on a cron
+                schedule.
+              </p>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={openNewJob}
+              >
+                New job
+              </button>
+            </div>
           )}
         </Panel>
 
-        {isTaskJob(selectedJob) ? (
-          <SchedulerTaskDetail
-            job={selectedJob}
-            pausePending={pauseMutation.isPending}
-            deletePending={deleteMutation.isPending}
-            onPauseToggle={() =>
-              pauseMutation.mutate(selectedJob.disabled ? 'resume' : 'pause')
-            }
-            onDelete={() => deleteMutation.mutate()}
-          />
-        ) : (
-          <SchedulerJobEditor
-            draft={draft}
-            selectedJob={selectedConfigJob}
-            channelOptions={channelOptions}
-            targetControl={targetControl}
-            savePending={saveMutation.isPending}
-            pausePending={pauseMutation.isPending}
-            deletePending={deleteMutation.isPending}
-            onDraftChange={(update) => setDraft((current) => update(current))}
-            onSave={() => {
-              const nextDraft = prepareDraftForSave(
-                applyResolvedTarget(draft, targetControl),
-              );
-              setDraft(nextDraft);
-              saveMutation.mutate(nextDraft);
-            }}
-            onCancel={() => {
-              if (selectedConfigJob) {
-                setDraft(createDraft(selectedConfigJob));
-                return;
+        {showEditor ? (
+          isTaskJob(selectedJob) ? (
+            <SchedulerTaskDetail
+              job={selectedJob}
+              pausePending={pauseMutation.isPending}
+              deletePending={deleteMutation.isPending}
+              onPauseToggle={() =>
+                pauseMutation.mutate(selectedJob.disabled ? 'resume' : 'pause')
               }
-              setSelectedId(null);
-              setDraft(createDraft());
-              window.location.href = '/admin/jobs';
-            }}
-            onPauseToggle={() =>
-              pauseMutation.mutate(
-                selectedConfigJob?.disabled ? 'resume' : 'pause',
-              )
-            }
-            onDelete={() => deleteMutation.mutate()}
-          />
-        )}
+              onDelete={() => deleteMutation.mutate()}
+            />
+          ) : (
+            <SchedulerJobEditor
+              draft={draft}
+              selectedJob={selectedConfigJob}
+              channelOptions={channelOptions}
+              targetControl={targetControl}
+              savePending={saveMutation.isPending}
+              pausePending={pauseMutation.isPending}
+              deletePending={deleteMutation.isPending}
+              onDraftChange={(update) => setDraft((current) => update(current))}
+              onSave={() => {
+                const nextDraft = prepareDraftForSave(
+                  applyResolvedTarget(draft, targetControl),
+                );
+                setDraft(nextDraft);
+                saveMutation.mutate(nextDraft);
+              }}
+              onCancel={() => {
+                if (selectedConfigJob) {
+                  setDraft(createDraft(selectedConfigJob));
+                  return;
+                }
+                setSelectedId(null);
+                setDraft(createDraft());
+                setShowEditor(false);
+                window.location.href = '/admin/jobs';
+              }}
+              onPauseToggle={() =>
+                pauseMutation.mutate(
+                  selectedConfigJob?.disabled ? 'resume' : 'pause',
+                )
+              }
+              onDelete={() => deleteMutation.mutate()}
+            />
+          )
+        ) : null}
       </div>
     </div>
   );

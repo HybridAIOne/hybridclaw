@@ -39,21 +39,21 @@ function countKeys(value: Record<string, unknown>): number {
 }
 
 export function countDiscordGuilds(config: AdminConfig): number {
-  return countKeys(config.discord.guilds);
+  return countKeys(config.discord?.guilds ?? {});
 }
 
 export function countDiscordOverrides(config: AdminConfig): number {
-  return Object.values(config.discord.guilds).reduce((total, guild) => {
+  return Object.values(config.discord?.guilds ?? {}).reduce((total, guild) => {
     return total + countKeys(guild.channels);
   }, 0);
 }
 
 export function countTeams(config: AdminConfig): number {
-  return countKeys(config.msteams.teams);
+  return countKeys(config.msteams?.teams ?? {});
 }
 
 export function countTeamsOverrides(config: AdminConfig): number {
-  return Object.values(config.msteams.teams).reduce((total, team) => {
+  return Object.values(config.msteams?.teams ?? {}).reduce((total, team) => {
     return total + countKeys(team.channels);
   }, 0);
 }
@@ -64,8 +64,9 @@ function describeDiscord(
 ): ChannelCatalogItem {
   const guildCount = countDiscordGuilds(config);
   const overrideCount = countDiscordOverrides(config);
-  const enabled =
-    config.discord.commandsOnly || config.discord.groupPolicy !== 'disabled';
+  const enabled = config.discord
+    ? config.discord.commandsOnly || config.discord.groupPolicy !== 'disabled'
+    : false;
   const tokenConfigured = options.discordTokenConfigured === true;
   const active = enabled && tokenConfigured;
   const configured =
@@ -79,7 +80,9 @@ function describeDiscord(
   return {
     kind: 'discord',
     label: 'Discord',
-    summary: `${pluralize(guildCount, 'guild default')} · ${pluralize(overrideCount, 'explicit override')}`,
+    summary: config.discord
+      ? `${pluralize(guildCount, 'guild default')} · ${pluralize(overrideCount, 'explicit override')}`
+      : 'Not configured',
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -95,12 +98,13 @@ function describeWhatsApp(
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
   const linked = options.whatsappLinked === true;
-  const enabled =
-    config.whatsapp.dmPolicy !== 'disabled' ||
-    config.whatsapp.groupPolicy !== 'disabled';
+  const enabled = config.whatsapp
+    ? config.whatsapp.dmPolicy !== 'disabled' ||
+      config.whatsapp.groupPolicy !== 'disabled'
+    : false;
   const summary = linked
     ? enabled
-      ? `Linked device · groups ${config.whatsapp.groupPolicy}`
+      ? `Linked device · groups ${config.whatsapp?.groupPolicy}`
       : 'Linked device available but transport is off'
     : enabled
       ? 'Link device to enable WhatsApp'
@@ -127,15 +131,16 @@ function describeTelegram(
 ): ChannelCatalogItem {
   const tokenConfigured = options.telegramTokenConfigured === true;
   const inboundEnabled =
-    config.telegram.dmPolicy !== 'disabled' ||
-    config.telegram.groupPolicy !== 'disabled';
-  const active = config.telegram.enabled && tokenConfigured && inboundEnabled;
+    config.telegram?.dmPolicy !== 'disabled' ||
+    config.telegram?.groupPolicy !== 'disabled';
+  const active =
+    (config.telegram?.enabled ?? false) && tokenConfigured && inboundEnabled;
   const configured =
     active ||
-    config.telegram.enabled ||
+    (config.telegram?.enabled ?? false) ||
     tokenConfigured ||
-    config.telegram.allowFrom.length > 0 ||
-    config.telegram.groupAllowFrom.length > 0;
+    (config.telegram?.allowFrom?.length ?? 0) > 0 ||
+    (config.telegram?.groupAllowFrom?.length ?? 0) > 0;
   const statusTone = active
     ? 'active'
     : configured
@@ -145,7 +150,9 @@ function describeTelegram(
   return {
     kind: 'telegram',
     label: 'Telegram',
-    summary: `DM ${config.telegram.dmPolicy} · groups ${config.telegram.groupPolicy}`,
+    summary: config.telegram
+      ? `DM ${config.telegram.dmPolicy} · groups ${config.telegram.groupPolicy}`
+      : 'Not configured',
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -206,14 +213,16 @@ function describeSlack(
   const botTokenConfigured = options.slackBotTokenConfigured === true;
   const appTokenConfigured = options.slackAppTokenConfigured === true;
   const active =
-    config.slack.enabled && botTokenConfigured && appTokenConfigured;
+    (config.slack?.enabled ?? false) &&
+    botTokenConfigured &&
+    appTokenConfigured;
   const configured =
     active ||
-    config.slack.enabled ||
+    (config.slack?.enabled ?? false) ||
     botTokenConfigured ||
     appTokenConfigured ||
-    config.slack.allowFrom.length > 0 ||
-    config.slack.groupAllowFrom.length > 0;
+    (config.slack?.allowFrom?.length ?? 0) > 0 ||
+    (config.slack?.groupAllowFrom?.length ?? 0) > 0;
   const statusTone = active
     ? 'active'
     : configured
@@ -223,7 +232,9 @@ function describeSlack(
   return {
     kind: 'slack',
     label: 'Slack',
-    summary: `DM ${config.slack.dmPolicy} · channels ${config.slack.groupPolicy}`,
+    summary: config.slack
+      ? `DM ${config.slack.dmPolicy} · channels ${config.slack.groupPolicy}`
+      : 'Not configured',
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -275,17 +286,17 @@ function describeEmail(
 ): ChannelCatalogItem {
   const passwordConfigured = options.emailPasswordConfigured === true;
   const active =
-    config.email.enabled &&
+    (config.email?.enabled ?? false) &&
     passwordConfigured &&
-    !!config.email.address &&
-    !!config.email.imapHost &&
-    !!config.email.smtpHost;
+    !!config.email?.address &&
+    !!config.email?.imapHost &&
+    !!config.email?.smtpHost;
   const configured =
     active ||
-    !!config.email.address ||
-    !!config.email.imapHost ||
-    !!config.email.smtpHost ||
-    config.email.allowFrom.length > 0;
+    !!config.email?.address ||
+    !!config.email?.imapHost ||
+    !!config.email?.smtpHost ||
+    (config.email?.allowFrom?.length ?? 0) > 0;
   const statusTone = active
     ? 'active'
     : configured
@@ -295,7 +306,7 @@ function describeEmail(
   return {
     kind: 'email',
     label: 'Email',
-    summary: config.email.address || 'No mailbox address configured yet',
+    summary: config.email?.address || 'No mailbox address configured yet',
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -310,14 +321,14 @@ function describeMSTeams(config: AdminConfig): ChannelCatalogItem {
   const teamCount = countTeams(config);
   const overrideCount = countTeamsOverrides(config);
   const active =
-    config.msteams.enabled &&
-    !!config.msteams.appId &&
-    !!config.msteams.tenantId;
+    (config.msteams?.enabled ?? false) &&
+    !!config.msteams?.appId &&
+    !!config.msteams?.tenantId;
   const configured =
     active ||
-    config.msteams.enabled ||
-    !!config.msteams.appId ||
-    !!config.msteams.tenantId ||
+    (config.msteams?.enabled ?? false) ||
+    !!config.msteams?.appId ||
+    !!config.msteams?.tenantId ||
     teamCount > 0 ||
     overrideCount > 0;
   const statusTone = active
@@ -329,7 +340,9 @@ function describeMSTeams(config: AdminConfig): ChannelCatalogItem {
   return {
     kind: 'msteams',
     label: 'Microsoft Teams',
-    summary: `${pluralize(teamCount, 'team default')} · ${pluralize(overrideCount, 'channel override')}`,
+    summary: config.msteams
+      ? `${pluralize(teamCount, 'team default')} · ${pluralize(overrideCount, 'channel override')}`
+      : 'Not configured',
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -344,22 +357,24 @@ function describeIMessage(
   config: AdminConfig,
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
-  const isRemote = config.imessage.backend === 'bluebubbles';
+  const isRemote = config.imessage?.backend === 'bluebubbles';
   const passwordConfigured = options.imessagePasswordConfigured === true;
   const active = isRemote
-    ? config.imessage.enabled &&
+    ? (config.imessage?.enabled ?? false) &&
       passwordConfigured &&
-      !!config.imessage.serverUrl &&
-      !!config.imessage.webhookPath
-    : config.imessage.enabled &&
-      !!config.imessage.cliPath &&
-      !!config.imessage.dbPath;
+      !!config.imessage?.serverUrl &&
+      !!config.imessage?.webhookPath
+    : (config.imessage?.enabled ?? false) &&
+      !!config.imessage?.cliPath &&
+      !!config.imessage?.dbPath;
   const statusTone = active ? 'active' : 'available';
 
   return {
     kind: 'imessage',
     label: 'iMessage',
-    summary: `${isRemote ? 'Remote' : 'Local'} backend · DM ${config.imessage.dmPolicy}`,
+    summary: config.imessage
+      ? `${isRemote ? 'Remote' : 'Local'} backend · DM ${config.imessage.dmPolicy}`
+      : 'Not configured',
     statusTone,
     statusLabel: statusTone === 'active' ? 'active' : 'available',
   };

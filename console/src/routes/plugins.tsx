@@ -152,6 +152,21 @@ export function PluginsPage() {
         >
           {pluginsQuery.isLoading ? (
             <div className="empty-state">Loading plugins...</div>
+          ) : pluginsQuery.data?.plugins.length === 0 ? (
+            <div className="empty-state-cta">
+              <p>
+                Plugins extend HybridClaw with custom commands, tools, and
+                hooks.
+              </p>
+              <a
+                className="ghost-button"
+                href="https://www.hybridclaw.io/docs/extensibility/plugins"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Plugin documentation
+              </a>
+            </div>
           ) : plugins.length === 0 ? (
             <div className="empty-state">No plugins match this filter.</div>
           ) : (

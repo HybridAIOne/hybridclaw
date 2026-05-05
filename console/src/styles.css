@@ -2091,6 +2091,39 @@ th {
   background: var(--jobs-empty);
 }
 
+.page-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 64px 24px;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+
+.page-empty p {
+  margin: 0;
+  max-width: 300px;
+}
+
+.empty-state-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--muted-foreground);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--panel-muted);
+}
+
+.empty-state-cta p {
+  margin: 0;
+  max-width: 280px;
+}
+
 .jobs-card {
   display: grid;
   gap: 8px;
