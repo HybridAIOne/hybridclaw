@@ -11,11 +11,7 @@ import {
 } from 'react';
 import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
-import {
-  Popover,
-  PopoverContent,
-  usePopoverContext,
-} from '../../components/popover';
+import { Popover, usePopoverContext } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import {
@@ -27,6 +23,10 @@ import {
   type ModelSwitchEntry,
   ModelSwitchSelect,
 } from './model-switch-select';
+import {
+  getSlashContext,
+  SlashSuggestionsPanel,
+} from './slash-suggestions-panel';
 
 function ComposerAnchor({
   children,
@@ -67,10 +67,15 @@ export function Composer(props: {
   type PanelMode = 'closed' | 'list' | 'empty';
   const [panelMode, setPanelMode] = useState<PanelMode>('closed');
   const [emptyQuery, setEmptyQuery] = useState('');
+  const [activeQuery, setActiveQuery] = useState('');
+  const [liveMessage, setLiveMessage] = useState('');
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
   const listboxId = useId();
-  const optionId = (i: number) => `${listboxId}-opt-${i}`;
+  const optionId = useCallback(
+    (i: number) => `${listboxId}-opt-${i}`,
+    [listboxId],
+  );
   const isOpen = panelMode !== 'closed';
 
   useEffect(() => {
@@ -80,18 +85,15 @@ export function Composer(props: {
   }, []);
 
   useEffect(() => {
-    if (panelMode !== 'list' || suggestions.length === 0) return;
-    const list = listboxRef.current;
-    const active = document.getElementById(`${listboxId}-opt-${activeIdx}`);
-    if (!list || !active || !list.contains(active)) return;
-    const itemTop = active.offsetTop;
-    const itemBottom = itemTop + active.offsetHeight;
-    if (itemTop < list.scrollTop) {
-      list.scrollTop = itemTop;
-    } else if (itemBottom > list.scrollTop + list.clientHeight) {
-      list.scrollTop = itemBottom - list.clientHeight;
+    if (panelMode === 'list') {
+      const n = suggestions.length;
+      setLiveMessage(`${n} command${n === 1 ? '' : 's'} available`);
+    } else if (panelMode === 'empty') {
+      setLiveMessage(`No commands match /${emptyQuery}`);
+    } else {
+      setLiveMessage('');
     }
-  }, [activeIdx, panelMode, suggestions.length, listboxId]);
+  }, [panelMode, suggestions.length, emptyQuery]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -146,6 +148,7 @@ export function Composer(props: {
         const commands = res.commands ?? [];
         setSuggestions(commands);
         setActiveIdx(0);
+        setActiveQuery(query);
         if (commands.length > 0) {
           setPanelMode('list');
         } else if (query !== '') {
@@ -165,9 +168,12 @@ export function Composer(props: {
 
   const handleInput = () => {
     resize();
-    const val = textareaRef.current?.value ?? '';
-    if (val.startsWith('/')) {
-      const query = val.slice(1).trim();
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const cursor = ta.selectionStart ?? ta.value.length;
+    const ctx = getSlashContext(ta.value, cursor);
+    if (ctx) {
+      const query = ctx.query.trim();
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = setTimeout(() => {
         void fetchSuggestions(query);
@@ -178,11 +184,26 @@ export function Composer(props: {
   };
 
   const applySuggestion = (item: ChatCommandSuggestion) => {
-    if (!textareaRef.current) return;
-    textareaRef.current.value = `${item.insertText.replace(/\s+$/, '')} `;
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const value = ta.value;
+    const cursor = ta.selectionStart ?? value.length;
+    const ctx = getSlashContext(value, cursor);
+    const insertCore = item.insertText.replace(/\s+$/, '');
+    if (ctx) {
+      const before = value.slice(0, ctx.tokenStart);
+      const after = value.slice(ctx.tokenEnd);
+      const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
+      ta.value = before + insert + after;
+      const newCursor = before.length + insert.length;
+      ta.setSelectionRange(newCursor, newCursor);
+    } else {
+      ta.value = `${insertCore} `;
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
     setPanelMode('closed');
     resize();
-    textareaRef.current.focus();
+    ta.focus();
   };
 
   const submit = () => {
@@ -389,52 +410,27 @@ export function Composer(props: {
           </div>
         </ComposerAnchor>
         {isOpen ? (
-          <PopoverContent
-            ref={listboxRef}
-            id={listboxId}
-            role="listbox"
-            aria-label="Slash commands"
-            focusOnOpen="none"
-            closeOnEscape={false}
-            closeOnOutsideClick
-            sideOffset={4}
-            className={css.slashSuggestions}
-          >
-            {panelMode === 'list' ? (
-              suggestions.map((item, i) => (
-                <div
-                  key={item.id}
-                  id={optionId(i)}
-                  className={cx(
-                    css.suggestionItem,
-                    i === activeIdx && css.suggestionItemActive,
-                    (item.depth ?? 1) >= 2 && css.suggestionItemSub,
-                  )}
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={i === activeIdx}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    applySuggestion(item);
-                  }}
-                  onMouseEnter={() => setActiveIdx(i)}
-                >
-                  <span className={css.suggestionLabel}>{item.label}</span>
-                  {item.description ? (
-                    <span className={css.suggestionDesc}>
-                      {item.description}
-                    </span>
-                  ) : null}
-                </div>
-              ))
-            ) : (
-              <div className={css.suggestionEmpty} role="status">
-                No commands match “/{emptyQuery}”
-              </div>
-            )}
-          </PopoverContent>
+          <SlashSuggestionsPanel
+            mode={panelMode === 'list' ? 'list' : 'empty'}
+            suggestions={suggestions}
+            activeIdx={activeIdx}
+            query={activeQuery}
+            emptyQuery={emptyQuery}
+            listboxId={listboxId}
+            optionId={optionId}
+            listboxRef={listboxRef}
+            onSelect={applySuggestion}
+            onActiveChange={setActiveIdx}
+          />
         ) : null}
       </Popover>
+      <div
+        className={css.slashLiveRegion}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {liveMessage}
+      </div>
     </div>
   );
 }

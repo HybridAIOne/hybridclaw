@@ -303,5 +303,140 @@ describe('Composer', () => {
       expect(items[0].className).not.toMatch(/Sub/);
       expect(items[1].className).toMatch(/Sub/);
     });
+
+    it('opens for slash tokens that follow a space (mid-line)', async () => {
+      fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
+      renderComposer();
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      // Simulate the user typing "hello /app" with the cursor at the end.
+      textarea.value = 'hello /app';
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      fireEvent.input(textarea);
+      await screen.findByRole('listbox');
+      await waitFor(() =>
+        expect(fetchChatCommandsMock).toHaveBeenLastCalledWith(
+          'test-token',
+          'app',
+        ),
+      );
+    });
+
+    it('replaces only the slash token when accepting mid-line', async () => {
+      fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
+      renderComposer();
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      textarea.value = 'hello /app world';
+      // Place the cursor right after `/app`.
+      const cursor = 'hello /app'.length;
+      textarea.setSelectionRange(cursor, cursor);
+      fireEvent.input(textarea);
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      // No double space before "world" because `after` already starts with a space.
+      expect(textarea.value).toBe('hello /approve world');
+      expect(textarea.selectionStart).toBe('hello /approve'.length);
+    });
+
+    it('highlights the matching substring of the label with <mark>', async () => {
+      const cfg: ChatCommandSuggestion = {
+        id: 'config',
+        label: '/config get',
+        insertText: '/config get',
+        description: 'Get a config value',
+      };
+      fetchChatCommandsMock.mockResolvedValue({ commands: [cfg] });
+      renderComposer();
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/conf' } });
+      const panel = await screen.findByRole('listbox');
+      const mark = panel.querySelector('mark');
+      expect(mark).not.toBeNull();
+      expect(mark?.textContent).toBe('conf');
+    });
+
+    it('renders <...> and [...] placeholders in monospace style', async () => {
+      const item: ChatCommandSuggestion = {
+        id: 'channel-mode',
+        label: '/channel-mode <off|mention|free>',
+        insertText: '/channel-mode ',
+        description: 'Set channel mode',
+      };
+      await showPanel([item]);
+      const monoSpan = document.querySelector(
+        '[role="option"] [class*="suggestionLabelMono" i]',
+      );
+      expect(monoSpan?.textContent).toBe('<off|mention|free>');
+    });
+
+    it('updates the polite live region with the result count', async () => {
+      const items = [
+        APPROVE,
+        CLEAR,
+        { ...APPROVE, id: 'approve-yes', label: '/approve yes' },
+      ];
+      const { container } = render(
+        <Composer
+          isStreaming={false}
+          onSend={vi.fn()}
+          onStop={vi.fn()}
+          onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
+          token="test-token"
+        />,
+      );
+      fetchChatCommandsMock.mockResolvedValue({ commands: items });
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/' } });
+      await screen.findByRole('listbox');
+      const live = container.querySelector('[aria-live="polite"]');
+      expect(live?.textContent).toBe('3 commands available');
+    });
+
+    it('announces the empty state to the live region', async () => {
+      fetchChatCommandsMock.mockResolvedValue({ commands: [] });
+      const { container } = render(
+        <Composer
+          isStreaming={false}
+          onSend={vi.fn()}
+          onStop={vi.fn()}
+          onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
+          token="test-token"
+        />,
+      );
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/zzz' } });
+      await screen.findByRole('listbox');
+      const live = container.querySelector('[aria-live="polite"]');
+      expect(live?.textContent).toBe('No commands match /zzz');
+    });
+
+    it('uses singular grammar for a single match', async () => {
+      const { container } = render(
+        <Composer
+          isStreaming={false}
+          onSend={vi.fn()}
+          onStop={vi.fn()}
+          onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
+          token="test-token"
+        />,
+      );
+      fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/' } });
+      await screen.findByRole('listbox');
+      const live = container.querySelector('[aria-live="polite"]');
+      expect(live?.textContent).toBe('1 command available');
+    });
   });
 });

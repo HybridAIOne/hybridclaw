@@ -1088,14 +1088,18 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .suggestionItem {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 2px;
-  padding: 8px 14px;
+  padding: 10px 14px;
+  min-height: 44px;
+  border-left: 2px solid transparent;
   cursor: pointer;
   transition: background 0.1s;
 }
 
 .suggestionItemActive {
   background: var(--chat-hover-bg);
+  border-left-color: var(--accent, var(--primary, currentColor));
 }
 
 .suggestionItemSub {
@@ -1108,15 +1112,49 @@ aside[data-state="collapsed"] .chatSidebarContent {
   color: var(--text);
 }
 
+.suggestionLabelMono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+
+.suggestionMatch {
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
 .suggestionDesc {
   font-size: 0.76rem;
   color: var(--muted-foreground);
 }
 
 .suggestionEmpty {
-  padding: 12px 14px;
+  padding: 14px;
   font-size: 0.82rem;
   color: var(--muted-foreground);
+}
+
+.slashLiveRegion {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@media (max-width: 768px) {
+  .suggestionItem {
+    min-height: 48px;
+    padding: 12px 14px;
+  }
 }
 
 .errorBanner {
