@@ -44,30 +44,18 @@ function renderComposer(
   );
 }
 
+const getTextarea = () =>
+  screen.getByLabelText('Message input') as HTMLTextAreaElement;
+
 describe('Composer', () => {
   beforeEach(() => {
     fetchChatCommandsMock.mockReset();
   });
 
   it('strips the leading slash before fetching command suggestions', async () => {
-    fetchChatCommandsMock.mockResolvedValue({
-      commands: [],
-    });
-
-    render(
-      <Composer
-        isStreaming={false}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-        onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
-        token="test-token"
-      />,
-    );
-
-    fireEvent.input(screen.getByLabelText('Message input'), {
-      target: { value: '/approve' },
-    });
-
+    fetchChatCommandsMock.mockResolvedValue({ commands: [] });
+    renderComposer();
+    fireEvent.input(getTextarea(), { target: { value: '/approve' } });
     await waitFor(() =>
       expect(fetchChatCommandsMock).toHaveBeenCalledWith(
         'test-token',
@@ -78,27 +66,17 @@ describe('Composer', () => {
 
   it('renders a compact agent switcher beside the attach button', () => {
     const onAgentSwitch = vi.fn();
-
-    render(
-      <Composer
-        isStreaming={false}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-        onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
-        token="test-token"
-        agents={[
-          { id: 'main', name: 'Assistant' },
-          { id: 'charly', name: 'Charly' },
-        ]}
-        selectedAgentId="main"
-        onAgentSwitch={onAgentSwitch}
-      />,
-    );
-
+    renderComposer({
+      agents: [
+        { id: 'main', name: 'Assistant' },
+        { id: 'charly', name: 'Charly' },
+      ],
+      selectedAgentId: 'main',
+      onAgentSwitch,
+    });
     fireEvent.change(screen.getByLabelText('Switch agent'), {
       target: { value: 'charly' },
     });
-
     expect(onAgentSwitch).toHaveBeenCalledWith('charly');
   });
 
@@ -109,9 +87,7 @@ describe('Composer', () => {
     ): Promise<HTMLTextAreaElement> {
       fetchChatCommandsMock.mockResolvedValue({ commands });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: typed } });
       await screen.findByRole('listbox');
       return textarea;
@@ -192,9 +168,7 @@ describe('Composer', () => {
     it('shows a no-match empty state when a non-empty query returns nothing', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [] });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/zzz' } });
       const panel = await screen.findByRole('listbox');
       expect(panel.textContent).toMatch(/No commands match/i);
@@ -205,9 +179,7 @@ describe('Composer', () => {
     it('keeps the panel closed when the bare slash returns no results', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [] });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/' } });
       await waitFor(() =>
         expect(fetchChatCommandsMock).toHaveBeenCalledWith(
@@ -222,9 +194,7 @@ describe('Composer', () => {
       const onSend = vi.fn();
       fetchChatCommandsMock.mockResolvedValue({ commands: [] });
       renderComposer({ onSend });
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/zzz' } });
       await screen.findByRole('listbox');
       fireEvent.keyDown(textarea, { key: 'Enter' });
@@ -316,9 +286,7 @@ describe('Composer', () => {
         ],
       });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       textarea.value = '/agent';
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       fireEvent.input(textarea);
@@ -348,9 +316,7 @@ describe('Composer', () => {
     it('opens for slash tokens that follow a space (mid-line)', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       textarea.value = 'hello /app';
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       fireEvent.input(textarea);
@@ -366,9 +332,7 @@ describe('Composer', () => {
     it('replaces only the slash token when accepting mid-line', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       textarea.value = 'hello /app world';
       const cursor = 'hello /app'.length;
       textarea.setSelectionRange(cursor, cursor);
@@ -388,9 +352,7 @@ describe('Composer', () => {
       };
       fetchChatCommandsMock.mockResolvedValue({ commands: [cfg] });
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/conf' } });
       const panel = await screen.findByRole('listbox');
       const mark = panel.querySelector('mark');
@@ -421,9 +383,7 @@ describe('Composer', () => {
         ],
       });
       const { container } = renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/' } });
       await screen.findByRole('listbox');
       const live = container.querySelector('[aria-live="polite"]');
@@ -433,9 +393,7 @@ describe('Composer', () => {
     it('announces the empty state to the live region', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [] });
       const { container } = renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/zzz' } });
       await screen.findByRole('listbox');
       const live = container.querySelector('[aria-live="polite"]');
@@ -445,9 +403,7 @@ describe('Composer', () => {
     it('uses singular grammar for a single match', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
       const { container } = renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/' } });
       await screen.findByRole('listbox');
       const live = container.querySelector('[aria-live="polite"]');
@@ -463,9 +419,7 @@ describe('Composer', () => {
           }),
       );
       renderComposer();
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/' } });
       await waitFor(() => expect(fetchChatCommandsMock).toHaveBeenCalled());
       fireEvent.keyDown(textarea, { key: 'Escape' });
@@ -486,9 +440,7 @@ describe('Composer', () => {
       );
       const onSend = vi.fn();
       renderComposer({ onSend });
-      const textarea = screen.getByLabelText(
-        'Message input',
-      ) as HTMLTextAreaElement;
+      const textarea = getTextarea();
       fireEvent.input(textarea, { target: { value: '/test' } });
       await waitFor(() => expect(fetchChatCommandsMock).toHaveBeenCalled());
       fireEvent.keyDown(textarea, { key: 'Enter' });

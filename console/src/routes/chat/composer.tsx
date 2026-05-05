@@ -128,12 +128,19 @@ export function Composer(props: {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   };
 
-  const closePanel = () => {
+  // Clear the debounce timer and invalidate any in-flight request so its
+  // late response can't apply after the user has moved on (next keystroke,
+  // dismiss, submit).
+  const cancelPendingFetch = () => {
     if (suggestTimerRef.current) {
       clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = null;
     }
     suggestSeqRef.current += 1;
+  };
+
+  const closePanel = () => {
+    cancelPendingFetch();
     setPanelMode('closed');
   };
 
@@ -172,11 +179,7 @@ export function Composer(props: {
     const ctx = getSlashContext(ta.value, cursor);
     if (ctx) {
       const query = ctx.query.trim();
-      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
-      // Invalidate any in-flight fetch from a prior keystroke so its late
-      // response can't briefly apply between this keystroke and the next
-      // debounced fetch landing.
-      suggestSeqRef.current += 1;
+      cancelPendingFetch();
       suggestTimerRef.current = setTimeout(() => {
         void fetchSuggestions(query);
       }, 150);
