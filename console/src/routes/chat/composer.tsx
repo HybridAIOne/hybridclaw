@@ -2,6 +2,7 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -9,6 +10,11 @@ import {
 } from 'react';
 import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
+import {
+  Popover,
+  PopoverContent,
+  usePopoverContext,
+} from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import {
@@ -21,35 +27,17 @@ import {
   ModelSwitchSelect,
 } from './model-switch-select';
 
-function SlashSuggestions(props: {
-  items: ChatCommandSuggestion[];
-  activeIndex: number;
-  onSelect: (item: ChatCommandSuggestion) => void;
+function ComposerAnchor({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
 }) {
-  if (props.items.length === 0) return null;
+  const ctx = usePopoverContext('ComposerAnchor');
   return (
-    <div className={css.slashSuggestions} role="listbox">
-      {props.items.map((item, i) => (
-        <div
-          key={item.id}
-          className={cx(
-            css.suggestionItem,
-            i === props.activeIndex && css.suggestionItemActive,
-          )}
-          role="option"
-          tabIndex={-1}
-          aria-selected={i === props.activeIndex}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            props.onSelect(item);
-          }}
-        >
-          <span className={css.suggestionLabel}>{item.label}</span>
-          {item.description ? (
-            <span className={css.suggestionDesc}>{item.description}</span>
-          ) : null}
-        </div>
-      ))}
+    <div ref={ctx.setTriggerEl} className={className}>
+      {children}
     </div>
   );
 }
@@ -83,19 +71,6 @@ export function Composer(props: {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (!showSuggestions) return;
-    const handler = (event: MouseEvent) => {
-      const wrapper = wrapperRef.current;
-      if (!wrapper) return;
-      if (event.target instanceof Node && !wrapper.contains(event.target)) {
-        setShowSuggestions(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showSuggestions]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -262,15 +237,9 @@ export function Composer(props: {
 
   return (
     <div className={css.composerWrapper} ref={wrapperRef}>
-      <div className={css.composer} style={{ position: 'relative' }}>
-        {showSuggestions ? (
-          <SlashSuggestions
-            items={suggestions}
-            activeIndex={activeIdx}
-            onSelect={applySuggestion}
-          />
-        ) : null}
-        {pendingMedia.length > 0 || uploading > 0 ? (
+      <Popover open={showSuggestions} onOpenChange={setShowSuggestions}>
+        <ComposerAnchor className={css.composer}>
+          {pendingMedia.length > 0 || uploading > 0 ? (
           <div className={css.pendingMediaRow}>
             {pendingMedia.map((m, i) => (
               <span key={m.path} className={css.mediaChip}>
@@ -364,7 +333,40 @@ export function Composer(props: {
             onChange={handleFileChange}
           />
         </div>
-      </div>
+        </ComposerAnchor>
+        {showSuggestions && suggestions.length > 0 ? (
+          <PopoverContent
+            role="listbox"
+            focusOnOpen="none"
+            closeOnEscape={false}
+            closeOnOutsideClick
+            sideOffset={4}
+            className={css.slashSuggestions}
+          >
+            {suggestions.map((item, i) => (
+              <div
+                key={item.id}
+                className={cx(
+                  css.suggestionItem,
+                  i === activeIdx && css.suggestionItemActive,
+                )}
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === activeIdx}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applySuggestion(item);
+                }}
+              >
+                <span className={css.suggestionLabel}>{item.label}</span>
+                {item.description ? (
+                  <span className={css.suggestionDesc}>{item.description}</span>
+                ) : null}
+              </div>
+            ))}
+          </PopoverContent>
+        ) : null}
+      </Popover>
     </div>
   );
 }

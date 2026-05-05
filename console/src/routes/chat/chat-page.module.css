@@ -1077,18 +1077,12 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .slashSuggestions {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
   max-height: 220px;
   overflow-y: auto;
   background: var(--popover);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-popover);
-  margin-bottom: 4px;
-  z-index: 20;
 }
 
 .suggestionItem {
