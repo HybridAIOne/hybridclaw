@@ -1,4 +1,4 @@
-import { type ReactNode, type Ref, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 import type { ChatCommandSuggestion } from '../../api/chat-types';
 import { PopoverContent } from '../../components/popover';
 import {
@@ -17,12 +17,13 @@ export interface SlashSuggestionsPanelProps {
   suggestions: ChatCommandSuggestion[];
   activeIdx: number;
   query: string;
-  emptyQuery: string;
   listboxId: string;
-  optionId: (i: number) => string;
-  listboxRef: Ref<HTMLDivElement>;
   onSelect: (item: ChatCommandSuggestion) => void;
   onActiveChange: (i: number) => void;
+}
+
+export function optionIdFor(listboxId: string, i: number): string {
+  return `${listboxId}-opt-${i}`;
 }
 
 export function SlashSuggestionsPanel({
@@ -30,18 +31,16 @@ export function SlashSuggestionsPanel({
   suggestions,
   activeIdx,
   query,
-  emptyQuery,
   listboxId,
-  optionId,
-  listboxRef,
   onSelect,
   onActiveChange,
 }: SlashSuggestionsPanelProps) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (mode !== 'list' || suggestions.length === 0) return;
-    if (typeof listboxRef !== 'object' || listboxRef === null) return;
-    const list = listboxRef.current;
-    const active = document.getElementById(optionId(activeIdx));
+    const list = viewportRef.current;
+    const active = document.getElementById(optionIdFor(listboxId, activeIdx));
     if (!list || !active || !list.contains(active)) return;
     const top = active.offsetTop;
     const bottom = top + active.offsetHeight;
@@ -50,7 +49,7 @@ export function SlashSuggestionsPanel({
     } else if (bottom > list.scrollTop + list.clientHeight) {
       list.scrollTop = bottom - list.clientHeight;
     }
-  }, [activeIdx, mode, suggestions.length, listboxRef, optionId]);
+  }, [activeIdx, mode, suggestions.length, listboxId]);
 
   return (
     <PopoverContent
@@ -62,7 +61,7 @@ export function SlashSuggestionsPanel({
     >
       <ScrollArea className={css.slashSuggestionsScroll}>
         <ScrollAreaViewport
-          ref={listboxRef}
+          ref={viewportRef}
           id={listboxId}
           role="listbox"
           aria-label="Slash commands"
@@ -72,7 +71,7 @@ export function SlashSuggestionsPanel({
             suggestions.map((item, i) => (
               <div
                 key={item.id}
-                id={optionId(i)}
+                id={optionIdFor(listboxId, i)}
                 className={cx(
                   css.suggestionItem,
                   i === activeIdx && css.suggestionItemActive,
@@ -97,7 +96,7 @@ export function SlashSuggestionsPanel({
             ))
           ) : (
             <div className={css.suggestionEmpty} role="status">
-              No commands match “/{emptyQuery}”
+              No commands match “/{query}”
             </div>
           )}
         </ScrollAreaViewport>
@@ -107,34 +106,6 @@ export function SlashSuggestionsPanel({
       </ScrollArea>
     </PopoverContent>
   );
-}
-
-/**
- * Locate the slash-token at `cursor`. Returns the query (text after the
- * leading `/`) plus the token bounds in `value`. Returns null when the
- * cursor is not on a slash-token, so the caller can close the panel.
- *
- * A slash-token starts at the start of `value` or right after whitespace,
- * and ends at the next whitespace or end of `value`. This lets the panel
- * trigger mid-line (e.g. `hello /clear`), not only at column 0.
- */
-export function getSlashContext(
-  value: string,
-  cursor: number,
-): { query: string; tokenStart: number; tokenEnd: number } | null {
-  const before = value.slice(0, cursor);
-  const wsIdx = Math.max(
-    before.lastIndexOf(' '),
-    before.lastIndexOf('\n'),
-    before.lastIndexOf('\t'),
-  );
-  const tokenStart = wsIdx + 1;
-  const after = value.slice(cursor);
-  const nextWsRel = after.search(/\s/);
-  const tokenEnd = nextWsRel === -1 ? value.length : cursor + nextWsRel;
-  const token = value.slice(tokenStart, tokenEnd);
-  if (!token.startsWith('/')) return null;
-  return { query: token.slice(1), tokenStart, tokenEnd };
 }
 
 const PLACEHOLDER_RE = /<[^>]+>|\[[^\]]+\]/g;
@@ -164,15 +135,7 @@ function renderSegment(
   segIdx: number,
 ): ReactNode {
   const className = mono ? css.suggestionLabelMono : undefined;
-  if (!q) {
-    return (
-      <span key={`s${segIdx}`} className={className}>
-        {text}
-      </span>
-    );
-  }
-  const lower = text.toLowerCase();
-  const idx = lower.indexOf(q);
+  const idx = q ? text.toLowerCase().indexOf(q) : -1;
   if (idx === -1) {
     return (
       <span key={`s${segIdx}`} className={className}>

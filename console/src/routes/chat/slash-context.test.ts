@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSlashContext } from './slash-suggestions-panel';
+import { getSlashContext } from './slash-context';
 
 describe('getSlashContext', () => {
   it('returns null when there is no slash token', () => {

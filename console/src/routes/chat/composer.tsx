@@ -14,6 +14,7 @@ import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
 import { Popover, usePopoverContext } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
+import { pluralize } from '../../lib/format';
 import {
   type AgentSwitchOption,
   AgentSwitchSelect,
@@ -23,8 +24,10 @@ import {
   type ModelSwitchEntry,
   ModelSwitchSelect,
 } from './model-switch-select';
+import { getSlashContext } from './slash-context';
 import {
-  getSlashContext,
+  optionIdFor,
+  type SlashPanelMode,
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
 
@@ -59,41 +62,28 @@ export function Composer(props: {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const listboxRef = useRef<HTMLDivElement>(null);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
-  type PanelMode = 'closed' | 'list' | 'empty';
-  const [panelMode, setPanelMode] = useState<PanelMode>('closed');
-  const [emptyQuery, setEmptyQuery] = useState('');
-  const [activeQuery, setActiveQuery] = useState('');
-  const [liveMessage, setLiveMessage] = useState('');
+  const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
+  const [lastQuery, setLastQuery] = useState('');
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
   const listboxId = useId();
-  const optionId = useCallback(
-    (i: number) => `${listboxId}-opt-${i}`,
-    [listboxId],
-  );
   const isOpen = panelMode !== 'closed';
+  const liveMessage =
+    panelMode === 'list'
+      ? `${pluralize(suggestions.length, 'command')} available`
+      : panelMode === 'empty'
+        ? `No commands match /${lastQuery}`
+        : '';
 
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (panelMode === 'list') {
-      const n = suggestions.length;
-      setLiveMessage(`${n} command${n === 1 ? '' : 's'} available`);
-    } else if (panelMode === 'empty') {
-      setLiveMessage(`No commands match /${emptyQuery}`);
-    } else {
-      setLiveMessage('');
-    }
-  }, [panelMode, suggestions.length, emptyQuery]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -148,11 +138,10 @@ export function Composer(props: {
         const commands = res.commands ?? [];
         setSuggestions(commands);
         setActiveIdx(0);
-        setActiveQuery(query);
+        setLastQuery(query);
         if (commands.length > 0) {
           setPanelMode('list');
         } else if (query !== '') {
-          setEmptyQuery(query);
           setPanelMode('empty');
         } else {
           setPanelMode('closed');
@@ -340,7 +329,7 @@ export function Composer(props: {
             aria-expanded={isOpen}
             aria-activedescendant={
               panelMode === 'list' && suggestions.length > 0
-                ? optionId(activeIdx)
+                ? optionIdFor(listboxId, activeIdx)
                 : undefined
             }
           />
@@ -409,16 +398,13 @@ export function Composer(props: {
             />
           </div>
         </ComposerAnchor>
-        {isOpen ? (
+        {panelMode !== 'closed' ? (
           <SlashSuggestionsPanel
-            mode={panelMode === 'list' ? 'list' : 'empty'}
+            mode={panelMode}
             suggestions={suggestions}
             activeIdx={activeIdx}
-            query={activeQuery}
-            emptyQuery={emptyQuery}
+            query={lastQuery}
             listboxId={listboxId}
-            optionId={optionId}
-            listboxRef={listboxRef}
             onSelect={applySuggestion}
             onActiveChange={setActiveIdx}
           />
