@@ -85,6 +85,19 @@ export function Composer(props: {
   }, []);
 
   useEffect(() => {
+    if (!showSuggestions) return;
+    const handler = (event: MouseEvent) => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      if (event.target instanceof Node && !wrapper.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSuggestions]);
+
+  useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
@@ -162,7 +175,7 @@ export function Composer(props: {
 
   const applySuggestion = (item: ChatCommandSuggestion) => {
     if (!textareaRef.current) return;
-    textareaRef.current.value = `${item.insertText} `;
+    textareaRef.current.value = `${item.insertText.replace(/\s+$/, '')} `;
     setShowSuggestions(false);
     resize();
     textareaRef.current.focus();
@@ -179,6 +192,7 @@ export function Composer(props: {
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
     setPendingMedia([]);
+    setShowSuggestions(false);
     resize();
   };
 
