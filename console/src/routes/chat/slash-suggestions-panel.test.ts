@@ -35,12 +35,12 @@ describe('getSlashContext', () => {
   });
 
   it('handles tab and newline as token separators', () => {
-    expect(
-      getSlashContext('foo\t/bar', 'foo\t/bar'.length),
-    )?.toMatchObject({ query: 'bar' });
-    expect(
-      getSlashContext('foo\n/bar', 'foo\n/bar'.length),
-    )?.toMatchObject({ query: 'bar' });
+    expect(getSlashContext('foo\t/bar', 'foo\t/bar'.length))?.toMatchObject({
+      query: 'bar',
+    });
+    expect(getSlashContext('foo\n/bar', 'foo\n/bar'.length))?.toMatchObject({
+      query: 'bar',
+    });
   });
 
   it('returns null when the token before the cursor does not start with /', () => {

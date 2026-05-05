@@ -1,6 +1,12 @@
 import { type ReactNode, type Ref, useEffect } from 'react';
 import type { ChatCommandSuggestion } from '../../api/chat-types';
 import { PopoverContent } from '../../components/popover';
+import {
+  ScrollArea,
+  ScrollAreaScrollbar,
+  ScrollAreaThumb,
+  ScrollAreaViewport,
+} from '../../components/scroll-area';
 import { cx } from '../../lib/cx';
 import css from './chat-page.module.css';
 
@@ -48,48 +54,57 @@ export function SlashSuggestionsPanel({
 
   return (
     <PopoverContent
-      ref={listboxRef}
-      id={listboxId}
-      role="listbox"
-      aria-label="Slash commands"
       focusOnOpen="none"
       closeOnEscape={false}
       closeOnOutsideClick
       sideOffset={4}
       className={css.slashSuggestions}
     >
-      {mode === 'list' ? (
-        suggestions.map((item, i) => (
-          <div
-            key={item.id}
-            id={optionId(i)}
-            className={cx(
-              css.suggestionItem,
-              i === activeIdx && css.suggestionItemActive,
-              (item.depth ?? 1) >= 2 && css.suggestionItemSub,
-            )}
-            role="option"
-            tabIndex={-1}
-            aria-selected={i === activeIdx}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onSelect(item);
-            }}
-            onMouseEnter={() => onActiveChange(i)}
-          >
-            <span className={css.suggestionLabel}>
-              {renderLabel(item.label, query)}
-            </span>
-            {item.description ? (
-              <span className={css.suggestionDesc}>{item.description}</span>
-            ) : null}
-          </div>
-        ))
-      ) : (
-        <div className={css.suggestionEmpty} role="status">
-          No commands match “/{emptyQuery}”
-        </div>
-      )}
+      <ScrollArea className={css.slashSuggestionsScroll}>
+        <ScrollAreaViewport
+          ref={listboxRef}
+          id={listboxId}
+          role="listbox"
+          aria-label="Slash commands"
+          className={css.slashSuggestionsList}
+        >
+          {mode === 'list' ? (
+            suggestions.map((item, i) => (
+              <div
+                key={item.id}
+                id={optionId(i)}
+                className={cx(
+                  css.suggestionItem,
+                  i === activeIdx && css.suggestionItemActive,
+                  (item.depth ?? 1) >= 2 && css.suggestionItemSub,
+                )}
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === activeIdx}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelect(item);
+                }}
+                onMouseEnter={() => onActiveChange(i)}
+              >
+                <span className={css.suggestionLabel}>
+                  {renderLabel(item.label, query)}
+                </span>
+                {item.description ? (
+                  <span className={css.suggestionDesc}>{item.description}</span>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <div className={css.suggestionEmpty} role="status">
+              No commands match “/{emptyQuery}”
+            </div>
+          )}
+        </ScrollAreaViewport>
+        <ScrollAreaScrollbar>
+          <ScrollAreaThumb />
+        </ScrollAreaScrollbar>
+      </ScrollArea>
     </PopoverContent>
   );
 }

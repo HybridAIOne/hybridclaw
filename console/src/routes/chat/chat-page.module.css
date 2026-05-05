@@ -1077,12 +1077,19 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .slashSuggestions {
-  max-height: 220px;
-  overflow-y: auto;
   background: var(--popover);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-popover);
+  overflow: hidden;
+}
+
+.slashSuggestionsScroll {
+  max-height: 220px;
+}
+
+.slashSuggestionsList {
+  outline: none;
 }
 
 .suggestionItem {
@@ -1252,7 +1259,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
     background: var(--page-bg);
   }
 
-  .slashSuggestions {
+  .slashSuggestionsScroll {
     max-height: 40vh;
   }
 }
