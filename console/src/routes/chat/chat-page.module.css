@@ -1098,6 +1098,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
   justify-content: center;
   gap: 2px;
   padding: 10px 14px;
+  /* Allow flex children (label/desc) to ellipsize so a long
+     description does not push the popover wider than the trigger. */
   min-width: 0;
   min-height: 44px;
   border-left: 2px solid transparent;

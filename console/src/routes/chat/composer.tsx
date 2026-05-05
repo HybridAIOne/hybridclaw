@@ -128,14 +128,14 @@ export function Composer(props: {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   };
 
-  const closePanel = useCallback(() => {
+  const closePanel = () => {
     if (suggestTimerRef.current) {
       clearTimeout(suggestTimerRef.current);
       suggestTimerRef.current = null;
     }
     suggestSeqRef.current += 1;
     setPanelMode('closed');
-  }, []);
+  };
 
   const fetchSuggestions = useCallback(
     async (query: string) => {
@@ -190,7 +190,7 @@ export function Composer(props: {
     const insertCore = item.insertText.replace(/\s+$/, '');
     if (ctx) {
       const before = value.slice(0, ctx.tokenStart);
-      const after = value.slice(ctx.tokenEnd);
+      const after = value.slice(cursor);
       const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
       ta.value = before + insert + after;
       const newCursor = before.length + insert.length;
