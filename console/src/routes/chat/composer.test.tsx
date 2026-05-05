@@ -307,7 +307,12 @@ describe('Composer', () => {
     it('keeps the panel open as the user types subcommand text after a space', async () => {
       fetchChatCommandsMock.mockResolvedValue({
         commands: [
-          { ...APPROVE, id: 'agent.info', label: '/agent info', insertText: '/agent info' },
+          {
+            ...APPROVE,
+            id: 'agent.info',
+            label: '/agent info',
+            insertText: '/agent info',
+          },
         ],
       });
       renderComposer();

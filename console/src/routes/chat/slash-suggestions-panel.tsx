@@ -85,6 +85,7 @@ export function SlashSuggestionsPanel({
                   onSelect(item);
                 }}
                 onMouseEnter={() => onActiveChange(i)}
+                title={item.description}
               >
                 <span className={css.suggestionLabel}>
                   {renderLabel(item.label, query)}

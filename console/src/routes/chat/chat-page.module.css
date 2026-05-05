@@ -1098,6 +1098,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
   justify-content: center;
   gap: 2px;
   padding: 10px 14px;
+  min-width: 0;
   min-height: 44px;
   border-left: 2px solid transparent;
   cursor: pointer;
@@ -1105,8 +1106,8 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .suggestionItemActive {
-  background: var(--chat-hover-bg);
-  border-left-color: var(--accent, var(--primary, currentColor));
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-left-color: var(--primary);
 }
 
 .suggestionItemSub {
@@ -1117,6 +1118,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
   font-size: 0.86rem;
   font-weight: 500;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .suggestionLabelMono {
@@ -1137,6 +1141,9 @@ aside[data-state="collapsed"] .chatSidebarContent {
 .suggestionDesc {
   font-size: 0.76rem;
   color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .suggestionEmpty {
