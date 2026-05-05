@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from 'react';
@@ -58,19 +59,39 @@ export function Composer(props: {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
   const [pendingMedia, setPendingMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  type PanelMode = 'closed' | 'list' | 'empty';
+  const [panelMode, setPanelMode] = useState<PanelMode>('closed');
+  const [emptyQuery, setEmptyQuery] = useState('');
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
+  const listboxId = useId();
+  const optionId = (i: number) => `${listboxId}-opt-${i}`;
+  const isOpen = panelMode !== 'closed';
 
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (panelMode !== 'list' || suggestions.length === 0) return;
+    const list = listboxRef.current;
+    const active = document.getElementById(`${listboxId}-opt-${activeIdx}`);
+    if (!list || !active || !list.contains(active)) return;
+    const itemTop = active.offsetTop;
+    const itemBottom = itemTop + active.offsetHeight;
+    if (itemTop < list.scrollTop) {
+      list.scrollTop = itemTop;
+    } else if (itemBottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = itemBottom - list.clientHeight;
+    }
+  }, [activeIdx, panelMode, suggestions.length, listboxId]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -122,13 +143,21 @@ export function Composer(props: {
       try {
         const res = await fetchChatCommands(props.token, query || undefined);
         if (seq !== suggestSeqRef.current) return;
-        setSuggestions(res.commands ?? []);
+        const commands = res.commands ?? [];
+        setSuggestions(commands);
         setActiveIdx(0);
-        setShowSuggestions((res.commands ?? []).length > 0);
+        if (commands.length > 0) {
+          setPanelMode('list');
+        } else if (query !== '') {
+          setEmptyQuery(query);
+          setPanelMode('empty');
+        } else {
+          setPanelMode('closed');
+        }
       } catch {
         if (seq !== suggestSeqRef.current) return;
         setSuggestions([]);
-        setShowSuggestions(false);
+        setPanelMode('closed');
       }
     },
     [props.token],
@@ -144,14 +173,14 @@ export function Composer(props: {
         void fetchSuggestions(query);
       }, 150);
     } else {
-      setShowSuggestions(false);
+      setPanelMode('closed');
     }
   };
 
   const applySuggestion = (item: ChatCommandSuggestion) => {
     if (!textareaRef.current) return;
     textareaRef.current.value = `${item.insertText.replace(/\s+$/, '')} `;
-    setShowSuggestions(false);
+    setPanelMode('closed');
     resize();
     textareaRef.current.focus();
   };
@@ -167,12 +196,12 @@ export function Composer(props: {
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
     setPendingMedia([]);
-    setShowSuggestions(false);
+    setPanelMode('closed');
     resize();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showSuggestions && suggestions.length > 0) {
+    if (panelMode === 'list' && suggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActiveIdx((i) => (i + 1) % suggestions.length);
@@ -183,16 +212,26 @@ export function Composer(props: {
         setActiveIdx((i) => (i - 1 + suggestions.length) % suggestions.length);
         return;
       }
+      if (e.key === 'Home') {
+        e.preventDefault();
+        setActiveIdx(0);
+        return;
+      }
+      if (e.key === 'End') {
+        e.preventDefault();
+        setActiveIdx(suggestions.length - 1);
+        return;
+      }
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         applySuggestion(suggestions[activeIdx]);
         return;
       }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setShowSuggestions(false);
-        return;
-      }
+    }
+    if (isOpen && e.key === 'Escape') {
+      e.preventDefault();
+      setPanelMode('closed');
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -237,7 +276,12 @@ export function Composer(props: {
 
   return (
     <div className={css.composerWrapper} ref={wrapperRef}>
-      <Popover open={showSuggestions} onOpenChange={setShowSuggestions}>
+      <Popover
+        open={isOpen}
+        onOpenChange={(next) => {
+          if (!next) setPanelMode('closed');
+        }}
+      >
         <ComposerAnchor className={css.composer}>
           {pendingMedia.length > 0 || uploading > 0 ? (
             <div className={css.pendingMediaRow}>
@@ -268,6 +312,16 @@ export function Composer(props: {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             aria-label="Message input"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-controls={listboxId}
+            aria-expanded={isOpen}
+            aria-activedescendant={
+              panelMode === 'list' && suggestions.length > 0
+                ? optionId(activeIdx)
+                : undefined
+            }
           />
           <div className={css.composerActions}>
             <div className={css.composerLeftActions}>
@@ -334,36 +388,50 @@ export function Composer(props: {
             />
           </div>
         </ComposerAnchor>
-        {showSuggestions && suggestions.length > 0 ? (
+        {isOpen ? (
           <PopoverContent
+            ref={listboxRef}
+            id={listboxId}
             role="listbox"
+            aria-label="Slash commands"
             focusOnOpen="none"
             closeOnEscape={false}
             closeOnOutsideClick
             sideOffset={4}
             className={css.slashSuggestions}
           >
-            {suggestions.map((item, i) => (
-              <div
-                key={item.id}
-                className={cx(
-                  css.suggestionItem,
-                  i === activeIdx && css.suggestionItemActive,
-                )}
-                role="option"
-                tabIndex={-1}
-                aria-selected={i === activeIdx}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  applySuggestion(item);
-                }}
-              >
-                <span className={css.suggestionLabel}>{item.label}</span>
-                {item.description ? (
-                  <span className={css.suggestionDesc}>{item.description}</span>
-                ) : null}
+            {panelMode === 'list' ? (
+              suggestions.map((item, i) => (
+                <div
+                  key={item.id}
+                  id={optionId(i)}
+                  className={cx(
+                    css.suggestionItem,
+                    i === activeIdx && css.suggestionItemActive,
+                    (item.depth ?? 1) >= 2 && css.suggestionItemSub,
+                  )}
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={i === activeIdx}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applySuggestion(item);
+                  }}
+                  onMouseEnter={() => setActiveIdx(i)}
+                >
+                  <span className={css.suggestionLabel}>{item.label}</span>
+                  {item.description ? (
+                    <span className={css.suggestionDesc}>
+                      {item.description}
+                    </span>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div className={css.suggestionEmpty} role="status">
+                No commands match “/{emptyQuery}”
               </div>
-            ))}
+            )}
           </PopoverContent>
         ) : null}
       </Popover>

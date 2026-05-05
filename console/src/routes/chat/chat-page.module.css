@@ -1094,9 +1094,12 @@ aside[data-state="collapsed"] .chatSidebarContent {
   transition: background 0.1s;
 }
 
-.suggestionItem:hover,
 .suggestionItemActive {
   background: var(--chat-hover-bg);
+}
+
+.suggestionItemSub {
+  padding-left: 28px;
 }
 
 .suggestionLabel {
@@ -1107,6 +1110,12 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .suggestionDesc {
   font-size: 0.76rem;
+  color: var(--muted-foreground);
+}
+
+.suggestionEmpty {
+  padding: 12px 14px;
+  font-size: 0.82rem;
   color: var(--muted-foreground);
 }
 

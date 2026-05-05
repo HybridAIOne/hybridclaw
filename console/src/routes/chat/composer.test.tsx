@@ -189,17 +189,119 @@ describe('Composer', () => {
       expect(screen.queryByRole('listbox')).toBeNull();
     });
 
-    it('does not render an empty panel when the API returns no commands', async () => {
+    it('shows a no-match empty state when a non-empty query returns nothing', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [] });
       renderComposer();
       const textarea = screen.getByLabelText(
         'Message input',
       ) as HTMLTextAreaElement;
       fireEvent.input(textarea, { target: { value: '/zzz' } });
+      const panel = await screen.findByRole('listbox');
+      expect(panel.textContent).toMatch(/No commands match/i);
+      expect(panel.textContent).toContain('/zzz');
+      expect(screen.queryByRole('option')).toBeNull();
+    });
+
+    it('keeps the panel closed when the bare slash returns no results', async () => {
+      fetchChatCommandsMock.mockResolvedValue({ commands: [] });
+      renderComposer();
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/' } });
       await waitFor(() =>
-        expect(fetchChatCommandsMock).toHaveBeenCalledWith('test-token', 'zzz'),
+        expect(fetchChatCommandsMock).toHaveBeenCalledWith(
+          'test-token',
+          undefined,
+        ),
       );
       expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('Enter on empty state sends the message instead of selecting', async () => {
+      const onSend = vi.fn();
+      fetchChatCommandsMock.mockResolvedValue({ commands: [] });
+      renderComposer({ onSend });
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/zzz' } });
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      expect(onSend).toHaveBeenCalledWith('/zzz', []);
+    });
+
+    it('hovering a suggestion item syncs the active index', async () => {
+      await showPanel([APPROVE, CLEAR]);
+      const items = screen.getAllByRole('option');
+      fireEvent.mouseEnter(items[1]);
+      const after = items.map((el) => el.getAttribute('aria-selected'));
+      expect(after).toEqual(['false', 'true']);
+    });
+
+    it('Home and End jump to the first / last suggestion', async () => {
+      const textarea = await showPanel([
+        APPROVE,
+        CLEAR,
+        { ...APPROVE, id: 'approve-yes', label: '/approve yes' },
+      ]);
+      fireEvent.keyDown(textarea, { key: 'End' });
+      expect(
+        screen
+          .getAllByRole('option')
+          .map((el) => el.getAttribute('aria-selected')),
+      ).toEqual(['false', 'false', 'true']);
+      fireEvent.keyDown(textarea, { key: 'Home' });
+      expect(
+        screen
+          .getAllByRole('option')
+          .map((el) => el.getAttribute('aria-selected')),
+      ).toEqual(['true', 'false', 'false']);
+    });
+
+    it('wires combobox aria attributes between the textarea and the listbox', async () => {
+      const textarea = await showPanel([APPROVE, CLEAR]);
+      const listbox = screen.getByRole('listbox');
+      const listboxId = listbox.getAttribute('id');
+      expect(listboxId).toBeTruthy();
+      expect(textarea.getAttribute('role')).toBe('combobox');
+      expect(textarea.getAttribute('aria-autocomplete')).toBe('list');
+      expect(textarea.getAttribute('aria-haspopup')).toBe('listbox');
+      expect(textarea.getAttribute('aria-controls')).toBe(listboxId);
+      expect(textarea.getAttribute('aria-expanded')).toBe('true');
+      const activeId = textarea.getAttribute('aria-activedescendant');
+      expect(activeId).toBeTruthy();
+      expect(document.getElementById(activeId ?? '')).toBe(
+        screen.getAllByRole('option')[0],
+      );
+
+      fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+      const after = textarea.getAttribute('aria-activedescendant');
+      expect(document.getElementById(after ?? '')).toBe(
+        screen.getAllByRole('option')[1],
+      );
+    });
+
+    it('clears aria-expanded and aria-activedescendant when the panel closes', async () => {
+      const textarea = await showPanel([APPROVE]);
+      expect(textarea.getAttribute('aria-expanded')).toBe('true');
+      fireEvent.keyDown(textarea, { key: 'Escape' });
+      expect(textarea.getAttribute('aria-expanded')).toBe('false');
+      expect(textarea.getAttribute('aria-activedescendant')).toBeNull();
+    });
+
+    it('marks subcommand items (depth >= 2) with the indented class', async () => {
+      const sub: ChatCommandSuggestion = {
+        id: 'agent.info',
+        label: '/agent info',
+        insertText: '/agent info',
+        description: 'Inspect agent',
+        depth: 2,
+      };
+      await showPanel([APPROVE, sub]);
+      const items = screen.getAllByRole('option');
+      expect(items[0].className).not.toMatch(/Sub/);
+      expect(items[1].className).toMatch(/Sub/);
     });
   });
 });
