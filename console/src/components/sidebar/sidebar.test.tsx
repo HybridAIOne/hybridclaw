@@ -7,6 +7,7 @@ import {
   screen,
   within,
 } from '@testing-library/react';
+
 import type { MouseEventHandler, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppSidebar } from './app-sidebar';
@@ -158,7 +159,7 @@ describe('SidebarProvider', () => {
 
   it('locks body scroll when mobile sidebar is open and restores on close', () => {
     setViewport(800);
-    // Scroll lock is Sheet's responsibility — render a Sidebar so Sheet runs.
+    // Scroll lock is the drawer Dialog's responsibility — render a Sidebar so it runs.
     const captured = { value: null as SidebarCtx | null };
     render(
       <SidebarProvider>
@@ -258,7 +259,7 @@ describe('Sidebar — mobile overlay', () => {
         </Sidebar>
       </SidebarProvider>,
     );
-    // Mobile sidebar is portalled to document.body by Sheet — query from there.
+    // Mobile sidebar is portalled to document.body by the drawer Dialog — query from there.
     const panel = document.body.querySelector('[data-mobile="true"]');
     expect(panel?.getAttribute('data-mobile')).toBe('true');
   });
@@ -273,7 +274,7 @@ describe('Sidebar — mobile overlay', () => {
     );
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog?.getAttribute('aria-modal')).toBe('true');
-    // Sheet links the dialog to its title via aria-labelledby (not aria-label).
+    // Dialog links the dialog to its title via aria-labelledby (not aria-label).
     const titleId = dialog?.getAttribute('aria-labelledby') ?? '';
     expect(titleId).not.toBe('');
     expect(document.getElementById(titleId)?.textContent).toBe('Navigation');
@@ -323,7 +324,7 @@ describe('Sidebar — mobile overlay', () => {
     expect(captured.value?.openMobile).toBe(true);
     expect(document.body.style.overflow).toBe('hidden');
 
-    // Sheet overlay is portalled to document.body with data-sheet="overlay".
+    // Drawer overlay is portalled to document.body with data-sheet="overlay".
     const backdrop = document.body.querySelector('[data-sheet="overlay"]');
     expect(backdrop).not.toBeNull();
     fireEvent.click(backdrop as HTMLElement);
@@ -631,7 +632,7 @@ describe('AppSidebar', () => {
         />
       </SidebarProvider>,
     );
-    // Sheet portals a section[role="dialog"] to document.body.
+    // Drawer Dialog portals a section[role="dialog"] to document.body.
     const dialog = document.body.querySelector('[role="dialog"]');
     expect(dialog?.getAttribute('data-mobile')).toBe('true');
   });

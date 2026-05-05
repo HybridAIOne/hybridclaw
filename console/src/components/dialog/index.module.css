@@ -108,3 +108,104 @@
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Drawer (isDrawer=true) — slide-in panel, mirroring sheet behaviour.
+ * Open/closed is controlled by CSS class toggle (.drawerOpen) rather than
+ * mount/unmount, so no exit animation is needed here.
+ * --------------------------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  padding: 0;
+  background: rgb(10 15 25 / 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+  cursor: default;
+}
+
+.overlayVisible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--sidebar-bg, var(--page-bg));
+  color: var(--sidebar-fg);
+  border: 1px solid var(--sidebar-border, var(--line));
+  box-shadow: var(--shadow-dropdown);
+  overflow: hidden;
+  transition: transform 180ms ease;
+}
+
+/* Side variants — off-screen resting positions */
+
+.left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--sheet-width, 18rem);
+  border-top: 0;
+  border-left: 0;
+  border-bottom: 0;
+  transform: translateX(calc(-100% - 24px));
+}
+
+.right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: var(--sheet-width, 18rem);
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  transform: translateX(calc(100% + 24px));
+}
+
+.top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--sheet-height, 50vh);
+  border-left: 0;
+  border-top: 0;
+  border-right: 0;
+  transform: translateY(calc(-100% - 24px));
+}
+
+.bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--sheet-height, 50vh);
+  border-left: 0;
+  border-bottom: 0;
+  border-right: 0;
+  transform: translateY(calc(100% + 24px));
+}
+
+.drawerOpen {
+  transform: translate(0);
+}
+
+/* Accessibility: screen-reader-only utility used by drawer header */
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

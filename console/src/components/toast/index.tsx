@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useExitAnimation } from '../../hooks/useExitAnimation';
+import { useAnimationsFinished } from '../../hooks/useAnimationsFinished';
 import { cx } from '../../lib/cx';
 import styles from './index.module.css';
 
@@ -270,7 +270,7 @@ function ToastItem(props: {
     () => onRemove(toast.id),
     [onRemove, toast.id],
   );
-  useExitAnimation(elementRef, toast.exiting, handleRemove);
+  useAnimationsFinished(elementRef, toast.exiting, handleRemove);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: mouse handlers only control auto-dismiss pause, not user interactivity
