@@ -2,10 +2,6 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef } from 'react';
 import { generateWebSessionId, storeSessionId } from '../../lib/chat-helpers';
 
-interface UseChatSessionOptions {
-  getDefaultAgentId: () => string;
-}
-
 export interface UseChatSessionReturn {
   /** Empty string when the URL is `/chat` and no draft has been minted yet. */
   sessionId: string;
@@ -30,10 +26,7 @@ export interface UseChatSessionReturn {
  * Owns the chat session-id lifecycle: URL param, lazy draft for the bare
  * `/chat` route, localStorage persistence, and navigation between sessions.
  */
-export function useChatSession(
-  options: UseChatSessionOptions,
-): UseChatSessionReturn {
-  const { getDefaultAgentId } = options;
+export function useChatSession(): UseChatSessionReturn {
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { sessionId?: string };
   const urlSessionId = params.sessionId;
@@ -81,11 +74,11 @@ export function useChatSession(
 
   const ensureSessionForSend = useCallback(() => {
     if (sessionIdRef.current) return;
-    const newId = generateWebSessionId(getDefaultAgentId());
+    const newId = generateWebSessionId();
     draftSessionIdRef.current = newId;
     sessionIdRef.current = newId;
     void navigateToSession(newId, { replace: true });
-  }, [navigateToSession, getDefaultAgentId]);
+  }, [navigateToSession]);
 
   const handleSessionIdCorrection = useCallback(
     (serverSessionId: string) => {
