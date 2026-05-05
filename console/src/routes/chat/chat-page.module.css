@@ -89,6 +89,57 @@
   font-weight: 700;
 }
 
+.sidebarListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebarScopeToggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+}
+
+.sidebarScopeButton {
+  appearance: none;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.sidebarScopeButton:hover {
+  color: var(--text);
+}
+
+.sidebarScopeButtonActive {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 700;
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 18%),
+    0 0 0 1px color-mix(in srgb, var(--primary) 70%, var(--background));
+}
+
+.sidebarScopeButtonActive:hover {
+  color: var(--primary-foreground);
+}
+
 .sessionList {
   display: flex;
   flex-direction: column;
@@ -647,8 +698,11 @@ aside[data-state="collapsed"] .chatSidebarContent {
 
 .artifactCard {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 10px;
+  width: fit-content;
+  max-width: 100%;
   padding: 10px 14px;
   margin-top: 8px;
   border: 1px solid var(--line);
@@ -656,10 +710,23 @@ aside[data-state="collapsed"] .chatSidebarContent {
   background: var(--muted);
 }
 
+.artifactCardWithPreview {
+  align-items: stretch;
+  width: min(720px, 100%);
+}
+
+.artifactHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .artifactFilename {
   font-size: 0.84rem;
   font-weight: 500;
   color: var(--text);
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -698,14 +765,31 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .artifactPreview {
-  margin-top: 8px;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.artifactPreview img {
+  display: block;
   max-width: 100%;
   border-radius: var(--radius-sm);
 }
 
-.artifactPreview img {
-  max-width: 100%;
-  border-radius: var(--radius-sm);
+.artifactPdfPreview {
+  width: 100%;
+  height: min(60vh, 560px);
+  min-height: 360px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.artifactPdfPreview iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
 }
 
 .thinking {

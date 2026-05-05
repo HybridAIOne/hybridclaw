@@ -131,13 +131,26 @@ test('getGatewayHistory omits silent message-send placeholders', async () => {
 test('getGatewayHistory returns assistant presentation per stored message agent', async () => {
   setupHome();
 
-  const { initDatabase } = await import('../src/memory/db.ts');
+  const { initDatabase, upsertAgent } = await import('../src/memory/db.ts');
   const { getGatewayHistory } = await import(
     '../src/gateway/gateway-service.ts'
   );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
   const { memoryService } = await import('../src/memory/memory-service.ts');
 
   initDatabase({ quiet: true });
+  const mainAvatarPath = path.join(
+    agentWorkspaceDir('main'),
+    'assets',
+    'main.png',
+  );
+  fs.mkdirSync(path.dirname(mainAvatarPath), { recursive: true });
+  fs.writeFileSync(mainAvatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+  upsertAgent({
+    id: 'main',
+    name: 'Main Agent',
+    imageAsset: 'assets/main.png',
+  });
 
   const sessionId = 'web:agent-history';
   memoryService.getOrCreateSession(sessionId, null, 'web');
@@ -170,8 +183,12 @@ test('getGatewayHistory returns assistant presentation per stored message agent'
   expect(mainAnswer).toMatchObject({
     role: 'assistant',
     agent_id: 'main',
+    assistantPresentation: {
+      agentId: 'main',
+      displayName: 'Main Agent',
+      imageUrl: '/api/agent-avatar?agentId=main',
+    },
   });
-  expect(mainAnswer?.assistantPresentation).toBeUndefined();
   expect(charlyAnswer).toMatchObject({
     role: 'assistant',
     agent_id: 'charly',
