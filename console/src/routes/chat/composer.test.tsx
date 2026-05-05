@@ -197,10 +197,7 @@ describe('Composer', () => {
       ) as HTMLTextAreaElement;
       fireEvent.input(textarea, { target: { value: '/zzz' } });
       await waitFor(() =>
-        expect(fetchChatCommandsMock).toHaveBeenCalledWith(
-          'test-token',
-          'zzz',
-        ),
+        expect(fetchChatCommandsMock).toHaveBeenCalledWith('test-token', 'zzz'),
       );
       expect(screen.queryByRole('listbox')).toBeNull();
     });
