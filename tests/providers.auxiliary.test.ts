@@ -505,6 +505,73 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
   });
 });
 
+test('host auxiliary caller uses OpenAI-compatible routing for xAI models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'xai' as const,
+    apiKey: 'xai-key',
+    baseUrl: 'https://api.x.ai/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://api.x.ai/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({
+        model: 'grok-3',
+      });
+      expect(body.chatbot_id).toBeUndefined();
+      expect(body.enable_rag).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'xAI title response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'session_title',
+    agentId: 'main',
+    fallbackModel: 'xai/grok-3',
+    fallbackChatbotId: '',
+    messages: [{ role: 'user', content: 'Title this session.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'xai',
+    model: 'xai/grok-3',
+    content: 'xAI title response.',
+  });
+});
+
 test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without discovery metadata', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({

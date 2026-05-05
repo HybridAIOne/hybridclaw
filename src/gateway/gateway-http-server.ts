@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import {
+  handleA2AWebhookInbound,
+  parseA2AWebhookInboundPath,
+} from '../a2a/webhook-inbound.js';
 import { createSilentReplyStreamFilter } from '../agent/silent-reply-stream.js';
 import { getAgentById, resolveAgentConfig } from '../agents/agent-registry.js';
 import {
@@ -2049,6 +2053,9 @@ function handleApiChatRecent(
 ): void {
   const channelId = (url.searchParams.get('channelId') || 'web').trim();
   const query = normalizeRecentChatSearchQuery(url.searchParams.get('q'));
+  const rawScope = (url.searchParams.get('scope') || '').trim().toLowerCase();
+  const scope =
+    rawScope === 'user' || rawScope === 'all' ? rawScope : undefined;
   const hasWebSessionUser =
     channelId.toLowerCase() === 'web' &&
     Boolean(resolveSessionAuthenticatedUserId(req));
@@ -2071,7 +2078,9 @@ function handleApiChatRecent(
       channelId,
       limit,
       ...(query ? { query } : {}),
-      ...(channelId.toLowerCase() === 'web' && !hasWebSessionUser
+      ...(scope ? { includeScheduled: scope === 'all' } : {}),
+      ...(scope === 'all' ||
+      (!scope && channelId.toLowerCase() === 'web' && !hasWebSessionUser)
         ? { fallbackToChannelRecent: true }
         : {}),
     }),
@@ -4227,6 +4236,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         pathname === voicePaths.actionPath)
     ) {
       dispatchWebhookRoute(res, () => handleVoiceWebhook(req, res, url));
+      return;
+    }
+
+    if (parseA2AWebhookInboundPath(pathname)) {
+      dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
       return;
     }
 

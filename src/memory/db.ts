@@ -5608,6 +5608,9 @@ interface RecentUserSessionRow {
   title: string | null;
 }
 
+const NON_SCHEDULED_RECENT_SESSION_SQL =
+  "s.id NOT LIKE 'cron:%' AND s.id NOT LIKE '%:chat:cron:%'";
+
 interface RecentSessionBoundaryRow {
   session_id: string;
   first_user_content: string | null;
@@ -5821,6 +5824,7 @@ export function getRecentSessionsForUser(params: {
   channelId?: string | null;
   limit?: number;
   query?: string | null;
+  includeScheduled?: boolean;
 }): RecentUserSessionSummary[] {
   const userId = params.userId.trim();
   if (!userId) return [];
@@ -5829,6 +5833,10 @@ export function getRecentSessionsForUser(params: {
     params.query,
   ).toLowerCase();
   const limit = normalizeRecentChatSessionLimit(params.limit);
+  const scheduledWhere =
+    params.includeScheduled === false
+      ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
+      : '';
 
   const rows = channelId
     ? queryAll<RecentUserSessionRow, [string, string]>(
@@ -5848,6 +5856,7 @@ export function getRecentSessionsForUser(params: {
              ON m.session_id = s.id
            WHERE m.user_id = ?
              AND s.channel_id = ?
+             ${scheduledWhere}
            GROUP BY s.id`,
         userId,
         channelId,
@@ -5868,6 +5877,7 @@ export function getRecentSessionsForUser(params: {
            INNER JOIN messages m
              ON m.session_id = s.id
            WHERE m.user_id = ?
+             ${scheduledWhere}
            GROUP BY s.id`,
         userId,
       );
@@ -5884,6 +5894,7 @@ export function getRecentSessionsForChannel(params: {
   channelId: string;
   limit?: number;
   query?: string | null;
+  includeScheduled?: boolean;
 }): RecentUserSessionSummary[] {
   const channelId = params.channelId.trim();
   if (!channelId) return [];
@@ -5892,6 +5903,10 @@ export function getRecentSessionsForChannel(params: {
   ).toLowerCase();
   const limit = normalizeRecentChatSessionLimit(params.limit);
   const sqlLimit = searchQuery ? MAX_RECENT_CHAT_SESSION_LIMIT : limit;
+  const scheduledWhere =
+    params.includeScheduled === false
+      ? ` AND ${NON_SCHEDULED_RECENT_SESSION_SQL}`
+      : '';
 
   const rows = queryAll<RecentUserSessionRow, [string, number]>(
     db,
@@ -5905,6 +5920,7 @@ export function getRecentSessionsForChannel(params: {
        INNER JOIN messages m
           ON m.session_id = s.id
       WHERE s.channel_id = ?
+        ${scheduledWhere}
       GROUP BY s.id
       ORDER BY last_message_at DESC
       LIMIT ?`,
