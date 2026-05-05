@@ -438,5 +438,50 @@ describe('Composer', () => {
       const live = container.querySelector('[aria-live="polite"]');
       expect(live?.textContent).toBe('1 command available');
     });
+
+    it('a stale fetch resolving after dismiss does not reopen the panel', async () => {
+      let resolveFetch: ((value: ChatCommandsResponse) => void) | undefined;
+      fetchChatCommandsMock.mockImplementation(
+        () =>
+          new Promise<ChatCommandsResponse>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+      renderComposer();
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/' } });
+      await waitFor(() => expect(fetchChatCommandsMock).toHaveBeenCalled());
+      fireEvent.keyDown(textarea, { key: 'Escape' });
+      expect(screen.queryByRole('listbox')).toBeNull();
+      resolveFetch?.({ commands: [APPROVE] });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('submit cancels a pending lookup so a late response does not pop the panel', async () => {
+      let resolveFetch: ((value: ChatCommandsResponse) => void) | undefined;
+      fetchChatCommandsMock.mockImplementation(
+        () =>
+          new Promise<ChatCommandsResponse>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+      const onSend = vi.fn();
+      renderComposer({ onSend });
+      const textarea = screen.getByLabelText(
+        'Message input',
+      ) as HTMLTextAreaElement;
+      fireEvent.input(textarea, { target: { value: '/test' } });
+      await waitFor(() => expect(fetchChatCommandsMock).toHaveBeenCalled());
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      expect(onSend).toHaveBeenCalledWith('/test', []);
+      resolveFetch?.({ commands: [APPROVE] });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(screen.queryByRole('listbox')).toBeNull();
+    });
   });
 });

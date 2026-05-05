@@ -128,6 +128,15 @@ export function Composer(props: {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   };
 
+  const closePanel = useCallback(() => {
+    if (suggestTimerRef.current) {
+      clearTimeout(suggestTimerRef.current);
+      suggestTimerRef.current = null;
+    }
+    suggestSeqRef.current += 1;
+    setPanelMode('closed');
+  }, []);
+
   const fetchSuggestions = useCallback(
     async (query: string) => {
       suggestSeqRef.current += 1;
@@ -168,7 +177,7 @@ export function Composer(props: {
         void fetchSuggestions(query);
       }, 150);
     } else {
-      setPanelMode('closed');
+      closePanel();
     }
   };
 
@@ -190,7 +199,7 @@ export function Composer(props: {
       ta.value = `${insertCore} `;
       ta.setSelectionRange(ta.value.length, ta.value.length);
     }
-    setPanelMode('closed');
+    closePanel();
     resize();
     ta.focus();
   };
@@ -206,7 +215,7 @@ export function Composer(props: {
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
     setPendingMedia([]);
-    setPanelMode('closed');
+    closePanel();
     resize();
   };
 
@@ -240,7 +249,7 @@ export function Composer(props: {
     }
     if (isOpen && e.key === 'Escape') {
       e.preventDefault();
-      setPanelMode('closed');
+      closePanel();
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -289,7 +298,7 @@ export function Composer(props: {
       <Popover
         open={isOpen}
         onOpenChange={(next) => {
-          if (!next) setPanelMode('closed');
+          if (!next) closePanel();
         }}
       >
         <ComposerAnchor className={css.composer}>

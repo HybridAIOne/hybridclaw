@@ -1146,7 +1146,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .slashLiveRegion {
-  composes: srOnly from '../../lib/a11y.module.css';
+  composes: srOnly from "../../lib/a11y.module.css";
 }
 
 @media (max-width: 768px) {

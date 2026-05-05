@@ -82,5 +82,5 @@
 /* Accessibility helpers */
 
 .srOnly {
-  composes: srOnly from '../../lib/a11y.module.css';
+  composes: srOnly from "../../lib/a11y.module.css";
 }
