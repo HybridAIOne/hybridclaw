@@ -14,6 +14,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
+import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -180,6 +181,14 @@ function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
 }
 
 function uncaughtExceptionHandler(err: Error) {
+  if (isExpectedTransportError(err)) {
+    logger.warn(
+      { err },
+      'Uncaught transport exception escaped local handler; keeping process alive',
+    );
+    return;
+  }
+
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
 }
@@ -190,6 +199,14 @@ function uncaughtExceptionHandler(err: Error) {
 )[UNCAUGHT_EXCEPTION_HANDLER_TAG] = true;
 
 function unhandledRejectionHandler(reason: unknown) {
+  if (isExpectedTransportError(reason)) {
+    logger.warn(
+      { err: reason },
+      'Unhandled transport rejection escaped local handler; keeping process alive',
+    );
+    return;
+  }
+
   logger.error({ err: reason }, 'Unhandled rejection');
 }
 (
