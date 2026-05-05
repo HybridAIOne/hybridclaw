@@ -240,99 +240,99 @@ export function Composer(props: {
       <Popover open={showSuggestions} onOpenChange={setShowSuggestions}>
         <ComposerAnchor className={css.composer}>
           {pendingMedia.length > 0 || uploading > 0 ? (
-          <div className={css.pendingMediaRow}>
-            {pendingMedia.map((m, i) => (
-              <span key={m.path} className={css.mediaChip}>
-                <span className={css.mediaChipName}>{m.filename}</span>
-                <button
-                  type="button"
-                  className={css.mediaChipRemove}
-                  onClick={() => removeMedia(i)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {uploading > 0 ? (
-              <span className={css.mediaChip}>Uploading…</span>
-            ) : null}
-          </div>
-        ) : null}
-        <textarea
-          ref={textareaRef}
-          className={css.composerInput}
-          rows={1}
-          placeholder="Message HybridClaw"
-          disabled={props.isStreaming}
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          aria-label="Message input"
-        />
-        <div className={css.composerActions}>
-          <div className={css.composerLeftActions}>
+            <div className={css.pendingMediaRow}>
+              {pendingMedia.map((m, i) => (
+                <span key={m.path} className={css.mediaChip}>
+                  <span className={css.mediaChipName}>{m.filename}</span>
+                  <button
+                    type="button"
+                    className={css.mediaChipRemove}
+                    onClick={() => removeMedia(i)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {uploading > 0 ? (
+                <span className={css.mediaChip}>Uploading…</span>
+              ) : null}
+            </div>
+          ) : null}
+          <textarea
+            ref={textareaRef}
+            className={css.composerInput}
+            rows={1}
+            placeholder="Message HybridClaw"
+            disabled={props.isStreaming}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            aria-label="Message input"
+          />
+          <div className={css.composerActions}>
+            <div className={css.composerLeftActions}>
+              <button
+                type="button"
+                className={css.attachButton}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach files"
+              >
+                +
+              </button>
+              <AgentSwitchSelect
+                agents={agentOptions}
+                selectedAgentId={selectedAgentId}
+                disabled={props.isStreaming}
+                onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+              />
+              <ModelSwitchSelect
+                models={modelOptions}
+                selectedModelId={selectedModelId}
+                disabled={props.isStreaming}
+                onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
+              />
+            </div>
             <button
               type="button"
-              className={css.attachButton}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
+              className={cx(css.sendButton, props.isStreaming && css.stopping)}
+              onClick={submit}
+              aria-label={props.isStreaming ? 'Stop' : 'Send message'}
             >
-              +
+              {props.isStreaming ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7-7 7 7" />
+                </svg>
+              )}
             </button>
-            <AgentSwitchSelect
-              agents={agentOptions}
-              selectedAgentId={selectedAgentId}
-              disabled={props.isStreaming}
-              onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
-            />
-            <ModelSwitchSelect
-              models={modelOptions}
-              selectedModelId={selectedModelId}
-              disabled={props.isStreaming}
-              onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
+            <input
+              ref={fileInputRef}
+              type="file"
+              hidden
+              multiple
+              onChange={handleFileChange}
             />
           </div>
-          <button
-            type="button"
-            className={cx(css.sendButton, props.isStreaming && css.stopping)}
-            onClick={submit}
-            aria-label={props.isStreaming ? 'Stop' : 'Send message'}
-          >
-            {props.isStreaming ? (
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 19V5" />
-                <path d="m5 12 7-7 7 7" />
-              </svg>
-            )}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            multiple
-            onChange={handleFileChange}
-          />
-        </div>
         </ComposerAnchor>
         {showSuggestions && suggestions.length > 0 ? (
           <PopoverContent
