@@ -319,12 +319,10 @@ describe('Composer', () => {
       const textarea = screen.getByLabelText(
         'Message input',
       ) as HTMLTextAreaElement;
-      // Step 1: typing the bare command shows the panel.
       textarea.value = '/agent';
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       fireEvent.input(textarea);
       await screen.findByRole('listbox');
-      // Step 2: adding a trailing space (to start a subcommand) must NOT close it.
       textarea.value = '/agent ';
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       fireEvent.input(textarea);
@@ -335,7 +333,6 @@ describe('Composer', () => {
         ),
       );
       expect(screen.queryByRole('listbox')).not.toBeNull();
-      // Step 3: typing the subcommand keeps the panel open and queries it.
       textarea.value = '/agent in';
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       fireEvent.input(textarea);
@@ -354,7 +351,6 @@ describe('Composer', () => {
       const textarea = screen.getByLabelText(
         'Message input',
       ) as HTMLTextAreaElement;
-      // Simulate the user typing "hello /app" with the cursor at the end.
       textarea.value = 'hello /app';
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       fireEvent.input(textarea);
@@ -374,13 +370,11 @@ describe('Composer', () => {
         'Message input',
       ) as HTMLTextAreaElement;
       textarea.value = 'hello /app world';
-      // Place the cursor right after `/app`.
       const cursor = 'hello /app'.length;
       textarea.setSelectionRange(cursor, cursor);
       fireEvent.input(textarea);
       await screen.findByRole('listbox');
       fireEvent.keyDown(textarea, { key: 'Enter' });
-      // No double space before "world" because `after` already starts with a space.
       expect(textarea.value).toBe('hello /approve world');
       expect(textarea.selectionStart).toBe('hello /approve'.length);
     });
@@ -419,21 +413,14 @@ describe('Composer', () => {
     });
 
     it('updates the polite live region with the result count', async () => {
-      const items = [
-        APPROVE,
-        CLEAR,
-        { ...APPROVE, id: 'approve-yes', label: '/approve yes' },
-      ];
-      const { container } = render(
-        <Composer
-          isStreaming={false}
-          onSend={vi.fn()}
-          onStop={vi.fn()}
-          onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
-          token="test-token"
-        />,
-      );
-      fetchChatCommandsMock.mockResolvedValue({ commands: items });
+      fetchChatCommandsMock.mockResolvedValue({
+        commands: [
+          APPROVE,
+          CLEAR,
+          { ...APPROVE, id: 'approve-yes', label: '/approve yes' },
+        ],
+      });
+      const { container } = renderComposer();
       const textarea = screen.getByLabelText(
         'Message input',
       ) as HTMLTextAreaElement;
@@ -445,15 +432,7 @@ describe('Composer', () => {
 
     it('announces the empty state to the live region', async () => {
       fetchChatCommandsMock.mockResolvedValue({ commands: [] });
-      const { container } = render(
-        <Composer
-          isStreaming={false}
-          onSend={vi.fn()}
-          onStop={vi.fn()}
-          onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
-          token="test-token"
-        />,
-      );
+      const { container } = renderComposer();
       const textarea = screen.getByLabelText(
         'Message input',
       ) as HTMLTextAreaElement;
@@ -464,16 +443,8 @@ describe('Composer', () => {
     });
 
     it('uses singular grammar for a single match', async () => {
-      const { container } = render(
-        <Composer
-          isStreaming={false}
-          onSend={vi.fn()}
-          onStop={vi.fn()}
-          onUploadFiles={vi.fn<(_: File[]) => Promise<MediaItem[]>>()}
-          token="test-token"
-        />,
-      );
       fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
+      const { container } = renderComposer();
       const textarea = screen.getByLabelText(
         'Message input',
       ) as HTMLTextAreaElement;

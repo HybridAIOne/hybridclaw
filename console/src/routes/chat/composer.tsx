@@ -173,6 +173,10 @@ export function Composer(props: {
     if (ctx) {
       const query = ctx.query.trim();
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+      // Invalidate any in-flight fetch from a prior keystroke so its late
+      // response can't briefly apply between this keystroke and the next
+      // debounced fetch landing.
+      suggestSeqRef.current += 1;
       suggestTimerRef.current = setTimeout(() => {
         void fetchSuggestions(query);
       }, 150);

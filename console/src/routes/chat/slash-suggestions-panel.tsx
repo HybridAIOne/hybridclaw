@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import type { ChatCommandSuggestion } from '../../api/chat-types';
 import { PopoverContent } from '../../components/popover';
 import {
@@ -35,21 +35,13 @@ export function SlashSuggestionsPanel({
   onSelect,
   onActiveChange,
 }: SlashSuggestionsPanelProps) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (mode !== 'list' || suggestions.length === 0) return;
-    const list = viewportRef.current;
     const active = document.getElementById(optionIdFor(listboxId, activeIdx));
-    if (!list || !active || !list.contains(active)) return;
-    const top = active.offsetTop;
-    const bottom = top + active.offsetHeight;
-    if (top < list.scrollTop) {
-      list.scrollTop = top;
-    } else if (bottom > list.scrollTop + list.clientHeight) {
-      list.scrollTop = bottom - list.clientHeight;
-    }
+    active?.scrollIntoView({ block: 'nearest' });
   }, [activeIdx, mode, suggestions.length, listboxId]);
+
+  const q = query.trim().toLowerCase();
 
   return (
     <PopoverContent
@@ -61,7 +53,6 @@ export function SlashSuggestionsPanel({
     >
       <ScrollArea className={css.slashSuggestionsScroll}>
         <ScrollAreaViewport
-          ref={viewportRef}
           id={listboxId}
           role="listbox"
           aria-label="Slash commands"
@@ -88,7 +79,7 @@ export function SlashSuggestionsPanel({
                 title={item.description || undefined}
               >
                 <span className={css.suggestionLabel}>
-                  {renderLabel(item.label, query)}
+                  {renderLabel(item.label, q)}
                 </span>
                 {item.description ? (
                   <span className={css.suggestionDesc}>{item.description}</span>
@@ -97,7 +88,7 @@ export function SlashSuggestionsPanel({
             ))
           ) : (
             <div className={css.suggestionEmpty} role="status">
-              No commands match “/{query}”
+              No commands match /{query}
             </div>
           )}
         </ScrollAreaViewport>
@@ -111,46 +102,36 @@ export function SlashSuggestionsPanel({
 
 const PLACEHOLDER_RE = /<[^>]+>|\[[^\]]+\]/g;
 
-function renderLabel(label: string, query: string): ReactNode[] {
-  const segments: { text: string; mono: boolean }[] = [];
+function renderLabel(label: string, q: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
   let last = 0;
+  let key = 0;
+  const push = (text: string, mono: boolean) => {
+    if (!text) return;
+    const className = mono ? css.suggestionLabelMono : undefined;
+    const idx = q ? text.toLowerCase().indexOf(q) : -1;
+    nodes.push(
+      idx === -1 ? (
+        <span key={key++} className={className}>
+          {text}
+        </span>
+      ) : (
+        <span key={key++} className={className}>
+          {text.slice(0, idx)}
+          <mark className={css.suggestionMatch}>
+            {text.slice(idx, idx + q.length)}
+          </mark>
+          {text.slice(idx + q.length)}
+        </span>
+      ),
+    );
+  };
   for (const match of label.matchAll(PLACEHOLDER_RE)) {
     const idx = match.index ?? 0;
-    if (idx > last) {
-      segments.push({ text: label.slice(last, idx), mono: false });
-    }
-    segments.push({ text: match[0], mono: true });
+    push(label.slice(last, idx), false);
+    push(match[0], true);
     last = idx + match[0].length;
   }
-  if (last < label.length) {
-    segments.push({ text: label.slice(last), mono: false });
-  }
-  const q = query.trim().toLowerCase();
-  return segments.map((seg, i) => renderSegment(seg.text, seg.mono, q, i));
-}
-
-function renderSegment(
-  text: string,
-  mono: boolean,
-  q: string,
-  segIdx: number,
-): ReactNode {
-  const className = mono ? css.suggestionLabelMono : undefined;
-  const idx = q ? text.toLowerCase().indexOf(q) : -1;
-  if (idx === -1) {
-    return (
-      <span key={`s${segIdx}`} className={className}>
-        {text}
-      </span>
-    );
-  }
-  return (
-    <span key={`s${segIdx}`} className={className}>
-      {text.slice(0, idx)}
-      <mark className={css.suggestionMatch}>
-        {text.slice(idx, idx + q.length)}
-      </mark>
-      {text.slice(idx + q.length)}
-    </span>
-  );
+  push(label.slice(last), false);
+  return nodes;
 }
