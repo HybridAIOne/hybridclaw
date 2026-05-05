@@ -42,6 +42,7 @@ const fetchChatRecentMock =
       channelId?: string,
       limit?: number,
       query?: string,
+      scope?: 'user' | 'all',
     ) => Promise<ChatRecentResponse>
   >();
 const fetchChatHistoryMock =
@@ -82,7 +83,8 @@ vi.mock('../../api/chat', () => ({
     channelId?: string,
     limit?: number,
     query?: string,
-  ) => fetchChatRecentMock(token, userId, channelId, limit, query),
+    scope?: 'user' | 'all',
+  ) => fetchChatRecentMock(token, userId, channelId, limit, query, scope),
   fetchChatHistory: (token: string, sessionId: string) =>
     fetchChatHistoryMock(token, sessionId),
   fetchChatContext: (token: string, sessionId: string) =>
@@ -523,6 +525,7 @@ describe('ChatPage', () => {
         'web',
         50,
         'deploy',
+        'user',
       ),
     );
 
@@ -635,6 +638,41 @@ describe('ChatPage', () => {
       'web',
       50,
       'deploy',
+      'user',
+    );
+  });
+
+  it('defaults recent chats to user scope and can switch to all chats', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+    await waitFor(() =>
+      expect(fetchChatRecentMock).toHaveBeenCalledWith(
+        'test-token',
+        'web-user-1',
+        'web',
+        10,
+        undefined,
+        'user',
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+
+    await waitFor(() =>
+      expect(fetchChatRecentMock).toHaveBeenLastCalledWith(
+        'test-token',
+        'web-user-1',
+        'web',
+        10,
+        undefined,
+        'all',
+      ),
     );
   });
 
