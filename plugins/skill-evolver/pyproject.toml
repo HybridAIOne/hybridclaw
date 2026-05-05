@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hybridclaw-skill-evolver"
+version = "0.1.0"
+description = "DSPy + GEPA optimizer for HybridClaw SKILL.md files"
+requires-python = ">=3.11"
+dependencies = [
+    "dspy>=2.6",
+    "gepa>=0.0.14",
+    "click>=8.1",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "pydantic>=2.6",
+]
+
+[project.scripts]
+skill-evolver = "skill_evolver.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/skill_evolver"]

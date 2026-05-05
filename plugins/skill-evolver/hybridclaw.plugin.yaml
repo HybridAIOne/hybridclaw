@@ -1,0 +1,77 @@
+id: skill-evolver
+name: Skill Evolver
+version: 0.1.0
+kind: tool
+description: Evolve SKILL.md descriptions (trigger accuracy) and bodies (execution quality) using DSPy + GEPA with three eval sources — synthetic, golden, and real traces from the HybridClaw SQLite DB and session transcripts.
+entrypoint: src/index.js
+credentials:
+  - OPENAI_API_KEY
+  - ANTHROPIC_API_KEY
+  - OPENROUTER_API_KEY
+pipDependencies:
+  - package: dspy>=2.6
+  - package: gepa>=0.0.14
+  - package: click>=8.1
+  - package: rich>=13.7
+  - package: pyyaml>=6.0
+  - package: pydantic>=2.6
+externalDependencies:
+  - name: GitHub CLI
+    check: gh --version
+    installHint: Install gh from https://cli.github.com/ to enable --open-pr.
+    installUrl: https://cli.github.com/
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    optimizerModel:
+      type: string
+      default: openai/gpt-4.1
+      description: Model used by GEPA to propose mutations (reflective mutator).
+    evalModel:
+      type: string
+      default: openai/gpt-4.1-mini
+      description: Model used as LLM-judge and synthetic data generator.
+    maxSkillBodyBytes:
+      type: number
+      default: 15360
+      minimum: 1024
+      maximum: 65536
+      description: Hard size cap on evolved SKILL.md body (bytes).
+    maxDescriptionChars:
+      type: number
+      default: 1024
+      minimum: 64
+      maximum: 4096
+      description: Hard size cap on evolved description field.
+    defaultIterations:
+      type: number
+      default: 10
+      minimum: 1
+      maximum: 100
+    defaultSources:
+      type: string
+      default: synthetic,golden,traces
+      description: Comma-separated eval sources to mix.
+    minTraceObservations:
+      type: number
+      default: 10
+      minimum: 1
+      maximum: 10000
+      description: Minimum skill_observations rows required before traces source is used.
+    datasetsDir:
+      type: string
+      default: datasets/skills
+      description: Where committed golden datasets live (relative to repo root).
+    workBranchPrefix:
+      type: string
+      default: evolve/skill
+      description: Prefix for branches created when --open-pr is used.
+    runTests:
+      type: boolean
+      default: true
+      description: Run repo test suite before accepting a variant.
+    testCommand:
+      type: string
+      default: npm test --silent
+      description: Shell command used to validate variants (run from repo root).
