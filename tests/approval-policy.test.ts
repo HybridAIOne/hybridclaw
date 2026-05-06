@@ -11,6 +11,7 @@ import {
   DEFAULT_POLICY,
   loadPolicyFromDisk,
   parsePolicyYaml,
+  registerApprovalRule,
   runApprovalRulePipeline,
   type ToolCallContext,
   type ToolCallContextHelpers,
@@ -201,6 +202,27 @@ approval:
     );
   });
 
+  test('parsePolicyYaml slots registered external rules between built-in anchors', () => {
+    registerApprovalRule('test_anomaly_reranker', () => ({ kind: 'next' }));
+
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - stakes
+    - test_anomaly_reranker
+    - autonomy_override
+`);
+
+    const stakesIndex = parsed.approvalRuleOrder?.indexOf('stakes') ?? -1;
+    expect(stakesIndex).toBeGreaterThanOrEqual(0);
+    expect(
+      parsed.approvalRuleOrder?.slice(stakesIndex, stakesIndex + 3),
+    ).toEqual(['stakes', 'test_anomaly_reranker', 'autonomy_override']);
+    expect(parsed.approvalRuleOrder).toHaveLength(
+      DEFAULT_APPROVAL_RULE_ORDER.length + 1,
+    );
+  });
+
   test('approval rules are standalone predicates over a typed tool-call context', () => {
     const setup = makeRuleContext();
     expect(approvalRules.policy_reload(setup).kind).toBe('next');
@@ -350,6 +372,33 @@ approval:
       ruleName: 'green_fallback',
       decision: 'auto',
     });
+  });
+
+  test('approval pipeline runs registered external rules from configured order', () => {
+    const observed: string[] = [];
+    registerApprovalRule('test_external_stakes_rule', (context) => {
+      observed.push(context.stakes ? 'after_stakes' : 'before_stakes');
+      return { kind: 'next' };
+    });
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - stakes
+    - test_external_stakes_rule
+    - autonomy_override
+`);
+    const context = makeRuleContext();
+    context.policy = {
+      ...DEFAULT_POLICY,
+      approvalRuleOrder:
+        parsed.approvalRuleOrder || DEFAULT_POLICY.approvalRuleOrder,
+    };
+    context.helpers.reloadPolicyIfNeeded = () => context.policy;
+
+    const result = runApprovalRulePipeline(context);
+
+    expect(result.evaluation.decision).toBe('auto');
+    expect(observed).toEqual(['after_stakes']);
   });
 
   test('approval pipeline denies instead of throwing when a rule runs before prerequisites', () => {

@@ -5,9 +5,12 @@ The tool approval cascade is implemented as a policy-configured rule pipeline in
 and either returns `NextRule` or a terminal `Decision`.
 
 The default order is also the compatibility order. Workspaces may list built-in
-rules in `approval.rule_order` in `.hybridclaw/policy.yaml`; unknown rule names
-warn and are ignored, missing built-in rules are appended in default order, and
-orders that violate built-in dependencies fall back to the full default order.
+or registered external rules in `approval.rule_order` in
+`.hybridclaw/policy.yaml`; unknown rule names warn and are ignored, missing
+built-in rules are merged back in default order, and orders that violate
+built-in dependencies fall back to the full default order. External rules can be
+slotted between built-in anchors, for example between `stakes` and
+`autonomy_override`.
 
 ## Default Order
 
@@ -42,9 +45,25 @@ The pipeline emits `pre_tool_use` and `post_tool_use` hook events around each
 rule through the rule context. The container runtime wires those events into
 the F2 runtime event bus via `emitRuntimeEvent`, including
 `kind: "approval_rule"`, `approvalRule`, `toolName`, `actionKey`, and current
-`decision` when available. The plugin event bus also exposes `pre_tool_use` and
-`post_tool_use` as first-class hook names with `kind: "tool_execution"` while
-preserving the older `before_tool_call` and `after_tool_call` hooks.
+`decision` when available.
 
-Future approval extensions should add a named rule and place it through
-`approval.rule_order` instead of editing the surrounding cascade.
+The plugin event bus also exposes `pre_tool_use` and `post_tool_use` as
+first-class hook names with `kind: "tool_execution"` while preserving the older
+`before_tool_call` and `after_tool_call` hooks. Subscribers that listen to both
+approval-rule and tool-execution events must filter on `kind`.
+
+## External Rules
+
+Approval extensions register named rules with `registerApprovalRule(ruleName,
+rule)`. Registered names are accepted in `approval.rule_order`; the policy
+loader keeps built-in prerequisites in their default relative order while
+admitting external names between built-in anchors. A custom anomaly reranker can
+therefore register a rule and configure:
+
+```yaml
+approval:
+  rule_order:
+    - stakes
+    - anomaly_reranker
+    - autonomy_override
+```

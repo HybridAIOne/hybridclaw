@@ -102,7 +102,9 @@ export const DEFAULT_APPROVAL_RULE_ORDER = [
   'green_fallback',
 ] as const;
 
-export type ApprovalRuleName = (typeof DEFAULT_APPROVAL_RULE_ORDER)[number];
+export type BuiltinApprovalRuleName =
+  (typeof DEFAULT_APPROVAL_RULE_ORDER)[number];
+export type ApprovalRuleName = BuiltinApprovalRuleName | (string & {});
 
 export interface ApprovalPolicyRule {
   pattern?: string;
@@ -375,11 +377,14 @@ const HOST_RE =
 const APPROVE_RE =
   /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
-const APPROVAL_RULE_NAME_SET = new Set<string>(DEFAULT_APPROVAL_RULE_ORDER);
+const registeredApprovalRuleNames = new Set<string>(
+  DEFAULT_APPROVAL_RULE_ORDER,
+);
 const NEXT_RULE: NextRule = { kind: 'next' };
 const unknownApprovalRuleNameWarnings = new Set<string>();
 const invalidApprovalRuleOrderWarnings = new Set<string>();
 const MAX_APPROVAL_RULE_WARNING_KEYS = 50;
+const APPROVAL_RULE_NAME_RE = /^[a-z][a-z0-9_:-]*$/;
 
 function isVoiceChannelId(value: string | undefined): boolean {
   return String(value || '')
@@ -467,40 +472,73 @@ function normalizeStringList(raw: unknown): string[] {
 
 function normalizeApprovalRuleOrder(raw: unknown): ApprovalRuleName[] {
   const rawRules = normalizeStringList(raw);
-  const requested = rawRules.filter((rule): rule is ApprovalRuleName =>
-    APPROVAL_RULE_NAME_SET.has(rule),
-  );
+  const requested: ApprovalRuleName[] = [];
   for (const ruleName of rawRules) {
-    if (!APPROVAL_RULE_NAME_SET.has(ruleName)) {
+    if (registeredApprovalRuleNames.has(ruleName)) {
+      requested.push(ruleName);
+    } else {
       warnUnknownApprovalRuleName(ruleName);
     }
   }
   if (requested.length === 0) return [...DEFAULT_APPROVAL_RULE_ORDER];
 
   const ordered = [...new Set(requested)];
-  for (const ruleName of DEFAULT_APPROVAL_RULE_ORDER) {
-    if (!ordered.includes(ruleName)) ordered.push(ruleName);
-  }
   if (!isApprovalRuleOrderDependencySafe(ordered)) {
     warnInvalidApprovalRuleOrder(ordered);
     return [...DEFAULT_APPROVAL_RULE_ORDER];
   }
-  return ordered;
+  return mergeApprovalRuleOrder(ordered);
 }
 
 function isApprovalRuleOrderDependencySafe(
   ruleOrder: ApprovalRuleName[],
 ): boolean {
-  // Missing rules have already been appended in default order, so monotonicity
-  // against the default index sequence means built-in prerequisites stay ahead
-  // of their dependents.
   let lastDefaultIndex = -1;
   for (const ruleName of ruleOrder) {
-    const defaultIndex = DEFAULT_APPROVAL_RULE_ORDER.indexOf(ruleName);
+    const defaultIndex = getBuiltinRuleIndex(ruleName);
+    if (defaultIndex === -1) continue;
     if (defaultIndex < lastDefaultIndex) return false;
     lastDefaultIndex = defaultIndex;
   }
   return true;
+}
+
+function mergeApprovalRuleOrder(
+  configuredOrder: ApprovalRuleName[],
+): ApprovalRuleName[] {
+  const merged: ApprovalRuleName[] = [];
+  let defaultIndex = 0;
+  let customRulesBeforeNextBuiltin: ApprovalRuleName[] = [];
+
+  for (const ruleName of configuredOrder) {
+    const builtinIndex = getBuiltinRuleIndex(ruleName);
+    if (builtinIndex === -1) {
+      customRulesBeforeNextBuiltin.push(ruleName);
+      continue;
+    }
+
+    while (defaultIndex < builtinIndex) {
+      merged.push(DEFAULT_APPROVAL_RULE_ORDER[defaultIndex]);
+      defaultIndex += 1;
+    }
+    merged.push(...customRulesBeforeNextBuiltin);
+    customRulesBeforeNextBuiltin = [];
+    merged.push(ruleName);
+    defaultIndex = builtinIndex + 1;
+  }
+
+  merged.push(...customRulesBeforeNextBuiltin);
+  while (defaultIndex < DEFAULT_APPROVAL_RULE_ORDER.length) {
+    merged.push(DEFAULT_APPROVAL_RULE_ORDER[defaultIndex]);
+    defaultIndex += 1;
+  }
+  return merged;
+}
+
+function getBuiltinRuleIndex(ruleName: ApprovalRuleName): number {
+  return DEFAULT_APPROVAL_RULE_ORDER.indexOf(
+    ruleName as BuiltinApprovalRuleName,
+  );
 }
 
 function warnInvalidApprovalRuleOrder(ruleOrder: ApprovalRuleName[]): void {
@@ -529,6 +567,24 @@ function rememberApprovalRuleWarning(
   if (warnings.size >= MAX_APPROVAL_RULE_WARNING_KEYS) warnings.clear();
   warnings.add(key);
   return true;
+}
+
+export function registerApprovalRule(
+  ruleName: string,
+  rule: ApprovalRule,
+): ApprovalRuleName {
+  const normalized = ruleName.trim();
+  if (!APPROVAL_RULE_NAME_RE.test(normalized)) {
+    throw new Error(
+      `Approval rule names must match ${APPROVAL_RULE_NAME_RE.source}: ${ruleName}`,
+    );
+  }
+  if (registeredApprovalRuleNames.has(normalized)) {
+    throw new Error(`Approval rule already registered: ${normalized}`);
+  }
+  registeredApprovalRuleNames.add(normalized);
+  approvalRules[normalized] = rule;
+  return normalized;
 }
 
 function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
@@ -1728,6 +1784,9 @@ export function runApprovalRulePipeline(context: ToolCallContext): Decision {
     }
     let result: ApprovalRuleResult;
     try {
+      if (!rule) {
+        throw new Error(`approval rule is not registered: ${ruleName}`);
+      }
       result = rule(context);
     } catch (error) {
       console.error(
