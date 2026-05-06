@@ -175,7 +175,7 @@ describe('logger forced level override', () => {
     expect(logText).toContain('late forced debug mirror test');
   });
 
-  it('still exits on uncaught transport exceptions', async () => {
+  it('keeps running on uncaught transport exceptions', async () => {
     const { logger, uncaughtExceptionHandler } = await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
@@ -189,12 +189,33 @@ describe('logger forced level override', () => {
 
     uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
 
-    expect(warnSpy).not.toHaveBeenCalled();
-    expect(fatalSpy).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       { err: expect.any(Error) },
-      'Uncaught exception',
+      'Uncaught transport exception escaped local handler; keeping process alive',
     );
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(fatalSpy).not.toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('logs transport rejections as recoverable warnings', async () => {
+    const { logger, handleUnhandledRejectionForTests } =
+      await importFreshLogger();
+    const errorSpy = vi
+      .spyOn(logger, 'error')
+      .mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    handleUnhandledRejectionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Unhandled transport rejection escaped local handler; keeping process alive',
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   it('still exits on unexpected uncaught exceptions', async () => {
