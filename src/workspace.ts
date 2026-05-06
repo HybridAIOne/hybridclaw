@@ -32,6 +32,27 @@ const WORKSPACE_STATE_FILENAME = 'workspace-state.json';
 const WORKSPACE_STATE_VERSION = 1;
 const POLICY_RELATIVE_PATH = path.join('.hybridclaw', 'policy.yaml');
 const DEFAULT_POLICY_TEMPLATE = `approval:
+  rule_order:
+    - policy_reload
+    - classify_action
+    - fingerprint
+    - pinned_red
+    - autonomy
+    - safety_tier
+    - stakes
+    - autonomy_override
+    - red_hard_deny
+    - red_one_shot
+    - red_session_trust
+    - red_agent_trust
+    - red_workspace_trust
+    - red_promotable
+    - red_full_auto
+    - red_queue
+    - red_prompt
+    - yellow_full_auto
+    - yellow_execution_promotion
+    - green_fallback
   pinned_red:
     - pattern: "rm -rf /"
     - paths: ["~/.ssh/**", "/etc/**", ".env*"]
