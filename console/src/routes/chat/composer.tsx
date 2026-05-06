@@ -2,7 +2,6 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
-  type ReactNode,
   useCallback,
   useEffect,
   useId,
@@ -11,7 +10,7 @@ import {
 } from 'react';
 import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
-import { Popover, usePopoverContext } from '../../components/popover';
+import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
 import { pluralize } from '../../lib/format';
@@ -30,21 +29,6 @@ import {
   type SlashPanelMode,
   SlashSuggestionsPanel,
 } from './slash-suggestions-panel';
-
-function ComposerAnchor({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  const ctx = usePopoverContext('ComposerAnchor');
-  return (
-    <div ref={ctx.setTriggerEl} className={className}>
-      {children}
-    </div>
-  );
-}
 
 export function Composer(props: {
   isStreaming: boolean;
@@ -82,6 +66,9 @@ export function Composer(props: {
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+      // Invalidate any in-flight fetch so its late resolve can't setState
+      // on an unmounted component.
+      suggestSeqRef.current += 1;
     };
   }, []);
 
@@ -128,9 +115,8 @@ export function Composer(props: {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   };
 
-  // Clear the debounce timer and invalidate any in-flight request so its
-  // late response can't apply after the user has moved on (next keystroke,
-  // dismiss, submit).
+  // The fetch itself can't be aborted, so the seq bump is what makes a
+  // late-resolving response a no-op.
   const cancelPendingFetch = () => {
     if (suggestTimerRef.current) {
       clearTimeout(suggestTimerRef.current);
@@ -146,7 +132,8 @@ export function Composer(props: {
 
   const fetchSuggestions = useCallback(
     async (query: string) => {
-      suggestSeqRef.current += 1;
+      // The seq is bumped by every cancel/dismiss/submit path, so we just
+      // capture the current value here — any later bump invalidates this run.
       const seq = suggestSeqRef.current;
       try {
         const res = await fetchChatCommands(props.token, query || undefined);
@@ -254,10 +241,15 @@ export function Composer(props: {
         return;
       }
     }
-    if (isOpen && e.key === 'Escape') {
-      e.preventDefault();
+    if (e.key === 'Escape') {
+      // Always cancel a pending lookup so a fetch in flight when the user
+      // dismisses can't pop the panel after they've moved on.
+      const wasOpen = isOpen;
       closePanel();
-      return;
+      if (wasOpen) {
+        e.preventDefault();
+        return;
+      }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -308,7 +300,7 @@ export function Composer(props: {
           if (!next) closePanel();
         }}
       >
-        <ComposerAnchor className={css.composer}>
+        <PopoverAnchor className={css.composer}>
           {pendingMedia.length > 0 || uploading > 0 ? (
             <div className={css.pendingMediaRow}>
               {pendingMedia.map((m, i) => (
@@ -413,7 +405,7 @@ export function Composer(props: {
               onChange={handleFileChange}
             />
           </div>
-        </ComposerAnchor>
+        </PopoverAnchor>
         {panelMode !== 'closed' ? (
           <SlashSuggestionsPanel
             mode={panelMode}

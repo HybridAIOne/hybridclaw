@@ -182,7 +182,6 @@ describe('ChatPage', () => {
   });
 
   beforeEach(async () => {
-    window.HTMLElement.prototype.scrollIntoView = vi.fn();
     ensureLocalStorage();
     localStorage.clear();
     localStorage.setItem('hybridclaw_session', 'session-a');

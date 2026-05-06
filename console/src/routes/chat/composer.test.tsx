@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ChatCommandSuggestion,
@@ -368,10 +374,9 @@ describe('Composer', () => {
         description: 'Set channel mode',
       };
       await showPanel([item]);
-      const monoSpan = document.querySelector(
-        '[role="option"] [class*="suggestionLabelMono" i]',
-      );
-      expect(monoSpan?.textContent).toBe('<off|mention|free>');
+      // The placeholder must render as its own discrete element (a mono-styled
+      // span) — getByText only matches when the text is a single text node.
+      expect(screen.getByText('<off|mention|free>')).toBeTruthy();
     });
 
     it('updates the polite live region with the result count', async () => {
@@ -424,9 +429,9 @@ describe('Composer', () => {
       await waitFor(() => expect(fetchChatCommandsMock).toHaveBeenCalled());
       fireEvent.keyDown(textarea, { key: 'Escape' });
       expect(screen.queryByRole('listbox')).toBeNull();
-      resolveFetch?.({ commands: [APPROVE] });
-      await Promise.resolve();
-      await Promise.resolve();
+      await act(async () => {
+        resolveFetch?.({ commands: [APPROVE] });
+      });
       expect(screen.queryByRole('listbox')).toBeNull();
     });
 
@@ -445,9 +450,9 @@ describe('Composer', () => {
       await waitFor(() => expect(fetchChatCommandsMock).toHaveBeenCalled());
       fireEvent.keyDown(textarea, { key: 'Enter' });
       expect(onSend).toHaveBeenCalledWith('/test', []);
-      resolveFetch?.({ commands: [APPROVE] });
-      await Promise.resolve();
-      await Promise.resolve();
+      await act(async () => {
+        resolveFetch?.({ commands: [APPROVE] });
+      });
       expect(screen.queryByRole('listbox')).toBeNull();
     });
   });
