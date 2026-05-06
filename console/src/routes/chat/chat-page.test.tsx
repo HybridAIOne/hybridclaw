@@ -206,7 +206,6 @@ describe('ChatPage', () => {
   });
 
   beforeEach(async () => {
-    window.HTMLElement.prototype.scrollIntoView = vi.fn();
     ensureLocalStorage();
     localStorage.clear();
     localStorage.setItem('hybridclaw_session', 'session-a');
@@ -884,7 +883,9 @@ describe('ChatPage', () => {
 
     fireEvent.click(screen.getByTitle('Edit'));
 
-    const editBox = screen.getAllByRole('textbox')[1] as HTMLTextAreaElement;
+    const editBox = screen.getByLabelText(
+      'Edit message',
+    ) as HTMLTextAreaElement;
     fireEvent.change(editBox, {
       target: { value: 'Updated draft message' },
     });

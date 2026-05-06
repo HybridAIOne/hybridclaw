@@ -4,13 +4,16 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from 'react';
 import { fetchChatCommands } from '../../api/chat';
 import type { ChatCommandSuggestion, MediaItem } from '../../api/chat-types';
+import { Popover, PopoverAnchor } from '../../components/popover';
 import { extractClipboardFiles } from '../../lib/chat-helpers';
 import { cx } from '../../lib/cx';
+import { pluralize } from '../../lib/format';
 import {
   type AgentSwitchOption,
   AgentSwitchSelect,
@@ -20,39 +23,12 @@ import {
   type ModelSwitchEntry,
   ModelSwitchSelect,
 } from './model-switch-select';
-
-function SlashSuggestions(props: {
-  items: ChatCommandSuggestion[];
-  activeIndex: number;
-  onSelect: (item: ChatCommandSuggestion) => void;
-}) {
-  if (props.items.length === 0) return null;
-  return (
-    <div className={css.slashSuggestions} role="listbox">
-      {props.items.map((item, i) => (
-        <div
-          key={item.id}
-          className={cx(
-            css.suggestionItem,
-            i === props.activeIndex && css.suggestionItemActive,
-          )}
-          role="option"
-          tabIndex={-1}
-          aria-selected={i === props.activeIndex}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            props.onSelect(item);
-          }}
-        >
-          <span className={css.suggestionLabel}>{item.label}</span>
-          {item.description ? (
-            <span className={css.suggestionDesc}>{item.description}</span>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
+import { getSlashContext } from './slash-context';
+import {
+  optionIdFor,
+  type SlashPanelMode,
+  SlashSuggestionsPanel,
+} from './slash-suggestions-panel';
 
 export function Composer(props: {
   isStreaming: boolean;
@@ -74,13 +50,25 @@ export function Composer(props: {
   const [uploading, setUploading] = useState(0);
   const [suggestions, setSuggestions] = useState<ChatCommandSuggestion[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [panelMode, setPanelMode] = useState<SlashPanelMode>('closed');
+  const [lastQuery, setLastQuery] = useState('');
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestSeqRef = useRef(0);
+  const listboxId = useId();
+  const isOpen = panelMode !== 'closed';
+  const liveMessage =
+    panelMode === 'list'
+      ? `${pluralize(suggestions.length, 'command')} available`
+      : panelMode === 'empty'
+        ? `No commands match /${lastQuery}`
+        : '';
 
   useEffect(() => {
     return () => {
       if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+      // Invalidate any in-flight fetch so its late resolve can't setState
+      // on an unmounted component.
+      suggestSeqRef.current += 1;
     };
   }, []);
 
@@ -127,20 +115,44 @@ export function Composer(props: {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   };
 
+  // The fetch itself can't be aborted, so the seq bump is what makes a
+  // late-resolving response a no-op.
+  const cancelPendingFetch = () => {
+    if (suggestTimerRef.current) {
+      clearTimeout(suggestTimerRef.current);
+      suggestTimerRef.current = null;
+    }
+    suggestSeqRef.current += 1;
+  };
+
+  const closePanel = () => {
+    cancelPendingFetch();
+    setPanelMode('closed');
+  };
+
   const fetchSuggestions = useCallback(
     async (query: string) => {
-      suggestSeqRef.current += 1;
+      // The seq is bumped by every cancel/dismiss/submit path, so we just
+      // capture the current value here — any later bump invalidates this run.
       const seq = suggestSeqRef.current;
       try {
         const res = await fetchChatCommands(props.token, query || undefined);
         if (seq !== suggestSeqRef.current) return;
-        setSuggestions(res.commands ?? []);
+        const commands = res.commands ?? [];
+        setSuggestions(commands);
         setActiveIdx(0);
-        setShowSuggestions((res.commands ?? []).length > 0);
+        setLastQuery(query);
+        if (commands.length > 0) {
+          setPanelMode('list');
+        } else if (query !== '') {
+          setPanelMode('empty');
+        } else {
+          setPanelMode('closed');
+        }
       } catch {
         if (seq !== suggestSeqRef.current) return;
         setSuggestions([]);
-        setShowSuggestions(false);
+        setPanelMode('closed');
       }
     },
     [props.token],
@@ -148,24 +160,42 @@ export function Composer(props: {
 
   const handleInput = () => {
     resize();
-    const val = textareaRef.current?.value ?? '';
-    if (val.startsWith('/')) {
-      const query = val.slice(1).trim();
-      if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const cursor = ta.selectionStart ?? ta.value.length;
+    const ctx = getSlashContext(ta.value, cursor);
+    if (ctx) {
+      const query = ctx.query.trim();
+      cancelPendingFetch();
       suggestTimerRef.current = setTimeout(() => {
         void fetchSuggestions(query);
       }, 150);
     } else {
-      setShowSuggestions(false);
+      closePanel();
     }
   };
 
   const applySuggestion = (item: ChatCommandSuggestion) => {
-    if (!textareaRef.current) return;
-    textareaRef.current.value = `${item.insertText} `;
-    setShowSuggestions(false);
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const value = ta.value;
+    const cursor = ta.selectionStart ?? value.length;
+    const ctx = getSlashContext(value, cursor);
+    const insertCore = item.insertText.replace(/\s+$/, '');
+    if (ctx) {
+      const before = value.slice(0, ctx.tokenStart);
+      const after = value.slice(cursor);
+      const insert = after.startsWith(' ') ? insertCore : `${insertCore} `;
+      ta.value = before + insert + after;
+      const newCursor = before.length + insert.length;
+      ta.setSelectionRange(newCursor, newCursor);
+    } else {
+      ta.value = `${insertCore} `;
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+    closePanel();
     resize();
-    textareaRef.current.focus();
+    ta.focus();
   };
 
   const submit = () => {
@@ -179,11 +209,12 @@ export function Composer(props: {
     props.onSend(val, pendingMedia);
     if (textareaRef.current) textareaRef.current.value = '';
     setPendingMedia([]);
+    closePanel();
     resize();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showSuggestions && suggestions.length > 0) {
+    if (panelMode === 'list' && suggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActiveIdx((i) => (i + 1) % suggestions.length);
@@ -194,14 +225,29 @@ export function Composer(props: {
         setActiveIdx((i) => (i - 1 + suggestions.length) % suggestions.length);
         return;
       }
+      if (e.key === 'Home') {
+        e.preventDefault();
+        setActiveIdx(0);
+        return;
+      }
+      if (e.key === 'End') {
+        e.preventDefault();
+        setActiveIdx(suggestions.length - 1);
+        return;
+      }
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         applySuggestion(suggestions[activeIdx]);
         return;
       }
-      if (e.key === 'Escape') {
+    }
+    if (e.key === 'Escape') {
+      // Always cancel a pending lookup so a fetch in flight when the user
+      // dismisses can't pop the panel after they've moved on.
+      const wasOpen = isOpen;
+      closePanel();
+      if (wasOpen) {
         e.preventDefault();
-        setShowSuggestions(false);
         return;
       }
     }
@@ -248,108 +294,136 @@ export function Composer(props: {
 
   return (
     <div className={css.composerWrapper} ref={wrapperRef}>
-      <div className={css.composer} style={{ position: 'relative' }}>
-        {showSuggestions ? (
-          <SlashSuggestions
-            items={suggestions}
-            activeIndex={activeIdx}
-            onSelect={applySuggestion}
+      <Popover
+        open={isOpen}
+        onOpenChange={(next) => {
+          if (!next) closePanel();
+        }}
+      >
+        <PopoverAnchor className={css.composer}>
+          {pendingMedia.length > 0 || uploading > 0 ? (
+            <div className={css.pendingMediaRow}>
+              {pendingMedia.map((m, i) => (
+                <span key={m.path} className={css.mediaChip}>
+                  <span className={css.mediaChipName}>{m.filename}</span>
+                  <button
+                    type="button"
+                    className={css.mediaChipRemove}
+                    onClick={() => removeMedia(i)}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {uploading > 0 ? (
+                <span className={css.mediaChip}>Uploading…</span>
+              ) : null}
+            </div>
+          ) : null}
+          <textarea
+            ref={textareaRef}
+            className={css.composerInput}
+            rows={1}
+            placeholder="Message HybridClaw"
+            disabled={props.isStreaming}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            aria-label="Message input"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-controls={listboxId}
+            aria-expanded={isOpen}
+            aria-activedescendant={
+              panelMode === 'list' && suggestions.length > 0
+                ? optionIdFor(listboxId, activeIdx)
+                : undefined
+            }
           />
-        ) : null}
-        {pendingMedia.length > 0 || uploading > 0 ? (
-          <div className={css.pendingMediaRow}>
-            {pendingMedia.map((m, i) => (
-              <span key={m.path} className={css.mediaChip}>
-                <span className={css.mediaChipName}>{m.filename}</span>
-                <button
-                  type="button"
-                  className={css.mediaChipRemove}
-                  onClick={() => removeMedia(i)}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            {uploading > 0 ? (
-              <span className={css.mediaChip}>Uploading…</span>
-            ) : null}
-          </div>
-        ) : null}
-        <textarea
-          ref={textareaRef}
-          className={css.composerInput}
-          rows={1}
-          placeholder="Message HybridClaw"
-          disabled={props.isStreaming}
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          aria-label="Message input"
-        />
-        <div className={css.composerActions}>
-          <div className={css.composerLeftActions}>
+          <div className={css.composerActions}>
+            <div className={css.composerLeftActions}>
+              <button
+                type="button"
+                className={css.attachButton}
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach files"
+              >
+                +
+              </button>
+              <AgentSwitchSelect
+                agents={agentOptions}
+                selectedAgentId={selectedAgentId}
+                disabled={props.isStreaming}
+                onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
+              />
+              <ModelSwitchSelect
+                models={modelOptions}
+                selectedModelId={selectedModelId}
+                disabled={props.isStreaming}
+                onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
+              />
+            </div>
             <button
               type="button"
-              className={css.attachButton}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach files"
+              className={cx(css.sendButton, props.isStreaming && css.stopping)}
+              onClick={submit}
+              aria-label={props.isStreaming ? 'Stop' : 'Send message'}
             >
-              +
+              {props.isStreaming ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5" />
+                  <path d="m5 12 7-7 7 7" />
+                </svg>
+              )}
             </button>
-            <AgentSwitchSelect
-              agents={agentOptions}
-              selectedAgentId={selectedAgentId}
-              disabled={props.isStreaming}
-              onSwitch={(agentId) => props.onAgentSwitch?.(agentId)}
-            />
-            <ModelSwitchSelect
-              models={modelOptions}
-              selectedModelId={selectedModelId}
-              disabled={props.isStreaming}
-              onSwitch={(modelId) => props.onModelSwitch?.(modelId)}
+            <input
+              ref={fileInputRef}
+              type="file"
+              hidden
+              multiple
+              onChange={handleFileChange}
             />
           </div>
-          <button
-            type="button"
-            className={cx(css.sendButton, props.isStreaming && css.stopping)}
-            onClick={submit}
-            aria-label={props.isStreaming ? 'Stop' : 'Send message'}
-          >
-            {props.isStreaming ? (
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 19V5" />
-                <path d="m5 12 7-7 7 7" />
-              </svg>
-            )}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            multiple
-            onChange={handleFileChange}
+        </PopoverAnchor>
+        {panelMode !== 'closed' ? (
+          <SlashSuggestionsPanel
+            mode={panelMode}
+            suggestions={suggestions}
+            activeIdx={activeIdx}
+            query={lastQuery}
+            listboxId={listboxId}
+            onSelect={applySuggestion}
+            onActiveChange={setActiveIdx}
           />
-        </div>
+        ) : null}
+      </Popover>
+      <div
+        className={css.slashLiveRegion}
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {liveMessage}
       </div>
     </div>
   );
