@@ -2679,7 +2679,7 @@ export function getGatewayAssistantPresentationForMessageAgent(
   agentId?: string | null,
 ): GatewayAssistantPresentation | undefined {
   const normalizedAgentId = String(agentId || '').trim();
-  if (!normalizedAgentId || normalizedAgentId === DEFAULT_AGENT_ID) {
+  if (!normalizedAgentId) {
     return undefined;
   }
   return getGatewayAssistantPresentationForAgent(normalizedAgentId);
@@ -6450,12 +6450,14 @@ export function getGatewayRecentChatSessions(params: {
   limit?: number;
   query?: string | null;
   fallbackToChannelRecent?: boolean;
+  includeScheduled?: boolean;
 }): GatewayRecentChatSession[] {
   const sessions = getRecentSessionsForUser({
     userId: params.userId,
     channelId: params.channelId || 'web',
     limit: params.limit,
     query: params.query,
+    includeScheduled: params.includeScheduled,
   });
   if (!params.fallbackToChannelRecent) {
     return sessions;
@@ -6464,6 +6466,7 @@ export function getGatewayRecentChatSessions(params: {
     channelId: params.channelId || 'web',
     limit: params.limit,
     query: params.query,
+    includeScheduled: params.includeScheduled,
   });
   const merged = new Map<string, GatewayRecentChatSession>();
   for (const session of [...channelSessions, ...sessions]) {

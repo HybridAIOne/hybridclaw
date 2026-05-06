@@ -4193,6 +4193,49 @@ describe('gateway HTTP server', () => {
     });
   });
 
+  test('passes explicit user chat scope without channel fallback', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10&scope=user',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 10,
+      includeScheduled: false,
+    });
+  });
+
+  test('passes explicit all chat scope with channel fallback', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/api/chat/recent?userId=web-user-a&channelId=web&limit=10&scope=all',
+      headers: {
+        authorization: 'Bearer web-token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await waitForResponse(res, (next) => next.writableEnded);
+
+    expect(state.getGatewayRecentChatSessions).toHaveBeenCalledWith({
+      userId: 'web-user-a',
+      channelId: 'web',
+      limit: 10,
+      includeScheduled: true,
+      fallbackToChannelRecent: true,
+    });
+  });
+
   test('uses the signed session subject for web chat history search', async () => {
     const authSecret = 'health-secret';
     const sessionToken = signAuthPayload(

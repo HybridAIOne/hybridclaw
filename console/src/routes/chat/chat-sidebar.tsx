@@ -30,6 +30,8 @@ export interface ChatSidebarProps {
   isPending?: boolean;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
+  recentScope: 'user' | 'all';
+  onRecentScopeChange: (scope: 'user' | 'all') => void;
   isLoading: boolean;
   onRefreshRecent?: () => void;
 }
@@ -86,8 +88,26 @@ export function ChatSidebarPanel(props: ChatSidebarProps) {
 function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
   return (
     <div className={css.chatSidebarContent}>
-      <div className={css.sidebarLabel}>
-        {props.isSearching ? 'Search Results' : 'Recent Chats'}
+      <div className={css.sidebarListHeader}>
+        <div className={css.sidebarLabel}>
+          {props.isSearching ? 'Search Results' : 'Recent Chats'}
+        </div>
+        <div className={css.sidebarScopeToggle}>
+          {(['user', 'all'] as const).map((scope) => (
+            <button
+              key={scope}
+              type="button"
+              className={cx(
+                css.sidebarScopeButton,
+                props.recentScope === scope && css.sidebarScopeButtonActive,
+              )}
+              aria-pressed={props.recentScope === scope}
+              onClick={() => props.onRecentScopeChange(scope)}
+            >
+              {scope === 'user' ? 'User' : 'All'}
+            </button>
+          ))}
+        </div>
       </div>
       {props.isLoading && props.isSearching ? (
         <div className={css.sidebarStatus}>Searching...</div>

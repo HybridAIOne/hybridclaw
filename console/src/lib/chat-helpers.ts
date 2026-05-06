@@ -21,9 +21,13 @@ export function randomHex(bytes: number): string {
   return Array.from(arr, (v) => v.toString(16).padStart(2, '0')).join('');
 }
 
-export function generateWebSessionId(agentId = DEFAULT_AGENT_ID): string {
-  const normalized = agentId.trim().toLowerCase();
-  return `agent:${encodeURIComponent(normalized)}:channel:web:chat:dm:peer:${randomHex(8)}`;
+export function generateWebSessionId(): string {
+  const timestamp = new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[-:]/g, '')
+    .replace('T', '_');
+  return `sess_${timestamp}_${randomHex(4)}`;
 }
 
 export function readStoredUserId(): string {
