@@ -284,10 +284,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          # npm trusted publishing requires npm 11+, which GitHub-hosted Node 24
-          # provides out of the box on the release runner image.
-          node-version: 24
+          # The package declares Node 22.x and .npmrc enforces engines during
+          # npm ci. Upgrade npm separately so trusted publishing still uses
+          # npm 11+.
+          node-version: 22
           cache: npm
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11
 
       - name: Install dependencies
         env:
