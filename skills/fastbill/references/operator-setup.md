@@ -39,8 +39,8 @@ ask them to rotate the key and store the replacement through `/secret set`.
 
 FastBill documents the API key as account access information available in the
 FastBill account settings/profile area. Operators should retrieve it from the
-FastBill UI, combine it with the account email locally, and store only the
-encoded Basic credential as `FASTBILL_BASIC_AUTH`.
+FastBill UI, store the source pair as `FASTBILL_EMAIL` and `FASTBILL_API_KEY`,
+then combine them locally into the derived `FASTBILL_BASIC_AUTH` route secret.
 
 ## Account Scoping
 
@@ -75,8 +75,7 @@ grant in the current task:
 - customer and contact create/update/delete
 - invoice create/update/delete/complete/cancel/lock/send/setpaid
 - reminder emails through `invoice.sendbyemail`
-- article, project, time, recurring, revenue, expense, document, and webhook
-  creation or updates
+- article, project, time, recurring, revenue, expense, document, and webhook creation or updates
 
 Use `--dry-run` first when line items come from time tracking, email, or CSV
 inputs.

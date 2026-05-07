@@ -282,14 +282,23 @@ function unescapeXml(value) {
 
 function collectErrors(value) {
   const errors = [];
-  visit(value, (node, key) => {
-    if (key !== 'ERROR') return;
-    if (Array.isArray(node)) {
-      for (const entry of node) errors.push(normalizeError(entry));
+  const scan = (node, key = '') => {
+    if (key === 'ERROR') {
+      for (const entry of Array.isArray(node) ? node : [node]) {
+        errors.push(normalizeError(entry));
+      }
       return;
     }
-    errors.push(normalizeError(node));
-  });
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const entry of node) scan(entry, key);
+      return;
+    }
+    for (const [childKey, childValue] of Object.entries(node)) {
+      scan(childValue, childKey);
+    }
+  };
+  scan(value);
   return errors.filter(Boolean);
 }
 
@@ -456,8 +465,8 @@ function findInvoices(response) {
   const invoices = [];
   visit(response, (node, key) => {
     if (key !== 'INVOICE') return;
-    if (Array.isArray(node)) invoices.push(...node);
-    else if (node && typeof node === 'object') invoices.push(node);
+    if (Array.isArray(node)) return;
+    if (node && typeof node === 'object') invoices.push(node);
   });
   return invoices;
 }

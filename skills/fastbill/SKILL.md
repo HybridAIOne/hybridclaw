@@ -152,8 +152,7 @@ These services require `--operator-grant`:
 - `invoice.create`, `invoice.update`, `invoice.delete`
 - `invoice.complete`, `invoice.cancel`, `invoice.lock`
 - `invoice.sendbyemail`, `invoice.sendbypost`, `invoice.setpaid`
-- `estimate.create`, `estimate.delete`, `estimate.sendbyemail`,
-  `estimate.createinvoice`
+- `estimate.create`, `estimate.delete`, `estimate.sendbyemail`, `estimate.createinvoice`
 - `article.create`, `article.update`, `article.delete`
 - `recurring.create`, `recurring.update`, `recurring.delete`
 - `revenue.create`, `revenue.setpaid`, `revenue.delete`
@@ -183,15 +182,10 @@ before sending to public-sector or mandate-bound B2B recipients.
 - Never print or ask for the FastBill API key.
 - Never build a Basic header in a prompt. Use the configured secret route.
 - Keep XML local to the helper; expose JSON-shaped request and response data.
-- Treat `invoice.create`, `customer.create`, `invoice.setpaid`, and reminder
-  email sends as operator-granted writes.
-- Use `--dry-run` when translating time tracking, CSV, or free text into invoice
-  line items.
-- When multiple invoices or customers match a lookup, stop and ask for the exact
-  ID before writing.
-- Cost per assistant run is recorded by HybridClaw `UsageTotals`; helper output
-  includes `costMeasurement.system = "UsageTotals"` so evals can verify the
-  accounting contract.
+- Treat `invoice.create`, `customer.create`, `invoice.setpaid`, and reminder email sends as operator-granted writes.
+- Use `--dry-run` when translating time tracking, CSV, or free text into invoice line items.
+- When multiple invoices or customers match a lookup, stop and ask for the exact ID before writing.
+- Cost per assistant run is recorded by HybridClaw `UsageTotals`; helper output includes `costMeasurement.system = "UsageTotals"` so evals can verify the accounting contract.
 
 ## References
 
