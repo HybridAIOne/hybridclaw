@@ -146,7 +146,7 @@ Interactive slash commands inside TUI:
   /memory inspect [sessionId]   /memory query <query>
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /paste
-  /policy [status|show|list|diff|accept-pending|rollback|allow|deny|delete|preset|default|reset]
+  /policy [status|show|list|diff|accept-pending|rollback|revisions|pending|allow|deny|delete|preset|default|reset]
   /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
   /rag [on|off]
   /ralph [info|on|off|set n]
@@ -573,6 +573,7 @@ Commands:
   hybridclaw policy accept-pending <pending-id|update-id>
   hybridclaw policy rollback <revision-id>
   hybridclaw policy revisions
+  hybridclaw policy pending
   hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
   hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
   hybridclaw policy delete <number|host>

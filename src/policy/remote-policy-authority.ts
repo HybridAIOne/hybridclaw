@@ -45,6 +45,7 @@ export interface PolicyUpdateResult {
   disposition: PolicyUpdateDisposition;
   updateId: string;
   diff: string[];
+  statusCode?: number;
   pendingId?: string;
   revisionChanged?: boolean;
   reason?: string;
@@ -747,6 +748,7 @@ function recordPolicyUpdatedAudit(params: {
   diff: string[];
   revisionChanged?: boolean;
   pendingId?: string;
+  statusCode?: number;
   reason?: string;
 }): void {
   recordAuditEvent({
@@ -760,6 +762,7 @@ function recordPolicyUpdatedAudit(params: {
       diff: params.diff,
       revisionChanged: params.revisionChanged ?? false,
       pendingId: params.pendingId || null,
+      statusCode: params.statusCode || null,
       reason: params.reason || null,
     },
   });
@@ -836,95 +839,111 @@ export function handleRemotePolicyUpdate(params: {
       disposition: 'rejected',
       updateId: `invalid-${sha256(params.content).slice(0, 16)}`,
       diff: [],
+      statusCode: 400,
       reason: error instanceof Error ? error.message : String(error),
     };
     recordPolicyUpdatedAudit({ ...result, principal });
     return result;
   }
-  const policyPath = resolveWorkspacePolicyPath(params.workspacePath);
-  const document = readPolicyDocument(policyPath);
-  const mode = params.forcedMode || readRemoteUpdateMode(document);
-
   if (!hasPolicyWriteAuthority(principal)) {
     const result: PolicyUpdateResult = {
       disposition: 'rejected',
       updateId: parsed.updateId,
       diff: [],
+      statusCode: 403,
       reason: policyAuthorityRejectReason(principal),
     };
     recordPolicyUpdatedAudit({ ...result, principal });
     return result;
   }
-  if (mode === 'disabled') {
+
+  try {
+    const policyPath = resolveWorkspacePolicyPath(params.workspacePath);
+    const document = readPolicyDocument(policyPath);
+    const mode = params.forcedMode || readRemoteUpdateMode(document);
+
+    if (mode === 'disabled') {
+      const result: PolicyUpdateResult = {
+        disposition: 'rejected',
+        updateId: parsed.updateId,
+        diff: [],
+        statusCode: 403,
+        reason: 'policy.update ingest is disabled',
+      };
+      recordPolicyUpdatedAudit({ ...result, principal });
+      return result;
+    }
+
+    const before = readPolicyView(params.workspacePath, document);
+    const after = applyOperations(before, parsed.operations);
+    const diff = buildPolicyDiff(before, after);
+    if (diff.length === 0) {
+      const result: PolicyUpdateResult = {
+        disposition: 'unchanged',
+        updateId: parsed.updateId,
+        diff,
+        reason: 'policy update produced no changes',
+      };
+      recordPolicyUpdatedAudit({ ...result, principal });
+      return result;
+    }
+
+    if (mode === 'quarantine') {
+      const pendingId = `${Date.now()}-${randomUUID()}`;
+      persistPendingPolicyUpdate({
+        schemaVersion: 1,
+        pendingId,
+        updateId: parsed.updateId,
+        reason: parsed.reason,
+        workspacePath: path.resolve(params.workspacePath),
+        policyPath,
+        principal,
+        operations: parsed.operations,
+        diff,
+        createdAt: new Date().toISOString(),
+      });
+      const result: PolicyUpdateResult = {
+        disposition: 'quarantined',
+        updateId: parsed.updateId,
+        diff,
+        pendingId,
+      };
+      recordPolicyUpdatedAudit({ ...result, principal, reason: parsed.reason });
+      return result;
+    }
+
+    syncPolicyBaseline({
+      policyPath,
+      document,
+      view: before,
+      principal,
+      route: `policy.update.preflight#${parsed.updateId}`,
+    });
+    writePolicyDocument(policyPath, buildPolicyDocument(document, after));
+    const revision = syncPolicyRevision(
+      policyPath,
+      principal,
+      `policy.update.apply#${parsed.updateId}`,
+    );
+    const result: PolicyUpdateResult = {
+      disposition: 'applied',
+      updateId: parsed.updateId,
+      diff,
+      revisionChanged: revision.changed,
+    };
+    recordPolicyUpdatedAudit({ ...result, principal, reason: parsed.reason });
+    return result;
+  } catch (error) {
     const result: PolicyUpdateResult = {
       disposition: 'rejected',
       updateId: parsed.updateId,
       diff: [],
-      reason: 'policy.update ingest is disabled',
-    };
-    recordPolicyUpdatedAudit({ ...result, principal });
-    return result;
-  }
-
-  const before = readPolicyView(params.workspacePath, document);
-  const after = applyOperations(before, parsed.operations);
-  const diff = buildPolicyDiff(before, after);
-  if (diff.length === 0) {
-    const result: PolicyUpdateResult = {
-      disposition: 'unchanged',
-      updateId: parsed.updateId,
-      diff,
-      reason: 'policy update produced no changes',
-    };
-    recordPolicyUpdatedAudit({ ...result, principal });
-    return result;
-  }
-
-  if (mode === 'quarantine') {
-    const pendingId = `${Date.now()}-${randomUUID()}`;
-    persistPendingPolicyUpdate({
-      schemaVersion: 1,
-      pendingId,
-      updateId: parsed.updateId,
-      reason: parsed.reason,
-      workspacePath: path.resolve(params.workspacePath),
-      policyPath,
-      principal,
-      operations: parsed.operations,
-      diff,
-      createdAt: new Date().toISOString(),
-    });
-    const result: PolicyUpdateResult = {
-      disposition: 'quarantined',
-      updateId: parsed.updateId,
-      diff,
-      pendingId,
+      statusCode: 500,
+      reason: error instanceof Error ? error.message : String(error),
     };
     recordPolicyUpdatedAudit({ ...result, principal, reason: parsed.reason });
     return result;
   }
-
-  syncPolicyBaseline({
-    policyPath,
-    document,
-    view: before,
-    principal,
-    route: `policy.update.preflight#${parsed.updateId}`,
-  });
-  writePolicyDocument(policyPath, buildPolicyDocument(document, after));
-  const revision = syncPolicyRevision(
-    policyPath,
-    principal,
-    `policy.update.apply#${parsed.updateId}`,
-  );
-  const result: PolicyUpdateResult = {
-    disposition: 'applied',
-    updateId: parsed.updateId,
-    diff,
-    revisionChanged: revision.changed,
-  };
-  recordPolicyUpdatedAudit({ ...result, principal, reason: parsed.reason });
-  return result;
 }
 
 export function acceptPendingPolicyUpdate(

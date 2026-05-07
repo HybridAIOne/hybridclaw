@@ -227,10 +227,16 @@ network:
     const { initDatabase } = await import('../src/memory/db.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
     const outbound = await import('../src/a2a/webhook-outbound.ts');
+    const ipc = await import('../src/infra/ipc.ts');
     const secrets = await import('../src/security/runtime-secrets.ts');
 
     initDatabase({ quiet: true });
     secrets.saveNamedRuntimeSecrets({ A2A_INBOUND_WEBHOOK_SECRET: 'shared' });
+    workspacePath = ipc.agentWorkspaceDir('main');
+    fs.mkdirSync(workspacePath, { recursive: true });
+    const serverCwd = path.join(tmpDir, 'server-cwd');
+    fs.mkdirSync(serverCwd, { recursive: true });
+    process.chdir(serverCwd);
     writePolicy(`
 remote_updates:
   mode: apply
@@ -287,5 +293,36 @@ network:
         []
       ).map((rule) => rule.host),
     ).toContain('docs.hybridclaw.io');
+    expect(
+      fs.existsSync(path.join(serverCwd, '.hybridclaw', 'policy.yaml')),
+    ).toBe(false);
+
+    const invalidBody = JSON.stringify({
+      id: 'policy-msg-invalid',
+      sender_agent_id: 'security@hybridai@platform',
+      recipient_agent_id: 'main',
+      thread_id: 'policy-thread',
+      intent: 'policy.update',
+      content: '{not-json',
+      created_at: '2026-05-01T10:01:00.000Z',
+      version: '1',
+    });
+
+    const invalid = inbound.acceptA2AWebhookInboundEnvelope({
+      peerId: 'platform',
+      rawBody: invalidBody,
+      signatureHeader: outbound.signWebhookBody({
+        body: invalidBody,
+        secret: 'shared',
+        timestampSeconds: Math.trunc(nowMs / 1000),
+      }),
+      nowMs,
+    });
+    expect(invalid).toMatchObject({
+      statusCode: 400,
+      body: {
+        disposition: 'rejected',
+      },
+    });
   });
 });

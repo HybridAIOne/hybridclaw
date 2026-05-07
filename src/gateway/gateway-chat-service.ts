@@ -505,12 +505,15 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
   );
+  const fullAutoEnabled = autoApproveTools || isFullAutoEnabled(session);
   const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
     ? req.neverAutoApproveTools
-    : [
-        ...FULLAUTO_NEVER_APPROVE_TOOLS,
-        ...loadPolicyFullAutoNeverApprove(workspacePath),
-      ];
+    : fullAutoEnabled
+      ? [
+          ...FULLAUTO_NEVER_APPROVE_TOOLS,
+          ...loadPolicyFullAutoNeverApprove(workspacePath),
+        ]
+      : FULLAUTO_NEVER_APPROVE_TOOLS;
   const workspaceDisplayPath =
     req.workspaceDisplayRootOverride?.trim() || workspacePath;
   const workspaceBootstrap = req.workspacePathOverride
@@ -1221,7 +1224,7 @@ async function handleGatewayMessageInner(
       bashProxy: req.bashProxy,
       channelId: req.channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled: autoApproveTools || isFullAutoEnabled(session),
+      fullAutoEnabled,
       fullAutoNeverApproveTools: neverAutoApproveTools,
       scheduledTasks,
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,

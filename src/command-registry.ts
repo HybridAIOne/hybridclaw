@@ -232,7 +232,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   policy: {
     command:
-      '/policy [status|show|list|diff|accept-pending|rollback|allow|deny|delete|preset|default|reset]',
+      '/policy [status|show|list|diff|accept-pending|rollback|revisions|pending|allow|deny|delete|preset|default|reset]',
     description: 'Inspect or update workspace HTTP/network policy',
   },
   export: {
