@@ -106,6 +106,35 @@ describe('client command helpers', () => {
     );
   });
 
+  it('adds the force query parameter when uploading skill zips with force', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ skills: [] }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    const file = new File(['zip-bytes'], 'skill.zip', {
+      type: 'application/zip',
+    });
+
+    await uploadSkillZip('test-token', file, { force: true });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/skills/upload?force=true',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/zip',
+        }),
+        body: file,
+      }),
+    );
+  });
+
   it('dispatches auth-required when skill zip upload returns 401', async () => {
     const events: CustomEvent[] = [];
     const listener = (event: Event) => {
