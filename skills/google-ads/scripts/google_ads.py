@@ -24,6 +24,8 @@ DEFAULT_TIMEOUT_MS = 30_000
 GATEWAY_TIMEOUT_BUFFER_S = 5
 DEFAULT_API_VERSION = "v24"
 GOOGLE_ADS_BASE_URL = "https://googleads.googleapis.com"
+# The gateway mints Google OAuth tokens through the existing Workspace token
+# secret name; Google Ads uses the same OAuth rail with the adwords scope.
 GOOGLE_OAUTH_BEARER_SECRET = "GOOGLE_WORKSPACE_CLI_TOKEN"
 GOOGLE_ADS_DEVELOPER_TOKEN_SECRET = "GOOGLEADS_DEVELOPER_TOKEN"
 SKILL_DIR = Path(__file__).resolve().parent.parent
@@ -163,15 +165,12 @@ def usage_totals_measurement() -> dict[str, Any]:
         "system": "UsageTotals",
         "source": "HybridClaw usage_events",
         "scope": "per assistant run/session",
-        "fields": [
-            "total_input_tokens",
-            "total_output_tokens",
-            "total_tokens",
-            "total_cost_usd",
-            "call_count",
-            "total_tool_calls",
-        ],
     }
+
+
+def with_cost(payload: dict[str, Any]) -> dict[str, Any]:
+    payload["costMeasurement"] = usage_totals_measurement()
+    return payload
 
 
 def normalize_customer_id(value: str | None) -> str:
@@ -204,12 +203,25 @@ def resolve_gateway_token() -> str:
     )
 
 
+def is_local_gateway_url(value: str) -> bool:
+    return value.startswith("http://127.") or value.startswith("http://localhost")
+
+
 def make_gateway_config(args: argparse.Namespace) -> GatewayConfig:
-    return GatewayConfig(
+    config = GatewayConfig(
         base_url=(args.gateway_url or resolve_gateway_url()).rstrip("/"),
-        api_token=args.gateway_token if args.gateway_token is not None else resolve_gateway_token(),
+        api_token=(
+            args.gateway_token
+            if args.gateway_token is not None
+            else resolve_gateway_token()
+        ),
         timeout_ms=args.timeout_ms,
     )
+    if not config.api_token and not is_local_gateway_url(config.base_url):
+        raise ConfigError(
+            "Refusing unauthenticated remote gateway URL. Set HYBRIDCLAW_GATEWAY_TOKEN or use a local 127.0.0.1/localhost gateway."
+        )
+    return config
 
 
 def gateway_request(
@@ -322,18 +334,17 @@ def mutate_service(
     operations: list[dict[str, Any]],
     operation_key: str,
     response_content_type: str = "RESOURCE_NAME_ONLY",
-    partial_failure: bool = False,
 ) -> dict[str, Any]:
+    grant = require_grant(args, operation_key)
     customer_id = normalize_customer_id(args.customer_id)
     if not customer_id:
         raise ConfigError("Missing Google Ads customer id.")
-    grant = require_grant(args, operation_key)
     gw = make_gateway_config(args)
     api_version = normalize_api_version(args.api_version)
     request_body: dict[str, Any] = {
         "operations": operations,
         "validateOnly": bool(getattr(args, "validate_only", False)),
-        "partialFailure": partial_failure,
+        "partialFailure": False,
         "responseContentType": response_content_type,
     }
     payload = gateway_request(
@@ -343,7 +354,7 @@ def mutate_service(
         headers=ads_headers(normalize_customer_id(args.login_customer_id)),
         json_payload=request_body,
     )
-    return {
+    return with_cost({
         "command": getattr(args, "command", "mutate"),
         "apiVersion": api_version,
         "customerId": customer_id,
@@ -354,8 +365,7 @@ def mutate_service(
         "validateOnly": request_body["validateOnly"],
         "request": request_body,
         "payload": payload,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def command_customers(args: argparse.Namespace) -> dict[str, Any]:
@@ -367,12 +377,11 @@ def command_customers(args: argparse.Namespace) -> dict[str, Any]:
         method="GET",
         headers=ads_headers(normalize_customer_id(args.login_customer_id)),
     )
-    return {
+    return with_cost({
         "command": "customers",
         "apiVersion": api_version,
         "payload": payload,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def command_gaql(args: argparse.Namespace) -> dict[str, Any]:
@@ -394,7 +403,7 @@ def command_gaql(args: argparse.Namespace) -> dict[str, Any]:
         json_payload={"query": query},
         max_response_bytes=args.max_response_bytes,
     )
-    return {
+    return with_cost({
         "command": "gaql",
         "apiVersion": api_version,
         "customerId": customer_id,
@@ -402,8 +411,7 @@ def command_gaql(args: argparse.Namespace) -> dict[str, Any]:
         "query": query,
         "review": review,
         "payload": payload,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def choose_date_window(text: str) -> str:
@@ -427,14 +435,93 @@ def detect_report_focus(text: str) -> str:
     return "campaign"
 
 
+def report_shape(focus: str, normalized: str) -> tuple[list[str], str, str]:
+    if focus == "ad_group":
+        order = (
+            "metrics.ctr ASC"
+            if "worst" in normalized or "below" in normalized
+            else "metrics.clicks DESC"
+        )
+        return [
+            "campaign.name",
+            "ad_group.id",
+            "ad_group.name",
+            "metrics.impressions",
+            "metrics.clicks",
+            "metrics.ctr",
+            "metrics.conversions",
+            "metrics.cost_micros",
+        ], "ad_group", order
+    if focus == "keyword_view":
+        return [
+            "campaign.name",
+            "ad_group.name",
+            "ad_group_criterion.keyword.text",
+            "metrics.impressions",
+            "metrics.clicks",
+            "metrics.ctr",
+            "metrics.conversions",
+            "metrics.cost_micros",
+        ], "keyword_view", "metrics.clicks DESC"
+    if focus == "search_term_view":
+        return [
+            "campaign.name",
+            "ad_group.name",
+            "search_term_view.search_term",
+            "metrics.impressions",
+            "metrics.clicks",
+            "metrics.ctr",
+            "metrics.conversions",
+            "metrics.cost_micros",
+        ], "search_term_view", "metrics.clicks DESC"
+    if focus == "recommendation":
+        return [
+            "recommendation.resource_name",
+            "recommendation.type",
+            "recommendation.impact.base_metrics.clicks",
+            "recommendation.impact.potential_metrics.clicks",
+        ], "recommendation", ""
+    order = (
+        "metrics.cost_micros DESC"
+        if "cost" in normalized or "spend" in normalized
+        else "metrics.clicks DESC"
+    )
+    return [
+        "campaign.id",
+        "campaign.name",
+        "campaign.status",
+        "metrics.impressions",
+        "metrics.clicks",
+        "metrics.ctr",
+        "metrics.conversions",
+        "metrics.conversions_value",
+        "metrics.cost_micros",
+    ], "campaign", order
+
+
+def report_where_parts(source: str, normalized: str, date_window: str) -> list[str]:
+    where_parts = []
+    if source != "recommendation":
+        where_parts.append(f"segments.date DURING {date_window}")
+    if "german" in normalized or "deutsch" in normalized:
+        where_parts.append("campaign.name LIKE '%DE%'")
+    if "below 1%" in normalized or "unter 1%" in normalized:
+        where_parts.append("metrics.ctr < 0.01")
+    return where_parts
+
+
+def quarter_needs_clarification(normalized: str) -> bool:
+    return bool(AMBIGUOUS_QUARTER_RE.search(normalized)) and not re.search(
+        r"\b20[0-9]{2}\b|\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b",
+        normalized,
+    )
+
+
 def build_report_query(request_text: str) -> dict[str, Any]:
     focus = detect_report_focus(request_text)
     normalized = normalize_intent_text(request_text)
-    if AMBIGUOUS_QUARTER_RE.search(normalized) and not re.search(
-        r"\b20[0-9]{2}\b|\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b",
-        normalized,
-    ):
-        return {
+    if quarter_needs_clarification(normalized):
+        return with_cost({
             "command": "report-plan",
             "request": request_text,
             "query": "",
@@ -450,81 +537,10 @@ def build_report_query(request_text: str) -> dict[str, Any]:
             "stakesTier": "green",
             "requiresEscalation": False,
             "requiresClarification": True,
-            "costMeasurement": usage_totals_measurement(),
-        }
+        })
     date_window = choose_date_window(request_text)
-
-    if focus == "ad_group":
-        fields = [
-            "campaign.name",
-            "ad_group.id",
-            "ad_group.name",
-            "metrics.impressions",
-            "metrics.clicks",
-            "metrics.ctr",
-            "metrics.conversions",
-            "metrics.cost_micros",
-        ]
-        source = "ad_group"
-        order = "metrics.ctr ASC" if "worst" in normalized or "below" in normalized else "metrics.clicks DESC"
-    elif focus == "keyword_view":
-        fields = [
-            "campaign.name",
-            "ad_group.name",
-            "ad_group_criterion.keyword.text",
-            "metrics.impressions",
-            "metrics.clicks",
-            "metrics.ctr",
-            "metrics.conversions",
-            "metrics.cost_micros",
-        ]
-        source = "keyword_view"
-        order = "metrics.clicks DESC"
-    elif focus == "search_term_view":
-        fields = [
-            "campaign.name",
-            "ad_group.name",
-            "search_term_view.search_term",
-            "metrics.impressions",
-            "metrics.clicks",
-            "metrics.ctr",
-            "metrics.conversions",
-            "metrics.cost_micros",
-        ]
-        source = "search_term_view"
-        order = "metrics.clicks DESC"
-    elif focus == "recommendation":
-        fields = [
-            "recommendation.resource_name",
-            "recommendation.type",
-            "recommendation.impact.base_metrics.clicks",
-            "recommendation.impact.potential_metrics.clicks",
-        ]
-        source = "recommendation"
-        order = ""
-    else:
-        fields = [
-            "campaign.id",
-            "campaign.name",
-            "campaign.status",
-            "metrics.impressions",
-            "metrics.clicks",
-            "metrics.ctr",
-            "metrics.conversions",
-            "metrics.conversions_value",
-            "metrics.cost_micros",
-        ]
-        source = "campaign"
-        order = "metrics.cost_micros DESC" if "cost" in normalized or "spend" in normalized else "metrics.clicks DESC"
-
-    where_parts = []
-    if source != "recommendation":
-        where_parts.append(f"segments.date DURING {date_window}")
-    if "german" in normalized or "deutsch" in normalized:
-        where_parts.append("campaign.name LIKE '%DE%'")
-    if "below 1%" in normalized or "unter 1%" in normalized:
-        where_parts.append("metrics.ctr < 0.01")
-
+    fields, source, order = report_shape(focus, normalized)
+    where_parts = report_where_parts(source, normalized, date_window)
     query = f"SELECT {', '.join(fields)} FROM {source}"
     if where_parts:
         query += " WHERE " + " AND ".join(where_parts)
@@ -532,7 +548,7 @@ def build_report_query(request_text: str) -> dict[str, Any]:
         query += f" ORDER BY {order}"
     query += " LIMIT 25"
 
-    return {
+    return with_cost({
         "command": "report-plan",
         "request": request_text,
         "query": query,
@@ -541,12 +557,11 @@ def build_report_query(request_text: str) -> dict[str, Any]:
         "review": review_gaql(query),
         "stakesTier": "green",
         "requiresEscalation": False,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def review_gaql(query: str) -> dict[str, Any]:
-    normalized = " ".join(query.strip().split())
+    normalized = re.sub(r"\s+", " ", query.strip())
     lowered = normalized.lower()
     findings: list[str] = []
 
@@ -572,9 +587,8 @@ def review_gaql(query: str) -> dict[str, Any]:
     }
 
 
-def contains_any(text: str, phrases: set[str]) -> bool:
-    lowered = normalize_intent_text(text)
-    return any(phrase in lowered for phrase in phrases)
+def contains_any(normalized_text: str, phrases: set[str]) -> bool:
+    return any(phrase in normalized_text for phrase in phrases)
 
 
 def classify_operation(request_text: str) -> dict[str, Any]:
@@ -655,7 +669,7 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         required_grant = "approve-google-ads-ambiguous-operation"
         reasons.append("ambiguous Google Ads operation requires review")
 
-    return {
+    return with_cost({
         "command": "plan",
         "request": request_text,
         "operation": operation,
@@ -665,8 +679,7 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         "brandVoiceGateRequired": brand_voice,
         "allowedWithoutGrant": tier == "green",
         "reasons": reasons,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def command_plan(args: argparse.Namespace) -> dict[str, Any]:
@@ -678,12 +691,11 @@ def command_report_plan(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def command_review_gaql(args: argparse.Namespace) -> dict[str, Any]:
-    return {
+    return with_cost({
         "command": "review-gaql",
         "query": args.query,
         "review": review_gaql(args.query),
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def command_ad_copy_review(args: argparse.Namespace) -> dict[str, Any]:
@@ -702,7 +714,7 @@ def command_ad_copy_review(args: argparse.Namespace) -> dict[str, Any]:
             findings.append("Responsive search ad headlines should be 30 characters or fewer.")
         if key == "description" and len(value) > 90:
             findings.append("Responsive search ad descriptions should be 90 characters or fewer.")
-    return {
+    return with_cost({
         "command": "ad-copy-review",
         "fields": non_empty,
         "brandVoiceGateRequired": True,
@@ -713,8 +725,7 @@ def command_ad_copy_review(args: argparse.Namespace) -> dict[str, Any]:
             "allowed": len(findings) == 0,
             "findings": findings,
         },
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def command_campaign_status(args: argparse.Namespace) -> dict[str, Any]:
@@ -837,6 +848,9 @@ def command_rsa_create(args: argparse.Namespace) -> dict[str, Any]:
         raise ConfigError(
             "Refusing ad-copy submission; pass --brand-voice-approved only after the brand-voice gate passes."
         )
+    # This flag is a workflow assertion from the agent/operator review path,
+    # not cryptographic proof. Keep the explicit grant check first.
+    require_grant(args, "ad-copy-submit")
     customer_id = normalize_customer_id(args.customer_id)
     ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
     headlines = [text.strip() for text in args.headline if text.strip()]
@@ -906,10 +920,10 @@ def command_conversion_action_status(args: argparse.Namespace) -> dict[str, Any]
 
 
 def command_apply_recommendation(args: argparse.Namespace) -> dict[str, Any]:
+    grant = require_grant(args, "recommendation-apply")
     customer_id = normalize_customer_id(args.customer_id)
     if not customer_id:
         raise ConfigError("Missing Google Ads customer id.")
-    grant = require_grant(args, "recommendation-apply")
     resource_name = args.resource_name.strip()
     if not resource_name.startswith(f"customers/{customer_id}/recommendations/"):
         raise ConfigError(
@@ -928,7 +942,7 @@ def command_apply_recommendation(args: argparse.Namespace) -> dict[str, Any]:
         headers=ads_headers(normalize_customer_id(args.login_customer_id)),
         json_payload=request_body,
     )
-    return {
+    return with_cost({
         "command": "apply-recommendation",
         "apiVersion": api_version,
         "customerId": customer_id,
@@ -936,8 +950,7 @@ def command_apply_recommendation(args: argparse.Namespace) -> dict[str, Any]:
         "grant": grant,
         "request": request_body,
         "payload": payload,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def load_scenarios() -> list[dict[str, Any]]:
@@ -953,6 +966,11 @@ def run_eval_scenarios() -> dict[str, Any]:
     failures: list[dict[str, Any]] = []
     categories: dict[str, int] = {}
     tiers: dict[str, int] = {}
+    key_paths = {
+        "reviewAllowed": ("review", "allowed"),
+        "preflightAllowed": ("preflight", "allowed"),
+        "costSystem": ("costMeasurement", "system"),
+    }
 
     for scenario in scenarios:
         category = str(scenario.get("category") or "uncategorized")
@@ -963,10 +981,9 @@ def run_eval_scenarios() -> dict[str, Any]:
         if kind == "report-plan":
             actual = build_report_query(str(scenario.get("request") or ""))
         elif kind == "review-gaql":
-            actual = {
+            actual = with_cost({
                 "review": review_gaql(str(scenario.get("query") or "")),
-                "costMeasurement": usage_totals_measurement(),
-            }
+            })
         elif kind == "ad-copy-review":
             fake_args = argparse.Namespace(
                 headline=scenario.get("headline") or "",
@@ -988,12 +1005,9 @@ def run_eval_scenarios() -> dict[str, Any]:
             "operation": actual.get("operation"),
         }
         for key, expected_value in expected.items():
-            if key == "reviewAllowed":
-                actual_value = actual.get("review", {}).get("allowed")
-            elif key == "preflightAllowed":
-                actual_value = actual.get("preflight", {}).get("allowed")
-            elif key == "costSystem":
-                actual_value = actual.get("costMeasurement", {}).get("system")
+            if key in key_paths:
+                first, second = key_paths[key]
+                actual_value = actual.get(first, {}).get(second)
             elif key == "queryContains":
                 query = str(actual.get("query") or "")
                 missing = [entry for entry in expected_value if entry not in query]
@@ -1019,15 +1033,14 @@ def run_eval_scenarios() -> dict[str, Any]:
                     }
                 )
 
-    return {
+    return with_cost({
         "command": "eval-scenarios",
         "scenarioCount": len(scenarios),
         "failed": len(failures),
         "failures": failures,
         "categories": categories,
         "stakesTiers": tiers,
-        "costMeasurement": usage_totals_measurement(),
-    }
+    })
 
 
 def command_eval_scenarios(_args: argparse.Namespace) -> dict[str, Any]:

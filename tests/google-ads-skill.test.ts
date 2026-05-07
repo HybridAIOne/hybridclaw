@@ -519,3 +519,45 @@ test('Google Ads helper sends live GAQL through gateway with OAuth and developer
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test('Google Ads helper refuses unauthenticated remote gateway URLs', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    '--gateway-url',
+    'https://gateway.example.com',
+    'customers',
+  ]);
+
+  expect(result.status).toBe(2);
+  expect(result.stderr).toContain('Refusing unauthenticated remote gateway URL');
+});
+
+test('Google Ads helper checks RSA grant before copy preflight', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'rsa-create',
+    '1234567890',
+    '555666777',
+    '--brand-voice-approved',
+    '--headline',
+    'This headline is much too long for Google Ads',
+    '--headline',
+    'Clean Data Move',
+    '--headline',
+    'Launch With Control',
+    '--description',
+    'Switch cleanly with expert migration planning',
+    '--description',
+    'Move your CRM data with a clear rollout plan',
+    '--final-url',
+    'https://example.com',
+  ]);
+
+  expect(result.status).toBe(2);
+  expect(result.stderr).toContain(
+    'expected explicit grant `approve-google-ads-ad-copy-submit`',
+  );
+  expect(result.stderr).not.toContain('headline');
+});
