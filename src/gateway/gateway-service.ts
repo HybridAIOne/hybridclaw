@@ -5937,18 +5937,66 @@ export async function uploadGatewayAdminSkillZip(
         `Skill \`${skillName}\` already exists at ${targetDir}.`,
       );
     }
-    if (targetExists) {
-      fs.rmSync(targetDir, { recursive: true, force: true });
-    }
-
-    // Copy extracted skill to project skills directory (copy instead of
-    // rename to avoid EXDEV when tmp and skills/ are on different mounts)
+    // Copy extracted skill to a sibling staging directory first (copy instead
+    // of rename to avoid EXDEV when tmp and skills/ are on different mounts).
+    // The existing skill is moved aside only after the copy succeeds.
     fs.mkdirSync(projectSkillsDir, { recursive: true });
-    fs.cpSync(skillRoot, targetDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: true,
-    });
+    const stagedParentDir = fs.mkdtempSync(
+      path.join(projectSkillsDir, `.${skillName}.upload-`),
+    );
+    const stagedSkillDir = path.join(stagedParentDir, skillName);
+    let replacedParentDir: string | undefined;
+    let replacedSkillDir: string | undefined;
+    try {
+      fs.cpSync(skillRoot, stagedSkillDir, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+      });
+
+      if (targetExists) {
+        replacedParentDir = fs.mkdtempSync(
+          path.join(projectSkillsDir, `.${skillName}.replace-`),
+        );
+        replacedSkillDir = path.join(replacedParentDir, skillName);
+        fs.renameSync(targetDir, replacedSkillDir);
+      }
+
+      try {
+        fs.renameSync(stagedSkillDir, targetDir);
+      } catch (error) {
+        if (replacedSkillDir && fs.existsSync(replacedSkillDir)) {
+          if (fs.existsSync(targetDir)) {
+            fs.rmSync(targetDir, { recursive: true, force: true });
+          }
+          fs.renameSync(replacedSkillDir, targetDir);
+        }
+        const code = (error as NodeJS.ErrnoException).code;
+        if (
+          code === 'EEXIST' ||
+          code === 'ENOTEMPTY' ||
+          fs.existsSync(targetDir)
+        ) {
+          throw new GatewayRequestError(
+            409,
+            `Skill \`${skillName}\` already exists at ${targetDir}.`,
+          );
+        }
+        throw error;
+      }
+
+      if (replacedParentDir) {
+        fs.rmSync(replacedParentDir, { recursive: true, force: true });
+      }
+    } finally {
+      fs.rmSync(stagedParentDir, { recursive: true, force: true });
+      if (
+        replacedParentDir &&
+        (!replacedSkillDir || !fs.existsSync(replacedSkillDir))
+      ) {
+        fs.rmSync(replacedParentDir, { recursive: true, force: true });
+      }
+    }
 
     return getGatewayAdminSkills();
   } finally {
