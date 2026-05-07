@@ -187,39 +187,35 @@ function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
 }
 
 function getExpectedTransportProcessWarningKey(
-  kind: 'rejection' | 'exception',
   error: unknown,
 ): string {
   if (!error || typeof error !== 'object') {
-    return `${kind}:${String(error)}`;
+    return String(error);
   }
 
   const candidate = error as {
     code?: unknown;
     message?: unknown;
-    name?: unknown;
   };
   const code =
     typeof candidate.code === 'string' ? candidate.code.toUpperCase() : '';
-  const name = typeof candidate.name === 'string' ? candidate.name : '';
   const message =
-    typeof candidate.message === 'string' ? candidate.message : '';
-  return [kind, code, name, message].filter(Boolean).join(':') || kind;
+    typeof candidate.message === 'string'
+      ? candidate.message.slice(0, 200)
+      : '';
+  return [code, message].filter(Boolean).join(':') || 'transport-error';
 }
 
-function shouldLogExpectedTransportProcessWarning(
-  kind: 'rejection' | 'exception',
-  error: unknown,
-): boolean {
+function shouldLogExpectedTransportProcessWarning(error: unknown): boolean {
   return expectedTransportProcessWarnLimiter.check(
-    getExpectedTransportProcessWarningKey(kind, error),
+    getExpectedTransportProcessWarningKey(error),
     EXPECTED_TRANSPORT_PROCESS_WARN_LIMIT,
   ).allowed;
 }
 
 function uncaughtExceptionHandler(err: Error) {
   if (isExpectedTransportError(err)) {
-    if (shouldLogExpectedTransportProcessWarning('exception', err)) {
+    if (shouldLogExpectedTransportProcessWarning(err)) {
       logger.warn(
         { err },
         'Uncaught transport exception escaped local handler; keeping process alive',
@@ -239,7 +235,7 @@ function uncaughtExceptionHandler(err: Error) {
 
 function unhandledRejectionHandler(reason: unknown) {
   if (isExpectedTransportError(reason)) {
-    if (shouldLogExpectedTransportProcessWarning('rejection', reason)) {
+    if (shouldLogExpectedTransportProcessWarning(reason)) {
       logger.warn(
         { err: reason },
         'Unhandled transport rejection escaped local handler; keeping process alive',

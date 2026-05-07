@@ -42,16 +42,14 @@ async function importFreshLogger() {
     onRuntimeConfigChange: vi.fn(),
   }));
   const module = await importLoggerModule();
-  return {
-    ...module,
-    uncaughtExceptionHandler: module.handleUncaughtExceptionForTests,
-  };
+  return module;
 }
 
 describe('logger forced level override', () => {
   let tempDir: string | null = null;
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
@@ -176,7 +174,8 @@ describe('logger forced level override', () => {
   });
 
   it('keeps running on uncaught transport exceptions', async () => {
-    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const { logger, handleUncaughtExceptionForTests } =
+      await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
@@ -187,7 +186,9 @@ describe('logger forced level override', () => {
       .spyOn(logger, 'fatal')
       .mockImplementation(() => undefined);
 
-    uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
 
     expect(warnSpy).toHaveBeenCalledWith(
       { err: expect.any(Error) },
@@ -222,25 +223,38 @@ describe('logger forced level override', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-07T08:00:00Z'));
 
-    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const {
+      logger,
+      handleUncaughtExceptionForTests,
+      handleUnhandledRejectionForTests,
+    } = await importFreshLogger();
     const warnSpy = vi
       .spyOn(logger, 'warn')
       .mockImplementation(() => undefined);
 
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
-    }
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+    handleUnhandledRejectionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
 
     expect(warnSpy).toHaveBeenCalledTimes(2);
 
     vi.setSystemTime(new Date('2026-05-07T08:01:01Z'));
-    uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
 
     expect(warnSpy).toHaveBeenCalledTimes(3);
   });
 
   it('still exits on unexpected uncaught exceptions', async () => {
-    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const { logger, handleUncaughtExceptionForTests } =
+      await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
@@ -251,7 +265,7 @@ describe('logger forced level override', () => {
       .spyOn(logger, 'fatal')
       .mockImplementation(() => undefined);
 
-    uncaughtExceptionHandler(new Error('Invariant violation'));
+    handleUncaughtExceptionForTests(new Error('Invariant violation'));
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(fatalSpy).toHaveBeenCalledWith(
