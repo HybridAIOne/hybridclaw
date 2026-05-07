@@ -14,7 +14,7 @@ HybridClaw ships with 40+ bundled skills. A few notable categories:
 - visual explainers and animation: `manim-video`, `excalidraw`
 - platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`,
   `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`,
-  `discord`
+  `google-ads`, `discord`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`
 - personal and Apple workflows: `apple-calendar`, `apple-passwords`,
   `apple-music`
