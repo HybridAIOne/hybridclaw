@@ -7,10 +7,12 @@ import {
 
 describe('A2A retry policy', () => {
   test('classifies HTTP status codes for outbox delivery', () => {
-    expect(classifyA2AHttpStatus(200)).toBeNull();
-    expect(classifyA2AHttpStatus(202)).toBeNull();
+    expect(classifyA2AHttpStatus(100)).toBe('proceed');
+    expect(classifyA2AHttpStatus(200)).toBe('proceed');
+    expect(classifyA2AHttpStatus(202)).toBe('proceed');
+    expect(classifyA2AHttpStatus(302)).toBe('proceed');
     expect(classifyA2AHttpStatus(400)).toBe('fail-fast');
-    expect(classifyA2AHttpStatus(429)).toBe('fail-fast');
+    expect(classifyA2AHttpStatus(429)).toBe('retry');
     expect(classifyA2AHttpStatus(500)).toBe('retry');
     expect(classifyA2AHttpStatus(503)).toBe('retry');
   });
@@ -24,8 +26,13 @@ describe('A2A retry policy', () => {
     expect(shouldRetryA2AJsonRpcErrorCode(-32603)).toBe(true);
     expect(shouldRetryA2AJsonRpcErrorCode(-32000)).toBe(true);
     expect(shouldRetryA2AJsonRpcErrorCode(-32099)).toBe(true);
+    expect(shouldRetryA2AJsonRpcErrorCode(-32100)).toBe(false);
     expect(shouldRetryA2AJsonRpcErrorCode(-32602)).toBe(false);
     expect(shouldRetryA2AJsonRpcErrorCode(-32700)).toBe(false);
     expect(shouldRetryA2AJsonRpcErrorCode(1000)).toBe(false);
+    expect(shouldRetryA2AJsonRpcErrorCode(Number.NaN)).toBe(false);
+    expect(shouldRetryA2AJsonRpcErrorCode(Number.POSITIVE_INFINITY)).toBe(
+      false,
+    );
   });
 });

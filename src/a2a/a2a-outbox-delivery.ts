@@ -366,9 +366,20 @@ export async function deliverA2AItem(
       failA2AItem(item, now, reason);
       return 'failed';
     }
-    if (statusCode && classifyA2AHttpStatus(statusCode) === 'fail-fast') {
+    const httpDecision = statusCode
+      ? classifyA2AHttpStatus(statusCode)
+      : 'retry';
+    if (httpDecision === 'fail-fast') {
       failA2AItem(item, now, reason, { statusCode });
       return 'failed';
+    }
+    if (httpDecision === 'retry') {
+      if (attemptNumber >= maxAttempts) {
+        failA2AItem(item, now, reason, { statusCode });
+        return 'failed';
+      }
+      retryA2AItem(item, now, reason, retryOptions, { statusCode });
+      return 'retried';
     }
     if (attemptNumber >= maxAttempts) {
       failA2AItem(item, now, reason, { statusCode });
