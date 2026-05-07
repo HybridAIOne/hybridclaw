@@ -218,6 +218,27 @@ describe('logger forced level override', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  it('rate-limits repeated recoverable transport warnings', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-07T08:00:00Z'));
+
+    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
+    }
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date('2026-05-07T08:01:01Z'));
+    uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
+
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+  });
+
   it('still exits on unexpected uncaught exceptions', async () => {
     const { logger, uncaughtExceptionHandler } = await importFreshLogger();
     const exitSpy = vi
