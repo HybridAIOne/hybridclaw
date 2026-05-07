@@ -21,6 +21,12 @@
   JSON-RPC Agent Card peers or signed webhook peers with an outbox processor,
   retry/backoff, audit events, secret-backed bearer tokens, and operator
   escalation when delivery cannot continue safely.
+- **A2A webhook inbound endpoint**: Gateways accept signed envelopes from
+  trusted non-A2A peers at `POST /a2a/webhook/:peerId` with HMAC-SHA256
+  verification, replay-window enforcement, per-peer SecretRef-backed shared
+  secrets, sender/recipient validation against local agents, configurable
+  per-peer rate limiting (default 60/min → 429), and structured audit events
+  for every inbound POST.
 - **Monthly invoice harvester skill**: The bundled
   `download-platform-invoices` skill collects official SaaS invoice PDFs and
   normalized records across Stripe, Google Ads, AWS, Azure, GCP, browser-driven

@@ -5,7 +5,6 @@ import type {
   ChatHistoryResponse,
   ChatMobileQrResponse,
   ChatRecentResponse,
-  CommandResponse,
   MediaUploadResponse,
 } from './chat-types';
 import {
@@ -15,6 +14,7 @@ import {
   requestJson,
   validateToken,
 } from './client';
+import type { AdminCommandResult } from './types';
 
 export { validateToken as fetchAppStatus };
 
@@ -24,6 +24,7 @@ export function fetchChatRecent(
   channelId = 'web',
   limit = 10,
   query?: string,
+  scope?: 'user' | 'all',
 ): Promise<ChatRecentResponse> {
   const params = new URLSearchParams({
     userId,
@@ -31,6 +32,7 @@ export function fetchChatRecent(
     limit: String(limit),
   });
   if (query) params.set('q', query);
+  if (scope) params.set('scope', scope);
   return requestJson<ChatRecentResponse>(
     `/api/chat/recent?${params.toString()}`,
     { token },
@@ -100,8 +102,8 @@ export function executeCommand(
   sessionId: string,
   userId: string,
   args: string[],
-): Promise<CommandResponse> {
-  return requestJson<CommandResponse>('/api/command', {
+): Promise<AdminCommandResult> {
+  return requestJson<AdminCommandResult>('/api/command', {
     token,
     method: 'POST',
     body: buildWebCommandRequestBody({
