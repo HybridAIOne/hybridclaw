@@ -136,6 +136,7 @@ function resolveGatewayToken() {
 
 function escapeXml(value) {
   return String(value)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -166,7 +167,7 @@ function toXmlNode(name, value) {
 }
 
 function buildFastBillXmlRequest(input) {
-  const service = normalizeService(input.service);
+  const service = input.service;
   let xml = '<?xml version="1.0" encoding="utf-8"?><FBAPI>';
   xml += `<SERVICE>${escapeXml(service)}</SERVICE>`;
   if (input.limit !== undefined) xml += toXmlNode('LIMIT', String(input.limit));
@@ -182,32 +183,32 @@ function parseFastBillXmlResponse(xmlText) {
   try {
     ({ XMLParser } = require('fast-xml-parser'));
   } catch (error) {
+    warnXmlFallback();
     const root = parseFastBillXmlFallback(xmlText);
-    const errors = collectErrors(root);
-    if (errors.length > 0) {
-      throw new FastBillApiError(`FastBill API returned ${errors.length} error(s).`, {
-        errors,
-      });
-    }
+    assertNoApiErrors(root);
     return root;
   }
   const parser = new XMLParser({
     ignoreAttributes: false,
+    processEntities: false,
     parseTagValue: false,
     trimValues: true,
   });
   const parsed = parser.parse(xmlText);
   const root = parsed && parsed.FBAPI ? parsed.FBAPI : parsed;
-  const errors = collectErrors(root);
-  if (errors.length > 0) {
-    throw new FastBillApiError(`FastBill API returned ${errors.length} error(s).`, {
-      errors,
-    });
-  }
+  assertNoApiErrors(root);
   return root;
 }
 
+function warnXmlFallback() {
+  if (process.env.FASTBILL_XML_FALLBACK_WARNINGS === '0') return;
+  process.stderr.write(
+    'Warning: fast-xml-parser is unavailable; using a limited parser for well-formed FastBill XML only.\n',
+  );
+}
+
 function parseFastBillXmlFallback(xmlText) {
+  // Limited fallback for well-formed FastBill XML in local skill validation.
   const root = {};
   const stack = [{ name: '__ROOT__', value: root }];
   const tokens = String(xmlText || '').match(/<[^>]+>|[^<]+/gu) || [];
@@ -281,25 +282,16 @@ function unescapeXml(value) {
 }
 
 function collectErrors(value) {
-  const errors = [];
-  const scan = (node, key = '') => {
-    if (key === 'ERROR') {
-      for (const entry of Array.isArray(node) ? node : [node]) {
-        errors.push(normalizeError(entry));
-      }
-      return;
-    }
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) {
-      for (const entry of node) scan(entry, key);
-      return;
-    }
-    for (const [childKey, childValue] of Object.entries(node)) {
-      scan(childValue, childKey);
-    }
-  };
-  scan(value);
-  return errors.filter(Boolean);
+  return collectNodesByKey(value, 'ERROR').map(normalizeError).filter(Boolean);
+}
+
+function assertNoApiErrors(root) {
+  const errors = collectErrors(root);
+  if (errors.length > 0) {
+    throw new FastBillApiError(`FastBill API returned ${errors.length} error(s).`, {
+      errors,
+    });
+  }
 }
 
 function normalizeError(value) {
@@ -314,17 +306,25 @@ function normalizeError(value) {
   return { message: String(value) };
 }
 
-function visit(value, callback, key = '') {
-  if (!value || typeof value !== 'object') return;
-  callback(value, key);
-  if (Array.isArray(value)) {
-    for (const entry of value) visit(entry, callback, key);
-    return;
-  }
-  for (const [childKey, childValue] of Object.entries(value)) {
-    if (childValue && typeof childValue === 'object') visit(childValue, callback, childKey);
-    else callback(childValue, childKey);
-  }
+function collectNodesByKey(value, targetKey) {
+  const matches = [];
+  const scan = (node, key = '') => {
+    if (key === targetKey) {
+      if (Array.isArray(node)) matches.push(...node);
+      else matches.push(node);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const entry of node) scan(entry, key);
+      return;
+    }
+    for (const [childKey, childValue] of Object.entries(node)) {
+      scan(childValue, childKey);
+    }
+  };
+  scan(value);
+  return matches;
 }
 
 function normalizeService(service) {
@@ -401,11 +401,21 @@ async function gatewayRequest(input) {
       { status: wrapper.status || null },
     );
   }
-  return wrapper.body || wrapper.text || wrapper.responseText || text;
+  if (typeof wrapper.body === 'string') return wrapper.body;
+  if (typeof wrapper.text === 'string') {
+    process.stderr.write('Warning: gateway response omitted body; using text fallback.\n');
+    return wrapper.text;
+  }
+  if (typeof wrapper.responseText === 'string') {
+    process.stderr.write('Warning: gateway response omitted body; using responseText fallback.\n');
+    return wrapper.responseText;
+  }
+  throw new FastBillApiError('Gateway response did not include a FastBill XML response body.');
 }
 
 async function callFastBillService(input) {
   const service = normalizeService(input.service);
+  const mutatesAccount = WRITE_SERVICES.has(service);
   assertOperatorGrant(service, Boolean(input.operatorGrant), Boolean(input.dryRun));
   const xml = buildFastBillXmlRequest({
     service,
@@ -418,7 +428,7 @@ async function callFastBillService(input) {
     return {
       dryRun: true,
       service,
-      mutatesAccount: WRITE_SERVICES.has(service),
+      mutatesAccount,
       xml,
       costMeasurement: usageTotalsMeasurement(),
     };
@@ -433,7 +443,7 @@ async function callFastBillService(input) {
   });
   return {
     service,
-    mutatesAccount: WRITE_SERVICES.has(service),
+    mutatesAccount,
     response: parseFastBillXmlResponse(xmlResponse),
     costMeasurement: usageTotalsMeasurement(),
   };
@@ -458,22 +468,27 @@ function parseJsonValue(raw, label) {
 
 function parseJsonFile(filePath, label) {
   if (!filePath) return undefined;
-  return parseJsonValue(fs.readFileSync(filePath, 'utf8'), label);
+  try {
+    return parseJsonValue(fs.readFileSync(filePath, 'utf8'), label);
+  } catch (error) {
+    if (error instanceof FastBillConfigError) throw error;
+    throw new FastBillConfigError(`Cannot read ${label} JSON file ${filePath}: ${error.message}`);
+  }
+}
+
+function resolveJsonInput(args, label) {
+  return parseJsonValue(args[`${label}-json`], label) || parseJsonFile(args[`${label}-file`], label);
 }
 
 function findInvoices(response) {
-  const invoices = [];
-  visit(response, (node, key) => {
-    if (key !== 'INVOICE') return;
-    if (Array.isArray(node)) return;
-    if (node && typeof node === 'object') invoices.push(node);
-  });
-  return invoices;
+  return collectNodesByKey(response, 'INVOICE').filter(
+    (invoice) => invoice && typeof invoice === 'object',
+  );
 }
 
 function isoDateDaysAgo(days) {
   const date = new Date();
-  date.setUTCDate(date.getUTCDate() - Number(days));
+  date.setUTCDate(date.getUTCDate() - parseNonNegativeInt(days, '--older-than-days'));
   return date.toISOString().slice(0, 10);
 }
 
@@ -483,14 +498,23 @@ function filterInvoices(invoices, input) {
     const expected = String(input.state).toLowerCase();
     filtered = filtered.filter((invoice) => String(invoice.STATE || '').toLowerCase() === expected);
   }
-  if (input.olderThanDays) {
-    const cutoff = isoDateDaysAgo(input.olderThanDays);
-    filtered = filtered.filter((invoice) => {
-      const dueDate = String(invoice.DUE_DATE || '');
-      return dueDate && dueDate <= cutoff;
-    });
-  }
   return filtered;
+}
+
+function parseNonNegativeInt(value, flag) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (!/^\d+$/u.test(String(value))) {
+    throw new FastBillConfigError(`${flag} must be a non-negative integer.`);
+  }
+  return Number(value);
+}
+
+function parseIsoDate(value, flag) {
+  if (!value) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(String(value))) {
+    throw new FastBillConfigError(`${flag} must use YYYY-MM-DD format.`);
+  }
+  return value;
 }
 
 function planFastBillRequest(text) {
@@ -627,7 +651,7 @@ function printHelp() {
 
 Usage:
   node skills/fastbill/fastbill.cjs request <service> [--filter-json JSON] [--data-json JSON] [--limit N] [--offset N] [--dry-run] [--operator-grant]
-  node skills/fastbill/fastbill.cjs list-invoices [--state unpaid|overdue|paid|draft] [--older-than-days N] [--dry-run]
+  node skills/fastbill/fastbill.cjs list-invoices [--state unpaid|overdue|paid|draft] [--older-than-days N] [--limit N] [--offset N] [--dry-run]
   node skills/fastbill/fastbill.cjs create-invoice --data-json JSON --operator-grant [--dry-run]
   node skills/fastbill/fastbill.cjs mark-paid --invoice-id ID [--paid-date YYYY-MM-DD] [--payment-method TEXT] --operator-grant [--dry-run]
   node skills/fastbill/fastbill.cjs send-reminder --invoice-id ID --recipient EMAIL [--subject TEXT] [--message TEXT] --operator-grant [--dry-run]
@@ -670,15 +694,15 @@ async function main(argv = process.argv.slice(2)) {
 
   if (command === 'request') {
     const service = args._[1];
-    const filter = parseJsonValue(args['filter-json'], 'filter') || parseJsonFile(args['filter-file'], 'filter');
-    const data = parseJsonValue(args['data-json'], 'data') || parseJsonFile(args['data-file'], 'data');
+    const filter = resolveJsonInput(args, 'filter');
+    const data = resolveJsonInput(args, 'data');
     printJson(await callFastBillService({
       ...common,
       service,
       filter,
       data,
-      limit: args.limit ? Number(args.limit) : undefined,
-      offset: args.offset ? Number(args.offset) : undefined,
+      limit: parseNonNegativeInt(args.limit, '--limit'),
+      offset: parseNonNegativeInt(args.offset, '--offset'),
     }));
     return;
   }
@@ -686,24 +710,30 @@ async function main(argv = process.argv.slice(2)) {
   if (command === 'list-invoices') {
     const filter = {};
     if (args['older-than-days']) filter.END_DUE_DATE = isoDateDaysAgo(args['older-than-days']);
+    const limit = parseNonNegativeInt(args.limit, '--limit') ?? 100;
     const result = await callFastBillService({
       ...common,
       service: 'invoice.get',
       filter,
-      limit: args.limit ? Number(args.limit) : 100,
+      limit,
+      offset: parseNonNegativeInt(args.offset, '--offset'),
     });
     if (!common.dryRun) {
-      result.invoices = filterInvoices(findInvoices(result.response), {
+      const rawInvoices = findInvoices(result.response);
+      result.invoices = filterInvoices(rawInvoices, {
         state: args.state,
-        olderThanDays: args['older-than-days'],
       });
+      if (rawInvoices.length === limit) {
+        result.truncated = true;
+        result.truncationNote = 'Results may be incomplete. Use --limit and --offset to paginate.';
+      }
     }
     printJson(result);
     return;
   }
 
   if (command === 'create-invoice') {
-    const data = parseJsonValue(args['data-json'], 'data') || parseJsonFile(args['data-file'], 'data');
+    const data = resolveJsonInput(args, 'data');
     printJson(await callFastBillService({
       ...common,
       service: 'invoice.create',
@@ -716,7 +746,7 @@ async function main(argv = process.argv.slice(2)) {
     if (!args['invoice-id']) throw new FastBillConfigError('--invoice-id is required.');
     const data = {
       INVOICE_ID: args['invoice-id'],
-      PAID_DATE: args['paid-date'],
+      PAID_DATE: parseIsoDate(args['paid-date'], '--paid-date'),
       PAYMENT_METHOD: args['payment-method'],
     };
     printJson(await callFastBillService({
@@ -748,6 +778,7 @@ async function main(argv = process.argv.slice(2)) {
 
   if (command === 'export-einvoice') {
     if (!args['invoice-id']) throw new FastBillConfigError('--invoice-id is required.');
+    const einvoiceFixture = loadEInvoiceFixture();
     const result = await callFastBillService({
       ...common,
       service: 'invoice.get',
@@ -756,18 +787,10 @@ async function main(argv = process.argv.slice(2)) {
     result.einvoiceHandoff = {
       invoiceId: args['invoice-id'],
       source: 'FastBill invoice.get DOCUMENT_URL / invoice document metadata',
-      formats: ['XRechnung', 'ZUGFeRD'],
+      formats: einvoiceFixture.formats,
       requiresAccountEInvoicingEnabled: true,
       validateWithEInvoicingFixtures: true,
-      mandatoryBuyerChecks: [
-        'organization_or_name',
-        'address',
-        'country',
-        'vat_id',
-        'email',
-        'phone',
-        'buyer_reference_or_leitweg_id',
-      ],
+      mandatoryBuyerChecks: einvoiceFixture.requiredBuyerChecks,
     };
     printJson(result);
     return;
