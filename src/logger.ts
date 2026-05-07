@@ -4,6 +4,7 @@ import { Writable } from 'node:stream';
 import pino from 'pino';
 import pretty from 'pino-pretty';
 
+import { SlidingWindowRateLimiter } from './channels/discord/rate-limiter.js';
 import {
   getRuntimeConfig,
   onRuntimeConfigChange,
@@ -14,6 +15,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
+import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -24,6 +26,11 @@ const VALID_LOG_LEVELS = new Set([
   'trace',
   'silent',
 ]);
+const EXPECTED_TRANSPORT_PROCESS_WARN_WINDOW_MS = 60_000;
+const EXPECTED_TRANSPORT_PROCESS_WARN_LIMIT = 2;
+const expectedTransportProcessWarnLimiter = new SlidingWindowRateLimiter(
+  EXPECTED_TRANSPORT_PROCESS_WARN_WINDOW_MS,
+);
 
 function resolveForcedLogLevel():
   | ReturnType<typeof getRuntimeConfig>['ops']['logLevel']
@@ -179,7 +186,44 @@ function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
   return state;
 }
 
+function getExpectedTransportProcessWarningKey(
+  error: unknown,
+): string {
+  if (!error || typeof error !== 'object') {
+    return String(error);
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+  };
+  const code =
+    typeof candidate.code === 'string' ? candidate.code.toUpperCase() : '';
+  const message =
+    typeof candidate.message === 'string'
+      ? candidate.message.slice(0, 200)
+      : '';
+  return [code, message].filter(Boolean).join(':') || 'transport-error';
+}
+
+function shouldLogExpectedTransportProcessWarning(error: unknown): boolean {
+  return expectedTransportProcessWarnLimiter.check(
+    getExpectedTransportProcessWarningKey(error),
+    EXPECTED_TRANSPORT_PROCESS_WARN_LIMIT,
+  ).allowed;
+}
+
 function uncaughtExceptionHandler(err: Error) {
+  if (isExpectedTransportError(err)) {
+    if (shouldLogExpectedTransportProcessWarning(err)) {
+      logger.warn(
+        { err },
+        'Uncaught transport exception escaped local handler; keeping process alive',
+      );
+    }
+    return;
+  }
+
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
 }
@@ -190,6 +234,16 @@ function uncaughtExceptionHandler(err: Error) {
 )[UNCAUGHT_EXCEPTION_HANDLER_TAG] = true;
 
 function unhandledRejectionHandler(reason: unknown) {
+  if (isExpectedTransportError(reason)) {
+    if (shouldLogExpectedTransportProcessWarning(reason)) {
+      logger.warn(
+        { err: reason },
+        'Unhandled transport rejection escaped local handler; keeping process alive',
+      );
+    }
+    return;
+  }
+
   logger.error({ err: reason }, 'Unhandled rejection');
 }
 (
