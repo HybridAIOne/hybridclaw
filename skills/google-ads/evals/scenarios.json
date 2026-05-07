@@ -359,7 +359,7 @@
     "id": "german-add-keyword",
     "category": "campaign-edit",
     "kind": "plan",
-    "request": "Keyword hinzufugen fur die DE Kampagne",
+    "request": "Keyword hinzufuegen fur die DE Kampagne",
     "expected": {
       "operation": "campaign-structure-edit",
       "stakesTier": "amber",

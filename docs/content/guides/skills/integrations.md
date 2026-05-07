@@ -197,16 +197,10 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
 
 **Troubleshooting**
 
-- **401 or insufficient scopes** — rerun `hybridclaw auth login google` with
-  the Ads scope and restart the agent runtime.
-- **developer-token missing** — store `GOOGLEADS_DEVELOPER_TOKEN` and confirm
-  the `developer-token` route exists.
-- **manager-account access errors** — pass `--login-customer-id` or store
-  `GOOGLEADS_LOGIN_CUSTOMER_ID` without hyphens.
-- **customer-match request contains raw PII** — stop at a plan; only pre-hashed
-  values from a controlled source are allowed. New Customer Match workflows
-  should use Google's Data Manager API, so this skill does not upload Customer
-  Match lists through Google Ads API.
+- **401 or insufficient scopes** — rerun `hybridclaw auth login google` with the Ads scope and restart the agent runtime.
+- **developer-token missing** — store `GOOGLEADS_DEVELOPER_TOKEN` and confirm the `developer-token` route exists.
+- **manager-account access errors** — pass `--login-customer-id` or store `GOOGLEADS_LOGIN_CUSTOMER_ID` without hyphens.
+- **customer-match request contains raw PII** — stop at a plan; only pre-hashed values from a controlled source are allowed. New Customer Match workflows should use Google's Data Manager API, so this skill does not upload Customer Match lists through Google Ads API.
 
 ---
 

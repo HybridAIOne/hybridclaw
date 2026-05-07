@@ -112,6 +112,22 @@ test('Google Ads helper plans English and German GAQL reports offline', () => {
   expect(payload.costMeasurement.system).toBe('UsageTotals');
 });
 
+test('Google Ads helper requires explicit dates for ambiguous quarter reports', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'report-plan',
+    'What is our blended ROAS across EU search campaigns for Q1?',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.requiresClarification).toBe(true);
+  expect(payload.review.allowed).toBe(false);
+  expect(payload.review.findings[0]).toContain('explicit year or date range');
+  expect(payload.query).toBe('');
+});
+
 test('Google Ads helper blocks unsafe GAQL before execution', () => {
   const result = runHelper([
     '--format',
@@ -125,6 +141,32 @@ test('Google Ads helper blocks unsafe GAQL before execution', () => {
   expect(payload.review.allowed).toBe(false);
   expect(payload.review.findings).toContain('GAQL must start with SELECT.');
   expect(payload.review.findings).toContain('GAQL reports must be read-only.');
+});
+
+test('Google Ads helper normalizes German umlaut intent variants', () => {
+  const adCopy = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Entwirf drei RSA \u00dcberschriften fuer die neue Produktlinie',
+  ]);
+  const keyword = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Keyword hinzuf\u00fcgen fuer die DE Kampagne',
+  ]);
+
+  expect(adCopy.status).toBe(0);
+  expect(keyword.status).toBe(0);
+  expect(JSON.parse(adCopy.stdout)).toMatchObject({
+    operation: 'ad-copy',
+    brandVoiceGateRequired: true,
+  });
+  expect(JSON.parse(keyword.stdout)).toMatchObject({
+    operation: 'campaign-structure-edit',
+    stakesTier: 'amber',
+  });
 });
 
 test('Google Ads helper classifies spend and PII operations as red-tier', () => {
@@ -298,6 +340,78 @@ test('Google Ads helper sends campaign status mutation through gateway after gra
             updateMask: 'status',
             update: {
               resourceName: 'customers/1234567890/campaigns/111222333',
+              status: 'PAUSED',
+            },
+          },
+        ],
+      },
+    });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('Google Ads helper sends composite keyword status resource names', async () => {
+  const captured: unknown[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      captured.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          bodyJson: {
+            results: [
+              {
+                resourceName:
+                  'customers/1234567890/adGroupCriteria/777888999~111222333',
+              },
+            ],
+          },
+        }),
+      );
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address !== 'object') {
+      throw new Error('Expected server address.');
+    }
+    const gatewayUrl = `http://127.0.0.1:${address.port}`;
+    const result = await runHelperAsync([
+      '--format',
+      'json',
+      '--gateway-url',
+      gatewayUrl,
+      'keyword-status',
+      '1234567890',
+      '777888999',
+      '111222333',
+      '--status',
+      'PAUSED',
+      '--grant',
+      'approve-google-ads-structure-edit',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      url: 'https://googleads.googleapis.com/v24/customers/1234567890/adGroupCriteria:mutate',
+      json: {
+        operations: [
+          {
+            updateMask: 'status',
+            update: {
+              resourceName:
+                'customers/1234567890/adGroupCriteria/777888999~111222333',
               status: 'PAUSED',
             },
           },

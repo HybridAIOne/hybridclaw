@@ -122,7 +122,7 @@ Supported executable operations:
 - `budget-amount` updates campaign budget `amountMicros`
 - `ad-group-create` creates an ad group
 - `keyword-create` creates an ad group criterion keyword
-- `keyword-status` updates keyword criterion `status`
+- `keyword-status` updates keyword criterion `status`; Google Ads criterion resource names are composite, so pass both ad group id and criterion id
 - `rsa-create` creates a responsive search ad after brand-voice approval
 - `conversion-action-status` updates conversion action `status`
 - `apply-recommendation` applies a recommendation through

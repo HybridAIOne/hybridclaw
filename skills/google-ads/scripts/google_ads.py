@@ -37,10 +37,11 @@ DATE_WINDOWS = {
     "this week": "THIS_WEEK",
     "diese woche": "THIS_WEEK",
     "letzte 7 tage": "LAST_7_DAYS",
-    "q1": "LAST_30_DAYS",
     "month": "THIS_MONTH",
     "monat": "THIS_MONTH",
 }
+
+AMBIGUOUS_QUARTER_RE = re.compile(r"\bq[1-4]\b")
 
 MONEY_WORDS = {
     "budget",
@@ -77,6 +78,7 @@ AD_COPY_WORDS = {
     "sitelink",
     "callout",
     "anzeigentext",
+    "ueberschrift",
     "uberschrift",
 }
 
@@ -99,6 +101,7 @@ AMBER_WORDS = {
     "add keyword",
     "pause keyword",
     "anzeigengruppe",
+    "keyword hinzufuegen",
     "keyword hinzufugen",
 }
 
@@ -118,6 +121,16 @@ READ_WORDS = {
     "bericht",
     "klicks",
 }
+
+
+def normalize_intent_text(value: str) -> str:
+    return (
+        value.lower()
+        .replace("\u00e4", "ae")
+        .replace("\u00f6", "oe")
+        .replace("\u00fc", "ue")
+        .replace("\u00df", "ss")
+    )
 
 WRITE_GRANTS = {
     "budget-or-bid-strategy-mutation": "approve-google-ads-budget-or-bid-change",
@@ -394,7 +407,7 @@ def command_gaql(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def choose_date_window(text: str) -> str:
-    normalized = text.lower()
+    normalized = normalize_intent_text(text)
     for phrase, window in DATE_WINDOWS.items():
         if phrase in normalized:
             return window
@@ -402,7 +415,7 @@ def choose_date_window(text: str) -> str:
 
 
 def detect_report_focus(text: str) -> str:
-    normalized = text.lower()
+    normalized = normalize_intent_text(text)
     if "ad group" in normalized or "anzeigengruppe" in normalized:
         return "ad_group"
     if "keyword" in normalized or "negative keyword" in normalized:
@@ -416,8 +429,30 @@ def detect_report_focus(text: str) -> str:
 
 def build_report_query(request_text: str) -> dict[str, Any]:
     focus = detect_report_focus(request_text)
+    normalized = normalize_intent_text(request_text)
+    if AMBIGUOUS_QUARTER_RE.search(normalized) and not re.search(
+        r"\b20[0-9]{2}\b|\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b",
+        normalized,
+    ):
+        return {
+            "command": "report-plan",
+            "request": request_text,
+            "query": "",
+            "resource": focus,
+            "dateWindow": None,
+            "review": {
+                "allowed": False,
+                "findings": [
+                    "Quarter requests such as Q1 need an explicit year or date range before GAQL generation."
+                ],
+                "normalized": "",
+            },
+            "stakesTier": "green",
+            "requiresEscalation": False,
+            "requiresClarification": True,
+            "costMeasurement": usage_totals_measurement(),
+        }
     date_window = choose_date_window(request_text)
-    normalized = request_text.lower()
 
     if focus == "ad_group":
         fields = [
@@ -538,12 +573,12 @@ def review_gaql(query: str) -> dict[str, Any]:
 
 
 def contains_any(text: str, phrases: set[str]) -> bool:
-    lowered = text.lower()
+    lowered = normalize_intent_text(text)
     return any(phrase in lowered for phrase in phrases)
 
 
 def classify_operation(request_text: str) -> dict[str, Any]:
-    lowered = request_text.lower()
+    lowered = normalize_intent_text(request_text)
     reasons: list[str] = []
     operation = "read"
     tier = "green"
@@ -573,7 +608,17 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         required_grant = "approve-google-ads-conversion-action-edit"
         reasons.append("conversion changes alter optimization and reporting")
     elif contains_any(lowered, AD_COPY_WORDS) and any(
-        word in lowered for word in ["submit", "create", "publish", "upload", "send", "draft"]
+        word in lowered
+        for word in [
+            "submit",
+            "create",
+            "publish",
+            "upload",
+            "send",
+            "draft",
+            "entwirf",
+            "erstelle",
+        ]
     ):
         operation = "ad-copy"
         tier = "red" if any(word in lowered for word in ["submit", "publish", "upload"]) else "amber"
@@ -586,7 +631,16 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         required_grant = "approve-google-ads-recommendation-apply"
         reasons.append("recommendation applies require operator approval")
     elif contains_any(lowered, AMBER_WORDS) and any(
-        word in lowered for word in ["add", "edit", "pause", "apply", "create", "hinzufugen"]
+        word in lowered
+        for word in [
+            "add",
+            "edit",
+            "pause",
+            "apply",
+            "create",
+            "hinzufuegen",
+            "hinzufugen",
+        ]
     ):
         operation = "campaign-structure-edit"
         tier = "amber"
@@ -755,6 +809,7 @@ def command_keyword_create(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_keyword_status(args: argparse.Namespace) -> dict[str, Any]:
     customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
     criterion_id = coerce_positive_int(args.criterion_id, "criterion id")
     status = normalize_status(args.status, {"ENABLED", "PAUSED"})
     return mutate_service(
@@ -766,7 +821,9 @@ def command_keyword_status(args: argparse.Namespace) -> dict[str, Any]:
                 "updateMask": "status",
                 "update": {
                     "resourceName": ads_resource(
-                        customer_id, "adGroupCriteria", criterion_id
+                        customer_id,
+                        "adGroupCriteria",
+                        f"{ad_group_id}~{criterion_id}",
                     ),
                     "status": status,
                 },
@@ -1072,6 +1129,7 @@ def build_parser() -> argparse.ArgumentParser:
         "keyword-status", help="Pause or enable an ad group keyword after approval."
     )
     keyword_status.add_argument("customer_id")
+    keyword_status.add_argument("ad_group_id")
     keyword_status.add_argument("criterion_id")
     keyword_status.add_argument("--status", required=True)
     keyword_status.add_argument("--grant", default="")

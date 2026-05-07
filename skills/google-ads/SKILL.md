@@ -171,6 +171,10 @@ python3 skills/google-ads/scripts/google_ads.py keyword-create 1234567890 777888
   --match-type EXACT \
   --grant approve-google-ads-structure-edit
 
+python3 skills/google-ads/scripts/google_ads.py keyword-status 1234567890 777888999 111222333 \
+  --status PAUSED \
+  --grant approve-google-ads-structure-edit
+
 python3 skills/google-ads/scripts/google_ads.py rsa-create 1234567890 777888999 \
   --headline "Fast CRM Migration" \
   --headline "Clean Data Move" \
