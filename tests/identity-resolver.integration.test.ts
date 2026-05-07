@@ -105,6 +105,70 @@ describe('identity resolver discovery', () => {
     expect(lookupCount).toBe(3);
   });
 
+  test('evicts old cache entries when the cache reaches its max size', async () => {
+    let lookupCount = 0;
+    const resolver = new IdentityResolver({
+      backend: {
+        async lookup(canonicalId) {
+          lookupCount += 1;
+          return {
+            url: `https://${canonicalId.replace('@', '.')}.example.com`,
+            publicKey: `key-for-${canonicalId}`,
+          };
+        },
+      },
+      cacheMaxEntries: 2,
+    });
+
+    await resolver.resolve('ada@hybridai');
+    await resolver.resolve('grace@hybridai');
+    await resolver.resolve('linus@hybridai');
+
+    await expect(resolver.resolve('ada@hybridai')).resolves.toEqual({
+      url: 'https://ada.hybridai.example.com',
+      publicKey: 'key-for-ada@hybridai',
+    });
+    expect(lookupCount).toBe(4);
+  });
+
+  test('skips malformed DNS TXT records when another record is usable', async () => {
+    const zone = 'identity.example.com';
+    const canonicalId = 'ada@hybridai';
+    const resolver = new IdentityResolver({
+      backend: new DnsIdentityResolverBackend({
+        zone,
+        lookupTxt: async () => [
+          ['not-json'],
+          [
+            JSON.stringify({
+              canonicalId,
+              url: 'https://ada.example.com',
+              publicKey: 'test-public-key',
+            }),
+          ],
+        ],
+      }),
+    });
+
+    await expect(resolver.resolve(canonicalId)).resolves.toEqual({
+      url: 'https://ada.example.com',
+      publicKey: 'test-public-key',
+    });
+  });
+
+  test('reports DNS TXT record context when no record is usable', async () => {
+    const resolver = new IdentityResolver({
+      backend: new DnsIdentityResolverBackend({
+        zone: 'identity.example.com',
+        lookupTxt: async () => [['not-json']],
+      }),
+    });
+
+    await expect(resolver.resolve('ada@hybridai')).rejects.toThrow(
+      /No usable identity discovery TXT record for ada@hybridai at _hybridclaw-id\./u,
+    );
+  });
+
   test('does not cache misses', async () => {
     let lookupCount = 0;
     const resolver = new IdentityResolver({

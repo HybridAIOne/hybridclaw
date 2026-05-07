@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import dns from 'node:dns/promises';
+import { resolveTxt } from 'node:dns/promises';
 
 import { isA2AAllowedHttpUrl } from '../a2a/utils.js';
 import { type ParsedAgentIdentity, parseAgentIdentity } from './agent-id.js';
 import { type ParsedUserId, parseUserId } from './user-id.js';
 
 export const IDENTITY_RESOLVER_CACHE_TTL_MS = 5 * 60_000;
+export const IDENTITY_RESOLVER_CACHE_MAX_ENTRIES = 1024;
 
 export interface IdentityResolution {
   readonly url: string;
@@ -33,6 +34,7 @@ export interface IdentityResolverBackend {
 export interface IdentityResolverOptions {
   readonly backend: IdentityResolverBackend;
   readonly cacheTtlMs?: number;
+  readonly cacheMaxEntries?: number;
   readonly now?: () => Date;
 }
 
@@ -82,6 +84,11 @@ function normalizeCacheTtlMs(value: number | undefined): number {
   return Math.max(1, Math.trunc(value as number));
 }
 
+function normalizeCacheMaxEntries(value: number | undefined): number {
+  if (!Number.isFinite(value)) return IDENTITY_RESOLVER_CACHE_MAX_ENTRIES;
+  return Math.max(1, Math.trunc(value as number));
+}
+
 function normalizeIdentityResolution(value: unknown): IdentityResolution {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new IdentityResolverError(
@@ -126,24 +133,24 @@ function normalizeIdentityUrl(value: string): string {
 export class IdentityResolver {
   private readonly backend: IdentityResolverBackend;
   private readonly cacheTtlMs: number;
+  private readonly cacheMaxEntries: number;
   private readonly now: () => Date;
   private readonly cache = new Map<string, CachedIdentityResolution>();
 
   constructor(options: IdentityResolverOptions) {
     this.backend = options.backend;
     this.cacheTtlMs = normalizeCacheTtlMs(options.cacheTtlMs);
+    this.cacheMaxEntries = normalizeCacheMaxEntries(options.cacheMaxEntries);
     this.now = options.now ?? (() => new Date());
   }
 
   async resolve(canonicalId: string): Promise<IdentityResolution> {
     const normalizedId = parseCanonicalIdentity(canonicalId).id;
     const nowMs = this.now().getTime();
+    this.pruneExpired(nowMs);
     const cached = this.cache.get(normalizedId);
     if (cached && cached.expiresAt > nowMs) {
       return cached.resolution;
-    }
-    if (cached) {
-      this.cache.delete(normalizedId);
     }
 
     const result = await this.backend.lookup(normalizedId);
@@ -155,6 +162,7 @@ export class IdentityResolver {
       resolution,
       expiresAt: nowMs + this.cacheTtlMs,
     });
+    this.enforceCacheMaxEntries();
     return resolution;
   }
 
@@ -164,6 +172,22 @@ export class IdentityResolver {
       return;
     }
     this.cache.delete(parseCanonicalIdentity(canonicalId).id);
+  }
+
+  private pruneExpired(nowMs: number): void {
+    for (const [key, cached] of this.cache) {
+      if (cached.expiresAt <= nowMs) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  private enforceCacheMaxEntries(): void {
+    while (this.cache.size > this.cacheMaxEntries) {
+      const oldestKey = this.cache.keys().next().value;
+      if (!oldestKey) return;
+      this.cache.delete(oldestKey);
+    }
   }
 }
 
@@ -234,8 +258,7 @@ export class DnsIdentityResolverBackend implements IdentityResolverBackend {
 
   constructor(options: DnsIdentityResolverBackendOptions) {
     this.zone = normalizeDnsZone(options.zone);
-    this.lookupTxt =
-      options.lookupTxt ?? ((name: string) => dns.resolveTxt(name));
+    this.lookupTxt = options.lookupTxt ?? ((name: string) => resolveTxt(name));
   }
 
   async lookup(canonicalId: string): Promise<IdentityResolution | null> {
@@ -249,9 +272,22 @@ export class DnsIdentityResolverBackend implements IdentityResolverBackend {
       throw error;
     }
 
+    let firstRecordError: Error | null = null;
     for (const record of records) {
-      const resolution = parseDnsIdentityRecord(normalizedId, record);
-      if (resolution) return resolution;
+      try {
+        const resolution = parseDnsIdentityRecord(normalizedId, record);
+        if (resolution) return resolution;
+      } catch (error) {
+        firstRecordError ??=
+          error instanceof Error
+            ? error
+            : new IdentityResolverError('unknown TXT record parse error');
+      }
+    }
+    if (firstRecordError) {
+      throw new IdentityResolverError(
+        `No usable identity discovery TXT record for ${normalizedId} at ${recordName}: ${firstRecordError.message}`,
+      );
     }
     return null;
   }
