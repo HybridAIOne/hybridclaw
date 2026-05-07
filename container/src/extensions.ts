@@ -1,9 +1,13 @@
+import { parseToolArgsJsonOrThrow } from './tool-args.js';
+
 type RuntimeEventName =
   | 'before_agent_start'
   | 'before_model_call'
   | 'after_model_call'
   | 'model_retry'
   | 'model_error'
+  | 'pre_tool_use'
+  | 'post_tool_use'
   | 'before_tool_call'
   | 'after_tool_call'
   | 'mcp_server_connected'
@@ -129,14 +133,7 @@ function logHookArgumentParseFailure(hook: string, error: unknown): void {
 }
 
 function parseArgs(argsJson: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(argsJson) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return {};
-    return parsed as Record<string, unknown>;
-  } catch (error) {
-    throw new Error(INVALID_ARGS_MESSAGE, { cause: error });
-  }
+  return parseToolArgsJsonOrThrow(argsJson, INVALID_ARGS_MESSAGE);
 }
 
 export async function emitRuntimeEvent(
