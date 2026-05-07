@@ -285,13 +285,10 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           # The package declares Node 22.x and .npmrc enforces engines during
-          # npm ci. Upgrade npm separately so trusted publishing still uses
-          # npm 11+.
+          # npm ci. The publish step invokes npm 11 through npx so trusted
+          # publishing does not require mutating the runner's bundled npm.
           node-version: 22
           cache: npm
-
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@11
 
       - name: Install dependencies
         env:
@@ -309,4 +306,4 @@ jobs:
           else
             NPM_TAG="latest"
           fi
-          npm publish --access public --tag "$NPM_TAG" --provenance
+          npx -y npm@11 publish --access public --tag "$NPM_TAG" --provenance
