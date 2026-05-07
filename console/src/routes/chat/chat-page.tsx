@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChatBranch,
   createChatMobileQr,
+  executeCommand,
   fetchAppStatus,
   fetchChatContext,
   fetchChatRecent,
@@ -16,7 +17,7 @@ import type {
 } from '../../api/chat-types';
 import { fetchAgentList, fetchModels } from '../../api/client';
 import type { ChatModel } from '../../api/types';
-import { useAuth } from '../../auth';
+import { isAuthReadyForApi, useAuth } from '../../auth';
 import { MobileTopbarTrigger } from '../../components/sidebar/index';
 import { ViewSwitchNav } from '../../components/view-switch';
 import {
@@ -25,12 +26,14 @@ import {
   copyToClipboard,
   DEFAULT_AGENT_ID,
   isScrolledNearBottom,
+  nextMsgId,
   readStoredUserId,
 } from '../../lib/chat-helpers';
 import { CHAT_UI_CONFIG } from '../../lib/chat-ui-config';
 import { getErrorMessage } from '../../lib/error-message';
 import { useDebouncedValue } from '../../lib/use-debounced-value';
 import {
+  type ChatHistoryUiData,
   chatHistoryQueryKey,
   EMPTY_BRANCH_FAMILIES,
   loadChatHistoryUi,
@@ -74,6 +77,19 @@ function buildBranchInfoMap(
     });
   }
   return map;
+}
+
+function chatRecentQueryKey(
+  token: string,
+  userId: string,
+  query = '',
+  scope: RecentChatScope = 'user',
+) {
+  return ['chat-recent', token, userId, query, scope] as const;
+}
+
+function chatRecentQueryPrefix(token: string, userId: string) {
+  return ['chat-recent', token, userId] as const;
 }
 
 export function ChatPage() {
@@ -140,7 +156,6 @@ export function ChatPage() {
     };
   }, []);
 
-  const getDefaultAgentId = useCallback(() => defaultAgentIdRef.current, []);
   const {
     sessionId,
     getSessionId,
@@ -149,11 +164,11 @@ export function ChatPage() {
     startFreshChat,
     ensureSessionForSend,
     handleSessionIdCorrection,
-  } = useChatSession({ getDefaultAgentId });
+  } = useChatSession();
 
   const refreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ['chat-recent', auth.token, userId],
+      queryKey: chatRecentQueryPrefix(auth.token, userId),
     });
     void queryClient.invalidateQueries({
       queryKey: chatHistoryQueryKey(auth.token, getSessionId()),
@@ -170,23 +185,31 @@ export function ChatPage() {
     onSessionIdCorrection: handleSessionIdCorrection,
     onModelResolved: setSelectedModelId,
   });
+  const chatApiReady = isAuthReadyForApi(auth);
 
   const appStatusQuery = useQuery({
     queryKey: ['app-status', auth.token],
     queryFn: () => fetchAppStatus(auth.token),
     staleTime: Infinity,
+    enabled: chatApiReady,
+    initialData:
+      auth.status === 'ready' && auth.gatewayStatus
+        ? auth.gatewayStatus
+        : undefined,
   });
 
   const agentsQuery = useQuery({
     queryKey: ['agents-list', auth.token],
     queryFn: () => fetchAgentList(auth.token),
     staleTime: 30_000,
+    enabled: chatApiReady,
   });
 
   const modelsQuery = useQuery({
     queryKey: ['models', auth.token],
     queryFn: () => fetchModels(auth.token),
     staleTime: 30_000,
+    enabled: chatApiReady,
   });
 
   useEffect(() => {
@@ -231,13 +254,12 @@ export function ChatPage() {
   }, [modelsQuery.error]);
 
   const recentQuery = useQuery({
-    queryKey: [
-      'chat-recent',
+    queryKey: chatRecentQueryKey(
       auth.token,
       userId,
       trimmedSessionSearchQuery,
       recentChatScope,
-    ],
+    ),
     queryFn: () =>
       fetchChatRecent(
         auth.token,
@@ -250,6 +272,7 @@ export function ChatPage() {
         recentChatScope,
       ),
     staleTime: 10_000,
+    enabled: chatApiReady,
   });
   const recentSessions = recentQuery.data?.sessions ?? [];
   const agentOptions = useMemo(
@@ -265,14 +288,14 @@ export function ChatPage() {
   const historyQuery = useQuery({
     queryKey: chatHistoryQueryKey(auth.token, sessionId),
     queryFn: () => loadChatHistoryUi(auth.token, sessionId),
-    enabled: Boolean(sessionId),
+    enabled: chatApiReady && Boolean(sessionId),
     staleTime: Infinity,
   });
 
   const contextQuery = useQuery({
     queryKey: ['chat-context', auth.token, sessionId],
     queryFn: () => fetchChatContext(auth.token, sessionId),
-    enabled: Boolean(sessionId),
+    enabled: chatApiReady && Boolean(sessionId),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
@@ -471,35 +494,106 @@ export function ChatPage() {
     [ensureSessionForSend, stream.sendMessage],
   );
 
+  const appendLocalCommandResult = useCallback(
+    (targetSessionId: string, content: string) => {
+      const text = content.trim();
+      if (!text) return;
+      queryClient.setQueryData<ChatHistoryUiData>(
+        chatHistoryQueryKey(auth.token, targetSessionId),
+        (prev) => ({
+          messages: [
+            ...(prev?.messages ?? []),
+            {
+              id: nextMsgId(),
+              role: 'assistant',
+              content: text,
+              rawContent: text,
+              sessionId: targetSessionId,
+              artifacts: [],
+              replayRequest: null,
+            },
+          ],
+          branchFamilies: prev?.branchFamilies ?? new Map(),
+          resolvedSessionId: targetSessionId,
+        }),
+      );
+    },
+    [auth.token, queryClient],
+  );
+
+  const ensureSwitchHistory = useCallback(
+    async (resolvedSessionId: string) => {
+      await queryClient
+        .ensureQueryData({
+          queryKey: chatHistoryQueryKey(auth.token, resolvedSessionId),
+          queryFn: () => loadChatHistoryUi(auth.token, resolvedSessionId),
+        })
+        .catch((err: unknown) => {
+          console.warn(
+            'Failed to prefetch chat history before appending switch result',
+            err,
+          );
+          return null;
+        });
+    },
+    [auth.token, queryClient],
+  );
+
   const sendSlashSwitch = useCallback(
     async (
-      command: string,
+      commandArgs: string[],
       value: string,
       onAccepted: (value: string) => void,
       busyMessage: string,
     ) => {
       if (!value || /\s/.test(value)) return;
+      if (stream.isActive()) {
+        setError(busyMessage);
+        return;
+      }
       ensureSessionForSend();
+      const requestedSessionId = getSessionId();
       try {
-        const accepted = await stream.sendMessage(`${command} ${value}`, [], {
-          hideUser: true,
-        });
-        if (accepted) {
-          onAccepted(value);
-        } else {
-          setError(busyMessage);
+        const result = await executeCommand(
+          auth.token,
+          requestedSessionId,
+          userId,
+          [...commandArgs, value],
+        );
+        const resolvedSessionId =
+          result.sessionId?.trim() || requestedSessionId;
+        await ensureSwitchHistory(resolvedSessionId);
+        appendLocalCommandResult(resolvedSessionId, result.text);
+        if (resolvedSessionId !== requestedSessionId) {
+          await switchToSession(resolvedSessionId, { replace: true });
         }
+        void queryClient.invalidateQueries({
+          queryKey: ['chat-context', auth.token, resolvedSessionId],
+        });
+        refreshRecent();
+        onAccepted(value);
       } catch (err) {
         setError(getErrorMessage(err));
       }
     },
-    [ensureSessionForSend, stream.sendMessage],
+    [
+      appendLocalCommandResult,
+      auth.token,
+      ensureSessionForSend,
+      ensureSwitchHistory,
+      getSessionId,
+      queryClient,
+      refreshRecent,
+      stream.isActive,
+      switchToSession,
+      userId,
+    ],
   );
 
   const handleAgentSwitch = useCallback(
     (agentId: string) =>
       sendSlashSwitch(
-        '/agent switch',
+        ['agent', 'switch'],
         agentId,
         setSelectedAgentId,
         'Could not switch agent — stop the current run and try again.',
@@ -510,7 +604,7 @@ export function ChatPage() {
   const handleModelSwitch = useCallback(
     (modelId: string) =>
       sendSlashSwitch(
-        '/model set',
+        ['model', 'set'],
         modelId,
         setSelectedModelId,
         'Could not switch model — stop the current run and try again.',
@@ -543,13 +637,12 @@ export function ChatPage() {
 
   const handleRefreshRecent = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: [
-        'chat-recent',
+      queryKey: chatRecentQueryKey(
         auth.token,
         userId,
         trimmedSessionSearchQuery,
         recentChatScope,
-      ],
+      ),
     });
   }, [
     queryClient,
@@ -630,7 +723,11 @@ export function ChatPage() {
         <div className={css.chatMain}>
           <div className={css.chatTopbar}>
             <MobileTopbarTrigger className={css.chatMobileTrigger} />
-            <ContextRing sessionId={sessionId} />
+            <ContextRing
+              sessionId={sessionId}
+              token={auth.token}
+              enabled={chatApiReady}
+            />
             <button
               type="button"
               className={css.mobileQrButton}

@@ -43,7 +43,7 @@ type AuthState =
       error: string;
     };
 
-type AuthContextValue = AuthState & {
+export type AuthContextValue = AuthState & {
   login: (token: string) => Promise<void>;
   logout: () => void;
   retry: () => Promise<void>;
@@ -243,6 +243,12 @@ export function AuthProvider(props: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={value}>{props.children}</AuthContext.Provider>
   );
+}
+
+export function isAuthReadyForApi(auth: AuthContextValue): boolean {
+  if (auth.status !== 'ready') return false;
+  if (auth.gatewayStatus.webAuthConfigured !== true) return true;
+  return auth.token.trim().length > 0;
 }
 
 export function useAuth(): AuthContextValue {
