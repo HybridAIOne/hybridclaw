@@ -26,6 +26,7 @@ import type {
   MediaUploadResponse,
 } from '../../api/chat-types';
 import type {
+  AdminCommandResult,
   AdminModelsResponse,
   AgentListItem,
   GatewayStatus,
@@ -66,6 +67,15 @@ const createChatBranchMock =
   >();
 const uploadMediaMock =
   vi.fn<(token: string, file: File) => Promise<MediaUploadResponse>>();
+const executeCommandMock =
+  vi.fn<
+    (
+      token: string,
+      sessionId: string,
+      userId: string,
+      args: string[],
+    ) => Promise<AdminCommandResult>
+  >();
 const fetchAgentListMock = vi.fn<(token: string) => Promise<AgentListItem[]>>();
 const fetchModelsMock =
   vi.fn<(token: string) => Promise<AdminModelsResponse>>();
@@ -99,6 +109,12 @@ vi.mock('../../api/chat', () => ({
     beforeMessageId: number | string,
   ) => createChatBranchMock(token, sessionId, beforeMessageId),
   uploadMedia: (token: string, file: File) => uploadMediaMock(token, file),
+  executeCommand: (
+    token: string,
+    sessionId: string,
+    userId: string,
+    args: string[],
+  ) => executeCommandMock(token, sessionId, userId, args),
 }));
 
 vi.mock('../../api/client', () => ({
@@ -107,6 +123,14 @@ vi.mock('../../api/client', () => ({
 }));
 
 vi.mock('../../auth', () => ({
+  isAuthReadyForApi: (auth: {
+    status: string;
+    token: string;
+    gatewayStatus?: { webAuthConfigured?: boolean } | null;
+  }) =>
+    auth.status === 'ready' &&
+    (auth.gatewayStatus?.webAuthConfigured !== true ||
+      auth.token.trim().length > 0),
   useAuth: () => useAuthMock(),
 }));
 
@@ -202,6 +226,7 @@ describe('ChatPage', () => {
     createChatMobileQrMock.mockReset();
     createChatBranchMock.mockReset();
     uploadMediaMock.mockReset();
+    executeCommandMock.mockReset();
     fetchAgentListMock.mockReset();
     fetchModelsMock.mockReset();
     fetchModelsMock.mockResolvedValue({
@@ -215,8 +240,7 @@ describe('ChatPage', () => {
     isActiveMock.mockReset();
     useChatStreamMock.mockReset();
 
-    useAuthMock.mockReturnValue({ token: 'test-token' });
-    fetchAppStatusMock.mockResolvedValue({
+    const gatewayStatus: GatewayStatus = {
       status: 'ok',
       webAuthConfigured: true,
       version: '0.0.0',
@@ -228,7 +252,17 @@ describe('ChatPage', () => {
       defaultModel: 'gpt-5',
       ragDefault: false,
       timestamp: '2026-04-14T10:00:00.000Z',
+    };
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      token: 'test-token',
+      gatewayStatus,
+      error: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+      retry: vi.fn(),
     });
+    fetchAppStatusMock.mockResolvedValue(gatewayStatus);
     fetchChatRecentMock.mockImplementation(
       async (_token, _userId, _channelId, _limit, query) => ({
         sessions: query
@@ -261,6 +295,11 @@ describe('ChatPage', () => {
       sessionId: 'session-a',
       snapshot: null,
     });
+    executeCommandMock.mockResolvedValue({
+      kind: 'plain',
+      text: 'Session agent set to `charly` (model: `gpt-5`).',
+      sessionId: 'session-a',
+    });
     fetchAgentListMock.mockResolvedValue([
       { id: 'main', name: 'Assistant' },
       { id: 'charly', name: 'Charly' },
@@ -278,6 +317,28 @@ describe('ChatPage', () => {
       streamingMsgId: null,
       isActive: isActiveMock,
     });
+  });
+
+  it('does not issue chat API queries before auth is ready', async () => {
+    useAuthMock.mockReturnValue({
+      status: 'checking',
+      token: 'stale-token',
+      gatewayStatus: null,
+      error: null,
+    });
+
+    renderChatPage();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchAppStatusMock).not.toHaveBeenCalled();
+    expect(fetchAgentListMock).not.toHaveBeenCalled();
+    expect(fetchModelsMock).not.toHaveBeenCalled();
+    expect(fetchChatRecentMock).not.toHaveBeenCalled();
+    expect(fetchChatHistoryMock).not.toHaveBeenCalled();
+    expect(fetchChatContextMock).not.toHaveBeenCalled();
   });
 
   it('loads history, sends from the composer, and switches recent sessions', async () => {
@@ -328,12 +389,11 @@ describe('ChatPage', () => {
     );
   });
 
-  it('switches agents from the composer dropdown using the slash command path', async () => {
+  it('switches agents from the composer dropdown using the command path', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
     });
-    sendMessageMock.mockResolvedValue(true);
 
     renderChatPage();
 
@@ -345,10 +405,61 @@ describe('ChatPage', () => {
     });
 
     await waitFor(() =>
-      expect(sendMessageMock).toHaveBeenCalledWith('/agent switch charly', [], {
-        hideUser: true,
+      expect(executeCommandMock).toHaveBeenCalledWith(
+        'test-token',
+        'session-a',
+        'web-user-1',
+        ['agent', 'switch', 'charly'],
+      ),
+    );
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(document.body.textContent).toContain(
+        'Session agent set to charly',
+      );
+      expect(document.body.textContent).toContain('gpt-5');
+    });
+  });
+
+  it('keeps first agent switch result visible when bare /chat resolves to a server session id', async () => {
+    const routerModule = (await import(
+      '@tanstack/react-router'
+    )) as unknown as {
+      __testRouter: TestRouter;
+    };
+    routerModule.__testRouter.setSessionId(null);
+    fetchChatHistoryMock.mockImplementation(async (_token, sessionId) => ({
+      sessionId,
+      history: [],
+    }));
+    executeCommandMock.mockImplementation(
+      async (_token, sessionId): Promise<AdminCommandResult> => ({
+        kind: 'plain',
+        text: 'Session agent set to `bk` (model: `openrouter/nvidia/nemotron-3-super-120b-a12b:free`).',
+        sessionId,
       }),
     );
+
+    renderChatPage();
+
+    const agentSelect = await screen.findByLabelText('Switch agent');
+    fireEvent.change(agentSelect, {
+      target: { value: 'charly' },
+    });
+
+    await waitFor(() =>
+      expect(routerModule.__testRouter.lastTo).toBe('/chat/$sessionId'),
+    );
+    expect(routerModule.__testRouter.lastReplace).toBe(true);
+    expect(executeCommandMock.mock.calls[0]?.[1]).toMatch(
+      /^sess_\d{8}_\d{6}_[0-9a-f]{8}$/,
+    );
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Session agent set to bk');
+      expect(document.body.textContent).toContain(
+        'openrouter/nvidia/nemotron-3-super-120b-a12b:free',
+      );
+    });
   });
 
   it('syncs the model dropdown from the session context snapshot', async () => {
@@ -786,9 +897,7 @@ describe('ChatPage', () => {
     expect(screen.getByDisplayValue('Updated draft message')).not.toBeNull();
   });
 
-  it('surfaces gateway status load failures instead of swallowing them', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    fetchAppStatusMock.mockRejectedValue(new Error('Gateway offline'));
+  it('seeds gateway status from auth without refetching it', async () => {
     fetchChatHistoryMock.mockResolvedValue({
       sessionId: 'session-a',
       history: [],
@@ -796,17 +905,8 @@ describe('ChatPage', () => {
 
     renderChatPage();
 
-    expect(
-      await screen.findByText(
-        'Failed to load the default agent. New chats will use main until gateway status loads.',
-      ),
-    ).not.toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Failed to load gateway status for chat page',
-      expect.any(Error),
-    );
-
-    errorSpy.mockRestore();
+    expect(await screen.findByText('Ready to claw through your to-do list?'));
+    expect(fetchAppStatusMock).not.toHaveBeenCalled();
   });
 
   it('collapses to the icon rail and exposes an Expand trigger that re-opens it', async () => {

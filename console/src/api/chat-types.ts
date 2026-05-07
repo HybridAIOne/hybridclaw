@@ -139,11 +139,6 @@ export interface BranchResponse {
   sessionId: string;
 }
 
-export interface CommandResponse {
-  status?: string;
-  error?: string;
-}
-
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'approval';
