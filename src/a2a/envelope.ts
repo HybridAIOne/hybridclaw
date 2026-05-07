@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { isCanonicalAgentIdentity } from '../identity/agent-id.js';
+import {
+  formatAgentIdentity,
+  isCanonicalAgentIdentity,
+  parseAgentIdentity,
+} from '../identity/agent-id.js';
 import { isRecord } from './utils.js';
 
 export const A2A_ENVELOPE_INTENTS = [
@@ -17,11 +21,14 @@ export interface A2AEnvelope {
   id: string;
   sender_agent_id: string;
   recipient_agent_id: string;
+  source_instance_id?: string;
+  target_instance_id?: string;
   thread_id: string;
   parent_message_id?: string;
   intent: A2AEnvelopeIntent;
   content: string;
   created_at: string;
+  delegation_token?: string;
 }
 
 export type CreateA2AEnvelopeInput = Omit<A2AEnvelope, 'id' | 'created_at'> & {
@@ -34,6 +41,9 @@ export interface A2AEnvelopeAuditSummary {
   threadId: string | null;
   senderAgentId: string | null;
   recipientAgentId: string | null;
+  sourceInstanceId: string | null;
+  targetInstanceId: string | null;
+  hasDelegationToken: boolean;
 }
 
 export class A2AEnvelopeValidationError extends Error {
@@ -64,11 +74,14 @@ const A2A_ENVELOPE_FIELDS = new Set([
   'id',
   'sender_agent_id',
   'recipient_agent_id',
+  'source_instance_id',
+  'target_instance_id',
   'thread_id',
   'parent_message_id',
   'intent',
   'content',
   'created_at',
+  'delegation_token',
 ]);
 
 const LOCAL_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -143,6 +156,10 @@ function normalizeAgentId(value: string): string {
     : value;
 }
 
+function normalizeInstanceId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 export function isA2AAgentId(value: string): boolean {
   return classifyA2AAgentId(value) !== null;
 }
@@ -152,6 +169,15 @@ export function isA2AOpaqueId(value: string): boolean {
   return (
     normalized.length > 0 && !OPAQUE_ID_DISALLOWED_PATTERN.test(normalized)
   );
+}
+
+export function isA2AInstanceId(value: string): boolean {
+  try {
+    formatAgentIdentity('agent', 'user', value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validateOpaqueId(
@@ -165,6 +191,18 @@ function validateOpaqueId(
   }
 }
 
+function validateDelegationToken(
+  value: string | undefined,
+  issues: string[],
+): void {
+  if (value === undefined) return;
+  if (!isA2AOpaqueId(value)) {
+    issues.push(
+      'delegation_token must be a non-empty token without whitespace',
+    );
+  }
+}
+
 function validateAgentId(
   field: 'sender_agent_id' | 'recipient_agent_id',
   value: string,
@@ -175,6 +213,82 @@ function validateAgentId(
       `${field} must be a local agent id or canonical agent id (agent-slug@user@instance-id)`,
     );
   }
+}
+
+function validateInstanceId(
+  field: 'source_instance_id' | 'target_instance_id',
+  value: string | undefined,
+  issues: string[],
+): void {
+  if (value === undefined) return;
+  if (!isA2AInstanceId(value)) {
+    issues.push(`${field} must be a canonical instance id`);
+  }
+}
+
+function requireCanonicalAgentIdForDelegation(
+  field: 'sender_agent_id' | 'recipient_agent_id',
+  value: string,
+  issues: string[],
+): void {
+  if (classifyA2AAgentId(value) !== 'canonical') {
+    issues.push(
+      `${field} must be canonical when delegation fields are provided`,
+    );
+  }
+}
+
+function agentInstanceId(value: string): string | undefined {
+  if (classifyA2AAgentId(value) !== 'canonical') return undefined;
+  return parseAgentIdentity(value).instanceId;
+}
+
+function validateDelegationInstanceMatch(
+  instanceField: 'source_instance_id' | 'target_instance_id',
+  instanceId: string | undefined,
+  agentField: 'sender_agent_id' | 'recipient_agent_id',
+  agentId: string,
+  issues: string[],
+): void {
+  if (instanceId === undefined) return;
+  const embeddedInstanceId = agentInstanceId(agentId);
+  if (embeddedInstanceId && instanceId !== embeddedInstanceId) {
+    issues.push(
+      `${instanceField} must match the instance-id portion of ${agentField}`,
+    );
+  }
+}
+
+function validateDelegationFieldSet(params: {
+  sourceInstanceId: string | undefined;
+  targetInstanceId: string | undefined;
+  delegationToken: string | undefined;
+  senderAgentId: string;
+  recipientAgentId: string;
+  issues: string[];
+}): void {
+  const presentCount = [
+    params.sourceInstanceId,
+    params.targetInstanceId,
+    params.delegationToken,
+  ].filter((value) => value !== undefined).length;
+  if (presentCount === 0) return;
+
+  if (presentCount !== 3) {
+    params.issues.push(
+      'source_instance_id, target_instance_id, and delegation_token must be provided together',
+    );
+  }
+  requireCanonicalAgentIdForDelegation(
+    'sender_agent_id',
+    params.senderAgentId,
+    params.issues,
+  );
+  requireCanonicalAgentIdForDelegation(
+    'recipient_agent_id',
+    params.recipientAgentId,
+    params.issues,
+  );
 }
 
 function validateCreatedAt(value: string, issues: string[]): void {
@@ -213,6 +327,16 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     'recipient_agent_id',
     issues,
   );
+  const rawSourceInstanceId = readOptionalTrimmedString(
+    value,
+    'source_instance_id',
+    issues,
+  );
+  const rawTargetInstanceId = readOptionalTrimmedString(
+    value,
+    'target_instance_id',
+    issues,
+  );
   const threadId = readRequiredTrimmedString(value, 'thread_id', issues);
   const parentMessageId = readOptionalTrimmedString(
     value,
@@ -222,14 +346,52 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
   const intent = readRequiredTrimmedString(value, 'intent', issues);
   const content = readContent(value, issues);
   const createdAt = readRequiredTrimmedString(value, 'created_at', issues);
+  const delegationToken = readOptionalTrimmedString(
+    value,
+    'delegation_token',
+    issues,
+  );
   const normalizedSenderAgentId = normalizeAgentId(senderAgentId);
   const normalizedRecipientAgentId = normalizeAgentId(recipientAgentId);
+  const sourceInstanceId =
+    rawSourceInstanceId === undefined
+      ? undefined
+      : normalizeInstanceId(rawSourceInstanceId);
+  const targetInstanceId =
+    rawTargetInstanceId === undefined
+      ? undefined
+      : normalizeInstanceId(rawTargetInstanceId);
 
   validateOpaqueId('id', id, issues);
   validateOpaqueId('thread_id', threadId, issues);
   validateOpaqueId('parent_message_id', parentMessageId, issues);
   validateAgentId('sender_agent_id', normalizedSenderAgentId, issues);
   validateAgentId('recipient_agent_id', normalizedRecipientAgentId, issues);
+  validateInstanceId('source_instance_id', sourceInstanceId, issues);
+  validateInstanceId('target_instance_id', targetInstanceId, issues);
+  validateDelegationToken(delegationToken, issues);
+  validateDelegationFieldSet({
+    sourceInstanceId,
+    targetInstanceId,
+    delegationToken,
+    senderAgentId: normalizedSenderAgentId,
+    recipientAgentId: normalizedRecipientAgentId,
+    issues,
+  });
+  validateDelegationInstanceMatch(
+    'source_instance_id',
+    sourceInstanceId,
+    'sender_agent_id',
+    normalizedSenderAgentId,
+    issues,
+  );
+  validateDelegationInstanceMatch(
+    'target_instance_id',
+    targetInstanceId,
+    'recipient_agent_id',
+    normalizedRecipientAgentId,
+    issues,
+  );
   if (!isA2AEnvelopeIntent(intent)) {
     issues.push(`intent must be one of: ${A2A_ENVELOPE_INTENTS.join(', ')}`);
   }
@@ -243,11 +405,14 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     id,
     sender_agent_id: normalizedSenderAgentId,
     recipient_agent_id: normalizedRecipientAgentId,
+    ...(sourceInstanceId ? { source_instance_id: sourceInstanceId } : {}),
+    ...(targetInstanceId ? { target_instance_id: targetInstanceId } : {}),
     thread_id: threadId,
     ...(parentMessageId ? { parent_message_id: parentMessageId } : {}),
     intent: intent as A2AEnvelopeIntent,
     content,
     created_at: createdAt,
+    ...(delegationToken ? { delegation_token: delegationToken } : {}),
   };
 }
 
@@ -283,5 +448,8 @@ export function summarizeA2AEnvelopeForAudit(
     threadId: envelope.thread_id,
     senderAgentId: envelope.sender_agent_id,
     recipientAgentId: envelope.recipient_agent_id,
+    sourceInstanceId: envelope.source_instance_id ?? null,
+    targetInstanceId: envelope.target_instance_id ?? null,
+    hasDelegationToken: Boolean(envelope.delegation_token),
   };
 }
