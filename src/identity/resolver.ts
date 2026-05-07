@@ -79,14 +79,17 @@ export function parseCanonicalIdentity(value: string): ParsedCanonicalIdentity {
   );
 }
 
-function normalizeCacheTtlMs(value: number | undefined): number {
-  if (!Number.isFinite(value)) return IDENTITY_RESOLVER_CACHE_TTL_MS;
-  return Math.max(1, Math.trunc(value as number));
-}
-
-function normalizeCacheMaxEntries(value: number | undefined): number {
-  if (!Number.isFinite(value)) return IDENTITY_RESOLVER_CACHE_MAX_ENTRIES;
-  return Math.max(1, Math.trunc(value as number));
+function normalizePositiveInt(
+  value: number | undefined,
+  fallback: number,
+  field: string,
+): number {
+  if (!Number.isFinite(value)) return fallback;
+  const normalized = Math.trunc(value as number);
+  if (normalized < 1) {
+    throw new IdentityResolverError(`${field} must be at least 1`);
+  }
+  return normalized;
 }
 
 function normalizeIdentityResolution(value: unknown): IdentityResolution {
@@ -96,8 +99,8 @@ function normalizeIdentityResolution(value: unknown): IdentityResolution {
     );
   }
   const record = value as Record<string, unknown>;
-  const rawUrl = record.url ?? record.instanceUrl ?? record.instance_url;
-  const rawPublicKey = record.publicKey ?? record.public_key;
+  const rawUrl = record.url;
+  const rawPublicKey = record.publicKey;
   if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
     throw new IdentityResolverError(
       'identity discovery record url is required',
@@ -124,9 +127,6 @@ function normalizeIdentityUrl(value: string): string {
   }
   const url = new URL(trimmed);
   url.hash = '';
-  if (url.pathname === '/' && !url.search) {
-    return url.origin;
-  }
   return url.toString().replace(/\/$/u, '');
 }
 
@@ -136,34 +136,47 @@ export class IdentityResolver {
   private readonly cacheMaxEntries: number;
   private readonly now: () => Date;
   private readonly cache = new Map<string, CachedIdentityResolution>();
+  private readonly inFlight = new Map<string, Promise<IdentityResolution>>();
+  private nextCacheExpiryMs = Number.POSITIVE_INFINITY;
 
   constructor(options: IdentityResolverOptions) {
     this.backend = options.backend;
-    this.cacheTtlMs = normalizeCacheTtlMs(options.cacheTtlMs);
-    this.cacheMaxEntries = normalizeCacheMaxEntries(options.cacheMaxEntries);
+    this.cacheTtlMs = normalizePositiveInt(
+      options.cacheTtlMs,
+      IDENTITY_RESOLVER_CACHE_TTL_MS,
+      'cacheTtlMs',
+    );
+    this.cacheMaxEntries = normalizePositiveInt(
+      options.cacheMaxEntries,
+      IDENTITY_RESOLVER_CACHE_MAX_ENTRIES,
+      'cacheMaxEntries',
+    );
     this.now = options.now ?? (() => new Date());
   }
 
   async resolve(canonicalId: string): Promise<IdentityResolution> {
     const normalizedId = parseCanonicalIdentity(canonicalId).id;
     const nowMs = this.now().getTime();
-    this.pruneExpired(nowMs);
+    if (nowMs >= this.nextCacheExpiryMs) {
+      this.pruneExpired(nowMs);
+    }
     const cached = this.cache.get(normalizedId);
     if (cached && cached.expiresAt > nowMs) {
       return cached.resolution;
     }
 
-    const result = await this.backend.lookup(normalizedId);
-    if (!result) {
-      throw new IdentityNotFoundError(normalizedId);
+    const pending = this.inFlight.get(normalizedId);
+    if (pending) {
+      return pending;
     }
-    const resolution = normalizeIdentityResolution(result);
-    this.cache.set(normalizedId, {
-      resolution,
-      expiresAt: nowMs + this.cacheTtlMs,
-    });
-    this.enforceCacheMaxEntries();
-    return resolution;
+
+    const lookup = this.resolveUncached(normalizedId, nowMs);
+    this.inFlight.set(normalizedId, lookup);
+    try {
+      return await lookup;
+    } finally {
+      this.inFlight.delete(normalizedId);
+    }
   }
 
   invalidate(canonicalId?: string): void {
@@ -175,11 +188,15 @@ export class IdentityResolver {
   }
 
   private pruneExpired(nowMs: number): void {
+    let nextCacheExpiryMs = Number.POSITIVE_INFINITY;
     for (const [key, cached] of this.cache) {
       if (cached.expiresAt <= nowMs) {
         this.cache.delete(key);
+        continue;
       }
+      nextCacheExpiryMs = Math.min(nextCacheExpiryMs, cached.expiresAt);
     }
+    this.nextCacheExpiryMs = nextCacheExpiryMs;
   }
 
   private enforceCacheMaxEntries(): void {
@@ -188,6 +205,25 @@ export class IdentityResolver {
       if (!oldestKey) return;
       this.cache.delete(oldestKey);
     }
+  }
+
+  private async resolveUncached(
+    normalizedId: string,
+    nowMs: number,
+  ): Promise<IdentityResolution> {
+    const result = await this.backend.lookup(normalizedId);
+    if (!result) {
+      throw new IdentityNotFoundError(normalizedId);
+    }
+    const resolution = normalizeIdentityResolution(result);
+    const expiresAt = nowMs + this.cacheTtlMs;
+    this.cache.set(normalizedId, {
+      resolution,
+      expiresAt,
+    });
+    this.nextCacheExpiryMs = Math.min(this.nextCacheExpiryMs, expiresAt);
+    this.enforceCacheMaxEntries();
+    return resolution;
   }
 }
 
@@ -244,11 +280,9 @@ function parseDnsIdentityRecord(
     );
   }
   const record = parsed as Record<string, unknown>;
-  const recordCanonicalId = record.canonicalId ?? record.canonical_id;
-  if (typeof recordCanonicalId === 'string') {
-    const normalizedRecordId = parseCanonicalIdentity(recordCanonicalId).id;
-    if (normalizedRecordId !== canonicalId) return null;
-  }
+  if (typeof record.canonicalId !== 'string') return null;
+  const normalizedRecordId = parseCanonicalIdentity(record.canonicalId).id;
+  if (normalizedRecordId !== canonicalId) return null;
   return normalizeIdentityResolution(record);
 }
 
@@ -262,10 +296,15 @@ export class DnsIdentityResolverBackend implements IdentityResolverBackend {
   }
 
   async lookup(canonicalId: string): Promise<IdentityResolution | null> {
-    const normalizedId = parseCanonicalIdentity(canonicalId).id;
-    const recordName = identityDiscoveryDnsName(normalizedId, this.zone);
+    const normalizedId = canonicalId;
+    const idHash = createHash('sha256')
+      .update(normalizedId)
+      .digest('base64url');
+    const recordName = `_hybridclaw-id.${idHash}.${this.zone}`;
     let records: readonly string[][];
     try {
+      // TODO(F7.4): pair DNS discovery with public-key format validation and
+      // DNSSEC or out-of-band key verification before TOFU trust decisions.
       records = await this.lookupTxt(recordName);
     } catch (error) {
       if (isDnsNotFound(error)) return null;

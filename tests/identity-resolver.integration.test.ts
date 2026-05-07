@@ -105,6 +105,31 @@ describe('identity resolver discovery', () => {
     expect(lookupCount).toBe(3);
   });
 
+  test('rejects invalid cache configuration instead of clamping', () => {
+    expect(
+      () =>
+        new IdentityResolver({
+          backend: {
+            async lookup() {
+              return null;
+            },
+          },
+          cacheTtlMs: 0,
+        }),
+    ).toThrow(IdentityResolverError);
+    expect(
+      () =>
+        new IdentityResolver({
+          backend: {
+            async lookup() {
+              return null;
+            },
+          },
+          cacheMaxEntries: -1,
+        }),
+    ).toThrow(IdentityResolverError);
+  });
+
   test('evicts old cache entries when the cache reaches its max size', async () => {
     let lookupCount = 0;
     const resolver = new IdentityResolver({
@@ -131,6 +156,43 @@ describe('identity resolver discovery', () => {
     expect(lookupCount).toBe(4);
   });
 
+  test('deduplicates concurrent cold-cache lookups for the same identity', async () => {
+    let lookupCount = 0;
+    let releaseLookup!: (value: { url: string; publicKey: string }) => void;
+    const lookupGate = new Promise<{ url: string; publicKey: string }>(
+      (resolve) => {
+        releaseLookup = resolve;
+      },
+    );
+    const resolver = new IdentityResolver({
+      backend: {
+        async lookup() {
+          lookupCount += 1;
+          return lookupGate;
+        },
+      },
+    });
+
+    const first = resolver.resolve('ada@hybridai');
+    const second = resolver.resolve('Ada@HybridAI');
+    releaseLookup({
+      url: 'https://ada.example.com',
+      publicKey: 'test-public-key',
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      {
+        url: 'https://ada.example.com',
+        publicKey: 'test-public-key',
+      },
+      {
+        url: 'https://ada.example.com',
+        publicKey: 'test-public-key',
+      },
+    ]);
+    expect(lookupCount).toBe(1);
+  });
+
   test('skips malformed DNS TXT records when another record is usable', async () => {
     const zone = 'identity.example.com';
     const canonicalId = 'ada@hybridai';
@@ -154,6 +216,26 @@ describe('identity resolver discovery', () => {
       url: 'https://ada.example.com',
       publicKey: 'test-public-key',
     });
+  });
+
+  test('requires canonicalId in DNS TXT records', async () => {
+    const resolver = new IdentityResolver({
+      backend: new DnsIdentityResolverBackend({
+        zone: 'identity.example.com',
+        lookupTxt: async () => [
+          [
+            JSON.stringify({
+              url: 'https://ada.example.com',
+              publicKey: 'test-public-key',
+            }),
+          ],
+        ],
+      }),
+    });
+
+    await expect(resolver.resolve('ada@hybridai')).rejects.toThrow(
+      IdentityNotFoundError,
+    );
   });
 
   test('reports DNS TXT record context when no record is usable', async () => {
