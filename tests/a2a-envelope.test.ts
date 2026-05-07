@@ -102,7 +102,7 @@ describe('A2A envelope schema', () => {
           'id must be a non-empty id without whitespace',
           'sender_agent_id must be a local agent id or canonical agent id (agent-slug@user@instance-id)',
           'recipient_agent_id must be a local agent id or canonical agent id (agent-slug@user@instance-id)',
-          'intent must be one of: chat, handoff, escalate, ack',
+          'intent must be one of: chat, handoff, escalate, ack, policy.update',
           'content must be a string',
           'created_at must be an ISO timestamp',
         ]),

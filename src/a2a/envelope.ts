@@ -8,6 +8,7 @@ export const A2A_ENVELOPE_INTENTS = [
   'handoff',
   'escalate',
   'ack',
+  'policy.update',
 ] as const;
 
 export type A2AEnvelopeIntent = (typeof A2A_ENVELOPE_INTENTS)[number];

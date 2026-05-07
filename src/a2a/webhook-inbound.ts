@@ -392,18 +392,34 @@ export function acceptA2AWebhookInboundEnvelope(params: {
       actor: peerId,
       sessionId,
       auditRunId: runId,
+      workspacePath: process.cwd(),
+      policyUpdatePrincipal: {
+        peerId,
+        senderAgentId: peer.senderAgentId,
+        ...(peer.policyAuthority
+          ? { policyAuthority: peer.policyAuthority }
+          : {}),
+        capabilities: peer.capabilities,
+      },
     });
+    const statusCode =
+      'disposition' in confirmation && confirmation.disposition === 'rejected'
+        ? 403
+        : 202;
     recordInboundAudit({
       peerId,
       runId,
       signatureOutcome: 'passed',
       intent: envelope.intent,
-      downstreamDisposition: 'delivered',
+      downstreamDisposition: statusCode === 202 ? 'delivered' : 'rejected',
       envelope,
-      statusCode: 202,
+      statusCode,
+      ...('reason' in confirmation && confirmation.reason
+        ? { reason: confirmation.reason }
+        : {}),
     });
     return {
-      statusCode: 202,
+      statusCode,
       body: { ...confirmation },
     };
   } catch (error) {

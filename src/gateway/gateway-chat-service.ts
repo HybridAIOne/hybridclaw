@@ -47,6 +47,7 @@ import {
   memoryService,
 } from '../memory/memory-service.js';
 import { withSpan } from '../observability/otel.js';
+import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
@@ -438,9 +439,6 @@ async function handleGatewayMessageInner(
     getChannelByContextId(req.channelId) ||
     undefined;
   const autoApproveTools = req.autoApproveTools === true;
-  const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
-    ? req.neverAutoApproveTools
-    : FULLAUTO_NEVER_APPROVE_TOOLS;
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
       sessionId: req.sessionId,
@@ -507,6 +505,12 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
   );
+  const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
+    ? req.neverAutoApproveTools
+    : [
+        ...FULLAUTO_NEVER_APPROVE_TOOLS,
+        ...loadPolicyFullAutoNeverApprove(workspacePath),
+      ];
   const workspaceDisplayPath =
     req.workspaceDisplayRootOverride?.trim() || workspacePath;
   const workspaceBootstrap = req.workspacePathOverride
