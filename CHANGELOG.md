@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.16.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.16.0) - 2026-05-07
+
 ### Added
 
 - **macOS desktop wrapper**: Source builds can run `npm run desktop` for a

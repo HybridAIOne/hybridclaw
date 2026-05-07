@@ -186,9 +186,7 @@ function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
   return state;
 }
 
-function getExpectedTransportProcessWarningKey(
-  error: unknown,
-): string {
+function getExpectedTransportProcessWarningKey(error: unknown): string {
   if (!error || typeof error !== 'object') {
     return String(error);
   }
