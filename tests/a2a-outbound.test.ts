@@ -133,6 +133,47 @@ describe('A2A outbound adapter', () => {
     expect(decodeA2AJsonRpcRequest(rpc)).toEqual(
       sampleA2AEnvelope('msg-a2a-1'),
     );
+    const keyPair = a2a.getOrCreateA2ADelegationTokenKeyPair();
+    const agentCardToken = requests[0]?.authorization.replace(/^Bearer /, '');
+    const deliveryToken = requests[1]?.authorization.replace(/^Bearer /, '');
+    expect(agentCardToken).toBeTruthy();
+    expect(deliveryToken).toBeTruthy();
+    const agentCardClaims = a2a.verifyA2ADelegationToken({
+      token: agentCardToken || '',
+      publicKeyPem: keyPair.publicKeyPem,
+      audience: 'https://peer.example.com/.well-known/agent.json',
+      requiredScope: a2a.A2A_AGENT_CARD_READ_SCOPE,
+      targetAgentId: 'remote@team@peer-instance',
+      now: new Date('2030-01-01T00:00:30.000Z'),
+    });
+    expect(agentCardClaims).toMatchObject({
+      iss: 'hybridclaw',
+      aud: 'https://peer.example.com/.well-known/agent.json',
+      jti: 'msg-a2a-1',
+      parent_run_id: 'run-a2a-outbound',
+      message_id: 'msg-a2a-1',
+      thread_id: 'thread-a2a',
+      target_agent_id: 'remote@team@peer-instance',
+      scope: [a2a.A2A_AGENT_CARD_READ_SCOPE],
+    });
+    expect(agentCardClaims.sender_agent_id).toMatch(/^main@/);
+    expect(agentCardClaims.exp - agentCardClaims.iat).toBe(
+      a2a.A2A_DELEGATION_TOKEN_TTL_SECONDS,
+    );
+    expect(
+      a2a.verifyA2ADelegationToken({
+        token: deliveryToken || '',
+        publicKeyPem: keyPair.publicKeyPem,
+        audience: 'https://peer.example.com/a2a',
+        requiredScope: a2a.A2A_MESSAGE_SEND_SCOPE,
+        targetAgentId: 'remote@team@peer-instance',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).toMatchObject({
+      aud: 'https://peer.example.com/a2a',
+      scope: [a2a.A2A_MESSAGE_SEND_SCOPE],
+      parent_run_id: 'run-a2a-outbound',
+    });
 
     runtime.sendMessage(sampleA2AEnvelope('msg-a2a-2'), {
       peerDescriptor: descriptor,
@@ -167,6 +208,64 @@ describe('A2A outbound adapter', () => {
     expect(
       requests.find((request) => request.ifNoneMatch === '"card-v1"'),
     ).toBeTruthy();
+  });
+
+  test('honors delegation token revocations and expiry', async () => {
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const keyPair = a2a.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    const token = a2a.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: 'main@team@local-dev',
+      targetAgentId: 'remote@team@peer-instance',
+      audience: 'https://peer.example.com/a2a',
+      scope: a2a.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-parent',
+      jwtId: 'msg-revocable',
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+
+    expect(
+      a2a.verifyA2ADelegationToken({
+        token,
+        publicKeyPem: keyPair.publicKeyPem,
+        audience: 'https://peer.example.com/a2a',
+        requiredScope: a2a.A2A_MESSAGE_SEND_SCOPE,
+        senderAgentId: 'main@team@local-dev',
+        targetAgentId: 'remote@team@peer-instance',
+        now: new Date('2030-01-01T00:00:01.000Z'),
+      }),
+    ).toMatchObject({
+      jti: 'msg-revocable',
+      parent_run_id: 'run-parent',
+      sender_agent_id: 'main@team@local-dev',
+      target_agent_id: 'remote@team@peer-instance',
+    });
+
+    expect(() =>
+      a2a.verifyA2ADelegationToken({
+        token,
+        publicKeyPem: keyPair.publicKeyPem,
+        audience: 'https://peer.example.com/a2a',
+        requiredScope: a2a.A2A_MESSAGE_SEND_SCOPE,
+        now: new Date('2030-01-01T00:06:00.000Z'),
+      }),
+    ).toThrow('JWT has expired');
+
+    a2a.revokeA2ADelegationTokenId('msg-revocable', {
+      revokedAt: new Date('2030-01-01T00:01:00.000Z'),
+    });
+    expect(a2a.isA2ADelegationTokenRevoked('msg-revocable')).toBe(true);
+    expect(() =>
+      a2a.verifyA2ADelegationToken({
+        token,
+        publicKeyPem: keyPair.publicKeyPem,
+        audience: 'https://peer.example.com/a2a',
+        requiredScope: a2a.A2A_MESSAGE_SEND_SCOPE,
+        now: new Date('2030-01-01T00:01:01.000Z'),
+      }),
+    ).toThrow('JWT has been revoked');
   });
 
   test('uses tasks/send for handoff when the peer advertises task capability', async () => {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { handleA2AJsonRpcInbound } from '../a2a/a2a-inbound.js';
 import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
@@ -4241,6 +4242,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
     if (parseA2AWebhookInboundPath(pathname)) {
       dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
+      return;
+    }
+    if (pathname === '/a2a') {
+      dispatchWebhookRoute(res, () => handleA2AJsonRpcInbound(req, res, url));
       return;
     }
 
