@@ -4107,9 +4107,30 @@ function writeUpgradeError(
 // gateway forwards SPA HTML, Vite source/asset paths, and the HMR WebSocket
 // to the configured Vite dev server so the console can be developed under
 // the gateway's origin (and pick up the hybridclaw_local_session cookie).
-const DEV_VITE_URL = (process.env.HYBRIDCLAW_DEV_VITE_URL || '')
-  .trim()
-  .replace(/\/+$/, '');
+// Refused unless the upstream is http:// AND the gateway is bound to
+// loopback, since the proxy intentionally bypasses the console-surface auth
+// gate (Vite serves source straight from disk).
+const DEV_VITE_URL = (() => {
+  const raw = (process.env.HYBRIDCLAW_DEV_VITE_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!raw) return '';
+  if (!raw.startsWith('http://')) {
+    logger.warn(
+      { value: raw },
+      'HYBRIDCLAW_DEV_VITE_URL must be an http:// URL — Vite passthrough disabled',
+    );
+    return '';
+  }
+  if (!isLoopbackHost(HEALTH_HOST)) {
+    logger.warn(
+      { healthHost: HEALTH_HOST },
+      'HYBRIDCLAW_DEV_VITE_URL ignored: gateway is not bound to a loopback host',
+    );
+    return '';
+  }
+  return raw;
+})();
 
 function isViteSourcePath(pathname: string): boolean {
   return (
@@ -4119,6 +4140,14 @@ function isViteSourcePath(pathname: string): boolean {
     pathname.startsWith('/@fs/') ||
     pathname.startsWith('/src/') ||
     pathname.startsWith('/node_modules/')
+  );
+}
+
+function canUseDevViteProxy(req: IncomingMessage): boolean {
+  return (
+    DEV_VITE_URL.length > 0 &&
+    isLoopbackSocketAddress(req.socket.remoteAddress) &&
+    !hasForwardingHeaders(req)
   );
 }
 
@@ -4202,6 +4231,17 @@ function proxyViteUpgrade(
     upstreamSocket.on('close', closeBoth);
     socket.on('error', closeBoth);
     socket.on('close', closeBoth);
+  });
+  // Vite may answer with a regular HTTP response (e.g. 426/4xx) instead of
+  // upgrading. Surface that as an upgrade error so the client socket doesn't
+  // hang.
+  upstreamReq.on('response', (upstreamRes) => {
+    writeUpgradeError(
+      socket,
+      502,
+      `Vite did not upgrade (status ${upstreamRes.statusCode ?? 'unknown'})`,
+    );
+    upstreamRes.resume();
   });
   upstreamReq.on('error', () => {
     writeUpgradeError(socket, 502, 'Vite dev server unreachable');
@@ -4769,8 +4809,8 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (DEV_VITE_URL && isViteSourcePath(pathname)) {
-      proxyToVite(req, res, req.url || pathname);
+    if (canUseDevViteProxy(req) && isViteSourcePath(pathname)) {
+      proxyToVite(req, res, pathname + url.search);
       return;
     }
 
@@ -4793,7 +4833,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (isConsoleSpaPath(pathname)) {
-      if (DEV_VITE_URL) {
+      if (canUseDevViteProxy(req)) {
         proxyToVite(req, res, '/');
         return;
       }
@@ -4819,7 +4859,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
-      if (DEV_VITE_URL) {
+      if (canUseDevViteProxy(req)) {
         proxyViteUpgrade(req, socket, head);
         return;
       }
