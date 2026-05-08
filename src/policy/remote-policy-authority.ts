@@ -480,6 +480,17 @@ function parsePolicyUpdateContent(content: string): ParsedPolicyUpdate {
   };
 }
 
+function policyUpdateIdFromContent(content: string): string {
+  try {
+    const record = asRecord(JSON.parse(content) as unknown);
+    const updateId = String(record.update_id || record.updateId || '').trim();
+    if (updateId) return updateId;
+  } catch {
+    // Invalid JSON cannot carry a trustworthy update id.
+  }
+  return `invalid-${sha256(content).slice(0, 16)}`;
+}
+
 function applyOperation(
   view: PolicyView,
   operation: PolicyUpdateOperation,
@@ -837,7 +848,7 @@ export function handleRemotePolicyUpdate(params: {
   } catch (error) {
     const result: PolicyUpdateResult = {
       disposition: 'rejected',
-      updateId: `invalid-${sha256(params.content).slice(0, 16)}`,
+      updateId: policyUpdateIdFromContent(params.content),
       diff: [],
       statusCode: 400,
       reason: error instanceof Error ? error.message : String(error),

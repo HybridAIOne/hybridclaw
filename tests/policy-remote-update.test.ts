@@ -223,6 +223,45 @@ network:
     ).toEqual(['hybridclaw.io']);
   });
 
+  test('rejects pipeline reorder operations outside the v1 update contract', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const remote = await import('../src/policy/remote-policy-authority.ts');
+
+    initDatabase({ quiet: true });
+
+    const rejected = remote.handleRemotePolicyUpdate({
+      workspacePath,
+      principal: {
+        peerId: 'platform',
+        senderAgentId: 'security@hybridai@platform',
+        policyAuthority: 'platform',
+        capabilities: ['policy_write'],
+      },
+      content: JSON.stringify({
+        update_id: 'pipeline-reorder-1',
+        operations: [
+          {
+            kind: 'pipeline.reorder',
+            stage: 'pre_tool',
+            before: 'approval',
+          },
+        ],
+      }),
+    });
+
+    expect(rejected).toMatchObject({
+      disposition: 'rejected',
+      updateId: 'pipeline-reorder-1',
+      statusCode: 400,
+      reason: 'Unsupported policy update operation kind: pipeline.reorder.',
+    });
+    expect(rejected.diff).toEqual([]);
+    expect(
+      fs.existsSync(path.join(workspacePath, '.hybridclaw', 'policy.yaml')),
+    ).toBe(false);
+    expect(remote.listPendingPolicyUpdates()).toEqual([]);
+  });
+
   test('keeps pending updates retryable when acceptance fails', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const remote = await import('../src/policy/remote-policy-authority.ts');
