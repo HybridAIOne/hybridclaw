@@ -223,6 +223,44 @@ network:
     ).toEqual(['hybridclaw.io']);
   });
 
+  test('keeps pending updates retryable when acceptance fails', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const remote = await import('../src/policy/remote-policy-authority.ts');
+
+    initDatabase({ quiet: true });
+
+    const quarantined = remote.handleRemotePolicyUpdate({
+      workspacePath,
+      principal: {
+        peerId: 'platform',
+        senderAgentId: 'security@hybridai@platform',
+        policyAuthority: 'platform',
+        capabilities: ['policy_write'],
+      },
+      content: JSON.stringify({
+        update_id: 'retryable-pending-1',
+        operations: [{ kind: 'allowlist.add', host: 'retry.example.com' }],
+      }),
+    });
+    expect(quarantined.disposition).toBe('quarantined');
+    const pendingId = quarantined.pendingId || '';
+
+    const blockedWorkspacePath = path.join(tmpDir, 'blocked-workspace');
+    fs.writeFileSync(blockedWorkspacePath, 'not a directory', 'utf-8');
+    const rejected = remote.acceptPendingPolicyUpdate(
+      pendingId,
+      blockedWorkspacePath,
+    );
+
+    expect(rejected).toMatchObject({
+      disposition: 'rejected',
+      pendingId,
+    });
+    expect(
+      remote.listPendingPolicyUpdates().map((entry) => entry.pendingId),
+    ).toEqual([pendingId]);
+  });
+
   test('routes policy.update webhook envelopes through the signed A2A ingress', async () => {
     const { initDatabase } = await import('../src/memory/db.ts');
     const inbound = await import('../src/a2a/webhook-inbound.ts');
@@ -322,7 +360,39 @@ network:
       statusCode: 400,
       body: {
         disposition: 'rejected',
+        reason: 'Policy update rejected',
       },
     });
+  });
+
+  test('fails fast when policy.update reaches the inbound pipeline without a workspace', async () => {
+    const inboundPipeline = await import('../src/a2a/inbound-pipeline.ts');
+
+    expect(() =>
+      inboundPipeline.acceptA2AInboundEnvelope(
+        {
+          id: 'policy-msg-no-workspace',
+          sender_agent_id: 'security@hybridai@platform',
+          recipient_agent_id: 'main',
+          thread_id: 'policy-thread',
+          intent: 'policy.update',
+          content: JSON.stringify({
+            operations: [{ kind: 'allowlist.add', host: 'docs.hybridclaw.io' }],
+          }),
+          created_at: '2026-05-01T10:01:00.000Z',
+          version: '1',
+        },
+        {
+          source: 'webhook',
+          actor: 'platform',
+          policyUpdatePrincipal: {
+            peerId: 'platform',
+            senderAgentId: 'security@hybridai@platform',
+            policyAuthority: 'platform',
+            capabilities: ['policy_write'],
+          },
+        },
+      ),
+    ).toThrow('policy.update requires workspacePath');
   });
 });

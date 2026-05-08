@@ -245,21 +245,22 @@ function extractErrorReason(error: unknown): string {
 function policyUpdateStatusCode(confirmation: {
   disposition?: unknown;
   statusCode?: unknown;
-  reason?: unknown;
 }): number {
   if (typeof confirmation.statusCode === 'number') {
     return confirmation.statusCode;
   }
   if (confirmation.disposition !== 'rejected') return 202;
-  const reason = String(confirmation.reason || '').toLowerCase();
-  if (
-    reason.includes('lacks policy_write') ||
-    reason.includes('superior-rights') ||
-    reason.includes('ingest is disabled')
-  ) {
-    return 403;
-  }
   return 400;
+}
+
+function inboundResponseBody(
+  confirmation: Record<string, unknown>,
+): Record<string, unknown> {
+  if (confirmation.disposition !== 'rejected') return { ...confirmation };
+  return {
+    ...confirmation,
+    reason: 'Policy update rejected',
+  };
 }
 
 function validateWebhookEnvelopeForPeer(
@@ -468,7 +469,9 @@ export function acceptA2AWebhookInboundEnvelope(params: {
     });
     return {
       statusCode,
-      body: { ...confirmation },
+      body: inboundResponseBody(
+        confirmation as unknown as Record<string, unknown>,
+      ),
     };
   } catch (error) {
     const isDuplicate = error instanceof A2AEnvelopeDuplicateError;

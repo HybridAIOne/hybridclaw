@@ -966,16 +966,18 @@ export function acceptPendingPolicyUpdate(
     principal: pending.principal,
     forcedMode: 'apply',
   });
-  syncRuntimeAssetRevisionState(
-    'policy',
-    pendingPolicyUpdatePath(pending.pendingId),
-    {
-      actor: 'local-operator',
-      route: `policy.update.accept-pending#${pending.pendingId}`,
-      source: 'policy-cli',
-    },
-    { exists: false, content: null },
-  );
+  if (result.disposition === 'applied' || result.disposition === 'unchanged') {
+    syncRuntimeAssetRevisionState(
+      'policy',
+      pendingPolicyUpdatePath(pending.pendingId),
+      {
+        actor: 'local-operator',
+        route: `policy.update.accept-pending#${pending.pendingId}`,
+        source: 'policy-cli',
+      },
+      { exists: false, content: null },
+    );
+  }
   return {
     ...result,
     pendingId: pending.pendingId,

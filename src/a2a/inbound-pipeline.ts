@@ -1,10 +1,10 @@
-import type { A2AEnvelope } from './envelope.js';
-import { type A2ADeliveryConfirmation, sendMessage } from './runtime.js';
 import {
   handleRemotePolicyUpdate,
   type PolicyUpdatePrincipal,
   type PolicyUpdateResult,
 } from '../policy/remote-policy-authority.js';
+import type { A2AEnvelope } from './envelope.js';
+import { type A2ADeliveryConfirmation, sendMessage } from './runtime.js';
 
 export interface A2AInboundPipelineMeta {
   actor: string;
@@ -25,11 +25,15 @@ export function acceptA2AInboundEnvelope(
         disposition: 'rejected',
         updateId: envelope.id,
         diff: [],
+        statusCode: 403,
         reason: 'missing policy update principal',
       };
     }
+    if (!meta.workspacePath) {
+      throw new Error('policy.update requires workspacePath');
+    }
     return handleRemotePolicyUpdate({
-      workspacePath: meta.workspacePath || process.cwd(),
+      workspacePath: meta.workspacePath,
       content: envelope.content,
       principal: meta.policyUpdatePrincipal,
     });
