@@ -9,9 +9,10 @@ https://my.fastbill.com/api/1.0/api.php
 ```
 
 The HybridClaw secret route uses the parent prefix `https://my.fastbill.com/api/1.0/`
-so header injection matches this exact endpoint. Requests are POST requests with
-an XML body containing `FBAPI`, `SERVICE`,
-`FILTER`, and/or `DATA` elements.
+so header injection matches this exact endpoint. Use only the full `api.php`
+URL as the request URL; the parent prefix redirects and can be blocked by the
+SSRF redirect guard. Requests are POST requests with an XML body containing
+`FBAPI`, `SERVICE`, `FILTER`, and/or `DATA` elements.
 
 ## Authentication
 
@@ -39,17 +40,24 @@ ask them to rotate the key and store the replacement through `/secret set`.
 
 ## Gateway Proxy Authentication
 
-The helper sends FastBill requests through the local HybridClaw `/api/http/request`
-proxy so the gateway can inject the Basic header. If the gateway is protected,
-the helper environment must include one accepted gateway token variable:
+Inside HybridClaw, live FastBill calls should use the built-in `http_request`
+tool, not bash/curl. The tool already holds the local gateway bearer token in
+memory and can ask the gateway to inject `FASTBILL_BASIC_AUTH` through
+`secretHeaders`.
+
+The helper's `http-request` command is a no-network serializer that returns the
+exact `http_request` payload for the model to send. The helper's direct
+`request` command is only for operator-controlled local shell tests where a
+valid gateway token is already exported in the process environment:
 
 ```bash
 export HYBRIDCLAW_GATEWAY_TOKEN=<gateway-or-web-api-token>
+node skills/fastbill/fastbill.cjs request invoice.get --filter-json '{"INVOICE_ID":"123"}'
 ```
 
-`GATEWAY_API_TOKEN` and `WEB_API_TOKEN` are also accepted. A 401 from the gateway
-before any `FASTBILL_BASIC_AUTH` secret-resolution audit entry means proxy
-authentication failed before FastBill was contacted.
+Do not store `HYBRIDCLAW_GATEWAY_TOKEN` with `hybridclaw secret set` as a fix
+for model-runtime FastBill calls. Stored secrets are for outbound API
+credentials, not for exposing the local gateway bearer token to bash helpers.
 
 ## FastBill API Key Location
 

@@ -358,11 +358,7 @@ function assertOperatorGrant(service, hasGrant, dryRun) {
   }
 }
 
-async function gatewayRequest(input) {
-  const gatewayUrl = (input.gatewayUrl || resolveGatewayUrl()).replace(
-    /\/+$/u,
-    '',
-  );
+function buildGatewayRequestPayload(input) {
   const payload = {
     url: API_URL,
     method: 'POST',
@@ -381,6 +377,39 @@ async function gatewayRequest(input) {
     ],
   };
   if (input.traceId) payload.headers['x-trace-id'] = input.traceId;
+  return payload;
+}
+
+function buildFastBillHttpRequest(input) {
+  const service = normalizeService(input.service);
+  const mutatesAccount = WRITE_SERVICES.has(service);
+  assertOperatorGrant(service, Boolean(input.operatorGrant), false);
+  const xml = buildFastBillXmlRequest({
+    service,
+    filter: input.filter,
+    data: input.data,
+    limit: input.limit,
+    offset: input.offset,
+  });
+  return {
+    service,
+    mutatesAccount,
+    httpRequest: buildGatewayRequestPayload({
+      body: xml,
+      authSecretName: input.authSecretName,
+      timeoutMs: input.timeoutMs,
+      traceId: input.traceId,
+    }),
+    costMeasurement: usageTotalsMeasurement(),
+  };
+}
+
+async function gatewayRequest(input) {
+  const gatewayUrl = (input.gatewayUrl || resolveGatewayUrl()).replace(
+    /\/+$/u,
+    '',
+  );
+  const payload = buildGatewayRequestPayload(input);
 
   const headers = { 'Content-Type': 'application/json' };
   const token = input.gatewayToken || resolveGatewayToken();
@@ -516,6 +545,56 @@ function parseJsonFile(filePath, label) {
       `Cannot read ${label} JSON file ${filePath}: ${error.message}`,
     );
   }
+}
+
+function parseTextFile(filePath, label) {
+  if (!filePath) return undefined;
+  try {
+    return fs.readFileSync(path.resolve(filePath), 'utf8');
+  } catch (error) {
+    throw new FastBillConfigError(
+      `Cannot read ${label} text file ${filePath}: ${error.message}`,
+    );
+  }
+}
+
+function resolveTextInput(args, label) {
+  const inlineValue = args[label];
+  const fileValue = parseTextFile(args[`${label}-file`], label);
+  if (inlineValue && fileValue) {
+    throw new FastBillConfigError(
+      `Use either --${label} or --${label}-file, not both.`,
+    );
+  }
+  if (!inlineValue && !fileValue) {
+    throw new FastBillConfigError(`--${label} or --${label}-file is required.`);
+  }
+  return inlineValue || fileValue;
+}
+
+function parseFastBillHttpResponse(raw) {
+  let xmlText = raw;
+  try {
+    const wrapper = JSON.parse(raw);
+    if (wrapper && typeof wrapper === 'object') {
+      if (wrapper.ok === false) {
+        throw new FastBillApiError(
+          `FastBill returned HTTP ${wrapper.status || 'error'}: ${wrapper.body || wrapper.statusText || ''}`,
+          { status: wrapper.status || null },
+        );
+      }
+      if (typeof wrapper.body === 'string') xmlText = wrapper.body;
+      else if (typeof wrapper.text === 'string') xmlText = wrapper.text;
+      else if (typeof wrapper.responseText === 'string')
+        xmlText = wrapper.responseText;
+    }
+  } catch (error) {
+    if (error instanceof FastBillApiError) throw error;
+  }
+  return {
+    response: parseFastBillXmlResponse(xmlText),
+    costMeasurement: usageTotalsMeasurement(),
+  };
 }
 
 function resolveJsonInput(args, label) {
@@ -725,6 +804,8 @@ function printHelp() {
   process.stdout.write(`FastBill skill helper
 
 Usage:
+  node skills/fastbill/fastbill.cjs http-request <service> [--filter-json JSON] [--data-json JSON] [--limit N] [--offset N] [--operator-grant]
+  node skills/fastbill/fastbill.cjs parse-response --body-file PATH
   node skills/fastbill/fastbill.cjs request <service> [--filter-json JSON] [--data-json JSON] [--limit N] [--offset N] [--dry-run] [--operator-grant]
   node skills/fastbill/fastbill.cjs list-invoices [--state unpaid|overdue|paid|draft] [--older-than-days N] [--limit N] [--offset N] [--dry-run]
   node skills/fastbill/fastbill.cjs create-invoice --data-json JSON --operator-grant [--dry-run]
@@ -736,8 +817,8 @@ Usage:
 
 Environment:
   HYBRIDCLAW_GATEWAY_URL       Gateway URL, default ${DEFAULT_GATEWAY_URL}
-  HYBRIDCLAW_GATEWAY_TOKEN     Optional gateway API token for /api/http/request
-  GATEWAY_API_TOKEN            Fallback gateway API token
+  HYBRIDCLAW_GATEWAY_TOKEN     Optional gateway API token for direct helper request calls
+  GATEWAY_API_TOKEN            Fallback gateway API token for direct helper request calls
   WEB_API_TOKEN                Fallback web API token accepted by the gateway
   FASTBILL_AUTH_SECRET_NAME    Stored secret name, default ${DEFAULT_AUTH_SECRET_NAME}
 `);
@@ -769,6 +850,28 @@ async function main(argv = process.argv.slice(2)) {
     const result = evaluateScenarios();
     printJson(result);
     if (result.failed > 0) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'http-request') {
+    const service = args._[1];
+    const filter = resolveJsonInput(args, 'filter');
+    const data = resolveJsonInput(args, 'data');
+    printJson(
+      buildFastBillHttpRequest({
+        ...common,
+        service,
+        filter,
+        data,
+        limit: parseNonNegativeInt(args.limit, '--limit'),
+        offset: parseNonNegativeInt(args.offset, '--offset'),
+      }),
+    );
+    return;
+  }
+
+  if (command === 'parse-response') {
+    printJson(parseFastBillHttpResponse(resolveTextInput(args, 'body')));
     return;
   }
 
@@ -922,10 +1025,12 @@ module.exports = {
   FastBillApiError,
   FastBillConfigError,
   FastBillOperatorGrantError,
+  buildFastBillHttpRequest,
   buildFastBillXmlRequest,
   callFastBillService,
   evaluateScenarios,
   loadEInvoiceFixture,
+  parseFastBillHttpResponse,
   parseFastBillXmlResponse,
   planFastBillRequest,
   usageTotalsMeasurement,

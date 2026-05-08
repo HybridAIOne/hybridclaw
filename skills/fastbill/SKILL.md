@@ -66,21 +66,23 @@ hybridclaw secret set FASTBILL_BASIC_AUTH <base64-output>
 hybridclaw secret route add https://my.fastbill.com/api/1.0/ FASTBILL_BASIC_AUTH Authorization Basic
 ```
 
-This route lets the gateway inject `Authorization: Basic ...` server-side. The
-helper sends XML through `/api/http/request`; secret values are not printed,
-persisted, or returned to the model. The helper uses the derived
-`FASTBILL_BASIC_AUTH` value because Basic auth is one base64 header, while
-`FASTBILL_EMAIL` and `FASTBILL_API_KEY` preserve the source credential pair in
-the encrypted store.
+This route lets the gateway inject `Authorization: Basic ...` server-side.
+Secret values are not printed, persisted, or returned to the model. The helper
+uses the derived `FASTBILL_BASIC_AUTH` value because Basic auth is one base64
+header, while `FASTBILL_EMAIL` and `FASTBILL_API_KEY` preserve the source
+credential pair in the encrypted store.
 
-The helper also has to authenticate to the local HybridClaw gateway before it can
-call `/api/http/request`. In local shell tests, provide a gateway token through
-`HYBRIDCLAW_GATEWAY_TOKEN`, `GATEWAY_API_TOKEN`, or `WEB_API_TOKEN`; do not paste
-that token into the prompt.
-If the helper returns `FASTBILL_CONFIG_ERROR` saying gateway proxy authentication
-failed, stop. Do not inspect environment variables, print logs, or tell the user
-to recreate FastBill credentials. Report that the helper process is missing a
-gateway token and that FastBill was not contacted.
+For live API calls inside HybridClaw, use the helper to build the XML-backed
+`http_request` payload, then call the built-in `http_request` tool. Do not use
+bash/curl for live FastBill calls: the tool has the gateway bearer token in
+memory, while a bash helper process intentionally does not. Do not tell the user
+to run `hybridclaw secret set HYBRIDCLAW_GATEWAY_TOKEN ...`; storing that name as
+a secret does not put a bearer token into the helper environment.
+
+The FastBill request URL is exactly
+`https://my.fastbill.com/api/1.0/api.php`. The parent prefix
+`https://my.fastbill.com/api/1.0/` is only for secret-route matching and should
+not be used as the HTTP request URL because FastBill redirects it.
 
 ## Default Workflow
 
@@ -92,7 +94,10 @@ gateway token and that FastBill was not contacted.
 4. Use `--dry-run` before invoice/customer creation when the target data is
    inferred from natural language or another system.
 5. Prefer invoice IDs over invoice numbers for writes.
-6. Keep FastBill responses as JSON in user-facing summaries; do not show raw XML
+6. For live calls, generate an `http_request` payload with the helper and send
+   that payload through the built-in `http_request` tool.
+7. Parse the XML response with `parse-response` if structured JSON is needed.
+8. Keep FastBill responses as JSON in user-facing summaries; do not show raw XML
    unless the user asks for request debugging.
 
 ## Command Contract
@@ -109,42 +114,49 @@ Plan a natural-language request without contacting FastBill:
 node skills/fastbill/fastbill.cjs plan "Show unpaid invoices older than 30 days"
 ```
 
-Send an arbitrary supported FastBill service call:
+Build the payload for a live FastBill service call, then call the built-in
+`http_request` tool with the returned `httpRequest` object:
+
+```bash
+node skills/fastbill/fastbill.cjs http-request invoice.get --filter-json '{"INVOICE_ID":"123"}'
+node skills/fastbill/fastbill.cjs http-request customer.create --data-json '{"CUSTOMER_TYPE":"business","ORGANIZATION":"Acme GmbH","COUNTRY_CODE":"DE"}' --operator-grant
+```
+
+Parse a saved `http_request` response body or wrapper:
+
+```bash
+node skills/fastbill/fastbill.cjs parse-response --body-file /tmp/fastbill-response.json
+```
+
+Direct helper network calls are only for operator-controlled local shell tests
+where the gateway token is already exported in the process environment:
 
 ```bash
 node skills/fastbill/fastbill.cjs request invoice.get --filter-json '{"INVOICE_ID":"123"}'
-node skills/fastbill/fastbill.cjs request customer.create --data-json '{"CUSTOMER_TYPE":"business","ORGANIZATION":"Acme GmbH","COUNTRY_CODE":"DE"}' --operator-grant
 ```
 
-List unpaid or overdue invoices:
+For invoice listing inside HybridClaw, build the read request and send it with
+the built-in `http_request` tool. Apply state filtering after parsing the
+response:
 
 ```bash
-node skills/fastbill/fastbill.cjs list-invoices --state overdue --older-than-days 30
+node skills/fastbill/fastbill.cjs http-request invoice.get --filter-json '{"END_DUE_DATE":"2026-04-08"}' --limit 100
 ```
 
-Create an invoice from JSON:
+For writes inside HybridClaw, build the request payload only after explicit
+operator grant, then send the returned `httpRequest` object with the built-in
+`http_request` tool:
 
 ```bash
-node skills/fastbill/fastbill.cjs create-invoice --data-json '{"CUSTOMER_ID":"123","ITEMS":{"ITEM":[{"DESCRIPTION":"Consulting","QUANTITY":"8","UNIT_PRICE":"120.00","VAT_PERCENT":"19"}]}}' --operator-grant
+node skills/fastbill/fastbill.cjs http-request invoice.create --data-json '{"CUSTOMER_ID":"123","ITEMS":{"ITEM":[{"DESCRIPTION":"Consulting","QUANTITY":"8","UNIT_PRICE":"120.00","VAT_PERCENT":"19"}]}}' --operator-grant
+node skills/fastbill/fastbill.cjs http-request invoice.setpaid --data-json '{"INVOICE_ID":"456","PAID_DATE":"2026-05-07","PAYMENT_METHOD":"bank transfer"}' --operator-grant
+node skills/fastbill/fastbill.cjs http-request invoice.sendbyemail --data-json '{"INVOICE_ID":"456","RECIPIENT":{"TO":"billing@example.com"},"SUBJECT":"Payment reminder","MESSAGE":"Please review the outstanding invoice and payment status."}' --operator-grant
 ```
 
-Mark an invoice as paid:
-
-```bash
-node skills/fastbill/fastbill.cjs mark-paid --invoice-id 456 --paid-date 2026-05-07 --payment-method "bank transfer" --operator-grant
-```
-
-Send a payment reminder by email:
-
-```bash
-node skills/fastbill/fastbill.cjs send-reminder --invoice-id 456 --recipient billing@example.com --operator-grant
-```
-
-Prepare e-invoice export handoff data:
-
-```bash
-node skills/fastbill/fastbill.cjs export-einvoice --invoice-id 456
-```
+The direct convenience commands `list-invoices`, `create-invoice`,
+`mark-paid`, `send-reminder`, and `export-einvoice` perform their own gateway
+network call. Use them only in operator-controlled local shell tests where a
+valid gateway token is already exported in the process environment.
 
 Run offline eval scenarios:
 
@@ -190,8 +202,8 @@ before sending to public-sector or mandate-bound B2B recipients.
 
 - Never print or ask for the FastBill API key.
 - Never build a Basic header in a prompt. Use the configured secret route.
-- On gateway proxy authentication failures, stop and report the missing
-  gateway-token wiring; do not search env/logs or diagnose FastBill credentials.
+- For live API calls, use `http-request` plus the built-in `http_request` tool;
+  do not ask the user to store a gateway bearer token as a secret.
 - Keep XML local to the helper; expose JSON-shaped request and response data.
 - Treat `invoice.create`, `customer.create`, `invoice.setpaid`, and reminder email sends as operator-granted writes.
 - Use `--dry-run` when translating time tracking, CSV, or free text into invoice line items.
@@ -210,5 +222,6 @@ Run:
 python3 skills/skill-creator/scripts/quick_validate.py skills/fastbill
 node skills/fastbill/fastbill.cjs --help
 node skills/fastbill/fastbill.cjs eval-scenarios
+node skills/fastbill/fastbill.cjs http-request invoice.get --filter-json '{"INVOICE_ID":"123"}'
 node skills/fastbill/fastbill.cjs request invoice.get --filter-json '{"INVOICE_ID":"123"}' --dry-run
 ```
