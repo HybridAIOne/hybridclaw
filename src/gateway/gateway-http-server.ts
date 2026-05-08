@@ -4111,10 +4111,6 @@ const DEV_VITE_URL = (process.env.HYBRIDCLAW_DEV_VITE_URL || '')
   .trim()
   .replace(/\/+$/, '');
 
-function isDevConsoleEnabled(): boolean {
-  return DEV_VITE_URL.length > 0;
-}
-
 function isViteSourcePath(pathname: string): boolean {
   return (
     pathname.startsWith('/@vite/') ||
@@ -4126,22 +4122,28 @@ function isViteSourcePath(pathname: string): boolean {
   );
 }
 
+function buildViteRequestOptions(
+  req: IncomingMessage,
+  targetPath: string,
+): http.RequestOptions {
+  const upstream = new URL(targetPath, DEV_VITE_URL);
+  return {
+    protocol: upstream.protocol,
+    hostname: upstream.hostname,
+    port: upstream.port,
+    method: req.method,
+    path: upstream.pathname + upstream.search,
+    headers: { ...req.headers, host: upstream.host },
+  };
+}
+
 function proxyToVite(
   req: IncomingMessage,
   res: ServerResponse,
   targetPath: string,
 ): void {
-  const upstream = new URL(targetPath, DEV_VITE_URL);
-  const headers = { ...req.headers, host: upstream.host };
   const upstreamReq = http.request(
-    {
-      protocol: upstream.protocol,
-      hostname: upstream.hostname,
-      port: upstream.port,
-      method: req.method,
-      path: upstream.pathname + upstream.search,
-      headers,
-    },
+    buildViteRequestOptions(req, targetPath),
     (upstreamRes) => {
       res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
       upstreamRes.pipe(res);
@@ -4158,6 +4160,13 @@ function proxyToVite(
       res.destroy(error);
     }
   });
+  // Abort the upstream request if the client disconnects before we finish
+  // streaming the response back. ServerResponse 'close' fires only on
+  // premature closure, not on normal end-of-response, so this won't fight
+  // the happy path.
+  res.on('close', () => {
+    if (!res.writableEnded) upstreamReq.destroy();
+  });
   req.pipe(upstreamReq);
 }
 
@@ -4166,16 +4175,9 @@ function proxyViteUpgrade(
   socket: import('node:stream').Duplex,
   head: Buffer,
 ): void {
-  const upstream = new URL(req.url || '/', DEV_VITE_URL);
-  const headers = { ...req.headers, host: upstream.host };
-  const upstreamReq = http.request({
-    protocol: upstream.protocol,
-    hostname: upstream.hostname,
-    port: upstream.port,
-    method: req.method,
-    path: upstream.pathname + upstream.search,
-    headers,
-  });
+  const upstreamReq = http.request(
+    buildViteRequestOptions(req, req.url || '/'),
+  );
   upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
     const lines = [
       `HTTP/1.1 ${upstreamRes.statusCode ?? 101} ${upstreamRes.statusMessage || 'Switching Protocols'}`,
@@ -4192,8 +4194,14 @@ function proxyViteUpgrade(
     if (head.length > 0) upstreamSocket.write(head);
     upstreamSocket.pipe(socket);
     socket.pipe(upstreamSocket);
-    upstreamSocket.on('error', () => socket.destroy());
-    socket.on('error', () => upstreamSocket.destroy());
+    const closeBoth = (): void => {
+      socket.destroy();
+      upstreamSocket.destroy();
+    };
+    upstreamSocket.on('error', closeBoth);
+    upstreamSocket.on('close', closeBoth);
+    socket.on('error', closeBoth);
+    socket.on('close', closeBoth);
   });
   upstreamReq.on('error', () => {
     writeUpgradeError(socket, 502, 'Vite dev server unreachable');
@@ -4761,7 +4769,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
-    if (isDevConsoleEnabled() && isViteSourcePath(pathname)) {
+    if (DEV_VITE_URL && isViteSourcePath(pathname)) {
       proxyToVite(req, res, req.url || pathname);
       return;
     }
@@ -4785,7 +4793,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (isConsoleSpaPath(pathname)) {
-      if (isDevConsoleEnabled()) {
+      if (DEV_VITE_URL) {
         proxyToVite(req, res, '/');
         return;
       }
@@ -4811,7 +4819,7 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
-      if (isDevConsoleEnabled()) {
+      if (DEV_VITE_URL) {
         proxyViteUpgrade(req, socket, head);
         return;
       }
