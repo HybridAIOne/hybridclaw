@@ -47,6 +47,9 @@ export interface A2AEnvelopeAuditSummary {
   threadId: string | null;
   senderAgentId: string | null;
   recipientAgentId: string | null;
+  sourceInstanceId: string | null;
+  targetInstanceId: string | null;
+  delegation: boolean;
 }
 
 export class A2AEnvelopeValidationError extends Error {
@@ -466,5 +469,8 @@ export function summarizeA2AEnvelopeForAudit(
     threadId: envelope.thread_id,
     senderAgentId: envelope.sender_agent_id,
     recipientAgentId: envelope.recipient_agent_id,
+    sourceInstanceId: envelope.source_instance_id ?? null,
+    targetInstanceId: envelope.target_instance_id ?? null,
+    delegation: Boolean(envelope.delegation_token),
   };
 }

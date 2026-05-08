@@ -8,6 +8,7 @@ import {
   A2AEnvelopeValidationError,
   classifyA2AAgentId,
   createA2AEnvelope,
+  summarizeA2AEnvelopeForAudit,
   validateA2AEnvelope,
 } from '../src/a2a/envelope.ts';
 
@@ -106,6 +107,16 @@ describe('A2A envelope schema', () => {
       content: 'Please take this delegated task.',
       created_at: '2026-04-28T10:00:00.000Z',
       delegation_token: 'jwt.header.payload',
+    });
+
+    expect(summarizeA2AEnvelopeForAudit(envelope)).toEqual({
+      messageId: 'msg-delegate-1',
+      threadId: 'thread-delegate',
+      senderAgentId: 'researcher@team-a@inst-source',
+      recipientAgentId: 'writer@team-b@inst-target',
+      sourceInstanceId: 'inst-source',
+      targetInstanceId: 'inst-target',
+      delegation: true,
     });
   });
 
