@@ -84,6 +84,20 @@ The FastBill request URL is exactly
 `https://my.fastbill.com/api/1.0/` is only for secret-route matching and should
 not be used as the HTTP request URL because FastBill redirects it.
 
+## Error Interpretation
+
+- Gateway 401 mentioning `WEB_API_TOKEN` or `GATEWAY_API_TOKEN`: the request did
+  not reach FastBill. In normal HybridClaw runtime, switch to the built-in
+  `http_request` tool instead of bash/curl.
+- Gateway/secret-route errors such as missing secret, forbidden secret route, or
+  header injection denial: the `FASTBILL_BASIC_AUTH` secret or route is missing
+  or not allowed.
+- FastBill 401 with text like `Wrong API KEY or user credentials`: the gateway
+  route worked and FastBill rejected the credential value. Do not say the secret
+  is unconfigured. Ask the operator to regenerate `FASTBILL_BASIC_AUTH` from the
+  exact FastBill login email and current API key, without pasting either value
+  into chat.
+
 ## Default Workflow
 
 1. Start with read-only commands such as `list-invoices`, `invoice.get`, or
@@ -204,6 +218,8 @@ before sending to public-sector or mandate-bound B2B recipients.
 - Never build a Basic header in a prompt. Use the configured secret route.
 - For live API calls, use `http-request` plus the built-in `http_request` tool;
   do not ask the user to store a gateway bearer token as a secret.
+- If FastBill says `Wrong API KEY or user credentials`, report that FastBill
+  rejected the stored Basic credential; do not call it a missing secret.
 - Keep XML local to the helper; expose JSON-shaped request and response data.
 - Treat `invoice.create`, `customer.create`, `invoice.setpaid`, and reminder email sends as operator-granted writes.
 - Use `--dry-run` when translating time tracking, CSV, or free text into invoice line items.

@@ -59,6 +59,20 @@ Do not store `HYBRIDCLAW_GATEWAY_TOKEN` with `hybridclaw secret set` as a fix
 for model-runtime FastBill calls. Stored secrets are for outbound API
 credentials, not for exposing the local gateway bearer token to bash helpers.
 
+## FastBill 401 Diagnostics
+
+A FastBill response containing `Wrong API KEY or user credentials` means the
+request reached FastBill and the gateway route injected an Authorization header.
+It does not mean the secret route is missing. Recreate `FASTBILL_BASIC_AUTH`
+from the exact FastBill login email and current API key, and avoid copying extra
+spaces or shell prompts into the base64 value.
+
+Keep the route prefix unchanged:
+
+```bash
+hybridclaw secret route add https://my.fastbill.com/api/1.0/ FASTBILL_BASIC_AUTH Authorization Basic
+```
+
 ## FastBill API Key Location
 
 FastBill documents the API key as account access information available in the

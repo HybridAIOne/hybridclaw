@@ -87,6 +87,15 @@ class FastBillConfigError extends Error {
   }
 }
 
+class FastBillCredentialError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'FastBillCredentialError';
+    this.code = 'FASTBILL_CREDENTIAL_REJECTED';
+    this.status = 401;
+  }
+}
+
 class FastBillApiError extends Error {
   constructor(message, input = {}) {
     super(message);
@@ -106,6 +115,15 @@ class FastBillOperatorGrantError extends Error {
     this.code = 'FASTBILL_OPERATOR_GRANT_REQUIRED';
     this.service = service;
   }
+}
+
+function isFastBillCredentialRejection(status, body) {
+  return (
+    Number(status) === 401 &&
+    /Wrong API KEY|user credentials|API KEY|credentials/iu.test(
+      String(body || ''),
+    )
+  );
 }
 
 function usageTotalsMeasurement() {
@@ -453,8 +471,14 @@ async function gatewayRequest(input) {
     return text;
   }
   if (wrapper && wrapper.ok === false) {
+    const body = wrapper.body || wrapper.statusText || '';
+    if (isFastBillCredentialRejection(wrapper.status, body)) {
+      throw new FastBillCredentialError(
+        'FastBill rejected the Basic auth credentials. The gateway and secret route worked, but FASTBILL_BASIC_AUTH decodes to an email/API-key pair FastBill does not accept.',
+      );
+    }
     throw new FastBillApiError(
-      `FastBill returned HTTP ${wrapper.status || 'error'}: ${wrapper.body || wrapper.statusText || ''}`,
+      `FastBill returned HTTP ${wrapper.status || 'error'}: ${body}`,
       { status: wrapper.status || null },
     );
   }
@@ -578,8 +602,14 @@ function parseFastBillHttpResponse(raw) {
     const wrapper = JSON.parse(raw);
     if (wrapper && typeof wrapper === 'object') {
       if (wrapper.ok === false) {
+        const body = wrapper.body || wrapper.statusText || '';
+        if (isFastBillCredentialRejection(wrapper.status, body)) {
+          throw new FastBillCredentialError(
+            'FastBill rejected the Basic auth credentials. The gateway and secret route worked, but FASTBILL_BASIC_AUTH decodes to an email/API-key pair FastBill does not accept.',
+          );
+        }
         throw new FastBillApiError(
-          `FastBill returned HTTP ${wrapper.status || 'error'}: ${wrapper.body || wrapper.statusText || ''}`,
+          `FastBill returned HTTP ${wrapper.status || 'error'}: ${body}`,
           { status: wrapper.status || null },
         );
       }
@@ -590,6 +620,7 @@ function parseFastBillHttpResponse(raw) {
     }
   } catch (error) {
     if (error instanceof FastBillApiError) throw error;
+    if (error instanceof FastBillCredentialError) throw error;
   }
   return {
     response: parseFastBillXmlResponse(xmlText),
@@ -1024,6 +1055,7 @@ module.exports = {
   SUPPORTED_SERVICES,
   FastBillApiError,
   FastBillConfigError,
+  FastBillCredentialError,
   FastBillOperatorGrantError,
   buildFastBillHttpRequest,
   buildFastBillXmlRequest,
