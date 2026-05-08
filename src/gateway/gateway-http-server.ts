@@ -3845,6 +3845,9 @@ async function handleApiAdminSkillUpload(
     return;
   }
 
+  const url = new URL(req.url || '/', 'http://localhost');
+  const force = url.searchParams.get('force') === 'true';
+
   try {
     const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
     if (buffer.length === 0) {
@@ -3853,7 +3856,7 @@ async function handleApiAdminSkillUpload(
       });
       return;
     }
-    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
+    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer, { force }));
   } catch (error) {
     if (error instanceof GatewayRequestError) {
       const message =

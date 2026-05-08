@@ -20,6 +20,10 @@ import {
   nowIso,
   persistA2AOutboxItem,
 } from './a2a-outbox-persistence.js';
+import {
+  classifyA2AHttpStatus,
+  shouldRetryA2AJsonRpcErrorCode,
+} from './a2a-retry-policy.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
 import {
   isA2AAllowedHttpUrl,
@@ -308,10 +312,6 @@ function retryA2AItem(
   return retry;
 }
 
-function shouldRetryJsonRpcError(code: number): boolean {
-  return code === -32603 || (code <= -32000 && code >= -32099);
-}
-
 async function readJsonRpcResponse(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text.trim()) return null;
@@ -366,9 +366,20 @@ export async function deliverA2AItem(
       failA2AItem(item, now, reason);
       return 'failed';
     }
-    if (statusCode && statusCode >= 400 && statusCode < 500) {
+    const httpDecision = statusCode
+      ? classifyA2AHttpStatus(statusCode)
+      : 'retry';
+    if (httpDecision === 'fail-fast') {
       failA2AItem(item, now, reason, { statusCode });
       return 'failed';
+    }
+    if (httpDecision === 'retry') {
+      if (attemptNumber >= maxAttempts) {
+        failA2AItem(item, now, reason, { statusCode });
+        return 'failed';
+      }
+      retryA2AItem(item, now, reason, retryOptions, { statusCode });
+      return 'retried';
     }
     if (attemptNumber >= maxAttempts) {
       failA2AItem(item, now, reason, { statusCode });
@@ -413,13 +424,14 @@ export async function deliverA2AItem(
     return 'retried';
   }
 
-  if (response.status >= 400 && response.status < 500) {
+  const httpDecision = classifyA2AHttpStatus(response.status);
+  if (httpDecision === 'fail-fast') {
     failA2AItem(item, now, `HTTP ${response.status}`, {
       statusCode: response.status,
     });
     return 'failed';
   }
-  if (response.status >= 500) {
+  if (httpDecision === 'retry') {
     if (attemptNumber >= maxAttempts) {
       failA2AItem(item, now, `HTTP ${response.status}`, {
         statusCode: response.status,
@@ -451,7 +463,7 @@ export async function deliverA2AItem(
         ? jsonRpcResponse.error.message
         : 'JSON-RPC error';
     const reason = `JSON-RPC ${Number.isFinite(code) ? code : 'error'}: ${message}`;
-    if (Number.isFinite(code) && shouldRetryJsonRpcError(code)) {
+    if (Number.isFinite(code) && shouldRetryA2AJsonRpcErrorCode(code)) {
       if (attemptNumber >= maxAttempts) {
         failA2AItem(item, now, reason, {
           statusCode: response.status,
