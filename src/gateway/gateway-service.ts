@@ -220,6 +220,7 @@ import {
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
+import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   allowHttpSecretRouteInWorkspacePolicy,
   captureHttpSecretRoutePolicySnapshot,
@@ -6261,7 +6262,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
       channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled: isFullAutoEnabled(session),
-      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
+      fullAutoNeverApproveTools: [
+        ...FULLAUTO_NEVER_APPROVE_TOOLS,
+        ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
+      ],
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });

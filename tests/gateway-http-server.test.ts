@@ -2450,7 +2450,6 @@ describe('gateway HTTP server', () => {
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2538,7 +2537,6 @@ describe('gateway HTTP server', () => {
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2572,7 +2570,6 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
