@@ -835,8 +835,12 @@ export function createSkill(
 export function uploadSkillZip(
   token: string,
   file: File,
+  options?: { force?: boolean },
 ): Promise<AdminSkillsResponse> {
-  return requestJson<AdminSkillsResponse>('/api/admin/skills/upload', {
+  const path = options?.force
+    ? '/api/admin/skills/upload?force=true'
+    : '/api/admin/skills/upload';
+  return requestJson<AdminSkillsResponse>(path, {
     token,
     method: 'POST',
     rawBody: file,

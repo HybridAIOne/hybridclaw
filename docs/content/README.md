@@ -33,6 +33,13 @@ doc at once, start from [For Agents](./agents.md).
   `hybridclaw doctor browser-use` diagnostics.
 - A2A outbound delivery supports JSON-RPC Agent Card peers and signed webhook
   peers through an audited retrying outbox.
+- Canonical user and agent identity helpers now include DNS-style discovery for
+  mapping remote identities to peer URLs and public keys.
+- Approval policy evaluation runs through a hook-fed rule pipeline that keeps
+  built-in trust behavior while allowing explicit policy ordering and plugin
+  visibility.
+- Web chat session history and active-agent switching are more stable across
+  route changes and resumed sessions.
 - The `download-platform-invoices` skill harvests official monthly SaaS
   invoice PDFs and normalized records across billing APIs, browser-backed
   portals, Google Ads, cloud providers, and DATEV handoff flows.
@@ -50,7 +57,9 @@ doc at once, start from [For Agents](./agents.md).
   and CV links.
 - Packaged business skills can declare manifests, capabilities, required
   credentials, supported channels, lifecycle snapshots, and rollback history.
-- Deployment config can describe cloud/local mode and tunnel provider intent; the built-in ngrok, Tailscale, and Cloudflare providers read runtime auth secrets from encrypted storage.
+- Deployment config can describe cloud/local mode and tunnel provider intent;
+  the built-in ngrok, Tailscale, and Cloudflare providers read runtime auth
+  secrets from encrypted storage.
 - `HYBRIDAI_FALLBACK_CHAIN` can route auth and rate-limit provider failures to
   alternate models/providers with primary-provider cooldowns.
 - Model info, usage summaries, and the admin Models page surface discovered

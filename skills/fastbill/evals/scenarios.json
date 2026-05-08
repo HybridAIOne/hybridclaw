@@ -1,0 +1,218 @@
+[
+  {
+    "id": "invoice-read-open",
+    "category": "invoice_read",
+    "prompt": "Show me the open invoices in FastBill.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "invoice-read-overdue",
+    "category": "invoice_read",
+    "prompt": "Show unpaid invoices older than 30 days.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "invoice-read-by-number",
+    "category": "invoice_read",
+    "prompt": "Look up invoice 2026-042 and summarize its payment status.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "invoice-create-time",
+    "category": "invoice_create",
+    "prompt": "Create an invoice for Acme GmbH from this month's tracked consulting time.",
+    "expected": {
+      "service": "invoice.create",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-create-draft",
+    "category": "invoice_create",
+    "prompt": "Draft a new FastBill invoice for customer 123 with two line items.",
+    "expected": {
+      "service": "invoice.create",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-create-b2b",
+    "category": "invoice_create",
+    "prompt": "Create a B2B e-invoice for the agency retainer.",
+    "expected": {
+      "service": "invoice.create",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-payment-bank",
+    "category": "payment",
+    "prompt": "Mark invoice 2026-042 as paid because the bank wire arrived today.",
+    "expected": {
+      "service": "invoice.setpaid",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-payment-cash",
+    "category": "payment",
+    "prompt": "Set the customer invoice as paid with cash payment.",
+    "expected": {
+      "service": "invoice.setpaid",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-reminder-overdue",
+    "category": "reminder",
+    "prompt": "Send a payment reminder for the overdue invoices to Mueller GmbH.",
+    "expected": {
+      "service": "invoice.sendbyemail",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-reminder-single",
+    "category": "reminder",
+    "prompt": "Email a reminder for invoice 456 to billing@example.com.",
+    "expected": {
+      "service": "invoice.sendbyemail",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "customer-read",
+    "category": "customer_read",
+    "prompt": "Find the FastBill customer record for Acme.",
+    "expected": {
+      "service": "customer.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "customer-create-business",
+    "category": "customer_create",
+    "prompt": "Create a new customer for Acme GmbH in FastBill.",
+    "expected": {
+      "service": "customer.create",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "customer-create-consumer",
+    "category": "customer_create",
+    "prompt": "Add a new private client customer for Jane Rivera.",
+    "expected": {
+      "service": "customer.create",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "xrechnung-export",
+    "category": "einvoice_export",
+    "prompt": "Export invoice 2026-042 as XRechnung XML for the B2B customer.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "zugferd-export",
+    "category": "einvoice_export",
+    "prompt": "Get the ZUGFeRD document for the last completed invoice.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "einvoice-check",
+    "category": "einvoice_export",
+    "prompt": "Check whether the invoice has the fields needed for an electronic invoice.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "invoice-cancel",
+    "category": "invoice_crud",
+    "prompt": "Cancel the incorrect invoice.",
+    "expected": {
+      "service": "invoice.cancel",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-update",
+    "category": "invoice_crud",
+    "prompt": "Update the draft invoice with corrected line items.",
+    "expected": {
+      "service": "invoice.update",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "invoice-complete",
+    "category": "invoice_crud",
+    "prompt": "Complete the draft invoice after review.",
+    "expected": {
+      "service": "invoice.complete",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "document-inbox",
+    "category": "document_read",
+    "prompt": "Show the FastBill document inbox folders.",
+    "expected": {
+      "service": "document.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "payment-status",
+    "category": "payment",
+    "prompt": "Which invoices were paid this month?",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "invoice-crud-delete",
+    "category": "invoice_crud",
+    "prompt": "Delete the test invoice I created by mistake.",
+    "expected": {
+      "service": "invoice.delete",
+      "operatorGrantRequired": true
+    }
+  },
+  {
+    "id": "article-read",
+    "category": "article_read",
+    "prompt": "List FastBill articles I can use as invoice products.",
+    "expected": {
+      "service": "article.get",
+      "operatorGrantRequired": false
+    }
+  },
+  {
+    "id": "invoice-overdue-filter",
+    "category": "invoice_read",
+    "prompt": "Find overdue FastBill invoices due before last month.",
+    "expected": {
+      "service": "invoice.get",
+      "operatorGrantRequired": false
+    }
+  }
+]

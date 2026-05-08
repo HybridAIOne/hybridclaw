@@ -578,6 +578,17 @@ function captureOAuthResponse(
   return captured;
 }
 
+function matchesHttpRequestAuthRulePrefix(
+  url: string,
+  urlPrefix: string,
+): boolean {
+  if (url.startsWith(urlPrefix)) return true;
+  if (urlPrefix.endsWith('/') && url === urlPrefix.slice(0, -1)) {
+    return true;
+  }
+  return false;
+}
+
 async function resolveHttpRequestRuleAssignments(
   url: string,
   config: RuntimeConfig,
@@ -585,7 +596,7 @@ async function resolveHttpRequestRuleAssignments(
 ): Promise<Array<{ header: string; value: string }>> {
   const matching = config.tools.httpRequest.authRules
     .map((rule, index) => ({ rule, index }))
-    .filter(({ rule }) => url.startsWith(rule.urlPrefix))
+    .filter(({ rule }) => matchesHttpRequestAuthRulePrefix(url, rule.urlPrefix))
     .sort(
       (left, right) =>
         right.rule.urlPrefix.length - left.rule.urlPrefix.length ||

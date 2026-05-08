@@ -59,10 +59,7 @@ function readRuntimeConfig(homeDir: string): RuntimeConfig {
 
 function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
   return YAML.parse(
-    fs.readFileSync(
-      mainAgentPolicyPath(homeDir),
-      'utf-8',
-    ),
+    fs.readFileSync(mainAgentPolicyPath(homeDir), 'utf-8'),
   ) as Record<string, unknown>;
 }
 
@@ -345,6 +342,31 @@ test('secret route add and remove update store-backed auth rules', async () => {
   });
 });
 
+test('secret route add preserves file-like URL prefixes', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://my.fastbill.com/api/1.0/api.php',
+    'FASTBILL_BASIC_AUTH',
+    'Authorization',
+    'Basic',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://my.fastbill.com/api/1.0/api.php',
+      header: 'Authorization',
+      prefix: 'Basic',
+      secret: { source: 'store', id: 'FASTBILL_BASIC_AUTH' },
+    },
+  ]);
+});
+
 test('secret route add replaces stale managed policy rules for the route', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);
@@ -434,7 +456,11 @@ test('secret route remove fails before runtime config changes when policy is inv
     'X-API-Key',
     'none',
   ]);
-  fs.writeFileSync(mainAgentPolicyPath(homeDir), 'secret:\n  rules: [\n', 'utf-8');
+  fs.writeFileSync(
+    mainAgentPolicyPath(homeDir),
+    'secret:\n  rules: [\n',
+    'utf-8',
+  );
 
   await expect(
     cli.main([

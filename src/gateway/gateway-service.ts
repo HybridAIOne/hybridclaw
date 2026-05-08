@@ -129,6 +129,7 @@ import {
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -3382,29 +3383,6 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
-function normalizeUrlPrefix(raw: string): string {
-  const value = String(raw || '').trim();
-  if (!value) {
-    throw new Error('URL prefix is required.');
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Invalid URL prefix: ${value}`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
-  }
-  parsed.username = '';
-  parsed.password = '';
-  parsed.search = '';
-  parsed.hash = '';
-  const pathname = parsed.pathname || '/';
-  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
-  return parsed.toString();
-}
-
 function normalizeSecretRouteHeader(raw: string | undefined): string {
   const header = String(raw || 'Authorization').trim();
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(header)) {
@@ -5835,6 +5813,7 @@ function resolveUploadedSkillZipRoot(extractedDir: string): string {
 
 export async function uploadGatewayAdminSkillZip(
   zipBuffer: Buffer,
+  options: { force?: boolean } = {},
 ): Promise<GatewayAdminSkillsResponse> {
   if (zipBuffer.length === 0) {
     throw new GatewayRequestError(400, 'Uploaded file is empty.');
@@ -5930,21 +5909,73 @@ export async function uploadGatewayAdminSkillZip(
 
     const projectSkillsDir = resolveManagedCommunitySkillsDir();
     const targetDir = path.join(projectSkillsDir, skillName);
-    if (fs.existsSync(targetDir)) {
+    const targetExists = fs.existsSync(targetDir);
+    if (targetExists && !options.force) {
       throw new GatewayRequestError(
         409,
         `Skill \`${skillName}\` already exists at ${targetDir}.`,
       );
     }
-
-    // Copy extracted skill to project skills directory (copy instead of
-    // rename to avoid EXDEV when tmp and skills/ are on different mounts)
+    // Copy extracted skill to a sibling staging directory first (copy instead
+    // of rename to avoid EXDEV when tmp and skills/ are on different mounts).
+    // The existing skill is moved aside only after the copy succeeds.
     fs.mkdirSync(projectSkillsDir, { recursive: true });
-    fs.cpSync(skillRoot, targetDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: true,
-    });
+    const stagedParentDir = fs.mkdtempSync(
+      path.join(projectSkillsDir, `.${skillName}.upload-`),
+    );
+    const stagedSkillDir = path.join(stagedParentDir, skillName);
+    let replacedParentDir: string | undefined;
+    let replacedSkillDir: string | undefined;
+    try {
+      fs.cpSync(skillRoot, stagedSkillDir, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+      });
+
+      if (targetExists) {
+        replacedParentDir = fs.mkdtempSync(
+          path.join(projectSkillsDir, `.${skillName}.replace-`),
+        );
+        replacedSkillDir = path.join(replacedParentDir, skillName);
+        fs.renameSync(targetDir, replacedSkillDir);
+      }
+
+      try {
+        fs.renameSync(stagedSkillDir, targetDir);
+      } catch (error) {
+        if (replacedSkillDir && fs.existsSync(replacedSkillDir)) {
+          if (fs.existsSync(targetDir)) {
+            fs.rmSync(targetDir, { recursive: true, force: true });
+          }
+          fs.renameSync(replacedSkillDir, targetDir);
+        }
+        const code = (error as NodeJS.ErrnoException).code;
+        if (
+          code === 'EEXIST' ||
+          code === 'ENOTEMPTY' ||
+          fs.existsSync(targetDir)
+        ) {
+          throw new GatewayRequestError(
+            409,
+            `Skill \`${skillName}\` already exists at ${targetDir}.`,
+          );
+        }
+        throw error;
+      }
+
+      if (replacedParentDir) {
+        fs.rmSync(replacedParentDir, { recursive: true, force: true });
+      }
+    } finally {
+      fs.rmSync(stagedParentDir, { recursive: true, force: true });
+      if (
+        replacedParentDir &&
+        (!replacedSkillDir || !fs.existsSync(replacedSkillDir))
+      ) {
+        fs.rmSync(replacedParentDir, { recursive: true, force: true });
+      }
+    }
 
     return getGatewayAdminSkills();
   } finally {
@@ -9069,7 +9100,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               if (
                 isGoogleOAuthSecretRef(secret) &&
                 !isGoogleApisUrlPrefix(urlPrefix)
@@ -9138,7 +9170,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               const header = rawHeader
                 ? normalizeSecretRouteHeader(rawHeader)
                 : '';

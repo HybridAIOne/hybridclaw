@@ -1077,43 +1077,92 @@ aside[data-state="collapsed"] .chatSidebarContent {
 }
 
 .slashSuggestions {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  max-height: 220px;
-  overflow-y: auto;
   background: var(--popover);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-popover);
-  margin-bottom: 4px;
-  z-index: 20;
+  overflow: hidden;
+}
+
+.slashSuggestionsScroll {
+  max-height: 220px;
+}
+
+.slashSuggestionsList {
+  outline: none;
 }
 
 .suggestionItem {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 2px;
-  padding: 8px 14px;
+  padding: 10px 14px;
+  /* Allow flex children (label/desc) to ellipsize so a long
+     description does not push the popover wider than the trigger. */
+  min-width: 0;
+  min-height: 44px;
+  border-left: 2px solid transparent;
   cursor: pointer;
   transition: background 0.1s;
 }
 
-.suggestionItem:hover,
 .suggestionItemActive {
-  background: var(--chat-hover-bg);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-left-color: var(--primary);
+}
+
+.suggestionItemSub {
+  padding-left: 28px;
 }
 
 .suggestionLabel {
   font-size: 0.86rem;
   font-weight: 500;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestionLabelMono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+
+.suggestionMatch {
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .suggestionDesc {
   font-size: 0.76rem;
   color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestionEmpty {
+  padding: 14px;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+
+.slashLiveRegion {
+  composes: srOnly from "../../lib/a11y.module.css";
+}
+
+@media (max-width: 768px) {
+  .suggestionItem {
+    min-height: 48px;
+    padding: 12px 14px;
+  }
 }
 
 .errorBanner {
@@ -1211,7 +1260,7 @@ aside[data-state="collapsed"] .chatSidebarContent {
     background: var(--page-bg);
   }
 
-  .slashSuggestions {
+  .slashSuggestionsScroll {
     max-height: 40vh;
   }
 }

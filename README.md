@@ -108,7 +108,8 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat keeps a recent-session sidebar and can search conversation titles
   with contextual snippets before you reopen an older browser session
 - Web Chat shows live context-window usage, accepts `/context`, and lets you
-  switch the active agent and model from the composer
+  switch the active agent and model from the composer; active agent switching is
+  preserved across session reloads and UI route changes
 - Web Chat accepts `/btw <question>` side questions while a primary run is
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
@@ -145,6 +146,8 @@ Once the gateway is running, open HybridClaw locally:
   Signal QR linking, Twilio voice settings, and per-channel instructions that
   are injected into prompts at runtime.
 - `/admin/approvals` manages approval policies from the browser.
+- Approval policy evaluation runs through a hook-fed rule pipeline, so
+  workspace policy ordering and plugin tool-use hooks share one approval path.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser, and shows public URL plus tunnel status, without tearing down the
   enclosing workspace container; keep `hybridclaw gateway restart` for
@@ -220,6 +223,8 @@ Once the gateway is running, open HybridClaw locally:
 - Google OAuth credentials for Workspace skills live in the encrypted runtime
   secret store; agent runtimes receive short-lived access tokens for `gog` and
   `gws` instead of long-lived refresh tokens.
+- Canonical user and agent identities use stable lowercase IDs and DNS-style
+  discovery records so A2A peers can resolve remote URLs and public keys.
 - `hybridclaw secret route ...` and `/secret route ...` can attach stored
   secrets or Google OAuth access tokens to matching `http_request` URL
   prefixes, including Google Ads API calls.

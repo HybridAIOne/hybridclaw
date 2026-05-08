@@ -6384,7 +6384,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer);
+    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer, {
+      force: false,
+    });
     expect(res.statusCode).toBe(201);
   });
 
@@ -8004,7 +8006,7 @@ describe('gateway HTTP server', () => {
       tools.httpRequest = {
         authRules: [
           {
-            urlPrefix: 'https://hybridai.one/v1/',
+            urlPrefix: 'https://hybridai.one/v1/completions/',
             header: 'Authorization',
             prefix: 'Bearer',
             secret: { source: 'store', id: 'HYBRIDAI_API_KEY' },
