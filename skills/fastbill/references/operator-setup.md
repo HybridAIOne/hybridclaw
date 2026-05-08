@@ -37,6 +37,20 @@ credential pair without exposing either value to the model.
 Do not paste the API key into the model context. If a user provides it in chat,
 ask them to rotate the key and store the replacement through `/secret set`.
 
+## Gateway Proxy Authentication
+
+The helper sends FastBill requests through the local HybridClaw `/api/http/request`
+proxy so the gateway can inject the Basic header. If the gateway is protected,
+the helper environment must include one accepted gateway token variable:
+
+```bash
+export HYBRIDCLAW_GATEWAY_TOKEN=<gateway-or-web-api-token>
+```
+
+`GATEWAY_API_TOKEN` and `WEB_API_TOKEN` are also accepted. A 401 from the gateway
+before any `FASTBILL_BASIC_AUTH` secret-resolution audit entry means proxy
+authentication failed before FastBill was contacted.
+
 ## FastBill API Key Location
 
 FastBill documents the API key as account access information available in the

@@ -10,7 +10,11 @@ const DEFAULT_TIMEOUT_MS = 30000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 5000;
 const DEFAULT_AUTH_SECRET_NAME = 'FASTBILL_BASIC_AUTH';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
-const EINVOICE_FIXTURE_PATH = path.join(__dirname, 'fixtures', 'einvoice-readiness.json');
+const EINVOICE_FIXTURE_PATH = path.join(
+  __dirname,
+  'fixtures',
+  'einvoice-readiness.json',
+);
 
 const READ_SERVICES = new Set([
   'article.get',
@@ -95,7 +99,9 @@ class FastBillApiError extends Error {
 
 class FastBillOperatorGrantError extends Error {
   constructor(service) {
-    super(`FastBill service ${service} mutates account data and requires --operator-grant.`);
+    super(
+      `FastBill service ${service} mutates account data and requires --operator-grant.`,
+    );
     this.name = 'FastBillOperatorGrantError';
     this.code = 'FASTBILL_OPERATOR_GRANT_REQUIRED';
     this.service = service;
@@ -130,18 +136,22 @@ function resolveGatewayToken() {
   return (
     (process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
     (process.env.GATEWAY_API_TOKEN || '').trim() ||
+    (process.env.WEB_API_TOKEN || '').trim() ||
     ''
   );
 }
 
 function escapeXml(value) {
-  return String(value)
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  return (
+    String(value)
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: XML 1.0 disallows these characters.
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;')
+  );
 }
 
 function toXmlNode(name, value) {
@@ -171,7 +181,8 @@ function buildFastBillXmlRequest(input) {
   let xml = '<?xml version="1.0" encoding="utf-8"?><FBAPI>';
   xml += `<SERVICE>${escapeXml(service)}</SERVICE>`;
   if (input.limit !== undefined) xml += toXmlNode('LIMIT', String(input.limit));
-  if (input.offset !== undefined) xml += toXmlNode('OFFSET', String(input.offset));
+  if (input.offset !== undefined)
+    xml += toXmlNode('OFFSET', String(input.offset));
   if (input.filter !== undefined) xml += toXmlNode('FILTER', input.filter);
   if (input.data !== undefined) xml += toXmlNode('DATA', input.data);
   xml += '</FBAPI>';
@@ -182,7 +193,7 @@ function parseFastBillXmlResponse(xmlText) {
   let XMLParser;
   try {
     ({ XMLParser } = require('fast-xml-parser'));
-  } catch (error) {
+  } catch {
     warnXmlFallback();
     const root = parseFastBillXmlFallback(xmlText);
     assertNoApiErrors(root);
@@ -195,7 +206,7 @@ function parseFastBillXmlResponse(xmlText) {
     trimValues: true,
   });
   const parsed = parser.parse(xmlText);
-  const root = parsed && parsed.FBAPI ? parsed.FBAPI : parsed;
+  const root = parsed?.FBAPI ? parsed.FBAPI : parsed;
   assertNoApiErrors(root);
   return root;
 }
@@ -288,9 +299,12 @@ function collectErrors(value) {
 function assertNoApiErrors(root) {
   const errors = collectErrors(root);
   if (errors.length > 0) {
-    throw new FastBillApiError(`FastBill API returned ${errors.length} error(s).`, {
-      errors,
-    });
+    throw new FastBillApiError(
+      `FastBill API returned ${errors.length} error(s).`,
+      {
+        errors,
+      },
+    );
   }
 }
 
@@ -300,7 +314,8 @@ function normalizeError(value) {
   if (typeof value === 'object') {
     const out = {};
     for (const [key, entry] of Object.entries(value)) out[key] = entry;
-    if (!out.message && typeof value.MESSAGE === 'string') out.message = value.MESSAGE;
+    if (!out.message && typeof value.MESSAGE === 'string')
+      out.message = value.MESSAGE;
     return out;
   }
   return { message: String(value) };
@@ -328,7 +343,9 @@ function collectNodesByKey(value, targetKey) {
 }
 
 function normalizeService(service) {
-  const normalized = String(service || '').trim().toLowerCase();
+  const normalized = String(service || '')
+    .trim()
+    .toLowerCase();
   if (!SUPPORTED_SERVICES.has(normalized)) {
     throw new FastBillConfigError(`Unsupported FastBill service: ${service}`);
   }
@@ -342,7 +359,10 @@ function assertOperatorGrant(service, hasGrant, dryRun) {
 }
 
 async function gatewayRequest(input) {
-  const gatewayUrl = (input.gatewayUrl || resolveGatewayUrl()).replace(/\/+$/u, '');
+  const gatewayUrl = (input.gatewayUrl || resolveGatewayUrl()).replace(
+    /\/+$/u,
+    '',
+  );
   const payload = {
     url: API_URL,
     method: 'POST',
@@ -384,6 +404,14 @@ async function gatewayRequest(input) {
   }
   const text = await response.text();
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      /WEB_API_TOKEN|GATEWAY_API_TOKEN/u.test(text)
+    ) {
+      throw new FastBillConfigError(
+        'Gateway proxy authentication failed before FastBill was contacted. Set HYBRIDCLAW_GATEWAY_TOKEN, GATEWAY_API_TOKEN, or WEB_API_TOKEN in the helper environment to a token accepted by the local gateway.',
+      );
+    }
     throw new FastBillApiError(
       `Gateway proxy returned ${response.status} for FastBill request: ${text}`,
       { status: response.status },
@@ -403,20 +431,30 @@ async function gatewayRequest(input) {
   }
   if (typeof wrapper.body === 'string') return wrapper.body;
   if (typeof wrapper.text === 'string') {
-    process.stderr.write('Warning: gateway response omitted body; using text fallback.\n');
+    process.stderr.write(
+      'Warning: gateway response omitted body; using text fallback.\n',
+    );
     return wrapper.text;
   }
   if (typeof wrapper.responseText === 'string') {
-    process.stderr.write('Warning: gateway response omitted body; using responseText fallback.\n');
+    process.stderr.write(
+      'Warning: gateway response omitted body; using responseText fallback.\n',
+    );
     return wrapper.responseText;
   }
-  throw new FastBillApiError('Gateway response did not include a FastBill XML response body.');
+  throw new FastBillApiError(
+    'Gateway response did not include a FastBill XML response body.',
+  );
 }
 
 async function callFastBillService(input) {
   const service = normalizeService(input.service);
   const mutatesAccount = WRITE_SERVICES.has(service);
-  assertOperatorGrant(service, Boolean(input.operatorGrant), Boolean(input.dryRun));
+  assertOperatorGrant(
+    service,
+    Boolean(input.operatorGrant),
+    Boolean(input.dryRun),
+  );
   const xml = buildFastBillXmlRequest({
     service,
     filter: input.filter,
@@ -462,7 +500,9 @@ function parseJsonValue(raw, label) {
     return ensureJsonObject(JSON.parse(raw), label);
   } catch (error) {
     if (error instanceof FastBillConfigError) throw error;
-    throw new FastBillConfigError(`${label} is not valid JSON: ${error.message}`);
+    throw new FastBillConfigError(
+      `${label} is not valid JSON: ${error.message}`,
+    );
   }
 }
 
@@ -472,12 +512,17 @@ function parseJsonFile(filePath, label) {
     return parseJsonValue(fs.readFileSync(filePath, 'utf8'), label);
   } catch (error) {
     if (error instanceof FastBillConfigError) throw error;
-    throw new FastBillConfigError(`Cannot read ${label} JSON file ${filePath}: ${error.message}`);
+    throw new FastBillConfigError(
+      `Cannot read ${label} JSON file ${filePath}: ${error.message}`,
+    );
   }
 }
 
 function resolveJsonInput(args, label) {
-  return parseJsonValue(args[`${label}-json`], label) || parseJsonFile(args[`${label}-file`], label);
+  return (
+    parseJsonValue(args[`${label}-json`], label) ||
+    parseJsonFile(args[`${label}-file`], label)
+  );
 }
 
 function findInvoices(response) {
@@ -488,7 +533,9 @@ function findInvoices(response) {
 
 function isoDateDaysAgo(days) {
   const date = new Date();
-  date.setUTCDate(date.getUTCDate() - parseNonNegativeInt(days, '--older-than-days'));
+  date.setUTCDate(
+    date.getUTCDate() - parseNonNegativeInt(days, '--older-than-days'),
+  );
   return date.toISOString().slice(0, 10);
 }
 
@@ -496,7 +543,9 @@ function filterInvoices(invoices, input) {
   let filtered = invoices;
   if (input.state) {
     const expected = String(input.state).toLowerCase();
-    filtered = filtered.filter((invoice) => String(invoice.STATE || '').toLowerCase() === expected);
+    filtered = filtered.filter(
+      (invoice) => String(invoice.STATE || '').toLowerCase() === expected,
+    );
   }
   return filtered;
 }
@@ -525,22 +574,44 @@ function planFastBillRequest(text) {
   let operatorGrantRequired = false;
   let command = 'list-invoices';
 
-  if (/(create|new).*(invoice|rechnung)|\bdraft\b.*\bnew\b.*(invoice|rechnung)|\bprepare\b.*(invoice|rechnung)/u.test(normalized)) {
+  if (
+    /(create|new).*(invoice|rechnung)|\bdraft\b.*\bnew\b.*(invoice|rechnung)|\bprepare\b.*(invoice|rechnung)/u.test(
+      normalized,
+    )
+  ) {
     service = 'invoice.create';
     command = 'create-invoice';
-  } else if (/(xrechnung|zugferd|e-?invoice|electronic invoice)/u.test(normalized)) {
+  } else if (
+    /(xrechnung|zugferd|e-?invoice|electronic invoice)/u.test(normalized)
+  ) {
     service = 'invoice.get';
     command = 'export-einvoice';
-  } else if (/(delete|remove).*(invoice|rechnung)|test invoice.*(delete|remove)/u.test(normalized)) {
+  } else if (
+    /(delete|remove).*(invoice|rechnung)|test invoice.*(delete|remove)/u.test(
+      normalized,
+    )
+  ) {
     service = 'invoice.delete';
     command = 'request invoice.delete';
-  } else if (/(cancel|void|storno).*(invoice|rechnung)|invoice.*(cancel|void|storno)/u.test(normalized)) {
+  } else if (
+    /(cancel|void|storno).*(invoice|rechnung)|invoice.*(cancel|void|storno)/u.test(
+      normalized,
+    )
+  ) {
     service = 'invoice.cancel';
     command = 'request invoice.cancel';
-  } else if (/(complete|finalize|finalise).*(invoice|rechnung)|draft invoice.*(complete|finalize|finalise)/u.test(normalized)) {
+  } else if (
+    /(complete|finalize|finalise).*(invoice|rechnung)|draft invoice.*(complete|finalize|finalise)/u.test(
+      normalized,
+    )
+  ) {
     service = 'invoice.complete';
     command = 'request invoice.complete';
-  } else if (/(update|change|correct).*(invoice|rechnung)|draft invoice.*(update|change|correct)/u.test(normalized)) {
+  } else if (
+    /(update|change|correct).*(invoice|rechnung)|draft invoice.*(update|change|correct)/u.test(
+      normalized,
+    )
+  ) {
     service = 'invoice.update';
     command = 'request invoice.update';
   } else if (/(create|new|add).*(customer|client|kunde)/u.test(normalized)) {
@@ -549,7 +620,9 @@ function planFastBillRequest(text) {
   } else if (/(mark|set).*(paid|bezahlt)/u.test(normalized)) {
     service = 'invoice.setpaid';
     command = 'mark-paid';
-  } else if (/(reminder|mahnung|payment reminder|send.*email)/u.test(normalized)) {
+  } else if (
+    /(reminder|mahnung|payment reminder|send.*email)/u.test(normalized)
+  ) {
     service = 'invoice.sendbyemail';
     command = 'send-reminder';
   } else if (/(document inbox|documents|folder)/u.test(normalized)) {
@@ -571,7 +644,9 @@ function planFastBillRequest(text) {
     service,
     mutatesAccount,
     operatorGrantRequired,
-    defaultAutonomy: mutatesAccount ? 'operator_grant_required' : 'read_allowed',
+    defaultAutonomy: mutatesAccount
+      ? 'operator_grant_required'
+      : 'read_allowed',
     costMeasurement: usageTotalsMeasurement(),
   };
 }
@@ -661,7 +736,9 @@ Usage:
 
 Environment:
   HYBRIDCLAW_GATEWAY_URL       Gateway URL, default ${DEFAULT_GATEWAY_URL}
-  HYBRIDCLAW_GATEWAY_TOKEN     Optional gateway API token
+  HYBRIDCLAW_GATEWAY_TOKEN     Optional gateway API token for /api/http/request
+  GATEWAY_API_TOKEN            Fallback gateway API token
+  WEB_API_TOKEN                Fallback web API token accepted by the gateway
   FASTBILL_AUTH_SECRET_NAME    Stored secret name, default ${DEFAULT_AUTH_SECRET_NAME}
 `);
 }
@@ -676,7 +753,10 @@ async function main(argv = process.argv.slice(2)) {
   const common = {
     dryRun: Boolean(args['dry-run']),
     operatorGrant: Boolean(args['operator-grant']),
-    authSecretName: args['auth-secret-name'] || process.env.FASTBILL_AUTH_SECRET_NAME || DEFAULT_AUTH_SECRET_NAME,
+    authSecretName:
+      args['auth-secret-name'] ||
+      process.env.FASTBILL_AUTH_SECRET_NAME ||
+      DEFAULT_AUTH_SECRET_NAME,
     traceId: args['trace-id'],
   };
 
@@ -696,20 +776,23 @@ async function main(argv = process.argv.slice(2)) {
     const service = args._[1];
     const filter = resolveJsonInput(args, 'filter');
     const data = resolveJsonInput(args, 'data');
-    printJson(await callFastBillService({
-      ...common,
-      service,
-      filter,
-      data,
-      limit: parseNonNegativeInt(args.limit, '--limit'),
-      offset: parseNonNegativeInt(args.offset, '--offset'),
-    }));
+    printJson(
+      await callFastBillService({
+        ...common,
+        service,
+        filter,
+        data,
+        limit: parseNonNegativeInt(args.limit, '--limit'),
+        offset: parseNonNegativeInt(args.offset, '--offset'),
+      }),
+    );
     return;
   }
 
   if (command === 'list-invoices') {
     const filter = {};
-    if (args['older-than-days']) filter.END_DUE_DATE = isoDateDaysAgo(args['older-than-days']);
+    if (args['older-than-days'])
+      filter.END_DUE_DATE = isoDateDaysAgo(args['older-than-days']);
     const limit = parseNonNegativeInt(args.limit, '--limit') ?? 100;
     const result = await callFastBillService({
       ...common,
@@ -725,7 +808,8 @@ async function main(argv = process.argv.slice(2)) {
       });
       if (rawInvoices.length === limit) {
         result.truncated = true;
-        result.truncationNote = 'Results may be incomplete. Use --limit and --offset to paginate.';
+        result.truncationNote =
+          'Results may be incomplete. Use --limit and --offset to paginate.';
       }
     }
     printJson(result);
@@ -734,50 +818,62 @@ async function main(argv = process.argv.slice(2)) {
 
   if (command === 'create-invoice') {
     const data = resolveJsonInput(args, 'data');
-    printJson(await callFastBillService({
-      ...common,
-      service: 'invoice.create',
-      data,
-    }));
+    printJson(
+      await callFastBillService({
+        ...common,
+        service: 'invoice.create',
+        data,
+      }),
+    );
     return;
   }
 
   if (command === 'mark-paid') {
-    if (!args['invoice-id']) throw new FastBillConfigError('--invoice-id is required.');
+    if (!args['invoice-id'])
+      throw new FastBillConfigError('--invoice-id is required.');
     const data = {
       INVOICE_ID: args['invoice-id'],
       PAID_DATE: parseIsoDate(args['paid-date'], '--paid-date'),
       PAYMENT_METHOD: args['payment-method'],
     };
-    printJson(await callFastBillService({
-      ...common,
-      service: 'invoice.setpaid',
-      data,
-    }));
+    printJson(
+      await callFastBillService({
+        ...common,
+        service: 'invoice.setpaid',
+        data,
+      }),
+    );
     return;
   }
 
   if (command === 'send-reminder') {
-    if (!args['invoice-id']) throw new FastBillConfigError('--invoice-id is required.');
-    if (!args.recipient) throw new FastBillConfigError('--recipient is required.');
+    if (!args['invoice-id'])
+      throw new FastBillConfigError('--invoice-id is required.');
+    if (!args.recipient)
+      throw new FastBillConfigError('--recipient is required.');
     const data = {
       INVOICE_ID: args['invoice-id'],
       RECIPIENT: {
         TO: args.recipient,
       },
       SUBJECT: args.subject || 'Payment reminder',
-      MESSAGE: args.message || 'Please review the outstanding invoice and payment status.',
+      MESSAGE:
+        args.message ||
+        'Please review the outstanding invoice and payment status.',
     };
-    printJson(await callFastBillService({
-      ...common,
-      service: 'invoice.sendbyemail',
-      data,
-    }));
+    printJson(
+      await callFastBillService({
+        ...common,
+        service: 'invoice.sendbyemail',
+        data,
+      }),
+    );
     return;
   }
 
   if (command === 'export-einvoice') {
-    if (!args['invoice-id']) throw new FastBillConfigError('--invoice-id is required.');
+    if (!args['invoice-id'])
+      throw new FastBillConfigError('--invoice-id is required.');
     const einvoiceFixture = loadEInvoiceFixture();
     const result = await callFastBillService({
       ...common,

@@ -73,6 +73,11 @@ persisted, or returned to the model. The helper uses the derived
 `FASTBILL_EMAIL` and `FASTBILL_API_KEY` preserve the source credential pair in
 the encrypted store.
 
+The helper also has to authenticate to the local HybridClaw gateway before it can
+call `/api/http/request`. In local shell tests, provide a gateway token through
+`HYBRIDCLAW_GATEWAY_TOKEN`, `GATEWAY_API_TOKEN`, or `WEB_API_TOKEN`; do not paste
+that token into the prompt.
+
 ## Default Workflow
 
 1. Start with read-only commands such as `list-invoices`, `invoice.get`, or
