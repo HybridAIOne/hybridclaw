@@ -138,8 +138,8 @@ providers need a reusable billing-portal login profile.
 ## google-ads
 
 Use the Google Ads skill for GAQL performance reporting, MCC account
-inspection, recommendation review, guarded campaign operations, and ad-copy
-preflight.
+inspection, recommendation review/apply/dismiss, guarded campaign, ad group,
+ad, keyword, budget, audience, conversion operations, and ad-copy preflight.
 
 **Prerequisites** — a Google OAuth desktop client authorized with
 `https://www.googleapis.com/auth/adwords`, Google Ads API enabled in the Google
@@ -175,9 +175,9 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
 > The helper sends live API calls through the gateway proxy with OAuth and
 > developer-token handles, so the model never sees cleartext credentials.
 >
-> Budget, campaign state, bid strategy, ad creative submission,
-> conversion-action edits, and customer-match uploads are red-tier operations
-> and require explicit operator approval.
+> Budget, campaign create/remove/state, bid strategy, ad creative submission,
+> conversion-action create/edit, and customer-match uploads are red-tier
+> operations and require explicit operator approval.
 >
 > Generated ad-copy fields must pass the `brand-voice` gate before submission.
 >
@@ -200,7 +200,10 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
 - **401 or insufficient scopes** — rerun `hybridclaw auth login google` with the Ads scope and restart the agent runtime.
 - **developer-token missing** — store `GOOGLEADS_DEVELOPER_TOKEN` and confirm the `developer-token` route exists.
 - **manager-account access errors** — pass `--login-customer-id` or store `GOOGLEADS_LOGIN_CUSTOMER_ID` without hyphens.
-- **customer-match request contains raw PII** — stop at a plan; only pre-hashed values from a controlled source are allowed. New Customer Match workflows should use Google's Data Manager API, so this skill does not upload Customer Match lists through Google Ads API.
+- **customer-match request contains raw PII** — stop at a plan; the executable
+  flow only accepts pre-hashed SHA-256 values from a controlled source and
+  splits list creation, offline job creation, hash add, and job run into
+  separately approved commands.
 
 ---
 

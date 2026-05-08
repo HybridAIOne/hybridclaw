@@ -97,16 +97,15 @@ Amber writes:
 - ad group edits
 - keyword additions, edits, or pauses
 - audience segment creation without customer-match uploads
-- recommendation applies under a tenant-approved ceiling
+- recommendation applies or dismissals under a tenant-approved ceiling
 
 Red writes:
 
-- campaign pause or enable
+- campaign create, pause, enable, remove, or bid-strategy switch
 - daily or lifetime budget mutation
-- bid strategy switch or target tuning
 - ad creative submission
 - customer-match upload
-- conversion action edit
+- conversion action create or edit
 
 For amber or red actions, use the helper `plan` command, show the
 `requiredGrant`, and proceed only after explicit operator approval.
@@ -118,15 +117,32 @@ operation's required grant.
 
 Supported executable operations:
 
-- `campaign-status` updates campaign `status`
+- `campaign-create`, `campaign-status`, `campaign-rename`, and
+  `campaign-remove` cover campaign lifecycle operations
+- `campaign-bid-strategy` switches portfolio or standard bidding strategy
+  fields under the budget/bid grant
 - `budget-amount` updates campaign budget `amountMicros`
+- `budget-lifetime-amount` updates campaign budget `totalAmountMicros`
 - `ad-group-create` creates an ad group
+- `ad-group-status`, `ad-group-rename`, and `ad-group-remove` cover ad group
+  lifecycle operations
 - `keyword-create` creates an ad group criterion keyword
 - `keyword-status` updates keyword criterion `status`; Google Ads criterion resource names are composite, so pass both ad group id and criterion id
+- `keyword-remove` removes an ad group criterion keyword
 - `rsa-create` creates a responsive search ad after brand-voice approval
-- `conversion-action-status` updates conversion action `status`
+- `ad-status` and `ad-remove` cover ad group ad lifecycle operations
+- `conversion-action-create`, `conversion-action-status`, and
+  `conversion-action-attribution` cover conversion action lifecycle and
+  attribution adjustments
+- `remarketing-list-create`, `lookalike-list-create`, and
+  `campaign-user-interest-target` cover non-PII audience management
+- `customer-match-list-create`, `customer-match-job-create`,
+  `customer-match-add-hashes`, and `customer-match-job-run` cover the guarded
+  Customer Match flow with hash-only inputs
 - `apply-recommendation` applies a recommendation through
   `recommendations:apply`
+- `dismiss-recommendation` dismisses a recommendation through
+  `recommendations:dismiss`
 
 Add `--validate-only` to mutation commands when you want Google Ads API
 validation without execution.
@@ -149,10 +165,11 @@ before submission.
 ## Customer Match And GDPR
 
 Customer Match can touch personal data even when Google requires hashes. The
-skill must not ingest raw customer lists in chat. Google's current guidance is
-to use Data Manager API for new Customer Match workflows rather than building
-new uploads on the Google Ads API. Until that separate integration exists, this
-skill stops at planning/refusal for Customer Match operations.
+skill must not ingest raw customer lists in chat. Execution is split into
+explicitly approved steps: create a CRM-based user list, create an offline user
+data job, add only pre-hashed SHA-256 identifiers, then run the job. The helper
+rejects non-hash upload values, does not hash PII itself, and never accepts raw
+email, phone, address, or name fields.
 
 For EU residents, confirm the processing basis and data-residency expectations
 with the operator before preparing the upload. If those details are missing,

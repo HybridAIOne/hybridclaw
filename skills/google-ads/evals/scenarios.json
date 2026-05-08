@@ -380,5 +380,83 @@
       "brandVoiceGateRequired": false,
       "costSystem": "UsageTotals"
     }
+  },
+  {
+    "id": "create-campaign-spend-gate",
+    "category": "campaign-edit",
+    "kind": "plan",
+    "request": "Create a new search campaign with the brand budget",
+    "expected": {
+      "operation": "budget-or-bid-strategy-mutation",
+      "stakesTier": "red",
+      "requiresEscalation": true,
+      "brandVoiceGateRequired": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "dismiss-recommendation",
+    "category": "recommendations",
+    "kind": "plan",
+    "request": "Dismiss Google's recommendation to broaden keywords",
+    "expected": {
+      "operation": "recommendation-apply",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "brandVoiceGateRequired": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "remarketing-list-create",
+    "category": "audience-management",
+    "kind": "plan",
+    "request": "Create a remarketing list for pricing page visitors",
+    "expected": {
+      "operation": "campaign-structure-edit",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "brandVoiceGateRequired": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "lookalike-list-create",
+    "category": "audience-management",
+    "kind": "plan",
+    "request": "Create a lookalike audience from our buyer list",
+    "expected": {
+      "operation": "campaign-structure-edit",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "brandVoiceGateRequired": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "in-market-target",
+    "category": "audience-management",
+    "kind": "plan",
+    "request": "Target an in-market user interest audience on the campaign",
+    "expected": {
+      "operation": "campaign-structure-edit",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "brandVoiceGateRequired": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "conversion-action-create",
+    "category": "conversion-tracking",
+    "kind": "plan",
+    "request": "Create a new conversion action for lead form submits",
+    "expected": {
+      "operation": "conversion-action-edit",
+      "stakesTier": "red",
+      "requiresEscalation": true,
+      "brandVoiceGateRequired": false,
+      "costSystem": "UsageTotals"
+    }
   }
 ]

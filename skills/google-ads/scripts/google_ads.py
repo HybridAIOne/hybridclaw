@@ -26,7 +26,7 @@ DEFAULT_API_VERSION = "v24"
 GOOGLE_ADS_BASE_URL = "https://googleads.googleapis.com"
 # The gateway mints Google OAuth tokens through the existing Workspace token
 # secret name; Google Ads uses the same OAuth rail with the adwords scope.
-GOOGLE_OAUTH_BEARER_SECRET = "GOOGLE_WORKSPACE_CLI_TOKEN"
+GOOGLE_ADS_OAUTH_SECRET_NAME = "GOOGLE_WORKSPACE_CLI_TOKEN"
 GOOGLE_ADS_DEVELOPER_TOKEN_SECRET = "GOOGLEADS_DEVELOPER_TOKEN"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 EVAL_SCENARIOS_PATH = SKILL_DIR / "evals" / "scenarios.json"
@@ -65,6 +65,8 @@ CAMPAIGN_STATE_WORDS = {
     "paused campaign",
     "enable campaign",
     "start campaign",
+    "remove campaign",
+    "delete campaign",
     "campaign pause",
     "campaign enable",
     "kampagne pausieren",
@@ -99,9 +101,19 @@ AMBER_WORDS = {
     "ad group",
     "recommendation apply",
     "apply recommendation",
+    "dismiss recommendation",
     "audience segment",
+    "remarketing",
+    "lookalike",
+    "similar audience",
+    "in-market",
+    "user interest",
     "add keyword",
     "pause keyword",
+    "remove keyword",
+    "rename ad group",
+    "remove ad group",
+    "remove ad",
     "anzeigengruppe",
     "keyword hinzufuegen",
     "keyword hinzufugen",
@@ -141,7 +153,24 @@ WRITE_GRANTS = {
     "ad-copy-submit": "approve-google-ads-ad-copy-submit",
     "ad-copy-draft": "approve-google-ads-ad-copy-draft",
     "campaign-structure-edit": "approve-google-ads-structure-edit",
+    "audience-management": "approve-google-ads-audience-management",
+    "customer-match-upload": "approve-google-ads-customer-match-upload",
     "recommendation-apply": "approve-google-ads-recommendation-apply",
+}
+
+GOOGLE_ADS_GAQL_SCHEMA = {
+    "dialect": "GAQL",
+    "readVerb": "SELECT",
+    "mutationVerb": "not-supported",
+    "requiredMetricScope": "segments.date DURING or segments.date BETWEEN",
+    "defaultLimit": 25,
+    "commonResources": [
+        "campaign",
+        "ad_group",
+        "keyword_view",
+        "search_term_view",
+        "recommendation",
+    ],
 }
 
 
@@ -238,7 +267,7 @@ def gateway_request(
         "url": url,
         "method": method,
         "timeoutMs": gw.timeout_ms,
-        "bearerSecretName": GOOGLE_OAUTH_BEARER_SECRET,
+        "bearerSecretName": GOOGLE_ADS_OAUTH_SECRET_NAME,
         "secretHeaders": [
             {
                 "name": "developer-token",
@@ -317,6 +346,48 @@ def ads_resource(customer_id: str, collection: str, resource_id: str | int) -> s
     return f"customers/{customer_id}/{collection}/{resource_id}"
 
 
+def composite_resource(
+    customer_id: str,
+    collection: str,
+    left_id: str | int,
+    right_id: str | int,
+) -> str:
+    return ads_resource(customer_id, collection, f"{left_id}~{right_id}")
+
+
+def non_empty(value: str, label: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        raise ConfigError(f"{label} is required.")
+    return text
+
+
+def parse_bool(value: bool | str) -> bool:
+    if isinstance(value, bool):
+        return value
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def normalize_float(value: str, label: str) -> float:
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{label} must be a number.") from exc
+    if normalized <= 0:
+        raise ConfigError(f"{label} must be greater than zero.")
+    return normalized
+
+
+def validate_sha256_hex(values: list[str], label: str) -> list[str]:
+    hashes = [value.strip().lower() for value in values if value.strip()]
+    if not hashes:
+        raise ConfigError(f"At least one {label} hash is required.")
+    invalid = [value for value in hashes if not re.fullmatch(r"[0-9a-f]{64}", value)]
+    if invalid:
+        raise ConfigError(f"{label} hashes must be lowercase SHA-256 hex strings.")
+    return hashes
+
+
 def require_grant(args: argparse.Namespace, operation_key: str) -> str:
     expected = WRITE_GRANTS[operation_key]
     provided = (getattr(args, "grant", "") or "").strip()
@@ -325,6 +396,39 @@ def require_grant(args: argparse.Namespace, operation_key: str) -> str:
             f"Refusing {operation_key}; expected explicit grant `{expected}`."
         )
     return expected
+
+
+def action_service(
+    args: argparse.Namespace,
+    *,
+    command: str,
+    path: str,
+    operation_key: str,
+    request_body: dict[str, Any],
+) -> dict[str, Any]:
+    grant = require_grant(args, operation_key)
+    customer_id = normalize_customer_id(args.customer_id)
+    if not customer_id:
+        raise ConfigError("Missing Google Ads customer id.")
+    gw = make_gateway_config(args)
+    api_version = normalize_api_version(args.api_version)
+    payload = gateway_request(
+        gw,
+        url=ads_url(api_version, path),
+        method="POST",
+        headers=ads_headers(normalize_customer_id(args.login_customer_id)),
+        json_payload=request_body,
+    )
+    return with_cost({
+        "command": command,
+        "apiVersion": api_version,
+        "customerId": customer_id,
+        "loginCustomerId": normalize_customer_id(args.login_customer_id),
+        "operationKey": operation_key,
+        "grant": grant,
+        "request": request_body,
+        "payload": payload,
+    })
 
 
 def mutate_service(
@@ -609,6 +713,11 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         tier = "red"
         required_grant = "approve-google-ads-budget-or-bid-change"
         reasons.append("budget or bidding changes can move real spend")
+    elif "create campaign" in lowered or "new campaign" in lowered:
+        operation = "budget-or-bid-strategy-mutation"
+        tier = "red"
+        required_grant = "approve-google-ads-budget-or-bid-change"
+        reasons.append("campaign creation can attach budget and start spend")
     elif contains_any(lowered, CAMPAIGN_STATE_WORDS) or (
         "pause" in lowered and "campaign" in lowered
     ) or ("enable" in lowered and "campaign" in lowered):
@@ -639,7 +748,9 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         required_grant = "approve-google-ads-ad-copy-submit" if tier == "red" else "approve-google-ads-ad-copy-draft"
         brand_voice = True
         reasons.append("ad copy must pass brand-voice review before submission")
-    elif "recommendation" in lowered and "apply" in lowered:
+    elif "recommendation" in lowered and (
+        "apply" in lowered or "dismiss" in lowered
+    ):
         operation = "recommendation-apply"
         tier = "amber"
         required_grant = "approve-google-ads-recommendation-apply"
@@ -651,6 +762,7 @@ def classify_operation(request_text: str) -> dict[str, Any]:
             "edit",
             "pause",
             "apply",
+            "target",
             "create",
             "hinzufuegen",
             "hinzufugen",
@@ -728,6 +840,81 @@ def command_ad_copy_review(args: argparse.Namespace) -> dict[str, Any]:
     })
 
 
+def command_prompt_template(args: argparse.Namespace) -> dict[str, Any]:
+    question = non_empty(args.request, "request")
+    deterministic_review = review_gaql(args.query) if args.query else {
+        "allowed": False,
+        "findings": ["No GAQL query has been drafted yet."],
+        "normalized": "",
+    }
+    return with_cost({
+        "command": "prompt-template",
+        "templateFamily": "R21.6 NL-to-SQL model review",
+        "dialect": "GAQL",
+        "system": (
+            "You review Google Ads GAQL for business meaning, schema fit, and safe scope. "
+            "Return only JSON with status 'pass' or 'block', summary, and findings array. "
+            "Block GAQL that does not answer the question, references absent schema, lacks a "
+            "bounded date window for metrics, uses unsafe scope, or should be shown to the user "
+            "before execution."
+        ),
+        "payload": {
+            "question": question,
+            "sql": args.query.strip(),
+            "deterministicReview": {
+                "status": "pass" if deterministic_review["allowed"] else "block",
+                "readOnly": deterministic_review["allowed"],
+                "statementCount": 1 if args.query.strip() else 0,
+                "requiresWriteGrant": False,
+                "findings": deterministic_review["findings"],
+            },
+            "schemaCache": json.dumps(GOOGLE_ADS_GAQL_SCHEMA, sort_keys=True),
+        },
+    })
+
+
+def campaign_create_operation(args: argparse.Namespace, customer_id: str) -> dict[str, Any]:
+    campaign: dict[str, Any] = {
+        "name": non_empty(args.name, "campaign name"),
+        "status": normalize_status(args.status, {"ENABLED", "PAUSED"}),
+        "campaignBudget": ads_resource(
+            customer_id,
+            "campaignBudgets",
+            coerce_positive_int(args.budget_id, "budget id"),
+        ),
+        "advertisingChannelType": normalize_status(
+            args.channel_type,
+            {"SEARCH", "DISPLAY", "VIDEO", "PERFORMANCE_MAX", "DEMAND_GEN"},
+            "channel type",
+        ),
+    }
+    if campaign["advertisingChannelType"] == "SEARCH":
+        campaign["networkSettings"] = {
+            "targetGoogleSearch": True,
+            "targetSearchNetwork": parse_bool(args.target_search_network),
+            "targetContentNetwork": parse_bool(args.target_content_network),
+            "targetPartnerSearchNetwork": parse_bool(args.target_partner_search_network),
+        }
+    strategy = args.bidding_strategy
+    if strategy == "manual-cpc":
+        campaign["manualCpc"] = {}
+    elif strategy == "maximize-conversions":
+        campaign["maximizeConversions"] = {}
+    elif strategy == "maximize-conversion-value":
+        campaign["maximizeConversionValue"] = {}
+    return {"create": campaign}
+
+
+def command_campaign_create(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    return mutate_service(
+        args,
+        service="campaigns",
+        operation_key="budget-or-bid-strategy-mutation",
+        operations=[campaign_create_operation(args, customer_id)],
+    )
+
+
 def command_campaign_status(args: argparse.Namespace) -> dict[str, Any]:
     customer_id = normalize_customer_id(args.customer_id)
     campaign_id = coerce_positive_int(args.campaign_id, "campaign id")
@@ -748,6 +935,89 @@ def command_campaign_status(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def command_campaign_rename(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    campaign_id = coerce_positive_int(args.campaign_id, "campaign id")
+    return mutate_service(
+        args,
+        service="campaigns",
+        operation_key="campaign-structure-edit",
+        operations=[
+            {
+                "updateMask": "name",
+                "update": {
+                    "resourceName": ads_resource(customer_id, "campaigns", campaign_id),
+                    "name": non_empty(args.name, "campaign name"),
+                },
+            }
+        ],
+    )
+
+
+def command_campaign_remove(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    campaign_id = coerce_positive_int(args.campaign_id, "campaign id")
+    return mutate_service(
+        args,
+        service="campaigns",
+        operation_key="campaign-state-mutation",
+        operations=[{"remove": ads_resource(customer_id, "campaigns", campaign_id)}],
+    )
+
+
+def command_campaign_bid_strategy(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    campaign_id = coerce_positive_int(args.campaign_id, "campaign id")
+    strategy = args.strategy
+    update: dict[str, Any] = {
+        "resourceName": ads_resource(customer_id, "campaigns", campaign_id),
+    }
+    update_mask = ""
+    if strategy == "portfolio":
+        update["biddingStrategy"] = non_empty(args.bidding_strategy_resource, "bidding strategy resource")
+        update_mask = "biddingStrategy"
+    elif strategy == "manual-cpc":
+        update["manualCpc"] = {}
+        update_mask = "manualCpc"
+    elif strategy == "maximize-conversions":
+        update["maximizeConversions"] = {}
+        if args.target_cpa_micros:
+            update["maximizeConversions"]["targetCpaMicros"] = str(
+                coerce_positive_int(args.target_cpa_micros, "target cpa micros")
+            )
+            update_mask = "maximizeConversions.targetCpaMicros"
+        else:
+            update_mask = "maximizeConversions"
+    elif strategy == "maximize-conversion-value":
+        update["maximizeConversionValue"] = {}
+        if args.target_roas:
+            update["maximizeConversionValue"]["targetRoas"] = normalize_float(
+                args.target_roas,
+                "target roas",
+            )
+            update_mask = "maximizeConversionValue.targetRoas"
+        else:
+            update_mask = "maximizeConversionValue"
+    elif strategy == "target-cpa":
+        update["targetCpa"] = {
+            "targetCpaMicros": str(
+                coerce_positive_int(args.target_cpa_micros, "target cpa micros")
+            )
+        }
+        update_mask = "targetCpa"
+    elif strategy == "target-roas":
+        update["targetRoas"] = {
+            "targetRoas": normalize_float(args.target_roas, "target roas")
+        }
+        update_mask = "targetRoas"
+    return mutate_service(
+        args,
+        service="campaigns",
+        operation_key="budget-or-bid-strategy-mutation",
+        operations=[{"updateMask": update_mask, "update": update}],
+    )
+
+
 def command_budget_amount(args: argparse.Namespace) -> dict[str, Any]:
     customer_id = normalize_customer_id(args.customer_id)
     budget_id = coerce_positive_int(args.budget_id, "budget id")
@@ -764,6 +1034,28 @@ def command_budget_amount(args: argparse.Namespace) -> dict[str, Any]:
                         customer_id, "campaignBudgets", budget_id
                     ),
                     "amountMicros": str(amount_micros),
+                },
+            }
+        ],
+    )
+
+
+def command_budget_lifetime_amount(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    budget_id = coerce_positive_int(args.budget_id, "budget id")
+    amount_micros = coerce_positive_int(args.total_amount_micros, "total amount micros")
+    return mutate_service(
+        args,
+        service="campaignBudgets",
+        operation_key="budget-or-bid-strategy-mutation",
+        operations=[
+            {
+                "updateMask": "totalAmountMicros",
+                "update": {
+                    "resourceName": ads_resource(
+                        customer_id, "campaignBudgets", budget_id
+                    ),
+                    "totalAmountMicros": str(amount_micros),
                 },
             }
         ],
@@ -790,6 +1082,56 @@ def command_ad_group_create(args: argparse.Namespace) -> dict[str, Any]:
         service="adGroups",
         operation_key="campaign-structure-edit",
         operations=[{"create": ad_group}],
+    )
+
+
+def command_ad_group_status(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
+    status = normalize_status(args.status, {"ENABLED", "PAUSED", "REMOVED"})
+    return mutate_service(
+        args,
+        service="adGroups",
+        operation_key="campaign-structure-edit",
+        operations=[
+            {
+                "updateMask": "status",
+                "update": {
+                    "resourceName": ads_resource(customer_id, "adGroups", ad_group_id),
+                    "status": status,
+                },
+            }
+        ],
+    )
+
+
+def command_ad_group_rename(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
+    return mutate_service(
+        args,
+        service="adGroups",
+        operation_key="campaign-structure-edit",
+        operations=[
+            {
+                "updateMask": "name",
+                "update": {
+                    "resourceName": ads_resource(customer_id, "adGroups", ad_group_id),
+                    "name": non_empty(args.name, "ad group name"),
+                },
+            }
+        ],
+    )
+
+
+def command_ad_group_remove(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
+    return mutate_service(
+        args,
+        service="adGroups",
+        operation_key="campaign-structure-edit",
+        operations=[{"remove": ads_resource(customer_id, "adGroups", ad_group_id)}],
     )
 
 
@@ -838,6 +1180,27 @@ def command_keyword_status(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                     "status": status,
                 },
+            }
+        ],
+    )
+
+
+def command_keyword_remove(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
+    criterion_id = coerce_positive_int(args.criterion_id, "criterion id")
+    return mutate_service(
+        args,
+        service="adGroupCriteria",
+        operation_key="campaign-structure-edit",
+        operations=[
+            {
+                "remove": composite_resource(
+                    customer_id,
+                    "adGroupCriteria",
+                    ad_group_id,
+                    criterion_id,
+                )
             }
         ],
     )
@@ -895,6 +1258,53 @@ def command_rsa_create(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def command_ad_status(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
+    ad_id = coerce_positive_int(args.ad_id, "ad id")
+    status = normalize_status(args.status, {"ENABLED", "PAUSED", "REMOVED"})
+    return mutate_service(
+        args,
+        service="adGroupAds",
+        operation_key="campaign-structure-edit",
+        operations=[
+            {
+                "updateMask": "status",
+                "update": {
+                    "resourceName": composite_resource(
+                        customer_id,
+                        "adGroupAds",
+                        ad_group_id,
+                        ad_id,
+                    ),
+                    "status": status,
+                },
+            }
+        ],
+    )
+
+
+def command_ad_remove(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    ad_group_id = coerce_positive_int(args.ad_group_id, "ad group id")
+    ad_id = coerce_positive_int(args.ad_id, "ad id")
+    return mutate_service(
+        args,
+        service="adGroupAds",
+        operation_key="campaign-structure-edit",
+        operations=[
+            {
+                "remove": composite_resource(
+                    customer_id,
+                    "adGroupAds",
+                    ad_group_id,
+                    ad_id,
+                )
+            }
+        ],
+    )
+
+
 def command_conversion_action_status(args: argparse.Namespace) -> dict[str, Any]:
     customer_id = normalize_customer_id(args.customer_id)
     conversion_action_id = coerce_positive_int(
@@ -919,8 +1329,226 @@ def command_conversion_action_status(args: argparse.Namespace) -> dict[str, Any]
     )
 
 
+def command_conversion_action_create(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    conversion: dict[str, Any] = {
+        "name": non_empty(args.name, "conversion action name"),
+        "type": normalize_status(args.type, {"WEBPAGE", "UPLOAD_CLICKS", "PHONE_CALL_LEAD"}, "type"),
+        "category": normalize_status(args.category, {"DEFAULT", "PURCHASE", "LEAD", "SIGNUP", "PAGE_VIEW"}, "category"),
+        "status": normalize_status(args.status, {"ENABLED", "HIDDEN"}),
+        "countingType": normalize_status(args.counting_type, {"ONE_PER_CLICK", "MANY_PER_CLICK"}, "counting type"),
+        "primaryForGoal": parse_bool(args.primary_for_goal),
+    }
+    if args.default_value:
+        conversion["valueSettings"] = {
+            "defaultValue": normalize_float(args.default_value, "default value"),
+            "alwaysUseDefaultValue": parse_bool(args.always_use_default_value),
+        }
+    return mutate_service(
+        args,
+        service="conversionActions",
+        operation_key="conversion-action-edit",
+        operations=[{"create": conversion}],
+    )
+
+
+def command_conversion_action_attribution(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    conversion_action_id = coerce_positive_int(
+        args.conversion_action_id,
+        "conversion action id",
+    )
+    model = normalize_status(
+        args.attribution_model,
+        {
+            "DATA_DRIVEN",
+            "LAST_CLICK",
+            "FIRST_CLICK",
+            "LINEAR",
+            "TIME_DECAY",
+            "POSITION_BASED",
+        },
+        "attribution model",
+    )
+    return mutate_service(
+        args,
+        service="conversionActions",
+        operation_key="conversion-action-edit",
+        operations=[
+            {
+                "updateMask": "attributionModelSettings.attributionModel",
+                "update": {
+                    "resourceName": ads_resource(
+                        customer_id,
+                        "conversionActions",
+                        conversion_action_id,
+                    ),
+                    "attributionModelSettings": {"attributionModel": model},
+                },
+            }
+        ],
+    )
+
+
+def command_user_list_customer_match_create(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    user_list = {
+        "name": non_empty(args.name, "user list name"),
+        "description": args.description.strip(),
+        "membershipStatus": "OPEN",
+        "membershipLifeSpan": str(coerce_positive_int(args.membership_days, "membership days")),
+        "crmBasedUserList": {"uploadKeyType": "CONTACT_INFO"},
+    }
+    return mutate_service(
+        args,
+        service="userLists",
+        operation_key="customer-match-upload",
+        operations=[{"create": user_list}],
+    )
+
+
+def command_user_list_remarketing_create(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    actions = []
+    for value in args.remarketing_action:
+        actions.append({"remarketingAction": non_empty(value, "remarketing action resource")})
+    for value in args.conversion_action:
+        actions.append({"conversionAction": non_empty(value, "conversion action resource")})
+    if not actions:
+        raise ConfigError("At least one remarketing or conversion action resource is required.")
+    user_list = {
+        "name": non_empty(args.name, "user list name"),
+        "description": args.description.strip(),
+        "membershipStatus": "OPEN",
+        "membershipLifeSpan": str(coerce_positive_int(args.membership_days, "membership days")),
+        "basicUserList": {"actions": actions},
+    }
+    return mutate_service(
+        args,
+        service="userLists",
+        operation_key="audience-management",
+        operations=[{"create": user_list}],
+    )
+
+
+def command_user_list_lookalike_create(args: argparse.Namespace) -> dict[str, Any]:
+    seed_ids = [
+        str(coerce_positive_int(seed_id, "seed user list id"))
+        for seed_id in args.seed_user_list_id
+    ]
+    if not seed_ids:
+        raise ConfigError("At least one seed user list id is required.")
+    user_list = {
+        "name": non_empty(args.name, "user list name"),
+        "description": args.description.strip(),
+        "membershipStatus": "OPEN",
+        "lookalikeUserList": {
+            "seedUserListIds": seed_ids,
+            "expansionLevel": normalize_status(
+                args.expansion_level,
+                {"NARROW", "BALANCED", "BROAD"},
+                "expansion level",
+            ),
+            "countryCodes": [code.strip().upper() for code in args.country_code if code.strip()],
+        },
+    }
+    return mutate_service(
+        args,
+        service="userLists",
+        operation_key="audience-management",
+        operations=[{"create": user_list}],
+    )
+
+
+def command_campaign_user_interest_target(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    campaign_id = coerce_positive_int(args.campaign_id, "campaign id")
+    interest_id = coerce_positive_int(args.user_interest_id, "user interest id")
+    criterion = {
+        "campaign": ads_resource(customer_id, "campaigns", campaign_id),
+        "negative": bool(args.negative),
+        "userInterest": {
+            "userInterestCategory": ads_resource(
+                customer_id,
+                "userInterests",
+                interest_id,
+            )
+        },
+    }
+    return mutate_service(
+        args,
+        service="campaignCriteria",
+        operation_key="audience-management",
+        operations=[{"create": criterion}],
+    )
+
+
+def command_customer_match_job_create(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    user_list = non_empty(args.user_list_resource, "user list resource")
+    if not user_list.startswith(f"customers/{customer_id}/userLists/"):
+        raise ConfigError("user list resource must match customers/<customer-id>/userLists/<id>.")
+    request_body = {
+        "job": {
+            "type": "CUSTOMER_MATCH_USER_LIST",
+            "customerMatchUserListMetadata": {"userList": user_list},
+        },
+        "validateOnly": bool(args.validate_only),
+        "enableMatchRateRangePreview": bool(args.enable_match_rate_range_preview),
+    }
+    return action_service(
+        args,
+        command="customer-match-job-create",
+        path=f"/customers/{customer_id}/offlineUserDataJobs:create",
+        operation_key="customer-match-upload",
+        request_body=request_body,
+    )
+
+
+def command_customer_match_add_hashes(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    resource_name = non_empty(args.job_resource_name, "offline user data job resource")
+    if not resource_name.startswith(f"customers/{customer_id}/offlineUserDataJobs/"):
+        raise ConfigError(
+            "offline user data job resource must match customers/<customer-id>/offlineUserDataJobs/<id>."
+        )
+    email_hashes = validate_sha256_hex(args.sha256_email, "email")
+    operations = [
+        {"create": {"userIdentifiers": [{"hashedEmail": email_hash}]}}
+        for email_hash in email_hashes
+    ]
+    request_body = {
+        "operations": operations,
+        "validateOnly": bool(args.validate_only),
+        "enablePartialFailure": True,
+        "enableWarnings": True,
+    }
+    return action_service(
+        args,
+        command="customer-match-add-hashes",
+        path=f"/{resource_name}:addOperations",
+        operation_key="customer-match-upload",
+        request_body=request_body,
+    )
+
+
+def command_customer_match_job_run(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    resource_name = non_empty(args.job_resource_name, "offline user data job resource")
+    if not resource_name.startswith(f"customers/{customer_id}/offlineUserDataJobs/"):
+        raise ConfigError(
+            "offline user data job resource must match customers/<customer-id>/offlineUserDataJobs/<id>."
+        )
+    return action_service(
+        args,
+        command="customer-match-job-run",
+        path=f"/{resource_name}:run",
+        operation_key="customer-match-upload",
+        request_body={},
+    )
+
+
 def command_apply_recommendation(args: argparse.Namespace) -> dict[str, Any]:
-    grant = require_grant(args, "recommendation-apply")
     customer_id = normalize_customer_id(args.customer_id)
     if not customer_id:
         raise ConfigError("Missing Google Ads customer id.")
@@ -929,28 +1557,39 @@ def command_apply_recommendation(args: argparse.Namespace) -> dict[str, Any]:
         raise ConfigError(
             "recommendation resource name must match customers/<customer-id>/recommendations/<id>."
         )
-    gw = make_gateway_config(args)
-    api_version = normalize_api_version(args.api_version)
     request_body = {
         "operations": [{"resourceName": resource_name}],
         "partialFailure": bool(args.partial_failure),
     }
-    payload = gateway_request(
-        gw,
-        url=ads_url(api_version, f"/customers/{customer_id}/recommendations:apply"),
-        method="POST",
-        headers=ads_headers(normalize_customer_id(args.login_customer_id)),
-        json_payload=request_body,
+    return action_service(
+        args,
+        command="apply-recommendation",
+        path=f"/customers/{customer_id}/recommendations:apply",
+        operation_key="recommendation-apply",
+        request_body=request_body,
     )
-    return with_cost({
-        "command": "apply-recommendation",
-        "apiVersion": api_version,
-        "customerId": customer_id,
-        "operationKey": "recommendation-apply",
-        "grant": grant,
-        "request": request_body,
-        "payload": payload,
-    })
+
+
+def command_dismiss_recommendation(args: argparse.Namespace) -> dict[str, Any]:
+    customer_id = normalize_customer_id(args.customer_id)
+    if not customer_id:
+        raise ConfigError("Missing Google Ads customer id.")
+    resource_name = args.resource_name.strip()
+    if not resource_name.startswith(f"customers/{customer_id}/recommendations/"):
+        raise ConfigError(
+            "recommendation resource name must match customers/<customer-id>/recommendations/<id>."
+        )
+    request_body = {
+        "operations": [{"resourceName": resource_name}],
+        "partialFailure": bool(args.partial_failure),
+    }
+    return action_service(
+        args,
+        command="dismiss-recommendation",
+        path=f"/customers/{customer_id}/recommendations:dismiss",
+        operation_key="recommendation-apply",
+        request_body=request_body,
+    )
 
 
 def load_scenarios() -> list[dict[str, Any]]:
@@ -1080,6 +1719,14 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("request")
     report.set_defaults(func=command_report_plan)
 
+    prompt_template = subparsers.add_parser(
+        "prompt-template",
+        help="Emit the R21.6-style model review prompt payload adapted for GAQL.",
+    )
+    prompt_template.add_argument("request")
+    prompt_template.add_argument("--query", default="")
+    prompt_template.set_defaults(func=command_prompt_template)
+
     plan = subparsers.add_parser("plan", help="Classify a Google Ads operation before execution.")
     plan.add_argument("request")
     plan.set_defaults(func=command_plan)
@@ -1093,6 +1740,26 @@ def build_parser() -> argparse.ArgumentParser:
     copy.add_argument("--callout", default="")
     copy.set_defaults(func=command_ad_copy_review)
 
+    campaign_create = subparsers.add_parser(
+        "campaign-create", help="Create a campaign after explicit budget/spend approval."
+    )
+    campaign_create.add_argument("customer_id")
+    campaign_create.add_argument("budget_id")
+    campaign_create.add_argument("--name", required=True)
+    campaign_create.add_argument("--status", default="PAUSED")
+    campaign_create.add_argument("--channel-type", default="SEARCH")
+    campaign_create.add_argument(
+        "--bidding-strategy",
+        choices=["manual-cpc", "maximize-conversions", "maximize-conversion-value"],
+        default="manual-cpc",
+    )
+    campaign_create.add_argument("--target-search-network", default="true")
+    campaign_create.add_argument("--target-content-network", default="false")
+    campaign_create.add_argument("--target-partner-search-network", default="false")
+    campaign_create.add_argument("--grant", default="")
+    campaign_create.add_argument("--validate-only", action="store_true")
+    campaign_create.set_defaults(func=command_campaign_create)
+
     campaign_status = subparsers.add_parser(
         "campaign-status", help="Pause or enable a campaign after explicit approval."
     )
@@ -1103,6 +1770,50 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_status.add_argument("--validate-only", action="store_true")
     campaign_status.set_defaults(func=command_campaign_status)
 
+    campaign_rename = subparsers.add_parser(
+        "campaign-rename", help="Rename a campaign after explicit approval."
+    )
+    campaign_rename.add_argument("customer_id")
+    campaign_rename.add_argument("campaign_id")
+    campaign_rename.add_argument("--name", required=True)
+    campaign_rename.add_argument("--grant", default="")
+    campaign_rename.add_argument("--validate-only", action="store_true")
+    campaign_rename.set_defaults(func=command_campaign_rename)
+
+    campaign_remove = subparsers.add_parser(
+        "campaign-remove", help="Remove a campaign after explicit approval."
+    )
+    campaign_remove.add_argument("customer_id")
+    campaign_remove.add_argument("campaign_id")
+    campaign_remove.add_argument("--grant", default="")
+    campaign_remove.add_argument("--validate-only", action="store_true")
+    campaign_remove.set_defaults(func=command_campaign_remove)
+
+    campaign_bid_strategy = subparsers.add_parser(
+        "campaign-bid-strategy",
+        help="Switch a campaign bidding strategy after explicit approval.",
+    )
+    campaign_bid_strategy.add_argument("customer_id")
+    campaign_bid_strategy.add_argument("campaign_id")
+    campaign_bid_strategy.add_argument(
+        "--strategy",
+        choices=[
+            "portfolio",
+            "manual-cpc",
+            "maximize-conversions",
+            "maximize-conversion-value",
+            "target-cpa",
+            "target-roas",
+        ],
+        required=True,
+    )
+    campaign_bid_strategy.add_argument("--bidding-strategy-resource", default="")
+    campaign_bid_strategy.add_argument("--target-cpa-micros", default="")
+    campaign_bid_strategy.add_argument("--target-roas", default="")
+    campaign_bid_strategy.add_argument("--grant", default="")
+    campaign_bid_strategy.add_argument("--validate-only", action="store_true")
+    campaign_bid_strategy.set_defaults(func=command_campaign_bid_strategy)
+
     budget_amount = subparsers.add_parser(
         "budget-amount", help="Update a campaign budget amount after explicit approval."
     )
@@ -1112,6 +1823,17 @@ def build_parser() -> argparse.ArgumentParser:
     budget_amount.add_argument("--grant", default="")
     budget_amount.add_argument("--validate-only", action="store_true")
     budget_amount.set_defaults(func=command_budget_amount)
+
+    budget_lifetime_amount = subparsers.add_parser(
+        "budget-lifetime-amount",
+        help="Update a lifetime campaign budget total after explicit approval.",
+    )
+    budget_lifetime_amount.add_argument("customer_id")
+    budget_lifetime_amount.add_argument("budget_id")
+    budget_lifetime_amount.add_argument("--total-amount-micros", required=True)
+    budget_lifetime_amount.add_argument("--grant", default="")
+    budget_lifetime_amount.add_argument("--validate-only", action="store_true")
+    budget_lifetime_amount.set_defaults(func=command_budget_lifetime_amount)
 
     ad_group_create = subparsers.add_parser(
         "ad-group-create", help="Create an ad group after explicit approval."
@@ -1124,6 +1846,35 @@ def build_parser() -> argparse.ArgumentParser:
     ad_group_create.add_argument("--grant", default="")
     ad_group_create.add_argument("--validate-only", action="store_true")
     ad_group_create.set_defaults(func=command_ad_group_create)
+
+    ad_group_status = subparsers.add_parser(
+        "ad-group-status", help="Pause, enable, or remove an ad group after approval."
+    )
+    ad_group_status.add_argument("customer_id")
+    ad_group_status.add_argument("ad_group_id")
+    ad_group_status.add_argument("--status", required=True)
+    ad_group_status.add_argument("--grant", default="")
+    ad_group_status.add_argument("--validate-only", action="store_true")
+    ad_group_status.set_defaults(func=command_ad_group_status)
+
+    ad_group_rename = subparsers.add_parser(
+        "ad-group-rename", help="Rename an ad group after approval."
+    )
+    ad_group_rename.add_argument("customer_id")
+    ad_group_rename.add_argument("ad_group_id")
+    ad_group_rename.add_argument("--name", required=True)
+    ad_group_rename.add_argument("--grant", default="")
+    ad_group_rename.add_argument("--validate-only", action="store_true")
+    ad_group_rename.set_defaults(func=command_ad_group_rename)
+
+    ad_group_remove = subparsers.add_parser(
+        "ad-group-remove", help="Remove an ad group after approval."
+    )
+    ad_group_remove.add_argument("customer_id")
+    ad_group_remove.add_argument("ad_group_id")
+    ad_group_remove.add_argument("--grant", default="")
+    ad_group_remove.add_argument("--validate-only", action="store_true")
+    ad_group_remove.set_defaults(func=command_ad_group_remove)
 
     keyword_create = subparsers.add_parser(
         "keyword-create", help="Create an ad group keyword after explicit approval."
@@ -1149,6 +1900,16 @@ def build_parser() -> argparse.ArgumentParser:
     keyword_status.add_argument("--validate-only", action="store_true")
     keyword_status.set_defaults(func=command_keyword_status)
 
+    keyword_remove = subparsers.add_parser(
+        "keyword-remove", help="Remove an ad group keyword after approval."
+    )
+    keyword_remove.add_argument("customer_id")
+    keyword_remove.add_argument("ad_group_id")
+    keyword_remove.add_argument("criterion_id")
+    keyword_remove.add_argument("--grant", default="")
+    keyword_remove.add_argument("--validate-only", action="store_true")
+    keyword_remove.set_defaults(func=command_keyword_remove)
+
     rsa_create = subparsers.add_parser(
         "rsa-create", help="Submit a responsive search ad after brand-voice and approval."
     )
@@ -1163,6 +1924,44 @@ def build_parser() -> argparse.ArgumentParser:
     rsa_create.add_argument("--validate-only", action="store_true")
     rsa_create.set_defaults(func=command_rsa_create)
 
+    ad_status = subparsers.add_parser(
+        "ad-status", help="Pause, enable, or remove an ad after approval."
+    )
+    ad_status.add_argument("customer_id")
+    ad_status.add_argument("ad_group_id")
+    ad_status.add_argument("ad_id")
+    ad_status.add_argument("--status", required=True)
+    ad_status.add_argument("--grant", default="")
+    ad_status.add_argument("--validate-only", action="store_true")
+    ad_status.set_defaults(func=command_ad_status)
+
+    ad_remove = subparsers.add_parser(
+        "ad-remove", help="Remove an ad after approval."
+    )
+    ad_remove.add_argument("customer_id")
+    ad_remove.add_argument("ad_group_id")
+    ad_remove.add_argument("ad_id")
+    ad_remove.add_argument("--grant", default="")
+    ad_remove.add_argument("--validate-only", action="store_true")
+    ad_remove.set_defaults(func=command_ad_remove)
+
+    conversion_create = subparsers.add_parser(
+        "conversion-action-create",
+        help="Create a conversion action after explicit approval.",
+    )
+    conversion_create.add_argument("customer_id")
+    conversion_create.add_argument("--name", required=True)
+    conversion_create.add_argument("--type", default="WEBPAGE")
+    conversion_create.add_argument("--category", default="DEFAULT")
+    conversion_create.add_argument("--status", default="ENABLED")
+    conversion_create.add_argument("--counting-type", default="ONE_PER_CLICK")
+    conversion_create.add_argument("--primary-for-goal", default="true")
+    conversion_create.add_argument("--default-value", default="")
+    conversion_create.add_argument("--always-use-default-value", default="false")
+    conversion_create.add_argument("--grant", default="")
+    conversion_create.add_argument("--validate-only", action="store_true")
+    conversion_create.set_defaults(func=command_conversion_action_create)
+
     conversion_status = subparsers.add_parser(
         "conversion-action-status",
         help="Update conversion action status after explicit approval.",
@@ -1174,6 +1973,100 @@ def build_parser() -> argparse.ArgumentParser:
     conversion_status.add_argument("--validate-only", action="store_true")
     conversion_status.set_defaults(func=command_conversion_action_status)
 
+    conversion_attribution = subparsers.add_parser(
+        "conversion-action-attribution",
+        help="Update a conversion action attribution model after explicit approval.",
+    )
+    conversion_attribution.add_argument("customer_id")
+    conversion_attribution.add_argument("conversion_action_id")
+    conversion_attribution.add_argument("--attribution-model", required=True)
+    conversion_attribution.add_argument("--grant", default="")
+    conversion_attribution.add_argument("--validate-only", action="store_true")
+    conversion_attribution.set_defaults(func=command_conversion_action_attribution)
+
+    customer_match_list = subparsers.add_parser(
+        "customer-match-list-create",
+        help="Create a CRM-based Customer Match user list after explicit approval.",
+    )
+    customer_match_list.add_argument("customer_id")
+    customer_match_list.add_argument("--name", required=True)
+    customer_match_list.add_argument("--description", default="")
+    customer_match_list.add_argument("--membership-days", default="540")
+    customer_match_list.add_argument("--grant", default="")
+    customer_match_list.add_argument("--validate-only", action="store_true")
+    customer_match_list.set_defaults(func=command_user_list_customer_match_create)
+
+    remarketing_list = subparsers.add_parser(
+        "remarketing-list-create",
+        help="Create a basic remarketing user list from configured actions.",
+    )
+    remarketing_list.add_argument("customer_id")
+    remarketing_list.add_argument("--name", required=True)
+    remarketing_list.add_argument("--description", default="")
+    remarketing_list.add_argument("--membership-days", default="540")
+    remarketing_list.add_argument("--remarketing-action", action="append", default=[])
+    remarketing_list.add_argument("--conversion-action", action="append", default=[])
+    remarketing_list.add_argument("--grant", default="")
+    remarketing_list.add_argument("--validate-only", action="store_true")
+    remarketing_list.set_defaults(func=command_user_list_remarketing_create)
+
+    lookalike_list = subparsers.add_parser(
+        "lookalike-list-create",
+        help="Create a lookalike audience from seed user-list ids after approval.",
+    )
+    lookalike_list.add_argument("customer_id")
+    lookalike_list.add_argument("--name", required=True)
+    lookalike_list.add_argument("--description", default="")
+    lookalike_list.add_argument("--seed-user-list-id", action="append", default=[])
+    lookalike_list.add_argument("--expansion-level", default="BALANCED")
+    lookalike_list.add_argument("--country-code", action="append", default=[])
+    lookalike_list.add_argument("--grant", default="")
+    lookalike_list.add_argument("--validate-only", action="store_true")
+    lookalike_list.set_defaults(func=command_user_list_lookalike_create)
+
+    user_interest_target = subparsers.add_parser(
+        "campaign-user-interest-target",
+        help="Target or exclude an in-market/user-interest audience on a campaign.",
+    )
+    user_interest_target.add_argument("customer_id")
+    user_interest_target.add_argument("campaign_id")
+    user_interest_target.add_argument("user_interest_id")
+    user_interest_target.add_argument("--negative", action="store_true")
+    user_interest_target.add_argument("--grant", default="")
+    user_interest_target.add_argument("--validate-only", action="store_true")
+    user_interest_target.set_defaults(func=command_campaign_user_interest_target)
+
+    customer_match_job = subparsers.add_parser(
+        "customer-match-job-create",
+        help="Create a Customer Match offline user data job after approval.",
+    )
+    customer_match_job.add_argument("customer_id")
+    customer_match_job.add_argument("user_list_resource")
+    customer_match_job.add_argument("--enable-match-rate-range-preview", action="store_true")
+    customer_match_job.add_argument("--grant", default="")
+    customer_match_job.add_argument("--validate-only", action="store_true")
+    customer_match_job.set_defaults(func=command_customer_match_job_create)
+
+    customer_match_hashes = subparsers.add_parser(
+        "customer-match-add-hashes",
+        help="Add pre-hashed SHA-256 Customer Match emails to an offline job.",
+    )
+    customer_match_hashes.add_argument("customer_id")
+    customer_match_hashes.add_argument("job_resource_name")
+    customer_match_hashes.add_argument("--sha256-email", action="append", default=[])
+    customer_match_hashes.add_argument("--grant", default="")
+    customer_match_hashes.add_argument("--validate-only", action="store_true")
+    customer_match_hashes.set_defaults(func=command_customer_match_add_hashes)
+
+    customer_match_run = subparsers.add_parser(
+        "customer-match-job-run",
+        help="Run a prepared Customer Match offline user data job after approval.",
+    )
+    customer_match_run.add_argument("customer_id")
+    customer_match_run.add_argument("job_resource_name")
+    customer_match_run.add_argument("--grant", default="")
+    customer_match_run.set_defaults(func=command_customer_match_job_run)
+
     recommendation = subparsers.add_parser(
         "apply-recommendation", help="Apply a Google Ads recommendation after approval."
     )
@@ -1182,6 +2075,16 @@ def build_parser() -> argparse.ArgumentParser:
     recommendation.add_argument("--partial-failure", action="store_true")
     recommendation.add_argument("--grant", default="")
     recommendation.set_defaults(func=command_apply_recommendation)
+
+    dismiss_recommendation = subparsers.add_parser(
+        "dismiss-recommendation",
+        help="Dismiss a Google Ads recommendation after approval.",
+    )
+    dismiss_recommendation.add_argument("customer_id")
+    dismiss_recommendation.add_argument("resource_name")
+    dismiss_recommendation.add_argument("--partial-failure", action="store_true")
+    dismiss_recommendation.add_argument("--grant", default="")
+    dismiss_recommendation.set_defaults(func=command_dismiss_recommendation)
 
     evals = subparsers.add_parser("eval-scenarios", help="Run bundled offline eval scenarios.")
     evals.set_defaults(func=command_eval_scenarios)

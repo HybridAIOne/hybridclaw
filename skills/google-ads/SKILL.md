@@ -39,6 +39,8 @@ metadata:
       route: f14
     cost_measurement:
       system: UsageTotals
+      sub_limit_contract: R5.4
+      sub_limit_key: google-ads
 ---
 
 # Google Ads
@@ -52,8 +54,16 @@ carefully gated account mutations.
 - list accessible customers and MCC children
 - run GAQL reporting queries through the official Google Ads REST API
 - translate common English and German reporting requests into reviewable GAQL
+- reuse the R21.6 NL-to-SQL review prompt payload shape for GAQL model review
 - plan campaign, ad group, keyword, budget, bid strategy, recommendation, and
   audience operations with an explicit stakes tier
+- execute approved campaign create/status/rename/remove/bid-strategy changes
+- execute approved daily and lifetime budget updates
+- execute approved ad group, keyword, and ad lifecycle changes
+- execute approved Customer Match, remarketing, lookalike, and in-market/user
+  interest audience operations
+- execute approved conversion action create/status/attribution changes
+- apply or dismiss approved Google Ads recommendations
 - enforce brand-voice review before any ad-copy field is submitted
 - refuse budget, campaign-state, bid strategy, ad-copy submission,
   conversion-action edit, and customer-match upload actions unless the user has
@@ -135,6 +145,14 @@ python3 skills/google-ads/scripts/google_ads.py --format json report-plan \
   "Show German campaigns with CTR below 1% this week"
 ```
 
+Emit the GAQL variant of the R21.6 NL-to-SQL prompt-template family:
+
+```bash
+python3 skills/google-ads/scripts/google_ads.py --format json prompt-template \
+  "Show campaign clicks for last week" \
+  --query "SELECT campaign.id, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS LIMIT 10"
+```
+
 Classify and inspect an operation before any write:
 
 ```bash
@@ -157,13 +175,44 @@ python3 skills/google-ads/scripts/google_ads.py campaign-status 1234567890 11122
   --status PAUSED \
   --grant approve-google-ads-campaign-state-change
 
+python3 skills/google-ads/scripts/google_ads.py campaign-create 1234567890 444555666 \
+  --name "DE Search Brand" \
+  --grant approve-google-ads-budget-or-bid-change
+
+python3 skills/google-ads/scripts/google_ads.py campaign-bid-strategy 1234567890 111222333 \
+  --strategy target-roas \
+  --target-roas 4.0 \
+  --grant approve-google-ads-budget-or-bid-change
+
+python3 skills/google-ads/scripts/google_ads.py campaign-rename 1234567890 111222333 \
+  --name "DE Search Brand - Exact" \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py campaign-remove 1234567890 111222333 \
+  --grant approve-google-ads-campaign-state-change
+
 python3 skills/google-ads/scripts/google_ads.py budget-amount 1234567890 444555666 \
   --amount-micros 25000000 \
+  --grant approve-google-ads-budget-or-bid-change
+
+python3 skills/google-ads/scripts/google_ads.py budget-lifetime-amount 1234567890 444555666 \
+  --total-amount-micros 250000000 \
   --grant approve-google-ads-budget-or-bid-change
 
 python3 skills/google-ads/scripts/google_ads.py ad-group-create 1234567890 111222333 \
   --name "DE Search Competitors" \
   --status PAUSED \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py ad-group-status 1234567890 777888999 \
+  --status PAUSED \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py ad-group-rename 1234567890 777888999 \
+  --name "DE Competitor Alternatives" \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py ad-group-remove 1234567890 777888999 \
   --grant approve-google-ads-structure-edit
 
 python3 skills/google-ads/scripts/google_ads.py keyword-create 1234567890 777888999 \
@@ -173,6 +222,9 @@ python3 skills/google-ads/scripts/google_ads.py keyword-create 1234567890 777888
 
 python3 skills/google-ads/scripts/google_ads.py keyword-status 1234567890 777888999 111222333 \
   --status PAUSED \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py keyword-remove 1234567890 777888999 111222333 \
   --grant approve-google-ads-structure-edit
 
 python3 skills/google-ads/scripts/google_ads.py rsa-create 1234567890 777888999 \
@@ -185,7 +237,58 @@ python3 skills/google-ads/scripts/google_ads.py rsa-create 1234567890 777888999 
   --brand-voice-approved \
   --grant approve-google-ads-ad-copy-submit
 
+python3 skills/google-ads/scripts/google_ads.py ad-status 1234567890 777888999 222333444 \
+  --status PAUSED \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py ad-remove 1234567890 777888999 222333444 \
+  --grant approve-google-ads-structure-edit
+
+python3 skills/google-ads/scripts/google_ads.py conversion-action-create 1234567890 \
+  --name "Lead form submit" \
+  --category LEAD \
+  --grant approve-google-ads-conversion-action-edit
+
+python3 skills/google-ads/scripts/google_ads.py conversion-action-attribution 1234567890 222333444 \
+  --attribution-model DATA_DRIVEN \
+  --grant approve-google-ads-conversion-action-edit
+
+python3 skills/google-ads/scripts/google_ads.py remarketing-list-create 1234567890 \
+  --name "Pricing visitors" \
+  --remarketing-action "customers/1234567890/remarketingActions/111222333" \
+  --grant approve-google-ads-audience-management
+
+python3 skills/google-ads/scripts/google_ads.py lookalike-list-create 1234567890 \
+  --name "Buyer lookalikes" \
+  --seed-user-list-id 111222333 \
+  --country-code DE \
+  --grant approve-google-ads-audience-management
+
+python3 skills/google-ads/scripts/google_ads.py campaign-user-interest-target 1234567890 111222333 80400 \
+  --grant approve-google-ads-audience-management
+
+python3 skills/google-ads/scripts/google_ads.py customer-match-list-create 1234567890 \
+  --name "Hashed CRM buyers" \
+  --grant approve-google-ads-customer-match-upload
+
+python3 skills/google-ads/scripts/google_ads.py customer-match-job-create 1234567890 \
+  "customers/1234567890/userLists/111222333" \
+  --grant approve-google-ads-customer-match-upload
+
+python3 skills/google-ads/scripts/google_ads.py customer-match-add-hashes 1234567890 \
+  "customers/1234567890/offlineUserDataJobs/111222333" \
+  --sha256-email "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+  --grant approve-google-ads-customer-match-upload
+
+python3 skills/google-ads/scripts/google_ads.py customer-match-job-run 1234567890 \
+  "customers/1234567890/offlineUserDataJobs/111222333" \
+  --grant approve-google-ads-customer-match-upload
+
 python3 skills/google-ads/scripts/google_ads.py apply-recommendation 1234567890 \
+  "customers/1234567890/recommendations/abc123" \
+  --grant approve-google-ads-recommendation-apply
+
+python3 skills/google-ads/scripts/google_ads.py dismiss-recommendation 1234567890 \
   "customers/1234567890/recommendations/abc123" \
   --grant approve-google-ads-recommendation-apply
 ```
@@ -213,9 +316,10 @@ python3 skills/google-ads/scripts/google_ads.py --format json eval-scenarios
   Refuse them without an exact approval grant.
 - Customer-match uploads must use pre-hashed PII only. Do not hash raw customer
   PII inside the model context, and do not request raw customer lists in chat.
-- New Customer Match workflows should use Google's Data Manager API instead of
-  Google Ads API uploads. This skill stops at planning/refusal for Customer
-  Match until a Data Manager implementation is added.
+- Customer Match execution is split into explicit list creation, offline job
+  creation, hash-only add operations, and job run commands. The helper accepts
+  only 64-character SHA-256 hashes for upload inputs; raw customer identifiers
+  remain out of scope.
 - Recommendation applies are amber-tier even when Google presents them as a
   simple button. Read recommendations first, summarize the account impact, then
   ask for approval.
@@ -225,11 +329,13 @@ python3 skills/google-ads/scripts/google_ads.py --format json eval-scenarios
   narrative but emit GAQL using official English resource and field names.
 - Cost per assistant run is recorded by HybridClaw `UsageTotals`; helper output
   includes `costMeasurement.system = "UsageTotals"` so evals can verify the
-  accounting contract.
+  accounting contract. R5.4 per-skill sub-limit enforcement remains a gateway
+  concern; this skill declares the `google-ads` sub-limit key and emits the
+  metering marker that enforcement consumes.
 
 ## Eval Suite
 
-The fixture at `evals/scenarios.json` contains 30 offline scenarios across
+The fixture at `evals/scenarios.json` contains 36 offline scenarios across
 GAQL reporting, campaign edits, ad authoring, audience management,
 recommendation actions, conversion tracking, and high-stakes refusals. The
 helper verifies each scenario's expected stakes tier, escalation requirement,

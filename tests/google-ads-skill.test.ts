@@ -35,24 +35,12 @@ function runHelperAsync(args: string[], timeoutMs = 10_000) {
       });
       let stdout = '';
       let stderr = '';
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const finishResolve = (status: number | null) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        resolve({ status, stdout, stderr });
-      };
-      const finishReject = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        reject(error);
-      };
-      timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
         child.kill();
-        finishReject(
-          new Error(`Timed out after ${timeoutMs}ms waiting for Google Ads helper`),
+        reject(
+          new Error(
+            `Timed out after ${timeoutMs}ms waiting for Google Ads helper`,
+          ),
         );
       }, timeoutMs);
       child.stdout.setEncoding('utf8');
@@ -63,10 +51,51 @@ function runHelperAsync(args: string[], timeoutMs = 10_000) {
       child.stderr.on('data', (chunk) => {
         stderr += chunk;
       });
-      child.on('error', finishReject);
-      child.on('close', finishResolve);
+      child.on('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.on('close', (status) => {
+        clearTimeout(timeout);
+        resolve({ status, stdout, stderr });
+      });
     },
   );
+}
+
+async function withMockGateway(
+  run: (gatewayUrl: string, captured: unknown[]) => Promise<void>,
+) {
+  const captured: unknown[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      captured.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          bodyJson: [{ results: [{ campaign: { id: '123', name: 'Brand' } }] }],
+        }),
+      );
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address !== 'object') {
+      throw new Error('Expected server address.');
+    }
+    await run(`http://127.0.0.1:${address.port}`, captured);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 }
 
 test('Google Ads skill manifest declares marketing category and safety metadata', () => {
@@ -89,7 +118,40 @@ test('Google Ads helper --help exits cleanly', () => {
   expect(result.stdout).toContain('customers');
   expect(result.stdout).toContain('gaql');
   expect(result.stdout).toContain('report-plan');
+  expect(result.stdout).toContain('prompt-template');
+  expect(result.stdout).toContain('campaign-create');
+  expect(result.stdout).toContain('campaign-bid-strategy');
+  expect(result.stdout).toContain('ad-group-status');
+  expect(result.stdout).toContain('keyword-remove');
+  expect(result.stdout).toContain('ad-remove');
+  expect(result.stdout).toContain('conversion-action-create');
+  expect(result.stdout).toContain('customer-match-add-hashes');
+  expect(result.stdout).toContain('dismiss-recommendation');
   expect(result.stdout).toContain('eval-scenarios');
+});
+
+test('Google Ads helper emits R21.6-style GAQL prompt template payload', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'prompt-template',
+    'Show campaign clicks for last week',
+    '--query',
+    'SELECT campaign.id, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS LIMIT 10',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.templateFamily).toBe('R21.6 NL-to-SQL model review');
+  expect(payload.dialect).toBe('GAQL');
+  expect(payload.payload.question).toBe('Show campaign clicks for last week');
+  expect(payload.payload.deterministicReview).toMatchObject({
+    status: 'pass',
+    readOnly: true,
+    requiresWriteGrant: false,
+  });
+  expect(payload.payload.schemaCache).toContain('"dialect": "GAQL"');
+  expect(payload.costMeasurement.system).toBe('UsageTotals');
 });
 
 test('Google Ads helper plans English and German GAQL reports offline', () => {
@@ -239,13 +301,15 @@ test('Google Ads helper refuses live mutations without the exact grant', () => {
 });
 
 test('Google Ads helper eval suite covers required launch scenarios', () => {
-  const scenarios = JSON.parse(fs.readFileSync(scenariosPath, 'utf-8')) as Array<{
+  const scenarios = JSON.parse(
+    fs.readFileSync(scenariosPath, 'utf-8'),
+  ) as Array<{
     category?: string;
     expected?: { costSystem?: string };
   }>;
   const categories = new Set(scenarios.map((scenario) => scenario.category));
 
-  expect(scenarios).toHaveLength(30);
+  expect(scenarios).toHaveLength(36);
   expect(categories).toEqual(
     new Set([
       'reporting',
@@ -266,49 +330,25 @@ test('Google Ads helper eval suite covers required launch scenarios', () => {
   const result = runHelper(['--format', 'json', 'eval-scenarios']);
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
-  expect(payload.scenarioCount).toBe(30);
+  expect(payload.scenarioCount).toBe(36);
   expect(payload.failed).toBe(0);
   expect(payload.categories).toMatchObject({
     reporting: 8,
     'high-stakes-refusal': 8,
     'ad-authoring': 4,
+    'audience-management': 5,
+    'conversion-tracking': 3,
   });
   expect(payload.stakesTiers).toMatchObject({
     green: 8,
-    amber: 8,
-    red: 11,
+    amber: 12,
+    red: 13,
     unknown: 3,
   });
 });
 
 test('Google Ads helper sends campaign status mutation through gateway after grant', async () => {
-  const captured: unknown[] = [];
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      captured.push(JSON.parse(body));
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-          bodyJson: { results: [{ resourceName: 'customers/1234567890/campaigns/111222333' }] },
-        }),
-      );
-    });
-  });
-
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const address = server.address();
-    if (!address || typeof address !== 'object') {
-      throw new Error('Expected server address.');
-    }
-    const gatewayUrl = `http://127.0.0.1:${address.port}`;
+  await withMockGateway(async (gatewayUrl, captured) => {
     const result = await runHelperAsync([
       '--format',
       'json',
@@ -346,46 +386,11 @@ test('Google Ads helper sends campaign status mutation through gateway after gra
         ],
       },
     });
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+  });
 });
 
 test('Google Ads helper sends composite keyword status resource names', async () => {
-  const captured: unknown[] = [];
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      captured.push(JSON.parse(body));
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-          bodyJson: {
-            results: [
-              {
-                resourceName:
-                  'customers/1234567890/adGroupCriteria/777888999~111222333',
-              },
-            ],
-          },
-        }),
-      );
-    });
-  });
-
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const address = server.address();
-    if (!address || typeof address !== 'object') {
-      throw new Error('Expected server address.');
-    }
-    const gatewayUrl = `http://127.0.0.1:${address.port}`;
+  await withMockGateway(async (gatewayUrl, captured) => {
     const result = await runHelperAsync([
       '--format',
       'json',
@@ -418,10 +423,246 @@ test('Google Ads helper sends composite keyword status resource names', async ()
         ],
       },
     });
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+  });
 });
+
+test('Google Ads helper builds guarded requests for the expanded management surface', async () => {
+  await withMockGateway(async (gatewayUrl, captured) => {
+    const commands = [
+      [
+        'campaign-create',
+        '1234567890',
+        '444555666',
+        '--name',
+        'DE Search Brand',
+        '--grant',
+        'approve-google-ads-budget-or-bid-change',
+        '--validate-only',
+      ],
+      [
+        'campaign-rename',
+        '1234567890',
+        '111222333',
+        '--name',
+        'DE Search Brand Renamed',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'campaign-remove',
+        '1234567890',
+        '111222333',
+        '--grant',
+        'approve-google-ads-campaign-state-change',
+        '--validate-only',
+      ],
+      [
+        'campaign-bid-strategy',
+        '1234567890',
+        '111222333',
+        '--strategy',
+        'target-roas',
+        '--target-roas',
+        '4.0',
+        '--grant',
+        'approve-google-ads-budget-or-bid-change',
+        '--validate-only',
+      ],
+      [
+        'budget-lifetime-amount',
+        '1234567890',
+        '444555666',
+        '--total-amount-micros',
+        '250000000',
+        '--grant',
+        'approve-google-ads-budget-or-bid-change',
+        '--validate-only',
+      ],
+      [
+        'ad-group-status',
+        '1234567890',
+        '555666777',
+        '--status',
+        'PAUSED',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'ad-group-rename',
+        '1234567890',
+        '555666777',
+        '--name',
+        'Competitor Alternatives',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'ad-group-remove',
+        '1234567890',
+        '555666777',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'keyword-remove',
+        '1234567890',
+        '555666777',
+        '888999000',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'ad-status',
+        '1234567890',
+        '555666777',
+        '999888777',
+        '--status',
+        'PAUSED',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'ad-remove',
+        '1234567890',
+        '555666777',
+        '999888777',
+        '--grant',
+        'approve-google-ads-structure-edit',
+        '--validate-only',
+      ],
+      [
+        'conversion-action-create',
+        '1234567890',
+        '--name',
+        'Lead form submit',
+        '--category',
+        'LEAD',
+        '--grant',
+        'approve-google-ads-conversion-action-edit',
+        '--validate-only',
+      ],
+      [
+        'conversion-action-attribution',
+        '1234567890',
+        '222333444',
+        '--attribution-model',
+        'DATA_DRIVEN',
+        '--grant',
+        'approve-google-ads-conversion-action-edit',
+        '--validate-only',
+      ],
+      [
+        'customer-match-list-create',
+        '1234567890',
+        '--name',
+        'Hashed CRM buyers',
+        '--grant',
+        'approve-google-ads-customer-match-upload',
+        '--validate-only',
+      ],
+      [
+        'remarketing-list-create',
+        '1234567890',
+        '--name',
+        'Pricing visitors',
+        '--remarketing-action',
+        'customers/1234567890/remarketingActions/111222333',
+        '--grant',
+        'approve-google-ads-audience-management',
+        '--validate-only',
+      ],
+      [
+        'lookalike-list-create',
+        '1234567890',
+        '--name',
+        'Buyer lookalikes',
+        '--seed-user-list-id',
+        '111222333',
+        '--country-code',
+        'DE',
+        '--grant',
+        'approve-google-ads-audience-management',
+        '--validate-only',
+      ],
+      [
+        'campaign-user-interest-target',
+        '1234567890',
+        '111222333',
+        '80400',
+        '--grant',
+        'approve-google-ads-audience-management',
+        '--validate-only',
+      ],
+      [
+        'customer-match-job-create',
+        '1234567890',
+        'customers/1234567890/userLists/111222333',
+        '--grant',
+        'approve-google-ads-customer-match-upload',
+        '--validate-only',
+      ],
+      [
+        'customer-match-add-hashes',
+        '1234567890',
+        'customers/1234567890/offlineUserDataJobs/111222333',
+        '--sha256-email',
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        '--grant',
+        'approve-google-ads-customer-match-upload',
+        '--validate-only',
+      ],
+      [
+        'customer-match-job-run',
+        '1234567890',
+        'customers/1234567890/offlineUserDataJobs/111222333',
+        '--grant',
+        'approve-google-ads-customer-match-upload',
+      ],
+      [
+        'dismiss-recommendation',
+        '1234567890',
+        'customers/1234567890/recommendations/abc123',
+        '--grant',
+        'approve-google-ads-recommendation-apply',
+      ],
+    ];
+
+    for (const command of commands) {
+      const result = await runHelperAsync([
+        '--format',
+        'json',
+        '--gateway-url',
+        gatewayUrl,
+        ...command,
+      ]);
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).costMeasurement.system).toBe(
+        'UsageTotals',
+      );
+    }
+
+    expect(captured).toHaveLength(commands.length);
+    expect(captured).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: 'https://googleads.googleapis.com/v24/customers/1234567890/campaigns:mutate',
+        }),
+        expect.objectContaining({
+          url: 'https://googleads.googleapis.com/v24/customers/1234567890/offlineUserDataJobs/111222333:addOperations',
+        }),
+        expect.objectContaining({
+          url: 'https://googleads.googleapis.com/v24/customers/1234567890/recommendations:dismiss',
+        }),
+      ]),
+    );
+  });
+}, 30_000);
 
 test('Google Ads helper enforces brand voice before RSA submission', () => {
   const result = runHelper([
@@ -451,33 +692,7 @@ test('Google Ads helper enforces brand voice before RSA submission', () => {
 });
 
 test('Google Ads helper sends live GAQL through gateway with OAuth and developer-token handles', async () => {
-  const captured: unknown[] = [];
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      captured.push(JSON.parse(body));
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-          bodyJson: [{ results: [{ campaign: { id: '123', name: 'Brand' } }] }],
-        }),
-      );
-    });
-  });
-
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const address = server.address();
-    if (!address || typeof address !== 'object') {
-      throw new Error('Expected server address.');
-    }
-    const gatewayUrl = `http://127.0.0.1:${address.port}`;
+  await withMockGateway(async (gatewayUrl, captured) => {
     const result = await runHelperAsync([
       '--format',
       'json',
@@ -515,9 +730,7 @@ test('Google Ads helper sends live GAQL through gateway with OAuth and developer
         },
       ],
     });
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+  });
 });
 
 test('Google Ads helper refuses unauthenticated remote gateway URLs', () => {
@@ -530,7 +743,29 @@ test('Google Ads helper refuses unauthenticated remote gateway URLs', () => {
   ]);
 
   expect(result.status).toBe(2);
-  expect(result.stderr).toContain('Refusing unauthenticated remote gateway URL');
+  expect(result.stderr).toContain(
+    'Refusing unauthenticated remote gateway URL',
+  );
+});
+
+test('Google Ads helper rejects raw Customer Match identifiers', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'customer-match-add-hashes',
+    '1234567890',
+    'customers/1234567890/offlineUserDataJobs/111222333',
+    '--sha256-email',
+    'person@example.com',
+    '--grant',
+    'approve-google-ads-customer-match-upload',
+    '--validate-only',
+  ]);
+
+  expect(result.status).toBe(2);
+  expect(result.stderr).toContain(
+    'email hashes must be lowercase SHA-256 hex strings',
+  );
 });
 
 test('Google Ads helper checks RSA grant before copy preflight', () => {

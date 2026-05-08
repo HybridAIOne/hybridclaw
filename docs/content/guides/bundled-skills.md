@@ -8,10 +8,14 @@ sidebar_position: 4
 
 HybridClaw ships with 40+ bundled skills. A few notable categories:
 
-- office workflows: `pdf`, `xlsx`, `docx`, `pptx`, `office-workflows`
-- planning and engineering: `project-manager`, `feature-planning`, `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
+- office workflows: `pdf`, `xlsx`, `docx`, `pptx`,
+  `office-workflows`
+- planning and engineering: `project-manager`, `feature-planning`,
+  `code-review`, `code-simplification`, `gh-issues`, `warehouse-sql`
 - visual explainers and animation: `manim-video`, `excalidraw`
-- platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`, `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`, `google-ads`, `discord`
+- platform integrations: `github-pr-workflow`, `notion`, `trello`, `stripe`,
+  `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`,
+  `google-ads`, `discord`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`
 - personal and Apple workflows: `apple-calendar`, `apple-passwords`, `apple-music`
 - marketplace and automation workflows: `sokosumi`
