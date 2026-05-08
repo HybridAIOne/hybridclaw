@@ -214,6 +214,9 @@ export function Composer(props: {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // While an IME is composing, Enter/Tab/Arrow keys belong to the IME
+    // (confirming or navigating candidates), not to the composer UI.
+    if (e.nativeEvent.isComposing) return;
     if (panelMode === 'list' && suggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
