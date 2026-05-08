@@ -54,6 +54,13 @@ export interface A2AJsonRpcInboundResult {
   body: Record<string, unknown>;
 }
 
+class A2AMissingTrustedPeerError extends A2ADelegationTokenError {
+  constructor(message = 'No trusted A2A peer for token sender') {
+    super(message);
+    this.name = 'A2AMissingTrustedPeerError';
+  }
+}
+
 let localCanonicalRecipientCache: {
   key: string;
   canonicalAgentIds: Set<string>;
@@ -164,12 +171,8 @@ function recordInboundAudit(params: {
   });
 }
 
-function validateSignedRequest(params: {
+function resolveTrustedPeerForToken(params: {
   token: string;
-  envelope: A2AEnvelope;
-  method: 'message/send' | 'tasks/send';
-  audience: string;
-  now?: Date;
   peer?: A2ATrustedA2APeer;
 }): A2ATrustedA2APeer {
   const unverifiedClaims = decodeA2ADelegationTokenClaims(params.token);
@@ -177,11 +180,22 @@ function validateSignedRequest(params: {
     params.peer ??
     getA2ATrustedA2APeerBySender(unverifiedClaims.sender_agent_id);
   if (!peer) {
-    throw new A2ADelegationTokenError('No trusted A2A peer for token sender');
+    throw new A2AMissingTrustedPeerError();
   }
+  return peer;
+}
+
+function verifySignedRequest(params: {
+  token: string;
+  envelope: A2AEnvelope;
+  method: 'message/send' | 'tasks/send';
+  audience: string;
+  now?: Date;
+  peer: A2ATrustedA2APeer;
+}): void {
   verifyA2ADelegationToken({
     token: params.token,
-    publicKeyPem: peer.publicKeyPem,
+    publicKeyPem: params.peer.publicKeyPem,
     audience: params.audience,
     requiredScope:
       params.method === 'tasks/send'
@@ -191,7 +205,19 @@ function validateSignedRequest(params: {
     targetAgentId: params.envelope.recipient_agent_id,
     now: params.now,
   });
-  return peer;
+}
+
+function signatureOutcomeForError(
+  error: unknown,
+): A2AJsonRpcInboundSignatureOutcome {
+  if (error instanceof A2AMissingTrustedPeerError) return 'missing_peer';
+  if (
+    error instanceof A2ADelegationTokenError &&
+    error.message.includes('revoked')
+  ) {
+    return 'revoked';
+  }
+  return 'failed';
 }
 
 export function acceptA2AJsonRpcInboundRequest(params: {
@@ -214,24 +240,24 @@ export function acceptA2AJsonRpcInboundRequest(params: {
       ]);
     }
     const token = extractBearerToken(params.authorization);
-    peer = validateSignedRequest({
+    peer = resolveTrustedPeerForToken({
+      token,
+      peer: params.peer,
+    });
+    verifySignedRequest({
       token,
       envelope,
       method,
       audience: params.audience,
       now: params.now,
-      peer: params.peer,
+      peer,
     });
   } catch (error) {
     const reason = extractErrorReason(error);
     recordInboundAudit({
       runId,
       peerId: peer?.peerId || null,
-      signatureOutcome: reason.includes('revoked')
-        ? 'revoked'
-        : error instanceof A2ADelegationTokenError
-          ? 'failed'
-          : 'failed',
+      signatureOutcome: signatureOutcomeForError(error),
       intent: envelope?.intent || null,
       downstreamDisposition:
         error instanceof A2ADelegationTokenError

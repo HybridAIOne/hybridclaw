@@ -157,7 +157,7 @@ describe('A2A JSON-RPC inbound adapter', () => {
     });
     expect(runtime.inbox('main')).toEqual([]);
     const audit = getRecentStructuredAuditForSession(
-      'a2a:inbound:unknown',
+      'a2a:inbound:revoked-peer',
       10,
     ).map((event) => JSON.parse(event.payload || '{}'));
     expect(audit).toEqual(
@@ -168,6 +168,69 @@ describe('A2A JSON-RPC inbound adapter', () => {
           downstreamDisposition: 'rejected',
           statusCode: 401,
           reason: 'JWT has been revoked',
+        }),
+      ]),
+    );
+  });
+
+  test('audits unknown trusted senders separately from bad signatures', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const inbound = await import('../src/a2a/a2a-inbound.ts');
+    const outbound = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [{ id: 'main', owner: 'team', role: 'lead' }];
+    });
+
+    const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    const envelope = inboundEnvelope('msg-missing-peer-a2a');
+    const rawBody = JSON.stringify(
+      encodeA2AJsonRpcRequest(envelope, {
+        url: 'http://localhost/a2a',
+      }),
+    );
+    const token = outbound.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: 'remote@team@peer-instance',
+      targetAgentId: 'main@team@local-dev',
+      audience: 'http://localhost/a2a',
+      scope: outbound.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-remote-parent',
+      jwtId: 'msg-missing-peer-a2a',
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+
+    expect(
+      inbound.acceptA2AJsonRpcInboundRequest({
+        rawBody,
+        authorization: `Bearer ${token}`,
+        audience: 'http://localhost/a2a',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).toEqual({
+      statusCode: 401,
+      body: { error: 'Unauthorized' },
+    });
+
+    const audit = getRecentStructuredAuditForSession(
+      'a2a:inbound:unknown',
+      10,
+    ).map((event) => JSON.parse(event.payload || '{}'));
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'a2a.inbound_post',
+          signatureOutcome: 'missing_peer',
+          downstreamDisposition: 'rejected',
+          statusCode: 401,
+          reason: 'No trusted A2A peer for token sender',
         }),
       ]),
     );

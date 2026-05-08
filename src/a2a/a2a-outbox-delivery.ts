@@ -60,9 +60,9 @@ function resolveItemRunId(item: A2AOutboxItem, prefix: string): string {
 function assertBearerAuthConfigured(
   item: A2AOutboxItem,
   authUrl: string,
-): boolean {
+): void {
   if (!item.bearerTokenRef) {
-    if (isA2ALoopbackHttpUrl(authUrl)) return false;
+    if (isA2ALoopbackHttpUrl(authUrl)) return;
     throw new A2AFailFastError(
       'a2a.bearerTokenRef is required for non-loopback peers',
     );
@@ -78,7 +78,6 @@ function assertBearerAuthConfigured(
       error instanceof Error ? error.message : String(error),
     );
   }
-  return true;
 }
 
 function resolveParentRunId(item: A2AOutboxItem): string {
@@ -91,11 +90,7 @@ function authHeaders(params: {
   scope: string;
   now: Date;
 }): Record<string, string> {
-  const requiresBearer = assertBearerAuthConfigured(
-    params.item,
-    params.audience,
-  );
-  if (!requiresBearer) return {};
+  assertBearerAuthConfigured(params.item, params.audience);
   return {
     authorization: `Bearer ${signA2ADelegationToken({
       senderAgentId: params.item.envelope.sender_agent_id,

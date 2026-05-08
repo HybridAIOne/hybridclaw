@@ -377,17 +377,23 @@ describe('A2A outbound adapter', () => {
       transportRegistry: registry,
     });
 
-    const fetchImpl = vi.fn().mockResolvedValueOnce(
-      Response.json({
-        url: 'https://peer.example.com/a2a',
-        capabilities: [],
-      }),
+    let agentCardAuthorization = '';
+    const fetchImpl = vi.fn(
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+        agentCardAuthorization = headers?.authorization || '';
+        return Response.json({
+          url: 'https://peer.example.com/a2a',
+          capabilities: [],
+        });
+      },
     );
     await expect(a2a.processA2AOutbox({ fetchImpl })).resolves.toMatchObject({
       processed: 1,
       failed: 1,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(agentCardAuthorization).toMatch(/^Bearer [A-Za-z0-9_-]+\./);
     expect(a2a.listA2AOutboxItems()[0]).toMatchObject({
       status: 'failed',
       lastError: 'a2a.bearerTokenRef is required for non-loopback peers',
