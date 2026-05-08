@@ -254,6 +254,7 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     });
   } catch (error) {
     const reason = extractErrorReason(error);
+    const statusCode = error instanceof A2ADelegationTokenError ? 401 : 400;
     recordInboundAudit({
       runId,
       peerId: peer?.peerId || null,
@@ -264,11 +265,11 @@ export function acceptA2AJsonRpcInboundRequest(params: {
           ? 'rejected'
           : 'validation_failed',
       envelope,
-      statusCode: error instanceof A2ADelegationTokenError ? 401 : 400,
+      statusCode,
       reason,
     });
     return {
-      statusCode: error instanceof A2ADelegationTokenError ? 401 : 400,
+      statusCode,
       body: {
         error:
           error instanceof A2ADelegationTokenError ? 'Unauthorized' : reason,

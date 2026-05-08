@@ -268,6 +268,43 @@ describe('A2A outbound adapter', () => {
     ).toThrow('JWT has been revoked');
   });
 
+  test('rejects tampered delegation tokens before parsing claims', async () => {
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const keyPair = a2a.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    const token = a2a.signA2ADelegationToken({
+      keyPair,
+      senderAgentId: 'main@team@local-dev',
+      targetAgentId: 'remote@team@peer-instance',
+      audience: 'https://peer.example.com/a2a',
+      scope: a2a.A2A_MESSAGE_SEND_SCOPE,
+      parentRunId: 'run-parent',
+      jwtId: 'msg-tampered',
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    const [headerSegment = '', payloadSegment = '', signatureSegment = ''] =
+      token.split('.');
+    const payload = JSON.parse(
+      Buffer.from(payloadSegment, 'base64url').toString('utf-8'),
+    );
+    const tamperedPayloadSegment = Buffer.from(
+      JSON.stringify({
+        ...payload,
+        sub: 'not-canonical',
+        sender_agent_id: 'not-canonical',
+      }),
+    ).toString('base64url');
+
+    expect(() =>
+      a2a.verifyA2ADelegationToken({
+        token: `${headerSegment}.${tamperedPayloadSegment}.${signatureSegment}`,
+        publicKeyPem: keyPair.publicKeyPem,
+        now: new Date('2030-01-01T00:00:01.000Z'),
+      }),
+    ).toThrow('JWT signature is invalid');
+  });
+
   test('uses tasks/send for handoff when the peer advertises task capability', async () => {
     const request = encodeA2AJsonRpcRequest(
       sampleA2AEnvelope('msg-task', 'handoff'),

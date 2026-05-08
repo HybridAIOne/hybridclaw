@@ -9,6 +9,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
+import { normalizePositiveInteger } from './utils.js';
 import {
   WEBHOOK_BODY_VERSION,
   WEBHOOK_REPLAY_WINDOW_MS,
@@ -16,7 +17,6 @@ import {
 } from './webhook-outbound.js';
 
 export const A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE = 60;
-export const A2A_TRUST_LEDGER_DEFAULT_A2A_RATE_LIMIT_PER_MINUTE = 60;
 
 const TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION = 1;
 const TRUSTED_A2A_PEER_SCHEMA_VERSION = 1;
@@ -33,6 +33,9 @@ const TRUSTED_A2A_PEER_ASSET_PREFIX = path.join(
   'a2a',
 );
 const PEER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const EPOCH_ISO = new Date(0).toISOString();
+
+let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
 
 export interface A2ATrustedWebhookPeer {
   schemaVersion: typeof TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION;
@@ -62,7 +65,6 @@ export interface A2ATrustedA2APeer {
   peerId: string;
   senderAgentId: string;
   publicKeyPem: string;
-  rateLimitPerMinute: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,7 +73,6 @@ export interface UpsertA2ATrustedA2APeerInput {
   peerId: string;
   senderAgentId: string;
   publicKeyPem: string;
-  rateLimitPerMinute?: number;
 }
 
 export function normalizeA2APeerId(peerId: string): string {
@@ -82,12 +83,6 @@ export function normalizeA2APeerId(peerId: string): string {
     ]);
   }
   return normalized;
-}
-
-function normalizePositiveInteger(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-    ? value
-    : fallback;
 }
 
 function trustedWebhookPeerAssetPath(peerId: string): string {
@@ -173,6 +168,10 @@ function normalizeOptionalHttpHeaderName(value: unknown): string | undefined {
   return normalized;
 }
 
+function parseTimestampOr(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value ? value : fallback;
+}
+
 function normalizeWebhookVersion(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') {
@@ -234,14 +233,8 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
         parsed.rateLimitPerMinute,
         A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
       ),
-      createdAt:
-        typeof parsed.createdAt === 'string' && parsed.createdAt
-          ? parsed.createdAt
-          : new Date(0).toISOString(),
-      updatedAt:
-        typeof parsed.updatedAt === 'string' && parsed.updatedAt
-          ? parsed.updatedAt
-          : new Date(0).toISOString(),
+      createdAt: parseTimestampOr(parsed.createdAt, EPOCH_ISO),
+      updatedAt: parseTimestampOr(parsed.updatedAt, EPOCH_ISO),
     };
   } catch {
     return null;
@@ -259,18 +252,8 @@ function parseTrustedA2APeer(raw: string): A2ATrustedA2APeer | null {
       peerId: normalizeA2APeerId(parsed.peerId),
       senderAgentId: normalizeCanonicalSenderAgentId(parsed.senderAgentId),
       publicKeyPem: normalizePublicKeyPem(parsed.publicKeyPem),
-      rateLimitPerMinute: normalizePositiveInteger(
-        parsed.rateLimitPerMinute,
-        A2A_TRUST_LEDGER_DEFAULT_A2A_RATE_LIMIT_PER_MINUTE,
-      ),
-      createdAt:
-        typeof parsed.createdAt === 'string' && parsed.createdAt
-          ? parsed.createdAt
-          : new Date(0).toISOString(),
-      updatedAt:
-        typeof parsed.updatedAt === 'string' && parsed.updatedAt
-          ? parsed.updatedAt
-          : new Date(0).toISOString(),
+      createdAt: parseTimestampOr(parsed.createdAt, EPOCH_ISO),
+      updatedAt: parseTimestampOr(parsed.updatedAt, EPOCH_ISO),
     };
   } catch {
     return null;
@@ -330,10 +313,6 @@ export function upsertA2ATrustedA2APeer(
     peerId,
     senderAgentId: normalizeCanonicalSenderAgentId(input.senderAgentId),
     publicKeyPem: normalizePublicKeyPem(input.publicKeyPem),
-    rateLimitPerMinute: normalizePositiveInteger(
-      input.rateLimitPerMinute,
-      A2A_TRUST_LEDGER_DEFAULT_A2A_RATE_LIMIT_PER_MINUTE,
-    ),
     createdAt: existing?.createdAt || updatedAt,
     updatedAt,
   };
@@ -349,6 +328,7 @@ export function upsertA2ATrustedA2APeer(
       content: JSON.stringify(peer),
     },
   );
+  trustedA2APeersBySenderCache = null;
   return peer;
 }
 
@@ -388,14 +368,18 @@ export function listA2ATrustedA2APeers(): A2ATrustedA2APeer[] {
     .sort((left, right) => left.peerId.localeCompare(right.peerId));
 }
 
+function trustedA2APeersBySender(): Map<string, A2ATrustedA2APeer> {
+  if (trustedA2APeersBySenderCache) return trustedA2APeersBySenderCache;
+  trustedA2APeersBySenderCache = new Map(
+    listA2ATrustedA2APeers().map((peer) => [peer.senderAgentId, peer]),
+  );
+  return trustedA2APeersBySenderCache;
+}
+
 export function getA2ATrustedA2APeerBySender(
   senderAgentId: string,
 ): A2ATrustedA2APeer | null {
   const normalizedSenderAgentId =
     normalizeCanonicalSenderAgentId(senderAgentId);
-  return (
-    listA2ATrustedA2APeers().find(
-      (peer) => peer.senderAgentId === normalizedSenderAgentId,
-    ) ?? null
-  );
+  return trustedA2APeersBySender().get(normalizedSenderAgentId) ?? null;
 }

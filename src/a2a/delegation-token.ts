@@ -3,6 +3,7 @@ import {
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
+  type KeyObject,
   randomUUID,
   sign,
   verify,
@@ -45,6 +46,7 @@ export interface A2ADelegationTokenClaims {
   target_agent_id: string;
   scope: string[];
   parent_run_id: string;
+  // Observability only; integrity is bound by jti, sender, target, audience, and scope.
   message_id?: string;
   thread_id?: string;
 }
@@ -87,6 +89,10 @@ export class A2ADelegationTokenError extends Error {
   }
 }
 
+let cachedKeyPair: A2ADelegationTokenKeyPair | null = null;
+let cachedPrivateKey: { pem: string; key: KeyObject } | null = null;
+const cachedPublicKeys = new Map<string, KeyObject>();
+
 function delegationKeyPairPath(): string {
   return path.join(
     DEFAULT_RUNTIME_HOME_DIR,
@@ -124,18 +130,6 @@ function normalizeTokenString(value: string, label: string): string {
   return normalized;
 }
 
-function normalizeAudience(value: string): string {
-  return normalizeTokenString(value, 'audience');
-}
-
-function normalizeParentRunId(value: string): string {
-  return normalizeTokenString(value, 'parentRunId');
-}
-
-function normalizeJwtId(value: string): string {
-  return normalizeTokenString(value, 'jwtId');
-}
-
 function normalizeScope(scope: string | string[]): string[] {
   const rawScopes = Array.isArray(scope) ? scope : [scope];
   const normalizedScopes = Array.from(
@@ -150,7 +144,23 @@ function normalizeScope(scope: string | string[]): string[] {
 function normalizeAgentIdForToken(agentId: string): string {
   const normalized = agentId.trim();
   if (isCanonicalAgentIdentity(normalized)) return normalized.toLowerCase();
+  // Local ids are resolved to canonical ids so tokens stay portable across instances.
   return resolveA2AAgentId(normalized);
+}
+
+function privateKeyObject(privateKeyPem: string): KeyObject {
+  if (cachedPrivateKey?.pem === privateKeyPem) return cachedPrivateKey.key;
+  const key = createPrivateKey(privateKeyPem);
+  cachedPrivateKey = { pem: privateKeyPem, key };
+  return key;
+}
+
+function publicKeyObject(publicKeyPem: string): KeyObject {
+  const cached = cachedPublicKeys.get(publicKeyPem);
+  if (cached) return cached;
+  const key = createPublicKey(publicKeyPem);
+  cachedPublicKeys.set(publicKeyPem, key);
+  return key;
 }
 
 function keyIdForPublicKey(publicKeyPem: string): string {
@@ -247,6 +257,7 @@ function writeNewKeyPair(
   fs.mkdirSync(keyPairDir, { recursive: true });
   const tempPath = path.join(keyPairDir, `.delegation-keypair-${randomUUID()}`);
   try {
+    // Atomic create: only one process wins if two instances bootstrap together.
     fs.writeFileSync(tempPath, `${JSON.stringify(keyPair, null, 2)}\n`, {
       encoding: 'utf-8',
       flag: 'wx',
@@ -265,13 +276,22 @@ function writeNewKeyPair(
 export function getOrCreateA2ADelegationTokenKeyPair(
   options: { keyPairPath?: string; now?: Date } = {},
 ): A2ADelegationTokenKeyPair {
-  const keyPairPath = options.keyPairPath ?? delegationKeyPairPath();
+  const defaultKeyPairPath = delegationKeyPairPath();
+  const keyPairPath = options.keyPairPath ?? defaultKeyPairPath;
+  const usesDefaultPath = keyPairPath === defaultKeyPairPath;
+  if (usesDefaultPath && cachedKeyPair) return cachedKeyPair;
+
   const existing = readKeyPair(keyPairPath);
-  if (existing) return existing;
+  if (existing) {
+    if (usesDefaultPath) cachedKeyPair = existing;
+    return existing;
+  }
 
   const generated = generateDelegationKeyPair(options.now ?? new Date());
   writeNewKeyPair(keyPairPath, generated);
-  return readKeyPair(keyPairPath) ?? generated;
+  const keyPair = readKeyPair(keyPairPath) ?? generated;
+  if (usesDefaultPath) cachedKeyPair = keyPair;
+  return keyPair;
 }
 
 function assertNumericDate(
@@ -364,15 +384,15 @@ export function signA2ADelegationToken(
   const claims: A2ADelegationTokenClaims = {
     iss: A2A_DELEGATION_TOKEN_ISSUER,
     sub: senderAgentId,
-    aud: normalizeAudience(input.audience),
-    jti: normalizeJwtId(input.jwtId),
+    aud: normalizeTokenString(input.audience, 'audience'),
+    jti: normalizeTokenString(input.jwtId, 'jwtId'),
     iat: issuedAt,
     nbf: issuedAt,
     exp: issuedAt + expiresInSeconds,
     sender_agent_id: senderAgentId,
     target_agent_id: targetAgentId,
     scope: normalizeScope(input.scope),
-    parent_run_id: normalizeParentRunId(input.parentRunId),
+    parent_run_id: normalizeTokenString(input.parentRunId, 'parentRunId'),
     ...(input.messageId
       ? { message_id: normalizeTokenString(input.messageId, 'messageId') }
       : {}),
@@ -390,7 +410,7 @@ export function signA2ADelegationToken(
   const signature = sign(
     null,
     Buffer.from(signingInput),
-    createPrivateKey(keyPair.privateKeyPem),
+    privateKeyObject(keyPair.privateKeyPem),
   ).toString('base64url');
   return `${signingInput}.${signature}`;
 }
@@ -408,7 +428,7 @@ export function decodeA2ADelegationTokenClaims(
 function revocationAssetPath(jwtId: string, rootDir: string): string {
   return path.join(
     rootDir,
-    `${encodeURIComponent(normalizeJwtId(jwtId))}.json`,
+    `${encodeURIComponent(normalizeTokenString(jwtId, 'jwtId'))}.json`,
   );
 }
 
@@ -419,7 +439,7 @@ export function revokeA2ADelegationTokenId(
     revocationRootDir?: string;
   } = {},
 ): A2ADelegationTokenRevocation {
-  const normalizedJwtId = normalizeJwtId(jwtId);
+  const normalizedJwtId = normalizeTokenString(jwtId, 'jwtId');
   const revocation: A2ADelegationTokenRevocation = {
     schemaVersion: A2A_DELEGATION_TOKEN_REVOCATION_SCHEMA_VERSION,
     jwtId: normalizedJwtId,
@@ -485,18 +505,18 @@ export function verifyA2ADelegationToken(
   const [headerSegment = '', payloadSegment = '', signatureSegment = ''] =
     parts;
   assertTokenHeader(decodeBase64UrlJson(headerSegment, 'JWT header'));
-  const claims = parseClaims(
-    decodeBase64UrlJson(payloadSegment, 'JWT payload'),
-  );
   const signatureOk = verify(
     null,
     Buffer.from(`${headerSegment}.${payloadSegment}`),
-    createPublicKey(input.publicKeyPem),
+    publicKeyObject(input.publicKeyPem),
     Buffer.from(signatureSegment, 'base64url'),
   );
   if (!signatureOk) {
     throw new A2ADelegationTokenError('JWT signature is invalid');
   }
+  const claims = parseClaims(
+    decodeBase64UrlJson(payloadSegment, 'JWT payload'),
+  );
 
   const nowSeconds = Math.trunc((input.now ?? new Date()).getTime() / 1000);
   if (claims.nbf > nowSeconds) {
@@ -505,7 +525,10 @@ export function verifyA2ADelegationToken(
   if (claims.exp <= nowSeconds) {
     throw new A2ADelegationTokenError('JWT has expired');
   }
-  if (input.audience && claims.aud !== normalizeAudience(input.audience)) {
+  if (
+    input.audience &&
+    claims.aud !== normalizeTokenString(input.audience, 'audience')
+  ) {
     throw new A2ADelegationTokenError('JWT audience does not match');
   }
   assertScope(claims, input.requiredScope);

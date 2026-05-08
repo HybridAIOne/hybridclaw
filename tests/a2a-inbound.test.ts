@@ -17,21 +17,39 @@ function inboundEnvelope(id: string) {
   };
 }
 
+async function loadInboundTestModules() {
+  const [
+    { initDatabase, getRecentStructuredAuditForSession },
+    runtimeConfig,
+    runtime,
+    inbound,
+    outbound,
+  ] = await Promise.all([
+    import('../src/memory/db.ts'),
+    import('../src/config/runtime-config.ts'),
+    import('../src/a2a/runtime.ts'),
+    import('../src/a2a/a2a-inbound.ts'),
+    import('../src/a2a/a2a-outbound.ts'),
+  ]);
+
+  initDatabase({ quiet: true });
+  runtimeConfig.updateRuntimeConfig((draft) => {
+    draft.agents.list = [{ id: 'main', owner: 'team', role: 'lead' }];
+  });
+
+  return {
+    getRecentStructuredAuditForSession,
+    runtime,
+    inbound,
+    outbound,
+  };
+}
+
 describe('A2A JSON-RPC inbound adapter', () => {
   test('accepts a signed delegation token and delivers to the local inbox', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { initDatabase, getRecentStructuredAuditForSession } = await import(
-      '../src/memory/db.ts'
-    );
-    const runtimeConfig = await import('../src/config/runtime-config.ts');
-    const runtime = await import('../src/a2a/runtime.ts');
-    const inbound = await import('../src/a2a/a2a-inbound.ts');
-    const outbound = await import('../src/a2a/a2a-outbound.ts');
-
-    initDatabase({ quiet: true });
-    runtimeConfig.updateRuntimeConfig((draft) => {
-      draft.agents.list = [{ id: 'main', owner: 'team', role: 'lead' }];
-    });
+    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
+      await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -102,18 +120,8 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('honors delegation token revocation before delivery', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { initDatabase, getRecentStructuredAuditForSession } = await import(
-      '../src/memory/db.ts'
-    );
-    const runtimeConfig = await import('../src/config/runtime-config.ts');
-    const runtime = await import('../src/a2a/runtime.ts');
-    const inbound = await import('../src/a2a/a2a-inbound.ts');
-    const outbound = await import('../src/a2a/a2a-outbound.ts');
-
-    initDatabase({ quiet: true });
-    runtimeConfig.updateRuntimeConfig((draft) => {
-      draft.agents.list = [{ id: 'main', owner: 'team', role: 'lead' }];
-    });
+    const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =
+      await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
@@ -175,17 +183,8 @@ describe('A2A JSON-RPC inbound adapter', () => {
 
   test('audits unknown trusted senders separately from bad signatures', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
-    const { initDatabase, getRecentStructuredAuditForSession } = await import(
-      '../src/memory/db.ts'
-    );
-    const runtimeConfig = await import('../src/config/runtime-config.ts');
-    const inbound = await import('../src/a2a/a2a-inbound.ts');
-    const outbound = await import('../src/a2a/a2a-outbound.ts');
-
-    initDatabase({ quiet: true });
-    runtimeConfig.updateRuntimeConfig((draft) => {
-      draft.agents.list = [{ id: 'main', owner: 'team', role: 'lead' }];
-    });
+    const { getRecentStructuredAuditForSession, inbound, outbound } =
+      await loadInboundTestModules();
 
     const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
       now: new Date('2030-01-01T00:00:00.000Z'),
