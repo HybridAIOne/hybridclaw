@@ -2,6 +2,10 @@ import {
   getRecentStructuredAuditForSession,
   listStructuredAuditSessionIdsByPrefix,
 } from '../memory/db.js';
+import {
+  nonNegativeIntegerOrNull,
+  positiveNumberOrNull,
+} from '../utils/number-normalization.js';
 import { firstNumber, parseAuditPayload } from './gateway-utils.js';
 
 export interface SessionStatusSnapshot {
@@ -42,24 +46,14 @@ function sampleStddev(values: number[], mean: number): number {
 }
 
 function readPositiveNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return value;
-  }
-  return null;
-}
-
-function readNonNegativeNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-    return Math.floor(value);
-  }
-  return null;
+  return positiveNumberOrNull(value);
 }
 
 function readLastPerformancePromptTokens(samples: unknown[]): number | null {
   for (let index = samples.length - 1; index >= 0; index -= 1) {
     const sample = samples[index];
     if (!sample || typeof sample !== 'object') continue;
-    const promptTokens = readNonNegativeNumber(
+    const promptTokens = nonNegativeIntegerOrNull(
       (sample as Record<string, unknown>).promptTokens,
     );
     if (promptTokens != null) return promptTokens;

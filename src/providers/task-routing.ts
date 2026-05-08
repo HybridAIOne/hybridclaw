@@ -10,6 +10,7 @@ import {
   type TaskModelPolicies,
   type TaskModelPolicy,
 } from '../types/models.js';
+import { positiveIntegerOrNull } from '../utils/number-normalization.js';
 import {
   resolveModelProvider,
   resolveModelRuntimeCredentials,
@@ -57,10 +58,7 @@ const RUNTIME_PROVIDER_PREFIXES: Record<RuntimeProvider, string> = {
 };
 
 export function normalizeMaxTokens(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return undefined;
-  }
-  return Math.floor(value);
+  return positiveIntegerOrNull(value) ?? undefined;
 }
 
 function normalizeTaskProviderSelection(
