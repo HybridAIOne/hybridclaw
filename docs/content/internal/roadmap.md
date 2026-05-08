@@ -236,7 +236,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | ID | Area | Todo | Status |
 |----|------|------|--------|
 | R9.1 | Auth | Inter-instance authentication with signed tokens | ⬜ #480 |
-| R9.2 | Delegation | Delegation envelope schema | ⬜ #481 |
+| R9.2 | Delegation | Delegation envelope schema | ✅ PR #889 |
 | R9.3 | Transport | Cross-instance HTTP transport | ⬜ #482 |
 | R9.4 | Audit | Cross-instance audit-log linking | ⬜ #483 |
 | R9.5 | Admin | Fleet topology admin UI | ⬜ #484 |
