@@ -5,6 +5,7 @@ import {
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
   runtimeConfigPath,
@@ -27,32 +28,6 @@ import {
 } from '../security/runtime-secrets.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printSecretUsage } from './help.js';
-
-function normalizeUrlPrefix(raw: string): string {
-  const value = String(raw || '').trim();
-  if (!value) {
-    throw new Error('URL prefix is required.');
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Invalid URL prefix: ${value}`);
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
-  }
-
-  parsed.username = '';
-  parsed.password = '';
-  parsed.search = '';
-  parsed.hash = '';
-  const pathname = parsed.pathname || '/';
-  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
-  return parsed.toString();
-}
 
 function normalizeSecretRouteHeader(raw: string | undefined): string {
   const header = String(raw || 'Authorization').trim();
@@ -214,7 +189,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
         );
       }
       const secret = normalizeSecretRouteSecret(secretName);
-      const urlPrefix = normalizeUrlPrefix(rawPrefix);
+      const urlPrefix = normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
       if (isGoogleOAuthSecretRef(secret) && !isGoogleApisUrlPrefix(urlPrefix)) {
         throw new Error(
           '`google-oauth` routes can only target googleapis.com or *.googleapis.com URL prefixes.',
@@ -284,7 +259,7 @@ export async function handleSecretCommand(args: string[]): Promise<void> {
           'Usage: `hybridclaw secret route remove <url-prefix> [header]`',
         );
       }
-      const urlPrefix = normalizeUrlPrefix(rawPrefix);
+      const urlPrefix = normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
       const header = rawHeader ? normalizeSecretRouteHeader(rawHeader) : '';
       const currentRules =
         getRuntimeConfig().tools.httpRequest.authRules.filter((rule) => {

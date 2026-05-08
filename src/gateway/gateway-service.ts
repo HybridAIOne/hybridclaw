@@ -129,6 +129,7 @@ import {
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -3379,29 +3380,6 @@ function infoCommand(
 
 function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
-}
-
-function normalizeUrlPrefix(raw: string): string {
-  const value = String(raw || '').trim();
-  if (!value) {
-    throw new Error('URL prefix is required.');
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Invalid URL prefix: ${value}`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
-  }
-  parsed.username = '';
-  parsed.password = '';
-  parsed.search = '';
-  parsed.hash = '';
-  const pathname = parsed.pathname || '/';
-  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
-  return parsed.toString();
 }
 
 function normalizeSecretRouteHeader(raw: string | undefined): string {
@@ -9118,7 +9096,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               if (
                 isGoogleOAuthSecretRef(secret) &&
                 !isGoogleApisUrlPrefix(urlPrefix)
@@ -9187,7 +9166,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               const header = rawHeader
                 ? normalizeSecretRouteHeader(rawHeader)
                 : '';
