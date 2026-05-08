@@ -77,6 +77,10 @@ The helper also has to authenticate to the local HybridClaw gateway before it ca
 call `/api/http/request`. In local shell tests, provide a gateway token through
 `HYBRIDCLAW_GATEWAY_TOKEN`, `GATEWAY_API_TOKEN`, or `WEB_API_TOKEN`; do not paste
 that token into the prompt.
+If the helper returns `FASTBILL_CONFIG_ERROR` saying gateway proxy authentication
+failed, stop. Do not inspect environment variables, print logs, or tell the user
+to recreate FastBill credentials. Report that the helper process is missing a
+gateway token and that FastBill was not contacted.
 
 ## Default Workflow
 
@@ -186,6 +190,8 @@ before sending to public-sector or mandate-bound B2B recipients.
 
 - Never print or ask for the FastBill API key.
 - Never build a Basic header in a prompt. Use the configured secret route.
+- On gateway proxy authentication failures, stop and report the missing
+  gateway-token wiring; do not search env/logs or diagnose FastBill credentials.
 - Keep XML local to the helper; expose JSON-shaped request and response data.
 - Treat `invoice.create`, `customer.create`, `invoice.setpaid`, and reminder email sends as operator-granted writes.
 - Use `--dry-run` when translating time tracking, CSV, or free text into invoice line items.
