@@ -48,6 +48,25 @@ function readPositiveNumber(value: unknown): number | null {
   return null;
 }
 
+function readNonNegativeNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  return null;
+}
+
+function readLastPerformancePromptTokens(samples: unknown[]): number | null {
+  for (let index = samples.length - 1; index >= 0; index -= 1) {
+    const sample = samples[index];
+    if (!sample || typeof sample !== 'object') continue;
+    const promptTokens = readNonNegativeNumber(
+      (sample as Record<string, unknown>).promptTokens,
+    );
+    if (promptTokens != null) return promptTokens;
+  }
+  return null;
+}
+
 function addPerformanceSample(
   sample: Record<string, unknown>,
   samples: {
@@ -92,6 +111,7 @@ export function readSessionStatusSnapshot(
   const entries = getRecentStructuredAuditForSession(sessionId, 160);
   let usagePayload: Record<string, unknown> | null = null;
   let modelSelectionPayload: Record<string, unknown> | null = null;
+  let latestModelCallPromptTokens: number | null = null;
   const inputTokensPerSecondSamples: number[] = [];
   const outputTokensPerSecondSamples: number[] = [];
   const tokensPerSecondSamples: number[] = [];
@@ -108,6 +128,11 @@ export function readSessionStatusSnapshot(
       )
         ? payload.performanceSamples
         : [];
+      if (usagePayload === payload) {
+        latestModelCallPromptTokens = readLastPerformancePromptTokens(
+          payloadPerformanceSamples,
+        );
+      }
       let usedPerformanceSamples = false;
       for (const sample of payloadPerformanceSamples) {
         if (!sample || typeof sample !== 'object') continue;
@@ -220,6 +245,7 @@ export function readSessionStatusSnapshot(
     usagePayload?.context_tokens,
     usagePayload?.tokensInContext,
     usagePayload?.tokens_in_context,
+    latestModelCallPromptTokens,
     usagePayload?.promptTokens,
     usagePayload?.apiPromptTokens,
     usagePayload?.estimatedPromptTokens,
