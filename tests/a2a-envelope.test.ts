@@ -152,6 +152,27 @@ describe('A2A envelope schema', () => {
       ]),
     );
 
+    const invalidSender = expectEnvelopeValidationIssues({
+      id: 'msg-delegate-invalid-sender',
+      sender_agent_id: 'bad sender',
+      recipient_agent_id: 'writer@team@inst-target',
+      source_instance_id: 'inst-source',
+      target_instance_id: 'inst-target',
+      thread_id: 'thread-delegate',
+      intent: 'handoff',
+      content: 'Bad delegation metadata.',
+      created_at: '2026-04-28T10:00:00.000Z',
+      delegation_token: 'jwt.header.payload',
+    });
+    expect(invalidSender.issues).toEqual(
+      expect.arrayContaining([
+        'sender_agent_id must be a local agent id or canonical agent id (agent-slug@user@instance-id)',
+      ]),
+    );
+    expect(invalidSender.issues).not.toContain(
+      'sender_agent_id must be canonical when delegation fields are provided',
+    );
+
     const mismatched = expectEnvelopeValidationIssues({
       id: 'msg-delegate-mismatch',
       sender_agent_id: 'researcher@team@inst-source',
@@ -168,6 +189,24 @@ describe('A2A envelope schema', () => {
       expect.arrayContaining([
         'source_instance_id must match the instance-id portion of sender_agent_id',
         'delegation_token must be a non-empty token without whitespace',
+      ]),
+    );
+
+    const oversizedToken = expectEnvelopeValidationIssues({
+      id: 'msg-delegate-oversized-token',
+      sender_agent_id: 'researcher@team@inst-source',
+      recipient_agent_id: 'writer@team@inst-target',
+      source_instance_id: 'inst-source',
+      target_instance_id: 'inst-target',
+      thread_id: 'thread-delegate',
+      intent: 'handoff',
+      content: 'Bad delegation metadata.',
+      created_at: '2026-04-28T10:00:00.000Z',
+      delegation_token: 'a'.repeat(8193),
+    });
+    expect(oversizedToken.issues).toEqual(
+      expect.arrayContaining([
+        'delegation_token must be at most 8192 characters',
       ]),
     );
   });
