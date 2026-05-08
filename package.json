@@ -73,6 +73,7 @@
     "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
+    "dev:console": "HYBRIDCLAW_DEV_VITE_URL=http://127.0.0.1:4173 tsx src/cli.ts gateway restart && npm --workspace console run dev",
     "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",

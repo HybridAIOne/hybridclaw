@@ -4103,6 +4103,104 @@ function writeUpgradeError(
   socket.destroy();
 }
 
+// Optional Vite dev passthrough: when HYBRIDCLAW_DEV_VITE_URL is set the
+// gateway forwards SPA HTML, Vite source/asset paths, and the HMR WebSocket
+// to the configured Vite dev server so the console can be developed under
+// the gateway's origin (and pick up the hybridclaw_local_session cookie).
+const DEV_VITE_URL = (process.env.HYBRIDCLAW_DEV_VITE_URL || '')
+  .trim()
+  .replace(/\/+$/, '');
+
+function isDevConsoleEnabled(): boolean {
+  return DEV_VITE_URL.length > 0;
+}
+
+function isViteSourcePath(pathname: string): boolean {
+  return (
+    pathname.startsWith('/@vite/') ||
+    pathname === '/@react-refresh' ||
+    pathname.startsWith('/@id/') ||
+    pathname.startsWith('/@fs/') ||
+    pathname.startsWith('/src/') ||
+    pathname.startsWith('/node_modules/')
+  );
+}
+
+function proxyToVite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  targetPath: string,
+): void {
+  const upstream = new URL(targetPath, DEV_VITE_URL);
+  const headers = { ...req.headers, host: upstream.host };
+  const upstreamReq = http.request(
+    {
+      protocol: upstream.protocol,
+      hostname: upstream.hostname,
+      port: upstream.port,
+      method: req.method,
+      path: upstream.pathname + upstream.search,
+      headers,
+    },
+    (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    },
+  );
+  upstreamReq.on('error', (error) => {
+    if (!res.headersSent) {
+      sendText(
+        res,
+        502,
+        `Vite dev server unreachable at ${DEV_VITE_URL}: ${error.message}`,
+      );
+    } else {
+      res.destroy(error);
+    }
+  });
+  req.pipe(upstreamReq);
+}
+
+function proxyViteUpgrade(
+  req: IncomingMessage,
+  socket: import('node:stream').Duplex,
+  head: Buffer,
+): void {
+  const upstream = new URL(req.url || '/', DEV_VITE_URL);
+  const headers = { ...req.headers, host: upstream.host };
+  const upstreamReq = http.request({
+    protocol: upstream.protocol,
+    hostname: upstream.hostname,
+    port: upstream.port,
+    method: req.method,
+    path: upstream.pathname + upstream.search,
+    headers,
+  });
+  upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+    const lines = [
+      `HTTP/1.1 ${upstreamRes.statusCode ?? 101} ${upstreamRes.statusMessage || 'Switching Protocols'}`,
+    ];
+    for (const [key, value] of Object.entries(upstreamRes.headers)) {
+      if (Array.isArray(value)) {
+        for (const item of value) lines.push(`${key}: ${item}`);
+      } else if (value != null) {
+        lines.push(`${key}: ${value}`);
+      }
+    }
+    socket.write(`${lines.join('\r\n')}\r\n\r\n`);
+    if (upstreamHead.length > 0) socket.write(upstreamHead);
+    if (head.length > 0) upstreamSocket.write(head);
+    upstreamSocket.pipe(socket);
+    socket.pipe(upstreamSocket);
+    upstreamSocket.on('error', () => socket.destroy());
+    socket.on('error', () => upstreamSocket.destroy());
+  });
+  upstreamReq.on('error', () => {
+    writeUpgradeError(socket, 502, 'Vite dev server unreachable');
+  });
+  upstreamReq.end();
+}
+
 export interface GatewayHttpServer {
   broadcastShutdown: () => void;
   setReady: () => void;
@@ -4663,6 +4761,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (isDevConsoleEnabled() && isViteSourcePath(pathname)) {
+      proxyToVite(req, res, req.url || pathname);
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
@@ -4682,6 +4785,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (isConsoleSpaPath(pathname)) {
+      if (isDevConsoleEnabled()) {
+        proxyToVite(req, res, '/');
+        return;
+      }
       if (serveConsoleIndex(res)) return;
       sendText(
         res,
@@ -4704,6 +4811,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
+      if (isDevConsoleEnabled()) {
+        proxyViteUpgrade(req, socket, head);
+        return;
+      }
       writeUpgradeError(socket, 404, 'Not Found');
       return;
     }
