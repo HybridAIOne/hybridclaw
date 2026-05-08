@@ -50,7 +50,22 @@ function normalizeUrlPrefix(raw: string): string {
   parsed.search = '';
   parsed.hash = '';
   const pathname = parsed.pathname || '/';
-  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
+  let trimmedPathname = pathname;
+  while (trimmedPathname.endsWith('/')) {
+    trimmedPathname = trimmedPathname.slice(0, -1);
+  }
+  if (!trimmedPathname) {
+    parsed.pathname = '/';
+    return parsed.toString();
+  }
+  const lastSegment = trimmedPathname.slice(
+    trimmedPathname.lastIndexOf('/') + 1,
+  );
+  const extensionIndex = lastSegment.lastIndexOf('.');
+  const extension =
+    extensionIndex > 0 ? lastSegment.slice(extensionIndex + 1) : '';
+  const hasFileExtension = /^[A-Za-z][A-Za-z0-9]{0,9}$/.test(extension);
+  parsed.pathname = hasFileExtension ? trimmedPathname : `${trimmedPathname}/`;
   return parsed.toString();
 }
 

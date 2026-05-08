@@ -8009,7 +8009,7 @@ describe('gateway HTTP server', () => {
       tools.httpRequest = {
         authRules: [
           {
-            urlPrefix: 'https://hybridai.one/v1/',
+            urlPrefix: 'https://hybridai.one/v1/completions/',
             header: 'Authorization',
             prefix: 'Bearer',
             secret: { source: 'store', id: 'HYBRIDAI_API_KEY' },
