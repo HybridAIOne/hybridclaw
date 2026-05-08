@@ -485,5 +485,19 @@ describe('Composer', () => {
       fireEvent.keyDown(textarea, { key: 'Enter', isComposing: true });
       expect(textarea.value).toBe('/');
     });
+
+    it('treats keyCode 229 as composing (Safari/WebKit fallback)', () => {
+      const onSend = vi.fn();
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: 'こん' } });
+      // Safari fires the confirm-Enter with isComposing: false but keyCode 229.
+      fireEvent.keyDown(textarea, {
+        key: 'Enter',
+        isComposing: false,
+        keyCode: 229,
+      });
+      expect(onSend).not.toHaveBeenCalled();
+    });
   });
 });
