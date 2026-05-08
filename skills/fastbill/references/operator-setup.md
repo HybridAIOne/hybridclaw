@@ -2,13 +2,15 @@
 
 ## API Endpoint
 
-The classic FastBill API uses a central service URL:
+The classic FastBill API uses this central service URL:
 
 ```text
-https://my.fastbill.com/api/1.0/
+https://my.fastbill.com/api/1.0/api.php
 ```
 
-Requests are POST requests with an XML body containing `FBAPI`, `SERVICE`,
+The HybridClaw secret route uses the parent prefix `https://my.fastbill.com/api/1.0/`
+so header injection matches this exact endpoint. Requests are POST requests with
+an XML body containing `FBAPI`, `SERVICE`,
 `FILTER`, and/or `DATA` elements.
 
 ## Authentication
