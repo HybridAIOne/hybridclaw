@@ -5,7 +5,7 @@
 The classic FastBill API uses a central service URL:
 
 ```text
-https://my.fastbill.com/api/1.0/api.php
+https://my.fastbill.com/api/1.0/
 ```
 
 Requests are POST requests with an XML body containing `FBAPI`, `SERVICE`,
@@ -24,7 +24,7 @@ hybridclaw secret set FASTBILL_EMAIL you@example.com
 hybridclaw secret set FASTBILL_API_KEY <fastbill-api-key>
 printf '%s:%s' "$FASTBILL_EMAIL" "$FASTBILL_API_KEY" | base64
 hybridclaw secret set FASTBILL_BASIC_AUTH <base64-output>
-hybridclaw secret route add https://my.fastbill.com/api/1.0/api.php FASTBILL_BASIC_AUTH Authorization Basic
+hybridclaw secret route add https://my.fastbill.com/api/1.0/ FASTBILL_BASIC_AUTH Authorization Basic
 ```
 
 The helper uses only the derived `FASTBILL_BASIC_AUTH` route because HTTP Basic
