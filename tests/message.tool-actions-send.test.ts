@@ -497,6 +497,19 @@ test('send action rejects Threema attachments explicitly', async () => {
   expect(state.runDiscordToolAction).not.toHaveBeenCalled();
 });
 
+test('send action requires text content for Threema targets', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'threema:ABCDEFGH',
+    }),
+  ).rejects.toThrow('content is required for Threema sends.');
+  expect(state.sendToThreemaChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
 test('send action queues local targets like tui', async () => {
   const state = await importFreshMessageToolActions();
 

@@ -49,6 +49,9 @@ function resolveDeliveryConfig(): ThreemaDeliveryConfig {
   const config = getConfigSnapshot().threema;
   const identity = String(config?.identity || '').trim();
   const secret = String(THREEMA_GATEWAY_SECRET || config?.secret || '').trim();
+  if (!config?.enabled || config?.dmPolicy === 'disabled') {
+    throw new Error('Threema channel is disabled.');
+  }
   if (!identity) {
     throw new Error('Threema Gateway identity is not configured.');
   }

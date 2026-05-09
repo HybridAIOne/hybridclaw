@@ -1054,10 +1054,15 @@ async function sendProactiveMessageNow(
   if (isThreemaChannelId(channelId)) {
     const threemaConfig = getConfigSnapshot().threema;
     const hasSecret = hasThreemaGatewaySecret();
-    if (!threemaConfig.enabled || !threemaConfig.identity || !hasSecret) {
+    if (
+      !threemaConfig.enabled ||
+      threemaConfig.dmPolicy === 'disabled' ||
+      !threemaConfig.identity ||
+      !hasSecret
+    ) {
       logger.info(
         { source, channelId, text, artifactCount: attachments.length },
-        'Proactive Threema message suppressed: Threema channel is not configured',
+        'Proactive Threema message suppressed: Threema channel is not configured or is disabled',
       );
       return;
     }

@@ -49,8 +49,7 @@ available in the Basic-mode integration.
 - `threema.apiBaseUrl`: Threema Gateway API base URL.
 - `threema.identity`: Gateway sender ID.
 - `threema.secret`: Gateway secret or a runtime secret reference.
-- `threema.dmPolicy`: reserved for future inbound policy; keep `allowlist` or
-  `disabled` unless inbound support is added.
+- `threema.dmPolicy`: outbound availability switch for this Basic-mode channel; use `allowlist` to allow sends or `disabled` to keep the transport off.
 - `threema.allowFrom`: reserved allowlist for future inbound support.
 - `threema.textChunkLimit`: maximum outbound text chunk size.
 - `threema.outboundDelayMs`: delay between chunked messages.
