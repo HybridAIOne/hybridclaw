@@ -275,3 +275,31 @@ test('unsubscribing stops queued judge work and suppresses sink delivery', async
   expect(modelCaller).toHaveBeenCalledTimes(1);
   expect(sink).not.toHaveBeenCalled();
 });
+
+test('registerJudgeSubscriber rejects invalid queue settings at registration', async () => {
+  const { registerJudgeSubscriber } = await import(
+    '../src/evals/judge-subscriber.js'
+  );
+  const input = {
+    filter: () => true,
+    criteria: 'Judge invalid config.',
+    sink: vi.fn(),
+    judgeOptions: {
+      model: 'judge-json-model',
+      modelCaller: vi.fn(),
+    },
+  };
+
+  expect(() =>
+    registerJudgeSubscriber({
+      ...input,
+      debounceMs: Number.NaN,
+    }),
+  ).toThrow('Judge subscriber debounceMs must be a non-negative number.');
+  expect(() =>
+    registerJudgeSubscriber({
+      ...input,
+      maxQueueSize: 0,
+    }),
+  ).toThrow('Judge subscriber maxQueueSize must be a positive number.');
+});

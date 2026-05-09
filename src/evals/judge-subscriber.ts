@@ -9,6 +9,7 @@ import {
   type JudgeTraceResult,
   judgeTrace,
 } from './trace-judge.js';
+import { normalizePositiveInteger } from './trace-preparation.js';
 
 export type JudgeSubscriberFilter =
   | ((event: SkillRunEvent) => boolean)
@@ -19,19 +20,26 @@ export type JudgeSubscriberFilter =
       outcome?: SkillExecutionOutcome | readonly SkillExecutionOutcome[];
     };
 
-export type JudgeSubscriberStringMatcher = string | RegExp | readonly string[];
+export type JudgeSubscriberStringMatcher = string | RegExp;
 
 export type JudgeSubscriberNullableStringMatcher =
   JudgeSubscriberStringMatcher | null;
 
+export type JudgeSubscriberStaticCriteria =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | Record<string, unknown>;
+
 export type JudgeSubscriberCriteria =
-  | unknown
+  | JudgeSubscriberStaticCriteria
   | ((event: SkillRunEvent) => unknown | Promise<unknown>);
 
 export interface JudgeSubscriberBudget {
   /** Chargeback agent id for the feature consuming this judge subscription. */
   agentId: string | ((event: SkillRunEvent) => string | null | undefined);
-  sessionId?: string | ((event: SkillRunEvent) => string | null | undefined);
 }
 
 export interface JudgeSubscriberSinkPayload {
@@ -55,13 +63,17 @@ export interface RegisterJudgeSubscriberInput {
   judgeOptions?: Omit<JudgeTraceOptions, 'usageContext'> & {
     usageContext?: never;
   };
+  /** Debounce window for bursty skill_run events; useful in tests and low-latency consumers. */
   debounceMs?: number;
+  /** Per-subscriber bounded backlog to prevent judge work from growing without limit. */
   maxQueueSize?: number;
 }
 
 interface ActiveJudgeSubscriber {
   id: string;
   input: RegisterJudgeSubscriberInput;
+  debounceMs: number;
+  maxQueueSize: number;
   pending: SkillRunEvent[];
   timer: NodeJS.Timeout | null;
   work: Promise<void>;
@@ -71,6 +83,7 @@ interface ActiveJudgeSubscriber {
 
 const DEFAULT_DEBOUNCE_MS = 250;
 const DEFAULT_MAX_QUEUE_SIZE = 100;
+const MAX_IDLE_FLUSH_ITERATIONS = 100;
 
 const activeSubscribers = new Set<ActiveJudgeSubscriber>();
 let nextSubscriberNumber = 1;
@@ -79,9 +92,17 @@ export function registerJudgeSubscriber(
   input: RegisterJudgeSubscriberInput,
 ): () => void {
   const id = normalizeSubscriberId(input.id);
+  const maxQueueSize = normalizePositiveInteger(
+    input.maxQueueSize,
+    DEFAULT_MAX_QUEUE_SIZE,
+    'Judge subscriber maxQueueSize',
+  );
+  const debounceMs = normalizeDebounceMs(input.debounceMs);
   const subscriber: ActiveJudgeSubscriber = {
     id,
     input,
+    debounceMs,
+    maxQueueSize,
     pending: [],
     timer: null,
     work: Promise.resolve(),
@@ -95,6 +116,8 @@ export function registerJudgeSubscriber(
   activeSubscribers.add(subscriber);
 
   return () => {
+    // In-flight judgeTrace calls cannot be aborted yet; unsubscribe prevents
+    // queued work and sink delivery after the current awaited step completes.
     subscriber.stopped = true;
     subscriber.unsubscribe();
     if (subscriber.timer) clearTimeout(subscriber.timer);
@@ -126,18 +149,14 @@ function enqueueJudgeSubscriberEvent(
     return;
   }
 
-  const maxQueueSize = normalizePositiveInteger(
-    subscriber.input.maxQueueSize,
-    DEFAULT_MAX_QUEUE_SIZE,
-  );
-  if (subscriber.pending.length >= maxQueueSize) {
+  if (subscriber.pending.length >= subscriber.maxQueueSize) {
     logger.warn(
       {
         subscriberId: subscriber.id,
         sessionId: event.session_id,
         runId: event.run_id,
         skillId: event.skill_id,
-        maxQueueSize,
+        maxQueueSize: subscriber.maxQueueSize,
       },
       'Judge subscriber queue full, dropping skill_run event',
     );
@@ -150,14 +169,10 @@ function enqueueJudgeSubscriberEvent(
 
 function scheduleJudgeSubscriberDrain(subscriber: ActiveJudgeSubscriber): void {
   if (subscriber.timer) clearTimeout(subscriber.timer);
-  const debounceMs = normalizeNonNegativeInteger(
-    subscriber.input.debounceMs,
-    DEFAULT_DEBOUNCE_MS,
-  );
   subscriber.timer = setTimeout(() => {
     subscriber.timer = null;
     void drainJudgeSubscriber(subscriber);
-  }, debounceMs);
+  }, subscriber.debounceMs);
   if (typeof subscriber.timer.unref === 'function') {
     subscriber.timer.unref();
   }
@@ -166,7 +181,14 @@ function scheduleJudgeSubscriberDrain(subscriber: ActiveJudgeSubscriber): void {
 async function flushJudgeSubscriber(
   subscriber: ActiveJudgeSubscriber,
 ): Promise<void> {
+  let iterations = 0;
   while (!subscriber.stopped) {
+    iterations += 1;
+    if (iterations > MAX_IDLE_FLUSH_ITERATIONS) {
+      throw new Error(
+        `Judge subscriber ${subscriber.id} did not become idle after ${MAX_IDLE_FLUSH_ITERATIONS} flush iterations.`,
+      );
+    }
     if (subscriber.timer) clearTimeout(subscriber.timer);
     subscriber.timer = null;
     if (subscriber.pending.length === 0) {
@@ -203,16 +225,16 @@ async function runJudgeSubscriberEvent(
 ): Promise<void> {
   try {
     if (subscriber.stopped) return;
-    const criteria = await resolveJudgeSubscriberCriteria(
-      subscriber.input.criteria,
-      event,
-    );
+    const criteria =
+      typeof subscriber.input.criteria === 'function'
+        ? await subscriber.input.criteria(event)
+        : subscriber.input.criteria;
     if (subscriber.stopped) return;
     const judgedAt = new Date().toISOString();
     const result = await judgeTrace(event, criteria, {
       ...subscriber.input.judgeOptions,
       usageContext: {
-        sessionId: resolveBudgetSessionId(subscriber, event),
+        sessionId: event.session_id,
         agentId: resolveBudgetAgentId(subscriber, event),
         timestamp: judgedAt,
       },
@@ -250,16 +272,6 @@ function resolveBudgetAgentId(
   return budgetAgentId || `judge-subscriber:${subscriber.id}`;
 }
 
-function resolveBudgetSessionId(
-  subscriber: ActiveJudgeSubscriber,
-  event: SkillRunEvent,
-): string {
-  return (
-    resolveBudgetValue(subscriber.input.budget?.sessionId, event) ||
-    event.session_id
-  );
-}
-
 function resolveBudgetValue(
   value:
     | string
@@ -273,61 +285,37 @@ function resolveBudgetValue(
   return trimmed || null;
 }
 
-async function resolveJudgeSubscriberCriteria(
-  criteria: JudgeSubscriberCriteria,
-  event: SkillRunEvent,
-): Promise<unknown> {
-  if (typeof criteria === 'function') {
-    return await criteria(event);
-  }
-  return criteria;
-}
-
 function matchesJudgeSubscriberFilter(
   subscriber: ActiveJudgeSubscriber,
   event: SkillRunEvent,
 ): boolean {
-  try {
-    const filter = subscriber.input.filter;
-    if (typeof filter === 'function') return filter(event);
-    if (
-      filter.skillId !== undefined &&
-      !matchesString(filter.skillId, event.skill_id)
-    ) {
-      return false;
-    }
-    if (
-      filter.agentId !== undefined &&
-      !matchesNullableString(filter.agentId, event.agent_id)
-    ) {
-      return false;
-    }
-    if (
-      filter.sessionId !== undefined &&
-      !matchesString(filter.sessionId, event.session_id)
-    ) {
-      return false;
-    }
-    if (
-      filter.outcome !== undefined &&
-      !matchesOutcome(filter.outcome, event.outcome)
-    ) {
-      return false;
-    }
-    return true;
-  } catch (error) {
-    logger.warn(
-      {
-        subscriberId: subscriber.id,
-        sessionId: event.session_id,
-        runId: event.run_id,
-        skillId: event.skill_id,
-        error,
-      },
-      'Judge subscriber filter failed for skill_run event',
-    );
+  const filter = subscriber.input.filter;
+  if (typeof filter === 'function') return filter(event);
+  if (
+    filter.skillId !== undefined &&
+    !matchesString(filter.skillId, event.skill_id)
+  ) {
     return false;
   }
+  if (
+    filter.agentId !== undefined &&
+    !matchesNullableString(filter.agentId, event.agent_id)
+  ) {
+    return false;
+  }
+  if (
+    filter.sessionId !== undefined &&
+    !matchesString(filter.sessionId, event.session_id)
+  ) {
+    return false;
+  }
+  if (
+    filter.outcome !== undefined &&
+    !matchesOutcome(filter.outcome, event.outcome)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function matchesNullableString(
@@ -343,7 +331,6 @@ function matchesString(
   value: string,
 ): boolean {
   if (typeof matcher === 'string') return matcher === value;
-  if (!(matcher instanceof RegExp)) return matcher.includes(value);
   matcher.lastIndex = 0;
   return matcher.test(value);
 }
@@ -355,22 +342,12 @@ function matchesOutcome(
   return Array.isArray(matcher) ? matcher.includes(value) : matcher === value;
 }
 
-function normalizePositiveInteger(
-  value: number | undefined,
-  fallback: number,
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return fallback;
-  }
-  return Math.floor(value);
-}
-
-function normalizeNonNegativeInteger(
-  value: number | undefined,
-  fallback: number,
-): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    return fallback;
+function normalizeDebounceMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_DEBOUNCE_MS;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(
+      'Judge subscriber debounceMs must be a non-negative number.',
+    );
   }
   return Math.floor(value);
 }
