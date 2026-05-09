@@ -214,6 +214,11 @@ export function Composer(props: {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // While an IME is composing, all keystrokes belong to the IME (typing,
+    // navigating candidates, confirming) — never to the composer UI.
+    // keyCode 229 is the cross-browser fallback: Safari/WebKit fires the
+    // confirming Enter with `isComposing` already false but `keyCode === 229`.
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (panelMode === 'list' && suggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
