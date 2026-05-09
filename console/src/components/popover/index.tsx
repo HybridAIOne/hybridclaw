@@ -86,6 +86,23 @@ export function Popover({
   );
 }
 
+export interface PopoverAnchorProps extends HTMLAttributes<HTMLDivElement> {
+  children: ReactNode;
+}
+
+export function PopoverAnchor({
+  children,
+  className,
+  ...rest
+}: PopoverAnchorProps) {
+  const ctx = usePopoverContext('PopoverAnchor');
+  return (
+    <div ref={ctx.setTriggerEl} className={className} {...rest}>
+      {children}
+    </div>
+  );
+}
+
 export type PopoverAlign = 'start' | 'center' | 'end';
 
 export interface PopoverContentProps extends HTMLAttributes<HTMLDivElement> {

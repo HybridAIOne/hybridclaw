@@ -17,6 +17,13 @@ import {
 } from './webhook-outbound.js';
 
 export const A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE = 60;
+export const A2A_POLICY_AUTHORITY_KINDS = [
+  'platform',
+  'org_admin',
+  'security_team',
+] as const;
+export type A2APolicyAuthorityKind =
+  (typeof A2A_POLICY_AUTHORITY_KINDS)[number];
 
 const TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION = 1;
 const TRUSTED_A2A_PEER_SCHEMA_VERSION = 1;
@@ -41,6 +48,8 @@ export interface A2ATrustedWebhookPeer {
   schemaVersion: typeof TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION;
   peerId: string;
   senderAgentId: string;
+  policyAuthority?: A2APolicyAuthorityKind;
+  capabilities: string[];
   secretRef: SecretRef;
   signatureHeader: string;
   version: string;
@@ -53,6 +62,8 @@ export interface A2ATrustedWebhookPeer {
 export interface UpsertA2ATrustedWebhookPeerInput {
   peerId: string;
   senderAgentId: string;
+  policyAuthority?: string;
+  capabilities?: string[];
   secretRef: SecretRef;
   signatureHeader?: string;
   version?: string;
@@ -172,6 +183,36 @@ function parseTimestampOr(value: unknown, fallback: string): string {
   return typeof value === 'string' && value ? value : fallback;
 }
 
+function normalizeCapabilities(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value
+        .map((entry) =>
+          String(entry || '')
+            .trim()
+            .toLowerCase(),
+        )
+        .filter(Boolean),
+    ),
+  ].sort();
+}
+
+function normalizePolicyAuthority(
+  value: unknown,
+): A2APolicyAuthorityKind | undefined {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  if (
+    A2A_POLICY_AUTHORITY_KINDS.includes(normalized as A2APolicyAuthorityKind)
+  ) {
+    return normalized as A2APolicyAuthorityKind;
+  }
+  return undefined;
+}
+
 function normalizeWebhookVersion(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') {
@@ -222,6 +263,10 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
       schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
       peerId: normalizeA2APeerId(parsed.peerId),
       senderAgentId: normalizeSenderAgentId(parsed.senderAgentId),
+      ...(normalizePolicyAuthority(parsed.policyAuthority)
+        ? { policyAuthority: normalizePolicyAuthority(parsed.policyAuthority) }
+        : {}),
+      capabilities: normalizeCapabilities(parsed.capabilities),
       secretRef: webhookConfig.secretRef,
       signatureHeader: webhookConfig.signatureHeader,
       version: webhookConfig.version,
@@ -272,6 +317,10 @@ export function upsertA2ATrustedWebhookPeer(
     schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
     peerId,
     senderAgentId: normalizeSenderAgentId(input.senderAgentId),
+    ...(normalizePolicyAuthority(input.policyAuthority)
+      ? { policyAuthority: normalizePolicyAuthority(input.policyAuthority) }
+      : {}),
+    capabilities: normalizeCapabilities(input.capabilities),
     secretRef: webhookConfig.secretRef,
     signatureHeader: webhookConfig.signatureHeader,
     version: webhookConfig.version,

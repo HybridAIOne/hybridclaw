@@ -129,6 +129,7 @@ import {
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -219,6 +220,7 @@ import {
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
+import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   allowHttpSecretRouteInWorkspacePolicy,
   captureHttpSecretRoutePolicySnapshot,
@@ -3381,29 +3383,6 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
-function normalizeUrlPrefix(raw: string): string {
-  const value = String(raw || '').trim();
-  if (!value) {
-    throw new Error('URL prefix is required.');
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Invalid URL prefix: ${value}`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
-  }
-  parsed.username = '';
-  parsed.password = '';
-  parsed.search = '';
-  parsed.hash = '';
-  const pathname = parsed.pathname || '/';
-  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
-  return parsed.toString();
-}
-
 function normalizeSecretRouteHeader(raw: string | undefined): string {
   const header = String(raw || 'Authorization').trim();
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(header)) {
@@ -6283,7 +6262,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
       channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled: isFullAutoEnabled(session),
-      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
+      fullAutoNeverApproveTools: [
+        ...FULLAUTO_NEVER_APPROVE_TOOLS,
+        ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
+      ],
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
@@ -9118,7 +9100,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               if (
                 isGoogleOAuthSecretRef(secret) &&
                 !isGoogleApisUrlPrefix(urlPrefix)
@@ -9187,7 +9170,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               const header = rawHeader
                 ? normalizeSecretRouteHeader(rawHeader)
                 : '';

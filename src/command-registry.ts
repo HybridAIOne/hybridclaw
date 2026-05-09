@@ -231,7 +231,8 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Show context window usage and compaction headroom',
   },
   policy: {
-    command: '/policy [status|list|allow|deny|delete|preset|default|reset]',
+    command:
+      '/policy [status|show|list|diff|accept-pending|rollback|revisions|pending|allow|deny|delete|preset|default|reset]',
     description: 'Inspect or update workspace HTTP/network policy',
   },
   export: {

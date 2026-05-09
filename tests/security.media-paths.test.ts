@@ -25,6 +25,7 @@ function buildParams(
   overrides: Partial<{
     rawPath: string;
     workspaceRoot: string;
+    workspaceRootDisplay: string;
     mediaCacheRoot: string;
     uploadedMediaRoot: string;
     mountAliases: ValidatedMountAlias[];
@@ -39,7 +40,7 @@ function buildParams(
   return {
     rawPath: overrides.rawPath || '',
     workspaceRoot,
-    workspaceRootDisplay: '/workspace',
+    workspaceRootDisplay: overrides.workspaceRootDisplay || '/workspace',
     mediaCacheRoot,
     mediaCacheRootDisplay: '/discord-media-cache',
     uploadedMediaRoot,
@@ -140,6 +141,40 @@ test('allows explicit host absolute paths when host mode is enabled', async () =
     buildParams({
       rawPath: filePath,
       workspaceRoot,
+      allowHostAbsolutePaths: true,
+    }),
+  );
+
+  expect(resolved).toBe(canonicalPath(filePath));
+});
+
+test('allows host absolute paths inside uploaded-media root that share workspace display prefix', async () => {
+  // Repro for host-sandbox-mode: runtime path is the real host path
+  // (e.g. /workspace/.data/data/uploaded-media-cache/foo.ogg) and happens to
+  // share a leading segment with workspaceRootDisplay ('/workspace'). The
+  // display-to-host resolver must not greedily reinterpret a real host path
+  // as a workspace display URI.
+  const sharedPrefix = makeTempDir('hc-shared-prefix-');
+  const workspaceRoot = path.join(sharedPrefix, 'workspace');
+  const uploadedMediaRoot = path.join(
+    sharedPrefix,
+    '.data',
+    'data',
+    'uploaded-media-cache',
+  );
+  fs.mkdirSync(workspaceRoot, { recursive: true });
+  fs.mkdirSync(uploadedMediaRoot, { recursive: true });
+  const filePath = writeFile(uploadedMediaRoot, '2026-05-07/voice-note.ogg');
+
+  const resolved = await resolveAllowedHostMediaPath(
+    buildParams({
+      rawPath: filePath,
+      workspaceRoot,
+      // Display prefix shares an ancestor with uploadedMediaRoot — same pattern
+      // as the real container where workspaceRootDisplay is '/workspace' and
+      // uploadedMediaRoot is '/workspace/.data/data/uploaded-media-cache'.
+      workspaceRootDisplay: sharedPrefix,
+      uploadedMediaRoot,
       allowHostAbsolutePaths: true,
     }),
   );

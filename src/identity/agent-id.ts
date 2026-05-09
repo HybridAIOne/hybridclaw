@@ -57,6 +57,12 @@ function normalizeAgentIdentityComponent(value: string): string {
   return value.trim().toLowerCase();
 }
 
+export function isAgentIdentityComponent(value: string): boolean {
+  return AGENT_IDENTITY_COMPONENT_PATTERN.test(
+    normalizeAgentIdentityComponent(value),
+  );
+}
+
 function validateAgentIdentityComponent(
   label: 'agent slug' | 'user slug' | 'instance id',
   value: string,
@@ -132,10 +138,7 @@ export function parseAgentIdentity(value: string): ParsedAgentIdentity {
 
 export function isCanonicalAgentIdentity(value: string): boolean {
   const parts = value.trim().toLowerCase().split('@');
-  return (
-    parts.length === 3 &&
-    parts.every((part) => AGENT_IDENTITY_COMPONENT_PATTERN.test(part))
-  );
+  return parts.length === 3 && parts.every(isAgentIdentityComponent);
 }
 
 export function slugifyAgentIdentityComponent(
