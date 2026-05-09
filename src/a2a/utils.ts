@@ -11,11 +11,12 @@ export function normalizeTransportString(transport: string): string {
 }
 
 export function normalizePositiveInteger(
-  value: number | undefined,
+  value: unknown,
   fallback: number,
 ): number {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.max(1, Math.trunc(value as number));
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : fallback;
 }
 
 export function isLoopbackHostname(hostname: string): boolean {

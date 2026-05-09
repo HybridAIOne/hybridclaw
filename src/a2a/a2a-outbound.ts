@@ -13,8 +13,11 @@ import type {
 
 export { A2A_AGENT_CARD_CACHE_TTL_MS } from './a2a-agent-card.js';
 export {
+  A2A_AGENT_CARD_READ_SCOPE,
+  A2A_MESSAGE_SEND_SCOPE,
   A2A_RETRY_BASE_DELAY_MS,
   A2A_RETRY_MAX_DELAY_MS,
+  A2A_TASK_SEND_SCOPE,
   type A2AOutboxProcessOptions,
 } from './a2a-outbox-delivery.js';
 export {
@@ -33,6 +36,18 @@ export {
   startA2AOutboxProcessor,
   stopA2AOutboxProcessor,
 } from './a2a-outbox-processor.js';
+export {
+  A2A_DELEGATION_TOKEN_TTL_SECONDS,
+  type A2ADelegationTokenClaims,
+  A2ADelegationTokenError,
+  type A2ADelegationTokenKeyPair,
+  decodeA2ADelegationTokenClaims,
+  getOrCreateA2ADelegationTokenKeyPair,
+  isA2ADelegationTokenRevoked,
+  revokeA2ADelegationTokenId,
+  signA2ADelegationToken,
+  verifyA2ADelegationToken,
+} from './delegation-token.js';
 
 export class A2AOutboundAdapter implements TransportAdapter<A2AOutboxItem> {
   readonly transport = 'a2a' as const;

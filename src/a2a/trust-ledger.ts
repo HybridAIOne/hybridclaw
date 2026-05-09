@@ -1,3 +1,4 @@
+import { createPublicKey } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -8,6 +9,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
+import { normalizePositiveInteger } from './utils.js';
 import {
   WEBHOOK_BODY_VERSION,
   WEBHOOK_REPLAY_WINDOW_MS,
@@ -24,13 +26,23 @@ export type A2APolicyAuthorityKind =
   (typeof A2A_POLICY_AUTHORITY_KINDS)[number];
 
 const TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION = 1;
+const TRUSTED_A2A_PEER_SCHEMA_VERSION = 1;
 const TRUSTED_WEBHOOK_PEER_ASSET_PREFIX = path.join(
   DEFAULT_RUNTIME_HOME_DIR,
   'a2a',
   'trust-ledger',
   'webhook',
 );
+const TRUSTED_A2A_PEER_ASSET_PREFIX = path.join(
+  DEFAULT_RUNTIME_HOME_DIR,
+  'a2a',
+  'trust-ledger',
+  'a2a',
+);
 const PEER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const EPOCH_ISO = new Date(0).toISOString();
+
+let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
 
 export interface A2ATrustedWebhookPeer {
   schemaVersion: typeof TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION;
@@ -59,6 +71,21 @@ export interface UpsertA2ATrustedWebhookPeerInput {
   rateLimitPerMinute?: number;
 }
 
+export interface A2ATrustedA2APeer {
+  schemaVersion: typeof TRUSTED_A2A_PEER_SCHEMA_VERSION;
+  peerId: string;
+  senderAgentId: string;
+  publicKeyPem: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertA2ATrustedA2APeerInput {
+  peerId: string;
+  senderAgentId: string;
+  publicKeyPem: string;
+}
+
 export function normalizeA2APeerId(peerId: string): string {
   const normalized = peerId.trim();
   if (!PEER_ID_PATTERN.test(normalized)) {
@@ -69,15 +96,16 @@ export function normalizeA2APeerId(peerId: string): string {
   return normalized;
 }
 
-function normalizePositiveInteger(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-    ? value
-    : fallback;
-}
-
 function trustedWebhookPeerAssetPath(peerId: string): string {
   return path.join(
     TRUSTED_WEBHOOK_PEER_ASSET_PREFIX,
+    `${encodeURIComponent(normalizeA2APeerId(peerId))}.json`,
+  );
+}
+
+function trustedA2APeerAssetPath(peerId: string): string {
+  return path.join(
+    TRUSTED_A2A_PEER_ASSET_PREFIX,
     `${encodeURIComponent(normalizeA2APeerId(peerId))}.json`,
   );
 }
@@ -90,6 +118,31 @@ function normalizeSenderAgentId(senderAgentId: string): string {
   throw new A2AEnvelopeValidationError([
     'senderAgentId must be a local agent id or canonical agent id (agent-slug@user@instance-id)',
   ]);
+}
+
+function normalizeCanonicalSenderAgentId(senderAgentId: string): string {
+  const normalized = normalizeSenderAgentId(senderAgentId);
+  if (classifyA2AAgentId(normalized) !== 'canonical') {
+    throw new A2AEnvelopeValidationError([
+      'senderAgentId must be a canonical agent id (agent-slug@user@instance-id)',
+    ]);
+  }
+  return normalized.toLowerCase();
+}
+
+function normalizePublicKeyPem(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new A2AEnvelopeValidationError(['publicKeyPem is required']);
+  }
+  try {
+    return createPublicKey(value)
+      .export({ format: 'pem', type: 'spki' })
+      .toString();
+  } catch {
+    throw new A2AEnvelopeValidationError([
+      'publicKeyPem must be a valid public key',
+    ]);
+  }
 }
 
 function normalizeSecretRef(value: unknown): SecretRef {
@@ -124,6 +177,10 @@ function normalizeOptionalHttpHeaderName(value: unknown): string | undefined {
     ]);
   }
   return normalized;
+}
+
+function parseTimestampOr(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value ? value : fallback;
 }
 
 function normalizeCapabilities(value: unknown): string[] {
@@ -221,14 +278,27 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
         parsed.rateLimitPerMinute,
         A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE,
       ),
-      createdAt:
-        typeof parsed.createdAt === 'string' && parsed.createdAt
-          ? parsed.createdAt
-          : new Date(0).toISOString(),
-      updatedAt:
-        typeof parsed.updatedAt === 'string' && parsed.updatedAt
-          ? parsed.updatedAt
-          : new Date(0).toISOString(),
+      createdAt: parseTimestampOr(parsed.createdAt, EPOCH_ISO),
+      updatedAt: parseTimestampOr(parsed.updatedAt, EPOCH_ISO),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseTrustedA2APeer(raw: string): A2ATrustedA2APeer | null {
+  try {
+    const parsed = JSON.parse(raw) as A2ATrustedA2APeer;
+    if (parsed.schemaVersion !== TRUSTED_A2A_PEER_SCHEMA_VERSION) {
+      return null;
+    }
+    return {
+      schemaVersion: TRUSTED_A2A_PEER_SCHEMA_VERSION,
+      peerId: normalizeA2APeerId(parsed.peerId),
+      senderAgentId: normalizeCanonicalSenderAgentId(parsed.senderAgentId),
+      publicKeyPem: normalizePublicKeyPem(parsed.publicKeyPem),
+      createdAt: parseTimestampOr(parsed.createdAt, EPOCH_ISO),
+      updatedAt: parseTimestampOr(parsed.updatedAt, EPOCH_ISO),
     };
   } catch {
     return null;
@@ -280,6 +350,37 @@ export function upsertA2ATrustedWebhookPeer(
   return peer;
 }
 
+export function upsertA2ATrustedA2APeer(
+  input: UpsertA2ATrustedA2APeerInput,
+  now = new Date(),
+): A2ATrustedA2APeer {
+  const peerId = normalizeA2APeerId(input.peerId);
+  const existing = getA2ATrustedA2APeer(peerId);
+  const updatedAt = now.toISOString();
+  const peer: A2ATrustedA2APeer = {
+    schemaVersion: TRUSTED_A2A_PEER_SCHEMA_VERSION,
+    peerId,
+    senderAgentId: normalizeCanonicalSenderAgentId(input.senderAgentId),
+    publicKeyPem: normalizePublicKeyPem(input.publicKeyPem),
+    createdAt: existing?.createdAt || updatedAt,
+    updatedAt,
+  };
+  syncRuntimeAssetRevisionState(
+    'a2a',
+    trustedA2APeerAssetPath(peerId),
+    {
+      route: `a2a.trust-ledger.a2a#${peerId}`,
+      source: 'a2a-trust-ledger',
+    },
+    {
+      exists: true,
+      content: JSON.stringify(peer),
+    },
+  );
+  trustedA2APeersBySenderCache = null;
+  return peer;
+}
+
 export function getA2ATrustedWebhookPeer(
   peerId: string,
 ): A2ATrustedWebhookPeer | null {
@@ -290,6 +391,14 @@ export function getA2ATrustedWebhookPeer(
   return state ? parseTrustedWebhookPeer(state.content) : null;
 }
 
+export function getA2ATrustedA2APeer(peerId: string): A2ATrustedA2APeer | null {
+  const state = getRuntimeAssetRevisionState(
+    'a2a',
+    trustedA2APeerAssetPath(peerId),
+  );
+  return state ? parseTrustedA2APeer(state.content) : null;
+}
+
 export function listA2ATrustedWebhookPeers(): A2ATrustedWebhookPeer[] {
   return listRuntimeAssetRevisionStates('a2a', {
     assetPathPrefix: TRUSTED_WEBHOOK_PEER_ASSET_PREFIX,
@@ -297,4 +406,29 @@ export function listA2ATrustedWebhookPeers(): A2ATrustedWebhookPeer[] {
     .map((state) => parseTrustedWebhookPeer(state.content))
     .filter((peer): peer is A2ATrustedWebhookPeer => peer !== null)
     .sort((left, right) => left.peerId.localeCompare(right.peerId));
+}
+
+export function listA2ATrustedA2APeers(): A2ATrustedA2APeer[] {
+  return listRuntimeAssetRevisionStates('a2a', {
+    assetPathPrefix: TRUSTED_A2A_PEER_ASSET_PREFIX,
+  })
+    .map((state) => parseTrustedA2APeer(state.content))
+    .filter((peer): peer is A2ATrustedA2APeer => peer !== null)
+    .sort((left, right) => left.peerId.localeCompare(right.peerId));
+}
+
+function trustedA2APeersBySender(): Map<string, A2ATrustedA2APeer> {
+  if (trustedA2APeersBySenderCache) return trustedA2APeersBySenderCache;
+  trustedA2APeersBySenderCache = new Map(
+    listA2ATrustedA2APeers().map((peer) => [peer.senderAgentId, peer]),
+  );
+  return trustedA2APeersBySenderCache;
+}
+
+export function getA2ATrustedA2APeerBySender(
+  senderAgentId: string,
+): A2ATrustedA2APeer | null {
+  const normalizedSenderAgentId =
+    normalizeCanonicalSenderAgentId(senderAgentId);
+  return trustedA2APeersBySender().get(normalizedSenderAgentId) ?? null;
 }

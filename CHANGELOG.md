@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- **A2A delegation bearer auth**: Outbound A2A uses signed delegation JWTs as
+  the HTTP bearer credential. `bearerTokenRef` remains a required explicit
+  opt-in gate for non-loopback peer URLs, but its secret value is not sent on
+  the wire.
+
+### Fixed
+
+- **A2A delegation revocation cleanup**: Expired delegation-token revocation
+  records are pruned when new revocations are written, preventing stale
+  short-lived token revocations from accumulating indefinitely.
+
 ## [0.16.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.16.0) - 2026-05-07
 
 ### Added
