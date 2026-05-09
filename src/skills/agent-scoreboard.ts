@@ -1,5 +1,8 @@
 import { displayNameForAgent, listAgents } from '../agents/agent-registry.js';
-import { getAgentSkillScores } from '../memory/db.js';
+import {
+  getAgentSkillScores,
+  getWeeklyAgentAnomalyRollups,
+} from '../memory/db.js';
 import type {
   AgentScoreboardEntry,
   AgentSkillScore,
@@ -100,6 +103,9 @@ function summarizeScores(scores: AgentSkillScore[]): {
 
 export function getAgentScoreboard(): AgentScoreboardEntry[] {
   const scores = getAgentSkillScores();
+  const anomalyRollups = new Map(
+    getWeeklyAgentAnomalyRollups().map((rollup) => [rollup.agent_id, rollup]),
+  );
   const scoresByAgent = new Map<string, AgentSkillScore[]>();
   for (const score of scores) {
     const existing = scoresByAgent.get(score.agent_id) || [];
@@ -107,12 +113,19 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
     scoresByAgent.set(score.agent_id, existing);
   }
 
-  return [...scoresByAgent.entries()]
-    .map(([agentId, agentScores]) => {
+  const agentIds = new Set([...scoresByAgent.keys(), ...anomalyRollups.keys()]);
+
+  return [...agentIds]
+    .map((agentId) => {
+      const agentScores = scoresByAgent.get(agentId) || [];
       const summary = summarizeScores(agentScores);
+      const anomalyRollup = anomalyRollups.get(agentId);
+      const flagged = anomalyRollup?.flagged ?? 0;
+      const confirmedNormal = anomalyRollup?.confirmed_normal ?? 0;
+      const displayName = displayNameForAgent(agentId);
       return {
         agent_id: agentId,
-        display_name: displayNameForAgent(agentId),
+        display_name: displayName,
         total_executions: summary.totalExecutions,
         success_rate: summary.successRate,
         avg_score: summary.avgScore,
@@ -122,6 +135,12 @@ export function getAgentScoreboard(): AgentScoreboardEntry[] {
         best_skills: [...agentScores].sort(compareBestSkills).slice(0, 5),
         last_observed_at: summary.lastObservedAt,
         cv_path: cvPathForAgent(agentId),
+        weekly_anomalies_flagged: flagged,
+        weekly_anomalies_confirmed_normal: confirmedNormal,
+        weekly_anomaly_summary:
+          flagged > 0
+            ? `${displayName}: ${flagged} anomalies flagged this week, ${confirmedNormal} confirmed normal`
+            : `${displayName}: 0 anomalies flagged this week`,
       };
     })
     .sort(

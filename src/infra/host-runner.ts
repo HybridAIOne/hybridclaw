@@ -59,6 +59,7 @@ import {
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
+import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
@@ -665,6 +666,8 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     SEARXNG_BASE_URL: WEB_SEARCH_SEARXNG_BASE_URL,
     HYBRIDCLAW_AGENT_ID: agentId,
+    HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
+      ensureBehaviorAnomalyTrajectoryStoreDir(),
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',

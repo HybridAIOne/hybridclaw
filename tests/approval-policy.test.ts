@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-
 import {
   type ApprovalRuleHookEvent,
   approvalRules,
@@ -17,6 +17,7 @@ import {
   type ToolCallContextHelpers,
   TrustedAgentApprovalRuntime,
 } from '../container/src/approval-policy.js';
+import { BehaviorAnomalyReranker } from '../container/src/behavior-anomaly.js';
 import type { StakesScore } from '../container/src/stakes-classifier.js';
 import type { ChatMessage } from '../container/src/types.js';
 
@@ -34,6 +35,50 @@ function writeTempPolicy(raw: string): string {
   const policyPath = path.join(dir, 'policy.yaml');
   fs.writeFileSync(policyPath, `${raw.trim()}\n`, 'utf-8');
   return policyPath;
+}
+
+function writeBehaviorTrajectoryStore(params: {
+  storeDir: string;
+  agentId: string;
+  count: number;
+  toolName?: string;
+  args?: Record<string, unknown>;
+}): void {
+  const date = '2026-05-01';
+  const dir = path.join(params.storeDir, date);
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, `${params.agentId}.jsonl`);
+  const toolName = params.toolName || 'read';
+  const args = params.args || { path: '/workspace/docs/readme.md' };
+  const lines = Array.from({ length: params.count }, (_, index) =>
+    JSON.stringify({
+      schema_version: 2,
+      captured_at: `2026-05-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      agent_id: params.agentId,
+      outcome: 'success',
+      tools_used: [
+        {
+          name: toolName,
+          duration_ms: 1,
+          is_error: false,
+          blocked: false,
+          approval_tier: 'green',
+          approval_decision: 'auto',
+          arguments: {
+            content: JSON.stringify(args),
+            truncated: false,
+            source: 'full',
+          },
+          result: {
+            content: 'ok',
+            truncated: false,
+            source: 'full',
+          },
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
 }
 
 const LOW_STAKES_SCORE: StakesScore = {
@@ -73,6 +118,15 @@ function makeRuleContext(params?: {
     runStakesMiddleware: () => ({
       decision: { action: 'allow' },
       stakesScore: LOW_STAKES_SCORE,
+    }),
+    scoreBehaviorAnomaly: () => ({
+      score: 0,
+      threshold: null,
+      reason: 'test anomaly abstain',
+      status: 'abstained',
+      model: 'order2_markov_frequency_v1',
+      trajectoryCount: 0,
+      tuple: 'read',
     }),
     hasOneShotFingerprint: () => false,
     consumeOneShotFingerprint: () => {},
@@ -216,8 +270,13 @@ approval:
     const stakesIndex = parsed.approvalRuleOrder?.indexOf('stakes') ?? -1;
     expect(stakesIndex).toBeGreaterThanOrEqual(0);
     expect(
-      parsed.approvalRuleOrder?.slice(stakesIndex, stakesIndex + 3),
-    ).toEqual(['stakes', 'test_anomaly_reranker', 'autonomy_override']);
+      parsed.approvalRuleOrder?.slice(stakesIndex, stakesIndex + 4),
+    ).toEqual([
+      'stakes',
+      'anomaly_reranker',
+      'test_anomaly_reranker',
+      'autonomy_override',
+    ]);
     expect(parsed.approvalRuleOrder).toHaveLength(
       DEFAULT_APPROVAL_RULE_ORDER.length + 1,
     );
@@ -399,6 +458,145 @@ approval:
 
     expect(result.evaluation.decision).toBe('auto');
     expect(observed).toEqual(['after_stakes']);
+  });
+
+  test('behavior anomaly reranker abstains during cold start', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-cold-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 3,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+      cacheTtlMs: 0,
+    });
+
+    const score = reranker.score({
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    });
+
+    expect(score.status).toBe('abstained');
+    expect(score.reason).toContain('3/50 approved trajectories available');
+  });
+
+  test('behavior anomaly reranker cached scoring stays under 5ms per call', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-perf-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+    });
+    const input = {
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    };
+
+    reranker.score(input);
+    const startedAt = performance.now();
+    for (let index = 0; index < 100; index += 1) {
+      reranker.score(input);
+    }
+    const avgMs = (performance.now() - startedAt) / 100;
+
+    expect(avgMs).toBeLessThan(5);
+  });
+
+  test('behavior anomaly reranker applies F11 anomalous verdict on replay', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-f11-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+      epsilon: 1,
+    });
+    const input = {
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    };
+
+    const borderline = reranker.score(input);
+    expect(borderline.status).toBe('borderline');
+    reranker.recordTraceJudgeResult(borderline.tuple, {
+      verdict: 'anomalous',
+      score: 0.82,
+      reason: 'unusual for this agent',
+    });
+    const replay = reranker.score(input);
+
+    expect(replay.status).toBe('scored');
+    expect(replay.score).toBeGreaterThan(replay.threshold || 0);
+    expect(replay.traceJudge).toEqual({
+      verdict: 'anomalous',
+      score: 0.82,
+      reason: 'unusual for this agent',
+    });
+  });
+
+  test('anomaly reranker elevates an unusual green call by one tier before autonomy override', () => {
+    const context = makeRuleContext({
+      helpers: {
+        scoreBehaviorAnomaly: () => ({
+          score: 0.99,
+          threshold: 0.9,
+          reason:
+            'behavior anomaly score 0.990 exceeds adaptive threshold 0.900',
+          status: 'scored',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 80,
+          tuple: 'write',
+        }),
+      },
+    });
+    approvalRules.classify_action(context);
+    approvalRules.fingerprint(context);
+    approvalRules.pinned_red(context);
+    approvalRules.autonomy(context);
+    approvalRules.safety_tier(context);
+    approvalRules.stakes(context);
+
+    expect(approvalRules.anomaly_reranker(context).kind).toBe('next');
+
+    expect(context.baseTier).toBe('yellow');
+    expect(context.tier).toBe('yellow');
+    expect(context.anomaly).toMatchObject({
+      score: 0.99,
+      threshold: 0.9,
+    });
   });
 
   test('approval pipeline denies instead of throwing when a rule runs before prerequisites', () => {

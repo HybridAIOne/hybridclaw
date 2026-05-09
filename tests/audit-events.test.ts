@@ -241,3 +241,54 @@ test('autonomy audit falls back to internally consistent approval metadata', asy
     }),
   );
 });
+
+test('weekly agent anomaly rollups count flagged and confirmed-normal tool checks', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { getOrCreateSession, getWeeklyAgentAnomalyRollups, initDatabase } =
+    await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  getOrCreateSession('session-anomaly-rollup', null, 'channel-a', 'lena');
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-anomaly-rollup',
+    runId: 'run-anomaly-rollup',
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"README.md"}',
+        result: 'ok',
+        durationMs: 3,
+        approvalTier: 'yellow',
+        approvalBaseTier: 'yellow',
+        approvalDecision: 'implicit',
+        approvalActionKey: 'read',
+        anomaly: {
+          score: 0.96,
+          threshold: 0.9,
+          reason:
+            'behavior anomaly score 0.960 exceeds adaptive threshold 0.900',
+          status: 'scored',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 80,
+          tuple: 'read',
+        },
+      },
+    ],
+  });
+
+  expect(
+    getWeeklyAgentAnomalyRollups(new Date()).find(
+      (rollup) => rollup.agent_id === 'lena',
+    ),
+  ).toEqual({
+    agent_id: 'lena',
+    flagged: 1,
+    confirmed_normal: 1,
+  });
+});

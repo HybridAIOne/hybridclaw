@@ -1253,6 +1253,9 @@ export interface AdminAgentScoreboardEntry {
   avg_timing_score: number;
   best_skills: AdminAgentSkillScore[];
   last_observed_at: string | null;
+  weekly_anomalies_flagged: number;
+  weekly_anomalies_confirmed_normal: number;
+  weekly_anomaly_summary: string;
 }
 
 export interface AdminAgentScoreboardResponse {
