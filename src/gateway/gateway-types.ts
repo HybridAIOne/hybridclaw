@@ -401,6 +401,10 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  threema?: {
+    secretConfigured: boolean;
+    secretSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   email?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;

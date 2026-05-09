@@ -120,6 +120,7 @@ import {
   SLACK_APP_TOKEN,
   SLACK_BOT_TOKEN,
   TELEGRAM_BOT_TOKEN,
+  THREEMA_GATEWAY_SECRET,
   TWILIO_AUTH_TOKEN,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -3816,6 +3817,17 @@ export async function getGatewayStatus(
     configValue: runtimeConfig.telegram.botToken,
     storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
   });
+  const threemaCredential = resolveRuntimeCredentialStatus(
+    'THREEMA_GATEWAY_SECRET',
+    [THREEMA_GATEWAY_SECRET],
+    storedSecrets.THREEMA_GATEWAY_SECRET,
+  );
+  const threemaConfigSecret = String(runtimeConfig.threema.secret || '').trim();
+  const threema = {
+    secretConfigured: Boolean(threemaCredential.value || threemaConfigSecret),
+    secretSource:
+      threemaCredential.source || (threemaConfigSecret ? 'config' : null),
+  } as NonNullable<GatewayStatus['threema']>;
   const email = resolveGatewayPasswordStatus({
     storedSecretName: 'EMAIL_PASSWORD',
     envValues: [EMAIL_PASSWORD],
@@ -3880,6 +3892,7 @@ export async function getGatewayStatus(
       cliVersion: signalCli.version,
       cliError: signalCli.error,
     },
+    threema,
     slack,
     telegram,
     email,

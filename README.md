@@ -341,6 +341,7 @@ Browse the full manual at
   [Slack](https://www.hybridclaw.io/docs/channels/slack),
   [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
   [Signal](https://www.hybridclaw.io/docs/channels/signal),
+  [Threema](https://www.hybridclaw.io/docs/channels/threema),
   [Email](https://www.hybridclaw.io/docs/channels/email),
   [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
   [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and

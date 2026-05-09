@@ -26,6 +26,8 @@ const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
     'Slack: send/read known Slack conversations, upload files, and inspect members/channels.',
   telegram:
     'Telegram: send messages and uploads to explicit Telegram chat or topic targets.',
+  threema:
+    'Threema: send text messages to explicit Threema IDs, phone numbers, or email lookups.',
   tui: 'Local TUI: queue messages for local TUI delivery.',
   whatsapp:
     'WhatsApp: send messages and uploads to explicit WhatsApp JIDs or phone numbers.',

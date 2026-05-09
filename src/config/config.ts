@@ -170,6 +170,11 @@ function syncRuntimeSecretExports(): void {
     'TELEGRAM_BOT_TOKEN',
     storedSecrets,
   );
+  THREEMA_GATEWAY_SECRET = readRuntimeSecretValue(
+    ['THREEMA_GATEWAY_SECRET'],
+    'THREEMA_GATEWAY_SECRET',
+    storedSecrets,
+  );
   IMESSAGE_PASSWORD = readRuntimeSecretValue(
     ['IMESSAGE_PASSWORD'],
     'IMESSAGE_PASSWORD',
@@ -285,6 +290,7 @@ function syncRuntimeSecretExports(): void {
 export let DISCORD_TOKEN = '';
 export let EMAIL_PASSWORD = '';
 export let TELEGRAM_BOT_TOKEN = '';
+export let THREEMA_GATEWAY_SECRET = '';
 export let IMESSAGE_PASSWORD = '';
 export let TWILIO_AUTH_TOKEN = '';
 export let MSTEAMS_APP_PASSWORD = '';

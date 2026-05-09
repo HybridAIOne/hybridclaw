@@ -28,7 +28,7 @@ test('registerChannel and getChannel return registered channel info', async () =
   });
 });
 
-test('getChannelByContextId resolves Discord, WhatsApp, Telegram, iMessage, email, and Teams ids', async () => {
+test('getChannelByContextId resolves Discord, WhatsApp, Telegram, Threema, iMessage, email, and Teams ids', async () => {
   const { getChannelByContextId } = await importFreshChannelRegistryModules();
 
   expect(getChannelByContextId('1475079601968648386')?.kind).toBe('discord');
@@ -38,6 +38,7 @@ test('getChannelByContextId resolves Discord, WhatsApp, Telegram, iMessage, emai
   expect(getChannelByContextId('telegram:-1001234567890:topic:42')?.kind).toBe(
     'telegram',
   );
+  expect(getChannelByContextId('threema:ABCDEFGH')?.kind).toBe('threema');
   expect(getChannelByContextId('imessage:+14155551212')?.kind).toBe('imessage');
   expect(getChannelByContextId('imessage:peer@example.com')?.kind).toBe(
     'imessage',
@@ -118,6 +119,7 @@ test('capability presets match expected defaults', async () => {
     EMAIL_CAPABILITIES,
     IMESSAGE_CAPABILITIES,
     TELEGRAM_CAPABILITIES,
+    THREEMA_CAPABILITIES,
     SYSTEM_CAPABILITIES,
     TUI_CAPABILITIES,
     VOICE_CAPABILITIES,
@@ -132,6 +134,8 @@ test('capability presets match expected defaults', async () => {
   expect(IMESSAGE_CAPABILITIES.reactions).toBe(false);
   expect(TELEGRAM_CAPABILITIES.attachments).toBe(true);
   expect(TELEGRAM_CAPABILITIES.threads).toBe(true);
+  expect(THREEMA_CAPABILITIES.attachments).toBe(false);
+  expect(THREEMA_CAPABILITIES.maxMessageLength).toBe(3_500);
   expect(TUI_CAPABILITIES).toBe(SYSTEM_CAPABILITIES);
   expect(EMAIL_CAPABILITIES.attachments).toBe(true);
   expect(EMAIL_CAPABILITIES.reactions).toBe(false);

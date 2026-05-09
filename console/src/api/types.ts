@@ -69,6 +69,10 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  threema?: {
+    secretConfigured: boolean;
+    secretSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   signal?: {
     enabled: boolean;
     daemonUrlConfigured: boolean;
@@ -438,6 +442,7 @@ export interface AdminConfig {
     slack: string;
     signal: string;
     telegram: string;
+    threema: string;
     voice: string;
     whatsapp: string;
     email: string;
@@ -567,6 +572,16 @@ export interface AdminConfig {
     groupAllowFrom: string[];
     textChunkLimit: number;
     reconnectIntervalMs: number;
+    outboundDelayMs: number;
+  };
+  threema: {
+    enabled: boolean;
+    apiBaseUrl: string;
+    identity: string;
+    secret: string;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    textChunkLimit: number;
     outboundDelayMs: number;
   };
   voice: {

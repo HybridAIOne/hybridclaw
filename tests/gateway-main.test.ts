@@ -110,6 +110,16 @@ function createGatewayMainTestState(options?: {
         textChunkLimit: 4_000,
         mediaMaxMb: 20,
       },
+      threema: {
+        enabled: false,
+        apiBaseUrl: 'https://msgapi.threema.ch',
+        identity: '',
+        secret: '',
+        dmPolicy: 'disabled',
+        allowFrom: [] as string[],
+        textChunkLimit: 3_500,
+        outboundDelayMs: 350,
+      },
       voice: {
         enabled: options?.voiceEnabled ?? false,
         provider: 'twilio',

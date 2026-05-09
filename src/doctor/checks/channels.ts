@@ -6,6 +6,7 @@ import {
   MSTEAMS_APP_ID,
   MSTEAMS_APP_PASSWORD,
   TELEGRAM_BOT_TOKEN,
+  THREEMA_GATEWAY_SECRET,
 } from '../../config/config.js';
 import type { DiagResult } from '../types.js';
 import { makeResult, severityFrom } from '../utils.js';
@@ -58,6 +59,18 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
+  if (config.threema.enabled) {
+    if (
+      config.threema.identity.trim() &&
+      String(THREEMA_GATEWAY_SECRET || config.threema.secret || '').trim()
+    ) {
+      segments.push('Threema configured');
+    } else {
+      segments.push('Threema credentials incomplete');
+      severities.push('error');
+    }
+  }
+
   const whatsapp = await getWhatsAppAuthStatus();
   const whatsappExpected =
     config.whatsapp.dmPolicy !== 'disabled' ||
@@ -75,7 +88,7 @@ export async function checkChannels(): Promise<DiagResult[]> {
         'channels',
         'Channels',
         'ok',
-        'No external channels enabled (Discord, Teams, Telegram, Email, and WhatsApp are all intentionally disabled)',
+        'No external channels enabled (Discord, Teams, Telegram, Threema, Email, and WhatsApp are all intentionally disabled)',
       ),
     ];
   }
