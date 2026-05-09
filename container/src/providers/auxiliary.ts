@@ -62,6 +62,13 @@ function resolveTaskOverride(
   return taskModels?.[task];
 }
 
+function normalizeMaxTokens(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
 function getAuxiliaryContextError(params: {
   context: AuxiliaryTaskContext;
   toolName: string;
@@ -155,10 +162,14 @@ export async function callAuxiliaryModel(
   if (contextError) throw new Error(contextError);
 
   if (params.task !== 'vision') {
-    const maxTokens = resolveProviderRequestMaxTokens({
+    const providerMaxTokens = resolveProviderRequestMaxTokens({
       model: context.model,
       discoveredMaxTokens: context.maxTokens,
     });
+    const maxTokens =
+      providerMaxTokens == null
+        ? undefined
+        : (normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens);
     const response = await callRoutedModel({
       provider: context.provider,
       providerMethod: context.providerMethod,
