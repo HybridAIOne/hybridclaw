@@ -1,10 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import {
-  fetchOverview,
-  fetchStatistics,
-  reconnectTunnel,
-} from '../api/client';
+import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
 import type {
   AdminOverview,
   AdminStatisticsTrendDay,
@@ -71,6 +67,19 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   tasks: 'desc',
   lastActive: 'desc',
 } as const;
+
+const TREND_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+});
+
+function formatTrendDate(isoDate: string): string {
+  // Trend dates are UTC YYYY-MM-DD strings. Render them as a short
+  // user-locale label without the trip through Date timezone shifting.
+  const [year, month, day] = isoDate.split('-').map(Number);
+  if (!year || !month || !day) return isoDate;
+  return TREND_DATE_FORMAT.format(new Date(Date.UTC(year, month - 1, day)));
+}
 
 function tunnelStatusClass(health: AdminTunnelStatus['health']): string {
   if (health === 'healthy') return 'list-status list-status-success';
@@ -193,17 +202,32 @@ function UsageRollupContent(props: {
   // The top-models list duplicates the monthly totals when only one model
   // is in use, so we only render it when it actually adds information.
   const showTopModels = topModels.length > 1;
-  const trendValues = props.trend?.map((day) => day.totalTokens) ?? [];
+  const trendPoints =
+    props.trend?.map((day) => ({
+      label: formatTrendDate(day.date),
+      value: day.totalTokens,
+    })) ?? [];
+  const peak = trendPoints.reduce<{ label: string; value: number } | null>(
+    (best, point) => (point.value > (best?.value ?? 0) ? point : best),
+    null,
+  );
+  const trendCaption =
+    peak && peak.value > 0
+      ? `Tokens · last 30 days · peak ${formatCompactNumber(peak.value)} on ${peak.label}`
+      : 'Tokens · last 30 days';
 
   return (
     <>
-      {trendValues.length >= 2 ? (
+      {trendPoints.length >= 2 ? (
         <div className="usage-trend">
           <Sparkline
-            values={trendValues}
+            points={trendPoints}
             ariaLabel="Tokens per day, last 30 days"
+            formatValue={(value) =>
+              `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
+            }
           />
-          <small className="supporting-text">Tokens · last 30 days</small>
+          <small className="supporting-text">{trendCaption}</small>
         </div>
       ) : null}
       <div className="usage-grid">

@@ -6,7 +6,7 @@
 .line {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
@@ -14,7 +14,12 @@
 
 .area {
   fill: var(--accent);
-  opacity: 0.16;
+  opacity: 0.22;
+}
+
+.hit {
+  fill: transparent;
+  cursor: default;
 }
 
 .placeholder {
