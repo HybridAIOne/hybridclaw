@@ -501,69 +501,6 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.usage-rollup {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-  gap: 32px;
-  align-items: start;
-}
-
-.usage-rollup__summary {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  min-width: 0;
-}
-
-.usage-rollup__chart {
-  align-self: stretch;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.usage-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.usage-metric__label {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--accent) 75%, var(--text));
-}
-
-.usage-metric__value {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 2.5rem;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.02em;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.usage-metric__unit {
-  font-size: 0.85rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: color-mix(in srgb, var(--text) 50%, transparent);
-}
-
-.usage-metric__detail {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 60%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-
 .metric-card {
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -2333,11 +2270,6 @@ th {
   .config-grid,
   .key-value-grid {
     grid-template-columns: 1fr;
-  }
-
-  .usage-rollup {
-    grid-template-columns: 1fr;
-    gap: 24px;
   }
 
   .tunnel-detail-grid {

@@ -1,15 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
-import type {
-  AdminOverview,
-  AdminStatisticsTrendDay,
-  AdminTunnelStatus,
-  AdminUsageSummary,
-} from '../api/types';
+import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { useAuth } from '../auth';
 import { ProviderHealthPanel } from '../components/provider-health';
-import { Sparkline } from '../components/sparkline';
 import {
   MetricCard,
   PageHeader,
@@ -17,17 +11,14 @@ import {
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { UsageRollup } from '../components/usage-rollup';
 import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import {
-  formatCompactNumber,
   formatDateTime,
   formatRelativeTime,
-  formatTokenBreakdown,
   formatUptime,
-  formatUsd,
-  pluralize,
 } from '../lib/format';
 import { compareDateTime, compareNumber, compareText } from '../lib/sort';
 
@@ -168,104 +159,6 @@ function TunnelStatusPanel(props: {
   );
 }
 
-function UsageMetric(props: { label: string; summary: AdminUsageSummary }) {
-  const { summary } = props;
-  const detailParts = [
-    `${formatCompactNumber(summary.totalInputTokens ?? 0)} in`,
-    `${formatCompactNumber(summary.totalOutputTokens ?? 0)} out`,
-    pluralize(summary.callCount, 'call'),
-    formatUsd(summary.totalCostUsd),
-  ];
-  return (
-    <div className="usage-metric">
-      <span className="usage-metric__label">{props.label}</span>
-      <strong className="usage-metric__value">
-        {formatCompactNumber(summary.totalTokens)}
-        <span className="usage-metric__unit">tokens</span>
-      </strong>
-      <span className="usage-metric__detail">{detailParts.join(' · ')}</span>
-    </div>
-  );
-}
-
-function UsageRollupContent(props: {
-  usage: AdminOverview['usage'];
-  trend: AdminStatisticsTrendDay[] | null;
-}) {
-  const { daily, monthly, topModels } = props.usage;
-  const hasMonthlyActivity = monthly.callCount > 0 || monthly.totalTokens > 0;
-  const hasDailyActivity = daily.callCount > 0 || daily.totalTokens > 0;
-
-  if (!hasMonthlyActivity && !hasDailyActivity) {
-    return <p className="supporting-text">No usage has been recorded yet.</p>;
-  }
-
-  // The top-models list duplicates the monthly totals when only one model
-  // is in use, so we only render it when it actually adds information.
-  const showTopModels = topModels.length > 1;
-  const trendPoints =
-    props.trend?.map((day) => ({
-      label: formatTrendDate(day.date),
-      value: day.totalTokens,
-    })) ?? [];
-  const peak = trendPoints.reduce<{ label: string; value: number } | null>(
-    (best, point) => (point.value > (best?.value ?? 0) ? point : best),
-    null,
-  );
-  const peakLabel =
-    peak && peak.value > 0
-      ? `peak ${formatCompactNumber(peak.value)} on ${peak.label}`
-      : undefined;
-  const showTrend = trendPoints.length >= 2;
-
-  return (
-    <>
-      <div className="usage-rollup">
-        <div className="usage-rollup__summary">
-          {hasDailyActivity ? (
-            <UsageMetric label="Today" summary={daily} />
-          ) : null}
-          <UsageMetric label="Month to date" summary={monthly} />
-        </div>
-        {showTrend ? (
-          <div className="usage-rollup__chart">
-            <Sparkline
-              points={trendPoints}
-              height={64}
-              ariaLabel="Tokens per day, last 30 days"
-              formatValue={(value) =>
-                `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
-              }
-              startLabel={`${trendPoints.length - 1}d ago`}
-              endLabel="today"
-              middleLabel={peakLabel}
-            />
-          </div>
-        ) : null}
-      </div>
-      {showTopModels ? (
-        <div className="list-stack">
-          {topModels.map((row) => (
-            <div className="list-row" key={row.model}>
-              <div>
-                <strong>{row.model}</strong>
-                <small>
-                  {formatTokenBreakdown({
-                    inputTokens: row.totalInputTokens ?? 0,
-                    outputTokens: row.totalOutputTokens ?? 0,
-                  })}{' '}
-                  · {pluralize(row.callCount, 'call')} this month
-                </small>
-              </div>
-              <span>{formatUsd(row.totalCostUsd)}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </>
-  );
-}
-
 export function DashboardPage() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -370,10 +263,11 @@ export function DashboardPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Usage rollup" accent="warm">
-          <UsageRollupContent
+        <Panel title="Usage" accent="warm">
+          <UsageRollup
             usage={overview.usage}
             trend={usageTrendQuery.data?.trend ?? null}
+            formatTrendDate={formatTrendDate}
           />
         </Panel>
 

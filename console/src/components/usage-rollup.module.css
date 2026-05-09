@@ -1,0 +1,245 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.empty {
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+  margin: 0;
+}
+
+.headline {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.window {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  align-self: center;
+}
+
+.headlineNumber {
+  font-size: 3.5rem;
+  font-weight: 300;
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.headlineUnit {
+  font-size: 1rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.todayLine {
+  margin: -8px 0 0 0;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ribbon {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  padding-top: 20px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.metricLabel {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.metricValue {
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.chartCanvas {
+  position: relative;
+  width: 100%;
+}
+
+.chartSvg {
+  display: block;
+  width: 100%;
+  height: 100px;
+  overflow: visible;
+  cursor: crosshair;
+}
+
+.areaTop {
+  stop-color: var(--accent);
+  stop-opacity: 0.45;
+}
+
+.areaBottom {
+  stop-color: var(--accent);
+  stop-opacity: 0;
+}
+
+.line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.peakDot {
+  fill: var(--accent);
+  stroke: var(--panel-bg, transparent);
+  stroke-width: 2;
+}
+
+.todayDot {
+  fill: var(--accent-strong);
+  stroke: var(--panel-bg, transparent);
+  stroke-width: 2;
+}
+
+.crosshair {
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  pointer-events: none;
+}
+
+.hoverDot {
+  fill: var(--accent-strong);
+  stroke: var(--panel-bg, var(--surface, transparent));
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute;
+  top: -36px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--panel-muted);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  box-shadow: var(--shadow-popover, 0 6px 16px rgba(15, 23, 42, 0.18));
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.tooltip[data-align="start"] {
+  transform: translateX(0);
+}
+
+.tooltip[data-align="end"] {
+  transform: translateX(-100%);
+}
+
+.tooltipLabel {
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.tooltipValue {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.axisPeak {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  font-variant-numeric: tabular-nums;
+}
+
+.topModels {
+  list-style: none;
+  margin: 0;
+  padding: 16px 0 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topModelRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+
+.topModelName {
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topModelDetail {
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.topModelCost {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+@media (max-width: 720px) {
+  .ribbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 24px;
+  }
+
+  .headlineNumber {
+    font-size: 2.75rem;
+  }
+}
