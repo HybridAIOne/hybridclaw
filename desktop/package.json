@@ -8,7 +8,7 @@
   "author": "HybridAI One",
   "main": "dist/main.js",
   "scripts": {
-    "build:icon": "swift scripts/generate-mac-icon.swift",
+    "build:icon": "node scripts/build-icon.mjs",
     "build:runtime": "node scripts/prepare-runtime.mjs",
     "build": "npm run build:icon && npm run build:runtime && tsc --project tsconfig.json",
     "build:dmg": "node scripts/run-build-dmg.mjs",
@@ -16,7 +16,9 @@
     "test": "vitest run --configLoader runner --config vitest.config.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "dist:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir zip && npm run build:dmg",
-    "pack:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir"
+    "pack:mac": "npm run build:icon && npm run build:runtime && electron-builder --mac dir",
+    "dist:linux": "npm run build:icon && npm run build:runtime && electron-builder --linux AppImage deb",
+    "pack:linux": "npm run build:icon && npm run build:runtime && electron-builder --linux dir"
   },
   "dependencies": {
     "@hybridaione/hybridclaw-desktop-packaging-anchor": "file:./support/packaging-anchor"
@@ -117,6 +119,14 @@
       "target": [
         "dmg",
         "zip"
+      ]
+    },
+    "linux": {
+      "category": "Office",
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage",
+        "deb"
       ]
     }
   }

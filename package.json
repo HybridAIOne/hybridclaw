@@ -70,6 +70,7 @@
     "test:console": "npm --workspace console run test",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
     "desktop:mac": "npm run build:desktop && npm --workspace desktop run dist:mac",
+    "desktop:linux": "npm run build:desktop && npm --workspace desktop run dist:linux",
     "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
