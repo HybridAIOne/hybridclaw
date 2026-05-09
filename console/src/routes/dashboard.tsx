@@ -263,7 +263,7 @@ export function DashboardPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Usage" accent="warm">
+        <Panel title="Usage">
           <UsageRollup
             usage={overview.usage}
             trend={usageTrendQuery.data?.trend ?? null}
