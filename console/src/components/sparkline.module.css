@@ -1,25 +1,101 @@
+.root {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+
 .svg {
   display: block;
   width: 100%;
+  height: 100%;
+  overflow: visible;
+  touch-action: pan-y;
 }
 
-.line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
+.baseline {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.85;
 }
 
-.area {
+.bar {
+  fill: color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: fill 120ms ease;
+}
+
+.bar:hover {
+  fill: var(--accent-strong);
+}
+
+.barEmpty {
+  fill: color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.barPeak {
   fill: var(--accent);
-  opacity: 0.22;
 }
 
-.hit {
-  fill: transparent;
-  cursor: default;
+.barToday {
+  fill: var(--accent-strong);
+}
+
+.barActive {
+  fill: var(--accent-strong);
+}
+
+.crosshair {
+  stroke: var(--accent-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.tooltip {
+  position: absolute;
+  top: -36px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--panel-muted);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  box-shadow: var(--shadow-popover, 0 6px 16px rgba(15, 23, 42, 0.18));
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.tooltip[data-align="start"] {
+  transform: translateX(0);
+}
+
+.tooltip[data-align="end"] {
+  transform: translateX(-100%);
+}
+
+.tooltipLabel {
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+.tooltipValue {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .placeholder {

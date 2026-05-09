@@ -226,6 +226,8 @@ function UsageRollupContent(props: {
             formatValue={(value) =>
               `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
             }
+            startLabel={`${trendPoints.length - 1}d ago`}
+            endLabel="today"
           />
           <small className="supporting-text">{trendCaption}</small>
         </div>
