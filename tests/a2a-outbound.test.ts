@@ -268,6 +268,22 @@ describe('A2A outbound adapter', () => {
     ).toThrow('JWT has been revoked');
   });
 
+  test('prunes expired delegation token revocations', async () => {
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    a2a.revokeA2ADelegationTokenId('msg-old-revocation', {
+      revokedAt: new Date('2030-01-01T00:00:00.000Z'),
+    });
+    expect(a2a.isA2ADelegationTokenRevoked('msg-old-revocation')).toBe(true);
+
+    a2a.revokeA2ADelegationTokenId('msg-new-revocation', {
+      revokedAt: new Date('2030-01-01T00:06:00.000Z'),
+    });
+
+    expect(a2a.isA2ADelegationTokenRevoked('msg-old-revocation')).toBe(false);
+    expect(a2a.isA2ADelegationTokenRevoked('msg-new-revocation')).toBe(true);
+  });
+
   test('rejects tampered delegation tokens before parsing claims', async () => {
     const a2a = await import('../src/a2a/a2a-outbound.ts');
     const keyPair = a2a.getOrCreateA2ADelegationTokenKeyPair({

@@ -82,6 +82,11 @@ export interface A2ADelegationTokenRevocation {
   revokedAt: string;
 }
 
+export interface A2ADelegationTokenRevocationPruneResult {
+  scanned: number;
+  pruned: number;
+}
+
 export class A2ADelegationTokenError extends Error {
   constructor(message: string) {
     super(message);
@@ -432,6 +437,71 @@ function revocationAssetPath(jwtId: string, rootDir: string): string {
   );
 }
 
+function parseRevocation(raw: string): A2ADelegationTokenRevocation | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<A2ADelegationTokenRevocation>;
+    if (
+      parsed.schemaVersion !== A2A_DELEGATION_TOKEN_REVOCATION_SCHEMA_VERSION ||
+      typeof parsed.jwtId !== 'string' ||
+      !parsed.jwtId.trim() ||
+      typeof parsed.revokedAt !== 'string' ||
+      !parsed.revokedAt.trim()
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: A2A_DELEGATION_TOKEN_REVOCATION_SCHEMA_VERSION,
+      jwtId: parsed.jwtId,
+      revokedAt: parsed.revokedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function pruneExpiredA2ADelegationTokenRevocations(
+  options: {
+    now?: Date;
+    maxAgeSeconds?: number;
+    revocationRootDir?: string;
+  } = {},
+): A2ADelegationTokenRevocationPruneResult {
+  const rootDir = options.revocationRootDir ?? delegationRevocationRootDir();
+  const maxAgeSeconds =
+    options.maxAgeSeconds && options.maxAgeSeconds > 0
+      ? Math.trunc(options.maxAgeSeconds)
+      : A2A_DELEGATION_TOKEN_TTL_SECONDS;
+  const expiresBeforeMs =
+    (options.now ?? new Date()).getTime() - maxAgeSeconds * 1000;
+  let scanned = 0;
+  let pruned = 0;
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(rootDir, { withFileTypes: true });
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === 'ENOENT') return { scanned, pruned };
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    scanned += 1;
+    const assetPath = path.join(rootDir, entry.name);
+    const revocation = parseRevocation(fs.readFileSync(assetPath, 'utf-8'));
+    if (!revocation) continue;
+    const revokedAtMs = Date.parse(revocation.revokedAt);
+    if (!Number.isFinite(revokedAtMs) || revokedAtMs > expiresBeforeMs) {
+      continue;
+    }
+    fs.rmSync(assetPath, { force: true });
+    pruned += 1;
+  }
+
+  return { scanned, pruned };
+}
+
 export function revokeA2ADelegationTokenId(
   jwtId: string,
   options: {
@@ -447,6 +517,10 @@ export function revokeA2ADelegationTokenId(
   };
   const rootDir = options.revocationRootDir ?? delegationRevocationRootDir();
   fs.mkdirSync(rootDir, { recursive: true });
+  pruneExpiredA2ADelegationTokenRevocations({
+    now: options.revokedAt,
+    revocationRootDir: rootDir,
+  });
   fs.writeFileSync(
     revocationAssetPath(normalizedJwtId, rootDir),
     `${JSON.stringify(revocation, null, 2)}\n`,
