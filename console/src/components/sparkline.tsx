@@ -18,6 +18,7 @@ export interface SparklineProps {
   ariaLabel?: string;
   startLabel?: string;
   endLabel?: string;
+  middleLabel?: string;
 }
 
 interface HoverState {
@@ -186,6 +187,9 @@ export function Sparkline(props: SparklineProps) {
       </svg>
       <div className={styles.axis} aria-hidden="true">
         <span>{startLabel}</span>
+        {props.middleLabel ? (
+          <span className={styles.axisMiddle}>{props.middleLabel}</span>
+        ) : null}
         <span>{endLabel}</span>
       </div>
       {active ? (

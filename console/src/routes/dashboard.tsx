@@ -212,33 +212,35 @@ function UsageRollupContent(props: {
     (best, point) => (point.value > (best?.value ?? 0) ? point : best),
     null,
   );
-  const trendCaption =
+  const peakLabel =
     peak && peak.value > 0
-      ? `Tokens · last 30 days · peak ${formatCompactNumber(peak.value)} on ${peak.label}`
-      : 'Tokens · last 30 days';
+      ? `peak ${formatCompactNumber(peak.value)} on ${peak.label}`
+      : undefined;
+  const showTrend = trendPoints.length >= 2;
 
   return (
     <>
-      {trendPoints.length >= 2 ? (
-        <div className="usage-trend">
-          <Sparkline
-            points={trendPoints}
-            ariaLabel="Tokens per day, last 30 days"
-            formatValue={(value) =>
-              `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
-            }
-            startLabel={`${trendPoints.length - 1}d ago`}
-            endLabel="today"
-          />
-          <small className="supporting-text">{trendCaption}</small>
-        </div>
-      ) : null}
       <div className="usage-metrics">
         {hasDailyActivity ? (
           <UsageMetric label="Today" summary={daily} />
         ) : null}
         <UsageMetric label="Month to date" summary={monthly} />
       </div>
+      {showTrend ? (
+        <div className="usage-trend">
+          <Sparkline
+            points={trendPoints}
+            height={44}
+            ariaLabel="Tokens per day, last 30 days"
+            formatValue={(value) =>
+              `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
+            }
+            startLabel={`${trendPoints.length - 1}d ago`}
+            endLabel="today"
+            middleLabel={peakLabel}
+          />
+        </div>
+      ) : null}
       {showTopModels ? (
         <div className="list-stack">
           {topModels.map((row) => (

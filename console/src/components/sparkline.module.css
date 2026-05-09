@@ -19,7 +19,7 @@
 }
 
 .bar {
-  fill: color-mix(in srgb, var(--accent) 55%, transparent);
+  fill: color-mix(in srgb, var(--accent) 70%, transparent);
   transition: fill 120ms ease;
 }
 
@@ -59,6 +59,11 @@
   font-size: 0.72rem;
   letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.axisMiddle {
+  color: color-mix(in srgb, var(--text) 65%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 
 .tooltip {
