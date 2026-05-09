@@ -7,6 +7,7 @@ import {
   withSecretHeader,
 } from '../security/secret-handles.js';
 import {
+  hardenSecretRef,
   resolveSecretHandleInput,
   type SecretInput,
   type SecretRef,
@@ -519,7 +520,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
   }
 
   private resolveApiKeyRef(): SecretRef {
-    return this.options.apiKeyRef || DEFAULT_API_KEY_REF;
+    return hardenSecretRef(this.options.apiKeyRef || DEFAULT_API_KEY_REF);
   }
 
   private resolveApiKeyHandle(ref: SecretRef): SecretHandle {

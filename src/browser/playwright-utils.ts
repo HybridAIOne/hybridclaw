@@ -8,6 +8,7 @@ import type { SecretHandle } from '../security/secret-handles.js';
 import { unsafeEscapeSecretHandle } from '../security/secret-handles.js';
 import { normalizeSecretString as normalizeString } from '../security/secret-normalization.js';
 import {
+  hardenSecretRef,
   resolveSecretHandleInput,
   type SecretInput,
   type SecretRef,
@@ -227,9 +228,15 @@ async function fillBrowserCredentialField(
   context?: BrowserSessionMeteringContext,
 ): Promise<void> {
   const host = resolvePageHost(page, selector);
-  const params = resolveCredentialFillParams({ selector, host, context, ref });
+  const hardenedRef = hardenSecretRef(ref);
+  const params = resolveCredentialFillParams({
+    selector,
+    host,
+    context,
+    ref: hardenedRef,
+  });
   assertCredentialFillAllowed(params);
-  const handle = resolveSecretHandleInput(ref, {
+  const handle = resolveSecretHandleInput(hardenedRef, {
     path: `browser.fill(${selector})`,
     required: true,
     sinkKind: 'dom',
