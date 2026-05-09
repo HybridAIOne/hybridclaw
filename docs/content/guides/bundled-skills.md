@@ -17,9 +17,11 @@ HybridClaw ships with 40+ bundled skills. A few notable categories:
   `download-platform-invoices`, `wordpress`, `gog`, `google-workspace`,
   `google-ads`, `discord`
 - knowledge workflows: `llm-wiki`, `obsidian`, `zettelkasten`
-- personal and Apple workflows: `apple-calendar`, `apple-passwords`, `apple-music`
+- personal and Apple workflows: `apple-calendar`, `apple-passwords`,
+  `apple-music`
 - marketplace and automation workflows: `sokosumi`
-- runtime utilities: `hybridclaw-help`, `current-time`, `personality`, `channel-catchup`
+- runtime utilities: `hybridclaw-help`, `current-time`, `personality`,
+  `channel-catchup`
 
 ## Commands
 

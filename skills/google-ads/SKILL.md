@@ -26,6 +26,7 @@ metadata:
         - keyword-edit
         - audience-segment-create
         - recommendation-apply
+        - recommendation-dismiss
       red:
         - budget-mutation
         - campaign-enable
@@ -278,6 +279,8 @@ python3 skills/google-ads/scripts/google_ads.py customer-match-job-create 123456
 python3 skills/google-ads/scripts/google_ads.py customer-match-add-hashes 1234567890 \
   "customers/1234567890/offlineUserDataJobs/111222333" \
   --sha256-email "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+  --sha256-phone "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+  --address-info-json '{"hashedFirstName":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","hashedLastName":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","countryCode":"DE","postalCode":"10115"}' \
   --grant approve-google-ads-customer-match-upload
 
 python3 skills/google-ads/scripts/google_ads.py customer-match-job-run 1234567890 \
@@ -290,7 +293,7 @@ python3 skills/google-ads/scripts/google_ads.py apply-recommendation 1234567890 
 
 python3 skills/google-ads/scripts/google_ads.py dismiss-recommendation 1234567890 \
   "customers/1234567890/recommendations/abc123" \
-  --grant approve-google-ads-recommendation-apply
+  --grant approve-google-ads-recommendation-dismiss
 ```
 
 Use `--validate-only` with mutation commands when you want Google Ads to
@@ -316,10 +319,14 @@ python3 skills/google-ads/scripts/google_ads.py --format json eval-scenarios
   Refuse them without an exact approval grant.
 - Customer-match uploads must use pre-hashed PII only. Do not hash raw customer
   PII inside the model context, and do not request raw customer lists in chat.
+- Customer Match execution intentionally uses Google Ads API OfflineUserDataJobs
+  for operators who need the Ads API path, while acknowledging that Google
+  points new Customer Match implementations toward Data Manager in current
+  guidance. Keep that as a deliberate product choice, not an accidental drift.
 - Customer Match execution is split into explicit list creation, offline job
   creation, hash-only add operations, and job run commands. The helper accepts
-  only 64-character SHA-256 hashes for upload inputs; raw customer identifiers
-  remain out of scope.
+  only 64-character SHA-256 hashes for email, phone, and address-info hash
+  fields; raw customer identifiers remain out of scope.
 - Recommendation applies are amber-tier even when Google presents them as a
   simple button. Read recommendations first, summarize the account impact, then
   ask for approval.

@@ -613,6 +613,10 @@ test('Google Ads helper builds guarded requests for the expanded management surf
         'customers/1234567890/offlineUserDataJobs/111222333',
         '--sha256-email',
         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        '--sha256-phone',
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        '--address-info-json',
+        '{"hashedFirstName":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","hashedLastName":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","countryCode":"DE","postalCode":"10115"}',
         '--grant',
         'approve-google-ads-customer-match-upload',
         '--validate-only',
@@ -629,7 +633,7 @@ test('Google Ads helper builds guarded requests for the expanded management surf
         '1234567890',
         'customers/1234567890/recommendations/abc123',
         '--grant',
-        'approve-google-ads-recommendation-apply',
+        'approve-google-ads-recommendation-dismiss',
       ],
     ];
 
@@ -655,6 +659,46 @@ test('Google Ads helper builds guarded requests for the expanded management surf
         }),
         expect.objectContaining({
           url: 'https://googleads.googleapis.com/v24/customers/1234567890/offlineUserDataJobs/111222333:addOperations',
+          json: expect.objectContaining({
+            operations: expect.arrayContaining([
+              expect.objectContaining({
+                create: {
+                  userIdentifiers: [
+                    {
+                      hashedEmail:
+                        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    },
+                  ],
+                },
+              }),
+              expect.objectContaining({
+                create: {
+                  userIdentifiers: [
+                    {
+                      hashedPhoneNumber:
+                        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    },
+                  ],
+                },
+              }),
+              expect.objectContaining({
+                create: {
+                  userIdentifiers: [
+                    {
+                      addressInfo: expect.objectContaining({
+                        countryCode: 'DE',
+                        hashedFirstName:
+                          'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+                        hashedLastName:
+                          'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+                        postalCode: '10115',
+                      }),
+                    },
+                  ],
+                },
+              }),
+            ]),
+          }),
         }),
         expect.objectContaining({
           url: 'https://googleads.googleapis.com/v24/customers/1234567890/recommendations:dismiss',

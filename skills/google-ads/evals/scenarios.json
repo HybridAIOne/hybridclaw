@@ -400,7 +400,7 @@
     "kind": "plan",
     "request": "Dismiss Google's recommendation to broaden keywords",
     "expected": {
-      "operation": "recommendation-apply",
+      "operation": "recommendation-dismiss",
       "stakesTier": "amber",
       "requiresEscalation": true,
       "brandVoiceGateRequired": false,

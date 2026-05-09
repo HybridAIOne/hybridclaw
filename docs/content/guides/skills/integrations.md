@@ -201,9 +201,9 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
 - **developer-token missing** — store `GOOGLEADS_DEVELOPER_TOKEN` and confirm the `developer-token` route exists.
 - **manager-account access errors** — pass `--login-customer-id` or store `GOOGLEADS_LOGIN_CUSTOMER_ID` without hyphens.
 - **customer-match request contains raw PII** — stop at a plan; the executable
-  flow only accepts pre-hashed SHA-256 values from a controlled source and
-  splits list creation, offline job creation, hash add, and job run into
-  separately approved commands.
+  flow only accepts pre-hashed SHA-256 email, phone, and address-info values
+  from a controlled source and splits list creation, offline job creation, hash
+  add, and job run into separately approved commands.
 
 ---
 

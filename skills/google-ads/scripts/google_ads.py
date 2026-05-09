@@ -156,6 +156,7 @@ WRITE_GRANTS = {
     "audience-management": "approve-google-ads-audience-management",
     "customer-match-upload": "approve-google-ads-customer-match-upload",
     "recommendation-apply": "approve-google-ads-recommendation-apply",
+    "recommendation-dismiss": "approve-google-ads-recommendation-dismiss",
 }
 
 GOOGLE_ADS_GAQL_SCHEMA = {
@@ -380,12 +381,44 @@ def normalize_float(value: str, label: str) -> float:
 
 def validate_sha256_hex(values: list[str], label: str) -> list[str]:
     hashes = [value.strip().lower() for value in values if value.strip()]
-    if not hashes:
-        raise ConfigError(f"At least one {label} hash is required.")
     invalid = [value for value in hashes if not re.fullmatch(r"[0-9a-f]{64}", value)]
     if invalid:
         raise ConfigError(f"{label} hashes must be lowercase SHA-256 hex strings.")
     return hashes
+
+
+def validate_one_sha256_hex(value: Any, label: str) -> str:
+    hashes = validate_sha256_hex([str(value)], label)
+    if not hashes:
+        raise ConfigError(f"{label} hash is required.")
+    return hashes[0]
+
+
+def parse_address_info(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ConfigError("--address-info-json must be a JSON object.") from exc
+    if not isinstance(parsed, dict):
+        raise ConfigError("--address-info-json must be a JSON object.")
+    address: dict[str, Any] = {}
+    for source, target in [
+        ("hashedFirstName", "hashedFirstName"),
+        ("hashedLastName", "hashedLastName"),
+        ("hashedStreetAddress", "hashedStreetAddress"),
+    ]:
+        if source in parsed:
+            address[target] = validate_one_sha256_hex(parsed[source], source)
+    for key in ["countryCode", "postalCode"]:
+        if key in parsed:
+            address[key] = str(parsed[key]).strip()
+    if "hashedFirstName" not in address or "hashedLastName" not in address:
+        raise ConfigError(
+            "--address-info-json requires hashedFirstName and hashedLastName."
+        )
+    if "countryCode" not in address:
+        raise ConfigError("--address-info-json requires countryCode.")
+    return address
 
 
 def require_grant(args: argparse.Namespace, operation_key: str) -> str:
@@ -748,9 +781,12 @@ def classify_operation(request_text: str) -> dict[str, Any]:
         required_grant = "approve-google-ads-ad-copy-submit" if tier == "red" else "approve-google-ads-ad-copy-draft"
         brand_voice = True
         reasons.append("ad copy must pass brand-voice review before submission")
-    elif "recommendation" in lowered and (
-        "apply" in lowered or "dismiss" in lowered
-    ):
+    elif "recommendation" in lowered and "dismiss" in lowered:
+        operation = "recommendation-dismiss"
+        tier = "amber"
+        required_grant = "approve-google-ads-recommendation-dismiss"
+        reasons.append("recommendation dismissals require operator approval")
+    elif "recommendation" in lowered and "apply" in lowered:
         operation = "recommendation-apply"
         tier = "amber"
         required_grant = "approve-google-ads-recommendation-apply"
@@ -1513,10 +1549,28 @@ def command_customer_match_add_hashes(args: argparse.Namespace) -> dict[str, Any
             "offline user data job resource must match customers/<customer-id>/offlineUserDataJobs/<id>."
         )
     email_hashes = validate_sha256_hex(args.sha256_email, "email")
+    phone_hashes = validate_sha256_hex(args.sha256_phone, "phone")
+    address_infos = [
+        parse_address_info(value)
+        for value in args.address_info_json
+        if value.strip()
+    ]
+    if not email_hashes and not phone_hashes and not address_infos:
+        raise ConfigError(
+            "At least one hashed email, hashed phone, or address-info identifier is required."
+        )
     operations = [
         {"create": {"userIdentifiers": [{"hashedEmail": email_hash}]}}
         for email_hash in email_hashes
     ]
+    operations.extend(
+        {"create": {"userIdentifiers": [{"hashedPhoneNumber": phone_hash}]}}
+        for phone_hash in phone_hashes
+    )
+    operations.extend(
+        {"create": {"userIdentifiers": [{"addressInfo": address_info}]}}
+        for address_info in address_infos
+    )
     request_body = {
         "operations": operations,
         "validateOnly": bool(args.validate_only),
@@ -1587,7 +1641,7 @@ def command_dismiss_recommendation(args: argparse.Namespace) -> dict[str, Any]:
         args,
         command="dismiss-recommendation",
         path=f"/customers/{customer_id}/recommendations:dismiss",
-        operation_key="recommendation-apply",
+        operation_key="recommendation-dismiss",
         request_body=request_body,
     )
 
@@ -2049,11 +2103,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     customer_match_hashes = subparsers.add_parser(
         "customer-match-add-hashes",
-        help="Add pre-hashed SHA-256 Customer Match emails to an offline job.",
+        help="Add pre-hashed SHA-256 Customer Match identifiers to an offline job.",
     )
     customer_match_hashes.add_argument("customer_id")
     customer_match_hashes.add_argument("job_resource_name")
     customer_match_hashes.add_argument("--sha256-email", action="append", default=[])
+    customer_match_hashes.add_argument("--sha256-phone", action="append", default=[])
+    customer_match_hashes.add_argument("--address-info-json", action="append", default=[])
     customer_match_hashes.add_argument("--grant", default="")
     customer_match_hashes.add_argument("--validate-only", action="store_true")
     customer_match_hashes.set_defaults(func=command_customer_match_add_hashes)

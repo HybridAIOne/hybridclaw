@@ -97,7 +97,8 @@ Amber writes:
 - ad group edits
 - keyword additions, edits, or pauses
 - audience segment creation without customer-match uploads
-- recommendation applies or dismissals under a tenant-approved ceiling
+- recommendation applies under a tenant-approved ceiling
+- recommendation dismissals under a tenant-approved ceiling
 
 Red writes:
 
@@ -142,7 +143,8 @@ Supported executable operations:
 - `apply-recommendation` applies a recommendation through
   `recommendations:apply`
 - `dismiss-recommendation` dismisses a recommendation through
-  `recommendations:dismiss`
+  `recommendations:dismiss` with the separate
+  `approve-google-ads-recommendation-dismiss` grant
 
 Add `--validate-only` to mutation commands when you want Google Ads API
 validation without execution.
@@ -167,9 +169,22 @@ before submission.
 Customer Match can touch personal data even when Google requires hashes. The
 skill must not ingest raw customer lists in chat. Execution is split into
 explicitly approved steps: create a CRM-based user list, create an offline user
-data job, add only pre-hashed SHA-256 identifiers, then run the job. The helper
-rejects non-hash upload values, does not hash PII itself, and never accepts raw
-email, phone, address, or name fields.
+data job, add only pre-hashed SHA-256 identifiers, then run the job.
+
+This is an intentional pivot from the earlier plan-only posture. Google's
+current direction for new Customer Match implementations points toward Data
+Manager, but this skill supports the Google Ads API OfflineUserDataJobs path for
+operators who explicitly choose that route and grant the upload. The guardrail
+is narrow: the helper rejects non-hash upload values, does not hash PII itself,
+and never accepts raw email, phone, address, or name fields.
+
+`customer-match-add-hashes` accepts:
+
+- `--sha256-email` for hashed email identifiers
+- `--sha256-phone` for hashed phone identifiers
+- `--address-info-json` with hashed `hashedFirstName`, hashed
+  `hashedLastName`, `countryCode`, and optional `postalCode` or
+  `hashedStreetAddress`
 
 For EU residents, confirm the processing basis and data-residency expectations
 with the operator before preparing the upload. If those details are missing,
