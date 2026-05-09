@@ -13,6 +13,7 @@ import {
   loadPlaywrightModule,
   noopSecretAudit,
   normalizeScrollDelta,
+  type PlaywrightSecretFillLocator,
   toNavigationOptions,
 } from './playwright-utils.js';
 import type {
@@ -68,6 +69,7 @@ type BrowserUseCloudPage = {
   }): Promise<unknown>;
   click(selector: string, opts?: { timeout?: number }): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
+  url(): string;
   mouse: {
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
@@ -75,7 +77,7 @@ type BrowserUseCloudPage = {
     selector: string,
     opts?: { state?: WaitOptions['state']; timeout?: number },
   ): Promise<unknown>;
-  locator(selector: string): {
+  locator(selector: string): PlaywrightSecretFillLocator & {
     evaluate<TArg>(
       fn: (element: Element, arg: TArg) => void,
       arg: TArg,
@@ -310,6 +312,7 @@ class BrowserUseCloudSession implements BrowserSession {
   constructor(
     private readonly page: BrowserUseCloudPage,
     private readonly recordAction: (name: string) => void,
+    private readonly metering: BrowserSessionMeteringContext,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
@@ -358,7 +361,13 @@ class BrowserUseCloudSession implements BrowserSession {
 
   async fill(selector: string, value: SecretInput): Promise<void> {
     this.recordAction('fill');
-    await fillBrowserField(this.page, selector, value, this.secretAudit);
+    await fillBrowserField(
+      this.page,
+      selector,
+      value,
+      this.secretAudit,
+      this.metering,
+    );
   }
 
   async scroll(opts: ScrollOptions): Promise<void> {
@@ -428,6 +437,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       const session = new BrowserUseCloudSession(
         page,
         (name) => this.recordActionUsage(metering, name),
+        metering,
         this.options.secretAudit,
       );
 
@@ -532,6 +542,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       sessionId: metering.sessionId.trim(),
       agentId: metering.agentId.trim(),
       auditRunId: metering.auditRunId?.trim() || undefined,
+      skillName: metering.skillName?.trim() || undefined,
     };
   }
 

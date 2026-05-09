@@ -35,6 +35,42 @@ function jsonResponse(body: unknown, status = 200) {
   };
 }
 
+function writeAgentSecretPolicy(
+  root: string,
+  agentId: string,
+  secretId = 'TEST_BROWSER_PASSWORD',
+): void {
+  const policyDir = path.join(
+    root,
+    '.hybridclaw',
+    'data',
+    'agents',
+    agentId,
+    'workspace',
+    '.hybridclaw',
+  );
+  fs.mkdirSync(policyDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(policyDir, 'policy.yaml'),
+    [
+      'secret:',
+      '  default: deny',
+      '  rules:',
+      '    - action: allow',
+      '      when:',
+      '        predicate: secret_resolve_allowed',
+      '        source: env',
+      `        id: ${secretId}`,
+      '        sink: dom',
+      '        skill: cloud-login',
+      '        host: "*.datev.de"',
+      '        selector: "#password"',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 function createMockPlaywright(): {
   playwright: BrowserUseCloudPlaywrightModule;
   connectOverCDP: ReturnType<typeof vi.fn>;
@@ -55,6 +91,7 @@ function createMockPlaywright(): {
     reload: ReturnType<typeof vi.fn>;
     click: ReturnType<typeof vi.fn>;
     fill: ReturnType<typeof vi.fn>;
+    url: ReturnType<typeof vi.fn>;
     mouse: { wheel: ReturnType<typeof vi.fn> };
     waitForSelector: ReturnType<typeof vi.fn>;
     locator: ReturnType<typeof vi.fn>;
@@ -69,9 +106,12 @@ function createMockPlaywright(): {
     reload: vi.fn(async () => undefined),
     click: vi.fn(async () => undefined),
     fill: vi.fn(async () => undefined),
+    url: vi.fn(() => 'https://login.datev.de/login'),
     mouse: { wheel: vi.fn(async () => undefined) },
     waitForSelector: vi.fn(async () => undefined),
     locator: vi.fn(() => ({
+      fill: vi.fn(async () => undefined),
+      pressSequentially: vi.fn(async () => undefined),
       evaluate: vi.fn(async () => undefined),
     })),
   };
@@ -203,6 +243,7 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
   process.env.TEST_BROWSER_PASSWORD = 'secret-password';
+  writeAgentSecretPolicy(root, 'agent-actions');
   vi.resetModules();
 
   const { initDatabase, getSessionUsageTotals } = await import(
@@ -254,6 +295,7 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
     metering: {
       sessionId: 'session-actions',
       agentId: 'agent-actions',
+      skillName: 'cloud-login',
     },
   });
   await session.navigate('https://example.com/', {
@@ -275,7 +317,11 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
   expect(mock.page.click).toHaveBeenCalledWith('#submit', {
     timeout: undefined,
   });
-  expect(mock.page.fill).toHaveBeenCalledWith('#password', 'secret-password');
+  expect(mock.page.fill).not.toHaveBeenCalled();
+  expect(mock.page.locator).toHaveBeenCalledWith('#password');
+  const locator = mock.page.locator.mock.results[0]?.value;
+  expect(locator.fill).toHaveBeenCalledWith('');
+  expect(locator.pressSequentially).toHaveBeenCalledWith('secret-password');
   expect(secretAudit).toHaveBeenCalled();
   expect(fetchMock).toHaveBeenLastCalledWith(
     'https://api.browser-use.com/api/v3/browsers/cloud-session-2',
@@ -538,6 +584,11 @@ test('browser-use cloud provider rejects unresolved fill SecretRefs', async () =
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
   process.env.TEST_BROWSER_PASSWORD = 'api-key';
   delete process.env.MISSING_BROWSER_SECRET;
+  writeAgentSecretPolicy(
+    root,
+    'agent-missing-fill-secret',
+    'MISSING_BROWSER_SECRET',
+  );
   vi.resetModules();
 
   const { initDatabase } = await import('../src/memory/db.js');
@@ -575,6 +626,7 @@ test('browser-use cloud provider rejects unresolved fill SecretRefs', async () =
     metering: {
       sessionId: 'session-missing-fill-secret',
       agentId: 'agent-missing-fill-secret',
+      skillName: 'cloud-login',
     },
   });
 

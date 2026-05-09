@@ -38,6 +38,7 @@ function createMockPlaywright(): {
     reload: ReturnType<typeof vi.fn>;
     click: ReturnType<typeof vi.fn>;
     fill: ReturnType<typeof vi.fn>;
+    url: ReturnType<typeof vi.fn>;
     mouse: { wheel: ReturnType<typeof vi.fn> };
     waitForSelector: ReturnType<typeof vi.fn>;
     locator: ReturnType<typeof vi.fn>;
@@ -52,9 +53,12 @@ function createMockPlaywright(): {
     reload: vi.fn(async () => undefined),
     click: vi.fn(async () => undefined),
     fill: vi.fn(async () => undefined),
+    url: vi.fn(() => 'https://login.datev.de/login'),
     mouse: { wheel: vi.fn(async () => undefined) },
     waitForSelector: vi.fn(async () => undefined),
     locator: vi.fn(() => ({
+      fill: vi.fn(async () => undefined),
+      pressSequentially: vi.fn(async () => undefined),
       evaluate: vi.fn(async () => undefined),
     })),
   };
@@ -260,7 +264,7 @@ test('local browser provider defaults to the shared container profile root when 
   );
 });
 
-test('local browser provider resolves secret refs for fill without stringifying handles', async () => {
+test('local browser provider requires skill context for secret ref fills', async () => {
   const root = makeTempRoot();
   const mock = createMockPlaywright();
   const secretAudit = vi.fn();
@@ -272,14 +276,29 @@ test('local browser provider resolves secret refs for fill without stringifying 
   });
 
   const session = await provider.launchSession({});
-  await session.fill('#password', {
-    source: 'env',
-    id: 'TEST_BROWSER_PASSWORD',
+  await expect(
+    session.fill('#password', {
+      source: 'env',
+      id: 'TEST_BROWSER_PASSWORD',
+    }),
+  ).rejects.toThrow(/SessionOptions\.metering\.skillName/u);
+
+  expect(mock.page.fill).not.toHaveBeenCalled();
+  expect(mock.page.locator).not.toHaveBeenCalled();
+  expect(secretAudit).not.toHaveBeenCalled();
+});
+
+test('local browser provider keeps plain string fills on the regular fill path', async () => {
+  const root = makeTempRoot();
+  const mock = createMockPlaywright();
+  const provider = new LocalBrowserProvider({
+    profileRoot: path.join(root, 'browser-profiles'),
+    playwright: mock.playwright,
   });
 
-  expect(mock.page.fill).toHaveBeenCalledWith('#password', 'test-password');
-  expect(secretAudit).toHaveBeenCalledWith(
-    expect.any(Object),
-    'fill browser field #password',
-  );
+  const session = await provider.launchSession({});
+  await session.fill('#search', 'invoice status');
+
+  expect(mock.page.fill).toHaveBeenCalledWith('#search', 'invoice status');
+  expect(mock.page.locator).not.toHaveBeenCalled();
 });

@@ -1,9 +1,19 @@
-import type { SecretHandle } from '../security/secret-handles.js';
+import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
-  resolveSecretInputUnsafe,
+  assertSecretResolveAllowed,
+  recordSecretResolved,
+  recordSecretUnsafeEscaped,
+} from '../gateway/gateway-secret-injection.js';
+import type { SecretHandle } from '../security/secret-handles.js';
+import { unsafeEscapeSecretHandle } from '../security/secret-handles.js';
+import { normalizeSecretString as normalizeString } from '../security/secret-normalization.js';
+import {
+  resolveSecretHandleInput,
   type SecretInput,
+  type SecretRef,
 } from '../security/secret-refs.js';
 import type {
+  BrowserSessionMeteringContext,
   HistoryNavigationOptions,
   NavigateOptions,
   ScrollOptions,
@@ -16,11 +26,26 @@ export type PlaywrightNavigationOptions = {
 
 export type PlaywrightFillPage = {
   fill(selector: string, value: string): Promise<void>;
+  locator(selector: string): PlaywrightSecretFillLocator;
+  url(): string;
 };
 
 export const DEFAULT_SCROLL_DELTA = 800;
 
 export const noopSecretAudit = () => {};
+
+export type PlaywrightSecretFillLocator = {
+  fill(value: string): Promise<void>;
+  pressSequentially?(value: string): Promise<void>;
+};
+
+type CredentialFillParams = {
+  selector: string;
+  host: string;
+  context?: BrowserSessionMeteringContext;
+  ref: SecretRef;
+  skillName: string;
+};
 
 export function toNavigationOptions(
   opts?: NavigateOptions | HistoryNavigationOptions,
@@ -57,22 +82,166 @@ export function normalizeScrollDelta(opts: ScrollOptions): {
   }
 }
 
-export function resolveBrowserFillValue(
+function resolvePageHost(page: PlaywrightFillPage, selector: string): string {
+  try {
+    const url = page.url();
+    if (!url) {
+      throw new Error('page URL is empty');
+    }
+    return new URL(url).hostname;
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `browser.fill(${selector}) SecretRef requires a resolvable page URL for host-scoped secret policy evaluation: ${cause}`,
+    );
+  }
+}
+
+function resolveCredentialFillParams(params: {
+  selector: string;
+  host: string;
+  context?: BrowserSessionMeteringContext;
+  ref: SecretRef;
+}): CredentialFillParams {
+  const skillName = normalizeString(params.context?.skillName);
+  if (!skillName) {
+    throw new Error(
+      `browser.fill(${params.selector}) SecretRef requires SessionOptions.metering.skillName so secret policy can evaluate the calling skill.`,
+    );
+  }
+  return { ...params, skillName };
+}
+
+function assertCredentialFillAllowed(params: CredentialFillParams): void {
+  assertSecretResolveAllowed({
+    sessionId: params.context?.sessionId,
+    agentId: params.context?.agentId,
+    skillName: params.skillName,
+    secretSource: params.ref.source,
+    secretId: params.ref.id,
+    sinkKind: 'dom',
+    host: params.host,
+    selector: params.selector,
+  });
+}
+
+function recordCredentialResolve(params: CredentialFillParams): void {
+  if (!params.context?.sessionId) return;
+  recordSecretResolved({
+    sessionId: params.context.sessionId,
+    runId: params.context.auditRunId,
+    skillName: params.skillName,
+    secretSource: params.ref.source,
+    secretId: params.ref.id,
+    sinkKind: 'dom',
+    host: params.host,
+    selector: params.selector,
+  });
+}
+
+function recordCredentialFilled(params: CredentialFillParams): void {
+  if (!params.context?.sessionId) return;
+  recordAuditEvent({
+    sessionId: params.context.sessionId,
+    runId: params.context.auditRunId || makeAuditRunId('browser-credential'),
+    event: {
+      type: 'browser.credential_filled',
+      selector: params.selector,
+      host: normalizeString(params.host) || null,
+      skill: params.skillName,
+      secretRef: {
+        source: params.ref.source,
+        id: params.ref.id,
+      },
+    },
+  });
+}
+
+async function injectSecretIntoElement(
+  locator: PlaywrightSecretFillLocator,
+  handle: SecretHandle,
+  opts: {
+    selector: string;
+    host: string;
+    context?: BrowserSessionMeteringContext;
+    secretAudit?: (handle: SecretHandle, reason: string) => void;
+  },
+): Promise<void> {
+  try {
+    await locator.fill('');
+    if (locator.pressSequentially) {
+      await locator.pressSequentially(
+        unsafeEscapeSecretHandle(handle, {
+          reason: `fill browser field ${opts.selector}`,
+          audit: (auditedHandle, reason) => {
+            if (opts.context?.sessionId) {
+              recordSecretUnsafeEscaped({
+                sessionId: opts.context.sessionId,
+                runId: opts.context.auditRunId,
+                skillName: opts.context.skillName,
+                secretSource: auditedHandle.ref.source,
+                secretId: auditedHandle.ref.id,
+                sinkKind: 'dom',
+                host: opts.host,
+                selector: opts.selector,
+                reason,
+              });
+            }
+            (opts.secretAudit || noopSecretAudit)(auditedHandle, reason);
+          },
+        }),
+      );
+      return;
+    }
+    await locator.fill(
+      unsafeEscapeSecretHandle(handle, {
+        reason: `fill browser field ${opts.selector}`,
+        audit: (auditedHandle, reason) => {
+          if (opts.context?.sessionId) {
+            recordSecretUnsafeEscaped({
+              sessionId: opts.context.sessionId,
+              runId: opts.context.auditRunId,
+              skillName: opts.context.skillName,
+              secretSource: auditedHandle.ref.source,
+              secretId: auditedHandle.ref.id,
+              sinkKind: 'dom',
+              host: opts.host,
+              selector: opts.selector,
+              reason,
+            });
+          }
+          (opts.secretAudit || noopSecretAudit)(auditedHandle, reason);
+        },
+      }),
+    );
+  } finally {
+    handle.dispose();
+  }
+}
+
+async function fillBrowserCredentialField(
+  page: PlaywrightFillPage,
   selector: string,
-  value: SecretInput,
+  ref: SecretRef,
   secretAudit?: (handle: SecretHandle, reason: string) => void,
-): string {
-  if (typeof value === 'string') return value;
-  const resolvedSecret = resolveSecretInputUnsafe(value, {
+  context?: BrowserSessionMeteringContext,
+): Promise<void> {
+  const host = resolvePageHost(page, selector);
+  const params = resolveCredentialFillParams({ selector, host, context, ref });
+  assertCredentialFillAllowed(params);
+  const handle = resolveSecretHandleInput(ref, {
     path: `browser.fill(${selector})`,
     required: true,
-    reason: `fill browser field ${selector}`,
-    audit: secretAudit || noopSecretAudit,
+    sinkKind: 'dom',
+  }) as SecretHandle;
+  recordCredentialResolve(params);
+  await injectSecretIntoElement(page.locator(selector), handle, {
+    selector,
+    host,
+    context,
+    secretAudit,
   });
-  if (resolvedSecret == null) {
-    throw new Error(`browser.fill(${selector}) secret did not resolve`);
-  }
-  return resolvedSecret;
+  recordCredentialFilled(params);
 }
 
 export async function fillBrowserField(
@@ -80,11 +249,13 @@ export async function fillBrowserField(
   selector: string,
   value: SecretInput,
   secretAudit?: (handle: SecretHandle, reason: string) => void,
+  context?: BrowserSessionMeteringContext,
 ): Promise<void> {
-  await page.fill(
-    selector,
-    resolveBrowserFillValue(selector, value, secretAudit),
-  );
+  if (typeof value === 'string') {
+    await page.fill(selector, value);
+    return;
+  }
+  await fillBrowserCredentialField(page, selector, value, secretAudit, context);
 }
 
 export async function loadPlaywrightModule<T>(

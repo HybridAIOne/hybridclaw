@@ -12,6 +12,7 @@ import {
   loadPlaywrightModule,
   normalizeScrollDelta,
   type PlaywrightNavigationOptions,
+  type PlaywrightSecretFillLocator,
   toNavigationOptions,
 } from './playwright-utils.js';
 import type {
@@ -41,6 +42,7 @@ type PlaywrightPage = {
   reload(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   click(selector: string, opts?: { timeout?: number }): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
+  url(): string;
   mouse: {
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
@@ -48,7 +50,7 @@ type PlaywrightPage = {
     selector: string,
     opts?: { state?: WaitOptions['state']; timeout?: number },
   ): Promise<unknown>;
-  locator(selector: string): {
+  locator(selector: string): PlaywrightSecretFillLocator & {
     evaluate<TArg>(
       fn: (element: Element, arg: TArg) => void,
       arg: TArg,
@@ -173,6 +175,7 @@ class LocalBrowserSession implements BrowserSession {
       handle: SecretHandle,
       reason: string,
     ) => void,
+    private readonly metering?: SessionOptions['metering'],
   ) {}
 
   async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
@@ -209,7 +212,13 @@ class LocalBrowserSession implements BrowserSession {
   }
 
   async fill(selector: string, value: SecretInput): Promise<void> {
-    await fillBrowserField(this.page, selector, value, this.secretAudit);
+    await fillBrowserField(
+      this.page,
+      selector,
+      value,
+      this.secretAudit,
+      this.metering,
+    );
   }
 
   async scroll(opts: ScrollOptions): Promise<void> {
@@ -260,7 +269,11 @@ export class LocalBrowserProvider implements BrowserProvider {
       },
     );
     const page = context.pages()[0] || (await context.newPage());
-    const session = new LocalBrowserSession(page, this.options.secretAudit);
+    const session = new LocalBrowserSession(
+      page,
+      this.options.secretAudit,
+      opts.metering,
+    );
     this.contexts.set(session, context);
     return session;
   }
