@@ -83,6 +83,22 @@ npm --prefix container run lint
 npm --prefix container run release:check
 ```
 
+## Console Dev Server
+
+Iterating on the React console with HMR while the gateway handles real auth and
+APIs:
+
+```bash
+npm run dev:console
+```
+
+That starts the gateway daemon with `HYBRIDCLAW_DEV_VITE_URL=http://127.0.0.1:4173`
+then runs Vite in the foreground. Open http://127.0.0.1:9090/chat — the gateway
+proxies SPA HTML, Vite source modules, and the HMR WebSocket to Vite, so the
+page loads under the gateway origin and reuses the existing localhost session
+cookie. Plain `npm run dev` still serves the prebuilt `console/dist`. Stop the
+gateway daemon with `npx tsx src/cli.ts gateway stop`.
+
 ## Validation Expectations
 
 Choose the smallest set of checks that actually covers your change:

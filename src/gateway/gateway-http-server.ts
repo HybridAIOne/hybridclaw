@@ -4103,6 +4103,152 @@ function writeUpgradeError(
   socket.destroy();
 }
 
+// Optional Vite dev passthrough: when HYBRIDCLAW_DEV_VITE_URL is set the
+// gateway forwards SPA HTML, Vite source/asset paths, and the HMR WebSocket
+// to the configured Vite dev server so the console can be developed under
+// the gateway's origin (and pick up the hybridclaw_local_session cookie).
+// Refused unless the upstream is http:// AND the gateway is bound to
+// loopback, since the proxy intentionally bypasses the console-surface auth
+// gate (Vite serves source straight from disk).
+const DEV_VITE_URL = (() => {
+  const raw = (process.env.HYBRIDCLAW_DEV_VITE_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!raw) return '';
+  if (!raw.startsWith('http://')) {
+    logger.warn(
+      { value: raw },
+      'HYBRIDCLAW_DEV_VITE_URL must be an http:// URL — Vite passthrough disabled',
+    );
+    return '';
+  }
+  if (!isLoopbackHost(HEALTH_HOST)) {
+    logger.warn(
+      { healthHost: HEALTH_HOST },
+      'HYBRIDCLAW_DEV_VITE_URL ignored: gateway is not bound to a loopback host',
+    );
+    return '';
+  }
+  return raw;
+})();
+
+function isViteSourcePath(pathname: string): boolean {
+  return (
+    pathname.startsWith('/@vite/') ||
+    pathname === '/@react-refresh' ||
+    pathname.startsWith('/@id/') ||
+    pathname.startsWith('/@fs/') ||
+    pathname.startsWith('/src/') ||
+    pathname.startsWith('/node_modules/')
+  );
+}
+
+function canUseDevViteProxy(req: IncomingMessage): boolean {
+  return (
+    DEV_VITE_URL.length > 0 &&
+    isLoopbackSocketAddress(req.socket.remoteAddress) &&
+    !hasForwardingHeaders(req)
+  );
+}
+
+function buildViteRequestOptions(
+  req: IncomingMessage,
+  targetPath: string,
+): http.RequestOptions {
+  const upstream = new URL(targetPath, DEV_VITE_URL);
+  return {
+    protocol: upstream.protocol,
+    hostname: upstream.hostname,
+    port: upstream.port,
+    method: req.method,
+    path: upstream.pathname + upstream.search,
+    headers: { ...req.headers, host: upstream.host },
+  };
+}
+
+function proxyToVite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  targetPath: string,
+): void {
+  const upstreamReq = http.request(
+    buildViteRequestOptions(req, targetPath),
+    (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    },
+  );
+  upstreamReq.on('error', (error) => {
+    if (!res.headersSent) {
+      sendText(
+        res,
+        502,
+        `Vite dev server unreachable at ${DEV_VITE_URL}: ${error.message}`,
+      );
+    } else {
+      res.destroy(error);
+    }
+  });
+  // Abort the upstream request if the client disconnects before we finish
+  // streaming the response back. ServerResponse 'close' fires only on
+  // premature closure, not on normal end-of-response, so this won't fight
+  // the happy path.
+  res.on('close', () => {
+    if (!res.writableEnded) upstreamReq.destroy();
+  });
+  req.pipe(upstreamReq);
+}
+
+function proxyViteUpgrade(
+  req: IncomingMessage,
+  socket: import('node:stream').Duplex,
+  head: Buffer,
+): void {
+  const upstreamReq = http.request(
+    buildViteRequestOptions(req, req.url || '/'),
+  );
+  upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+    const lines = [
+      `HTTP/1.1 ${upstreamRes.statusCode ?? 101} ${upstreamRes.statusMessage || 'Switching Protocols'}`,
+    ];
+    for (const [key, value] of Object.entries(upstreamRes.headers)) {
+      if (Array.isArray(value)) {
+        for (const item of value) lines.push(`${key}: ${item}`);
+      } else if (value != null) {
+        lines.push(`${key}: ${value}`);
+      }
+    }
+    socket.write(`${lines.join('\r\n')}\r\n\r\n`);
+    if (upstreamHead.length > 0) socket.write(upstreamHead);
+    if (head.length > 0) upstreamSocket.write(head);
+    upstreamSocket.pipe(socket);
+    socket.pipe(upstreamSocket);
+    const closeBoth = (): void => {
+      socket.destroy();
+      upstreamSocket.destroy();
+    };
+    upstreamSocket.on('error', closeBoth);
+    upstreamSocket.on('close', closeBoth);
+    socket.on('error', closeBoth);
+    socket.on('close', closeBoth);
+  });
+  // Vite may answer with a regular HTTP response (e.g. 426/4xx) instead of
+  // upgrading. Surface that as an upgrade error so the client socket doesn't
+  // hang.
+  upstreamReq.on('response', (upstreamRes) => {
+    writeUpgradeError(
+      socket,
+      502,
+      `Vite did not upgrade (status ${upstreamRes.statusCode ?? 'unknown'})`,
+    );
+    upstreamRes.resume();
+  });
+  upstreamReq.on('error', () => {
+    writeUpgradeError(socket, 502, 'Vite dev server unreachable');
+  });
+  upstreamReq.end();
+}
+
 export interface GatewayHttpServer {
   broadcastShutdown: () => void;
   setReady: () => void;
@@ -4663,6 +4809,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (canUseDevViteProxy(req) && isViteSourcePath(pathname)) {
+      proxyToVite(req, res, pathname + url.search);
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
@@ -4682,6 +4833,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (isConsoleSpaPath(pathname)) {
+      if (canUseDevViteProxy(req)) {
+        proxyToVite(req, res, '/');
+        return;
+      }
       if (serveConsoleIndex(res)) return;
       sendText(
         res,
@@ -4704,6 +4859,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
+      if (canUseDevViteProxy(req)) {
+        proxyViteUpgrade(req, socket, head);
+        return;
+      }
       writeUpgradeError(socket, 404, 'Not Found');
       return;
     }
