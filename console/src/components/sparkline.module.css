@@ -18,29 +18,43 @@
   opacity: 0.85;
 }
 
+.gradientTop {
+  stop-color: var(--accent);
+  stop-opacity: 0.95;
+}
+
+.gradientBottom {
+  stop-color: var(--accent);
+  stop-opacity: 0.25;
+}
+
 .bar {
-  fill: color-mix(in srgb, var(--accent) 70%, transparent);
-  transition: fill 120ms ease;
+  fill: var(--bar-fill, var(--accent));
+  transition: fill-opacity 120ms ease;
+  fill-opacity: 0.85;
 }
 
 .bar:hover {
-  fill: var(--accent-strong);
+  fill-opacity: 1;
 }
 
 .barEmpty {
-  fill: color-mix(in srgb, var(--line) 70%, transparent);
+  fill: color-mix(in srgb, var(--line) 80%, transparent);
+  fill-opacity: 1;
 }
 
 .barPeak {
-  fill: var(--accent);
+  fill-opacity: 1;
 }
 
 .barToday {
   fill: var(--accent-strong);
+  fill-opacity: 1;
 }
 
 .barActive {
   fill: var(--accent-strong);
+  fill-opacity: 1;
 }
 
 .crosshair {

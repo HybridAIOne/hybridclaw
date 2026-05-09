@@ -142,6 +142,18 @@ export function Sparkline(props: SparklineProps) {
         <desc id={`${id}-desc`}>
           {props.ariaLabel ?? 'Daily values for the selected window.'}
         </desc>
+        <defs>
+          <linearGradient
+            id={`${id}-fill`}
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="1"
+          >
+            <stop offset="0%" className={styles.gradientTop} />
+            <stop offset="100%" className={styles.gradientBottom} />
+          </linearGradient>
+        </defs>
         <line
           x1={0}
           x2={VIEWBOX_WIDTH}
@@ -160,6 +172,10 @@ export function Sparkline(props: SparklineProps) {
           ]
             .filter(Boolean)
             .join(' ');
+          const useGradient =
+            bar.point.value > 0 &&
+            !bar.isLast &&
+            !(active?.index === bar.index);
           return (
             <rect
               key={`${bar.point.label}-${bar.index}`}
@@ -167,8 +183,9 @@ export function Sparkline(props: SparklineProps) {
               y={bar.y}
               width={bar.width}
               height={Math.max(bar.height, bar.point.value === 0 ? 0 : 0)}
-              rx={0.5}
+              rx={1}
               className={className}
+              style={useGradient ? { fill: `url(#${id}-fill)` } : undefined}
             >
               <title>{`${bar.point.label}: ${formatValue(bar.point.value)}`}</title>
             </rect>

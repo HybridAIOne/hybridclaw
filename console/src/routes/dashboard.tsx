@@ -220,27 +220,29 @@ function UsageRollupContent(props: {
 
   return (
     <>
-      <div className="usage-metrics">
-        {hasDailyActivity ? (
-          <UsageMetric label="Today" summary={daily} />
-        ) : null}
-        <UsageMetric label="Month to date" summary={monthly} />
-      </div>
-      {showTrend ? (
-        <div className="usage-trend">
-          <Sparkline
-            points={trendPoints}
-            height={44}
-            ariaLabel="Tokens per day, last 30 days"
-            formatValue={(value) =>
-              `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
-            }
-            startLabel={`${trendPoints.length - 1}d ago`}
-            endLabel="today"
-            middleLabel={peakLabel}
-          />
+      <div className="usage-rollup">
+        <div className="usage-rollup__summary">
+          {hasDailyActivity ? (
+            <UsageMetric label="Today" summary={daily} />
+          ) : null}
+          <UsageMetric label="Month to date" summary={monthly} />
         </div>
-      ) : null}
+        {showTrend ? (
+          <div className="usage-rollup__chart">
+            <Sparkline
+              points={trendPoints}
+              height={64}
+              ariaLabel="Tokens per day, last 30 days"
+              formatValue={(value) =>
+                `${formatCompactNumber(value)} ${value === 1 ? 'token' : 'tokens'}`
+              }
+              startLabel={`${trendPoints.length - 1}d ago`}
+              endLabel="today"
+              middleLabel={peakLabel}
+            />
+          </div>
+        ) : null}
+      </div>
       {showTopModels ? (
         <div className="list-stack">
           {topModels.map((row) => (
