@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview, reconnectTunnel } from '../api/client';
-import type { AdminOverview, AdminTunnelStatus } from '../api/types';
+import type {
+  AdminOverview,
+  AdminTunnelStatus,
+  AdminUsageSummary,
+} from '../api/types';
 import { useAuth } from '../auth';
 import { ProviderHealthPanel } from '../components/provider-health';
 import {
@@ -149,6 +153,69 @@ function TunnelStatusPanel(props: {
   );
 }
 
+function UsageStack(props: { label: string; summary: AdminUsageSummary }) {
+  return (
+    <div className="usage-stack">
+      <span>{props.label}</span>
+      <strong>{formatCompactNumber(props.summary.totalTokens)}</strong>
+      <small>
+        {formatTokenBreakdown({
+          inputTokens: props.summary.totalInputTokens ?? 0,
+          outputTokens: props.summary.totalOutputTokens ?? 0,
+        })}
+      </small>
+      <small>
+        {formatUsd(props.summary.totalCostUsd)} across{' '}
+        {pluralize(props.summary.callCount, 'call')}
+      </small>
+    </div>
+  );
+}
+
+function UsageRollupContent(props: { usage: AdminOverview['usage'] }) {
+  const { daily, monthly, topModels } = props.usage;
+  const hasMonthlyActivity = monthly.callCount > 0 || monthly.totalTokens > 0;
+  const hasDailyActivity = daily.callCount > 0 || daily.totalTokens > 0;
+
+  if (!hasMonthlyActivity && !hasDailyActivity) {
+    return <p className="supporting-text">No usage has been recorded yet.</p>;
+  }
+
+  // The top-models list duplicates the monthly totals when only one model
+  // is in use, so we only render it when it actually adds information.
+  const showTopModels = topModels.length > 1;
+
+  return (
+    <>
+      <div className="usage-grid">
+        {hasDailyActivity ? (
+          <UsageStack label="Today" summary={daily} />
+        ) : null}
+        <UsageStack label="Month to date" summary={monthly} />
+      </div>
+      {showTopModels ? (
+        <div className="list-stack">
+          {topModels.map((row) => (
+            <div className="list-row" key={row.model}>
+              <div>
+                <strong>{row.model}</strong>
+                <small>
+                  {formatTokenBreakdown({
+                    inputTokens: row.totalInputTokens ?? 0,
+                    outputTokens: row.totalOutputTokens ?? 0,
+                  })}{' '}
+                  · {pluralize(row.callCount, 'call')} this month
+                </small>
+              </div>
+              <span>{formatUsd(row.totalCostUsd)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function DashboardPage() {
   const auth = useAuth();
   const navigate = useNavigate();
@@ -249,63 +316,7 @@ export function DashboardPage() {
 
       <div className="two-column-grid">
         <Panel title="Usage rollup" accent="warm">
-          <div className="usage-grid">
-            <div className="usage-stack">
-              <span>Daily</span>
-              <strong>
-                {formatCompactNumber(overview.usage.daily.totalTokens)}
-              </strong>
-              <small>
-                {formatTokenBreakdown({
-                  inputTokens: overview.usage.daily.totalInputTokens ?? 0,
-                  outputTokens: overview.usage.daily.totalOutputTokens ?? 0,
-                })}
-              </small>
-              <small>
-                {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
-                {pluralize(overview.usage.daily.callCount, 'call')}
-              </small>
-            </div>
-            <div className="usage-stack">
-              <span>Monthly</span>
-              <strong>
-                {formatCompactNumber(overview.usage.monthly.totalTokens)}
-              </strong>
-              <small>
-                {formatTokenBreakdown({
-                  inputTokens: overview.usage.monthly.totalInputTokens ?? 0,
-                  outputTokens: overview.usage.monthly.totalOutputTokens ?? 0,
-                })}
-              </small>
-              <small>
-                {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
-                {pluralize(overview.usage.monthly.callCount, 'call')}
-              </small>
-            </div>
-          </div>
-          <div className="list-stack">
-            {overview.usage.topModels.length === 0 ? (
-              <p className="supporting-text">
-                No model usage has been recorded yet.
-              </p>
-            ) : (
-              overview.usage.topModels.map((row) => (
-                <div className="list-row" key={row.model}>
-                  <div>
-                    <strong>{row.model}</strong>
-                    <small>
-                      {formatTokenBreakdown({
-                        inputTokens: row.totalInputTokens ?? 0,
-                        outputTokens: row.totalOutputTokens ?? 0,
-                      })}{' '}
-                      · {pluralize(row.callCount, 'call')} this month
-                    </small>
-                  </div>
-                  <span>{formatUsd(row.totalCostUsd)}</span>
-                </div>
-              ))
-            )}
-          </div>
+          <UsageRollupContent usage={overview.usage} />
         </Panel>
 
         <ProviderHealthPanel
