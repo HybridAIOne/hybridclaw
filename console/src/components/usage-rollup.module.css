@@ -75,16 +75,15 @@
 
 .area {
   fill: var(--accent);
-  fill-opacity: 0.08;
+  fill-opacity: 0.14;
 }
 
 .line {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-width: 1.75;
   stroke-linejoin: round;
   stroke-linecap: round;
-  stroke-opacity: 0.85;
 }
 
 .crosshair {
@@ -112,11 +111,11 @@
   z-index: 1;
 }
 
-.tooltip[data-align='start'] {
+.tooltip[data-align="start"] {
   transform: translateX(0);
 }
 
-.tooltip[data-align='end'] {
+.tooltip[data-align="end"] {
   transform: translateX(-100%);
 }
 
