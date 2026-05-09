@@ -96,16 +96,13 @@ export function ChatPage() {
   const auth = useAuth();
   const queryClient = useQueryClient();
   const userId = useRef(readStoredUserId()).current;
-  const defaultAgentIdRef = useRef(DEFAULT_AGENT_ID);
 
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [mobileQr, setMobileQr] = useState<ChatMobileQrResponse | null>(null);
   const [mobileQrBusy, setMobileQrBusy] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    defaultAgentIdRef.current,
-  );
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [recentChatScope, setRecentChatScope] =
     useState<RecentChatScope>('user');
@@ -212,16 +209,13 @@ export function ChatPage() {
     enabled: chatApiReady,
   });
 
-  useEffect(() => {
-    const id = appStatusQuery.data?.defaultAgentId;
-    if (id) {
-      const normalized = id.trim().toLowerCase();
-      defaultAgentIdRef.current = normalized;
-      setSelectedAgentId((current) =>
-        !current || current === DEFAULT_AGENT_ID ? normalized : current,
-      );
-    }
-  }, [appStatusQuery.data?.defaultAgentId]);
+  // Selection is local-once-set: until the user picks an agent the UI follows
+  // the gateway default; after they pick, their choice sticks even when the
+  // query refetches with a different default.
+  const effectiveAgentId =
+    selectedAgentId ??
+    appStatusQuery.data?.defaultAgentId?.trim().toLowerCase() ??
+    DEFAULT_AGENT_ID;
 
   // /model set is session-scoped on the gateway, so re-seed the local selection
   // to the gateway default whenever the session changes. We don't know what
@@ -828,7 +822,7 @@ export function ChatPage() {
             onUploadFiles={handleUploadFiles}
             token={auth.token}
             agents={agentOptions}
-            selectedAgentId={selectedAgentId}
+            selectedAgentId={effectiveAgentId}
             onAgentSwitch={(agentId) => void handleAgentSwitch(agentId)}
             models={modelOptions}
             selectedModelId={selectedModelId}
