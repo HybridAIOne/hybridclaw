@@ -115,6 +115,10 @@ import type {
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
 import {
+  normalizeNonNegativeInteger,
+  normalizeNonNegativeNumber,
+} from '../utils/number-normalization.js';
+import {
   buildMemoryFtsDocument,
   buildMemoryFtsMatchQuery,
   getMemoryFtsTokenizerSpec,
@@ -3339,17 +3343,11 @@ function usageWindowWhereClause(window: UsageWindow): string | null {
 }
 
 export function normalizeUsageNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.floor(value));
-  }
-  return 0;
+  return normalizeNonNegativeInteger(value);
 }
 
 export function normalizeUsageCost(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, value);
-  }
-  return 0;
+  return normalizeNonNegativeNumber(value);
 }
 
 function applyUsageFilters(params: {

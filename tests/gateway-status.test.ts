@@ -44,10 +44,7 @@ function writeRuntimeConfig(
 
 function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
   return YAML.parse(
-    fs.readFileSync(
-      mainAgentPolicyPath(homeDir),
-      'utf-8',
-    ),
+    fs.readFileSync(mainAgentPolicyPath(homeDir), 'utf-8'),
   ) as Record<string, unknown>;
 }
 
@@ -2001,6 +1998,95 @@ test('status uses OpenRouter context_length metadata for the context window', as
   }
   expect(result.text).toContain('🧠 Model: openrouter/hunter-alpha');
   expect(result.text).toContain('📚 Context: 12k/262k');
+});
+
+test('status reports context from the latest model call instead of aggregate prompt tokens', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.OPENROUTER_API_KEY = 'or-status-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = true;
+    config.hybridai.defaultModel = 'openrouter/hunter-alpha';
+    config.openrouter.models = ['openrouter/hunter-alpha'];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/models')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'hunter-alpha',
+                context_length: 262144,
+                pricing: {
+                  prompt: '0',
+                  completion: '0',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { makeAuditRunId, recordAuditEvent } = await import(
+    '../src/audit/audit-events.ts'
+  );
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  recordAuditEvent({
+    sessionId: 'session-status-context-latest-call',
+    runId: makeAuditRunId('test'),
+    event: {
+      type: 'model.usage',
+      provider: 'openrouter',
+      model: 'openrouter/hunter-alpha',
+      promptTokens: 860_000,
+      completionTokens: 1_000,
+      performanceSamples: [
+        {
+          promptTokens: 120_000,
+          completionTokens: 500,
+          totalTokens: 120_500,
+          durationMs: 2_000,
+        },
+        {
+          promptTokens: 54_000,
+          completionTokens: 500,
+          totalTokens: 54_500,
+          durationMs: 1_000,
+        },
+      ],
+    },
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-status-context-latest-call',
+    guildId: null,
+    channelId: 'channel-status-context-latest-call',
+    args: ['status'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('📚 Context: 54k/262k');
+  expect(result.text).toContain('🧮 Tokens: 860k in / 1k out');
 });
 
 test('status uses Hugging Face context_length metadata for the context window', async () => {
