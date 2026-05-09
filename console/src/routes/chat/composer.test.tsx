@@ -456,4 +456,48 @@ describe('Composer', () => {
       expect(screen.queryByRole('listbox')).toBeNull();
     });
   });
+
+  describe('IME composition', () => {
+    it('does not send on Enter while an IME is composing', () => {
+      const onSend = vi.fn();
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: 'こん' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', isComposing: true });
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it('sends on Enter once composition has ended', () => {
+      const onSend = vi.fn();
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: 'こんにちは' } });
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      expect(onSend).toHaveBeenCalledWith('こんにちは', []);
+    });
+
+    it('does not select a slash suggestion on Enter while composing', async () => {
+      fetchChatCommandsMock.mockResolvedValue({ commands: [APPROVE] });
+      renderComposer();
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: '/' } });
+      await screen.findByRole('listbox');
+      fireEvent.keyDown(textarea, { key: 'Enter', isComposing: true });
+      expect(textarea.value).toBe('/');
+    });
+
+    it('treats keyCode 229 as composing (Safari/WebKit fallback)', () => {
+      const onSend = vi.fn();
+      renderComposer({ onSend });
+      const textarea = getTextarea();
+      fireEvent.input(textarea, { target: { value: 'こん' } });
+      // Safari fires the confirm-Enter with isComposing: false but keyCode 229.
+      fireEvent.keyDown(textarea, {
+        key: 'Enter',
+        isComposing: false,
+        keyCode: 229,
+      });
+      expect(onSend).not.toHaveBeenCalled();
+    });
+  });
 });
