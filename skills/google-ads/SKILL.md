@@ -75,28 +75,32 @@ carefully gated account mutations.
 
 1. Start with reads. For reporting, draft or generate GAQL, review it, then run
    it only if the query is scoped enough for the request.
-2. Use the bundled helper from the current workspace:
+2. For live read-only Google Ads API calls, use `http_request` directly. Do not
+   run the helper through `bash` for account listing, GAQL execution, or other
+   read-only REST calls when `http_request` is available.
+3. Use the bundled helper only for offline planning/review utilities and guarded
+   mutation commands:
    ```bash
    python3 skills/google-ads/scripts/google_ads.py ...
    ```
-3. Use `plan` before every write-like request. The plan output carries
+4. Use `plan` before every write-like request. The plan output carries
    `stakesTier`, `requiresEscalation`, `requiredGrant`, and
    `brandVoiceGateRequired` fields.
-4. Do not execute amber or red operations from the plan unless the user has
+5. Do not execute amber or red operations from the plan unless the user has
    granted the exact `requiredGrant` in the same turn or through an approved
    F14 escalation.
-5. Run `/brand-voice` before submitting any generated headline, description,
+6. Run `/brand-voice` before submitting any generated headline, description,
    sitelink, callout, or other ad-copy asset. If brand voice is not configured,
    keep the copy as a draft and ask for approval before submission.
-6. Use `gaql` for direct query execution and `report-plan` when the user asks in
-   natural language.
+7. Use `http_request` for direct query execution and the helper `report-plan`
+   when the user asks in natural language and a GAQL query must be generated.
 
 ## Secret Refs
 
-The helper routes live Google Ads HTTP calls through the HybridClaw gateway
-proxy. OAuth access tokens and the developer token are injected server-side by
-configured secret routes, so real values never enter the helper process or the
-model context.
+Use `http_request` for live Google Ads HTTP calls. OAuth access tokens and the
+developer token are injected server-side by the gateway from secret handles, so
+real values never enter the model context. The helper uses the same gateway
+contract only for commands that explicitly require helper-side validation.
 
 Required setup:
 
@@ -109,9 +113,12 @@ hybridclaw auth login google \
 
 hybridclaw auth status google
 hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"
-hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer
-hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none
 ```
+
+Do not ask the user to add `secret route` entries for normal Google Ads skill
+use. The skill should pass `bearerSecretName: "GOOGLE_WORKSPACE_CLI_TOKEN"` and
+`secretHeaders: [{ "name": "developer-token", "secretName":
+"GOOGLEADS_DEVELOPER_TOKEN", "prefix": "" }]` in each `http_request` call.
 
 Optional stored defaults:
 
@@ -128,15 +135,44 @@ the API without hyphens.
 
 List accessible Google Ads customers:
 
-```bash
-python3 skills/google-ads/scripts/google_ads.py customers
+```json
+{
+  "url": "https://googleads.googleapis.com/v20/customers:listAccessibleCustomers",
+  "method": "GET",
+  "bearerSecretName": "GOOGLE_WORKSPACE_CLI_TOKEN",
+  "secretHeaders": [
+    {
+      "name": "developer-token",
+      "secretName": "GOOGLEADS_DEVELOPER_TOKEN",
+      "prefix": ""
+    }
+  ],
+  "skillName": "google-ads"
+}
 ```
 
 Run a GAQL report:
 
-```bash
-python3 skills/google-ads/scripts/google_ads.py gaql 1234567890 \
-  "SELECT campaign.id, campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS LIMIT 20"
+```json
+{
+  "url": "https://googleads.googleapis.com/v20/customers/1234567890/googleAds:searchStream",
+  "method": "POST",
+  "headers": {
+    "login-customer-id": "1234567890"
+  },
+  "json": {
+    "query": "SELECT campaign.id, campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS LIMIT 20"
+  },
+  "bearerSecretName": "GOOGLE_WORKSPACE_CLI_TOKEN",
+  "secretHeaders": [
+    {
+      "name": "developer-token",
+      "secretName": "GOOGLEADS_DEVELOPER_TOKEN",
+      "prefix": ""
+    }
+  ],
+  "skillName": "google-ads"
+}
 ```
 
 Plan GAQL from natural language without authentication:

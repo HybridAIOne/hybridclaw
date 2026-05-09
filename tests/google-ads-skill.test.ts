@@ -108,6 +108,17 @@ test('Google Ads skill manifest declares marketing category and safety metadata'
   expect(skill).toContain('customer-match-upload');
   expect(skill).toContain('brand-voice');
   expect(skill).toContain('UsageTotals');
+  expect(skill).toContain(
+    'For live read-only Google Ads API calls, use `http_request` directly.',
+  );
+  expect(skill).toContain(
+    'Do not ask the user to add `secret route` entries for normal Google Ads skill',
+  );
+  expect(skill).toContain(
+    '"url": "https://googleads.googleapis.com/v20/customers:listAccessibleCustomers"',
+  );
+  expect(skill).toContain('"bearerSecretName": "GOOGLE_WORKSPACE_CLI_TOKEN"');
+  expect(skill).toContain('"secretName": "GOOGLEADS_DEVELOPER_TOKEN"');
 });
 
 test('Google Ads helper --help exits cleanly', () => {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_GATEWAY_API_TOKEN = process.env.GATEWAY_API_TOKEN;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(
@@ -48,6 +49,7 @@ afterEach(() => {
   vi.doUnmock('../src/logger.js');
   vi.resetModules();
   restoreEnvVar('HOME', ORIGINAL_HOME);
+  restoreEnvVar('GATEWAY_API_TOKEN', ORIGINAL_GATEWAY_API_TOKEN);
 });
 
 test('ContainerExecutor preserves user-visible result and error strings from agent output', async () => {
@@ -579,6 +581,93 @@ test('ContainerExecutor claims a warm container for a later session', async () =
     'Claimed warm container',
   );
   expect(initialWarmRun?.proc.stdin.write).toHaveBeenCalledTimes(1);
+});
+
+test('ContainerExecutor injects gateway runtime env into docker launch', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.GATEWAY_API_TOKEN = 'gateway-secret';
+  vi.resetModules();
+
+  const spawn = vi.fn(() => makeFakeChildProcess() as never);
+  const readOutput = vi.fn(async () => ({
+    status: 'success' as const,
+    result: 'ok',
+    toolsUsed: [],
+    artifacts: [],
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: '',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot-a',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'default',
+    isLocal: false,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+
+  vi.doMock('node:child_process', async () => {
+    const actual =
+      await vi.importActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    return {
+      ...actual,
+      spawn,
+    };
+  });
+  vi.doMock('../src/infra/ipc.js', async () => {
+    const actual = await vi.importActual<typeof import('../src/infra/ipc.js')>(
+      '../src/infra/ipc.js',
+    );
+    return {
+      ...actual,
+      readOutput,
+    };
+  });
+  vi.doMock('../src/providers/factory.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/providers/factory.js')
+    >('../src/providers/factory.js');
+    return {
+      ...actual,
+      resolveModelRuntimeCredentials,
+    };
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  }));
+
+  const { ContainerExecutor } = await import(
+    '../src/infra/container-runner.js'
+  );
+  const executor = new ContainerExecutor();
+
+  await executor.exec({
+    sessionId: 'session-gateway-env',
+    messages: [{ role: 'user', content: 'hello' }],
+    chatbotId: 'bot-a',
+    enableRag: false,
+    model: 'gpt-5',
+    agentId: 'default',
+    channelId: 'tui',
+  });
+
+  const runArgs = spawn.mock.calls.find(
+    (call) => call[0] === 'docker' && Array.isArray(call[1]),
+  )?.[1] as string[] | undefined;
+  expect(runArgs).toContain(
+    'HYBRIDCLAW_GATEWAY_URL=http://host.docker.internal:9090',
+  );
+  expect(runArgs).toContain('HYBRIDCLAW_GATEWAY_TOKEN=gateway-secret');
 });
 
 test('ContainerExecutor stages the container node_modules symlink before docker launch', async () => {
