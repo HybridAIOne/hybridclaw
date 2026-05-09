@@ -453,8 +453,7 @@ code {
 .config-section,
 .empty-state,
 .summary-block,
-.key-value-grid div,
-.usage-stack {
+.key-value-grid div {
   background: var(--panel-muted);
 }
 
@@ -465,7 +464,6 @@ code {
 .metric-grid,
 .two-column-grid,
 .field-grid,
-.usage-grid,
 .config-grid,
 .key-value-grid {
   display: grid;
@@ -497,7 +495,6 @@ code {
   }
 }
 
-.usage-grid,
 .field-grid,
 .config-grid,
 .key-value-grid {
@@ -508,7 +505,56 @@ code {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
+}
+
+.usage-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 28px;
+}
+
+.usage-metrics > * + * {
+  padding-left: 28px;
+  border-left: 1px solid var(--line);
+}
+
+.usage-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.usage-metric__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+.usage-metric__value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-metric__unit {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+.usage-metric__detail {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 
 .metric-card {
@@ -1887,17 +1933,12 @@ th {
   font-size: 0.95rem;
 }
 
-.key-value-grid div,
-.usage-stack {
+.key-value-grid div {
   display: grid;
   gap: 4px;
   padding: 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
-}
-
-.usage-stack strong {
-  font-size: 1.3rem;
 }
 
 .table-shell td strong,
@@ -2281,11 +2322,23 @@ th {
 @media (max-width: 1080px) {
   .metric-grid,
   .two-column-grid,
-  .usage-grid,
   .field-grid,
   .config-grid,
   .key-value-grid {
     grid-template-columns: 1fr;
+  }
+
+  .usage-metrics {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .usage-metrics > * + * {
+    padding-left: 0;
+    padding-top: 16px;
+    border-left: none;
+    border-top: 1px solid var(--line);
   }
 
   .tunnel-detail-grid {

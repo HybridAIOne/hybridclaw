@@ -168,21 +168,22 @@ function TunnelStatusPanel(props: {
   );
 }
 
-function UsageStack(props: { label: string; summary: AdminUsageSummary }) {
+function UsageMetric(props: { label: string; summary: AdminUsageSummary }) {
+  const { summary } = props;
+  const detailParts = [
+    `${formatCompactNumber(summary.totalInputTokens ?? 0)} in`,
+    `${formatCompactNumber(summary.totalOutputTokens ?? 0)} out`,
+    pluralize(summary.callCount, 'call'),
+    formatUsd(summary.totalCostUsd),
+  ];
   return (
-    <div className="usage-stack">
-      <span>{props.label}</span>
-      <strong>{formatCompactNumber(props.summary.totalTokens)}</strong>
-      <small>
-        {formatTokenBreakdown({
-          inputTokens: props.summary.totalInputTokens ?? 0,
-          outputTokens: props.summary.totalOutputTokens ?? 0,
-        })}
-      </small>
-      <small>
-        {formatUsd(props.summary.totalCostUsd)} across{' '}
-        {pluralize(props.summary.callCount, 'call')}
-      </small>
+    <div className="usage-metric">
+      <span className="usage-metric__label">{props.label}</span>
+      <strong className="usage-metric__value">
+        {formatCompactNumber(summary.totalTokens)}
+        <span className="usage-metric__unit">tokens</span>
+      </strong>
+      <span className="usage-metric__detail">{detailParts.join(' · ')}</span>
     </div>
   );
 }
@@ -232,9 +233,11 @@ function UsageRollupContent(props: {
           <small className="supporting-text">{trendCaption}</small>
         </div>
       ) : null}
-      <div className="usage-grid">
-        {hasDailyActivity ? <UsageStack label="Today" summary={daily} /> : null}
-        <UsageStack label="Month to date" summary={monthly} />
+      <div className="usage-metrics">
+        {hasDailyActivity ? (
+          <UsageMetric label="Today" summary={daily} />
+        ) : null}
+        <UsageMetric label="Month to date" summary={monthly} />
       </div>
       {showTopModels ? (
         <div className="list-stack">
