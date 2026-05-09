@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { useToast } from '../components/toast';
-
-type LiveConnection = 'idle' | 'connecting' | 'open' | 'error';
+import type { LiveConnection } from './use-live-events';
 
 /**
  * Surface SSE transport transitions as toasts on admin pages that consume
  * `useLiveEvents`. Fires only on transitions out of and back into `open`,
  * so the initial connect/error path during page load doesn't generate noise.
  *
- * The "paused" info toast is replaced (not stacked) by the "restored"
- * success toast once the connection comes back.
+ * The "paused" info toast is sticky (duration: 0) so a long degradation
+ * stays visible; it gets dismissed both on recovery (replaced by a
+ * "restored" success toast) and on component unmount, so navigating away
+ * doesn't orphan it onto another page.
  */
 export function useLiveConnectionToasts(connection: LiveConnection): void {
   const toast = useToast();
@@ -22,10 +23,12 @@ export function useLiveConnectionToasts(connection: LiveConnection): void {
     if (prev === connection) return;
 
     if (prev === 'open' && connection === 'error') {
-      pausedToastIdRef.current = toast.info(
-        'Live updates paused',
-        'Showing snapshot — retrying.',
-      );
+      pausedToastIdRef.current = toast.add({
+        title: 'Live updates paused',
+        description: 'Showing snapshot — retrying.',
+        type: 'info',
+        duration: 0,
+      });
       return;
     }
 
@@ -37,4 +40,14 @@ export function useLiveConnectionToasts(connection: LiveConnection): void {
       toast.success('Live updates restored');
     }
   }, [connection, toast]);
+
+  useEffect(
+    () => () => {
+      if (pausedToastIdRef.current) {
+        toast.dismiss(pausedToastIdRef.current);
+        pausedToastIdRef.current = null;
+      }
+    },
+    [toast],
+  );
 }

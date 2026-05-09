@@ -1,10 +1,9 @@
 import { act, renderHook, screen } from '@testing-library/react';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { ToastProvider } from '../components/toast';
 import { useLiveConnectionToasts } from './use-live-connection-toasts';
-
-type Connection = 'idle' | 'connecting' | 'open' | 'error';
+import type { LiveConnection } from './use-live-events';
 
 function wrapper({ children }: { children: ReactNode }) {
   return <ToastProvider>{children}</ToastProvider>;
@@ -13,7 +12,7 @@ function wrapper({ children }: { children: ReactNode }) {
 describe('useLiveConnectionToasts', () => {
   it('emits a paused toast when transitioning from open to error', () => {
     const { rerender } = renderHook(
-      ({ c }: { c: Connection }) => useLiveConnectionToasts(c),
+      ({ c }: { c: LiveConnection }) => useLiveConnectionToasts(c),
       { wrapper, initialProps: { c: 'open' } },
     );
     expect(screen.queryByText('Live updates paused')).toBeNull();
@@ -24,7 +23,7 @@ describe('useLiveConnectionToasts', () => {
 
   it('emits a restored toast when transitioning from error back to open', () => {
     const { rerender } = renderHook(
-      ({ c }: { c: Connection }) => useLiveConnectionToasts(c),
+      ({ c }: { c: LiveConnection }) => useLiveConnectionToasts(c),
       { wrapper, initialProps: { c: 'open' } },
     );
     act(() => rerender({ c: 'error' }));
@@ -34,7 +33,7 @@ describe('useLiveConnectionToasts', () => {
 
   it('does not emit on initial connecting -> open (page load)', () => {
     const { rerender } = renderHook(
-      ({ c }: { c: Connection }) => useLiveConnectionToasts(c),
+      ({ c }: { c: LiveConnection }) => useLiveConnectionToasts(c),
       { wrapper, initialProps: { c: 'connecting' } },
     );
     act(() => rerender({ c: 'open' }));
@@ -44,7 +43,7 @@ describe('useLiveConnectionToasts', () => {
 
   it('does not emit on initial connecting -> error', () => {
     const { rerender } = renderHook(
-      ({ c }: { c: Connection }) => useLiveConnectionToasts(c),
+      ({ c }: { c: LiveConnection }) => useLiveConnectionToasts(c),
       { wrapper, initialProps: { c: 'connecting' } },
     );
     act(() => rerender({ c: 'error' }));
