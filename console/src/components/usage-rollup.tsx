@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AdminOverview, AdminStatisticsTrendDay } from '../api/types';
 import {
   formatCompactNumber,
@@ -41,13 +41,13 @@ export function UsageRollup(props: UsageRollupProps) {
 
   return (
     <div className={css.root}>
-      <div className={css.headline}>
-        <span className={css.headlineNumber}>
-          {formatCompactNumber(summary.totalTokens)}
-        </span>
-        <span className={css.headlineUnit}>tokens</span>
-        <span className={css.window}>Month to date</span>
-      </div>
+      <p className={css.summary}>
+        <strong>{formatCompactNumber(summary.totalTokens)}</strong> tokens this
+        month
+        {hasDaily
+          ? ` · ${formatCompactNumber(daily.totalTokens)} today`
+          : null}
+      </p>
 
       <div className={css.ribbon}>
         <Metric
@@ -61,13 +61,6 @@ export function UsageRollup(props: UsageRollupProps) {
         <Metric label="Calls" value={formatCompactNumber(summary.callCount)} />
         <Metric label="Spent" value={formatUsd(summary.totalCostUsd)} />
       </div>
-
-      {hasDaily ? (
-        <p className={css.todayLine}>
-          Today: {formatCompactNumber(daily.totalTokens)} tokens ·{' '}
-          {pluralize(daily.callCount, 'call')} · {formatUsd(daily.totalCostUsd)}
-        </p>
-      ) : null}
 
       <UsageChart trend={props.trend} formatTrendDate={props.formatTrendDate} />
 
@@ -112,7 +105,6 @@ function UsageChart(props: {
   trend: AdminStatisticsTrendDay[] | null;
   formatTrendDate: (isoDate: string) => string;
 }) {
-  const id = useId();
   const [hover, setHover] = useState<HoverState | null>(null);
   const trend = props.trend;
 
@@ -136,13 +128,12 @@ function UsageChart(props: {
       (best, p) => (p.value > (best?.value ?? -1) ? p : best),
       null,
     );
-    const last = points[points.length - 1];
-    return { points, linePath, areaPath, peak, last, max };
+    return { points, linePath, areaPath, peak };
   }, [trend, props.formatTrendDate]);
 
   if (!layout) return null;
 
-  const { points, linePath, areaPath, peak, last } = layout;
+  const { points, linePath, areaPath, peak } = layout;
   const peakLabel =
     peak && peak.value > 0
       ? `peak ${formatCompactNumber(peak.value)} on ${peak.label}`
@@ -189,54 +180,21 @@ function UsageChart(props: {
           onPointerMove={handleMove}
           onPointerLeave={handleLeave}
         >
-          <defs>
-            <linearGradient id={`${id}-area`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" className={css.areaTop} />
-              <stop offset="100%" className={css.areaBottom} />
-            </linearGradient>
-          </defs>
-          <path d={areaPath} fill={`url(#${id}-area)`} />
+          <path d={areaPath} className={css.area} />
           <path
             d={linePath}
             className={css.line}
             vectorEffect="non-scaling-stroke"
           />
-          {peak && peak.value > 0 ? (
-            <circle
-              cx={peak.x}
-              cy={peak.y}
-              r={3.5}
-              className={css.peakDot}
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null}
-          {last && last !== peak ? (
-            <circle
-              cx={last.x}
-              cy={last.y}
-              r={3}
-              className={css.todayDot}
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null}
           {hover ? (
-            <>
-              <line
-                x1={hover.point.x}
-                x2={hover.point.x}
-                y1={0}
-                y2={CHART_VIEWBOX_HEIGHT}
-                className={css.crosshair}
-                vectorEffect="non-scaling-stroke"
-              />
-              <circle
-                cx={hover.point.x}
-                cy={hover.point.y}
-                r={3.5}
-                className={css.hoverDot}
-                vectorEffect="non-scaling-stroke"
-              />
-            </>
+            <line
+              x1={hover.point.x}
+              x2={hover.point.x}
+              y1={0}
+              y2={CHART_VIEWBOX_HEIGHT}
+              className={css.crosshair}
+              vectorEffect="non-scaling-stroke"
+            />
           ) : null}
         </svg>
         {hover ? (

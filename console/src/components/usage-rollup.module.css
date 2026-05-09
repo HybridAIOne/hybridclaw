@@ -1,7 +1,7 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .empty {
@@ -10,69 +10,43 @@
   margin: 0;
 }
 
-.headline {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
+.summary {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-variant-numeric: tabular-nums;
 }
 
-.window {
-  margin-left: auto;
-  font-size: 0.7rem;
+.summary strong {
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
-  align-self: center;
-}
-
-.headlineNumber {
-  font-size: 3.5rem;
-  font-weight: 300;
-  line-height: 0.95;
-  letter-spacing: -0.035em;
   color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.headlineUnit {
-  font-size: 1rem;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--text) 50%, transparent);
-}
-
-.todayLine {
-  margin: -8px 0 0 0;
-  font-size: 0.8rem;
-  color: color-mix(in srgb, var(--text) 60%, transparent);
-  font-variant-numeric: tabular-nums;
 }
 
 .ribbon {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px;
-  padding-top: 20px;
+  gap: 20px;
+  padding: 16px 0;
   border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
 }
 
 .metric {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 .metricLabel {
-  font-size: 0.62rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--text) 50%, transparent);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
 }
 
 .metricValue {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -85,7 +59,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 4px;
 }
 
 .chartCanvas {
@@ -96,79 +69,54 @@
 .chartSvg {
   display: block;
   width: 100%;
-  height: 100px;
+  height: 72px;
   overflow: visible;
-  cursor: crosshair;
 }
 
-.areaTop {
-  stop-color: var(--accent);
-  stop-opacity: 0.45;
-}
-
-.areaBottom {
-  stop-color: var(--accent);
-  stop-opacity: 0;
+.area {
+  fill: var(--accent);
+  fill-opacity: 0.08;
 }
 
 .line {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.75;
+  stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
-}
-
-.peakDot {
-  fill: var(--accent);
-  stroke: var(--panel-bg, transparent);
-  stroke-width: 2;
-}
-
-.todayDot {
-  fill: var(--accent-strong);
-  stroke: var(--panel-bg, transparent);
-  stroke-width: 2;
+  stroke-opacity: 0.85;
 }
 
 .crosshair {
-  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke: color-mix(in srgb, var(--text) 25%, transparent);
   stroke-width: 1;
   stroke-dasharray: 2 3;
   pointer-events: none;
 }
 
-.hoverDot {
-  fill: var(--accent-strong);
-  stroke: var(--panel-bg, var(--surface, transparent));
-  stroke-width: 2;
-  pointer-events: none;
-}
-
 .tooltip {
   position: absolute;
-  top: -36px;
+  top: -32px;
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
   background: var(--panel-muted);
   border: 1px solid var(--line);
   white-space: nowrap;
   pointer-events: none;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   line-height: 1.2;
-  box-shadow: var(--shadow-popover, 0 6px 16px rgba(15, 23, 42, 0.18));
   transform: translateX(-50%);
   z-index: 1;
 }
 
-.tooltip[data-align="start"] {
+.tooltip[data-align='start'] {
   transform: translateX(0);
 }
 
-.tooltip[data-align="end"] {
+.tooltip[data-align='end'] {
   transform: translateX(-100%);
 }
 
@@ -178,7 +126,7 @@
 
 .tooltipValue {
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -186,24 +134,17 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 0.7rem;
-  letter-spacing: 0.02em;
+  font-size: 0.72rem;
   color: color-mix(in srgb, var(--text) 50%, transparent);
-}
-
-.axisPeak {
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
-  font-variant-numeric: tabular-nums;
 }
 
 .topModels {
   list-style: none;
   margin: 0;
-  padding: 16px 0 0 0;
-  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .topModelRow {
@@ -215,7 +156,6 @@
 }
 
 .topModelName {
-  font-weight: 500;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -230,16 +170,11 @@
 .topModelCost {
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
 }
 
 @media (max-width: 720px) {
   .ribbon {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px 24px;
-  }
-
-  .headlineNumber {
-    font-size: 2.75rem;
+    gap: 16px 20px;
   }
 }
