@@ -1104,7 +1104,7 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r(
-      String.raw`\bString\s*\(\s*[A-Za-z_$][\w$]*(secretRef|credentialRef)[\w$]*\s*\)`,
+      String.raw`\bString\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*\s*\)`,
     ),
     patternId: 'secret_ref_string_coercion',
     severity: 'critical',
@@ -1113,7 +1113,7 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r(
-      String.raw`JSON\.stringify\s*\(\s*[A-Za-z_$][\w$]*(secretRef|credentialRef)[\w$]*`,
+      String.raw`JSON\.stringify\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*`,
     ),
     patternId: 'secret_ref_json_stringify',
     severity: 'critical',
@@ -1122,7 +1122,7 @@ const THREAT_RULES: ThreatRule[] = [
   },
   {
     regex: r(
-      String.raw`\$\{\s*[A-Za-z_$][\w$]*(secretRef|credentialRef)[\w$]*\s*\}`,
+      String.raw`\$\{\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*\s*\}`,
     ),
     patternId: 'secret_ref_template_interpolation',
     severity: 'critical',

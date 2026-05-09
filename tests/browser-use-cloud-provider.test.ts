@@ -10,6 +10,7 @@ import type { BrowserUseCloudPlaywrightModule } from '../src/browser/browser-use
 let tempRoot = '';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
+const ORIGINAL_TEST_BROWSER_API_KEY = process.env.TEST_BROWSER_API_KEY;
 const ORIGINAL_TEST_BROWSER_PASSWORD = process.env.TEST_BROWSER_PASSWORD;
 const ORIGINAL_MISSING_BROWSER_SECRET = process.env.MISSING_BROWSER_SECRET;
 
@@ -145,6 +146,7 @@ afterEach(() => {
   }
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_MASTER_KEY);
+  restoreEnvVar('TEST_BROWSER_API_KEY', ORIGINAL_TEST_BROWSER_API_KEY);
   restoreEnvVar('TEST_BROWSER_PASSWORD', ORIGINAL_TEST_BROWSER_PASSWORD);
   restoreEnvVar('MISSING_BROWSER_SECRET', ORIGINAL_MISSING_BROWSER_SECRET);
 });
@@ -242,6 +244,7 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-cloud-test-master-key';
+  process.env.TEST_BROWSER_API_KEY = 'api-key';
   process.env.TEST_BROWSER_PASSWORD = 'secret-password';
   writeAgentSecretPolicy(root, 'agent-actions');
   vi.resetModules();
@@ -281,7 +284,7 @@ test('browser-use cloud provider records action usage, resolves fill secrets, an
     );
   const secretAudit = vi.fn();
   const provider = new BrowserUseCloudProvider({
-    apiKeyRef: { source: 'env', id: 'TEST_BROWSER_PASSWORD' },
+    apiKeyRef: { source: 'env', id: 'TEST_BROWSER_API_KEY' },
     fetch: fetchMock,
     playwright: mock.playwright,
     pricing: {
