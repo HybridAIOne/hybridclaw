@@ -130,14 +130,12 @@ export function Panel(props: {
       className={props.accent === 'warm' ? 'panel warm' : 'panel'}
     >
       {props.title ? (
-        <div className="panel-header">
-          <div>
-            <h4>{props.title}</h4>
-            {props.subtitle ? (
-              <p className="supporting-text">{props.subtitle}</p>
-            ) : null}
-          </div>
-        </div>
+        <header className="panel-header">
+          <h4 className="panel-title">{props.title}</h4>
+          {props.subtitle ? (
+            <p className="panel-subtitle">{props.subtitle}</p>
+          ) : null}
+        </header>
       ) : null}
       {props.children}
     </section>
