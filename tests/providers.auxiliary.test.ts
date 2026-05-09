@@ -432,7 +432,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
       >;
       expect(body).toMatchObject({
         model: 'anthropic/claude-sonnet-4',
-        max_tokens: 64_000,
+        max_tokens: 77,
         temperature: 0.25,
         user: 'aux-test',
       });
@@ -447,7 +447,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
         unknown
       >;
       expect(body.max_tokens).toBeUndefined();
-      expect(body.max_completion_tokens).toBe(64_000);
+      expect(body.max_completion_tokens).toBe(77);
       return new Response(
         JSON.stringify({
           choices: [
@@ -572,7 +572,70 @@ test('host auxiliary caller uses OpenAI-compatible routing for xAI models', asyn
   });
 });
 
-test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without discovery metadata', async () => {
+test('host auxiliary caller honors requested max tokens for OpenRouter Anthropic models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.max_tokens).toBe(77);
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Fallback max tokens response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    provider: 'openrouter',
+    model: 'anthropic/claude-sonnet-4',
+    maxTokens: 77,
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    content: 'Fallback max tokens response.',
+  });
+});
+
+test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without request or discovery metadata', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'openrouter' as const,
@@ -624,7 +687,6 @@ test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthro
     task: 'compression',
     provider: 'openrouter',
     model: 'anthropic/claude-sonnet-4',
-    maxTokens: 77,
     messages: [{ role: 'user', content: 'Summarize this transcript.' }],
   });
 
@@ -662,7 +724,7 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
         string,
         unknown
       >;
-      expect(body.max_tokens).toBe(48_000);
+      expect(body.max_tokens).toBe(77);
       expect(body.max_completion_tokens).toBeUndefined();
       return new Response('unsupported_parameter: tools', { status: 400 });
     },
@@ -815,6 +877,7 @@ test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hint
         unknown
       >;
       expect(body.model).toBe('anthropic/claude-haiku-4-5');
+      expect(body.max_tokens).toBe(1_200);
       return new Response(
         JSON.stringify({
           choices: [
@@ -839,6 +902,7 @@ test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hint
   const result = await callAuxiliaryModel({
     task: 'cv_narration',
     agentId: 'main',
+    maxTokens: 1_200,
     messages: [{ role: 'user', content: 'Write one CV entry.' }],
   });
 

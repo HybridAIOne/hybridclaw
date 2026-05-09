@@ -261,7 +261,7 @@ describe('container auxiliary router', () => {
     });
   });
 
-  test('falls back to 32000 max_tokens for Anthropic OpenRouter fallback text calls', async () => {
+  test('honors requested max_tokens for Anthropic OpenRouter fallback text calls', async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
@@ -269,7 +269,7 @@ describe('container auxiliary router', () => {
           string,
           unknown
         >;
-        expect(body.max_tokens).toBe(32_000);
+        expect(body.max_tokens).toBe(222);
         return new Response(
           JSON.stringify({
             id: 'resp_aux_text',
