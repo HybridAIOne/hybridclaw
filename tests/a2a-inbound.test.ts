@@ -46,6 +46,30 @@ async function loadInboundTestModules() {
 }
 
 describe('A2A JSON-RPC inbound adapter', () => {
+  test('does not persist unenforced rate limits on trusted A2A peers', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+    const { inbound, outbound } = await loadInboundTestModules();
+    const keyPair = outbound.getOrCreateA2ADelegationTokenKeyPair({
+      now: new Date('2030-01-01T00:00:00.000Z'),
+    });
+
+    const peer = inbound.upsertA2ATrustedA2APeer({
+      peerId: 'peer-no-rate-limit',
+      senderAgentId: 'remote@team@peer-instance',
+      publicKeyPem: keyPair.publicKeyPem,
+      rateLimitPerMinute: 1,
+    } as Parameters<typeof inbound.upsertA2ATrustedA2APeer>[0] & {
+      rateLimitPerMinute: number;
+    });
+
+    expect(peer).not.toHaveProperty('rateLimitPerMinute');
+    const persisted = inbound
+      .listA2ATrustedA2APeers()
+      .find((entry) => entry.peerId === 'peer-no-rate-limit');
+    expect(persisted).toBeDefined();
+    expect(persisted).not.toHaveProperty('rateLimitPerMinute');
+  });
+
   test('accepts a signed delegation token and delivers to the local inbox', async () => {
     process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
     const { getRecentStructuredAuditForSession, runtime, inbound, outbound } =

@@ -80,6 +80,29 @@ function assertBearerAuthConfigured(
   }
 }
 
+function recordDelegationAuthAudit(params: {
+  item: A2AOutboxItem;
+  audience: string;
+  scope: string;
+}): void {
+  recordA2AAudit(params.item, {
+    type: 'a2a.outbound.delegation_auth',
+    authMode: 'signed_delegation_jwt',
+    bearerTokenRefRole: params.item.bearerTokenRef
+      ? 'non_loopback_policy_gate'
+      : 'not_required_for_loopback',
+    bearerTokenRef: params.item.bearerTokenRef
+      ? {
+          source: params.item.bearerTokenRef.source,
+          id: params.item.bearerTokenRef.id,
+        }
+      : null,
+    audience: params.audience,
+    scope: params.scope,
+    envelope: summarizeA2AEnvelopeForAudit(params.item.envelope),
+  });
+}
+
 function resolveParentRunId(item: A2AOutboxItem): string {
   return item.runId || item.sessionId || item.envelope.thread_id;
 }
@@ -91,6 +114,7 @@ function authHeaders(params: {
   now: Date;
 }): Record<string, string> {
   assertBearerAuthConfigured(params.item, params.audience);
+  recordDelegationAuthAudit(params);
   return {
     authorization: `Bearer ${signA2ADelegationToken({
       senderAgentId: params.item.envelope.sender_agent_id,

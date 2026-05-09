@@ -22,7 +22,9 @@ function sampleA2AEnvelope(id: string, intent: 'chat' | 'handoff' = 'chat') {
 
 describe('A2A outbound adapter', () => {
   test('queues envelopes, fetches Agent Cards with ETag refresh, and sends message/send', async () => {
-    const { initDatabase } = await import('../src/memory/db.ts');
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
     const runtime = await import('../src/a2a/runtime.ts');
     const transport = await import('../src/a2a/transport-registry.ts');
     const a2a = await import('../src/a2a/a2a-outbound.ts');
@@ -174,6 +176,22 @@ describe('A2A outbound adapter', () => {
       scope: [a2a.A2A_MESSAGE_SEND_SCOPE],
       parent_run_id: 'run-a2a-outbound',
     });
+    const audit = getRecentStructuredAuditForSession(
+      'session-a2a-outbound',
+      10,
+    ).map((event) => JSON.parse(event.payload || '{}'));
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'a2a.outbound.delegation_auth',
+          authMode: expect.stringMatching(/jwt$/),
+          bearerTokenRefRole: expect.stringMatching(/^non.*gate$/),
+          bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
+          audience: 'https://peer.example.com/a2a',
+          scope: a2a.A2A_MESSAGE_SEND_SCOPE,
+        }),
+      ]),
+    );
 
     runtime.sendMessage(sampleA2AEnvelope('msg-a2a-2'), {
       peerDescriptor: descriptor,
