@@ -524,6 +524,42 @@ approval:
     expect(avgMs).toBeLessThan(5);
   });
 
+  test('behavior anomaly reranker reloads when cache expires and store changes', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-reload-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 3,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+      cacheTtlMs: 0,
+    });
+    const input = {
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    };
+
+    expect(reranker.score(input).trajectoryCount).toBe(3);
+
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+    });
+
+    expect(reranker.score(input).trajectoryCount).toBe(80);
+  });
+
   test('behavior anomaly reranker applies F11 anomalous verdict on replay', () => {
     const storeDir = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-anomaly-f11-'),

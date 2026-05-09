@@ -207,6 +207,7 @@ export interface ToolCallContext {
     latestUserPrompt: string;
     channelId?: string;
     escalationTarget?: EscalationTarget;
+    now?: Date;
   };
   args: Record<string, unknown>;
   policy: ApprovalPolicyConfig;
@@ -1591,6 +1592,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       pathHints: classified.pathHints,
       hostHints: classified.hostHints,
       writeIntent: classified.writeIntent,
+      now: context.params.now,
     });
     context.anomaly = anomaly;
     if (
@@ -2241,6 +2243,7 @@ export class TrustedAgentApprovalRuntime {
     latestUserPrompt: string;
     channelId?: string;
     escalationTarget?: EscalationTarget;
+    now?: Date;
   }): ToolApprovalEvaluation {
     const context: ToolCallContext = {
       params,

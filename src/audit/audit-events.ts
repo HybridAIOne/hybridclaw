@@ -126,6 +126,7 @@ export function emitToolExecutionAuditEvents(input: {
           status: execution.anomaly.status,
           model: execution.anomaly.model,
           trajectoryCount: execution.anomaly.trajectoryCount,
+          tuple: execution.anomaly.tuple,
           traceJudge: execution.anomaly.traceJudge || null,
         }
       : {
@@ -135,6 +136,7 @@ export function emitToolExecutionAuditEvents(input: {
           status: 'abstained',
           model: 'order2_markov_frequency_v1',
           trajectoryCount: 0,
+          tuple: null,
         };
 
     recordAuditEvent({

@@ -8650,13 +8650,27 @@ function readPayloadObject(payload: string): Record<string, unknown> {
   }
 }
 
+function startOfUtcWeek(date: Date): string {
+  const value = Number.isNaN(date.getTime()) ? new Date() : date;
+  const dayOffset = (value.getUTCDay() + 6) % 7;
+  return new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth(),
+      value.getUTCDate() - dayOffset,
+      0,
+      0,
+      0,
+      0,
+    ),
+  ).toISOString();
+}
+
 export function getWeeklyAgentAnomalyRollups(
   now = new Date(),
 ): AgentAnomalyRollup[] {
   ensureDatabaseReady();
-  const cutoff = new Date(
-    now.getTime() - 7 * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const cutoff = startOfUtcWeek(now);
   const rows = queryAll<{ agent_id: string | null; payload: string }, [string]>(
     db,
     `SELECT COALESCE(NULLIF(TRIM(s.agent_id), ''), 'default') AS agent_id,
@@ -8665,8 +8679,7 @@ export function getWeeklyAgentAnomalyRollups(
      LEFT JOIN sessions s ON s.id = ae.session_id
      WHERE ae.event_type = 'autonomy.decision'
        AND ae.timestamp >= ?
-     ORDER BY ae.id DESC
-     LIMIT 10000`,
+     ORDER BY ae.id DESC`,
     cutoff,
   );
   const byAgent = new Map<string, AgentAnomalyRollup>();

@@ -997,12 +997,14 @@ async function processRequest(
     toolName: string;
     argsJson: string;
   }): Promise<ToolApprovalEvaluation> => {
+    const approvalEvaluatedAt = new Date();
     let evaluation = approvalRuntime.evaluateToolCall({
       toolName: input.toolName,
       argsJson: input.argsJson,
       latestUserPrompt: effectiveUserPrompt,
       channelId,
       escalationTarget,
+      now: approvalEvaluatedAt,
     });
     const resolved = await resolveBorderlineAnomalyWithTraceJudge({
       evaluation,
@@ -1040,6 +1042,7 @@ async function processRequest(
         latestUserPrompt: effectiveUserPrompt,
         channelId,
         escalationTarget,
+        now: approvalEvaluatedAt,
       });
     }
     return evaluation;

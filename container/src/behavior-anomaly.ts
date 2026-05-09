@@ -69,6 +69,7 @@ const MODEL_NAME = 'order2_markov_frequency_v1' as const;
 const DEFAULT_MIN_TRAJECTORIES = 50;
 const DEFAULT_EPSILON = 0.02;
 const DEFAULT_THRESHOLD_QUANTILE = 0.99;
+const DEFAULT_CACHE_TTL_MS = 60_000;
 const DEFAULT_ANOMALY_STORE_DIR_ENV =
   'HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR';
 const FIELD_SEPARATOR = '\u001f';
@@ -101,6 +102,16 @@ function parsePositiveInteger(raw: unknown, fallback: number): number {
         ? Number.parseInt(raw, 10)
         : NaN;
   return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+}
+
+function parseNonNegativeInteger(raw: unknown, fallback: number): number {
+  const value =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string'
+        ? Number.parseInt(raw, 10)
+        : NaN;
+  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : fallback;
 }
 
 function parsePositiveNumber(raw: unknown, fallback: number): number {
@@ -466,6 +477,7 @@ export class BehaviorAnomalyReranker {
   private readonly agentId: string;
   private readonly minTrajectories: number;
   private readonly epsilon: number;
+  private readonly cacheTtlMs: number;
   private model: AgentBehaviorModel | null = null;
   private recentTuples: string[] = [];
   private traceJudgeResults = new Map<
@@ -497,6 +509,12 @@ export class BehaviorAnomalyReranker {
       parsePositiveNumber(
         process.env.HYBRIDCLAW_BEHAVIOR_ANOMALY_EPSILON,
         DEFAULT_EPSILON,
+      );
+    this.cacheTtlMs =
+      options?.cacheTtlMs ??
+      parseNonNegativeInteger(
+        process.env.HYBRIDCLAW_BEHAVIOR_ANOMALY_CACHE_TTL_MS,
+        DEFAULT_CACHE_TTL_MS,
       );
     this.model = this.loadModelFromDisk();
   }
@@ -618,6 +636,25 @@ export class BehaviorAnomalyReranker {
   }
 
   private getModel(): AgentBehaviorModel | null {
+    if (!this.storeDir) return null;
+    const existing = this.model;
+    const nowMs = Date.now();
+    if (
+      existing &&
+      this.cacheTtlMs > 0 &&
+      nowMs - existing.loadedAtMs < this.cacheTtlMs
+    ) {
+      return existing;
+    }
+
+    const files = listAgentTrajectoryFiles(this.storeDir, this.agentId);
+    const signature = filesSignature(files);
+    if (existing?.signature === signature) {
+      existing.loadedAtMs = nowMs;
+      return existing;
+    }
+
+    this.model = buildModelFromFiles(files);
     return this.model;
   }
 
