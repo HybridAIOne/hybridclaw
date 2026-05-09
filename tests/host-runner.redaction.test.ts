@@ -453,6 +453,7 @@ test('HostExecutor strips ambient credentials from host agent process env', asyn
   vi.stubEnv('BRAVE_API_KEY', 'brave-secret');
   vi.stubEnv('PERPLEXITY_API_KEY', 'perplexity-secret');
   vi.stubEnv('TAVILY_API_KEY', 'tavily-secret');
+  vi.stubEnv('GATEWAY_API_TOKEN', 'gateway-secret');
   vi.stubEnv('HYBRIDCLAW_TEST_VISIBLE', 'visible');
   vi.resetModules();
 
@@ -532,6 +533,7 @@ test('HostExecutor strips ambient credentials from host agent process env', asyn
     | NodeJS.ProcessEnv
     | undefined;
   expect(spawnEnv?.HYBRIDCLAW_AGENT_SANDBOX_MODE).toBe('host');
+  expect(spawnEnv?.HYBRIDCLAW_GATEWAY_TOKEN).toBe('gateway-secret');
   expect(spawnEnv?.HYBRIDCLAW_TEST_VISIBLE).toBe('visible');
   expect(spawnEnv?.OPENAI_API_KEY).toBeUndefined();
   expect(spawnEnv?.ANTHROPIC_API_KEY).toBeUndefined();

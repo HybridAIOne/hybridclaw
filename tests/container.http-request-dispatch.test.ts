@@ -63,4 +63,102 @@ describe.sequential('container http_request dispatch', () => {
       }),
     );
   });
+
+  test('automatically adds gateway auth to proxied gateway requests', async () => {
+    const { executeTool, setGatewayContext } = await import(
+      '../container/src/tools.js'
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, status: 200 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
+
+    await executeTool(
+      'http_request',
+      JSON.stringify({
+        url: 'http://127.0.0.1:9000/api/http/request',
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer stale-token',
+        },
+        json: {
+          url: 'https://googleads.googleapis.com/v20/customers:listAccessibleCustomers',
+          method: 'GET',
+        },
+      }),
+    );
+
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as { headers?: Record<string, string> };
+    expect(body.headers).toEqual({
+      Authorization: 'Bearer token-123',
+    });
+  });
+
+  test('treats loopback and host.docker.internal as the same local gateway target', async () => {
+    const { executeTool, setGatewayContext } = await import(
+      '../container/src/tools.js'
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, status: 200 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setGatewayContext(
+      'http://host.docker.internal:9090',
+      'token-123',
+      'web',
+      [],
+    );
+
+    await executeTool(
+      'http_request',
+      JSON.stringify({
+        url: 'http://127.0.0.1:9090/api/http/request',
+        method: 'POST',
+        json: {
+          url: 'https://example.com',
+          method: 'GET',
+        },
+      }),
+    );
+
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as { headers?: Record<string, string> };
+    expect(body.headers).toEqual({
+      Authorization: 'Bearer token-123',
+    });
+  });
+
+  test('does not add gateway auth to non-gateway requests', async () => {
+    const { executeTool, setGatewayContext } = await import(
+      '../container/src/tools.js'
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, status: 200 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
+
+    await executeTool(
+      'http_request',
+      JSON.stringify({
+        url: 'https://api.example.com/v1/things',
+        method: 'GET',
+      }),
+    );
+
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as { headers?: Record<string, string> };
+    expect(body.headers).toBeUndefined();
+  });
 });

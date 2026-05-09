@@ -306,6 +306,10 @@ The configured Google OAuth auth routes should attach Authorization.
 
 ## Google Ads Invoice Harvesting
 
+For campaign management and GAQL reporting, use the bundled `google-ads` skill.
+The invoice-harvesting flow below uses the same OAuth and developer-token
+setup, plus billing-specific customer and billing setup ids.
+
 ### Secret Credentials
 
 ```bash

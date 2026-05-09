@@ -173,6 +173,13 @@ function resolveHostAgentBrowserBinary(): string | undefined {
   return undefined;
 }
 
+function buildHostGatewayRuntimeEnv(): Record<string, string> {
+  return {
+    HYBRIDCLAW_GATEWAY_URL: GATEWAY_BASE_URL,
+    HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '',
+  };
+}
+
 interface PoolEntry extends WarmRunnerEntry {
   process: ChildProcess;
   sessionId: string;
@@ -638,6 +645,7 @@ function getOrSpawnHostProcess(
   const agentBrowserBin = resolveHostAgentBrowserBinary();
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
+    ...buildHostGatewayRuntimeEnv(),
     HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,
     HYBRIDAI_MODEL,

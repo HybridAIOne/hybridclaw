@@ -445,6 +445,17 @@ function runDockerExecBash(
   );
 }
 
+function buildBashRuntimeEnv(): Record<string, string> {
+  const env = buildSanitizedEnv(process.env);
+  const gatewayUrl = String(process.env.HYBRIDCLAW_GATEWAY_URL || '').trim();
+  const gatewayToken = String(
+    process.env.HYBRIDCLAW_GATEWAY_TOKEN || '',
+  ).trim();
+  if (gatewayUrl) env.HYBRIDCLAW_GATEWAY_URL = gatewayUrl;
+  if (gatewayToken) env.HYBRIDCLAW_GATEWAY_TOKEN = gatewayToken;
+  return env;
+}
+
 function runHostBash(
   args: string[],
   timeoutMs: number,
@@ -454,7 +465,7 @@ function runHostBash(
     encoding: 'utf-8',
     cwd: WORKSPACE_ROOT,
     maxBuffer: BASH_EXEC_MAX_BUFFER_BYTES,
-    env: buildSanitizedEnv(process.env),
+    env: buildBashRuntimeEnv(),
   });
 }
 
@@ -1060,6 +1071,50 @@ function resolveGatewayHttpRequestUrl(): string | null {
   return `${base}/api/http/request`;
 }
 
+function isLocalGatewayHostAlias(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '::1' ||
+    normalized === 'host.docker.internal' ||
+    normalized === '127.0.0.1' ||
+    normalized.startsWith('127.')
+  );
+}
+
+function isSameGatewayTarget(rawUrl: unknown): boolean {
+  if (!gatewayBaseUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const target = new URL(rawUrl);
+    const gateway = new URL(gatewayBaseUrl);
+    if (target.origin === gateway.origin) return true;
+    return (
+      target.protocol === gateway.protocol &&
+      target.port === gateway.port &&
+      isLocalGatewayHostAlias(target.hostname) &&
+      isLocalGatewayHostAlias(gateway.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function withAutomaticGatewayAuth(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!gatewayApiToken || !isSameGatewayTarget(args.url)) return args;
+  const rawHeaders = args.headers;
+  const headers =
+    rawHeaders && typeof rawHeaders === 'object' && !Array.isArray(rawHeaders)
+      ? { ...(rawHeaders as Record<string, unknown>) }
+      : {};
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === 'authorization') delete headers[key];
+  }
+  headers.Authorization = `Bearer ${gatewayApiToken}`;
+  return { ...args, headers };
+}
+
 function resolveGatewaySecretInjectUrl(): string | null {
   const base = gatewayBaseUrl.replace(/\/+$/, '');
   if (!base) return null;
@@ -1231,13 +1286,14 @@ async function callGatewayHttpRequest(
     headers.Authorization = `Bearer ${gatewayApiToken}`;
   }
 
+  const requestArgs = withAutomaticGatewayAuth(args);
   let response: Response;
   try {
     response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({
-        ...args,
+        ...requestArgs,
         ...(currentSessionId ? { sessionId: currentSessionId } : {}),
       }),
     });
