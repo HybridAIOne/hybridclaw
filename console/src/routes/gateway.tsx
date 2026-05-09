@@ -15,6 +15,7 @@ import {
 import { ProviderHealthPanel } from '../components/provider-health';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
@@ -23,6 +24,7 @@ export function GatewayPage() {
   const auth = useAuth();
   const toast = useToast();
   const live = useLiveEvents(auth.token);
+  useLiveConnectionToasts(live.connection);
   const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
   const status = live.status || auth.gatewayStatus;
   const providerEntries = Object.entries(

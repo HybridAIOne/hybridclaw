@@ -11,6 +11,7 @@ import {
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import {
@@ -153,6 +154,7 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const live = useLiveEvents(auth.token);
+  useLiveConnectionToasts(live.connection);
   const overviewQuery = useQuery({
     queryKey: ['overview', auth.token],
     queryFn: () => fetchOverview(auth.token),
