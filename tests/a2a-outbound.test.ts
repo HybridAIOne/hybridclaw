@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -18,6 +19,10 @@ function sampleA2AEnvelope(id: string, intent: 'chat' | 'handoff' = 'chat') {
     content: `A2A payload ${id}`,
     created_at: '2026-05-01T10:00:00.000Z',
   };
+}
+
+function publicKeyJwk() {
+  return generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' });
 }
 
 describe('A2A outbound adapter', () => {
@@ -428,6 +433,162 @@ describe('A2A outbound adapter', () => {
       status: 'failed',
       lastError: 'Agent Card url must use https unless targeting loopback',
     });
+  });
+
+  test('uses TOFU public-key auth when the Agent Card publishes a peer key', async () => {
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+    const trust = await import('../src/a2a/trust-ledger.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const peerKey = publicKeyJwk();
+    const requests: Array<{
+      method: string;
+      authorization: string;
+      body: string;
+    }> = [];
+    const fetchImpl = vi.fn(
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+        requests.push({
+          method: init?.method || 'GET',
+          authorization: headers?.authorization || '',
+          body: String(init?.body || ''),
+        });
+        if (init?.method === 'GET') {
+          return Response.json({
+            url: 'https://peer.example.com/a2a',
+            capabilities: [],
+            hybridclaw: {
+              instanceId: 'peer-prod',
+              publicKeyJwk: peerKey,
+            },
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: { kind: 'message' } });
+      },
+    );
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-tofu'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        expectPublicKey: true,
+      },
+      transportRegistry: registry,
+      auditRunId: 'run-a2a-tofu',
+    });
+
+    await expect(a2a.processA2AOutbox({ fetchImpl })).resolves.toMatchObject({
+      processed: 1,
+      delivered: 1,
+    });
+
+    expect(requests[0]?.authorization).toMatch(/^Bearer [A-Za-z0-9_-]+\./);
+    expect(requests[1]?.authorization).toMatch(/^Bearer [A-Za-z0-9_-]+\./);
+    const token = requests[1]?.authorization.replace(/^Bearer /, '') || '';
+    const [header] = token.split('.');
+    expect(
+      JSON.parse(Buffer.from(header || '', 'base64url').toString()),
+    ).toEqual(expect.objectContaining({ alg: 'EdDSA' }));
+    expect(trust.getA2ATrustedPublicKeyPeer('peer-prod')).toMatchObject({
+      peerId: 'peer-prod',
+      status: 'trusted',
+    });
+    expect(
+      getRecentStructuredAuditForSession('a2a:trust-ledger', 10).map(
+        (event) => event.event_type,
+      ),
+    ).toContain('a2a.trust.granted');
+  });
+
+  test('fails and audits when a TOFU peer key changes', async () => {
+    const { initDatabase, getRecentStructuredAuditForSession } = await import(
+      '../src/memory/db.ts'
+    );
+    const runtime = await import('../src/a2a/runtime.ts');
+    const transport = await import('../src/a2a/transport-registry.ts');
+    const a2a = await import('../src/a2a/a2a-outbound.ts');
+
+    initDatabase({ quiet: true });
+    const registry = new transport.TransportRegistry();
+    registry.register(new a2a.A2AOutboundAdapter());
+    const firstPeerKey = publicKeyJwk();
+    const secondPeerKey = publicKeyJwk();
+    let currentPeerKey = firstPeerKey;
+    const fetchImpl = vi.fn(
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return Response.json({
+            url: 'https://peer.example.com/a2a',
+            capabilities: [],
+            hybridclaw: {
+              instanceId: 'peer-prod',
+              publicKeyJwk: currentPeerKey,
+            },
+          });
+        }
+        return Response.json({ jsonrpc: '2.0', result: { kind: 'message' } });
+      },
+    );
+
+    runtime.sendMessage(sampleA2AEnvelope('msg-tofu-first'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        expectPublicKey: true,
+      },
+      transportRegistry: registry,
+    });
+    await expect(
+      a2a.processA2AOutbox({
+        fetchImpl,
+        now: () => new Date('2030-01-01T00:00:00.000Z'),
+        agentCardCacheTtlMs: 1,
+      }),
+    ).resolves.toMatchObject({
+      delivered: 1,
+    });
+
+    currentPeerKey = secondPeerKey;
+    runtime.sendMessage(sampleA2AEnvelope('msg-tofu-mismatch'), {
+      peerDescriptor: {
+        transport: 'a2a',
+        agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
+        expectPublicKey: true,
+      },
+      transportRegistry: registry,
+      sessionId: 'session-a2a-mismatch',
+    });
+    await expect(
+      a2a.processA2AOutbox({
+        fetchImpl,
+        now: () => new Date('2030-01-01T00:00:00.010Z'),
+        agentCardCacheTtlMs: 1,
+      }),
+    ).resolves.toMatchObject({
+      failed: 1,
+    });
+
+    expect(
+      a2a
+        .listA2AOutboxItems()
+        .find((item) => item.envelope.id === 'msg-tofu-mismatch'),
+    ).toMatchObject({
+      status: 'failed',
+      lastError: expect.stringContaining('public key mismatch'),
+    });
+    expect(
+      getRecentStructuredAuditForSession('a2a:trust-ledger', 10).map(
+        (event) => event.event_type,
+      ),
+    ).toContain('a2a.trust.mismatch');
   });
 
   test('requires bearer auth based on the resolved delivery URL', async () => {

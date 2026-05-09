@@ -105,7 +105,7 @@ describe('A2A transport adapter registry', () => {
         transport: 'a2a',
         agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
       }),
-    ).toThrow('bearerTokenRef is required for non-loopback a2a peers');
+    ).toThrow('bearerTokenRef is required');
     expect(() =>
       normalizePeerDescriptor({
         transport: 'webhook',
@@ -148,12 +148,12 @@ describe('A2A transport adapter registry', () => {
       normalizePeerDescriptor({
         transport: 'a2a',
         agent_card_url: 'https://peer.example.com/.well-known/agent.json',
-        bearer_token_ref: { source: 'env', id: 'A2A_PEER_TOKEN' },
+        expect_public_key: true,
       }),
     ).toEqual({
       transport: 'a2a',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+      expectPublicKey: true,
     });
     expect(
       normalizePeerDescriptor({

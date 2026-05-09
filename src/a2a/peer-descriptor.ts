@@ -24,6 +24,8 @@ const A2A_ALLOWED_FIELDS = new Set([
   'agent_card_url',
   'bearerTokenRef',
   'bearer_token_ref',
+  'expectPublicKey',
+  'expect_public_key',
 ]);
 const WEBHOOK_ALLOWED_FIELDS = new Set([
   'transport',
@@ -44,6 +46,7 @@ export interface A2APeerDescriptor {
   transport: 'a2a';
   agentCardUrl: string;
   bearerTokenRef?: SecretRef;
+  expectPublicKey?: boolean;
 }
 
 export interface WebhookPeerDescriptor {
@@ -140,6 +143,24 @@ function readOptionalString(
     return undefined;
   }
   return normalized;
+}
+
+function readOptionalBooleanAlias(
+  record: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+  field: string,
+  issues: string[],
+): boolean | undefined {
+  if (!Object.hasOwn(record, camelKey) && !Object.hasOwn(record, snakeKey)) {
+    return undefined;
+  }
+  const value = readAlias(record, camelKey, snakeKey);
+  if (typeof value !== 'boolean') {
+    issues.push(`${field} must be a boolean when provided`);
+    return undefined;
+  }
+  return value;
 }
 
 function validateAllowedFields(
@@ -344,12 +365,22 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
       issues,
       false,
     );
+    const expectPublicKey = readOptionalBooleanAlias(
+      value,
+      'expectPublicKey',
+      'expect_public_key',
+      'expectPublicKey',
+      issues,
+    );
     if (
       agentCardUrl &&
-      !isA2ALoopbackHttpUrl(agentCardUrl) &&
-      !bearerTokenRef
+      !bearerTokenRef &&
+      !expectPublicKey &&
+      !isA2ALoopbackHttpUrl(agentCardUrl)
     ) {
-      issues.push('bearerTokenRef is required for non-loopback a2a peers');
+      issues.push(
+        'bearerTokenRef is required for non-loopback A2A peers unless expectPublicKey is true',
+      );
     }
     if (issues.length > 0) {
       throw new PeerDescriptorValidationError(issues);
@@ -358,6 +389,7 @@ export function normalizePeerDescriptor(value: unknown): PeerDescriptor {
       transport: 'a2a',
       agentCardUrl,
       ...(bearerTokenRef ? { bearerTokenRef } : {}),
+      ...(expectPublicKey ? { expectPublicKey } : {}),
     };
   }
 

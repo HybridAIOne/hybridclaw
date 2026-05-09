@@ -1,4 +1,6 @@
 import type {
+  AdminA2ATrustResponse,
+  AdminA2ATrustUpsertRequest,
   AdminAdaptiveSkillAmendmentsResponse,
   AdminAdaptiveSkillHealthResponse,
   AdminAgent,
@@ -230,6 +232,52 @@ export function fetchStatistics(
   return requestJson<AdminStatisticsResponse>(
     `/api/admin/statistics${search}`,
     { token },
+  );
+}
+
+export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
+}
+
+export function revokeA2ATrustPeer(
+  token: string,
+  params: { peerId: string; reason?: string },
+): Promise<AdminA2ATrustResponse> {
+  const search = new URLSearchParams({ peerId: params.peerId });
+  if (params.reason?.trim()) {
+    search.set('reason', params.reason.trim());
+  }
+  return requestJson<AdminA2ATrustResponse>(
+    `/api/admin/a2a/trust?${search.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
+  );
+}
+
+export function upsertA2ATrustPeer(
+  token: string,
+  body: AdminA2ATrustUpsertRequest,
+): Promise<AdminA2ATrustResponse> {
+  return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', {
+    token,
+    method: 'POST',
+    body,
+  });
+}
+
+export function deleteA2ATrustPeer(
+  token: string,
+  peerId: string,
+): Promise<AdminA2ATrustResponse> {
+  const search = new URLSearchParams({ peerId, action: 'delete' });
+  return requestJson<AdminA2ATrustResponse>(
+    `/api/admin/a2a/trust?${search.toString()}`,
+    {
+      token,
+      method: 'DELETE',
+    },
   );
 }
 

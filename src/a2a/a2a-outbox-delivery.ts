@@ -22,6 +22,11 @@ import {
 import { signA2ADelegationToken } from './delegation-token.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
 import {
+  type A2APeerPublicKeyMaterial,
+  assertA2APeerPublicKeyTrust,
+  extractA2APeerPublicKey,
+} from './trust-ledger.js';
+import {
   isA2AAllowedHttpUrl,
   isA2ALoopbackHttpUrl,
   isRecord,
@@ -60,9 +65,10 @@ function resolveItemRunId(item: A2AOutboxItem, prefix: string): string {
 function assertBearerAuthConfigured(
   item: A2AOutboxItem,
   authUrl: string,
+  opts: { required?: boolean } = {},
 ): void {
   if (!item.bearerTokenRef) {
-    if (isA2ALoopbackHttpUrl(authUrl)) return;
+    if (!opts.required || isA2ALoopbackHttpUrl(authUrl)) return;
     throw new A2AFailFastError(
       'a2a.bearerTokenRef is required for non-loopback peers',
     );
@@ -84,17 +90,26 @@ function recordDelegationAuthAudit(params: {
   item: A2AOutboxItem;
   audience: string;
   scope: string;
+  peerKey?: A2APeerPublicKeyMaterial;
 }): void {
   recordA2AAudit(params.item, {
     type: 'a2a.outbound.delegation_auth',
     authMode: 'signed_delegation_jwt',
     bearerTokenRefRole: params.item.bearerTokenRef
       ? 'non_loopback_policy_gate'
-      : 'not_required_for_loopback',
+      : params.peerKey
+        ? 'not_required_public_key_trust'
+        : 'not_required_for_loopback_or_agent_card',
     bearerTokenRef: params.item.bearerTokenRef
       ? {
           source: params.item.bearerTokenRef.source,
           id: params.item.bearerTokenRef.id,
+        }
+      : null,
+    peerPublicKey: params.peerKey
+      ? {
+          peerId: params.peerKey.peerId,
+          fingerprint: params.peerKey.publicKeyFingerprint,
         }
       : null,
     audience: params.audience,
@@ -112,8 +127,12 @@ function authHeaders(params: {
   audience: string;
   scope: string;
   now: Date;
+  peerKey?: A2APeerPublicKeyMaterial;
+  requireBearer?: boolean;
 }): Record<string, string> {
-  assertBearerAuthConfigured(params.item, params.audience);
+  assertBearerAuthConfigured(params.item, params.audience, {
+    required: params.requireBearer !== false,
+  });
   recordDelegationAuthAudit(params);
   return {
     authorization: `Bearer ${signA2ADelegationToken({
@@ -332,6 +351,7 @@ export async function deliverA2AItem(
         audience: item.agentCardUrl,
         scope: A2A_AGENT_CARD_READ_SCOPE,
         now,
+        requireBearer: false,
       }),
       authCacheKey: agentCardAuthCacheKey(item),
       agentCardCacheTtlMs: opts.agentCardCacheTtlMs,
@@ -367,6 +387,24 @@ export async function deliverA2AItem(
     return 'retried';
   }
 
+  let peerKey: A2APeerPublicKeyMaterial | undefined;
+  try {
+    peerKey = extractA2APeerPublicKey(card) ?? undefined;
+    if (peerKey) {
+      assertA2APeerPublicKeyTrust({
+        agentCardUrl: item.agentCardUrl,
+        deliveryUrl: card.url,
+        key: peerKey,
+        runId: resolveItemRunId(item, 'a2a-trust'),
+        now,
+      });
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    failA2AItem(item, now, reason);
+    return 'failed';
+  }
+
   const request = encodeA2AJsonRpcRequest(item.envelope, card);
   if (!isA2AAllowedHttpUrl(card.url)) {
     failA2AItem(
@@ -391,6 +429,8 @@ export async function deliverA2AItem(
               ? A2A_TASK_SEND_SCOPE
               : A2A_MESSAGE_SEND_SCOPE,
           now,
+          peerKey,
+          requireBearer: !peerKey,
         }),
       },
       body,

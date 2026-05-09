@@ -1029,6 +1029,43 @@ export interface AdminAuditResponse {
   entries: AdminAuditEntry[];
 }
 
+export interface AdminA2AIdentity {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  publicKeyJwk: JsonWebKey;
+}
+
+export interface AdminA2ATrustPeer {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  publicKeyJwk: JsonWebKey | null;
+  status: 'trusted' | 'revoked';
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+  lastMismatchAt: string | null;
+  lastMismatchFingerprint: string | null;
+}
+
+export interface AdminA2ATrustResponse {
+  identity: AdminA2AIdentity;
+  peers: AdminA2ATrustPeer[];
+}
+
+export interface AdminA2ATrustUpsertRequest {
+  peerId: string;
+  agentCardUrl?: string;
+  deliveryUrl?: string;
+  publicKeyFingerprint?: string;
+  publicKeyJwk?: JsonWebKey;
+  reason?: string;
+}
+
 export interface AdminApprovalAgent {
   id: string;
   name: string | null;
