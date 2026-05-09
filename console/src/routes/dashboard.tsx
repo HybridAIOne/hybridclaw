@@ -220,19 +220,7 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Dashboard"
-        actions={
-          <div className="status-pill">
-            <span
-              className={
-                live.connection === 'open' ? 'status-dot live' : 'status-dot'
-              }
-            />
-            {live.connection === 'open' ? 'connected' : 'polling fallback'}
-          </div>
-        }
-      />
+      <PageHeader title="Dashboard" />
 
       <div className="metric-grid">
         <MetricCard

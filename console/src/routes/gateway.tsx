@@ -53,32 +53,22 @@ export function GatewayPage() {
       <PageHeader
         title="Gateway"
         actions={
-          <div className="button-row">
-            <div className="status-pill">
-              <span
-                className={
-                  live.connection === 'open' ? 'status-dot live' : 'status-dot'
-                }
-              />
-              {live.connection === 'open' ? 'connected' : 'status snapshot'}
-            </div>
-            <button
-              type="button"
-              className="primary-button"
-              disabled={reloadBusy}
-              onClick={() => setReloadConfirmOpen(true)}
-              aria-busy={reloadBusy}
-            >
-              {reloadBusy ? (
-                <span className="button-with-spinner">
-                  <span aria-hidden="true" className="button-spinner" />
-                  Reloading Gateway
-                </span>
-              ) : (
-                'Reload Gateway'
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={reloadBusy}
+            onClick={() => setReloadConfirmOpen(true)}
+            aria-busy={reloadBusy}
+          >
+            {reloadBusy ? (
+              <span className="button-with-spinner">
+                <span aria-hidden="true" className="button-spinner" />
+                Reloading Gateway
+              </span>
+            ) : (
+              'Reload Gateway'
+            )}
+          </button>
         }
       />
       <div className="metric-grid">
