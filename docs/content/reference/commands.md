@@ -97,6 +97,9 @@ hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
+hybridclaw eval trace-judge run
+hybridclaw eval trace-judge run --live --model "$HYBRIDCLAW_EVAL_MODEL"
+hybridclaw eval trace-judge run --criterion risk
 hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
@@ -109,10 +112,11 @@ hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
-- local-only surface from CLI, TUI, or embedded web chat; it is not intended
-  for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, `terminal-bench-2.0`, and
-  `hybridai-skills`
+- local-only surface from CLI, TUI, or embedded web chat; it is not intended for Discord, Teams, WhatsApp, email, or other remote chat channels
+- managed suites today: `locomo`, `trace-judge`, `tau2`, `terminal-bench-2.0`, and `hybridai-skills`
+- `trace-judge` evaluates the judge against a packaged 150-example labeled dataset of `(trace, criteria, expected verdict)` records across `risk`, `leak`, `brand-voice`, `tool-use`, and `task-completion` criteria. Results include macro precision, recall, and F1 per criterion type plus the overall gate status. The default `run` uses a deterministic offline judge fixture that parses the prepared judge prompt and returns JSON through the same judge result parser used by live mode; `run --live --model <judge-model>` measures the actual configured judge model.
+- CI runs `npm run eval:trace-judge:gate` after build to block prompt-preparation, parser, metric, and dataset regressions without live secrets. PR runs execute `npm run eval:trace-judge:gate:live` when both `HYBRIDAI_API_KEY` and `HYBRIDAI_CHATBOT_ID` are available; otherwise they are explicitly harness-only. Pushes to `main` require both live credentials and fail before promotion when either secret is missing. With those secrets present, CI runs `npm run eval:trace-judge:gate:live` against the configured judge model (`HYBRIDCLAW_TRACE_JUDGE_EVAL_MODEL`, or `hybridai/gpt-4.1-mini` by default) and blocks promotion when judge precision, recall, or F1 regresses below the configured threshold.
+- add a new judge criterion by adding examples to `src/evals/trace-judge-eval-dataset.ts` with a stable `criterionType`, clear criteria text, representative traces for `pass`, `partial`, and `fail`, and then running `npm run eval:trace-judge:gate` after `npm run build`. Keep each criterion balanced enough that precision, recall, and F1 are meaningful.
 - `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
   `docs/content/guides/skills/*.md` into a fixture set, then grades
   whether each prompt activates its documented skill. `setup` writes the

@@ -405,7 +405,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | F10.4 | Org chart | Admin UI to view and edit org chart | ⬜ #597 |
 | F11.1 | Judge | Judge interface and cheap-model dispatch | ✅ Done |
 | F11.2 | Judge | Windowed and redacted trace preparation | ✅ #621 |
-| F11.3 | Judge | Eval-the-judge suite | ⬜ #622 |
+| F11.3 | Judge | Eval-the-judge suite | ✅ #622 |
 | F11.4 | Judge | Subscriber pattern with progressive trace-debugger artifacts | ✅ #623 via PR #901 |
 
 ## Cross-Cutting Work

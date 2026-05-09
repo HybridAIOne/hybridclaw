@@ -1635,6 +1635,13 @@ export async function main(
       await runLocomoNativeCli(subargs);
       break;
     }
+    case '__eval-trace-judge-native': {
+      const { runTraceJudgeNativeCli } = await import(
+        './evals/trace-judge-native.js'
+      );
+      await runTraceJudgeNativeCli(subargs);
+      break;
+    }
     case 'tui':
       await launchTui(subargs);
       break;
