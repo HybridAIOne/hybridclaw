@@ -6,6 +6,7 @@ import { ToastProvider } from '../components/toast';
 import { DashboardPage } from './dashboard';
 
 const fetchOverviewMock = vi.fn();
+const fetchStatisticsMock = vi.fn();
 const reconnectTunnelMock = vi.fn();
 const navigateMock = vi.fn();
 const useAuthMock = vi.fn();
@@ -13,6 +14,7 @@ const useLiveEventsMock = vi.fn();
 
 vi.mock('../api/client', () => ({
   fetchOverview: (...args: unknown[]) => fetchOverviewMock(...args),
+  fetchStatistics: (...args: unknown[]) => fetchStatisticsMock(...args),
   reconnectTunnel: (...args: unknown[]) => reconnectTunnelMock(...args),
 }));
 
@@ -114,6 +116,24 @@ function renderDashboardPage(): void {
 describe('DashboardPage', () => {
   beforeEach(() => {
     fetchOverviewMock.mockReset();
+    fetchStatisticsMock.mockReset();
+    fetchStatisticsMock.mockResolvedValue({
+      summary: {
+        newSessions: 0,
+        activeSessions: 0,
+        totalMessages: 0,
+        userMessages: 0,
+        assistantMessages: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalTokens: 0,
+        totalCostUsd: 0,
+        callCount: 0,
+        totalToolCalls: 0,
+      },
+      trend: [],
+      channels: [],
+    });
     reconnectTunnelMock.mockReset();
     navigateMock.mockReset();
     useAuthMock.mockReset();

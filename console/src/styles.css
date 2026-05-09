@@ -504,6 +504,13 @@ code {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.usage-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
 .metric-card {
   padding: 10px 12px;
   border-radius: var(--radius-md);

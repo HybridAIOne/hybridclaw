@@ -1,13 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { fetchOverview, reconnectTunnel } from '../api/client';
+import {
+  fetchOverview,
+  fetchStatistics,
+  reconnectTunnel,
+} from '../api/client';
 import type {
   AdminOverview,
+  AdminStatisticsTrendDay,
   AdminTunnelStatus,
   AdminUsageSummary,
 } from '../api/types';
 import { useAuth } from '../auth';
 import { ProviderHealthPanel } from '../components/provider-health';
+import { Sparkline } from '../components/sparkline';
 import {
   MetricCard,
   PageHeader,
@@ -172,7 +178,10 @@ function UsageStack(props: { label: string; summary: AdminUsageSummary }) {
   );
 }
 
-function UsageRollupContent(props: { usage: AdminOverview['usage'] }) {
+function UsageRollupContent(props: {
+  usage: AdminOverview['usage'];
+  trend: AdminStatisticsTrendDay[] | null;
+}) {
   const { daily, monthly, topModels } = props.usage;
   const hasMonthlyActivity = monthly.callCount > 0 || monthly.totalTokens > 0;
   const hasDailyActivity = daily.callCount > 0 || daily.totalTokens > 0;
@@ -184,13 +193,21 @@ function UsageRollupContent(props: { usage: AdminOverview['usage'] }) {
   // The top-models list duplicates the monthly totals when only one model
   // is in use, so we only render it when it actually adds information.
   const showTopModels = topModels.length > 1;
+  const trendValues = props.trend?.map((day) => day.totalTokens) ?? [];
 
   return (
     <>
+      {trendValues.length >= 2 ? (
+        <div className="usage-trend">
+          <Sparkline
+            values={trendValues}
+            ariaLabel="Tokens per day, last 30 days"
+          />
+          <small className="supporting-text">Tokens · last 30 days</small>
+        </div>
+      ) : null}
       <div className="usage-grid">
-        {hasDailyActivity ? (
-          <UsageStack label="Today" summary={daily} />
-        ) : null}
+        {hasDailyActivity ? <UsageStack label="Today" summary={daily} /> : null}
         <UsageStack label="Month to date" summary={monthly} />
       </div>
       {showTopModels ? (
@@ -226,6 +243,11 @@ export function DashboardPage() {
     queryKey: ['overview', auth.token],
     queryFn: () => fetchOverview(auth.token),
     refetchInterval: 30_000,
+  });
+  const usageTrendQuery = useQuery({
+    queryKey: ['usage-trend', auth.token, 30],
+    queryFn: () => fetchStatistics(auth.token, 30),
+    staleTime: 60_000,
   });
   const reconnectMutation = useMutation({
     mutationFn: () => reconnectTunnel(auth.token),
@@ -316,7 +338,10 @@ export function DashboardPage() {
 
       <div className="two-column-grid">
         <Panel title="Usage rollup" accent="warm">
-          <UsageRollupContent usage={overview.usage} />
+          <UsageRollupContent
+            usage={overview.usage}
+            trend={usageTrendQuery.data?.trend ?? null}
+          />
         </Panel>
 
         <ProviderHealthPanel

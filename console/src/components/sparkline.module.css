@@ -1,0 +1,24 @@
+.svg {
+  display: block;
+  width: 100%;
+}
+
+.line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.area {
+  fill: var(--accent);
+  opacity: 0.16;
+}
+
+.placeholder {
+  width: 100%;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
