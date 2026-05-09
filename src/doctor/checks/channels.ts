@@ -14,6 +14,7 @@ import { makeResult, severityFrom } from '../utils.js';
 export async function checkChannels(): Promise<DiagResult[]> {
   const config = getConfigSnapshot();
   const telegram = config.telegram;
+  const threema = config.threema;
   const segments: string[] = [];
   const severities: DiagResult['severity'][] = [];
 
@@ -59,10 +60,10 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
-  if (config.threema.enabled) {
+  if (threema?.enabled) {
     if (
-      config.threema.identity.trim() &&
-      String(THREEMA_GATEWAY_SECRET || config.threema.secret || '').trim()
+      threema.identity.trim() &&
+      String(THREEMA_GATEWAY_SECRET || threema.secret || '').trim()
     ) {
       segments.push('Threema configured');
     } else {
