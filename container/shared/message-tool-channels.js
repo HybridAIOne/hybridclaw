@@ -6,6 +6,7 @@ export const MESSAGE_TOOL_CHANNEL_KINDS = [
   'signal',
   'slack',
   'telegram',
+  'threema',
   'tui',
   'whatsapp',
 ];
@@ -18,6 +19,7 @@ export const MESSAGE_TOOL_CHANNEL_LABELS = Object.freeze({
   signal: 'Signal',
   slack: 'Slack',
   telegram: 'Telegram',
+  threema: 'Threema',
   tui: 'local TUI',
   whatsapp: 'WhatsApp',
 });

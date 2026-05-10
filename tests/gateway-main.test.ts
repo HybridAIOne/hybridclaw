@@ -110,6 +110,16 @@ function createGatewayMainTestState(options?: {
         textChunkLimit: 4_000,
         mediaMaxMb: 20,
       },
+      threema: {
+        enabled: false,
+        apiBaseUrl: 'https://msgapi.threema.ch',
+        identity: '',
+        secret: '',
+        dmPolicy: 'disabled',
+        allowFrom: [] as string[],
+        textChunkLimit: 3_500,
+        outboundDelayMs: 350,
+      },
       voice: {
         enabled: options?.voiceEnabled ?? false,
         provider: 'twilio',
@@ -215,6 +225,7 @@ function createGatewayMainTestState(options?: {
     initSignal: vi.fn(),
     initSlack: vi.fn(),
     initTelegram: vi.fn(),
+    initThreema: vi.fn(),
     initVoice: vi.fn(),
     initWhatsApp: vi.fn(),
     initializeWorkflowRuntime: vi.fn(),
@@ -234,6 +245,7 @@ function createGatewayMainTestState(options?: {
     shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
+    shutdownThreema: vi.fn(async () => {}),
     shutdownWhatsApp: vi.fn(async () => {}),
     memoryServiceConsolidate: vi.fn(() => ({
       memoriesDecayed: 0,
@@ -468,6 +480,12 @@ async function importFreshGatewayMain(options?: {
     sendToTelegramChat: vi.fn(async () => {}),
     shutdownTelegram: state.shutdownTelegram,
   }));
+  vi.doMock('../src/channels/threema/runtime.js', () => ({
+    hasThreemaGatewaySecret: vi.fn(() => false),
+    initThreema: state.initThreema,
+    sendToThreemaChat: vi.fn(async () => {}),
+    shutdownThreema: state.shutdownThreema,
+  }));
   vi.doMock('../src/channels/voice/runtime.js', () => ({
     initVoice: state.initVoice,
     shutdownVoice: vi.fn(async () => {}),
@@ -513,6 +531,7 @@ async function importFreshGatewayMain(options?: {
     SLACK_BOT_TOKEN:
       options?.hasSlackCredentials === false ? '' : 'xoxb-slack-bot-token',
     TELEGRAM_BOT_TOKEN: '',
+    THREEMA_GATEWAY_SECRET: '',
     TWILIO_AUTH_TOKEN:
       options?.twilioAuthToken ?? state.currentConfig.voice.twilio.authToken,
     getConfigSnapshot: state.getConfigSnapshot,

@@ -2,6 +2,7 @@ export function ChannelLogo(props: {
   kind:
     | 'discord'
     | 'telegram'
+    | 'threema'
     | 'signal'
     | 'voice'
     | 'whatsapp'
@@ -49,6 +50,18 @@ export function ChannelLogo(props: {
             <path
               fill="#FFFFFF"
               d="m23.4 10.2-2.3 11c-.2 1-.8 1.3-1.6.8l-3.5-2.6-1.7 1.6c-.2.2-.4.4-.7.4l.3-3.7 6.8-6.1c.3-.3-.1-.4-.4-.2l-8.4 5.3-3.6-1.1c-.8-.2-.8-.8.2-1.2l14-5.4c.7-.3 1.2.2 1 .9Z"
+            />
+          </svg>
+        </span>
+      );
+    case 'threema':
+      return (
+        <span className="channel-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <rect x="3" y="3" width="26" height="26" rx="8" fill="#F4C430" />
+            <path
+              fill="#111827"
+              d="M10 13.6h2.2v-1.5c0-2.3 1.7-4.1 3.8-4.1s3.8 1.8 3.8 4.1v1.5H22c.7 0 1.2.5 1.2 1.2v7.9c0 .7-.5 1.2-1.2 1.2H10c-.7 0-1.2-.5-1.2-1.2v-7.9c0-.7.5-1.2 1.2-1.2Zm4.1 0h3.8v-1.5c0-1.2-.8-2.1-1.9-2.1s-1.9.9-1.9 2.1v1.5Z"
             />
           </svg>
         </span>

@@ -26,6 +26,7 @@ Keep the first rollout narrow:
   with BotFather setup
 - [Signal](../channels/signal.md) when you want private Signal DMs through a
   linked `signal-cli` companion device
+- [Threema](../channels/threema.md) when you need outbound text through Threema Gateway Basic mode
 - [Email](../channels/email.md) when the bot should watch a mailbox and reply
   into message threads
 - [WhatsApp](../channels/whatsapp.md) when you want phone-linked testing and a
@@ -46,6 +47,7 @@ jump directly to one transport:
 - [Slack](../channels/slack.md)
 - [Telegram](../channels/telegram.md)
 - [Signal](../channels/signal.md)
+- [Threema](../channels/threema.md)
 - [Email](../channels/email.md)
 - [WhatsApp](../channels/whatsapp.md)
 - [Twilio Voice](../guides/twilio-voice.md)

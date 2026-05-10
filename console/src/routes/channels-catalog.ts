@@ -6,6 +6,7 @@ export type ChannelKind =
   | 'slack'
   | 'signal'
   | 'telegram'
+  | 'threema'
   | 'voice'
   | 'whatsapp'
   | 'email'
@@ -28,6 +29,7 @@ interface ChannelCatalogOptions {
   signalAccountConfigured?: boolean;
   signalCliAvailable?: boolean;
   telegramTokenConfigured?: boolean;
+  threemaSecretConfigured?: boolean;
   voiceAuthTokenConfigured?: boolean;
   whatsappLinked?: boolean;
   emailPasswordConfigured?: boolean;
@@ -189,6 +191,44 @@ function describeSignal(
     kind: 'signal',
     label: 'Signal',
     summary: `DM ${config.signal.dmPolicy} · groups ${config.signal.groupPolicy}${cliAvailable ? ' · QR ready' : ''}`,
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
+function describeThreema(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const secretConfigured = options.threemaSecretConfigured === true;
+  const active =
+    config.threema.enabled &&
+    !!config.threema.identity &&
+    secretConfigured &&
+    config.threema.dmPolicy !== 'disabled';
+  const configured =
+    active ||
+    config.threema.enabled ||
+    !!config.threema.identity ||
+    secretConfigured ||
+    config.threema.allowFrom.length > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'threema',
+    label: 'Threema',
+    summary: config.threema.identity
+      ? `Gateway ${config.threema.identity} · DM ${config.threema.dmPolicy}`
+      : 'No Gateway identity configured yet',
     statusTone,
     statusLabel:
       statusTone === 'active'
@@ -385,6 +425,7 @@ export function buildChannelCatalog(
     describeSlack(config, options),
     describeTelegram(config, options),
     describeSignal(config, options),
+    describeThreema(config, options),
     describeVoice(config, options),
     describeWhatsApp(config, options),
     describeEmail(config, options),

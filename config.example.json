@@ -1,5 +1,5 @@
 {
-  "version": 26,
+  "version": 27,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -24,6 +24,7 @@
       "signal": [],
       "slack": [],
       "telegram": [],
+      "threema": [],
       "voice": [],
       "whatsapp": [],
       "email": []
@@ -39,6 +40,7 @@
     "signal": "",
     "slack": "",
     "telegram": "",
+    "threema": "",
     "voice": "This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.\nAbsolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.\nDo not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.\nDo not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.",
     "whatsapp": "",
     "email": "",
@@ -183,6 +185,16 @@
     "groupAllowFrom": [],
     "textChunkLimit": 4000,
     "reconnectIntervalMs": 5000,
+    "outboundDelayMs": 350
+  },
+  "threema": {
+    "enabled": false,
+    "apiBaseUrl": "https://msgapi.threema.ch",
+    "identity": "",
+    "secret": "",
+    "dmPolicy": "allowlist",
+    "allowFrom": [],
+    "textChunkLimit": 3500,
     "outboundDelayMs": 350
   },
   "whatsapp": {

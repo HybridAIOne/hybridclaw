@@ -133,6 +133,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       slack: '',
       signal: '',
       telegram: '',
+      threema: '',
       voice:
         'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
       whatsapp: '',
@@ -177,6 +178,16 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       groupAllowFrom: [],
       textChunkLimit: 4000,
       reconnectIntervalMs: 5000,
+      outboundDelayMs: 350,
+    },
+    threema: {
+      enabled: false,
+      apiBaseUrl: 'https://msgapi.threema.ch',
+      identity: '',
+      secret: '',
+      dmPolicy: 'allowlist',
+      allowFrom: [],
+      textChunkLimit: 3500,
       outboundDelayMs: 350,
     },
     voice: {

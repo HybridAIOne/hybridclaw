@@ -6,6 +6,7 @@ import {
   MSTEAMS_CAPABILITIES,
   SLACK_CAPABILITIES,
   TELEGRAM_CAPABILITIES,
+  THREEMA_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
 } from '../src/channels/channel.js';
 import { registerChannel } from '../src/channels/channel-registry.js';
@@ -310,5 +311,28 @@ test('resolves Slack hints from explicit Slack context', () => {
     hints.some((entry) =>
       entry.includes('Current Slack workspace/team id: `T1234567890`'),
     ),
+  ).toBe(true);
+});
+
+test('resolves Threema hints from explicit Threema context', () => {
+  registerChannel({
+    kind: 'threema',
+    id: '*HYBRID',
+    capabilities: THREEMA_CAPABILITIES,
+  });
+
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'threema',
+      channelId: 'threema:ABCDEFGH',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Current Threema chat'))).toBe(
+    true,
+  );
+  expect(
+    hints.some((entry) => entry.includes('Threema Basic mode supports')),
   ).toBe(true);
 });

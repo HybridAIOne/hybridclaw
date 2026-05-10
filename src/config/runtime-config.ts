@@ -108,7 +108,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 26;
+export const CONFIG_VERSION = 27;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -125,6 +125,7 @@ const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   signal: '',
   slack: '',
   telegram: '',
+  threema: '',
   voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
   whatsapp: '',
   email: '',
@@ -237,6 +238,7 @@ export type TelegramDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type TelegramGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SignalDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type SignalGroupPolicy = 'open' | 'allowlist' | 'disabled';
+export type ThreemaDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageBackend = 'local' | 'bluebubbles';
 export type IMessageDmPolicy = 'open' | 'allowlist' | 'disabled';
 export type IMessageGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -501,6 +503,18 @@ export interface RuntimeSignalConfig {
   outboundDelayMs: number;
 }
 
+export interface RuntimeThreemaConfig {
+  enabled: boolean;
+  apiBaseUrl: string;
+  identity: string;
+  secret: string;
+  dmPolicy: ThreemaDmPolicy;
+  // Reserved for future inbound webhook enforcement.
+  allowFrom: string[];
+  textChunkLimit: number;
+  outboundDelayMs: number;
+}
+
 export interface RuntimeIMessageConfig {
   enabled: boolean;
   backend: IMessageBackend;
@@ -543,6 +557,7 @@ export interface RuntimeChannelInstructionsConfig {
   signal: string;
   slack: string;
   telegram: string;
+  threema: string;
   voice: string;
   whatsapp: string;
   email: string;
@@ -784,6 +799,7 @@ export interface RuntimeConfig {
   signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
   telegram: RuntimeTelegramConfig;
+  threema: RuntimeThreemaConfig;
   whatsapp: RuntimeWhatsAppConfig;
   voice: RuntimeVoiceConfig;
   imessage: RuntimeIMessageConfig;
@@ -1310,6 +1326,16 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     reconnectIntervalMs: 5_000,
     outboundDelayMs: 350,
   },
+  threema: {
+    enabled: false,
+    apiBaseUrl: 'https://msgapi.threema.ch',
+    identity: '',
+    secret: '',
+    dmPolicy: 'allowlist',
+    allowFrom: [],
+    textChunkLimit: 3_500,
+    outboundDelayMs: 350,
+  },
   whatsapp: {
     dmPolicy: 'pairing',
     groupPolicy: 'disabled',
@@ -1705,6 +1731,7 @@ const SECRET_INPUT_PATHS = [
   'email.password',
   'imessage.password',
   'telegram.botToken',
+  'threema.secret',
   'voice.twilio.authToken',
   'local.backends.vllm.apiKey',
 ] as const;
@@ -2815,6 +2842,62 @@ function normalizeSignalConfig(
   };
 }
 
+function normalizeThreemaPolicy(
+  value: unknown,
+  fallback: ThreemaDmPolicy,
+): ThreemaDmPolicy {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeThreemaConfig(
+  value: unknown,
+  fallback: RuntimeThreemaConfig,
+  opts?: {
+    secret?: unknown;
+  },
+): RuntimeThreemaConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    enabled: normalizeBoolean(raw.enabled, fallback.enabled),
+    apiBaseUrl: normalizeString(raw.apiBaseUrl, fallback.apiBaseUrl, {
+      allowEmpty: false,
+    }),
+    identity: normalizeString(raw.identity, fallback.identity, {
+      allowEmpty: true,
+    }).toUpperCase(),
+    secret: normalizeString(opts?.secret ?? raw.secret, fallback.secret, {
+      allowEmpty: true,
+    }),
+    dmPolicy: normalizeThreemaPolicy(raw.dmPolicy, fallback.dmPolicy),
+    allowFrom: normalizeStringArray(raw.allowFrom, fallback.allowFrom),
+    textChunkLimit: normalizeInteger(
+      raw.textChunkLimit,
+      fallback.textChunkLimit,
+      {
+        min: 200,
+        max: 3_500,
+      },
+    ),
+    outboundDelayMs: normalizeInteger(
+      raw.outboundDelayMs,
+      fallback.outboundDelayMs,
+      {
+        min: 0,
+        max: 10_000,
+      },
+    ),
+  };
+}
+
 function normalizeSlackGroupPolicy(
   value: unknown,
   fallback: SlackGroupPolicy,
@@ -3160,6 +3243,9 @@ function normalizeChannelInstructionsConfig(
     signal: normalizeString(raw.signal, fallback.signal, { allowEmpty: true }),
     slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
     telegram: normalizeString(raw.telegram, fallback.telegram, {
+      allowEmpty: true,
+    }),
+    threema: normalizeString(raw.threema, fallback.threema, {
       allowEmpty: true,
     }),
     voice: normalizeString(raw.voice, fallback.voice, { allowEmpty: true }),
@@ -4137,6 +4223,10 @@ function getSecretInputFromSource(
       ? telegram.botToken
       : undefined;
   }
+  if (secretPath === 'threema.secret') {
+    const threema = isRecord(source.threema) ? source.threema : null;
+    return threema && hasOwn(threema, 'secret') ? threema.secret : undefined;
+  }
   if (secretPath === 'voice.twilio.authToken') {
     const voice = isRecord(source.voice) ? source.voice : null;
     const twilio = voice && isRecord(voice.twilio) ? voice.twilio : null;
@@ -4180,6 +4270,12 @@ function setSecretInputOnSource(
     const telegram = isRecord(source.telegram) ? source.telegram : {};
     source.telegram = telegram;
     telegram.botToken = value;
+    return;
+  }
+  if (secretPath === 'threema.secret') {
+    const threema = isRecord(source.threema) ? source.threema : {};
+    source.threema = threema;
+    threema.secret = value;
     return;
   }
   if (secretPath === 'voice.twilio.authToken') {
@@ -4702,6 +4798,7 @@ function normalizeRuntimeConfig(
   const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
+  const rawThreema = isRecord(raw.threema) ? raw.threema : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
   const rawVoice = isRecord(raw.voice) ? raw.voice : {};
   const rawIMessage = isRecord(raw.imessage) ? raw.imessage : {};
@@ -4896,6 +4993,14 @@ function normalizeRuntimeConfig(
       path: 'telegram.botToken',
       required:
         isSecretRefInput(rawTelegram.botToken) && Boolean(rawTelegram.enabled),
+    },
+  );
+  const resolvedThreemaGatewaySecret = resolveConfiguredSecretInput(
+    rawThreema.secret,
+    {
+      path: 'threema.secret',
+      required:
+        isSecretRefInput(rawThreema.secret) && Boolean(rawThreema.enabled),
     },
   );
   const healthPort = normalizeInteger(
@@ -5300,6 +5405,13 @@ function normalizeRuntimeConfig(
       DEFAULT_RUNTIME_CONFIG.telegram,
       {
         botToken: resolvedTelegramBotToken,
+      },
+    ),
+    threema: normalizeThreemaConfig(
+      rawThreema,
+      DEFAULT_RUNTIME_CONFIG.threema,
+      {
+        secret: resolvedThreemaGatewaySecret,
       },
     ),
     whatsapp: normalizeWhatsAppConfig(

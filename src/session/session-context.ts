@@ -42,6 +42,7 @@ const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   slack: 'Slack',
   scheduler: 'Scheduler',
   telegram: 'Telegram',
+  threema: 'Threema',
   tui: 'TUI',
   voice: 'Voice',
   whatsapp: 'WhatsApp',
