@@ -509,6 +509,7 @@ export interface RuntimeThreemaConfig {
   identity: string;
   secret: string;
   dmPolicy: ThreemaDmPolicy;
+  // Reserved for future inbound webhook enforcement.
   allowFrom: string[];
   textChunkLimit: number;
   outboundDelayMs: number;

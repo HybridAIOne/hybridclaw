@@ -6,24 +6,8 @@ import { THREEMA_CAPABILITIES } from '../channel.js';
 import { registerChannel, unregisterChannel } from '../channel-registry.js';
 import { sendChunkedThreemaText } from './delivery.js';
 
-export type ThreemaReplyFn = (content: string) => Promise<void>;
-
-export interface ThreemaMessageContext {
-  abortSignal: AbortSignal;
-}
-
-export type ThreemaMessageHandler = (
-  sessionId: string,
-  guildId: string | null,
-  channelId: string,
-  userId: string,
-  username: string,
-  content: string,
-  reply: ThreemaReplyFn,
-  context: ThreemaMessageContext,
-) => Promise<void>;
-
 let runtimeInitialized = false;
+let shutdownController: AbortController | null = null;
 
 function resolveThreemaConfig() {
   return getConfigSnapshot().threema;
@@ -37,9 +21,7 @@ export function hasThreemaGatewaySecret(): boolean {
   );
 }
 
-export async function initThreema(
-  _messageHandler?: ThreemaMessageHandler,
-): Promise<void> {
+export async function initThreema(): Promise<void> {
   if (runtimeInitialized) return;
 
   const config = resolveThreemaConfig();
@@ -58,6 +40,7 @@ export async function initThreema(
     id: config.identity,
     capabilities: THREEMA_CAPABILITIES,
   });
+  shutdownController = new AbortController();
   runtimeInitialized = true;
 }
 
@@ -65,10 +48,16 @@ export async function sendToThreemaChat(
   target: string,
   text: string,
 ): Promise<void> {
-  await sendChunkedThreemaText({ target, text });
+  await sendChunkedThreemaText({
+    signal: shutdownController?.signal,
+    target,
+    text,
+  });
 }
 
 export async function shutdownThreema(): Promise<void> {
+  shutdownController?.abort();
+  shutdownController = null;
   unregisterChannel('threema');
   runtimeInitialized = false;
 }

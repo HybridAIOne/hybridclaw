@@ -17,11 +17,27 @@ function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+function isLocalThreemaApiHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
 export function normalizeThreemaApiBaseUrl(value?: string | null): string {
   const trimmed = String(value || '').trim();
   if (!trimmed) return DEFAULT_THREEMA_API_BASE_URL;
   if (/^https?:\/\//i.test(trimmed)) {
-    return trimTrailingSlashes(trimmed);
+    const url = new URL(trimmed);
+    if (url.protocol === 'http:' && !isLocalThreemaApiHost(url.hostname)) {
+      throw new Error(
+        'Threema API base URL must use https unless it points to localhost.',
+      );
+    }
+    return trimTrailingSlashes(url.toString());
   }
   return trimTrailingSlashes(`https://${trimmed}`);
 }
@@ -84,6 +100,9 @@ export async function sendThreemaSimpleText(params: {
       signal: params.signal,
     },
   ).catch((error: unknown) => {
+    if (params.signal?.aborted) {
+      throw error;
+    }
     const message =
       error instanceof Error ? error.message : 'Threema transport error';
     throw new ThreemaApiError('send_simple', 0, message);

@@ -116,6 +116,21 @@ function normalizeSignalAllowEntry(value: string): string | null {
   return normalized;
 }
 
+function parseChannelPolicy(
+  flagName: string,
+  raw: string,
+): 'open' | 'allowlist' | 'disabled' {
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
+}
+
 function parseTelegramSetupArgs(args: string[]): {
   token: string | null;
   allowFrom: string[];
@@ -136,21 +151,6 @@ function parseTelegramSetupArgs(args: string[]): {
   let requireMention: boolean | null = null;
   const allowFrom: string[] = [];
   const groupAllowFrom: string[] = [];
-
-  const parsePolicy = (
-    flagName: string,
-    raw: string,
-  ): 'open' | 'allowlist' | 'disabled' => {
-    const normalized = raw.trim().toLowerCase();
-    if (
-      normalized === 'open' ||
-      normalized === 'allowlist' ||
-      normalized === 'disabled'
-    ) {
-      return normalized;
-    }
-    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  };
 
   const parseAllow = (label: string, raw: string): string => {
     const normalized = normalizeTelegramAllowEntry(raw);
@@ -210,23 +210,26 @@ function parseTelegramSetupArgs(args: string[]): {
     if (arg === '--dm-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--dm-policy`.');
-      dmPolicy = parsePolicy('--dm-policy', next);
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--dm-policy=')) {
-      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
       continue;
     }
     if (arg === '--group-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--group-policy`.');
-      groupPolicy = parsePolicy('--group-policy', next);
+      groupPolicy = parseChannelPolicy('--group-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--group-policy=')) {
-      groupPolicy = parsePolicy(
+      groupPolicy = parseChannelPolicy(
         '--group-policy',
         arg.slice('--group-policy='.length),
       );
@@ -355,21 +358,6 @@ function parseThreemaSetupArgs(args: string[]): {
   let outboundDelayMs: number | null = null;
   const allowFrom: string[] = [];
 
-  const parsePolicy = (
-    flagName: string,
-    raw: string,
-  ): 'open' | 'allowlist' | 'disabled' => {
-    const normalized = raw.trim().toLowerCase();
-    if (
-      normalized === 'open' ||
-      normalized === 'allowlist' ||
-      normalized === 'disabled'
-    ) {
-      return normalized;
-    }
-    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  };
-
   const parseAllow = (raw: string): string => {
     const normalized = normalizeThreemaAllowEntry(raw);
     if (!normalized) {
@@ -429,12 +417,15 @@ function parseThreemaSetupArgs(args: string[]): {
     if (arg === '--dm-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--dm-policy`.');
-      dmPolicy = parsePolicy('--dm-policy', next);
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--dm-policy=')) {
-      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
       continue;
     }
     if (arg === '--text-chunk-limit') {
@@ -513,21 +504,6 @@ function parseSignalSetupArgs(args: string[]): {
   const allowFrom: string[] = [];
   const groupAllowFrom: string[] = [];
 
-  const parsePolicy = (
-    flagName: string,
-    raw: string,
-  ): 'open' | 'allowlist' | 'disabled' => {
-    const normalized = raw.trim().toLowerCase();
-    if (
-      normalized === 'open' ||
-      normalized === 'allowlist' ||
-      normalized === 'disabled'
-    ) {
-      return normalized;
-    }
-    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  };
-
   const parseAllow = (label: string, raw: string): string => {
     const normalized = normalizeSignalAllowEntry(raw);
     if (!normalized) {
@@ -604,23 +580,26 @@ function parseSignalSetupArgs(args: string[]): {
     if (arg === '--dm-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--dm-policy`.');
-      dmPolicy = parsePolicy('--dm-policy', next);
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--dm-policy=')) {
-      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
       continue;
     }
     if (arg === '--group-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--group-policy`.');
-      groupPolicy = parsePolicy('--group-policy', next);
+      groupPolicy = parseChannelPolicy('--group-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--group-policy=')) {
-      groupPolicy = parsePolicy(
+      groupPolicy = parseChannelPolicy(
         '--group-policy',
         arg.slice('--group-policy='.length),
       );

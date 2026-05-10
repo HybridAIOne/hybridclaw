@@ -14,35 +14,24 @@ const THREEMA_RETRY_BASE_DELAY_MS = 500;
 const THREEMA_RETRY_MAX_DELAY_MS = 10_000;
 const threemaOutboundQueues = new Map<string, Promise<void>>();
 
-export interface ThreemaOutboundMessageRef {
-  recipient: string;
-  messageId: string;
-}
-
 type ThreemaDeliveryConfig = {
   apiBaseUrl: string;
   identity: string;
+  outboundDelayMs: number;
   secret: string;
+  textChunkLimit: number;
 };
 
-function resolveTextChunkLimit(): number {
-  return Math.max(
-    200,
-    Math.min(
-      3_500,
-      Math.floor(getConfigSnapshot().threema?.textChunkLimit ?? 3_500),
-    ),
-  );
+function normalizeTextChunkLimit(value: unknown): number {
+  const parsed = Number(value ?? 3_500);
+  const chunkLimit = Number.isFinite(parsed) ? Math.floor(parsed) : 3_500;
+  return Math.max(200, Math.min(3_500, chunkLimit));
 }
 
-function resolveOutboundDelayMs(): number {
-  return Math.max(
-    0,
-    Math.min(
-      10_000,
-      Math.floor(getConfigSnapshot().threema?.outboundDelayMs ?? 350),
-    ),
-  );
+function normalizeOutboundDelayMs(value: unknown): number {
+  const parsed = Number(value ?? 350);
+  const outboundDelayMs = Number.isFinite(parsed) ? Math.floor(parsed) : 350;
+  return Math.max(0, Math.min(10_000, outboundDelayMs));
 }
 
 function resolveDeliveryConfig(): ThreemaDeliveryConfig {
@@ -61,11 +50,14 @@ function resolveDeliveryConfig(): ThreemaDeliveryConfig {
   return {
     apiBaseUrl: config?.apiBaseUrl || '',
     identity,
+    outboundDelayMs: normalizeOutboundDelayMs(config?.outboundDelayMs),
     secret,
+    textChunkLimit: normalizeTextChunkLimit(config?.textChunkLimit),
   };
 }
 
 function isRetryableThreemaError(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'AbortError') return false;
   if (error instanceof ThreemaApiError) {
     if (error.statusCode === 429) return true;
     if (error.statusCode >= 500 && error.statusCode <= 599) return true;
@@ -103,6 +95,7 @@ function queueThreemaOutboundDelivery<T>(
     () => undefined,
     () => undefined,
   );
+  // The sentinel tracks queue position while task preserves the caller result.
   threemaOutboundQueues.set(target, sentinel);
   void sentinel.finally(() => {
     if (threemaOutboundQueues.get(target) === sentinel) {
@@ -112,53 +105,53 @@ function queueThreemaOutboundDelivery<T>(
   return task;
 }
 
-export function prepareThreemaTextChunks(text: string): string[] {
+export function prepareThreemaTextChunks(
+  text: string,
+  maxChars = 3_500,
+): string[] {
   const formatted = String(text || '')
     .replace(/\r\n?/g, '\n')
     .trim();
   const chunks = chunkMessage(formatted, {
-    maxChars: resolveTextChunkLimit(),
+    maxChars,
     maxLines: 100,
   }).filter((chunk) => chunk.trim().length > 0);
   return chunks.length > 0 ? chunks : ['(no content)'];
 }
 
 export async function sendChunkedThreemaText(params: {
+  signal?: AbortSignal;
   target: string;
   text: string;
-}): Promise<ThreemaOutboundMessageRef[]> {
+}): Promise<void> {
   const target = parseThreemaTarget(params.target);
   if (!target) {
     throw new Error(`Invalid Threema target: ${params.target}`);
   }
-  return await queueThreemaOutboundDelivery(
+  await queueThreemaOutboundDelivery(
     `threema:${target.kind}:${target.recipient}`,
     async () => {
       const config = resolveDeliveryConfig();
-      const chunks = prepareThreemaTextChunks(params.text);
-      const outboundDelayMs = resolveOutboundDelayMs();
-      const refs: ThreemaOutboundMessageRef[] = [];
+      const chunks = prepareThreemaTextChunks(
+        params.text,
+        config.textChunkLimit,
+      );
       for (let index = 0; index < chunks.length; index += 1) {
-        const messageId = await withThreemaTransportRetry(
-          'threema.sendChunkedText',
-          () =>
-            sendThreemaSimpleText({
-              apiBaseUrl: config.apiBaseUrl,
-              identity: config.identity,
-              secret: config.secret,
-              target,
-              text: chunks[index],
-            }),
+        params.signal?.throwIfAborted();
+        await withThreemaTransportRetry('threema.sendChunkedText', () =>
+          sendThreemaSimpleText({
+            apiBaseUrl: config.apiBaseUrl,
+            identity: config.identity,
+            secret: config.secret,
+            signal: params.signal,
+            target,
+            text: chunks[index],
+          }),
         );
-        refs.push({
-          recipient: target.recipient,
-          messageId,
-        });
         if (index < chunks.length - 1) {
-          await sleep(outboundDelayMs);
+          await sleep(config.outboundDelayMs);
         }
       }
-      return refs;
     },
   );
 }

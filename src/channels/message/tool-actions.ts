@@ -508,11 +508,11 @@ async function runThreemaMessageSendAction(
   const content = String(request.content || '').trim();
   const hasFilePath = Boolean(String(request.filePath || '').trim());
   const hasComponents = hasMessageComponents(request);
-  if (!content) {
-    throw new Error('content is required for Threema sends.');
-  }
   if (hasFilePath) {
     throw new Error('filePath is not supported for Threema sends.');
+  }
+  if (!content) {
+    throw new Error('content is required for Threema sends.');
   }
   if (hasComponents) {
     throw new Error('components are not supported for Threema sends.');
