@@ -19,7 +19,7 @@ The roadmap is anchored in the [HybridClaw manifesto — *The AI Coworker Who's 
 
 | # | Feature | Description | Priority | Status |
 |---|---------|-------------|----------|--------|
-| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 3/50 |
+| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 3/81 |
 | 1 | **Agent-to-agent messaging** | First-class primitive for agents to message, hand off, escalate, federate across instances, and speak multiple transport formats. See **R1 Messaging Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 4/15 |
 | 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps. Return-for-revision rewinds. Built on top of #1. See **R2 Workflow Work** below for sub-issue rows. *Principles II + VI.* | P0 | 🔄 #461 |
 | 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. See **R3 Scoreboard Work** below for the follow-up row. *Principle IV.* | P0 | ✅ (5/5; follow-up R3.7 ✅ #618; #616, #619 still open) |
@@ -161,6 +161,37 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.49 | Skill | Deutsche Bahn business-travel skill (schedule lookup, ticket booking, BahnCard expense reconciliation) | ⬜ To be filed |
 | R21.50 | Skill | Lufthansa business-travel skill (NDC booking, status/frequent-flyer lookup, irregular-ops rebooking) | ⬜ #805 |
 | R21.51 | Skill | Workday HR-workflow skill (onboarding, time-off, expense, review prep — consumes R21.34 connector) | ⬜ To be filed |
+| R21.52 | Skill | Airtable skill (bases/tables search, record CRUD with field-type validation, attachments, formula-field reads) | ⬜ To be filed |
+| R21.53 | Skill | Pipedrive skill (deals/persons/orgs read, stage and probability updates, activity logging) | ⬜ To be filed |
+| R21.54 | Skill | Zoho CRM skill (lead/contact/deal CRUD, blueprint transitions, custom-module support) | ⬜ To be filed |
+| R21.55 | Skill | Asana skill (project/task CRUD, custom fields, sections, my-tasks lookup) | ⬜ To be filed |
+| R21.56 | Skill | Monday.com skill (boards/items/columns via GraphQL, status-column transitions) | ⬜ To be filed |
+| R21.57 | Skill | ClickUp skill (spaces/folders/lists/tasks, custom fields, time tracking, dependencies) | ⬜ To be filed |
+| R21.58 | Skill | Zendesk skill (tickets, comments, macros, search, requesters, organizations) | ⬜ To be filed |
+| R21.59 | Skill | Intercom skill (conversations, contacts, tags, replies, knowledge-base ops) | ⬜ To be filed |
+| R21.60 | Skill | Freshdesk skill (tickets, contacts, agents, conversations, status transitions) | ⬜ To be filed |
+| R21.61 | Skill | Help Scout skill (mailboxes, conversations, replies, tags, customers) | ⬜ To be filed |
+| R21.62 | Skill | Typeform skill (forms metadata, response pull, dedupe on response_id) | ⬜ To be filed |
+| R21.63 | Skill | Forms-aggregator skill for Google Forms / Jotform / SurveyMonkey responses (cross-provider harvest + dedupe) | ⬜ To be filed |
+| R21.64 | Skill | QuickBooks Online skill (customers, invoices, payments, bills, journal entries, OAuth) | ⬜ To be filed |
+| R21.65 | Skill | Xero skill (contacts, invoices, bills, bank transactions, tracking categories, OAuth) | ⬜ To be filed |
+| R21.66 | Skill | PayPal skill (transactions search, refunds, invoices, payouts — pairs with the stripe skill) | ⬜ To be filed |
+| R21.67 | Skill | Mailchimp skill (audiences, campaigns, transactional via Mandrill — peer to brevo-email plugin) | ⬜ To be filed |
+| R21.68 | Skill | Image-generation skill (provider-agnostic surface — DALL-E/gpt-image, FLUX, Imagen, Stable Diffusion — with provider plugins for auth and quirks) | ⬜ To be filed |
+| R21.69 | Skill | Speech-to-text skill (provider-agnostic — Whisper, Deepgram, AssemblyAI — diarization, timestamps, language detection) | ⬜ To be filed |
+| R21.70 | Skill | Text-to-speech skill (provider-agnostic — ElevenLabs, OpenAI TTS, Cartesia — voice selection, SSML, streaming) | ⬜ To be filed |
+| R21.71 | Skill | Calendly skill (event types, scheduled events, invitee lookup, no-show flagging, reschedule links) | ⬜ To be filed |
+| R21.72 | Skill | Shopify skill (products, orders, fulfillments, customers, draft orders, OAuth) | ⬜ To be filed |
+| R21.73 | Skill | WooCommerce skill (orders/products via REST, dedupe-on-order-id, webhook intake) | ⬜ To be filed |
+| R21.74 | Plugin | Dropbox connector (file CRUD, shared links, team-namespace support; complements google-workspace Drive) | ⬜ To be filed |
+| R21.75 | Plugin | Box connector (folders, files, collaborations, comments, retention policies) | ⬜ To be filed |
+| R21.76 | Plugin | OneDrive / SharePoint connector (drives, items, search; pairs with the existing msteams channel) | ⬜ To be filed |
+| R21.77 | Skill | Microsoft Teams action skill (post message, list channels, fetch files — distinct from the R38 channel adapter, which is operator-facing only) | ⬜ To be filed |
+| R21.78 | Skill | LinkedIn skill (UGC posts via Marketing API, company-page operations, lead-gen forms read) | ⬜ To be filed |
+| R21.79 | Skill | Facebook Lead Ads skill (lead-form harvesting, page-posts read, ad-set status) | ⬜ To be filed |
+| R21.80 | Skill | X (Twitter) skill (tweet CRUD via v2 API, search, list management — gated by API tier) | ⬜ To be filed |
+| R21.81 | Skill | Mixpanel skill (event ingest, JQL reports, cohort export — peer to R21.5 GA4) | ⬜ To be filed |
+| R21.82 | Skill | PostHog skill (capture, person properties, feature flags, insights query) | ⬜ To be filed |
 
 ## R1 Messaging Work
 
