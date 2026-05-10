@@ -366,7 +366,9 @@ export function runPolicyCommand(
     if (subcommand === 'accept-pending') {
       const pendingId = stripWrappedQuotes(parseIdArg(args, 1));
       if (!pendingId || args.length > 2) {
-        throw new Error('Usage: `policy accept-pending <pending-id|update-id>`');
+        throw new Error(
+          'Usage: `policy accept-pending <pending-id|update-id>`',
+        );
       }
       const result = acceptPendingPolicyUpdate(pendingId, workspacePath);
       return {
@@ -376,7 +378,9 @@ export function runPolicyCommand(
     }
 
     if (subcommand === 'rollback') {
-      const revisionId = parseRevisionId(stripWrappedQuotes(parseIdArg(args, 1)));
+      const revisionId = parseRevisionId(
+        stripWrappedQuotes(parseIdArg(args, 1)),
+      );
       if (args.length > 2) {
         throw new Error('Usage: `policy rollback <revision-id>`');
       }

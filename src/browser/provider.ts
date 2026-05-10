@@ -22,6 +22,7 @@ export interface BrowserSessionMeteringContext {
   sessionId: string;
   agentId: string;
   auditRunId?: string;
+  skillName?: string;
 }
 
 export interface BrowserSession {
