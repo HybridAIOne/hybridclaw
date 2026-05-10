@@ -143,11 +143,14 @@ import {
   applyGatewayAdminPolicyPreset,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
+  deleteGatewayAdminA2ATrustPeer,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
   deleteGatewayAdminPolicyRule,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
+  getGatewayA2AAgentCard,
+  getGatewayAdminA2ATrust,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgentScoreboard,
@@ -183,6 +186,7 @@ import {
   removeGatewayAdminMcpServer,
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
+  revokeGatewayAdminA2ATrustPeer,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
@@ -191,10 +195,12 @@ import {
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
+  upsertGatewayAdminA2ATrustPeer,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
 import type {
+  GatewayAdminA2ATrustUpsertRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
@@ -363,6 +369,7 @@ function parseThreadReferenceListInput(value: unknown): string[] | undefined {
   if (normalized.length === 0) return undefined;
   return [...new Set(normalized)];
 }
+
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
   args?: unknown;
@@ -2979,6 +2986,66 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminA2ATrust(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminA2ATrust());
+    return;
+  }
+
+  if (method === 'POST' || method === 'PUT') {
+    const body = (await readJsonBody(req).catch(() => ({}))) as
+      | GatewayAdminA2ATrustUpsertRequest
+      | undefined;
+    try {
+      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}));
+    } catch (error) {
+      sendJson(
+        res,
+        error instanceof GatewayRequestError ? error.statusCode : 400,
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+    return;
+  }
+
+  if (method !== 'DELETE') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  const peerId = (url.searchParams.get('peerId') || '').trim();
+  if (!peerId) {
+    sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
+    return;
+  }
+  const reason = (url.searchParams.get('reason') || '').trim() || undefined;
+  const action = (url.searchParams.get('action') || '').trim();
+  try {
+    sendJson(
+      res,
+      200,
+      action === 'delete'
+        ? deleteGatewayAdminA2ATrustPeer({ peerId })
+        : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
+    );
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 async function handleApiAdminSignalLink(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4380,6 +4447,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     const voicePaths = resolveVoiceWebhookPaths(
       getRuntimeConfig().voice.webhookPath,
     );
+    if (pathname === '/.well-known/agent.json' && method === 'GET') {
+      sendJson(res, 200, getGatewayA2AAgentCard(resolveRequestOrigin(req)));
+      return;
+    }
     if (
       method === 'POST' &&
       (pathname === voicePaths.webhookPath ||
@@ -4561,6 +4632,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/a2a/trust' &&
+            (method === 'GET' || method === 'DELETE')
+          ) {
+            await handleApiAdminA2ATrust(req, res, url);
             return;
           }
           if (

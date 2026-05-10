@@ -5,6 +5,7 @@ import {
   startA2AOutboxProcessor,
   stopA2AOutboxProcessor,
 } from '../a2a/a2a-outbound.js';
+import { ensureA2AInstanceKeypair } from '../a2a/trust-ledger.js';
 import {
   startWebhookOutboxProcessor,
   stopWebhookOutboxProcessor,
@@ -3038,6 +3039,7 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  ensureA2AInstanceKeypair();
   logger.info(
     { instanceId: resolveLocalInstanceId() },
     'Local instance identity ready',

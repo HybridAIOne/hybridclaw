@@ -4,7 +4,6 @@ import {
   createPublicKey,
   generateKeyPairSync,
   type KeyObject,
-  randomUUID,
   sign,
   verify,
 } from 'node:crypto';
@@ -16,6 +15,7 @@ import {
   isCanonicalAgentIdentity,
   resolveLocalInstanceId,
 } from '../identity/agent-id.js';
+import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import { resolveA2AAgentId } from './identity.js';
 import { isRecord } from './utils.js';
 
@@ -258,23 +258,18 @@ function writeNewKeyPair(
   keyPairPath: string,
   keyPair: A2ADelegationTokenKeyPair,
 ): void {
-  const keyPairDir = path.dirname(keyPairPath);
-  fs.mkdirSync(keyPairDir, { recursive: true });
-  const tempPath = path.join(keyPairDir, `.delegation-keypair-${randomUUID()}`);
   try {
-    // Atomic create: only one process wins if two instances bootstrap together.
-    fs.writeFileSync(tempPath, `${JSON.stringify(keyPair, null, 2)}\n`, {
-      encoding: 'utf-8',
-      flag: 'wx',
-      mode: 0o600,
-    });
-    fs.linkSync(tempPath, keyPairPath);
-    fs.chmodSync(keyPairPath, 0o600);
+    writeFileAtomicExclusive(
+      keyPairPath,
+      `${JSON.stringify(keyPair, null, 2)}\n`,
+      {
+        tempPrefix: 'delegation-keypair',
+        fileMode: 0o600,
+      },
+    );
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err?.code !== 'EEXIST') throw error;
-  } finally {
-    fs.rmSync(tempPath, { force: true });
   }
 }
 

@@ -9,6 +9,15 @@ import {
   currentDateStampInTimezone,
   extractUserTimezone,
 } from '../../container/shared/workspace-time.js';
+import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
+import {
+  buildLocalA2AAgentCard,
+  deleteA2ATrustedPublicKeyPeer,
+  ensureA2AInstanceKeypair,
+  listA2ATrustedPublicKeyPeers,
+  revokeA2ATrustedPublicKeyPeer,
+  upsertA2ATrustedPublicKeyPeer,
+} from '../a2a/trust-ledger.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import {
@@ -416,6 +425,9 @@ import {
   reconnectGatewayAdminTunnel,
 } from './gateway-tunnel-service.js';
 import {
+  type GatewayAdminA2ATrustPeer,
+  type GatewayAdminA2ATrustResponse,
+  type GatewayAdminA2ATrustUpsertRequest,
   type GatewayAdminAgent,
   type GatewayAdminAgentMarkdownFile,
   type GatewayAdminAgentMarkdownFileResponse,
@@ -4859,6 +4871,102 @@ export function saveGatewayAdminConfig(
     path: runtimeConfigPath(),
     config: saveRuntimeConfig(next),
   };
+}
+
+function mapA2ATrustPeer(
+  peer: ReturnType<typeof listA2ATrustedPublicKeyPeers>[number],
+): GatewayAdminA2ATrustPeer {
+  return {
+    peerId: peer.peerId,
+    agentCardUrl: peer.agentCardUrl,
+    deliveryUrl: peer.deliveryUrl,
+    publicKeyFingerprint: peer.publicKeyFingerprint,
+    publicKeyJwk: peer.publicKeyJwk,
+    status: peer.status,
+    trustedAt: peer.trustedAt,
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+    lastSeenAt: peer.lastSeenAt,
+    revokedAt: peer.revokedAt || null,
+    revokedReason: peer.revokedReason || null,
+    lastMismatchAt: peer.lastMismatchAt || null,
+    lastMismatchFingerprint: peer.lastMismatchFingerprint || null,
+  };
+}
+
+export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
+  const identity = ensureA2AInstanceKeypair();
+  return {
+    identity: {
+      instanceId: identity.instanceId,
+      publicKeyFingerprint: identity.publicKeyFingerprint,
+      publicKeyJwk: identity.publicKeyJwk,
+    },
+    peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
+  };
+}
+
+export function revokeGatewayAdminA2ATrustPeer(params: {
+  peerId: string;
+  reason?: string;
+}): GatewayAdminA2ATrustResponse {
+  revokeA2ATrustedPublicKeyPeer(params.peerId, {
+    reason: params.reason,
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+function normalizeA2AStringInput(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new GatewayRequestError(400, `Expected string \`${label}\`.`);
+  }
+  return value.trim();
+}
+
+function normalizeOptionalA2AStringInput(
+  value: unknown,
+  label: string,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `Expected string \`${label}\`.`);
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+export function upsertGatewayAdminA2ATrustPeer(
+  input: GatewayAdminA2ATrustUpsertRequest,
+): GatewayAdminA2ATrustResponse {
+  upsertA2ATrustedPublicKeyPeer({
+    peerId: normalizeA2AStringInput(input.peerId, 'peerId'),
+    agentCardUrl: normalizeOptionalA2AStringInput(
+      input.agentCardUrl,
+      'agentCardUrl',
+    ),
+    deliveryUrl: normalizeOptionalA2AStringInput(
+      input.deliveryUrl,
+      'deliveryUrl',
+    ),
+    publicKeyFingerprint: normalizeOptionalA2AStringInput(
+      input.publicKeyFingerprint,
+      'publicKeyFingerprint',
+    ),
+    publicKeyJwk: input.publicKeyJwk,
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function deleteGatewayAdminA2ATrustPeer(params: {
+  peerId: string;
+}): GatewayAdminA2ATrustResponse {
+  deleteA2ATrustedPublicKeyPeer(params.peerId);
+  return getGatewayAdminA2ATrust();
+}
+
+export function getGatewayA2AAgentCard(baseUrl: string): A2AAgentCard {
+  return buildLocalA2AAgentCard(baseUrl);
 }
 
 function mapAdminAuditEntry(
