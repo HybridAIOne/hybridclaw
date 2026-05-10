@@ -8633,6 +8633,89 @@ export function getRecentStructuredAudit(limit = 20): StructuredAuditEntry[] {
   );
 }
 
+export interface AgentAnomalyRollup {
+  agent_id: string;
+  flagged: number;
+  confirmed_normal: number;
+}
+
+function readPayloadObject(payload: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function startOfUtcWeek(date: Date): string {
+  const value = Number.isNaN(date.getTime()) ? new Date() : date;
+  const dayOffset = (value.getUTCDay() + 6) % 7;
+  return new Date(
+    Date.UTC(
+      value.getUTCFullYear(),
+      value.getUTCMonth(),
+      value.getUTCDate() - dayOffset,
+      0,
+      0,
+      0,
+      0,
+    ),
+  ).toISOString();
+}
+
+export function getWeeklyAgentAnomalyRollups(
+  now = new Date(),
+): AgentAnomalyRollup[] {
+  ensureDatabaseReady();
+  const cutoff = startOfUtcWeek(now);
+  const rows = queryAll<{ agent_id: string | null; payload: string }, [string]>(
+    db,
+    `SELECT COALESCE(NULLIF(TRIM(s.agent_id), ''), 'default') AS agent_id,
+            ae.payload AS payload
+     FROM audit_events ae
+     LEFT JOIN sessions s ON s.id = ae.session_id
+     WHERE ae.event_type = 'autonomy.decision'
+       AND ae.timestamp >= ?
+     ORDER BY ae.id DESC`,
+    cutoff,
+  );
+  const byAgent = new Map<string, AgentAnomalyRollup>();
+  for (const row of rows) {
+    const payload = readPayloadObject(row.payload);
+    const anomaly =
+      payload.anomaly &&
+      typeof payload.anomaly === 'object' &&
+      !Array.isArray(payload.anomaly)
+        ? (payload.anomaly as Record<string, unknown>)
+        : null;
+    if (!anomaly) continue;
+    const score = Number(anomaly.score);
+    const threshold = Number(anomaly.threshold);
+    if (!Number.isFinite(score) || !Number.isFinite(threshold)) continue;
+    if (score <= threshold) continue;
+    const agentId = row.agent_id || 'default';
+    const rollup =
+      byAgent.get(agentId) ||
+      ({
+        agent_id: agentId,
+        flagged: 0,
+        confirmed_normal: 0,
+      } satisfies AgentAnomalyRollup);
+    rollup.flagged += 1;
+    const decision = String(payload.approvalDecision || '').trim();
+    if (decision !== 'required' && decision !== 'denied') {
+      rollup.confirmed_normal += 1;
+    }
+    byAgent.set(agentId, rollup);
+  }
+  return [...byAgent.values()].sort((left, right) =>
+    left.agent_id.localeCompare(right.agent_id),
+  );
+}
+
 function queryStructuredAuditEntries(params?: {
   sessionId?: string;
   eventType?: string;

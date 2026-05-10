@@ -25,6 +25,7 @@ type AgentSortKey =
   | 'quality'
   | 'reliability'
   | 'timing'
+  | 'anomalies'
   | 'skill'
   | 'recent';
 
@@ -50,6 +51,11 @@ const AGENT_SORTERS: Record<
   timing: (left, right) =>
     compareNumber(left.avg_timing_score, right.avg_timing_score) ||
     compareText(left.display_name, right.display_name),
+  anomalies: (left, right) =>
+    compareNumber(
+      left.weekly_anomalies_flagged,
+      right.weekly_anomalies_flagged,
+    ) || compareText(left.display_name, right.display_name),
   skill: (left, right) =>
     compareText(formatBestAt(left), formatBestAt(right)) ||
     compareText(left.display_name, right.display_name),
@@ -64,6 +70,7 @@ const AGENT_DEFAULT_DIRECTIONS = {
   quality: 'desc',
   reliability: 'desc',
   timing: 'desc',
+  anomalies: 'desc',
   recent: 'desc',
 } as const;
 
@@ -175,6 +182,12 @@ export function AgentsPage() {
                     onToggle={toggleSort}
                   />
                   <SortableHeader
+                    label="Anomalies"
+                    sortKey="anomalies"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
                     label="Recent"
                     sortKey="recent"
                     sortState={sortState}
@@ -204,6 +217,13 @@ export function AgentsPage() {
                           {agent.best_skills[0].timing_score}
                         </div>
                       ) : null}
+                    </td>
+                    <td>
+                      {agent.weekly_anomalies_flagged}
+                      <div className="supporting-text">
+                        {agent.weekly_anomalies_confirmed_normal} confirmed
+                        normal
+                      </div>
                     </td>
                     <td>
                       {agent.last_observed_at

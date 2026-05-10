@@ -1,5 +1,5 @@
 import path from 'node:path';
-
+import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
   type ToolApprovalEvaluation,
   TrustedAgentApprovalRuntime,
@@ -713,6 +713,7 @@ async function executePreparedToolCall(
       autonomyLevel: approval.autonomyLevel,
       stakes: approval.stakes,
       stakesScore: approval.stakesScore,
+      anomaly: approval.anomaly,
       escalationRoute,
       escalationTarget: approval.escalationTarget,
       approvalDecision,
@@ -992,6 +993,60 @@ async function processRequest(
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const resolveToolApproval = async (input: {
+    toolName: string;
+    argsJson: string;
+  }): Promise<ToolApprovalEvaluation> => {
+    const approvalEvaluatedAt = new Date();
+    let evaluation = approvalRuntime.evaluateToolCall({
+      toolName: input.toolName,
+      argsJson: input.argsJson,
+      latestUserPrompt: effectiveUserPrompt,
+      channelId,
+      escalationTarget,
+      now: approvalEvaluatedAt,
+    });
+    const resolved = await resolveBorderlineAnomalyWithTraceJudge({
+      evaluation,
+      toolName: input.toolName,
+      argsJson: input.argsJson,
+      latestUserPrompt: effectiveUserPrompt,
+      taskModels,
+      fallbackContext: {
+        provider,
+        providerMethod,
+        baseUrl,
+        apiKey,
+        model,
+        chatbotId,
+        requestHeaders,
+        isLocal,
+        contextWindow,
+        thinkingFormat,
+        debugModelResponses,
+      },
+    });
+    if (resolved.response) {
+      tokenUsage.modelCalls += 1;
+      accumulateApiUsage(tokenUsage, resolved.response);
+    }
+    const traceJudge = resolved.evaluation.anomaly?.traceJudge;
+    if (evaluation.anomaly?.tuple && traceJudge) {
+      approvalRuntime.recordAnomalyTraceJudgeResult(
+        evaluation.anomaly.tuple,
+        traceJudge,
+      );
+      evaluation = approvalRuntime.evaluateToolCall({
+        toolName: input.toolName,
+        argsJson: input.argsJson,
+        latestUserPrompt: effectiveUserPrompt,
+        channelId,
+        escalationTarget,
+        now: approvalEvaluatedAt,
+      });
+    }
+    return evaluation;
+  };
 
   while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
@@ -1389,12 +1444,9 @@ async function processRequest(
 
         const preparedBatch: PreparedToolCallExecution[] = [];
         for (const candidate of candidateCalls) {
-          const candidateApproval = approvalRuntime.evaluateToolCall({
+          const candidateApproval = await resolveToolApproval({
             toolName: candidate.function.name,
             argsJson: candidate.function.arguments,
-            latestUserPrompt: effectiveUserPrompt,
-            channelId,
-            escalationTarget,
           });
           if (
             candidateApproval.decision === 'required' ||
@@ -1478,13 +1530,10 @@ async function processRequest(
 
       const approval =
         cachedApproval ||
-        approvalRuntime.evaluateToolCall({
+        (await resolveToolApproval({
           toolName,
           argsJson: call.function.arguments,
-          latestUserPrompt: effectiveUserPrompt,
-          channelId,
-          escalationTarget,
-        });
+        }));
       logToolCallStart(toolName, call.function.arguments, approval);
 
       if (approval.decision === 'required') {
@@ -1526,6 +1575,7 @@ async function processRequest(
           autonomyLevel: approval.autonomyLevel,
           stakes: approval.stakes,
           stakesScore: approval.stakesScore,
+          anomaly: approval.anomaly,
           escalationRoute: approval.escalationRoute,
           escalationTarget: approval.escalationTarget,
           approvalDecision: approval.decision,
@@ -1572,6 +1622,7 @@ async function processRequest(
           autonomyLevel: approval.autonomyLevel,
           stakes: approval.stakes,
           stakesScore: approval.stakesScore,
+          anomaly: approval.anomaly,
           escalationRoute: approval.escalationRoute,
           escalationTarget: approval.escalationTarget,
           approvalDecision: approval.decision,

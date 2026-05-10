@@ -76,6 +76,10 @@ import type { ScheduledTaskInput } from '../types/scheduler.js';
 import type { AdditionalMount } from '../types/security.js';
 import { ensureWorkspaceNodeModulesLink } from '../workspace.js';
 import {
+  CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR,
+  ensureBehaviorAnomalyTrajectoryStoreDir,
+} from './behavior-anomaly-runtime.js';
+import {
   agentWorkspaceDir,
   cleanupIpc,
   createActivityTracker,
@@ -717,6 +721,8 @@ function getOrSpawnContainer(
   const uploadedMediaCacheHostPath = resolveUploadedMediaCacheHostDir();
   fs.mkdirSync(uploadedMediaCacheHostPath, { recursive: true });
   const browserProfileHostPath = resolveBrowserProfileHostDir();
+  const behaviorAnomalyTrajectoryStoreDir =
+    ensureBehaviorAnomalyTrajectoryStoreDir();
   fs.mkdirSync(browserProfileHostPath, { recursive: true, mode: 0o700 });
   try {
     fs.chmodSync(browserProfileHostPath, 0o700);
@@ -757,8 +763,12 @@ function getOrSpawnContainer(
     `${uploadedMediaCacheHostPath}:${CONTAINER_UPLOADED_MEDIA_CACHE_ROOT}:ro`,
     '-v',
     `${browserProfileHostPath}:${CONTAINER_BROWSER_PROFILE_PATH}:rw`,
+    '-v',
+    `${behaviorAnomalyTrajectoryStoreDir}:${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}:ro`,
     '-e',
     `BROWSER_SHARED_PROFILE_DIR=${CONTAINER_BROWSER_PROFILE_PATH}`,
+    '-e',
+    `HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR=${CONTAINER_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR}`,
     '-e',
     `HYBRIDCLAW_AGENT_ID=${agentId}`,
     '-e',

@@ -21,23 +21,47 @@ slotted between built-in anchors, for example between `stakes` and
 5. `autonomy` resolves the autonomy level from action override, tool override, then policy default.
 6. `safety_tier` raises pinned or red-classified actions to red and seeds the working base tier.
 7. `stakes` runs the stakes classifier middleware and stores its score and middleware decision on the context.
-8. `autonomy_override` raises `confirm-each` actions, or non-low-stakes actions under `low-stakes-autonomous`, to red approval.
-9. `red_hard_deny` returns a policy denial for hard-denied red actions.
-10. `red_one_shot` consumes one-shot approval fingerprints.
-11. `red_session_trust` applies in-memory session trust for non-pinned actions.
-12. `red_agent_trust` applies durable agent trust for non-pinned actions.
-13. `red_workspace_trust` applies durable workspace allowlist trust for non-pinned actions.
-14. `red_promotable` promotes repeat-approved promotable red actions to yellow.
-15. `red_full_auto` allows full-auto mode to promote eligible red actions to yellow.
-16. `red_queue` denies new approval requests when the pending queue is full.
-17. `red_prompt` creates or reuses a pending approval request.
-18. `yellow_full_auto` allows full-auto mode to approve eligible yellow actions.
-19. `yellow_execution_promotion` promotes repeated non-sticky yellow actions to green, or marks first yellow execution as implicit.
-20. `green_fallback` returns the final evaluation for all non-terminal paths.
+8. `anomaly_reranker` scores the call against the agent's prior approved trajectories and elevates unusual green/yellow actions by one tier.
+9. `autonomy_override` raises `confirm-each` actions, or non-low-stakes actions under `low-stakes-autonomous`, to red approval.
+10. `red_hard_deny` returns a policy denial for hard-denied red actions.
+11. `red_one_shot` consumes one-shot approval fingerprints.
+12. `red_session_trust` applies in-memory session trust for non-pinned actions.
+13. `red_agent_trust` applies durable agent trust for non-pinned actions.
+14. `red_workspace_trust` applies durable workspace allowlist trust for non-pinned actions.
+15. `red_promotable` promotes repeat-approved promotable red actions to yellow.
+16. `red_full_auto` allows full-auto mode to promote eligible red actions to yellow.
+17. `red_queue` denies new approval requests when the pending queue is full.
+18. `red_prompt` creates or reuses a pending approval request.
+19. `yellow_full_auto` allows full-auto mode to approve eligible yellow actions.
+20. `yellow_execution_promotion` promotes repeated non-sticky yellow actions to green, or marks first yellow execution as implicit.
+21. `green_fallback` returns the final evaluation for all non-terminal paths.
 
 The trust-store layout is unchanged: one-shot fingerprints, session trusted
 actions/fingerprints, agent trusted actions/fingerprints, and workspace
 allowlisted actions/fingerprints retain their existing storage.
+
+## Behavioral Anomaly Reranker
+
+`anomaly_reranker` is a CPU-only v1 model. It reads scrubbed R10.1 trajectory
+JSONL files for the current agent and trains an order-2 Markov chain plus a
+frequency baseline over `(action_class, target_class, hour_bucket, tool)`
+tuples. The model abstains until the agent has at least 50 approved
+trajectories. The adaptive threshold is the agent's p99 training score.
+
+Live calls are scored after `stakes` and before `autonomy_override`. Scores
+above threshold elevate one tier (`green` to `yellow`, `yellow` to `red`).
+Borderline scores within the configured epsilon call F11 trace-judge through
+the `eval_judge` auxiliary task before any anomaly tier elevation. The normal
+non-borderline path stays synchronous and does not make an LLM call.
+
+Every structured tool-execution audit event includes `anomaly.score` and
+`anomaly.reason`. The R3 scoreboard and generated `CV.md` render weekly
+per-agent anomaly rollups.
+
+The v1 model is intentionally simple. Upgrade candidates are HMMs for latent
+task state, isolation forests over compact feature vectors, or a small
+transformer over tokenized action sequences. These are not implemented because
+the approval pipeline needs a deterministic, cheap default scorer.
 
 ## Hook Events
 
@@ -57,13 +81,13 @@ approval-rule and tool-execution events must filter on `kind`.
 Approval extensions register named rules with `registerApprovalRule(ruleName,
 rule)`. Registered names are accepted in `approval.rule_order`; the policy
 loader keeps built-in prerequisites in their default relative order while
-admitting external names between built-in anchors. A custom anomaly reranker can
-therefore register a rule and configure:
+admitting external names between built-in anchors. A custom post-stakes
+reranker can therefore register a rule and configure:
 
 ```yaml
 approval:
   rule_order:
     - stakes
-    - anomaly_reranker
+    - custom_reranker
     - autonomy_override
 ```

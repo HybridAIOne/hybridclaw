@@ -241,3 +241,128 @@ test('autonomy audit falls back to internally consistent approval metadata', asy
     }),
   );
 });
+
+test('weekly agent anomaly rollups count flagged and confirmed-normal tool checks', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    getOrCreateSession,
+    getRecentStructuredAuditForSession,
+    getWeeklyAgentAnomalyRollups,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  getOrCreateSession('session-anomaly-rollup', null, 'channel-a', 'lena');
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-anomaly-rollup',
+    runId: 'run-anomaly-rollup',
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"README.md"}',
+        result: 'ok',
+        durationMs: 3,
+        approvalTier: 'yellow',
+        approvalBaseTier: 'yellow',
+        approvalDecision: 'implicit',
+        approvalActionKey: 'read',
+        anomaly: {
+          score: 0.96,
+          threshold: 0.9,
+          reason:
+            'behavior anomaly score 0.960 exceeds adaptive threshold 0.900',
+          status: 'scored',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 80,
+          tuple: 'read',
+        },
+      },
+    ],
+  });
+
+  expect(
+    getWeeklyAgentAnomalyRollups(new Date()).find(
+      (rollup) => rollup.agent_id === 'lena',
+    ),
+  ).toEqual({
+    agent_id: 'lena',
+    flagged: 1,
+    confirmed_normal: 1,
+  });
+
+  const autonomyEvent = getRecentStructuredAuditForSession(
+    'session-anomaly-rollup',
+    10,
+  ).find((event) => event.event_type === 'autonomy.decision');
+  expect(JSON.parse(autonomyEvent?.payload || '{}').anomaly).toEqual(
+    expect.objectContaining({
+      tuple: 'read',
+    }),
+  );
+});
+
+test('weekly agent anomaly rollups scan the full UTC week without row cap', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    getOrCreateSession,
+    getWeeklyAgentAnomalyRollups,
+    initDatabase,
+    logStructuredAuditEvent,
+  } = await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  getOrCreateSession('session-anomaly-cap', null, 'channel-a', 'lena');
+
+  logStructuredAuditEvent({
+    version: '2.0',
+    seq: 1,
+    timestamp: '2026-05-04T00:00:00.000Z',
+    runId: 'run-anomaly-cap-flagged',
+    sessionId: 'session-anomaly-cap',
+    event: {
+      type: 'autonomy.decision',
+      approvalDecision: 'implicit',
+      anomaly: {
+        score: 0.96,
+        threshold: 0.9,
+      },
+    },
+    _prevHash: 'prev-flagged',
+    _hash: 'hash-flagged',
+  });
+
+  for (let index = 0; index < 10_000; index += 1) {
+    logStructuredAuditEvent({
+      version: '2.0',
+      seq: index + 2,
+      timestamp: '2026-05-08T12:00:00.000Z',
+      runId: `run-anomaly-cap-benign-${index}`,
+      sessionId: 'session-anomaly-cap',
+      event: {
+        type: 'autonomy.decision',
+        approvalDecision: 'auto',
+      },
+      _prevHash: `prev-benign-${index}`,
+      _hash: `hash-benign-${index}`,
+    });
+  }
+
+  expect(
+    getWeeklyAgentAnomalyRollups(new Date('2026-05-09T12:00:00.000Z')).find(
+      (rollup) => rollup.agent_id === 'lena',
+    ),
+  ).toEqual({
+    agent_id: 'lena',
+    flagged: 1,
+    confirmed_normal: 1,
+  });
+});

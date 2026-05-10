@@ -5,6 +5,7 @@ import { displayNameForAgent, getAgentById } from '../agents/agent-registry.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
+import { getWeeklyAgentAnomalyRollups } from '../memory/db.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import {
   findCheapestModelMeetingCapabilities,
@@ -357,6 +358,18 @@ function renderCvMarkdown(input: {
     now: Number.isNaN(now.getTime()) ? new Date() : now,
   });
   const lines = [GENERATED_CV_MARKER, `# ${input.displayName} — CV`, ''];
+  const anomalyRollup = getWeeklyAgentAnomalyRollups(now).find(
+    (rollup) => rollup.agent_id === input.state.agent_id,
+  );
+  const flagged = anomalyRollup?.flagged ?? 0;
+  const confirmedNormal = anomalyRollup?.confirmed_normal ?? 0;
+
+  lines.push(
+    '## Weekly Behavioral Anomaly Rollup',
+    '',
+    `${input.displayName}: ${flagged} anomalies flagged this week, ${confirmedNormal} confirmed normal.`,
+    '',
+  );
 
   if (recent.length === 0 && olderByYear.size === 0) {
     lines.push('No completed assignments recorded yet.');

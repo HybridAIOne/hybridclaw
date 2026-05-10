@@ -118,6 +118,26 @@ export function emitToolExecutionAuditEvents(input: {
       execution.name,
       argumentsObject,
     );
+    const anomaly = execution.anomaly
+      ? {
+          score: execution.anomaly.score,
+          reason: execution.anomaly.reason,
+          threshold: execution.anomaly.threshold,
+          status: execution.anomaly.status,
+          model: execution.anomaly.model,
+          trajectoryCount: execution.anomaly.trajectoryCount,
+          tuple: execution.anomaly.tuple,
+          traceJudge: execution.anomaly.traceJudge || null,
+        }
+      : {
+          score: 0,
+          reason: 'behavior anomaly reranker not evaluated',
+          threshold: null,
+          status: 'abstained',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 0,
+          tuple: null,
+        };
 
     recordAuditEvent({
       sessionId,
@@ -127,6 +147,7 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         arguments: auditArguments,
+        anomaly,
       },
     });
 
@@ -139,6 +160,7 @@ export function emitToolExecutionAuditEvents(input: {
         resource: 'container.sandbox',
         allowed: !execution.blocked,
         reason: effectiveReason,
+        anomaly,
       },
     });
 
@@ -156,6 +178,7 @@ export function emitToolExecutionAuditEvents(input: {
         approvalBaseTier: effectiveBaseTier,
         approvalDecision: effectiveDecision,
         reason: effectiveReason,
+        anomaly,
       },
     });
 
@@ -178,6 +201,7 @@ export function emitToolExecutionAuditEvents(input: {
           classifierReasoning: execution.stakesScore?.reasons || [],
           approvalDecision: effectiveDecision,
           reason: effectiveReason,
+          anomaly,
         },
       });
     }
@@ -208,6 +232,7 @@ export function emitToolExecutionAuditEvents(input: {
             action: execution.approvalActionKey || `tool:${execution.name}`,
             description,
             policyName: 'trusted-agent',
+            anomaly,
           },
         });
       }
@@ -246,6 +271,7 @@ export function emitToolExecutionAuditEvents(input: {
                   ? 'prompt'
                   : 'policy',
             policyName: 'trusted-agent',
+            anomaly,
           },
         });
       }
@@ -258,6 +284,7 @@ export function emitToolExecutionAuditEvents(input: {
           toolCallId,
           action: `tool:${execution.name}`,
           description: execution.blockedReason || 'Blocked by security policy',
+          anomaly,
         },
       });
       recordAuditEvent({
@@ -272,6 +299,7 @@ export function emitToolExecutionAuditEvents(input: {
           approvedBy: 'policy-engine',
           method: 'policy',
           policyName: 'security-hook',
+          anomaly,
         },
       });
     }
@@ -287,6 +315,7 @@ export function emitToolExecutionAuditEvents(input: {
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
         durationMs: execution.durationMs,
+        anomaly,
       },
     });
   });
