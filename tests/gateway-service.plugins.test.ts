@@ -328,12 +328,14 @@ test('handleGatewayMessage passes explicit skill middleware manifest into middle
   setupHome();
 
   pluginManagerMock.hasMiddleware.mockReturnValueOnce(true);
-  pluginManagerMock.applyMiddleware.mockImplementationOnce(async (context) => ({
-    userContent: context.userContent,
-    resultText: '',
-    blocked: false,
-    events: [],
-  }));
+  pluginManagerMock.applyMiddleware.mockImplementationOnce(
+    async (_phase, context) => ({
+      userContent: context.userContent,
+      resultText: '',
+      blocked: false,
+      events: [],
+    }),
+  );
   runAgentMock.mockResolvedValue({
     status: 'success',
     result: 'agent result',
@@ -371,6 +373,7 @@ test('handleGatewayMessage passes explicit skill middleware manifest into middle
         },
       },
     }),
+    { excludeTag: 'concierge_urgency' },
   );
 });
 

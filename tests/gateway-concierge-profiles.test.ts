@@ -4,13 +4,15 @@ import {
   buildConciergeExecutionNotice,
   buildConciergeQuestion,
   buildConciergeResumePrompt,
-  inferPromptUrgencyProfile,
   normalizeConciergeProfileName,
   parseConciergeChoice,
-  parseConciergeDecision,
   resolveConciergeProfileModel,
+} from '../src/gateway/concierge-profiles.js';
+import {
+  inferPromptUrgencyProfile,
+  parseConciergeDecision,
   shouldTriggerConcierge,
-} from '../src/gateway/concierge-routing.js';
+} from '../src/plugins/concierge-urgency-router.js';
 
 test('shouldTriggerConcierge flags long-form artifact requests', () => {
   expect(

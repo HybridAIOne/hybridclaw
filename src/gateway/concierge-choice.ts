@@ -1,4 +1,4 @@
-import type { ConciergeProfile } from './concierge-routing.js';
+import type { ConciergeProfile } from './concierge-profiles.js';
 import type { GatewayMessageComponents } from './gateway-types.js';
 
 export function buildConciergeChoiceComponents(params: {

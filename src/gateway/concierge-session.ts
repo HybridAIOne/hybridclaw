@@ -6,6 +6,10 @@ import {
   setMemoryValue,
 } from '../memory/db.js';
 import {
+  type ConciergeRoutingMiddlewareHost,
+  decideConciergeRouting,
+} from '../plugins/concierge-urgency-router.js';
+import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
@@ -14,13 +18,10 @@ import {
   buildConciergeQuestion,
   buildConciergeResumePrompt,
   type ConciergeProfile,
-  decideConciergeRouting,
-  inferPromptUrgencyProfile,
   type PendingConciergeState,
   parseConciergeChoice,
   resolveConciergeProfileModel,
-  shouldTriggerConcierge,
-} from './concierge-routing.js';
+} from './concierge-profiles.js';
 
 const CONCIERGE_PENDING_STATE_KEY = 'gateway.concierge.pending';
 
@@ -102,11 +103,15 @@ export type ConciergeTurnResolution =
 export async function resolveConciergeTurn(params: {
   sessionId: string;
   requestContent: string;
+  userId?: string;
   agentId: string;
+  channelId: string;
   chatbotId: string;
   currentModel: string;
+  workspacePath?: string;
   isInteractiveSource: boolean;
   explicitModelPinned: boolean;
+  pluginManager?: ConciergeRoutingMiddlewareHost | null;
   media: MediaContextItem[];
   effectiveUserTurnContent: string;
   effectiveUserTurnContentExpanded: string;
@@ -155,53 +160,38 @@ export async function resolveConciergeTurn(params: {
     getRuntimeConfig().routing.concierge.enabled &&
     !params.explicitModelPinned
   ) {
-    const inferredProfile = inferPromptUrgencyProfile(
-      effectiveUserTurnContentStripped,
-    );
-    if (inferredProfile) {
-      conciergeExecutionProfile = inferredProfile;
+    const decision = await decideConciergeRouting({
+      content: effectiveUserTurnContentStripped,
+      sessionId: params.sessionId,
+      userId: params.userId,
+      agentId: params.agentId,
+      channelId: params.channelId,
+      chatbotId: params.chatbotId,
+      model,
+      workspacePath: params.workspacePath,
+      pluginManager: params.pluginManager,
+    });
+    if (decision.kind === 'pick_profile') {
+      conciergeExecutionProfile = decision.profile;
       model = resolveConciergeExecutionModel({
-        profile: inferredProfile,
+        profile: decision.profile,
         currentModel: model,
         chatbotId: params.chatbotId,
       });
       effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
         effectiveUserTurnContentExpanded,
-        inferredProfile,
+        decision.profile,
       );
-    } else if (
-      shouldTriggerConcierge(effectiveUserTurnContentStripped, {
-        explicitModelPinned: params.explicitModelPinned,
-        interactiveOnly: params.isInteractiveSource,
-      })
-    ) {
-      const decision = await decideConciergeRouting({
-        content: effectiveUserTurnContentStripped,
-        agentId: params.agentId,
-        chatbotId: params.chatbotId,
+    } else if (decision.kind === 'ask_user') {
+      setPendingConciergeState(params.sessionId, {
+        originalUserContent: effectiveUserTurnContentExpanded,
+        createdAt: new Date().toISOString(),
+        media: params.cloneMediaContextItems(media),
       });
-      if (decision.kind === 'pick_profile') {
-        conciergeExecutionProfile = decision.profile;
-        model = resolveConciergeExecutionModel({
-          profile: decision.profile,
-          currentModel: model,
-          chatbotId: params.chatbotId,
-        });
-        effectiveUserTurnContentExpanded = buildConciergeResumePrompt(
-          effectiveUserTurnContentExpanded,
-          decision.profile,
-        );
-      } else {
-        setPendingConciergeState(params.sessionId, {
-          originalUserContent: effectiveUserTurnContentExpanded,
-          createdAt: new Date().toISOString(),
-          media: params.cloneMediaContextItems(media),
-        });
-        return {
-          kind: 'respond',
-          resultText: buildConciergeQuestion(),
-        };
-      }
+      return {
+        kind: 'respond',
+        resultText: buildConciergeQuestion(),
+      };
     }
   }
 

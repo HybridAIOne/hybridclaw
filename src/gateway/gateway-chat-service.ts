@@ -47,6 +47,7 @@ import {
   memoryService,
 } from '../memory/memory-service.js';
 import { withSpan } from '../observability/otel.js';
+import { CONCIERGE_URGENCY_ROUTER_TAG } from '../plugins/concierge-urgency-router.js';
 import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   modelRequiresChatbotId,
@@ -78,7 +79,7 @@ import { buildConciergeChoiceComponents } from './concierge-choice.js';
 import {
   buildConciergeExecutionNotice,
   type ConciergeProfile,
-} from './concierge-routing.js';
+} from './concierge-profiles.js';
 import { resolveConciergeTurn } from './concierge-session.js';
 import {
   clearScheduledFullAutoContinuation,
@@ -615,11 +616,15 @@ async function handleGatewayMessageInner(
   const conciergeTurn = await resolveConciergeTurn({
     sessionId: req.sessionId,
     requestContent: req.content,
+    userId: req.userId,
     agentId,
+    channelId: req.channelId,
     chatbotId,
     currentModel: model,
+    workspacePath,
     isInteractiveSource,
     explicitModelPinned,
+    pluginManager,
     media,
     effectiveUserTurnContent,
     effectiveUserTurnContentExpanded,
@@ -1026,24 +1031,31 @@ async function handleGatewayMessageInner(
   let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
-  if (pluginManager?.hasMiddleware('pre_send')) {
-    const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
-      sessionId: req.sessionId,
-      userId: req.userId,
-      agentId,
-      channelId: req.channelId,
-      model: model || undefined,
-      workspacePath,
-      messages: [
-        ...messages,
-        {
-          role: 'user',
-          content: agentUserContent,
-        },
-      ],
-      userContent: agentUserContent,
-      skill: activeSkill,
-    });
+  const agentPreSendMiddlewareFilter = {
+    excludeTag: CONCIERGE_URGENCY_ROUTER_TAG,
+  };
+  if (pluginManager?.hasMiddleware('pre_send', agentPreSendMiddlewareFilter)) {
+    const preSendOutcome = await pluginManager.applyMiddleware(
+      'pre_send',
+      {
+        sessionId: req.sessionId,
+        userId: req.userId,
+        agentId,
+        channelId: req.channelId,
+        model: model || undefined,
+        workspacePath,
+        messages: [
+          ...messages,
+          {
+            role: 'user',
+            content: agentUserContent,
+          },
+        ],
+        userContent: agentUserContent,
+        skill: activeSkill,
+      },
+      agentPreSendMiddlewareFilter,
+    );
     for (const event of preSendOutcome.events) {
       if (event.action === 'allow') continue;
       logger.info(

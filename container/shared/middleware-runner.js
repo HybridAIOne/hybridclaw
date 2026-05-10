@@ -48,6 +48,20 @@ export function normalizeMiddlewareDecision(value, options = {}) {
       const reason = safeText(value.reason);
       return reason ? { action: 'transform', payload, reason } : null;
     }
+    case 'route': {
+      const kind = safeText(value.kind);
+      if (!kind) break;
+      const decision = safeText(value.decision);
+      const profile = safeText(value.profile);
+      const reason = safeText(value.reason);
+      return {
+        action: 'route',
+        kind,
+        ...(decision ? { decision } : {}),
+        ...(profile ? { profile } : {}),
+        ...(reason ? { reason } : {}),
+      };
+    }
     case 'escalate': {
       const reason = safeText(value.reason);
       if (

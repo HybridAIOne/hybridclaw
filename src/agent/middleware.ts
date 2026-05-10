@@ -8,6 +8,7 @@ export type {
   MiddlewareDecision,
   MiddlewarePhase,
   MiddlewarePredicate,
+  MiddlewareRouteDecision,
 } from '../../container/shared/middleware-contract.js';
 
 import type {
@@ -15,6 +16,7 @@ import type {
   EscalationRoute,
   MiddlewareDecision,
   MiddlewarePhase,
+  MiddlewareRouteDecision,
 } from '../../container/shared/middleware-contract.js';
 import {
   normalizeMiddlewareDecision,
@@ -32,6 +34,7 @@ export interface AgentTurnContext {
   userContent: string;
   resultText?: string;
   toolExecutions?: ToolExecution[];
+  chatbotId?: string;
   skill?: {
     name: string;
     middleware?: {
@@ -49,6 +52,7 @@ export interface MiddlewareEvent {
   before?: string;
   after?: string;
   route?: EscalationRoute;
+  routing?: MiddlewareRouteDecision;
 }
 
 export interface MiddlewareOutcome {
@@ -182,6 +186,16 @@ export async function applyClassifierMiddleware(
         phase,
         action: 'warn',
         reason: decision.reason,
+      });
+      continue;
+    }
+    if (decision.action === 'route') {
+      events.push({
+        skillId: skill.id,
+        phase,
+        action: 'route',
+        reason: decision.reason,
+        routing: decision,
       });
       continue;
     }

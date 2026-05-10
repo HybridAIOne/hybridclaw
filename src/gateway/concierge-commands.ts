@@ -7,7 +7,7 @@ import { formatModelForDisplay } from '../providers/model-names.js';
 import {
   normalizeConciergeProfileName,
   resolveConciergeProfileModel,
-} from './concierge-routing.js';
+} from './concierge-profiles.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 interface ConciergeCommandContext {

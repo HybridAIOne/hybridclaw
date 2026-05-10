@@ -6,11 +6,20 @@ export type EscalationRoute =
   | 'approval_request'
   | 'policy_denial';
 
+export interface MiddlewareRouteDecision {
+  action: 'route';
+  kind: string;
+  decision?: string;
+  profile?: string;
+  reason?: string;
+}
+
 export type MiddlewareDecision =
   | { action: 'allow' }
   | { action: 'block'; reason: string }
   | { action: 'warn'; reason: string }
   | { action: 'transform'; payload: string; reason: string }
+  | MiddlewareRouteDecision
   | { action: 'escalate'; route: EscalationRoute; reason: string };
 
 export type MiddlewarePredicate<TContext> =
@@ -20,6 +29,7 @@ export type MiddlewarePredicate<TContext> =
 export interface ClassifierMiddlewareSkill<TContext = unknown> {
   id: string;
   priority?: number;
+  tags?: readonly string[];
   predicate?: MiddlewarePredicate<TContext>;
   pre_send?: (
     context: TContext,

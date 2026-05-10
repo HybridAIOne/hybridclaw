@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
@@ -56,6 +58,7 @@ async function createFixture() {
 
   return {
     handleGatewayMessage,
+    homeDir,
     memoryService,
     updateRuntimeConfig,
     updateSessionModel,
@@ -71,6 +74,81 @@ useCleanMocks({
     restoreEnvVar('HOME', ORIGINAL_HOME);
   },
   resetModules: true,
+});
+
+test('tagged middleware plugins can choose a concierge urgency profile', async () => {
+  callAuxiliaryModelMock.mockResolvedValue({
+    provider: 'hybridai',
+    model: 'session-title',
+    content: 'Concierge plugin',
+  });
+
+  const fixture = await createFixture();
+  const pluginDir = path.join(
+    fixture.homeDir,
+    '.hybridclaw',
+    'plugins',
+    'cost-cap-concierge',
+  );
+  fs.mkdirSync(pluginDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pluginDir, 'hybridclaw.plugin.yaml'),
+    'id: cost-cap-concierge\nname: Cost Cap Concierge\nkind: middleware\n',
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(pluginDir, 'index.ts'),
+    [
+      'export default {',
+      "  id: 'cost-cap-concierge',",
+      "  kind: 'middleware',",
+      '  register(api) {',
+      '    api.registerMiddleware({',
+      "      id: 'cost-cap-concierge',",
+      "      tags: ['concierge_urgency'],",
+      '      pre_send(context) {',
+      '        if (!context.userContent.includes("marketing plan")) return { action: "allow" };',
+      '        return { action: "route", kind: "concierge_urgency", decision: "pick_profile", profile: "no_hurry", reason: "Prefer lower-cost background routing." };',
+      '      },',
+      '    });',
+      '  },',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+
+  fixture.updateRuntimeConfig((draft) => {
+    draft.routing.concierge.enabled = true;
+    draft.routing.concierge.model = 'gemini-3-flash';
+    draft.routing.concierge.profiles.noHurry = 'gpt-5-nano';
+  });
+
+  const result = await fixture.handleGatewayMessage({
+    sessionId: 'session-concierge-plugin',
+    guildId: null,
+    channelId: 'tui',
+    userId: 'user-1',
+    username: 'user',
+    content: 'Can you create a marketing plan as PDF for our Q3 launch?',
+    chatbotId: 'bot_123',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toContain('Using `hybridai/gpt-5-nano`.');
+  expect(result.result).toContain('agent result');
+  expect(
+    callAuxiliaryModelMock.mock.calls.filter(
+      ([params]) => params?.task !== 'session_title',
+    ),
+  ).toHaveLength(0);
+  const request = runAgentMock.mock.calls[0]?.[0] as
+    | { model?: string; messages?: Array<{ role: string; content: string }> }
+    | undefined;
+  expect(request?.model).toBe('gpt-5-nano');
+  expect(request?.messages?.at(-1)?.content).toContain(
+    'User selected: No hurry',
+  );
 });
 
 test('asks the urgency question before a long-running request', async () => {

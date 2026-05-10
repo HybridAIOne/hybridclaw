@@ -139,6 +139,11 @@ type RegisteredMiddleware = {
   middleware: PluginMiddlewareSkill;
 };
 
+export interface MiddlewareFilter {
+  excludeTag?: string;
+  tag?: string;
+}
+
 type RegisteredTool = {
   pluginId: string;
   tool: PluginToolDefinition;
@@ -1347,6 +1352,7 @@ export class PluginManager {
       middleware: {
         ...middleware,
         id: middlewareId,
+        tags: normalizeStringArray(middleware.tags),
       },
     });
     this.recomputeMiddlewareFlags();
@@ -1899,13 +1905,31 @@ export class PluginManager {
     return this.hasPostReceiveMiddleware;
   }
 
-  hasMiddleware(phase?: MiddlewarePhase): boolean {
+  hasMiddleware(phase?: MiddlewarePhase, filter?: MiddlewareFilter): boolean {
+    if (!filter?.tag && !filter?.excludeTag) {
+      if (!phase) {
+        return this.hasPreSendMiddleware || this.hasPostReceiveMiddleware;
+      }
+      return phase === 'pre_send'
+        ? this.hasPreSendMiddleware
+        : this.hasPostReceiveMiddleware;
+    }
+    const tag = filter.tag;
+    const excludeTag = filter.excludeTag;
+    const matchesFilter = (entry: RegisteredMiddleware): boolean =>
+      (!tag || entry.middleware.tags?.includes(tag) === true) &&
+      (!excludeTag || entry.middleware.tags?.includes(excludeTag) !== true);
     if (!phase) {
-      return this.hasPreSendMiddleware || this.hasPostReceiveMiddleware;
+      return this.middlewares.some((entry) => matchesFilter(entry));
     }
     return phase === 'pre_send'
-      ? this.hasPreSendMiddleware
-      : this.hasPostReceiveMiddleware;
+      ? this.middlewares.some(
+          (entry) => matchesFilter(entry) && Boolean(entry.middleware.pre_send),
+        )
+      : this.middlewares.some(
+          (entry) =>
+            matchesFilter(entry) && Boolean(entry.middleware.post_receive),
+        );
   }
 
   private wrapPluginMiddlewareHandler(
@@ -2085,24 +2109,36 @@ export class PluginManager {
     };
   }
 
-  private collectClassifierMiddleware(): ClassifierMiddlewareSkill<AgentTurnContext>[] {
-    return this.middlewares.map((entry) => ({
-      id: `${entry.pluginId}:${entry.middleware.id}`,
-      priority: entry.middleware.priority,
-      predicate: this.wrapPluginMiddlewarePredicate(entry),
-      pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
-      post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
-    }));
+  private collectClassifierMiddleware(
+    filter?: MiddlewareFilter,
+  ): ClassifierMiddlewareSkill<AgentTurnContext>[] {
+    return this.middlewares
+      .filter(
+        (entry) =>
+          (!filter?.tag ||
+            entry.middleware.tags?.includes(filter.tag) === true) &&
+          (!filter?.excludeTag ||
+            entry.middleware.tags?.includes(filter.excludeTag) !== true),
+      )
+      .map((entry) => ({
+        id: `${entry.pluginId}:${entry.middleware.id}`,
+        priority: entry.middleware.priority,
+        tags: entry.middleware.tags,
+        predicate: this.wrapPluginMiddlewarePredicate(entry),
+        pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
+        post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
+      }));
   }
 
   async applyMiddleware(
     phase: MiddlewarePhase,
     context: AgentTurnContext,
+    filter?: MiddlewareFilter,
   ): Promise<MiddlewareOutcome> {
     await this.ensureInitialized();
     return applyClassifierMiddleware(
       phase,
-      this.collectClassifierMiddleware(),
+      this.collectClassifierMiddleware(filter),
       context,
     );
   }
