@@ -28,6 +28,50 @@ export interface ResolvedAnomalyApproval {
 
 type AnomalyTraceJudgeCaller = typeof callAuxiliaryModel;
 
+const SENSITIVE_ARG_KEY_RE =
+  /(pass(word)?|secret|token|api[_-]?key|authorization|cookie|credential|session)/i;
+
+function sanitizeTraceJudgeArguments(
+  toolName: string,
+  value: unknown,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeTraceJudgeArguments(toolName, entry));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (SENSITIVE_ARG_KEY_RE.test(key)) {
+      out[key] = '[REDACTED]';
+      continue;
+    }
+    if (toolName === 'browser_type' && key === 'text') {
+      out[key] = '[REDACTED]';
+      continue;
+    }
+    out[key] = sanitizeTraceJudgeArguments(toolName, raw);
+  }
+  return out;
+}
+
+function sanitizeTraceJudgeArgsJson(
+  toolName: string,
+  argsJson: string,
+): string {
+  try {
+    return JSON.stringify(
+      sanitizeTraceJudgeArguments(toolName, JSON.parse(argsJson) as unknown),
+    );
+  } catch {
+    return JSON.stringify({
+      _redacted: 'unparseable tool arguments omitted from trace judge input',
+    });
+  }
+}
+
 function extractJsonObject(text: string): Record<string, unknown> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('trace judge returned empty content');
@@ -42,13 +86,27 @@ function extractJsonObject(text: string): Record<string, unknown> {
 
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
   if (fenced?.[1]) {
-    return JSON.parse(fenced[1].trim()) as Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(fenced[1].trim()) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Continue with embedded JSON extraction.
+    }
   }
 
   const start = trimmed.indexOf('{');
   const end = trimmed.lastIndexOf('}');
   if (start >= 0 && end > start) {
-    return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Fall through to the final shape error.
+    }
   }
   throw new Error('trace judge did not return a JSON object');
 }
@@ -148,11 +206,15 @@ export async function resolveBorderlineAnomalyWithTraceJudge(input: {
 
   try {
     const caller = input.caller || callAuxiliaryModel;
+    const sanitizedInput = {
+      ...input,
+      argsJson: sanitizeTraceJudgeArgsJson(input.toolName, input.argsJson),
+    };
     const response = await caller({
       task: 'eval_judge',
       taskModels: input.taskModels,
       fallbackContext: input.fallbackContext,
-      messages: buildTraceJudgeMessages(input),
+      messages: buildTraceJudgeMessages(sanitizedInput),
       maxTokens: 300,
       toolName: 'f11_trace_judge',
     });

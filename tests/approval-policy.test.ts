@@ -17,7 +17,10 @@ import {
   type ToolCallContextHelpers,
   TrustedAgentApprovalRuntime,
 } from '../container/src/approval-policy.js';
-import { BehaviorAnomalyReranker } from '../container/src/behavior-anomaly.js';
+import {
+  BehaviorAnomalyReranker,
+  buildBehaviorTuple,
+} from '../container/src/behavior-anomaly.js';
 import type { StakesScore } from '../container/src/stakes-classifier.js';
 import type { ChatMessage } from '../container/src/types.js';
 
@@ -603,6 +606,23 @@ approval:
     });
   });
 
+  test('behavior anomaly tuple uses UTC hour buckets', () => {
+    const at = new Date('2026-05-01T10:15:00.000Z');
+    vi.spyOn(at, 'getHours').mockReturnValue(23);
+
+    const tuple = buildBehaviorTuple({
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      at,
+    });
+
+    expect(tuple).toContain('h08-11');
+  });
+
   test('anomaly reranker elevates an unusual green call by one tier before autonomy override', () => {
     const context = makeRuleContext({
       helpers: {
@@ -627,7 +647,7 @@ approval:
 
     expect(approvalRules.anomaly_reranker(context).kind).toBe('next');
 
-    expect(context.baseTier).toBe('yellow');
+    expect(context.baseTier).toBe('green');
     expect(context.tier).toBe('yellow');
     expect(context.anomaly).toMatchObject({
       score: 0.99,

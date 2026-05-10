@@ -1602,7 +1602,6 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       currentTier !== 'red'
     ) {
       const elevatedTier = elevateApprovalTier(currentTier);
-      context.baseTier = elevatedTier;
       context.tier = elevatedTier;
       context.decision = 'auto';
     }

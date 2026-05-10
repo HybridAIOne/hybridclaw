@@ -54,6 +54,20 @@ test('parseAnomalyTraceJudgeResult normalizes F11 JSON output', () => {
   });
 });
 
+test('parseAnomalyTraceJudgeResult falls back when fenced JSON is malformed', () => {
+  expect(
+    parseAnomalyTraceJudgeResult(`before
+\`\`\`json
+[bad json
+\`\`\`
+after {"verdict":"normal","score":0.12,"reason":"embedded fallback"}`),
+  ).toEqual({
+    verdict: 'normal',
+    score: 0.12,
+    reason: 'embedded fallback',
+  });
+});
+
 test('resolveBorderlineAnomalyWithTraceJudge records anomalous F11 verdict for pipeline replay', async () => {
   const caller = vi.fn(async () => ({
     model: 'judge-model',
@@ -122,4 +136,52 @@ test('resolveBorderlineAnomalyWithTraceJudge keeps tier when F11 marks score nor
 
   expect(resolved.evaluation.tier).toBe('green');
   expect(resolved.evaluation.anomaly?.traceJudge?.verdict).toBe('normal');
+});
+
+test('resolveBorderlineAnomalyWithTraceJudge redacts sensitive tool arguments before F11', async () => {
+  const caller = vi.fn(async () => ({
+    model: 'judge-model',
+    content:
+      '{"verdict":"normal","score":0.22,"reasoning":"consistent with prompt"}',
+    response: {
+      choices: [{ message: { role: 'assistant', content: '{}' } }],
+    },
+  }));
+
+  await resolveBorderlineAnomalyWithTraceJudge({
+    evaluation: BASE_EVALUATION,
+    toolName: 'browser_type',
+    argsJson: JSON.stringify({
+      text: 'my secret form entry',
+      password: 'hunter2',
+      nested: {
+        api_key: 'sk-test',
+        keep: 'visible',
+      },
+    }),
+    latestUserPrompt: 'Fill in the login form',
+    fallbackContext: {
+      provider: 'hybridai',
+      baseUrl: 'https://example.com',
+      apiKey: 'test-key',
+      model: 'gpt-5-nano',
+      chatbotId: 'bot',
+    },
+    caller,
+  });
+
+  const messages = caller.mock.calls[0]?.[0].messages;
+  const userContent = JSON.parse(String(messages?.[1]?.content)) as {
+    argsJson: string;
+  };
+  const args = JSON.parse(userContent.argsJson) as Record<string, unknown>;
+
+  expect(args).toMatchObject({
+    text: '[REDACTED]',
+    password: '[REDACTED]',
+    nested: {
+      api_key: '[REDACTED]',
+      keep: 'visible',
+    },
+  });
 });

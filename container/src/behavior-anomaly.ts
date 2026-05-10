@@ -125,7 +125,7 @@ function parsePositiveNumber(raw: unknown, fallback: number): number {
 }
 
 function hourBucket(date: Date): string {
-  const hour = Number.isFinite(date.getTime()) ? date.getHours() : 0;
+  const hour = Number.isFinite(date.getTime()) ? date.getUTCHours() : 0;
   const start = Math.floor(hour / 4) * 4;
   return `h${String(start).padStart(2, '0')}-${String(start + 3).padStart(2, '0')}`;
 }
@@ -516,7 +516,7 @@ export class BehaviorAnomalyReranker {
         process.env.HYBRIDCLAW_BEHAVIOR_ANOMALY_CACHE_TTL_MS,
         DEFAULT_CACHE_TTL_MS,
       );
-    this.model = this.loadModelFromDisk();
+    this.model = this.getModel();
   }
 
   score(input: BehaviorAnomalyInput): BehaviorAnomalyScore {
@@ -656,11 +656,5 @@ export class BehaviorAnomalyReranker {
 
     this.model = buildModelFromFiles(files);
     return this.model;
-  }
-
-  private loadModelFromDisk(): AgentBehaviorModel | null {
-    if (!this.storeDir) return null;
-    const files = listAgentTrajectoryFiles(this.storeDir, this.agentId);
-    return buildModelFromFiles(files);
   }
 }
