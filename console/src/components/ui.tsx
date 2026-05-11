@@ -120,22 +120,22 @@ export function PageHeader(props: {
 
 export function MetricCard(props: {
   label: string;
-  value?: string;
+  value: string;
   detail?: string;
+  loading?: boolean;
   href?: string;
 }) {
-  const isLoading = props.value === undefined;
   const content = (
     <>
       <span>{props.label}</span>
-      {isLoading ? (
+      {props.loading ? (
         <Skeleton className="metric-card-value-skeleton" />
       ) : (
         <strong>{props.value}</strong>
       )}
-      {isLoading ? (
+      {props.loading && props.detail !== undefined ? (
         <Skeleton className="metric-card-detail-skeleton" />
-      ) : props.detail ? (
+      ) : !props.loading && props.detail ? (
         <small>{props.detail}</small>
       ) : null}
     </>

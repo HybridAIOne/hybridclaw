@@ -327,31 +327,23 @@ export function ApprovalsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Pending approvals"
-          value={
-            approvalsQuery.data
-              ? String(approvalsQuery.data.pending.length)
-              : undefined
-          }
+          value={String(approvalsQuery.data?.pending.length ?? 0)}
+          loading={!approvalsQuery.data}
         />
         <MetricCard
           label="Blocked sessions"
-          value={
-            approvalsQuery.data
-              ? String(approvalsQuery.data.suspendedSessions.length)
-              : undefined
-          }
+          value={String(approvalsQuery.data?.suspendedSessions.length ?? 0)}
+          loading={!approvalsQuery.data}
         />
         <MetricCard
           label="Policy rules"
-          value={approvalsQuery.data ? String(policyRules.length) : undefined}
+          value={String(policyRules.length)}
+          loading={!approvalsQuery.data}
         />
         <MetricCard
           label="Applied presets"
-          value={
-            approvalsQuery.data
-              ? String(approvalsQuery.data.policy.presets.length)
-              : undefined
-          }
+          value={String(approvalsQuery.data?.policy.presets.length ?? 0)}
+          loading={!approvalsQuery.data}
         />
         <div className="metric-card">
           <span>Default policy</span>

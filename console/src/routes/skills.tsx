@@ -677,7 +677,15 @@ export function SkillsPage() {
                   />
                 </label>
 
-                <div className="panel-header" style={{ marginTop: '0.5rem' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: 12,
+                    marginTop: '0.5rem',
+                  }}
+                >
                   <div>
                     <h4>Files</h4>
                     <p className="supporting-text">
@@ -790,16 +798,9 @@ export function SkillsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Installed skills"
-          value={
-            skillsQuery.data
-              ? String(skillsQuery.data.skills.length)
-              : undefined
-          }
-          detail={
-            skillsQuery.data
-              ? `${skillsQuery.data.disabled.length} disabled`
-              : undefined
-          }
+          value={String(skillsQuery.data?.skills.length ?? 0)}
+          detail={`${skillsQuery.data?.disabled.length ?? 0} disabled`}
+          loading={!skillsQuery.data}
         />
         <MetricCard
           label="Observed skills"

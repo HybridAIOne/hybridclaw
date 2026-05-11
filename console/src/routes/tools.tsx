@@ -171,43 +171,27 @@ export function ToolsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Catalog tools"
-          value={
-            toolsQuery.data
-              ? String(toolsQuery.data.totals.totalTools)
-              : undefined
-          }
-          detail={
-            toolsQuery.data
-              ? `${toolsQuery.data.totals.builtinTools} built-in`
-              : undefined
-          }
+          value={String(toolsQuery.data?.totals.totalTools ?? 0)}
+          detail={`${toolsQuery.data?.totals.builtinTools ?? 0} built-in`}
+          loading={!toolsQuery.data}
         />
         <MetricCard
           label="MCP tools seen"
-          value={
-            toolsQuery.data
-              ? String(toolsQuery.data.totals.mcpTools)
-              : undefined
-          }
+          value={String(toolsQuery.data?.totals.mcpTools ?? 0)}
           detail="from recent audit traffic"
+          loading={!toolsQuery.data}
         />
         <MetricCard
           label="Recent executions"
-          value={
-            toolsQuery.data
-              ? String(toolsQuery.data.totals.recentExecutions)
-              : undefined
-          }
+          value={String(toolsQuery.data?.totals.recentExecutions ?? 0)}
           detail="last 200 tool results"
+          loading={!toolsQuery.data}
         />
         <MetricCard
           label="Recent errors"
-          value={
-            toolsQuery.data
-              ? String(toolsQuery.data.totals.recentErrors)
-              : undefined
-          }
+          value={String(toolsQuery.data?.totals.recentErrors ?? 0)}
           detail="tool.result failures"
+          loading={!toolsQuery.data}
         />
       </div>
 

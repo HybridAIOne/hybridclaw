@@ -6,11 +6,10 @@ export type CardVariant = 'default' | 'muted';
 
 export type CardProps = HTMLAttributes<HTMLDivElement> & {
   variant?: CardVariant;
-  interactive?: boolean;
 };
 
 export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
-  { variant = 'default', interactive, className, ...rest },
+  { variant = 'default', className, ...rest },
   ref,
 ) {
   return (
@@ -18,8 +17,6 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
       ref={ref}
       data-slot="card"
       data-variant={variant}
-      data-interactive={interactive ? '' : undefined}
-      tabIndex={interactive ? (rest.tabIndex ?? 0) : rest.tabIndex}
       className={cx(styles.card, className)}
       {...rest}
     />

@@ -15,22 +15,6 @@
   background: var(--panel-muted);
 }
 
-.card[data-interactive] {
-  cursor: pointer;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
-}
-
-.card[data-interactive]:hover {
-  border-color: var(--line-strong);
-}
-
-.card[data-interactive]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  outline-offset: 2px;
-}
-
 .header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
