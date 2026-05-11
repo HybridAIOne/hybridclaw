@@ -674,7 +674,7 @@ describe('ChannelsPage', () => {
 
     const panel = screen
       .getByRole('heading', { name: 'Signal settings' })
-      .closest('section');
+      .closest('[data-slot="card"]');
     expect(panel).not.toBeNull();
 
     fireEvent.click(
@@ -1067,7 +1067,7 @@ describe('ChannelsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
     const panel = screen
       .getByRole('heading', { name: 'Discord settings' })
-      .closest('section');
+      .closest('[data-slot="card"]');
     expect(panel).not.toBeNull();
     const enabledToggle = within(panel as HTMLElement).getByRole('group', {
       name: 'Enabled',
@@ -1190,7 +1190,7 @@ describe('ChannelsPage', () => {
       await screen.findByRole('heading', {
         name: 'WhatsApp settings',
       })
-    ).closest('section');
+    ).closest('[data-slot="card"]');
     expect(panel).not.toBeNull();
     const enabledToggle = within(panel as HTMLElement).getByRole('group', {
       name: 'Enabled',
