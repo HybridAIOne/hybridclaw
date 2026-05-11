@@ -712,6 +712,25 @@ export interface RuntimeSkillCredentialManifest {
   required: boolean;
 }
 
+export type RuntimeSkillDeclaredCredentialKind =
+  | 'api_key'
+  | 'oauth'
+  | 'browser_login'
+  | 'bearer'
+  | 'header';
+
+export interface RuntimeSkillDeclaredCredentialManifest {
+  id: string;
+  kind: RuntimeSkillDeclaredCredentialKind;
+  required: boolean;
+  secretRef: {
+    source: 'env' | 'store';
+    id: string;
+  };
+  scope: string;
+  howToObtain: string;
+}
+
 export interface RuntimeSkillMiddlewareManifest {
   preSend: boolean;
   postReceive: boolean;
@@ -733,6 +752,7 @@ export interface RuntimeInstalledSkillManifest {
   capabilities: string[];
   middleware: RuntimeSkillMiddlewareManifest;
   requiredCredentials: RuntimeSkillCredentialManifest[];
+  credentials: RuntimeSkillDeclaredCredentialManifest[];
   supportedChannels: ChannelKind[];
   installedAt: string;
   updatedAt: string;
@@ -2129,6 +2149,69 @@ function normalizeRuntimeSkillCredentialManifests(
   return credentials;
 }
 
+const RUNTIME_SKILL_DECLARED_CREDENTIAL_KINDS: readonly RuntimeSkillDeclaredCredentialKind[] =
+  ['api_key', 'oauth', 'browser_login', 'bearer', 'header'];
+
+function normalizeRuntimeSkillDeclaredCredentialKind(
+  value: unknown,
+): RuntimeSkillDeclaredCredentialKind | null {
+  const normalized = normalizeString(value, '', { allowEmpty: false });
+  return RUNTIME_SKILL_DECLARED_CREDENTIAL_KINDS.includes(
+    normalized as RuntimeSkillDeclaredCredentialKind,
+  )
+    ? (normalized as RuntimeSkillDeclaredCredentialKind)
+    : null;
+}
+
+function normalizeRuntimeSkillDeclaredCredentialManifests(
+  value: unknown,
+): RuntimeSkillDeclaredCredentialManifest[] {
+  if (!Array.isArray(value)) return [];
+
+  const credentials: RuntimeSkillDeclaredCredentialManifest[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    const kind = normalizeRuntimeSkillDeclaredCredentialKind(item.kind);
+    const secretRef = isRecord(item.secretRef) ? item.secretRef : null;
+    const secretRefSource = normalizeString(secretRef?.source, '', {
+      allowEmpty: false,
+    });
+    const secretRefId = normalizeString(secretRef?.id, '', {
+      allowEmpty: false,
+    });
+    const scope = normalizeString(item.scope, '', { allowEmpty: false });
+    const howToObtain = normalizeString(item.howToObtain, '', {
+      allowEmpty: false,
+    });
+    if (
+      !kind ||
+      (secretRefSource !== 'env' && secretRefSource !== 'store') ||
+      !secretRefId ||
+      !scope ||
+      !howToObtain ||
+      typeof item.required !== 'boolean'
+    ) {
+      continue;
+    }
+    seen.add(id);
+    credentials.push({
+      id,
+      kind,
+      required: item.required,
+      secretRef: {
+        source: secretRefSource,
+        id: secretRefId,
+      },
+      scope,
+      howToObtain,
+    });
+  }
+  return credentials;
+}
+
 function normalizeRuntimeSkillMiddlewareManifest(
   value: unknown,
 ): RuntimeSkillMiddlewareManifest {
@@ -2203,6 +2286,9 @@ function normalizeRuntimeInstalledSkillManifests(
       middleware: normalizeRuntimeSkillMiddlewareManifest(item.middleware),
       requiredCredentials: normalizeRuntimeSkillCredentialManifests(
         item.requiredCredentials,
+      ),
+      credentials: normalizeRuntimeSkillDeclaredCredentialManifests(
+        item.credentials,
       ),
       supportedChannels: normalizeRuntimeSkillSupportedChannels(
         item.supportedChannels,

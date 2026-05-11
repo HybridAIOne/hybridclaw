@@ -57,7 +57,91 @@ Use the skill.
     { id: 'crm-token', required: true },
     { id: 'quote-token', required: true },
   ]);
+  expect(manifest.credentials).toEqual([]);
   expect(manifest.supportedChannels).toEqual(['slack', 'email', 'tui']);
+});
+
+test('parses first-class credential declarations from frontmatter', () => {
+  const manifest = parseSkillManifestFromMarkdown(
+    `---
+name: Credential Skill
+manifest:
+  id: credential-skill
+  version: 1.0.0
+credentials:
+  - id: crm_api
+    kind: api_key
+    required: true
+    secret_ref:
+      source: store
+      id: CRM_API_KEY
+    scope: "*.crm.example.com"
+    how_to_obtain: |
+      Create a CRM API key from the admin console.
+  - id: browser_session
+    kind: browser_login
+    required: false
+    secret_ref: \${BROWSER_SESSION_TOKEN}
+    scope: "#login-form"
+    how_to_obtain: Sign in with the shared test account.
+---
+Use the skill.
+`,
+    { name: 'fallback' },
+  );
+
+  expect(manifest.credentials).toEqual([
+    {
+      id: 'crm-api',
+      kind: 'api_key',
+      required: true,
+      secretRef: {
+        source: 'store',
+        id: 'CRM_API_KEY',
+      },
+      scope: '*.crm.example.com',
+      howToObtain: 'Create a CRM API key from the admin console.',
+    },
+    {
+      id: 'browser-session',
+      kind: 'browser_login',
+      required: false,
+      secretRef: {
+        source: 'env',
+        id: 'BROWSER_SESSION_TOKEN',
+      },
+      scope: '#login-form',
+      howToObtain: 'Sign in with the shared test account.',
+    },
+  ]);
+  expect(manifest.requiredCredentials).toEqual([
+    { id: 'crm-api', required: true },
+    { id: 'browser-session', required: false },
+  ]);
+});
+
+test('reports precise credential frontmatter validation errors', () => {
+  expect(() =>
+    parseSkillManifestFromMarkdown(
+      `---
+name: Invalid Credential Skill
+credentials:
+  - id: crm
+    kind: password
+    required: true
+    secret_ref:
+      source: store
+      id: CRM_API_KEY
+    scope: "*.crm.example.com"
+    how_to_obtain: Ask an admin.
+---
+Use the skill.
+`,
+      { name: 'fallback' },
+    ),
+  ).toThrow(
+    'Invalid skill credentials frontmatter: credentials[0].kind must be one of api_key, oauth, browser_login, bearer, header.',
+  );
 });
 
 test('parses skill-side middleware hook declarations', () => {

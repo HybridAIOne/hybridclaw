@@ -3,6 +3,7 @@ import YAML from 'yaml';
 
 import type { ChannelKind } from '../channels/channel.js';
 import { normalizeChannelKind } from '../channels/channel-registry.js';
+import { parseSecretInput } from '../security/secret-refs.js';
 import { isRecord } from '../utils/type-guards.js';
 
 export interface SkillManifestCredential {
@@ -12,6 +13,27 @@ export interface SkillManifestCredential {
   required: boolean;
 }
 
+export type SkillManifestCredentialKind =
+  | 'api_key'
+  | 'oauth'
+  | 'browser_login'
+  | 'bearer'
+  | 'header';
+
+export interface SkillManifestSecretRef {
+  source: 'env' | 'store';
+  id: string;
+}
+
+export interface SkillManifestDeclaredCredential {
+  id: string;
+  kind: SkillManifestCredentialKind;
+  required: boolean;
+  secretRef: SkillManifestSecretRef;
+  scope: string;
+  howToObtain: string;
+}
+
 export interface SkillManifest {
   id: string;
   name: string;
@@ -19,6 +41,7 @@ export interface SkillManifest {
   capabilities: string[];
   middleware: SkillManifestMiddleware;
   requiredCredentials: SkillManifestCredential[];
+  credentials: SkillManifestDeclaredCredential[];
   supportedChannels: ChannelKind[];
 }
 
@@ -46,6 +69,13 @@ export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
 
 const SEMVERISH_RE =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$/;
+const CREDENTIAL_KINDS: readonly SkillManifestCredentialKind[] = [
+  'api_key',
+  'oauth',
+  'browser_login',
+  'bearer',
+  'header',
+];
 
 function stripQuotes(value: string): string {
   const trimmed = value.trim();
@@ -160,6 +190,124 @@ function normalizeRequiredCredentials(
   return credentials;
 }
 
+function credentialFieldError(path: string, message: string): never {
+  throw new Error(`Invalid skill credentials frontmatter: ${path} ${message}.`);
+}
+
+function normalizeCredentialId(value: unknown, path: string): string {
+  const id = normalizeString(value);
+  if (!id) credentialFieldError(path, 'is required');
+  return slugify(id);
+}
+
+function normalizeCredentialKind(
+  value: unknown,
+  path: string,
+): SkillManifestCredentialKind {
+  const kind = normalizeString(value);
+  if (!kind) credentialFieldError(path, 'is required');
+  if (!CREDENTIAL_KINDS.includes(kind as SkillManifestCredentialKind)) {
+    credentialFieldError(path, `must be one of ${CREDENTIAL_KINDS.join(', ')}`);
+  }
+  return kind as SkillManifestCredentialKind;
+}
+
+function normalizeCredentialRequired(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') {
+    credentialFieldError(path, 'must be true or false');
+  }
+  return value;
+}
+
+function normalizeCredentialSecretRef(
+  value: unknown,
+  path: string,
+): SkillManifestSecretRef {
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'plain') {
+    credentialFieldError(path, 'must be a SecretRef binding');
+  }
+  if (parsed.kind === 'invalid') {
+    credentialFieldError(path, parsed.reason);
+  }
+  return {
+    source: parsed.ref.source,
+    id: parsed.ref.id,
+  };
+}
+
+function normalizeCredentialStringField(value: unknown, path: string): string {
+  const normalized = normalizeString(value);
+  if (!normalized) credentialFieldError(path, 'is required');
+  return normalized;
+}
+
+function normalizeDeclaredCredentials(
+  value: unknown,
+): SkillManifestDeclaredCredential[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    credentialFieldError('credentials', 'must be a list');
+  }
+
+  const credentials: SkillManifestDeclaredCredential[] = [];
+  const seen = new Set<string>();
+  value.forEach((item, index) => {
+    const itemPath = `credentials[${index}]`;
+    if (!isRecord(item)) {
+      credentialFieldError(itemPath, 'must be an object');
+    }
+
+    const id = normalizeCredentialId(item.id, `${itemPath}.id`);
+    if (seen.has(id)) {
+      credentialFieldError(`${itemPath}.id`, `duplicates credential "${id}"`);
+    }
+    seen.add(id);
+
+    credentials.push({
+      id,
+      kind: normalizeCredentialKind(item.kind, `${itemPath}.kind`),
+      required: normalizeCredentialRequired(
+        item.required,
+        `${itemPath}.required`,
+      ),
+      secretRef: normalizeCredentialSecretRef(
+        item.secret_ref ?? item.secretRef,
+        `${itemPath}.secret_ref`,
+      ),
+      scope: normalizeCredentialStringField(item.scope, `${itemPath}.scope`),
+      howToObtain: normalizeCredentialStringField(
+        item.how_to_obtain ?? item.howToObtain,
+        `${itemPath}.how_to_obtain`,
+      ),
+    });
+  });
+
+  return credentials;
+}
+
+function mergeRequiredCredentials(
+  legacy: SkillManifestCredential[],
+  declared: SkillManifestDeclaredCredential[],
+): SkillManifestCredential[] {
+  const merged: SkillManifestCredential[] = [];
+  const seen = new Set<string>();
+  for (const credential of legacy) {
+    if (seen.has(credential.id)) continue;
+    seen.add(credential.id);
+    merged.push(credential);
+  }
+  for (const credential of declared) {
+    if (seen.has(credential.id)) continue;
+    seen.add(credential.id);
+    merged.push({
+      id: credential.id,
+      required: credential.required,
+    });
+  }
+  return merged;
+}
+
 function normalizeSupportedChannels(value: unknown): ChannelKind[] {
   const raw = normalizeStringList(value);
   if (raw.length === 0) return [...DEFAULT_SKILL_SUPPORTED_CHANNELS];
@@ -183,8 +331,10 @@ function parseFrontmatterBlockObject(block: string): Record<string, unknown> {
   try {
     const parsed = YAML.parse(block) as unknown;
     return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
+  } catch (error) {
+    throw new Error(
+      `Invalid SKILL.md frontmatter: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -311,11 +461,11 @@ function parseSkillManifestFromFrontmatterObject(
     );
   }
   const rawCredentials =
-    findFirstValue(sources, [
-      'requiredCredentials',
-      'required_credentials',
-      'credentials',
-    ]) ?? readRecordPath(hybridclaw || {}, ['credentials'])?.required;
+    findFirstValue(sources, ['requiredCredentials', 'required_credentials']) ??
+    readRecordPath(hybridclaw || {}, ['credentials'])?.required;
+  const declaredCredentials = normalizeDeclaredCredentials(
+    frontmatter.credentials,
+  );
   const rawChannels = findFirstValue(sources, [
     'supportedChannels',
     'supported_channels',
@@ -331,7 +481,11 @@ function parseSkillManifestFromFrontmatterObject(
       findFirstValue(sources, ['capabilities']),
     ),
     middleware: normalizeMiddleware(rawMiddleware),
-    requiredCredentials: normalizeRequiredCredentials(rawCredentials),
+    requiredCredentials: mergeRequiredCredentials(
+      normalizeRequiredCredentials(rawCredentials),
+      declaredCredentials,
+    ),
+    credentials: declaredCredentials,
     supportedChannels: normalizeSupportedChannels(rawChannels),
   };
 }

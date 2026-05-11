@@ -40,6 +40,12 @@ import {
 } from './skill-manifest.js';
 import { guardSkillDirectory } from './skills-guard.js';
 
+export type {
+  SkillManifestCredentialKind,
+  SkillManifestDeclaredCredential,
+  SkillManifestSecretRef,
+} from './skill-manifest.js';
+
 type SkillSource =
   | 'extra'
   | 'bundled'
@@ -1655,6 +1661,7 @@ function resolveSkillManifest(skill: Skill): SkillManifest {
       version: '0.0.0',
       capabilities: [],
       requiredCredentials: [],
+      credentials: [],
       supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
     }
   );
