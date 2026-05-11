@@ -619,6 +619,96 @@ describe('skill package lifecycle', () => {
     }
   });
 
+  test('rollback normalizes legacy snapshots without declared credentials', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'legacy-credential-snapshot',
+      version: '1.0.0',
+      credential: {
+        id: 'crm_api',
+        secretId: 'CRM_API_KEY',
+        scope: '*.crm.example.com',
+      },
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    const installed = await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    const revisionAssetPath = path.join(
+      installed.skillDir,
+      '.hybridclaw-skill-snapshot.json',
+    );
+    const legacyManifest = { ...installed.manifest } as Record<string, unknown>;
+    delete legacyManifest.credentials;
+
+    const snapshot = (manifest: Record<string, unknown>) =>
+      JSON.stringify({
+        schemaVersion: 1,
+        manifest,
+        files: [
+          {
+            path: 'SKILL.md',
+            mode: 0o644,
+            contentBase64: fs
+              .readFileSync(path.join(installed.skillDir, 'SKILL.md'))
+              .toString('base64'),
+          },
+        ],
+      });
+
+    config.syncRuntimeAssetRevisionState(
+      'skill',
+      revisionAssetPath,
+      {
+        actor: 'test',
+        route: 'test.skill.legacy-snapshot',
+        source: 'test',
+      },
+      {
+        exists: true,
+        content: snapshot(legacyManifest),
+      },
+    );
+    config.syncRuntimeAssetRevisionState(
+      'skill',
+      revisionAssetPath,
+      {
+        actor: 'test',
+        route: 'test.skill.after-legacy-snapshot',
+        source: 'test',
+      },
+      {
+        exists: true,
+        content: snapshot(
+          installed.manifest as unknown as Record<string, unknown>,
+        ),
+      },
+    );
+
+    const revision = lifecycle.listSkillPackageRevisions(
+      'legacy-credential-snapshot',
+    )[0];
+    expect(revision).toMatchObject({
+      route: 'test.skill.after-legacy-snapshot',
+    });
+
+    const rolledBack = lifecycle.rollbackSkillPackage({
+      skillName: 'legacy-credential-snapshot',
+      revisionId: revision.id,
+      actor: 'test',
+      homeDir: tempHome,
+    });
+
+    expect(rolledBack.manifest.credentials).toEqual([]);
+    expect(config.getRuntimeConfig().skills.installed[0].credentials).toEqual(
+      [],
+    );
+  });
+
   test('rollback caps restored file permissions from snapshot data', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillV1 = writeSkillSource({

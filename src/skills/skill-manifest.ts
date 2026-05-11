@@ -254,7 +254,7 @@ function normalizeDeclaredCredentials(
 
   const credentials: SkillManifestDeclaredCredential[] = [];
   const seen = new Set<string>();
-  value.forEach((item, index) => {
+  for (const [index, item] of value.entries()) {
     const itemPath = `credentials[${index}]`;
     if (!isRecord(item)) {
       credentialFieldError(itemPath, 'must be an object');
@@ -283,7 +283,7 @@ function normalizeDeclaredCredentials(
         `${itemPath}.how_to_obtain`,
       ),
     });
-  });
+  }
 
   return credentials;
 }

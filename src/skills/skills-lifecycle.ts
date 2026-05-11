@@ -210,7 +210,7 @@ function parseSkillPackageSnapshot(content: string): SkillPackageSnapshot {
   }
   return {
     schemaVersion: 1,
-    manifest: parsed.manifest as unknown as SkillManifest,
+    manifest: parseSkillPackageSnapshotManifest(parsed.manifest),
     files: parsed.files.map(parseSkillPackageSnapshotFile),
   };
 }
@@ -255,6 +255,16 @@ function parseSkillPackageSnapshotFile(
     path: filePath,
     mode,
     contentBase64,
+  };
+}
+
+function parseSkillPackageSnapshotManifest(
+  value: Record<string, unknown>,
+): SkillManifest {
+  const manifest = value as unknown as SkillManifest;
+  return {
+    ...manifest,
+    credentials: Array.isArray(value.credentials) ? manifest.credentials : [],
   };
 }
 

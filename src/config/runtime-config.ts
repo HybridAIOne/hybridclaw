@@ -76,6 +76,7 @@ import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
 import {
   SKILL_MANIFEST_CREDENTIAL_KINDS,
   type SkillManifestCredentialKind,
+  type SkillManifestDeclaredCredential,
 } from '../skills/skill-manifest.js';
 import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
@@ -716,20 +717,6 @@ export interface RuntimeSkillCredentialManifest {
   required: boolean;
 }
 
-export type RuntimeSkillDeclaredCredentialKind = SkillManifestCredentialKind;
-
-export interface RuntimeSkillDeclaredCredentialManifest {
-  id: string;
-  kind: RuntimeSkillDeclaredCredentialKind;
-  required: boolean;
-  secretRef: {
-    source: 'env' | 'store';
-    id: string;
-  };
-  scope: string;
-  howToObtain: string;
-}
-
 export interface RuntimeSkillMiddlewareManifest {
   preSend: boolean;
   postReceive: boolean;
@@ -751,7 +738,7 @@ export interface RuntimeInstalledSkillManifest {
   capabilities: string[];
   middleware: RuntimeSkillMiddlewareManifest;
   requiredCredentials: RuntimeSkillCredentialManifest[];
-  credentials: RuntimeSkillDeclaredCredentialManifest[];
+  credentials: SkillManifestDeclaredCredential[];
   supportedChannels: ChannelKind[];
   installedAt: string;
   updatedAt: string;
@@ -2150,21 +2137,21 @@ function normalizeRuntimeSkillCredentialManifests(
 
 function normalizeRuntimeSkillDeclaredCredentialKind(
   value: unknown,
-): RuntimeSkillDeclaredCredentialKind | null {
+): SkillManifestCredentialKind | null {
   const normalized = normalizeString(value, '', { allowEmpty: false });
   return SKILL_MANIFEST_CREDENTIAL_KINDS.includes(
-    normalized as RuntimeSkillDeclaredCredentialKind,
+    normalized as SkillManifestCredentialKind,
   )
-    ? (normalized as RuntimeSkillDeclaredCredentialKind)
+    ? (normalized as SkillManifestCredentialKind)
     : null;
 }
 
 function normalizeRuntimeSkillDeclaredCredentialManifests(
   value: unknown,
-): RuntimeSkillDeclaredCredentialManifest[] {
+): SkillManifestDeclaredCredential[] {
   if (!Array.isArray(value)) return [];
 
-  const credentials: RuntimeSkillDeclaredCredentialManifest[] = [];
+  const credentials: SkillManifestDeclaredCredential[] = [];
   const seen = new Set<string>();
   for (const item of value) {
     if (!isRecord(item)) continue;
@@ -2190,6 +2177,9 @@ function normalizeRuntimeSkillDeclaredCredentialManifests(
       !howToObtain ||
       typeof item.required !== 'boolean'
     ) {
+      console.warn(
+        '[runtime-config] skipping malformed declared skill credential in installed skill manifest',
+      );
       continue;
     }
     seen.add(id);

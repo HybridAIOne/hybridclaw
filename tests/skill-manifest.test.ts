@@ -144,6 +144,97 @@ Use the skill.
   );
 });
 
+test('reports missing and duplicate credential frontmatter fields', () => {
+  const cases = [
+    {
+      name: 'missing required',
+      fields: [
+        '    kind: api_key',
+        '    secret_ref:',
+        '      source: store',
+        '      id: CRM_API_KEY',
+        '    scope: "*.crm.example.com"',
+        '    how_to_obtain: Ask an admin.',
+      ],
+      message:
+        'Invalid skill credentials frontmatter: credentials[0].required must be true or false.',
+    },
+    {
+      name: 'missing scope',
+      fields: [
+        '    kind: api_key',
+        '    required: true',
+        '    secret_ref:',
+        '      source: store',
+        '      id: CRM_API_KEY',
+        '    how_to_obtain: Ask an admin.',
+      ],
+      message:
+        'Invalid skill credentials frontmatter: credentials[0].scope is required.',
+    },
+    {
+      name: 'missing how_to_obtain',
+      fields: [
+        '    kind: api_key',
+        '    required: true',
+        '    secret_ref:',
+        '      source: store',
+        '      id: CRM_API_KEY',
+        '    scope: "*.crm.example.com"',
+      ],
+      message:
+        'Invalid skill credentials frontmatter: credentials[0].how_to_obtain is required.',
+    },
+  ];
+
+  for (const testCase of cases) {
+    expect(() =>
+      parseSkillManifestFromMarkdown(
+        [
+          '---',
+          `name: ${testCase.name}`,
+          'credentials:',
+          '  - id: crm',
+          ...testCase.fields,
+          '---',
+          'Use the skill.',
+        ].join('\n'),
+        { name: 'fallback' },
+      ),
+    ).toThrow(testCase.message);
+  }
+
+  expect(() =>
+    parseSkillManifestFromMarkdown(
+      `---
+name: Duplicate Credential Skill
+credentials:
+  - id: crm
+    kind: api_key
+    required: true
+    secret_ref:
+      source: store
+      id: CRM_API_KEY
+    scope: "*.crm.example.com"
+    how_to_obtain: Ask an admin.
+  - id: crm
+    kind: bearer
+    required: false
+    secret_ref:
+      source: store
+      id: CRM_BEARER_TOKEN
+    scope: "*.crm.example.com"
+    how_to_obtain: Ask an admin.
+---
+Use the skill.
+`,
+      { name: 'fallback' },
+    ),
+  ).toThrow(
+    'Invalid skill credentials frontmatter: credentials[1].id duplicates credential "crm".',
+  );
+});
+
 test('parses skill-side middleware hook declarations', () => {
   const manifest = parseSkillManifestFromMarkdown(
     `---
