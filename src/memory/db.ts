@@ -5551,18 +5551,6 @@ export function getAllSessions(options?: {
   return rows;
 }
 
-export function getSessionsByIds(ids: readonly string[]): Session[] {
-  const uniqueIds = Array.from(
-    new Set(ids.map((id) => (id || '').trim()).filter(Boolean)),
-  );
-  if (uniqueIds.length === 0) return [];
-  const placeholders = uniqueIds.map(() => '?').join(', ');
-  const sql = hasSessionCurrentColumn(db)
-    ? `SELECT * FROM sessions WHERE is_current = 1 AND id IN (${placeholders})`
-    : `SELECT * FROM sessions WHERE id IN (${placeholders})`;
-  return queryAll<Session, string[]>(db, sql, ...uniqueIds);
-}
-
 export function getRecentSessionsForAgents(
   agentIds: readonly string[],
   perAgentLimit = 8,

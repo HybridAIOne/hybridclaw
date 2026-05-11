@@ -186,7 +186,6 @@ import {
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
-  getSessionsByIds,
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
@@ -5542,12 +5541,15 @@ export function getGatewayAdminApprovals(params?: {
   for (const suspended of suspendedSessions) {
     if (suspended.sessionId) referencedSessionIds.add(suspended.sessionId);
   }
-  const sessionAgentIds = new Map(
-    getSessionsByIds(Array.from(referencedSessionIds)).map((session) => [
+  const sessionAgentIds = new Map<string, string>();
+  for (const sessionId of referencedSessionIds) {
+    const session = memoryService.getSessionById(sessionId);
+    if (!session) continue;
+    sessionAgentIds.set(
       session.id,
       resolveAgentForRequest({ session }).agentId,
-    ]),
-  );
+    );
+  }
 
   return {
     selectedAgentId,
