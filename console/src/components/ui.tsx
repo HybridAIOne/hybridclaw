@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 
+import { Skeleton } from './skeleton';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 export { ToggleGroup, ToggleGroupItem };
@@ -119,15 +120,24 @@ export function PageHeader(props: {
 
 export function MetricCard(props: {
   label: string;
-  value: string;
+  value?: string;
   detail?: string;
   href?: string;
 }) {
+  const isLoading = props.value === undefined;
   const content = (
     <>
       <span>{props.label}</span>
-      <strong>{props.value}</strong>
-      {props.detail ? <small>{props.detail}</small> : null}
+      {isLoading ? (
+        <Skeleton className="metric-card-value-skeleton" />
+      ) : (
+        <strong>{props.value}</strong>
+      )}
+      {isLoading ? (
+        <Skeleton className="metric-card-detail-skeleton" />
+      ) : props.detail ? (
+        <small>{props.detail}</small>
+      ) : null}
     </>
   );
 

@@ -110,24 +110,43 @@ export function AgentsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Observed agents"
-          value={String(agents.length)}
+          value={scoreboardQuery.data ? String(agents.length) : undefined}
           detail="with recorded skill runs"
         />
         <MetricCard
           label="Observed skills"
-          value={String(observedSkillCount)}
+          value={
+            scoreboardQuery.data ? String(observedSkillCount) : undefined
+          }
           detail="across agent runs"
         />
         <MetricCard
           label="Best average score"
-          value={topAgent ? `${topAgent.avg_score}/100` : '0/100'}
-          detail={topAgent?.display_name || 'No runs yet'}
+          value={
+            scoreboardQuery.data
+              ? topAgent
+                ? `${topAgent.avg_score}/100`
+                : '0/100'
+              : undefined
+          }
+          detail={
+            scoreboardQuery.data
+              ? topAgent?.display_name || 'No runs yet'
+              : undefined
+          }
         />
         <MetricCard
           label="Total runs"
-          value={String(
-            agents.reduce((total, agent) => total + agent.total_executions, 0),
-          )}
+          value={
+            scoreboardQuery.data
+              ? String(
+                  agents.reduce(
+                    (total, agent) => total + agent.total_executions,
+                    0,
+                  ),
+                )
+              : undefined
+          }
           detail="skill executions"
         />
       </div>

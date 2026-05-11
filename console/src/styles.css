@@ -514,6 +514,17 @@ code {
   line-height: 1.25;
 }
 
+.metric-card-value-skeleton {
+  height: 1.65rem;
+  width: 60%;
+  margin: 2px 0;
+}
+
+.metric-card-detail-skeleton {
+  height: 0.85rem;
+  width: 80%;
+}
+
 .list-row,
 .selectable-row {
   display: flex;
