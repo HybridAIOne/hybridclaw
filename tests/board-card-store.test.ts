@@ -110,7 +110,7 @@ describe.sequential('board card store', () => {
         owner: { agentId: 'agent_builder' },
       }),
     ).toHaveLength(1);
-    expect(boardModule.listCards({ sourcePrefix: 'manual' })).toHaveLength(1);
+    expect(boardModule.listCards({ source: 'manual' })).toHaveLength(1);
     expect(boardModule.listCards({ sourcePrefix: 'autopilot' })).toHaveLength(
       0,
     );
@@ -157,10 +157,23 @@ describe.sequential('board card store', () => {
     );
 
     const cleared = boardModule.updateCard('card-undefined-patch', {
-      parent: null,
+      parent: '',
     });
     expect(cleared.parent).toBeNull();
     expect(cleared.createdAt).toBe(created.createdAt);
+  });
+
+  test('rejects unsafe source identifiers', async () => {
+    const { boardModule } = await loadBoardStore();
+
+    expect(() =>
+      boardModule.createCard({
+        id: 'card-unsafe-source',
+        title: 'Unsafe source',
+        owner: { agentId: 'agent_builder' },
+        source: 'autopilot/../../secret' as `autopilot/${string}`,
+      }),
+    ).toThrow(/Unsupported board card source/);
   });
 
   test('restores prior field state through F4 revisions', async () => {

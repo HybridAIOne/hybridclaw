@@ -26,6 +26,9 @@ export const BOARD_CARD_COLUMNS = [
 const BOARD_CARD_STATE_VERSION = 1;
 const BOARD_CARD_ASSET_PREFIX = 'board/cards';
 const SOURCE_PREFIXES = ['autopilot', 'a2a', 'workflow'] as const;
+const SOURCE_ID_RE = /^(?!.*\.\.)[a-zA-Z0-9_.-]+$/;
+const BOARD_CARD_SELECT_COLUMNS =
+  'id, title, body, owner_type, owner_id, "column", status, source, parent, created_at, updated_at, deleted_at';
 
 export type BoardCardColumn = (typeof BOARD_CARD_COLUMNS)[number];
 
@@ -40,6 +43,7 @@ export type BoardCardSource =
   | `autopilot/${string}`
   | `a2a/${string}`
   | `workflow/${string}`;
+export type BoardCardSourcePrefix = (typeof SOURCE_PREFIXES)[number];
 
 export interface Card {
   id: string;
@@ -75,8 +79,11 @@ export type UpdateCardPatch = Partial<
 export interface ListCardsFilter {
   column?: BoardCardColumn;
   owner?: BoardCardOwner;
-  sourcePrefix?: 'autopilot' | 'a2a' | 'workflow' | 'manual';
+  source?: BoardCardSource;
+  sourcePrefix?: BoardCardSourcePrefix;
   includeDeleted?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 export interface BoardCardMutationContext {
@@ -103,7 +110,6 @@ interface BoardCardRow {
   id: string;
   title: string;
   body: string;
-  owner: string;
   owner_type: string;
   owner_id: string;
   column: string;
@@ -133,7 +139,7 @@ export function subscribeBoardCardEvents(
   };
 }
 
-export function boardCardAssetPath(id: string): string {
+function boardCardAssetPath(id: string): string {
   return path.join(BOARD_CARD_ASSET_PREFIX, `${encodeURIComponent(id)}.json`);
 }
 
@@ -145,8 +151,21 @@ function normalizeNonEmptyString(value: unknown, field: string): string {
 
 function normalizeOptionalString(value: unknown, field: string): string | null {
   if (value == null) return null;
-  const normalized = normalizeNonEmptyString(value, field);
-  return normalized;
+  if (typeof value !== 'string') {
+    throw new Error(`${field} must be a string.`);
+  }
+  return value.trim() || null;
+}
+
+function normalizeOptionalNonNegativeInteger(
+  value: unknown,
+  field: string,
+): number | null {
+  if (value == null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative integer.`);
+  }
+  return value;
 }
 
 function normalizeColumn(value: unknown): BoardCardColumn {
@@ -200,10 +219,14 @@ function normalizeActor(actor?: BoardCardActor | null): BoardCardActor {
 function normalizeSource(source: unknown): BoardCardSource {
   const normalized = normalizeNonEmptyString(source, 'source');
   if (normalized === 'manual') return normalized;
-  const [prefix, rest] = normalized.split('/', 2);
+  const separatorIndex = normalized.indexOf('/');
+  const prefix =
+    separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : normalized;
+  const rest = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : '';
   if (
     SOURCE_PREFIXES.includes(prefix as (typeof SOURCE_PREFIXES)[number]) &&
-    rest?.trim()
+    rest?.trim() &&
+    SOURCE_ID_RE.test(rest.trim())
   ) {
     return normalized as BoardCardSource;
   }
@@ -211,15 +234,17 @@ function normalizeSource(source: unknown): BoardCardSource {
 }
 
 function parseOwner(
-  row: Pick<BoardCardRow, 'owner' | 'owner_type' | 'owner_id'>,
+  row: Pick<BoardCardRow, 'owner_type' | 'owner_id'>,
 ): BoardCardOwner {
-  try {
-    return normalizeOwner(JSON.parse(row.owner) as BoardCardOwner).owner;
-  } catch {
-    return row.owner_type === 'user'
-      ? { userId: row.owner_id }
-      : { agentId: row.owner_id };
+  if (row.owner_type === 'user') {
+    return normalizeOwner({ userId: row.owner_id }).owner;
   }
+  if (row.owner_type === 'agent') {
+    return normalizeOwner({ agentId: row.owner_id }).owner;
+  }
+  throw new Error(
+    `Unsupported persisted board card owner type: ${row.owner_type}`,
+  );
 }
 
 function mapCardRow(row: BoardCardRow): Card {
@@ -310,7 +335,11 @@ function diffCards(
   for (const field of fields) {
     const beforeValue = before?.[field] ?? null;
     const afterValue = after?.[field] ?? null;
-    if (JSON.stringify(beforeValue) === JSON.stringify(afterValue)) continue;
+    const equal =
+      field === 'owner'
+        ? JSON.stringify(beforeValue) === JSON.stringify(afterValue)
+        : beforeValue === afterValue;
+    if (equal) continue;
     diff[field] = { before: beforeValue, after: afterValue };
   }
   return diff;
@@ -401,11 +430,7 @@ function insertOrReplaceCard(database: Database.Database, card: Card): Card {
       normalized.updatedAt,
       normalized.deletedAt,
     );
-  const stored = selectCard(database, normalized.id, { includeDeleted: true });
-  if (!stored) {
-    throw new Error(`Failed to read persisted board card: ${normalized.id}`);
-  }
-  return stored;
+  return normalized;
 }
 
 function selectCard(
@@ -415,15 +440,14 @@ function selectCard(
 ): Card | null {
   const row = database
     .prepare<[string], BoardCardRow>(
-      `SELECT id, title, body, owner, owner_type, owner_id, "column", status, source, parent, created_at, updated_at, deleted_at
+      `SELECT ${BOARD_CARD_SELECT_COLUMNS}
        FROM board_cards
-       WHERE id = ?`,
+       WHERE id = ?
+       ${opts?.includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
     )
     .get(id);
   if (!row) return null;
-  const card = mapCardRow(row);
-  if (!opts?.includeDeleted && card.deletedAt) return null;
-  return card;
+  return mapCardRow(row);
 }
 
 export function createCard(
@@ -491,23 +515,29 @@ export function listCards(filter: ListCardsFilter = {}): Card[] {
       clauses.push('owner_type = ? AND owner_id = ?');
       values.push(owner.ownerType, owner.ownerId);
     }
+    if (filter.source) {
+      clauses.push('source = ?');
+      values.push(normalizeSource(filter.source));
+    }
     if (filter.sourcePrefix) {
-      if (filter.sourcePrefix === 'manual') {
-        clauses.push('source = ?');
-        values.push('manual');
-      } else {
-        clauses.push('source >= ? AND source < ?');
-        values.push(`${filter.sourcePrefix}/`, `${filter.sourcePrefix}/\uffff`);
-      }
+      clauses.push('source >= ? AND source < ?');
+      values.push(`${filter.sourcePrefix}/`, `${filter.sourcePrefix}/\uffff`);
+    }
+    const limit = normalizeOptionalNonNegativeInteger(filter.limit, 'limit');
+    const offset = normalizeOptionalNonNegativeInteger(filter.offset, 'offset');
+    if (limit !== null) {
+      values.push(limit);
+      if (offset !== null) values.push(offset);
     }
 
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     return database
       .prepare<unknown[], BoardCardRow>(
-        `SELECT id, title, body, owner, owner_type, owner_id, "column", status, source, parent, created_at, updated_at, deleted_at
+        `SELECT ${BOARD_CARD_SELECT_COLUMNS}
          FROM board_cards
          ${where}
-         ORDER BY created_at ASC, id ASC`,
+         ORDER BY created_at ASC, id ASC
+         ${limit !== null ? `LIMIT ?${offset !== null ? ' OFFSET ?' : ''}` : ''}`,
       )
       .all(...values)
       .map(mapCardRow);
@@ -559,10 +589,11 @@ export function deleteCard(
     const { before, after } = database.transaction(() => {
       const current = selectCard(database, normalizedId);
       if (!current) throw new Error(`Board card not found: ${normalizedId}`);
+      const now = new Date().toISOString();
       const deleted = normalizeCardForPersistence({
         ...current,
-        updatedAt: new Date().toISOString(),
-        deletedAt: new Date().toISOString(),
+        updatedAt: now,
+        deletedAt: now,
       });
       const stored = insertOrReplaceCard(database, deleted);
       syncCardRevisionState(database, revisionSchema, stored, context);
@@ -608,6 +639,9 @@ export function restoreCardRevision(
   const restored = parseCardState(revision.content);
   if (restored.id !== normalizedId) {
     throw new Error(`Board card revision belongs to ${restored.id}.`);
+  }
+  if (restored.deletedAt) {
+    throw new Error(`Board card revision ${revisionId} is a deleted snapshot.`);
   }
 
   return withMemoryDatabaseRuntimeRevisionStore((database, revisionSchema) => {
