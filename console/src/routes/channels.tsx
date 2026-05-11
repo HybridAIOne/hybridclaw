@@ -2996,6 +2996,9 @@ export function ChannelsPage() {
     },
     onSuccess: (payload) => {
       queryClient.setQueryData(['config', auth.token], payload);
+      void queryClient.invalidateQueries({
+        queryKey: ['status', auth.token],
+      });
       setDraft(cloneConfig(payload.config));
       toast.success('Channel settings saved.');
     },

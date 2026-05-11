@@ -1,5 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
+import { validateToken } from '../api/client';
 import { useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
@@ -27,7 +29,16 @@ export function AppShell(props: { children: ReactNode }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  const emailEnabled = auth.gatewayStatus?.emailEnabled === true;
+  const statusQuery = useQuery({
+    queryKey: ['status', auth.token],
+    queryFn: () => validateToken(auth.token),
+    initialData: auth.gatewayStatus ?? undefined,
+    enabled: Boolean(auth.token),
+    staleTime: 30_000,
+  });
+  const emailEnabled =
+    (statusQuery.data?.emailEnabled ?? auth.gatewayStatus?.emailEnabled) ===
+    true;
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
