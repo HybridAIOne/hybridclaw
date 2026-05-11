@@ -21,14 +21,33 @@ describe('useLiveConnectionToasts', () => {
     expect(screen.getByText('Live updates paused')).toBeTruthy();
   });
 
-  it('emits a restored toast when transitioning from error back to open', () => {
+  it('emits a restored toast and dismisses the paused toast on error -> open', () => {
     const { rerender } = renderHook(
       ({ c }: { c: LiveConnection }) => useLiveConnectionToasts(c),
       { wrapper, initialProps: { c: 'open' } },
     );
     act(() => rerender({ c: 'error' }));
+    expect(screen.getByText('Live updates paused')).toBeTruthy();
+
     act(() => rerender({ c: 'open' }));
     expect(screen.getByText('Live updates restored')).toBeTruthy();
+    expect(screen.queryByText('Live updates paused')).toBeNull();
+  });
+
+  it('still dismisses the paused toast on error -> connecting -> open (auth token change)', () => {
+    const { rerender } = renderHook(
+      ({ c }: { c: LiveConnection }) => useLiveConnectionToasts(c),
+      { wrapper, initialProps: { c: 'open' } },
+    );
+    act(() => rerender({ c: 'error' }));
+    expect(screen.getByText('Live updates paused')).toBeTruthy();
+
+    act(() => rerender({ c: 'connecting' }));
+    expect(screen.getByText('Live updates paused')).toBeTruthy();
+
+    act(() => rerender({ c: 'open' }));
+    expect(screen.getByText('Live updates restored')).toBeTruthy();
+    expect(screen.queryByText('Live updates paused')).toBeNull();
   });
 
   it('does not emit on initial connecting -> open (page load)', () => {

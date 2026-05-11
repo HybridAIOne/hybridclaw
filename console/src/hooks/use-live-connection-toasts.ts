@@ -32,11 +32,14 @@ export function useLiveConnectionToasts(connection: LiveConnection): void {
       return;
     }
 
-    if (prev === 'error' && connection === 'open') {
-      if (pausedToastIdRef.current) {
-        toast.dismiss(pausedToastIdRef.current);
-        pausedToastIdRef.current = null;
-      }
+    if (connection === 'open' && pausedToastIdRef.current) {
+      // Recovery: dismiss the paused toast on any transition into `open`,
+      // not only `error → open`. `useLiveEvents` resets to `connecting` when
+      // the auth token changes mid-error, producing `error → connecting → open`
+      // — without this, the sticky paused toast would orphan for the rest of
+      // the component's lifetime.
+      toast.dismiss(pausedToastIdRef.current);
+      pausedToastIdRef.current = null;
       toast.success('Live updates restored');
     }
   }, [connection, toast]);
