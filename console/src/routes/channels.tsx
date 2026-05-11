@@ -11,14 +11,9 @@ import {
 } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ChannelLogo } from '../components/channel-logo';
 import { useToast } from '../components/toast';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
 import { BooleanField } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { joinStringList, parseStringList } from '../lib/format';
@@ -3151,48 +3146,50 @@ export function ChannelsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-          <div className="stack-form">
-            {selectedChannel
-              ? renderSelectedEditor(
-                  selectedChannel.kind,
-                  draft,
-                  updateDraft,
-                  auth.token,
-                  secretStatus,
-                  hybridaiApiKeyConfigured,
-                  whatsappStatus,
-                  signalStatus,
-                  () => {
-                    void queryClient.invalidateQueries({
-                      queryKey: ['status', auth.token],
-                    });
-                  },
-                )
-              : null}
+            <div className="stack-form">
+              {selectedChannel
+                ? renderSelectedEditor(
+                    selectedChannel.kind,
+                    draft,
+                    updateDraft,
+                    auth.token,
+                    secretStatus,
+                    hybridaiApiKeyConfigured,
+                    whatsappStatus,
+                    signalStatus,
+                    () => {
+                      void queryClient.invalidateQueries({
+                        queryKey: ['status', auth.token],
+                      });
+                    },
+                  )
+                : null}
 
-            <div className="button-row">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!isDirty || saveMutation.isPending}
-                onClick={() => saveMutation.mutate(draft)}
-              >
-                {saveMutation.isPending ? 'Saving...' : 'Save channel settings'}
-              </button>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={!isDirty || !configQuery.data}
-                onClick={() => {
-                  if (!configQuery.data) return;
-                  saveMutation.reset();
-                  setDraft(cloneConfig(configQuery.data.config));
-                }}
-              >
-                Reset changes
-              </button>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!isDirty || saveMutation.isPending}
+                  onClick={() => saveMutation.mutate(draft)}
+                >
+                  {saveMutation.isPending
+                    ? 'Saving...'
+                    : 'Save channel settings'}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={!isDirty || !configQuery.data}
+                  onClick={() => {
+                    if (!configQuery.data) return;
+                    saveMutation.reset();
+                    setDraft(cloneConfig(configQuery.data.config));
+                  }}
+                >
+                  Reset changes
+                </button>
+              </div>
             </div>
-          </div>
           </CardContent>
         </Card>
       </div>

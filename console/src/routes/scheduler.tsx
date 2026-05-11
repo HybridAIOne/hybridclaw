@@ -16,7 +16,6 @@ import type {
   GatewayStatus,
 } from '../api/types';
 import { useAuth } from '../auth';
-import { useToast } from '../components/toast';
 import {
   Card,
   CardContent,
@@ -24,6 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { useToast } from '../components/toast';
 import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
@@ -550,74 +550,74 @@ function SchedulerTaskDetail(props: {
         <CardTitle>Task</CardTitle>
       </CardHeader>
       <CardContent>
-      <div className="stack-form">
-        <div className="key-value-grid">
-          <div>
-            <span>Task</span>
-            <strong>#{props.job.taskId ?? 'n/a'}</strong>
+        <div className="stack-form">
+          <div className="key-value-grid">
+            <div>
+              <span>Task</span>
+              <strong>#{props.job.taskId ?? 'n/a'}</strong>
+            </div>
+            <div>
+              <span>State</span>
+              <BooleanPill
+                value={props.job.enabled && !props.job.disabled}
+                trueLabel="active"
+                falseLabel="inactive"
+              />
+            </div>
+            <div>
+              <span>Session</span>
+              <strong>{props.job.sessionId || 'n/a'}</strong>
+            </div>
+            <div>
+              <span>Channel</span>
+              <strong>{props.job.channelId || 'n/a'}</strong>
+            </div>
+            <div>
+              <span>Created</span>
+              <strong>{formatDateTime(props.job.createdAt)}</strong>
+            </div>
+            <div>
+              <span>Next run</span>
+              <strong>{formatDateTime(props.job.nextRunAt)}</strong>
+            </div>
+            <div>
+              <span>Last run</span>
+              <strong>{formatDateTime(props.job.lastRun)}</strong>
+            </div>
+            <div>
+              <span>Last status</span>
+              <strong>{props.job.lastStatus || 'n/a'}</strong>
+            </div>
           </div>
-          <div>
-            <span>State</span>
-            <BooleanPill
-              value={props.job.enabled && !props.job.disabled}
-              trueLabel="active"
-              falseLabel="inactive"
-            />
-          </div>
-          <div>
-            <span>Session</span>
-            <strong>{props.job.sessionId || 'n/a'}</strong>
-          </div>
-          <div>
-            <span>Channel</span>
-            <strong>{props.job.channelId || 'n/a'}</strong>
-          </div>
-          <div>
-            <span>Created</span>
-            <strong>{formatDateTime(props.job.createdAt)}</strong>
-          </div>
-          <div>
-            <span>Next run</span>
-            <strong>{formatDateTime(props.job.nextRunAt)}</strong>
-          </div>
-          <div>
-            <span>Last run</span>
-            <strong>{formatDateTime(props.job.lastRun)}</strong>
-          </div>
-          <div>
-            <span>Last status</span>
-            <strong>{props.job.lastStatus || 'n/a'}</strong>
+
+          <label className="field">
+            <span>Message</span>
+            <textarea readOnly rows={6} value={props.job.action.message} />
+          </label>
+
+          <div className="button-row">
+            <button
+              className="ghost-button"
+              type="button"
+              disabled={props.pausePending}
+              onClick={props.onPauseToggle}
+            >
+              {props.pausePending
+                ? 'Updating...'
+                : props.job.disabled
+                  ? 'Resume task'
+                  : 'Pause task'}
+            </button>
+            <button
+              className="danger-button"
+              type="button"
+              disabled={props.deletePending}
+              onClick={props.onDelete}
+            >
+              {props.deletePending ? 'Deleting...' : 'Delete task'}
+            </button>
           </div>
         </div>
-
-        <label className="field">
-          <span>Message</span>
-          <textarea readOnly rows={6} value={props.job.action.message} />
-        </label>
-
-        <div className="button-row">
-          <button
-            className="ghost-button"
-            type="button"
-            disabled={props.pausePending}
-            onClick={props.onPauseToggle}
-          >
-            {props.pausePending
-              ? 'Updating...'
-              : props.job.disabled
-                ? 'Resume task'
-                : 'Pause task'}
-          </button>
-          <button
-            className="danger-button"
-            type="button"
-            disabled={props.deletePending}
-            onClick={props.onDelete}
-          >
-            {props.deletePending ? 'Deleting...' : 'Delete task'}
-          </button>
-        </div>
-      </div>
       </CardContent>
     </Card>
   );
@@ -645,386 +645,386 @@ function SchedulerJobEditor(props: {
         <CardTitle>Job</CardTitle>
       </CardHeader>
       <CardContent>
-      <div className="stack-form">
-        <div className="field-grid">
-          <label className="field">
-            <span>ID</span>
-            <input
-              value={draft.id}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  id: event.target.value,
-                }))
-              }
-              placeholder="Auto-generated from name if blank"
-            />
-          </label>
-          <label className="field">
-            <span>Name</span>
-            <input
-              value={draft.name}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))
-              }
-              placeholder="Nightly research"
-            />
-          </label>
-        </div>
-
-        <label className="field">
-          <span>Description</span>
-          <input
-            value={draft.description}
-            onChange={(event) =>
-              props.onDraftChange((current) => ({
-                ...current,
-                description: event.target.value,
-              }))
-            }
-            placeholder="Optional"
-          />
-        </label>
-
-        <div className="field-grid">
-          <label className="field">
-            <span>Status</span>
-            <select
-              value={draft.boardStatus}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  boardStatus: event.target
-                    .value as SchedulerDraft['boardStatus'],
-                }))
-              }
-            >
-              <option value="backlog">backlog</option>
-              <option value="in_progress">in progress</option>
-              <option value="review">review</option>
-              <option value="done">done</option>
-              <option value="cancelled">cancelled</option>
-            </select>
-          </label>
-          <BooleanField
-            label="State"
-            value={draft.enabled}
-            trueLabel="on"
-            falseLabel="off"
-            onChange={(enabled) =>
-              props.onDraftChange((current) => ({
-                ...current,
-                enabled,
-              }))
-            }
-          />
-        </div>
-
-        <div className="field-grid">
-          <label className="field">
-            <span>Schedule</span>
-            <select
-              value={draft.scheduleKind}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  scheduleKind: event.target
-                    .value as SchedulerDraft['scheduleKind'],
-                  boardStatus:
-                    event.target.value === 'one_shot'
-                      ? 'backlog'
-                      : current.boardStatus,
-                  maxRetries:
-                    event.target.value === 'one_shot'
-                      ? current.maxRetries.trim() || '3'
-                      : current.maxRetries,
-                }))
-              }
-            >
-              <option value="cron">cron</option>
-              <option value="every">every</option>
-              <option value="at">at</option>
-              <option value="one_shot">one shot</option>
-            </select>
-          </label>
-          {draft.scheduleKind !== 'one_shot' ? (
-            <label className="field">
-              <span>Timezone</span>
-              <input
-                value={draft.scheduleTz}
-                onChange={(event) =>
-                  props.onDraftChange((current) => ({
-                    ...current,
-                    scheduleTz: event.target.value,
-                  }))
-                }
-                placeholder="Europe/Berlin"
-              />
-            </label>
-          ) : null}
-        </div>
-
-        {draft.scheduleKind === 'cron' ? (
-          <label className="field">
-            <span>Cron</span>
-            <input
-              value={draft.scheduleExpr}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  scheduleExpr: event.target.value,
-                }))
-              }
-              placeholder="0 * * * *"
-            />
-          </label>
-        ) : null}
-
-        {draft.scheduleKind === 'every' ? (
-          <label className="field">
-            <span>Every ms</span>
-            <input
-              value={draft.scheduleEveryMs}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  scheduleEveryMs: event.target.value,
-                }))
-              }
-              placeholder="60000"
-            />
-          </label>
-        ) : null}
-
-        {draft.scheduleKind === 'at' ? (
-          <label className="field">
-            <span>Run at</span>
-            <input
-              type="datetime-local"
-              value={draft.scheduleAt}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  scheduleAt: event.target.value,
-                }))
-              }
-            />
-          </label>
-        ) : null}
-
-        {draft.scheduleKind === 'one_shot' ? (
-          <label className="field">
-            <span>Retries after failure</span>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="1"
-              value={draft.maxRetries}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  maxRetries: event.target.value,
-                }))
-              }
-              placeholder="3"
-            />
-          </label>
-        ) : null}
-
-        <div className="field-grid">
-          <label className="field">
-            <span>Action</span>
-            <select
-              value={draft.actionKind}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  actionKind: event.target
-                    .value as SchedulerDraft['actionKind'],
-                }))
-              }
-            >
-              <option value="agent_turn">agent_turn</option>
-              <option value="system_event">system_event</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Delivery</span>
-            <select
-              value={draft.deliveryKind}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  deliveryKind: event.target
-                    .value as SchedulerDraft['deliveryKind'],
-                }))
-              }
-            >
-              <option value="channel">channel</option>
-              <option value="last-channel">last-channel</option>
-              <option value="webhook">webhook</option>
-            </select>
-          </label>
-        </div>
-
-        <label className="field">
-          <span>Message</span>
-          <textarea
-            rows={4}
-            value={draft.actionMessage}
-            onChange={(event) =>
-              props.onDraftChange((current) => ({
-                ...current,
-                actionMessage: event.target.value,
-              }))
-            }
-            placeholder="Prompt or system-event message"
-          />
-        </label>
-
-        {draft.deliveryKind === 'channel' ? (
+        <div className="stack-form">
           <div className="field-grid">
             <label className="field">
-              <span>Channel type</span>
-              <select
-                value={draft.deliveryChannel}
+              <span>ID</span>
+              <input
+                value={draft.id}
                 onChange={(event) =>
                   props.onDraftChange((current) => ({
                     ...current,
-                    deliveryChannel: event.target.value,
-                    deliveryTo: '',
+                    id: event.target.value,
+                  }))
+                }
+                placeholder="Auto-generated from name if blank"
+              />
+            </label>
+            <label className="field">
+              <span>Name</span>
+              <input
+                value={draft.name}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="Nightly research"
+              />
+            </label>
+          </div>
+
+          <label className="field">
+            <span>Description</span>
+            <input
+              value={draft.description}
+              onChange={(event) =>
+                props.onDraftChange((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+              placeholder="Optional"
+            />
+          </label>
+
+          <div className="field-grid">
+            <label className="field">
+              <span>Status</span>
+              <select
+                value={draft.boardStatus}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    boardStatus: event.target
+                      .value as SchedulerDraft['boardStatus'],
                   }))
                 }
               >
-                {props.channelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                <option value="backlog">backlog</option>
+                <option value="in_progress">in progress</option>
+                <option value="review">review</option>
+                <option value="done">done</option>
+                <option value="cancelled">cancelled</option>
               </select>
             </label>
-            {props.targetControl.kind === 'select' ? (
+            <BooleanField
+              label="State"
+              value={draft.enabled}
+              trueLabel="on"
+              falseLabel="off"
+              onChange={(enabled) =>
+                props.onDraftChange((current) => ({
+                  ...current,
+                  enabled,
+                }))
+              }
+            />
+          </div>
+
+          <div className="field-grid">
+            <label className="field">
+              <span>Schedule</span>
+              <select
+                value={draft.scheduleKind}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    scheduleKind: event.target
+                      .value as SchedulerDraft['scheduleKind'],
+                    boardStatus:
+                      event.target.value === 'one_shot'
+                        ? 'backlog'
+                        : current.boardStatus,
+                    maxRetries:
+                      event.target.value === 'one_shot'
+                        ? current.maxRetries.trim() || '3'
+                        : current.maxRetries,
+                  }))
+                }
+              >
+                <option value="cron">cron</option>
+                <option value="every">every</option>
+                <option value="at">at</option>
+                <option value="one_shot">one shot</option>
+              </select>
+            </label>
+            {draft.scheduleKind !== 'one_shot' ? (
               <label className="field">
-                <span>{props.targetControl.label}</span>
-                <select
-                  value={props.targetControl.value}
+                <span>Timezone</span>
+                <input
+                  value={draft.scheduleTz}
                   onChange={(event) =>
                     props.onDraftChange((current) => ({
                       ...current,
-                      deliveryTo: event.target.value,
+                      scheduleTz: event.target.value,
+                    }))
+                  }
+                  placeholder="Europe/Berlin"
+                />
+              </label>
+            ) : null}
+          </div>
+
+          {draft.scheduleKind === 'cron' ? (
+            <label className="field">
+              <span>Cron</span>
+              <input
+                value={draft.scheduleExpr}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    scheduleExpr: event.target.value,
+                  }))
+                }
+                placeholder="0 * * * *"
+              />
+            </label>
+          ) : null}
+
+          {draft.scheduleKind === 'every' ? (
+            <label className="field">
+              <span>Every ms</span>
+              <input
+                value={draft.scheduleEveryMs}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    scheduleEveryMs: event.target.value,
+                  }))
+                }
+                placeholder="60000"
+              />
+            </label>
+          ) : null}
+
+          {draft.scheduleKind === 'at' ? (
+            <label className="field">
+              <span>Run at</span>
+              <input
+                type="datetime-local"
+                value={draft.scheduleAt}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    scheduleAt: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          ) : null}
+
+          {draft.scheduleKind === 'one_shot' ? (
+            <label className="field">
+              <span>Retries after failure</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={draft.maxRetries}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    maxRetries: event.target.value,
+                  }))
+                }
+                placeholder="3"
+              />
+            </label>
+          ) : null}
+
+          <div className="field-grid">
+            <label className="field">
+              <span>Action</span>
+              <select
+                value={draft.actionKind}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    actionKind: event.target
+                      .value as SchedulerDraft['actionKind'],
+                  }))
+                }
+              >
+                <option value="agent_turn">agent_turn</option>
+                <option value="system_event">system_event</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Delivery</span>
+              <select
+                value={draft.deliveryKind}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    deliveryKind: event.target
+                      .value as SchedulerDraft['deliveryKind'],
+                  }))
+                }
+              >
+                <option value="channel">channel</option>
+                <option value="last-channel">last-channel</option>
+                <option value="webhook">webhook</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="field">
+            <span>Message</span>
+            <textarea
+              rows={4}
+              value={draft.actionMessage}
+              onChange={(event) =>
+                props.onDraftChange((current) => ({
+                  ...current,
+                  actionMessage: event.target.value,
+                }))
+              }
+              placeholder="Prompt or system-event message"
+            />
+          </label>
+
+          {draft.deliveryKind === 'channel' ? (
+            <div className="field-grid">
+              <label className="field">
+                <span>Channel type</span>
+                <select
+                  value={draft.deliveryChannel}
+                  onChange={(event) =>
+                    props.onDraftChange((current) => ({
+                      ...current,
+                      deliveryChannel: event.target.value,
+                      deliveryTo: '',
                     }))
                   }
                 >
-                  {props.targetControl.options.map((option) => (
+                  {props.channelOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
               </label>
-            ) : null}
-            {props.targetControl.kind === 'input' ? (
-              <label className="field">
-                <span>{props.targetControl.label}</span>
-                <input
-                  value={props.targetControl.value}
-                  onChange={(event) =>
-                    props.onDraftChange((current) => ({
-                      ...current,
-                      deliveryTo: event.target.value,
-                    }))
-                  }
-                  placeholder={props.targetControl.placeholder}
-                />
-              </label>
-            ) : null}
-          </div>
-        ) : null}
+              {props.targetControl.kind === 'select' ? (
+                <label className="field">
+                  <span>{props.targetControl.label}</span>
+                  <select
+                    value={props.targetControl.value}
+                    onChange={(event) =>
+                      props.onDraftChange((current) => ({
+                        ...current,
+                        deliveryTo: event.target.value,
+                      }))
+                    }
+                  >
+                    {props.targetControl.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {props.targetControl.kind === 'input' ? (
+                <label className="field">
+                  <span>{props.targetControl.label}</span>
+                  <input
+                    value={props.targetControl.value}
+                    onChange={(event) =>
+                      props.onDraftChange((current) => ({
+                        ...current,
+                        deliveryTo: event.target.value,
+                      }))
+                    }
+                    placeholder={props.targetControl.placeholder}
+                  />
+                </label>
+              ) : null}
+            </div>
+          ) : null}
 
-        {draft.deliveryKind === 'webhook' ? (
-          <label className="field">
-            <span>Webhook URL</span>
-            <input
-              value={draft.deliveryWebhookUrl}
-              onChange={(event) =>
-                props.onDraftChange((current) => ({
-                  ...current,
-                  deliveryWebhookUrl: event.target.value,
-                }))
-              }
-              placeholder="https://example.test/hook"
-            />
-          </label>
-        ) : null}
+          {draft.deliveryKind === 'webhook' ? (
+            <label className="field">
+              <span>Webhook URL</span>
+              <input
+                value={draft.deliveryWebhookUrl}
+                onChange={(event) =>
+                  props.onDraftChange((current) => ({
+                    ...current,
+                    deliveryWebhookUrl: event.target.value,
+                  }))
+                }
+                placeholder="https://example.test/hook"
+              />
+            </label>
+          ) : null}
 
-        {selectedJob ? (
-          <div className="key-value-grid">
-            <div>
-              <span>Next run</span>
-              <strong>{formatDateTime(selectedJob.nextRunAt)}</strong>
-            </div>
-            <div>
-              <span>Last run</span>
-              <strong>{formatDateTime(selectedJob.lastRun)}</strong>
-            </div>
-            <div>
-              <span>Last status</span>
-              <strong>{selectedJob.lastStatus || 'n/a'}</strong>
-            </div>
-            <div>
-              <span>Errors</span>
-              <strong>{selectedJob.consecutiveErrors}</strong>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="button-row">
-          <button
-            className="primary-button"
-            type="button"
-            disabled={props.savePending}
-            onClick={props.onSave}
-          >
-            {props.savePending ? 'Saving...' : 'Save job'}
-          </button>
-          <button
-            className="ghost-button"
-            type="button"
-            disabled={props.savePending}
-            onClick={props.onCancel}
-          >
-            Cancel
-          </button>
           {selectedJob ? (
+            <div className="key-value-grid">
+              <div>
+                <span>Next run</span>
+                <strong>{formatDateTime(selectedJob.nextRunAt)}</strong>
+              </div>
+              <div>
+                <span>Last run</span>
+                <strong>{formatDateTime(selectedJob.lastRun)}</strong>
+              </div>
+              <div>
+                <span>Last status</span>
+                <strong>{selectedJob.lastStatus || 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Errors</span>
+                <strong>{selectedJob.consecutiveErrors}</strong>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="button-row">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={props.savePending}
+              onClick={props.onSave}
+            >
+              {props.savePending ? 'Saving...' : 'Save job'}
+            </button>
             <button
               className="ghost-button"
               type="button"
-              disabled={props.pausePending}
-              onClick={props.onPauseToggle}
+              disabled={props.savePending}
+              onClick={props.onCancel}
             >
-              {props.pausePending
-                ? 'Updating...'
-                : selectedJob.disabled
-                  ? 'Resume job'
-                  : 'Pause job'}
+              Cancel
             </button>
-          ) : null}
-          {selectedJob ? (
-            <button
-              className="danger-button"
-              type="button"
-              disabled={props.deletePending}
-              onClick={props.onDelete}
-            >
-              {props.deletePending ? 'Deleting...' : 'Delete job'}
-            </button>
-          ) : null}
+            {selectedJob ? (
+              <button
+                className="ghost-button"
+                type="button"
+                disabled={props.pausePending}
+                onClick={props.onPauseToggle}
+              >
+                {props.pausePending
+                  ? 'Updating...'
+                  : selectedJob.disabled
+                    ? 'Resume job'
+                    : 'Pause job'}
+              </button>
+            ) : null}
+            {selectedJob ? (
+              <button
+                className="danger-button"
+                type="button"
+                disabled={props.deletePending}
+                onClick={props.onDelete}
+              >
+                {props.deletePending ? 'Deleting...' : 'Delete job'}
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
       </CardContent>
     </Card>
   );
@@ -1193,39 +1193,39 @@ export function SchedulerPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-          {schedulerQuery.isLoading ? (
-            <div className="empty-state">Loading scheduler items...</div>
-          ) : schedulerQuery.data?.jobs.length ? (
-            <div className="list-stack selectable-list">
-              {schedulerQuery.data.jobs.map((job) => (
-                <button
-                  key={job.id}
-                  className={
-                    job.id === selectedId
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
-                  onClick={() => setSelectedId(job.id)}
-                >
-                  <div>
-                    <strong>{job.name}</strong>
-                    <small>{formatRowMeta(job)}</small>
-                  </div>
-                  <div className="row-status-stack">
-                    <BooleanPill
-                      value={job.enabled && !job.disabled}
-                      trueLabel="active"
-                      falseLabel="inactive"
-                    />
-                    <small>{formatRuntimeState(job)}</small>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">No scheduled work yet.</div>
-          )}
+            {schedulerQuery.isLoading ? (
+              <div className="empty-state">Loading scheduler items...</div>
+            ) : schedulerQuery.data?.jobs.length ? (
+              <div className="list-stack selectable-list">
+                {schedulerQuery.data.jobs.map((job) => (
+                  <button
+                    key={job.id}
+                    className={
+                      job.id === selectedId
+                        ? 'selectable-row active'
+                        : 'selectable-row'
+                    }
+                    type="button"
+                    onClick={() => setSelectedId(job.id)}
+                  >
+                    <div>
+                      <strong>{job.name}</strong>
+                      <small>{formatRowMeta(job)}</small>
+                    </div>
+                    <div className="row-status-stack">
+                      <BooleanPill
+                        value={job.enabled && !job.disabled}
+                        trueLabel="active"
+                        falseLabel="inactive"
+                      />
+                      <small>{formatRuntimeState(job)}</small>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">No scheduled work yet.</div>
+            )}
           </CardContent>
         </Card>
 

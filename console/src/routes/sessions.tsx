@@ -3,6 +3,13 @@ import { useDeferredValue, useEffect, useState } from 'react';
 import { deleteSession, fetchSessions } from '../api/client';
 import { useAuth } from '../auth';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -12,13 +19,6 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { useToast } from '../components/toast';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
 import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
@@ -102,36 +102,36 @@ export function SessionsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-          {sessionsQuery.isLoading ? (
-            <div className="empty-state">Loading sessions...</div>
-          ) : filtered.length === 0 ? (
-            <div className="empty-state">No sessions match this filter.</div>
-          ) : (
-            <div className="list-stack selectable-list">
-              {filtered.map((session) => (
-                <button
-                  key={session.id}
-                  className={
-                    session.id === selectedSession?.id
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
-                  onClick={() => setSelectedId(session.id)}
-                >
-                  <div className="session-row-main">
-                    <strong>{session.id}</strong>
-                    <small className="session-row-meta">
-                      {session.channelId} · {session.effectiveModel}
-                    </small>
-                  </div>
-                  <span className="session-row-time">
-                    {formatRelativeTime(session.lastActive)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+            {sessionsQuery.isLoading ? (
+              <div className="empty-state">Loading sessions...</div>
+            ) : filtered.length === 0 ? (
+              <div className="empty-state">No sessions match this filter.</div>
+            ) : (
+              <div className="list-stack selectable-list">
+                {filtered.map((session) => (
+                  <button
+                    key={session.id}
+                    className={
+                      session.id === selectedSession?.id
+                        ? 'selectable-row active'
+                        : 'selectable-row'
+                    }
+                    type="button"
+                    onClick={() => setSelectedId(session.id)}
+                  >
+                    <div className="session-row-main">
+                      <strong>{session.id}</strong>
+                      <small className="session-row-meta">
+                        {session.channelId} · {session.effectiveModel}
+                      </small>
+                    </div>
+                    <span className="session-row-time">
+                      {formatRelativeTime(session.lastActive)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -140,67 +140,67 @@ export function SessionsPage() {
             <CardTitle>Inspection</CardTitle>
           </CardHeader>
           <CardContent>
-          {!selectedSession ? (
-            <div className="empty-state">Select a session to inspect it.</div>
-          ) : (
-            <div className="detail-stack">
-              <div className="key-value-grid">
-                <div>
-                  <span>Session</span>
-                  <strong>{selectedSession.id}</strong>
+            {!selectedSession ? (
+              <div className="empty-state">Select a session to inspect it.</div>
+            ) : (
+              <div className="detail-stack">
+                <div className="key-value-grid">
+                  <div>
+                    <span>Session</span>
+                    <strong>{selectedSession.id}</strong>
+                  </div>
+                  <div>
+                    <span>Channel</span>
+                    <strong>{selectedSession.channelId}</strong>
+                  </div>
+                  <div>
+                    <span>Guild</span>
+                    <strong>{selectedSession.guildId || 'direct/web'}</strong>
+                  </div>
+                  <div>
+                    <span>Model</span>
+                    <strong>{selectedSession.effectiveModel}</strong>
+                  </div>
+                  <div>
+                    <span>Messages</span>
+                    <strong>{selectedSession.messageCount}</strong>
+                  </div>
+                  <div>
+                    <span>Scheduled tasks</span>
+                    <strong>{selectedSession.taskCount}</strong>
+                  </div>
+                  <div>
+                    <span>RAG</span>
+                    <BooleanPill
+                      value={selectedSession.ragEnabled}
+                      trueLabel="on"
+                      falseLabel="off"
+                    />
+                  </div>
+                  <div>
+                    <span>Last active</span>
+                    <strong>
+                      {formatRelativeTime(selectedSession.lastActive)}
+                    </strong>
+                  </div>
                 </div>
-                <div>
-                  <span>Channel</span>
-                  <strong>{selectedSession.channelId}</strong>
+                <div className="summary-block">
+                  <span>Summary</span>
+                  <p>
+                    {selectedSession.summary ||
+                      'No summary stored for this session.'}
+                  </p>
                 </div>
-                <div>
-                  <span>Guild</span>
-                  <strong>{selectedSession.guildId || 'direct/web'}</strong>
-                </div>
-                <div>
-                  <span>Model</span>
-                  <strong>{selectedSession.effectiveModel}</strong>
-                </div>
-                <div>
-                  <span>Messages</span>
-                  <strong>{selectedSession.messageCount}</strong>
-                </div>
-                <div>
-                  <span>Scheduled tasks</span>
-                  <strong>{selectedSession.taskCount}</strong>
-                </div>
-                <div>
-                  <span>RAG</span>
-                  <BooleanPill
-                    value={selectedSession.ragEnabled}
-                    trueLabel="on"
-                    falseLabel="off"
-                  />
-                </div>
-                <div>
-                  <span>Last active</span>
-                  <strong>
-                    {formatRelativeTime(selectedSession.lastActive)}
-                  </strong>
-                </div>
+                <button
+                  className="danger-button"
+                  type="button"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => setDeleteConfirmOpen(true)}
+                >
+                  {deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
+                </button>
               </div>
-              <div className="summary-block">
-                <span>Summary</span>
-                <p>
-                  {selectedSession.summary ||
-                    'No summary stored for this session.'}
-                </p>
-              </div>
-              <button
-                className="danger-button"
-                type="button"
-                disabled={deleteMutation.isPending}
-                onClick={() => setDeleteConfirmOpen(true)}
-              >
-                {deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
-              </button>
-            </div>
-          )}
+            )}
           </CardContent>
         </Card>
       </div>

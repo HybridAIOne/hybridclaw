@@ -9,6 +9,7 @@ import {
 } from '../api/client';
 import type { AdminPolicyRule, AdminPolicyRuleInput } from '../api/types';
 import { useAuth } from '../auth';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import {
   Dialog,
   DialogClose,
@@ -20,12 +21,6 @@ import {
 } from '../components/dialog';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
 import { useToast } from '../components/toast';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
 import { MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
@@ -371,266 +366,271 @@ export function ApprovalsPage() {
             <CardTitle>Policy</CardTitle>
           </CardHeader>
           <CardContent>
-          {approvalsQuery.isLoading ? (
-            <div className="empty-state">Loading policy...</div>
-          ) : approvalsQuery.data ? (
-            <div className="detail-stack">
-              {policyRules.length ? (
-                <div className="table-shell">
-                  <table className="policy-rules-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Action</th>
-                        <th>Host</th>
-                        <th>Port</th>
-                        <th>Methods</th>
-                        <th>Paths</th>
-                        <th>Agent</th>
-                        <th>Comment</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {policyRules.map((rule) => (
-                        <tr key={`${rule.index}:${rule.host}:${rule.agent}`}>
-                          <td>{rule.index}</td>
-                          <td>
-                            <strong>{rule.action.toUpperCase()}</strong>
-                          </td>
-                          <td>{rule.host}</td>
-                          <td>{String(rule.port)}</td>
-                          <td>{rule.methods.join(', ')}</td>
-                          <td>{rule.paths.join(', ')}</td>
-                          <td>{rule.agent}</td>
-                          <td>{formatRuleComment(rule)}</td>
-                          <td>
-                            <div className="policy-table-actions">
-                              <button
-                                className="ghost-button"
-                                type="button"
-                                disabled={policyMutationPending}
-                                onClick={() => beginEditRule(rule)}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className="danger-button"
-                                type="button"
-                                disabled={policyMutationPending}
-                                onClick={() => beginDeleteRule(rule)}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
+            {approvalsQuery.isLoading ? (
+              <div className="empty-state">Loading policy...</div>
+            ) : approvalsQuery.data ? (
+              <div className="detail-stack">
+                {policyRules.length ? (
+                  <div className="table-shell">
+                    <table className="policy-rules-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Action</th>
+                          <th>Host</th>
+                          <th>Port</th>
+                          <th>Methods</th>
+                          <th>Paths</th>
+                          <th>Agent</th>
+                          <th>Comment</th>
+                          <th>Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="empty-state">No policy rules found.</div>
-              )}
+                      </thead>
+                      <tbody>
+                        {policyRules.map((rule) => (
+                          <tr key={`${rule.index}:${rule.host}:${rule.agent}`}>
+                            <td>{rule.index}</td>
+                            <td>
+                              <strong>{rule.action.toUpperCase()}</strong>
+                            </td>
+                            <td>{rule.host}</td>
+                            <td>{String(rule.port)}</td>
+                            <td>{rule.methods.join(', ')}</td>
+                            <td>{rule.paths.join(', ')}</td>
+                            <td>{rule.agent}</td>
+                            <td>{formatRuleComment(rule)}</td>
+                            <td>
+                              <div className="policy-table-actions">
+                                <button
+                                  className="ghost-button"
+                                  type="button"
+                                  disabled={policyMutationPending}
+                                  onClick={() => beginEditRule(rule)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="danger-button"
+                                  type="button"
+                                  disabled={policyMutationPending}
+                                  onClick={() => beginDeleteRule(rule)}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-state">No policy rules found.</div>
+                )}
 
-              <div className="policy-action-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={policyMutationPending}
-                  onClick={beginCreateRule}
-                >
-                  New rule
-                </button>
-                <div className="policy-template-actions">
-                  <label className="policy-template-inline">
-                    <span>Template:</span>
-                    <select
-                      value={selectedPresetName}
-                      disabled={
-                        policyMutationPending ||
-                        availablePresetOptions.length === 0
-                      }
-                      onChange={(event) =>
-                        setSelectedPresetName(event.target.value)
-                      }
-                    >
-                      {availablePresetOptions.length > 0 ? (
-                        availablePresetOptions.map((preset) => (
-                          <option key={preset.name} value={preset.name}>
-                            {preset.name}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="">No templates available</option>
-                      )}
-                    </select>
-                  </label>
+                <div className="policy-action-row">
                   <button
-                    className="ghost-button"
+                    className="primary-button"
                     type="button"
-                    disabled={policyMutationPending || !selectedPresetName}
-                    onClick={() => presetMutation.mutate(selectedPresetName)}
+                    disabled={policyMutationPending}
+                    onClick={beginCreateRule}
                   >
-                    Add template
+                    New rule
                   </button>
-                </div>
-              </div>
-
-              {editorOpen ? (
-                <form
-                  className="config-section detail-stack"
-                  onSubmit={handleDraftSubmit}
-                >
-                  <strong>
-                    {editorMode === 'edit' && editingRuleIndex != null
-                      ? `Edit rule #${editingRuleIndex}`
-                      : 'Add rule'}
-                  </strong>
-
-                  <div className="field-grid policy-editor-grid">
-                    <label className="field">
-                      <span>Action</span>
+                  <div className="policy-template-actions">
+                    <label className="policy-template-inline">
+                      <span>Template:</span>
                       <select
-                        value={draft.action}
-                        disabled={policyMutationPending}
+                        value={selectedPresetName}
+                        disabled={
+                          policyMutationPending ||
+                          availablePresetOptions.length === 0
+                        }
                         onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            action:
-                              event.target.value === 'deny' ? 'deny' : 'allow',
-                          }))
+                          setSelectedPresetName(event.target.value)
                         }
                       >
-                        <option value="allow">allow</option>
-                        <option value="deny">deny</option>
+                        {availablePresetOptions.length > 0 ? (
+                          availablePresetOptions.map((preset) => (
+                            <option key={preset.name} value={preset.name}>
+                              {preset.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="">No templates available</option>
+                        )}
                       </select>
                     </label>
-
-                    <label className="field">
-                      <span>Host</span>
-                      <input
-                        value={draft.host}
-                        disabled={policyMutationPending}
-                        placeholder="example.com"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            host: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>Port</span>
-                      <input
-                        value={draft.port}
-                        disabled={policyMutationPending}
-                        placeholder="*"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            port: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>Methods</span>
-                      <input
-                        value={draft.methods}
-                        disabled={policyMutationPending}
-                        placeholder="*"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            methods: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>Paths</span>
-                      <input
-                        value={draft.paths}
-                        disabled={policyMutationPending}
-                        placeholder="/**"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            paths: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="field">
-                      <span>Agent</span>
-                      <input
-                        value={draft.agent}
-                        disabled={policyMutationPending}
-                        placeholder="*"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            agent: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-
-                    <label className="field policy-comment-field">
-                      <span>Comment</span>
-                      <textarea
-                        rows={2}
-                        value={draft.comment}
-                        disabled={policyMutationPending}
-                        placeholder="Optional note"
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            comment: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  <div className="button-row">
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={policyMutationPending}
-                    >
-                      {saveMutation.isPending ? (
-                        <span className="button-with-spinner">
-                          <span aria-hidden="true" className="button-spinner" />
-                          {editorMode === 'edit' ? 'Saving...' : 'Adding...'}
-                        </span>
-                      ) : editorMode === 'edit' ? (
-                        'Save changes'
-                      ) : (
-                        'Save'
-                      )}
-                    </button>
                     <button
                       className="ghost-button"
                       type="button"
-                      disabled={policyMutationPending}
-                      onClick={resetDraft}
+                      disabled={policyMutationPending || !selectedPresetName}
+                      onClick={() => presetMutation.mutate(selectedPresetName)}
                     >
-                      Cancel
+                      Add template
                     </button>
                   </div>
-                </form>
-              ) : null}
-            </div>
-          ) : (
-            <div className="empty-state">Policy state is unavailable.</div>
-          )}
+                </div>
+
+                {editorOpen ? (
+                  <form
+                    className="config-section detail-stack"
+                    onSubmit={handleDraftSubmit}
+                  >
+                    <strong>
+                      {editorMode === 'edit' && editingRuleIndex != null
+                        ? `Edit rule #${editingRuleIndex}`
+                        : 'Add rule'}
+                    </strong>
+
+                    <div className="field-grid policy-editor-grid">
+                      <label className="field">
+                        <span>Action</span>
+                        <select
+                          value={draft.action}
+                          disabled={policyMutationPending}
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              action:
+                                event.target.value === 'deny'
+                                  ? 'deny'
+                                  : 'allow',
+                            }))
+                          }
+                        >
+                          <option value="allow">allow</option>
+                          <option value="deny">deny</option>
+                        </select>
+                      </label>
+
+                      <label className="field">
+                        <span>Host</span>
+                        <input
+                          value={draft.host}
+                          disabled={policyMutationPending}
+                          placeholder="example.com"
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              host: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Port</span>
+                        <input
+                          value={draft.port}
+                          disabled={policyMutationPending}
+                          placeholder="*"
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              port: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Methods</span>
+                        <input
+                          value={draft.methods}
+                          disabled={policyMutationPending}
+                          placeholder="*"
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              methods: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Paths</span>
+                        <input
+                          value={draft.paths}
+                          disabled={policyMutationPending}
+                          placeholder="/**"
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              paths: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="field">
+                        <span>Agent</span>
+                        <input
+                          value={draft.agent}
+                          disabled={policyMutationPending}
+                          placeholder="*"
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              agent: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+
+                      <label className="field policy-comment-field">
+                        <span>Comment</span>
+                        <textarea
+                          rows={2}
+                          value={draft.comment}
+                          disabled={policyMutationPending}
+                          placeholder="Optional note"
+                          onChange={(event) =>
+                            setDraft((current) => ({
+                              ...current,
+                              comment: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    <div className="button-row">
+                      <button
+                        className="primary-button"
+                        type="submit"
+                        disabled={policyMutationPending}
+                      >
+                        {saveMutation.isPending ? (
+                          <span className="button-with-spinner">
+                            <span
+                              aria-hidden="true"
+                              className="button-spinner"
+                            />
+                            {editorMode === 'edit' ? 'Saving...' : 'Adding...'}
+                          </span>
+                        ) : editorMode === 'edit' ? (
+                          'Save changes'
+                        ) : (
+                          'Save'
+                        )}
+                      </button>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        disabled={policyMutationPending}
+                        onClick={resetDraft}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+              </div>
+            ) : (
+              <div className="empty-state">Policy state is unavailable.</div>
+            )}
           </CardContent>
         </Card>
 
@@ -639,50 +639,50 @@ export function ApprovalsPage() {
             <CardTitle>Blocked sessions</CardTitle>
           </CardHeader>
           <CardContent>
-          {approvalsQuery.isLoading ? (
-            <div className="empty-state">Loading blocked sessions...</div>
-          ) : approvalsQuery.data?.suspendedSessions.length ? (
-            <div className="list-stack">
-              {approvalsQuery.data.suspendedSessions.map((session) => (
-                <div className="summary-block" key={session.sessionId}>
-                  <div className="key-value-grid">
-                    <div>
-                      <span>Status</span>
-                      <strong>{session.blockedLabel}</strong>
+            {approvalsQuery.isLoading ? (
+              <div className="empty-state">Loading blocked sessions...</div>
+            ) : approvalsQuery.data?.suspendedSessions.length ? (
+              <div className="list-stack">
+                {approvalsQuery.data.suspendedSessions.map((session) => (
+                  <div className="summary-block" key={session.sessionId}>
+                    <div className="key-value-grid">
+                      <div>
+                        <span>Status</span>
+                        <strong>{session.blockedLabel}</strong>
+                      </div>
+                      <div>
+                        <span>Modality</span>
+                        <strong>{session.modality}</strong>
+                      </div>
+                      <div>
+                        <span>Agent</span>
+                        <strong>{session.agentId || 'unknown'}</strong>
+                      </div>
+                      <div>
+                        <span>Host</span>
+                        <strong>{session.context.host || 'unknown'}</strong>
+                      </div>
+                      <div>
+                        <span>Created</span>
+                        <strong title={formatDateTime(session.createdAt)}>
+                          {formatRelativeTime(session.createdAt)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Expires</span>
+                        <strong title={formatDateTime(session.expiresAt)}>
+                          {formatRelativeTime(session.expiresAt)}
+                        </strong>
+                      </div>
                     </div>
-                    <div>
-                      <span>Modality</span>
-                      <strong>{session.modality}</strong>
-                    </div>
-                    <div>
-                      <span>Agent</span>
-                      <strong>{session.agentId || 'unknown'}</strong>
-                    </div>
-                    <div>
-                      <span>Host</span>
-                      <strong>{session.context.host || 'unknown'}</strong>
-                    </div>
-                    <div>
-                      <span>Created</span>
-                      <strong title={formatDateTime(session.createdAt)}>
-                        {formatRelativeTime(session.createdAt)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Expires</span>
-                      <strong title={formatDateTime(session.expiresAt)}>
-                        {formatRelativeTime(session.expiresAt)}
-                      </strong>
-                    </div>
+                    <p className="supporting-text">{session.prompt}</p>
+                    <InteractionResumeControls session={session} />
                   </div>
-                  <p className="supporting-text">{session.prompt}</p>
-                  <InteractionResumeControls session={session} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">No blocked sessions right now.</div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">No blocked sessions right now.</div>
+            )}
           </CardContent>
         </Card>
 
@@ -691,57 +691,57 @@ export function ApprovalsPage() {
             <CardTitle>Pending approvals</CardTitle>
           </CardHeader>
           <CardContent>
-          {approvalsQuery.isLoading ? (
-            <div className="empty-state">Loading pending approvals...</div>
-          ) : approvalsQuery.data?.pending.length ? (
-            <div className="list-stack">
-              {approvalsQuery.data.pending.map((approval) => (
-                <div className="summary-block" key={approval.approvalId}>
-                  <div className="key-value-grid">
-                    <div>
-                      <span>Approval</span>
-                      <strong>
-                        {approval.actionKey || approval.approvalId}
-                      </strong>
+            {approvalsQuery.isLoading ? (
+              <div className="empty-state">Loading pending approvals...</div>
+            ) : approvalsQuery.data?.pending.length ? (
+              <div className="list-stack">
+                {approvalsQuery.data.pending.map((approval) => (
+                  <div className="summary-block" key={approval.approvalId}>
+                    <div className="key-value-grid">
+                      <div>
+                        <span>Approval</span>
+                        <strong>
+                          {approval.actionKey || approval.approvalId}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Agent</span>
+                        <strong>{approval.agentId || 'unknown'}</strong>
+                      </div>
+                      <div>
+                        <span>Session</span>
+                        <strong>{approval.sessionId}</strong>
+                      </div>
+                      <div>
+                        <span>Trust scopes</span>
+                        <strong>
+                          {formatPendingTrustScopes({
+                            allowSession: approval.allowSession,
+                            allowAgent: approval.allowAgent,
+                            allowAll: approval.allowAll,
+                          })}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Created</span>
+                        <strong title={formatDateTime(approval.createdAt)}>
+                          {formatRelativeTime(approval.createdAt)}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Expires</span>
+                        <strong title={formatDateTime(approval.expiresAt)}>
+                          {formatRelativeTime(approval.expiresAt)}
+                        </strong>
+                      </div>
                     </div>
-                    <div>
-                      <span>Agent</span>
-                      <strong>{approval.agentId || 'unknown'}</strong>
-                    </div>
-                    <div>
-                      <span>Session</span>
-                      <strong>{approval.sessionId}</strong>
-                    </div>
-                    <div>
-                      <span>Trust scopes</span>
-                      <strong>
-                        {formatPendingTrustScopes({
-                          allowSession: approval.allowSession,
-                          allowAgent: approval.allowAgent,
-                          allowAll: approval.allowAll,
-                        })}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Created</span>
-                      <strong title={formatDateTime(approval.createdAt)}>
-                        {formatRelativeTime(approval.createdAt)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Expires</span>
-                      <strong title={formatDateTime(approval.expiresAt)}>
-                        {formatRelativeTime(approval.expiresAt)}
-                      </strong>
-                    </div>
+                    <p className="supporting-text">{approval.prompt}</p>
                   </div>
-                  <p className="supporting-text">{approval.prompt}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">No pending approvals right now.</div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">No pending approvals right now.</div>
+            )}
           </CardContent>
         </Card>
       </div>

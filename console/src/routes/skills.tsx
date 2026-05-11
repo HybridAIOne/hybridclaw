@@ -17,7 +17,6 @@ import type {
   AdminSkill,
 } from '../api/types';
 import { useAuth } from '../auth';
-import { useToast } from '../components/toast';
 import {
   Card,
   CardContent,
@@ -25,6 +24,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../components/card';
+import { useToast } from '../components/toast';
 import {
   BooleanField,
   BooleanPill,
@@ -496,293 +496,293 @@ export function SkillsPage() {
             <CardTitle>Create skill</CardTitle>
           </CardHeader>
           <CardContent>
-          <SegmentedToggle
-            ariaLabel="Create mode"
-            value={createMode}
-            options={[
-              { value: 'form', label: 'Form', activeTone: 'is-on' },
-              { value: 'zip', label: 'Upload ZIP', activeTone: 'is-on' },
-            ]}
-            onChange={(value) => {
-              if (value === 'form' || value === 'zip') {
-                setCreateMode(value);
-              }
-            }}
-          />
+            <SegmentedToggle
+              ariaLabel="Create mode"
+              value={createMode}
+              options={[
+                { value: 'form', label: 'Form', activeTone: 'is-on' },
+                { value: 'zip', label: 'Upload ZIP', activeTone: 'is-on' },
+              ]}
+              onChange={(value) => {
+                if (value === 'form' || value === 'zip') {
+                  setCreateMode(value);
+                }
+              }}
+            />
 
-          {createMode === 'zip' ? (
-            <div className="stack-form" style={{ marginTop: '1rem' }}>
-              <label className="field">
-                <span>Skill archive (.zip)</span>
-                <input
-                  type="file"
-                  accept=".zip,.skill"
-                  onChange={(event) =>
-                    setZipFile(event.target.files?.[0] || null)
-                  }
-                />
-              </label>
-              <p className="supporting-text">
-                ZIP must contain a SKILL.md with a valid <code>name</code>{' '}
-                frontmatter field. May include scripts/, references/, and other
-                files.
-              </p>
-              <label
-                className="supporting-text"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  cursor: 'pointer',
-                  width: 'fit-content',
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={zipForce}
-                  onChange={(event) => setZipForce(event.target.checked)}
-                  style={{ margin: 0 }}
-                />
-                <span>Overwrite existing skill (--force)</span>
-              </label>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={uploadMutation.isPending || !zipFile}
-                  onClick={() => uploadMutation.mutate()}
-                >
-                  {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="stack-form" style={{ marginTop: '1rem' }}>
-              <div className="field-grid">
+            {createMode === 'zip' ? (
+              <div className="stack-form" style={{ marginTop: '1rem' }}>
                 <label className="field">
-                  <span>Name</span>
+                  <span>Skill archive (.zip)</span>
                   <input
-                    value={draft.name}
+                    type="file"
+                    accept=".zip,.skill"
                     onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
+                      setZipFile(event.target.files?.[0] || null)
                     }
-                    placeholder="my-skill"
                   />
                 </label>
+                <p className="supporting-text">
+                  ZIP must contain a SKILL.md with a valid <code>name</code>{' '}
+                  frontmatter field. May include scripts/, references/, and
+                  other files.
+                </p>
+                <label
+                  className="supporting-text"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    cursor: 'pointer',
+                    width: 'fit-content',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={zipForce}
+                    onChange={(event) => setZipForce(event.target.checked)}
+                    style={{ margin: 0 }}
+                  />
+                  <span>Overwrite existing skill (--force)</span>
+                </label>
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={uploadMutation.isPending || !zipFile}
+                    onClick={() => uploadMutation.mutate()}
+                  >
+                    {uploadMutation.isPending ? 'Uploading...' : 'Upload skill'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="stack-form" style={{ marginTop: '1rem' }}>
+                <div className="field-grid">
+                  <label className="field">
+                    <span>Name</span>
+                    <input
+                      value={draft.name}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                      placeholder="my-skill"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Category</span>
+                    <select
+                      value={draft.category}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          category: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Select category</option>
+                      {categoryOptions.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="field-grid">
+                  <label className="field">
+                    <span>Short description</span>
+                    <input
+                      value={draft.shortDescription}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          shortDescription: event.target.value,
+                        }))
+                      }
+                      placeholder="One-line summary used in metadata"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Tags</span>
+                    <input
+                      value={draft.tags}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          tags: event.target.value,
+                        }))
+                      }
+                      placeholder="tag1, tag2"
+                    />
+                  </label>
+                </div>
+
                 <label className="field">
-                  <span>Category</span>
-                  <select
-                    value={draft.category}
+                  <span>Description</span>
+                  <input
+                    value={draft.description}
                     onChange={(event) =>
                       setDraft((current) => ({
                         ...current,
-                        category: event.target.value,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Short description of what this skill does"
+                  />
+                </label>
+
+                <div className="field-grid">
+                  <BooleanField
+                    label="User invocable"
+                    value={draft.userInvocable}
+                    trueLabel="yes"
+                    falseLabel="no"
+                    onChange={(userInvocable) =>
+                      setDraft((current) => ({ ...current, userInvocable }))
+                    }
+                  />
+                  <BooleanField
+                    label="Model invocable"
+                    value={!draft.disableModelInvocation}
+                    trueLabel="yes"
+                    falseLabel="no"
+                    onChange={(modelInvocable) =>
+                      setDraft((current) => ({
+                        ...current,
+                        disableModelInvocation: !modelInvocable,
+                      }))
+                    }
+                  />
+                </div>
+
+                <label className="field">
+                  <span>Skill body (Markdown)</span>
+                  <textarea
+                    rows={10}
+                    value={draft.body}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        body: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      '# My Skill\n\nUse this skill when the user asks to ...\n\n## Workflow\n\n1. ...\n2. ...'
+                    }
+                  />
+                </label>
+
+                <div className="panel-header" style={{ marginTop: '0.5rem' }}>
+                  <div>
+                    <h4>Files</h4>
+                    <p className="supporting-text">
+                      Add scripts or references (e.g. scripts/run.mjs,
+                      references/guide.md)
+                    </p>
+                  </div>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        files: [
+                          ...current.files,
+                          {
+                            id: nextFileId++,
+                            path: 'scripts/new-file.mjs',
+                            content: '',
+                          },
+                        ],
                       }))
                     }
                   >
-                    <option value="">Select category</option>
-                    {categoryOptions.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="field-grid">
-                <label className="field">
-                  <span>Short description</span>
-                  <input
-                    value={draft.shortDescription}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        shortDescription: event.target.value,
-                      }))
-                    }
-                    placeholder="One-line summary used in metadata"
-                  />
-                </label>
-                <label className="field">
-                  <span>Tags</span>
-                  <input
-                    value={draft.tags}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        tags: event.target.value,
-                      }))
-                    }
-                    placeholder="tag1, tag2"
-                  />
-                </label>
-              </div>
-
-              <label className="field">
-                <span>Description</span>
-                <input
-                  value={draft.description}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                  placeholder="Short description of what this skill does"
-                />
-              </label>
-
-              <div className="field-grid">
-                <BooleanField
-                  label="User invocable"
-                  value={draft.userInvocable}
-                  trueLabel="yes"
-                  falseLabel="no"
-                  onChange={(userInvocable) =>
-                    setDraft((current) => ({ ...current, userInvocable }))
-                  }
-                />
-                <BooleanField
-                  label="Model invocable"
-                  value={!draft.disableModelInvocation}
-                  trueLabel="yes"
-                  falseLabel="no"
-                  onChange={(modelInvocable) =>
-                    setDraft((current) => ({
-                      ...current,
-                      disableModelInvocation: !modelInvocable,
-                    }))
-                  }
-                />
-              </div>
-
-              <label className="field">
-                <span>Skill body (Markdown)</span>
-                <textarea
-                  rows={10}
-                  value={draft.body}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      body: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    '# My Skill\n\nUse this skill when the user asks to ...\n\n## Workflow\n\n1. ...\n2. ...'
-                  }
-                />
-              </label>
-
-              <div className="panel-header" style={{ marginTop: '0.5rem' }}>
-                <div>
-                  <h4>Files</h4>
-                  <p className="supporting-text">
-                    Add scripts or references (e.g. scripts/run.mjs,
-                    references/guide.md)
-                  </p>
+                    Add file
+                  </button>
                 </div>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      files: [
-                        ...current.files,
-                        {
-                          id: nextFileId++,
-                          path: 'scripts/new-file.mjs',
-                          content: '',
-                        },
-                      ],
-                    }))
-                  }
-                >
-                  Add file
-                </button>
-              </div>
 
-              {draft.files.map((file, index) => (
-                <div
-                  key={file.id}
-                  className="stack-form"
-                  style={{ gap: '0.25rem' }}
-                >
-                  <div className="field-grid">
+                {draft.files.map((file, index) => (
+                  <div
+                    key={file.id}
+                    className="stack-form"
+                    style={{ gap: '0.25rem' }}
+                  >
+                    <div className="field-grid">
+                      <label className="field">
+                        <span>Path</span>
+                        <input
+                          value={file.path}
+                          onChange={(event) =>
+                            setDraft((current) => {
+                              const files = [...current.files];
+                              files[index] = {
+                                ...files[index],
+                                path: event.target.value,
+                              };
+                              return { ...current, files };
+                            })
+                          }
+                          placeholder="scripts/my-tool.mjs"
+                        />
+                      </label>
+                      <button
+                        className="danger-button"
+                        type="button"
+                        style={{ alignSelf: 'end' }}
+                        onClick={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            files: current.files.filter((_, i) => i !== index),
+                          }))
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
                     <label className="field">
-                      <span>Path</span>
-                      <input
-                        value={file.path}
+                      <span>Content</span>
+                      <textarea
+                        rows={8}
+                        value={file.content}
                         onChange={(event) =>
                           setDraft((current) => {
                             const files = [...current.files];
                             files[index] = {
                               ...files[index],
-                              path: event.target.value,
+                              content: event.target.value,
                             };
                             return { ...current, files };
                           })
                         }
-                        placeholder="scripts/my-tool.mjs"
+                        placeholder="// Script content..."
+                        style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
                       />
                     </label>
-                    <button
-                      className="danger-button"
-                      type="button"
-                      style={{ alignSelf: 'end' }}
-                      onClick={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          files: current.files.filter((_, i) => i !== index),
-                        }))
-                      }
-                    >
-                      Remove
-                    </button>
                   </div>
-                  <label className="field">
-                    <span>Content</span>
-                    <textarea
-                      rows={8}
-                      value={file.content}
-                      onChange={(event) =>
-                        setDraft((current) => {
-                          const files = [...current.files];
-                          files[index] = {
-                            ...files[index],
-                            content: event.target.value,
-                          };
-                          return { ...current, files };
-                        })
-                      }
-                      placeholder="// Script content..."
-                      style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
-                    />
-                  </label>
-                </div>
-              ))}
+                ))}
 
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={
-                    createMutation.isPending ||
-                    !draft.name.trim() ||
-                    !draft.description.trim() ||
-                    !draft.category.trim()
-                  }
-                  onClick={() => createMutation.mutate()}
-                >
-                  {createMutation.isPending ? 'Creating...' : 'Create skill'}
-                </button>
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={
+                      createMutation.isPending ||
+                      !draft.name.trim() ||
+                      !draft.description.trim() ||
+                      !draft.category.trim()
+                    }
+                    onClick={() => createMutation.mutate()}
+                  >
+                    {createMutation.isPending ? 'Creating...' : 'Create skill'}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </CardContent>
         </Card>
       ) : null}
@@ -820,141 +820,141 @@ export function SkillsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-        {skillsQuery.isLoading ? (
-          <div className="empty-state">Loading skill catalog...</div>
-        ) : (
-          <div className="table-shell">
-            <table>
-              <thead>
-                <tr>
-                  <SortableHeader
-                    label="Skill"
-                    sortKey="skill"
-                    sortState={installedSkillSortState}
-                    onToggle={toggleInstalledSkillSort}
-                  />
-                  <SortableHeader
-                    label="Category"
-                    sortKey="category"
-                    sortState={installedSkillSortState}
-                    onToggle={toggleInstalledSkillSort}
-                  />
-                  <SortableHeader
-                    label="Source"
-                    sortKey="source"
-                    sortState={installedSkillSortState}
-                    onToggle={toggleInstalledSkillSort}
-                  />
-                  <SortableHeader
-                    label="Health"
-                    sortKey="health"
-                    sortState={installedSkillSortState}
-                    onToggle={toggleInstalledSkillSort}
-                  />
-                  <SortableHeader
-                    label="Tags"
-                    sortKey="tags"
-                    sortState={installedSkillSortState}
-                    onToggle={toggleInstalledSkillSort}
-                  />
-                  <SortableHeader
-                    label="Action"
-                    sortKey="action"
-                    sortState={installedSkillSortState}
-                    onToggle={toggleInstalledSkillSort}
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedInstalledSkills.map(({ skill, metrics }) => {
-                  const feedbackSummary = metrics
-                    ? formatFeedbackCounts(metrics)
-                    : null;
-                  const displayDescription =
-                    skill.shortDescription?.trim() ||
-                    abbreviateDescription(skill.description);
-                  return (
-                    <tr key={skill.name}>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-link-button"
-                          onClick={() => setSelectedSkillName(skill.name)}
-                        >
-                          {skill.name}
-                        </button>
-                        <small>{displayDescription}</small>
-                      </td>
-                      <td>{skill.category}</td>
-                      <td>{skill.source}</td>
-                      <td>
-                        {metrics ? (
-                          <>
-                            <BooleanPill
-                              value={!metrics.degraded}
-                              trueLabel="healthy"
-                              falseLabel="degraded"
-                              falseTone="danger"
-                            />
-                            <small>
-                              {metrics.total_executions} runs
-                              {metrics.degraded || !feedbackSummary
-                                ? ''
-                                : ' · '}
-                              {metrics.degraded
-                                ? `${formatPercent(metrics.success_rate)} success`
-                                : feedbackSummary}
-                            </small>
-                          </>
-                        ) : null}
-                      </td>
-                      <td>{skill.tags.join(', ') || 'none'}</td>
-                      <td>
-                        <div className="row-status-stack">
-                          <BooleanToggle
-                            value={skill.enabled}
-                            ariaLabel={`${skill.name} status`}
-                            size="sm"
-                            disabled={
-                              toggleMutation.isPending ||
-                              (!skill.available && !skill.enabled)
-                            }
-                            trueLabel="active"
-                            falseLabel="inactive"
-                            onChange={(enabled) => {
-                              if (enabled && !skill.available) {
-                                return;
-                              }
-                              toggleMutation.mutate({
-                                name: skill.name,
-                                enabled,
-                              });
-                            }}
-                          />
-                          {!skill.available ? (
-                            <small className="row-status-note-danger">
-                              {skill.missing.join(', ') ||
-                                'missing requirements'}
-                            </small>
+          {skillsQuery.isLoading ? (
+            <div className="empty-state">Loading skill catalog...</div>
+          ) : (
+            <div className="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <SortableHeader
+                      label="Skill"
+                      sortKey="skill"
+                      sortState={installedSkillSortState}
+                      onToggle={toggleInstalledSkillSort}
+                    />
+                    <SortableHeader
+                      label="Category"
+                      sortKey="category"
+                      sortState={installedSkillSortState}
+                      onToggle={toggleInstalledSkillSort}
+                    />
+                    <SortableHeader
+                      label="Source"
+                      sortKey="source"
+                      sortState={installedSkillSortState}
+                      onToggle={toggleInstalledSkillSort}
+                    />
+                    <SortableHeader
+                      label="Health"
+                      sortKey="health"
+                      sortState={installedSkillSortState}
+                      onToggle={toggleInstalledSkillSort}
+                    />
+                    <SortableHeader
+                      label="Tags"
+                      sortKey="tags"
+                      sortState={installedSkillSortState}
+                      onToggle={toggleInstalledSkillSort}
+                    />
+                    <SortableHeader
+                      label="Action"
+                      sortKey="action"
+                      sortState={installedSkillSortState}
+                      onToggle={toggleInstalledSkillSort}
+                    />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedInstalledSkills.map(({ skill, metrics }) => {
+                    const feedbackSummary = metrics
+                      ? formatFeedbackCounts(metrics)
+                      : null;
+                    const displayDescription =
+                      skill.shortDescription?.trim() ||
+                      abbreviateDescription(skill.description);
+                    return (
+                      <tr key={skill.name}>
+                        <td>
+                          <button
+                            type="button"
+                            className="table-link-button"
+                            onClick={() => setSelectedSkillName(skill.name)}
+                          >
+                            {skill.name}
+                          </button>
+                          <small>{displayDescription}</small>
+                        </td>
+                        <td>{skill.category}</td>
+                        <td>{skill.source}</td>
+                        <td>
+                          {metrics ? (
+                            <>
+                              <BooleanPill
+                                value={!metrics.degraded}
+                                trueLabel="healthy"
+                                falseLabel="degraded"
+                                falseTone="danger"
+                              />
+                              <small>
+                                {metrics.total_executions} runs
+                                {metrics.degraded || !feedbackSummary
+                                  ? ''
+                                  : ' · '}
+                                {metrics.degraded
+                                  ? `${formatPercent(metrics.success_rate)} success`
+                                  : feedbackSummary}
+                              </small>
+                            </>
                           ) : null}
+                        </td>
+                        <td>{skill.tags.join(', ') || 'none'}</td>
+                        <td>
+                          <div className="row-status-stack">
+                            <BooleanToggle
+                              value={skill.enabled}
+                              ariaLabel={`${skill.name} status`}
+                              size="sm"
+                              disabled={
+                                toggleMutation.isPending ||
+                                (!skill.available && !skill.enabled)
+                              }
+                              trueLabel="active"
+                              falseLabel="inactive"
+                              onChange={(enabled) => {
+                                if (enabled && !skill.available) {
+                                  return;
+                                }
+                                toggleMutation.mutate({
+                                  name: skill.name,
+                                  enabled,
+                                });
+                              }}
+                            />
+                            {!skill.available ? (
+                              <small className="row-status-note-danger">
+                                {skill.missing.join(', ') ||
+                                  'missing requirements'}
+                              </small>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {sortedInstalledSkills.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <div className="empty-state">
+                          No skills match this filter.
                         </div>
                       </td>
                     </tr>
-                  );
-                })}
-                {sortedInstalledSkills.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>
-                      <div className="empty-state">
-                        No skills match this filter.
-                      </div>
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -967,102 +967,105 @@ export function SkillsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-          {healthQuery.isLoading ? (
-            <div className="empty-state">Loading AdaptiveSkills health...</div>
-          ) : sortedHealthMetrics.length === 0 ? (
-            <div className="empty-state">
-              No observed skills match this filter.
-            </div>
-          ) : (
-            <div className="table-shell">
-              <table>
-                <thead>
-                  <tr>
-                    <SortableHeader
-                      label="Skill"
-                      sortKey="skill"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                    <SortableHeader
-                      label="Status"
-                      sortKey="status"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                    <SortableHeader
-                      label="Executions"
-                      sortKey="executions"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                    <SortableHeader
-                      label="Success"
-                      sortKey="success"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                    <SortableHeader
-                      label="Tool breakage"
-                      sortKey="toolBreakage"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                    <SortableHeader
-                      label="Feedback"
-                      sortKey="feedback"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                    <SortableHeader
-                      label="Reasons"
-                      sortKey="reasons"
-                      sortState={observedSkillSortState}
-                      onToggle={toggleObservedSkillSort}
-                    />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedHealthMetrics.map((metrics) => (
-                    <tr key={metrics.skill_name}>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-link-button"
-                          onClick={() =>
-                            setSelectedSkillName(metrics.skill_name)
-                          }
-                        >
-                          {metrics.skill_name}
-                        </button>
-                        <small>
-                          Window ending{' '}
-                          {formatDateTime(metrics.window_ended_at)}
-                        </small>
-                      </td>
-                      <td>
-                        <BooleanPill
-                          value={!metrics.degraded}
-                          trueLabel="healthy"
-                          falseLabel="degraded"
-                          falseTone="danger"
-                        />
-                      </td>
-                      <td>{metrics.total_executions}</td>
-                      <td>{formatPercent(metrics.success_rate)}</td>
-                      <td>{formatPercent(metrics.tool_breakage_rate)}</td>
-                      <td>{formatFeedbackCounts(metrics) || null}</td>
-                      <td>
-                        <small>
-                          {metrics.degradation_reasons.join('; ') || 'healthy'}
-                        </small>
-                      </td>
+            {healthQuery.isLoading ? (
+              <div className="empty-state">
+                Loading AdaptiveSkills health...
+              </div>
+            ) : sortedHealthMetrics.length === 0 ? (
+              <div className="empty-state">
+                No observed skills match this filter.
+              </div>
+            ) : (
+              <div className="table-shell">
+                <table>
+                  <thead>
+                    <tr>
+                      <SortableHeader
+                        label="Skill"
+                        sortKey="skill"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
+                      <SortableHeader
+                        label="Status"
+                        sortKey="status"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
+                      <SortableHeader
+                        label="Executions"
+                        sortKey="executions"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
+                      <SortableHeader
+                        label="Success"
+                        sortKey="success"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
+                      <SortableHeader
+                        label="Tool breakage"
+                        sortKey="toolBreakage"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
+                      <SortableHeader
+                        label="Feedback"
+                        sortKey="feedback"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
+                      <SortableHeader
+                        label="Reasons"
+                        sortKey="reasons"
+                        sortState={observedSkillSortState}
+                        onToggle={toggleObservedSkillSort}
+                      />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {sortedHealthMetrics.map((metrics) => (
+                      <tr key={metrics.skill_name}>
+                        <td>
+                          <button
+                            type="button"
+                            className="table-link-button"
+                            onClick={() =>
+                              setSelectedSkillName(metrics.skill_name)
+                            }
+                          >
+                            {metrics.skill_name}
+                          </button>
+                          <small>
+                            Window ending{' '}
+                            {formatDateTime(metrics.window_ended_at)}
+                          </small>
+                        </td>
+                        <td>
+                          <BooleanPill
+                            value={!metrics.degraded}
+                            trueLabel="healthy"
+                            falseLabel="degraded"
+                            falseTone="danger"
+                          />
+                        </td>
+                        <td>{metrics.total_executions}</td>
+                        <td>{formatPercent(metrics.success_rate)}</td>
+                        <td>{formatPercent(metrics.tool_breakage_rate)}</td>
+                        <td>{formatFeedbackCounts(metrics) || null}</td>
+                        <td>
+                          <small>
+                            {metrics.degradation_reasons.join('; ') ||
+                              'healthy'}
+                          </small>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1074,72 +1077,77 @@ export function SkillsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-          {stagedAmendmentsQuery.isLoading ? (
-            <div className="empty-state">Loading staged amendments...</div>
-          ) : stagedAmendments.length === 0 ? (
-            <div className="empty-state">
-              No staged amendments are waiting for review.
-            </div>
-          ) : (
-            <div className="list-stack selectable-list">
-              {stagedAmendments.map((amendment) => (
-                <div className="list-row" key={amendment.id}>
-                  <div>
-                    <button
-                      type="button"
-                      className="table-link-button"
-                      onClick={() => setSelectedSkillName(amendment.skill_name)}
-                    >
-                      {amendment.skill_name}
-                    </button>
-                    <small>
-                      {formatAmendmentStatus(amendment)} ·{' '}
-                      {formatAmendmentTiming(amendment)} · guard{' '}
-                      {amendment.guard_verdict}/{amendment.guard_findings_count}
-                    </small>
-                    <small>
-                      {amendment.rationale || amendment.diff_summary}
-                    </small>
+            {stagedAmendmentsQuery.isLoading ? (
+              <div className="empty-state">Loading staged amendments...</div>
+            ) : stagedAmendments.length === 0 ? (
+              <div className="empty-state">
+                No staged amendments are waiting for review.
+              </div>
+            ) : (
+              <div className="list-stack selectable-list">
+                {stagedAmendments.map((amendment) => (
+                  <div className="list-row" key={amendment.id}>
+                    <div>
+                      <button
+                        type="button"
+                        className="table-link-button"
+                        onClick={() =>
+                          setSelectedSkillName(amendment.skill_name)
+                        }
+                      >
+                        {amendment.skill_name}
+                      </button>
+                      <small>
+                        {formatAmendmentStatus(amendment)} ·{' '}
+                        {formatAmendmentTiming(amendment)} · guard{' '}
+                        {amendment.guard_verdict}/
+                        {amendment.guard_findings_count}
+                      </small>
+                      <small>
+                        {amendment.rationale || amendment.diff_summary}
+                      </small>
+                    </div>
+                    <div className="skill-review-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() =>
+                          setSelectedSkillName(amendment.skill_name)
+                        }
+                      >
+                        History
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={reviewMutation.isPending}
+                        onClick={() =>
+                          reviewMutation.mutate({
+                            action: 'apply',
+                            skillName: amendment.skill_name,
+                          })
+                        }
+                      >
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        disabled={reviewMutation.isPending}
+                        onClick={() =>
+                          reviewMutation.mutate({
+                            action: 'reject',
+                            skillName: amendment.skill_name,
+                          })
+                        }
+                      >
+                        Reject
+                      </button>
+                    </div>
                   </div>
-                  <div className="skill-review-actions">
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => setSelectedSkillName(amendment.skill_name)}
-                    >
-                      History
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-button"
-                      disabled={reviewMutation.isPending}
-                      onClick={() =>
-                        reviewMutation.mutate({
-                          action: 'apply',
-                          skillName: amendment.skill_name,
-                        })
-                      }
-                    >
-                      Apply
-                    </button>
-                    <button
-                      type="button"
-                      className="danger-button"
-                      disabled={reviewMutation.isPending}
-                      onClick={() =>
-                        reviewMutation.mutate({
-                          action: 'reject',
-                          skillName: amendment.skill_name,
-                        })
-                      }
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1156,52 +1164,52 @@ export function SkillsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-        {!effectiveSelectedSkillName ? (
-          <div className="empty-state">
-            Select a skill to inspect its amendment history.
-          </div>
-        ) : historyQuery.isLoading ? (
-          <div className="empty-state">Loading amendment history...</div>
-        ) : historyEntries.length === 0 ? (
-          <div className="empty-state">
-            No amendment history exists for this skill yet.
-          </div>
-        ) : (
-          <div className="list-stack selectable-list">
-            {historyEntries.map((amendment) => (
-              <div className="list-row" key={amendment.id}>
-                <div>
-                  <strong>
-                    {formatAmendmentStatus(amendment)} ·{' '}
-                    {formatAmendmentTiming(amendment)}
-                  </strong>
-                  <small>
-                    Guard {amendment.guard_verdict}/
-                    {amendment.guard_findings_count} · runs since apply{' '}
-                    {amendment.runs_since_apply}
-                  </small>
-                  <small>
-                    {amendment.rationale || 'No rationale recorded.'}
-                  </small>
-                  <small>
-                    {amendment.diff_summary || 'No diff summary recorded.'}
-                  </small>
+          {!effectiveSelectedSkillName ? (
+            <div className="empty-state">
+              Select a skill to inspect its amendment history.
+            </div>
+          ) : historyQuery.isLoading ? (
+            <div className="empty-state">Loading amendment history...</div>
+          ) : historyEntries.length === 0 ? (
+            <div className="empty-state">
+              No amendment history exists for this skill yet.
+            </div>
+          ) : (
+            <div className="list-stack selectable-list">
+              {historyEntries.map((amendment) => (
+                <div className="list-row" key={amendment.id}>
+                  <div>
+                    <strong>
+                      {formatAmendmentStatus(amendment)} ·{' '}
+                      {formatAmendmentTiming(amendment)}
+                    </strong>
+                    <small>
+                      Guard {amendment.guard_verdict}/
+                      {amendment.guard_findings_count} · runs since apply{' '}
+                      {amendment.runs_since_apply}
+                    </small>
+                    <small>
+                      {amendment.rationale || 'No rationale recorded.'}
+                    </small>
+                    <small>
+                      {amendment.diff_summary || 'No diff summary recorded.'}
+                    </small>
+                  </div>
+                  <span
+                    className={
+                      amendment.status === 'applied'
+                        ? 'list-status list-status-success'
+                        : amendment.status === 'rejected'
+                          ? 'list-status list-status-danger'
+                          : 'list-status'
+                    }
+                  >
+                    {amendment.status}
+                  </span>
                 </div>
-                <span
-                  className={
-                    amendment.status === 'applied'
-                      ? 'list-status list-status-success'
-                      : amendment.status === 'rejected'
-                        ? 'list-status list-status-danger'
-                        : 'list-status'
-                  }
-                >
-                  {amendment.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

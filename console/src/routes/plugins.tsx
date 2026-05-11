@@ -160,106 +160,106 @@ export function PluginsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-          {pluginsQuery.isLoading ? (
-            <div className="empty-state">Loading plugins...</div>
-          ) : plugins.length === 0 ? (
-            <div className="empty-state">No plugins match this filter.</div>
-          ) : (
-            <div className="table-shell">
-              <table>
-                <thead>
-                  <tr>
-                    <SortableHeader
-                      label="Plugin"
-                      sortKey="plugin"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Source"
-                      sortKey="source"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Enabled"
-                      sortKey="enabled"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Status"
-                      sortKey="status"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Commands"
-                      sortKey="commands"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Tools"
-                      sortKey="tools"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Hooks"
-                      sortKey="hooks"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                  </tr>
-                </thead>
-                <tbody>
-                  {plugins.map((plugin) => (
-                    <tr key={plugin.id}>
-                      <td>
-                        <strong>{plugin.name || plugin.id}</strong>
-                        <small>
-                          {plugin.id}
-                          {plugin.version ? ` · v${plugin.version}` : ''}
-                        </small>
-                        {plugin.description ? (
-                          <small>{plugin.description}</small>
-                        ) : null}
-                        {plugin.error ? <small>{plugin.error}</small> : null}
-                      </td>
-                      <td>{plugin.source}</td>
-                      <td>
-                        <BooleanPill
-                          value={plugin.enabled}
-                          trueLabel="enabled"
-                          falseLabel="disabled"
-                        />
-                      </td>
-                      <td>
-                        <BooleanPill
-                          value={plugin.status === 'loaded'}
-                          trueLabel="loaded"
-                          falseLabel="failed"
-                        />
-                      </td>
-                      <td>
-                        <strong>{plugin.commands.length}</strong>
-                        <small>{formatList(plugin.commands)}</small>
-                      </td>
-                      <td>
-                        <strong>{plugin.tools.length}</strong>
-                        <small>{formatList(plugin.tools)}</small>
-                      </td>
-                      <td>
-                        <strong>{plugin.hooks.length}</strong>
-                        <small>{formatList(plugin.hooks)}</small>
-                      </td>
+            {pluginsQuery.isLoading ? (
+              <div className="empty-state">Loading plugins...</div>
+            ) : plugins.length === 0 ? (
+              <div className="empty-state">No plugins match this filter.</div>
+            ) : (
+              <div className="table-shell">
+                <table>
+                  <thead>
+                    <tr>
+                      <SortableHeader
+                        label="Plugin"
+                        sortKey="plugin"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Source"
+                        sortKey="source"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Enabled"
+                        sortKey="enabled"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Status"
+                        sortKey="status"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Commands"
+                        sortKey="commands"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Tools"
+                        sortKey="tools"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Hooks"
+                        sortKey="hooks"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {plugins.map((plugin) => (
+                      <tr key={plugin.id}>
+                        <td>
+                          <strong>{plugin.name || plugin.id}</strong>
+                          <small>
+                            {plugin.id}
+                            {plugin.version ? ` · v${plugin.version}` : ''}
+                          </small>
+                          {plugin.description ? (
+                            <small>{plugin.description}</small>
+                          ) : null}
+                          {plugin.error ? <small>{plugin.error}</small> : null}
+                        </td>
+                        <td>{plugin.source}</td>
+                        <td>
+                          <BooleanPill
+                            value={plugin.enabled}
+                            trueLabel="enabled"
+                            falseLabel="disabled"
+                          />
+                        </td>
+                        <td>
+                          <BooleanPill
+                            value={plugin.status === 'loaded'}
+                            trueLabel="loaded"
+                            falseLabel="failed"
+                          />
+                        </td>
+                        <td>
+                          <strong>{plugin.commands.length}</strong>
+                          <small>{formatList(plugin.commands)}</small>
+                        </td>
+                        <td>
+                          <strong>{plugin.tools.length}</strong>
+                          <small>{formatList(plugin.tools)}</small>
+                        </td>
+                        <td>
+                          <strong>{plugin.hooks.length}</strong>
+                          <small>{formatList(plugin.hooks)}</small>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -268,34 +268,34 @@ export function PluginsPage() {
             <CardTitle>Failures</CardTitle>
           </CardHeader>
           <CardContent>
-          {pluginsQuery.isLoading ? (
-            <div className="empty-state">Loading plugin status...</div>
-          ) : failedPlugins.length > 0 ? (
-            <div className="list-stack selectable-list">
-              {failedPlugins.map((plugin) => (
-                <div className="list-row" key={plugin.id}>
-                  <div>
-                    <strong>{plugin.name || plugin.id}</strong>
-                    <small>
-                      {plugin.id}
-                      {plugin.version ? ` · v${plugin.version}` : ''}
-                    </small>
-                    <small>
-                      {plugin.error || 'Unknown plugin load error.'}
-                    </small>
+            {pluginsQuery.isLoading ? (
+              <div className="empty-state">Loading plugin status...</div>
+            ) : failedPlugins.length > 0 ? (
+              <div className="list-stack selectable-list">
+                {failedPlugins.map((plugin) => (
+                  <div className="list-row" key={plugin.id}>
+                    <div>
+                      <strong>{plugin.name || plugin.id}</strong>
+                      <small>
+                        {plugin.id}
+                        {plugin.version ? ` · v${plugin.version}` : ''}
+                      </small>
+                      <small>
+                        {plugin.error || 'Unknown plugin load error.'}
+                      </small>
+                    </div>
+                    <span className="list-status list-status-danger">
+                      <span className="status-dot status-dot-danger" />
+                      failed
+                    </span>
                   </div>
-                  <span className="list-status list-status-danger">
-                    <span className="status-dot status-dot-danger" />
-                    failed
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              No plugin load failures were reported.
-            </div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                No plugin load failures were reported.
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

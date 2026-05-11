@@ -3,12 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
 import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { useAuth } from '../auth';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '../components/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
