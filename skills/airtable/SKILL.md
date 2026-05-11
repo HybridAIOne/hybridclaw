@@ -74,11 +74,12 @@ hybridclaw secret set AIRTABLE_PAT "<pat-or-oauth-access-token>"
 ```
 
 For live API calls inside HybridClaw, use the helper to build the
-`http_request` payload, then call the built-in `http_request` tool. The helper
-sets `bearerSecretName: "AIRTABLE_PAT"` so the gateway injects the bearer token
-server-side. Do not use bash/curl for live Airtable calls when `http_request`
-is available, and do not ask the user to store a HybridClaw gateway token as an
-Airtable secret.
+`http_request` payload wrapper, then pass the emitted inner `httpRequest` object
+to the built-in `http_request` tool. The helper sets
+`bearerSecretName: "AIRTABLE_PAT"` on that inner object so the gateway injects
+the bearer token server-side. Do not use bash/curl for live Airtable calls when
+`http_request` is available, and do not ask the user to store a HybridClaw
+gateway token as an Airtable secret.
 
 Required Airtable PAT scopes depend on the task:
 
@@ -124,6 +125,10 @@ List bases:
 ```bash
 node skills/airtable/airtable.cjs http-request list-bases
 ```
+
+The helper prints a wrapper such as
+`{ "command": "http-request", "httpRequest": { ... } }`. Pass only the
+`httpRequest` value to the built-in `http_request` tool.
 
 Get base schema:
 

@@ -87,6 +87,12 @@ test('Airtable helper plans reads, writes, attachments, and deletes offline', ()
     'plan',
     'Delete the stale Airtable record',
   ]);
+  const falsePositive = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Create a reminder for tomorrow',
+  ]);
 
   expect(read.status).toBe(0);
   expect(create.status).toBe(0);
@@ -111,6 +117,11 @@ test('Airtable helper plans reads, writes, attachments, and deletes offline', ()
     operation: 'record-delete',
     stakesTier: 'red',
     requiredGrant: 'approve-airtable-record-delete',
+  });
+  expect(JSON.parse(falsePositive.stdout)).toMatchObject({
+    operation: 'record-read',
+    stakesTier: 'green',
+    requiresEscalation: false,
   });
 });
 
@@ -149,6 +160,40 @@ test('Airtable helper emits gateway-proxied read requests without secrets', () =
   expect(payload.httpRequest.url).toContain('fields%5B%5D=Status');
   expect(list.stdout).not.toContain('pat');
   expect(payload.costMeasurement.system).toBe('UsageTotals');
+});
+
+test('Airtable helper validates list-record page size bounds', () => {
+  const tooLarge = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-records',
+    '--base-id',
+    'appBase',
+    '--table',
+    'tblPipeline',
+    '--page-size',
+    '101',
+  ]);
+  const notInteger = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-records',
+    '--base-id',
+    'appBase',
+    '--table',
+    'tblPipeline',
+    '--page-size',
+    '25.5',
+  ]);
+
+  expect(tooLarge.status).not.toBe(0);
+  expect(tooLarge.stderr).toContain('--page-size must be between 1 and 100.');
+  expect(notInteger.status).not.toBe(0);
+  expect(notInteger.stderr).toContain(
+    '--page-size must be an integer between 1 and 100.',
+  );
 });
 
 test('Airtable helper validates fields before creating record payloads', () => {

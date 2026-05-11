@@ -112,6 +112,17 @@ function parseJsonValue(raw, label) {
   }
 }
 
+function parsePageSize(raw) {
+  if (!/^\d+$/.test(raw)) {
+    die('--page-size must be an integer between 1 and 100.');
+  }
+  const pageSize = Number.parseInt(raw, 10);
+  if (pageSize < 1 || pageSize > 100) {
+    die('--page-size must be between 1 and 100.');
+  }
+  return String(pageSize);
+}
+
 function loadJsonFile(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -431,9 +442,9 @@ function planRequest(request) {
   }
   if (
     /\b(create|add|insert|new)\b/.test(text) &&
-    /\brecord|row|lead|task|entry|attachment|file\b/.test(text)
+    /\b(records?|rows?|leads?|tasks?|entries|attachments?|files?)\b/.test(text)
   ) {
-    operation = /\battach|attachment|file\b/.test(text)
+    operation = /\b(attach|attachment|file)s?\b/.test(text)
       ? 'attachment-update'
       : 'record-create';
     stakesTier = 'amber';
@@ -444,7 +455,7 @@ function planRequest(request) {
         : 'approve-airtable-record-create';
   }
   if (/\b(update|edit|change|modify|set)\b/.test(text)) {
-    operation = /\battach|attachment|file\b/.test(text)
+    operation = /\b(attach|attachment|file)s?\b/.test(text)
       ? 'attachment-update'
       : 'record-update';
     stakesTier = 'amber';
@@ -571,7 +582,7 @@ function handleHttpRequest(args) {
   if (operation === 'list-records') {
     const { baseId, table } = parseCommonRecordArgs(args);
     const fields = popRepeatedFlag(args, '--field');
-    const pageSize = popFlag(args, '--page-size', '100');
+    const pageSize = parsePageSize(popFlag(args, '--page-size', '100'));
     const offset = popFlag(args, '--offset');
     const view = popFlag(args, '--view');
     const filterByFormula = popFlag(args, '--filter-by-formula');
