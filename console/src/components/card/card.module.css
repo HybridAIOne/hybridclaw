@@ -10,7 +10,7 @@
   box-sizing: border-box;
 }
 
-.card[data-variant='muted'] {
+.card[data-variant="muted"] {
   background: var(--panel-muted);
 }
 

@@ -26,31 +26,33 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(function Card(
   );
 });
 
-export const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  function CardHeader({ className, ...rest }, ref) {
-    return (
-      <div
-        ref={ref}
-        data-slot="card-header"
-        className={cx(styles.header, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export const CardHeader = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement>
+>(function CardHeader({ className, ...rest }, ref) {
+  return (
+    <div
+      ref={ref}
+      data-slot="card-header"
+      className={cx(styles.header, className)}
+      {...rest}
+    />
+  );
+});
 
-export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
-  function CardTitle({ className, ...rest }, ref) {
-    return (
-      <h4
-        ref={ref}
-        data-slot="card-title"
-        className={cx(styles.title, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export const CardTitle = forwardRef<
+  HTMLHeadingElement,
+  HTMLAttributes<HTMLHeadingElement>
+>(function CardTitle({ className, ...rest }, ref) {
+  return (
+    <h4
+      ref={ref}
+      data-slot="card-title"
+      className={cx(styles.title, className)}
+      {...rest}
+    />
+  );
+});
 
 export const CardDescription = forwardRef<
   HTMLParagraphElement,
@@ -66,41 +68,44 @@ export const CardDescription = forwardRef<
   );
 });
 
-export const CardAction = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  function CardAction({ className, ...rest }, ref) {
-    return (
-      <div
-        ref={ref}
-        data-slot="card-action"
-        className={cx(styles.action, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export const CardAction = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement>
+>(function CardAction({ className, ...rest }, ref) {
+  return (
+    <div
+      ref={ref}
+      data-slot="card-action"
+      className={cx(styles.action, className)}
+      {...rest}
+    />
+  );
+});
 
-export const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  function CardContent({ className, ...rest }, ref) {
-    return (
-      <div
-        ref={ref}
-        data-slot="card-content"
-        className={cx(styles.content, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export const CardContent = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement>
+>(function CardContent({ className, ...rest }, ref) {
+  return (
+    <div
+      ref={ref}
+      data-slot="card-content"
+      className={cx(styles.content, className)}
+      {...rest}
+    />
+  );
+});
 
-export const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  function CardFooter({ className, ...rest }, ref) {
-    return (
-      <div
-        ref={ref}
-        data-slot="card-footer"
-        className={cx(styles.footer, className)}
-        {...rest}
-      />
-    );
-  },
-);
+export const CardFooter = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement>
+>(function CardFooter({ className, ...rest }, ref) {
+  return (
+    <div
+      ref={ref}
+      data-slot="card-footer"
+      className={cx(styles.footer, className)}
+      {...rest}
+    />
+  );
+});
