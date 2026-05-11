@@ -135,7 +135,7 @@ let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 29;
+export const DATABASE_SCHEMA_VERSION = 30;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -2322,6 +2322,39 @@ function migrateV29(database: Database.Database): void {
   );
 }
 
+function migrateV30(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS board_cards (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('user', 'agent')),
+      owner_id TEXT NOT NULL,
+      "column" TEXT NOT NULL CHECK ("column" IN ('triage', 'todo', 'in_progress', 'in_review', 'done')),
+      status TEXT NOT NULL,
+      source TEXT NOT NULL,
+      parent TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_board_cards_column_deleted
+      ON board_cards("column", deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_board_cards_owner_deleted
+      ON board_cards(owner_type, owner_id, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_board_cards_source_deleted
+      ON board_cards(source, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_board_cards_parent
+      ON board_cards(parent);
+  `);
+  recordMigration(
+    database,
+    30,
+    'Persist board card data model for admin work board',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2389,6 +2422,7 @@ function runMigrations(
   ) {
     migrateV29(database);
   }
+  if (currentVersion < 30) migrateV30(database);
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2419,6 +2453,22 @@ export function isDatabaseInitialized(): boolean {
 function ensureDatabaseReady(): void {
   if (databaseInitialized) return;
   initDatabase({ quiet: true });
+}
+
+export function withMemoryDatabase<T>(
+  fn: (database: Database.Database) => T,
+): T {
+  ensureDatabaseReady();
+  return fn(db);
+}
+
+export function withMemoryDatabaseRuntimeRevisionStore<T>(
+  fn: (database: Database.Database, revisionSchemaName: string) => T,
+): T {
+  ensureDatabaseReady();
+  return withRuntimeRevisionDatabaseAttached(() =>
+    fn(db, RUNTIME_REVISION_ATTACHMENT),
+  );
 }
 
 function serializeAgentModelConfig(
