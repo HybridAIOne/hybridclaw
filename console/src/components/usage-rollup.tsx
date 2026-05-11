@@ -44,9 +44,7 @@ export function UsageRollup(props: UsageRollupProps) {
       <p className={css.summary}>
         <strong>{formatCompactNumber(summary.totalTokens)}</strong> tokens this
         month
-        {hasDaily
-          ? ` · ${formatCompactNumber(daily.totalTokens)} today`
-          : null}
+        {hasDaily ? ` · ${formatCompactNumber(daily.totalTokens)} today` : null}
       </p>
 
       <div className={css.ribbon}>
