@@ -73,6 +73,10 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
+import {
+  SKILL_MANIFEST_CREDENTIAL_KINDS,
+  type SkillManifestCredentialKind,
+} from '../skills/skill-manifest.js';
 import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
@@ -712,12 +716,7 @@ export interface RuntimeSkillCredentialManifest {
   required: boolean;
 }
 
-export type RuntimeSkillDeclaredCredentialKind =
-  | 'api_key'
-  | 'oauth'
-  | 'browser_login'
-  | 'bearer'
-  | 'header';
+export type RuntimeSkillDeclaredCredentialKind = SkillManifestCredentialKind;
 
 export interface RuntimeSkillDeclaredCredentialManifest {
   id: string;
@@ -2149,14 +2148,11 @@ function normalizeRuntimeSkillCredentialManifests(
   return credentials;
 }
 
-const RUNTIME_SKILL_DECLARED_CREDENTIAL_KINDS: readonly RuntimeSkillDeclaredCredentialKind[] =
-  ['api_key', 'oauth', 'browser_login', 'bearer', 'header'];
-
 function normalizeRuntimeSkillDeclaredCredentialKind(
   value: unknown,
 ): RuntimeSkillDeclaredCredentialKind | null {
   const normalized = normalizeString(value, '', { allowEmpty: false });
-  return RUNTIME_SKILL_DECLARED_CREDENTIAL_KINDS.includes(
+  return SKILL_MANIFEST_CREDENTIAL_KINDS.includes(
     normalized as RuntimeSkillDeclaredCredentialKind,
   )
     ? (normalized as RuntimeSkillDeclaredCredentialKind)

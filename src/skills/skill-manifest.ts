@@ -69,13 +69,8 @@ export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
 
 const SEMVERISH_RE =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$/;
-const CREDENTIAL_KINDS: readonly SkillManifestCredentialKind[] = [
-  'api_key',
-  'oauth',
-  'browser_login',
-  'bearer',
-  'header',
-];
+export const SKILL_MANIFEST_CREDENTIAL_KINDS: readonly SkillManifestCredentialKind[] =
+  ['api_key', 'oauth', 'browser_login', 'bearer', 'header'];
 
 function stripQuotes(value: string): string {
   const trimmed = value.trim();
@@ -206,8 +201,15 @@ function normalizeCredentialKind(
 ): SkillManifestCredentialKind {
   const kind = normalizeString(value);
   if (!kind) credentialFieldError(path, 'is required');
-  if (!CREDENTIAL_KINDS.includes(kind as SkillManifestCredentialKind)) {
-    credentialFieldError(path, `must be one of ${CREDENTIAL_KINDS.join(', ')}`);
+  if (
+    !SKILL_MANIFEST_CREDENTIAL_KINDS.includes(
+      kind as SkillManifestCredentialKind,
+    )
+  ) {
+    credentialFieldError(
+      path,
+      `must be one of ${SKILL_MANIFEST_CREDENTIAL_KINDS.join(', ')}`,
+    );
   }
   return kind as SkillManifestCredentialKind;
 }

@@ -16,7 +16,7 @@ import type {
   RuntimeSchedulerJob,
 } from '../config/runtime-config.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
-import type { SkillManifestDeclaredCredential } from '../skills/skill-manifest.js';
+import type { SkillManifestDeclaredCredential } from '../skills/skills.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
