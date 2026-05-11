@@ -11,6 +11,7 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  type BuildLocalA2AAgentCardOptions,
   buildLocalA2AAgentCard,
   deleteA2ATrustedPublicKeyPeer,
   ensureA2AInstanceKeypair,
@@ -4978,8 +4979,11 @@ export function deleteGatewayAdminA2ATrustPeer(params: {
   return getGatewayAdminA2ATrust();
 }
 
-export function getGatewayA2AAgentCard(baseUrl: string): A2AAgentCard {
-  return buildLocalA2AAgentCard(baseUrl);
+export function getGatewayA2AAgentCard(
+  baseUrl: string,
+  options?: BuildLocalA2AAgentCardOptions,
+): A2AAgentCard {
+  return buildLocalA2AAgentCard(baseUrl, options);
 }
 
 function mapAdminAuditEntry(

@@ -11,9 +11,11 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentA2AConfig,
   cloneAgentCv,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
+  normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   resolveSnakeCamelAlias,
@@ -2424,6 +2426,9 @@ function normalizeAgentConfig(
     : fallback?.escalationTarget
       ? { ...fallback.escalationTarget }
       : undefined;
+  const a2a = Object.hasOwn(value, 'a2a')
+    ? normalizeAgentA2AConfig(value.a2a)
+    : cloneAgentA2AConfig(fallback?.a2a);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2440,6 +2445,7 @@ function normalizeAgentConfig(
     ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
+    ...(a2a ? { a2a } : {}),
   };
 }
 

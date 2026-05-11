@@ -1,11 +1,13 @@
+import { createPublicKey, X509Certificate } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getAgentById, listAgents } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { readRequestBody, sendJson } from '../gateway/gateway-http-utils.js';
-import { decodeA2AJsonRpcRequest } from './a2a-json-rpc.js';
+import { decodeA2AJsonRpcRequest, type JsonRpcId } from './a2a-json-rpc.js';
 import {
+  A2A_AGENT_CARD_READ_SCOPE,
   A2A_MESSAGE_SEND_SCOPE,
   A2A_TASK_SEND_SCOPE,
 } from './a2a-outbox-delivery.js';
@@ -45,6 +47,8 @@ export type A2AJsonRpcInboundDownstreamDisposition =
   | 'duplicate'
   | 'rejected'
   | 'error';
+export type A2AAgentCardPeerTrustLevel = 'public' | 'trusted';
+type A2AInboundAuthMode = 'signed_bearer' | 'peer_public_key';
 
 export type { A2ATrustedA2APeer, UpsertA2ATrustedA2APeerInput };
 export { listA2ATrustedA2APeers, upsertA2ATrustedA2APeer };
@@ -52,6 +56,11 @@ export { listA2ATrustedA2APeers, upsertA2ATrustedA2APeer };
 export interface A2AJsonRpcInboundResult {
   statusCode: number;
   body: Record<string, unknown>;
+}
+
+export interface A2AAgentCardPeerTrustResult {
+  trustLevel: A2AAgentCardPeerTrustLevel;
+  peerId?: string;
 }
 
 class A2AMissingTrustedPeerError extends A2ADelegationTokenError {
@@ -73,6 +82,46 @@ function readHeader(
   const raw = headers[headerName.toLowerCase()];
   if (Array.isArray(raw)) return raw[0] || '';
   return raw || '';
+}
+
+function publicKeyPem(value: string): string {
+  return createPublicKey(value)
+    .export({ format: 'pem', type: 'spki' })
+    .toString();
+}
+
+function publicKeysMatch(leftPem: string, rightPem: string): boolean {
+  try {
+    return publicKeyPem(leftPem) === publicKeyPem(rightPem);
+  } catch {
+    return false;
+  }
+}
+
+export function extractA2AMtlsPublicKeyPem(
+  req: IncomingMessage,
+): string | null {
+  const socket = req.socket as {
+    authorized?: boolean;
+    getPeerCertificate?: (detailed?: boolean) => { raw?: Buffer } | null;
+  };
+  if (
+    socket.authorized !== true ||
+    typeof socket.getPeerCertificate !== 'function'
+  ) {
+    return null;
+  }
+  const certificate = socket.getPeerCertificate(true);
+  if (!certificate?.raw || certificate.raw.length === 0) {
+    return null;
+  }
+  try {
+    return new X509Certificate(certificate.raw).publicKey
+      .export({ format: 'pem', type: 'spki' })
+      .toString();
+  } catch {
+    return null;
+  }
 }
 
 function extractBearerToken(authorization: string | null | undefined): string {
@@ -119,7 +168,10 @@ function localRecipientResolves(recipientAgentId: string): boolean {
   return localCanonicalRecipientIds().has(recipientAgentId.toLowerCase());
 }
 
-function jsonRpcMethod(payload: unknown): 'message/send' | 'tasks/send' {
+function jsonRpcRequestMeta(payload: unknown): {
+  method: 'message/send' | 'tasks/send';
+  id: JsonRpcId;
+} {
   const parsed =
     typeof payload === 'string' ? (JSON.parse(payload) as unknown) : payload;
   if (!isRecord(parsed) || parsed.jsonrpc !== '2.0') {
@@ -132,7 +184,13 @@ function jsonRpcMethod(payload: unknown): 'message/send' | 'tasks/send' {
       'A2A JSON-RPC method must be message/send or tasks/send',
     ]);
   }
-  return parsed.method;
+  const id =
+    typeof parsed.id === 'string' ||
+    typeof parsed.id === 'number' ||
+    parsed.id === null
+      ? parsed.id
+      : null;
+  return { method: parsed.method, id };
 }
 
 function extractErrorReason(error: unknown): string {
@@ -142,9 +200,20 @@ function extractErrorReason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function peerInstanceIdFromEnvelope(
+  envelope: A2AEnvelope | null,
+): string | null {
+  const parts = envelope?.sender_agent_id.split('@') ?? [];
+  return parts.length === 3 && parts[2] ? parts[2] : null;
+}
+
 function recordInboundAudit(params: {
   runId: string;
   peerId: string | null;
+  peerInstanceId: string | null;
+  authMode: A2AInboundAuthMode | null;
+  method: 'message/send' | 'tasks/send' | null;
+  agentId: string | null;
   signatureOutcome: A2AJsonRpcInboundSignatureOutcome;
   intent: string | null;
   downstreamDisposition: A2AJsonRpcInboundDownstreamDisposition;
@@ -159,8 +228,13 @@ function recordInboundAudit(params: {
     event: {
       type: 'a2a.inbound_post',
       peerId,
+      peerInstanceId: params.peerInstanceId,
+      authMode: params.authMode,
+      method: params.method,
+      agentId: params.agentId,
       signatureOutcome: params.signatureOutcome,
       intent: params.intent,
+      outcome: params.downstreamDisposition,
       downstreamDisposition: params.downstreamDisposition,
       statusCode: params.statusCode,
       ...(params.reason ? { reason: params.reason } : {}),
@@ -169,6 +243,37 @@ function recordInboundAudit(params: {
         : {}),
     },
   });
+}
+
+function jsonRpcErrorBody(params: {
+  id: JsonRpcId;
+  code: number;
+  message: string;
+  reason?: string;
+}): Record<string, unknown> {
+  return {
+    jsonrpc: '2.0',
+    error: {
+      code: params.code,
+      message: params.message,
+      ...(params.reason ? { data: { reason: params.reason } } : {}),
+    },
+    id: params.id,
+  };
+}
+
+function jsonRpcErrorCode(error: unknown): number {
+  if (error instanceof A2ADelegationTokenError) return -32001;
+  if (error instanceof A2AEnvelopeDuplicateError) return -32009;
+  if (error instanceof A2AEnvelopeValidationError) return -32602;
+  return -32603;
+}
+
+function jsonRpcErrorMessage(error: unknown): string {
+  if (error instanceof A2ADelegationTokenError) return 'Unauthorized';
+  if (error instanceof A2AEnvelopeDuplicateError) return 'Duplicate envelope';
+  if (error instanceof A2AEnvelopeValidationError) return 'Invalid params';
+  return 'Internal error';
 }
 
 function resolveTrustedPeerForToken(params: {
@@ -183,6 +288,34 @@ function resolveTrustedPeerForToken(params: {
     throw new A2AMissingTrustedPeerError();
   }
   return peer;
+}
+
+function resolveTrustedPeerForMtls(params: {
+  senderAgentId: string;
+  mtlsPublicKeyPem: string;
+  peer?: A2ATrustedA2APeer;
+}): A2ATrustedA2APeer {
+  const peer =
+    params.peer ?? getA2ATrustedA2APeerBySender(params.senderAgentId);
+  if (!peer) {
+    throw new A2AMissingTrustedPeerError('No trusted A2A peer for mTLS sender');
+  }
+  if (!publicKeysMatch(params.mtlsPublicKeyPem, peer.publicKeyPem)) {
+    throw new A2ADelegationTokenError(
+      'mTLS certificate public key does not match trusted A2A peer',
+    );
+  }
+  return peer;
+}
+
+function resolveTrustedPeerForMtlsPublicKey(
+  mtlsPublicKeyPem: string,
+): A2ATrustedA2APeer | null {
+  return (
+    listA2ATrustedA2APeers().find((peer) =>
+      publicKeysMatch(mtlsPublicKeyPem, peer.publicKeyPem),
+    ) ?? null
+  );
 }
 
 function verifySignedRequest(params: {
@@ -224,40 +357,67 @@ export function acceptA2AJsonRpcInboundRequest(params: {
   rawBody: string;
   authorization: string | null | undefined;
   audience: string;
+  mtlsPublicKeyPem?: string | null;
   now?: Date;
   peer?: A2ATrustedA2APeer;
 }): A2AJsonRpcInboundResult {
   const runId = makeAuditRunId('a2a-inbound');
   let envelope: A2AEnvelope | null = null;
   let peer: A2ATrustedA2APeer | null = params.peer ?? null;
+  let method: 'message/send' | 'tasks/send' | null = null;
+  let requestId: JsonRpcId = null;
+  let authMode: A2AInboundAuthMode | null = null;
 
   try {
-    const method = jsonRpcMethod(params.rawBody);
+    const meta = jsonRpcRequestMeta(params.rawBody);
+    method = meta.method;
+    requestId = meta.id;
     envelope = decodeA2AJsonRpcRequest(params.rawBody);
     if (!localRecipientResolves(envelope.recipient_agent_id)) {
       throw new A2AEnvelopeValidationError([
         'recipient_agent_id does not resolve to a local agent',
       ]);
     }
-    const token = extractBearerToken(params.authorization);
-    peer = resolveTrustedPeerForToken({
-      token,
-      peer: params.peer,
-    });
-    verifySignedRequest({
-      token,
-      envelope,
-      method,
-      audience: params.audience,
-      now: params.now,
-      peer,
-    });
+    const authorization = String(params.authorization || '').trim();
+    if (authorization) {
+      authMode = 'signed_bearer';
+      const token = extractBearerToken(params.authorization);
+      peer = resolveTrustedPeerForToken({
+        token,
+        peer: params.peer,
+      });
+      verifySignedRequest({
+        token,
+        envelope,
+        method,
+        audience: params.audience,
+        now: params.now,
+        peer,
+      });
+    } else if (params.mtlsPublicKeyPem) {
+      authMode = 'peer_public_key';
+      peer =
+        params.peer ?? getA2ATrustedA2APeerBySender(envelope.sender_agent_id);
+      peer = resolveTrustedPeerForMtls({
+        senderAgentId: envelope.sender_agent_id,
+        mtlsPublicKeyPem: params.mtlsPublicKeyPem,
+        peer: peer ?? undefined,
+      });
+    } else {
+      throw new A2ADelegationTokenError(
+        'Authorization bearer token or mTLS client certificate is required',
+      );
+    }
   } catch (error) {
     const reason = extractErrorReason(error);
     const statusCode = error instanceof A2ADelegationTokenError ? 401 : 400;
     recordInboundAudit({
       runId,
       peerId: peer?.peerId || null,
+      peerInstanceId: peerInstanceIdFromEnvelope(envelope),
+      authMode,
+      method,
+      agentId: envelope?.recipient_agent_id || null,
       signatureOutcome: signatureOutcomeForError(error),
       intent: envelope?.intent || null,
       downstreamDisposition:
@@ -270,10 +430,12 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     });
     return {
       statusCode,
-      body: {
-        error:
-          error instanceof A2ADelegationTokenError ? 'Unauthorized' : reason,
-      },
+      body: jsonRpcErrorBody({
+        id: requestId,
+        code: jsonRpcErrorCode(error),
+        message: jsonRpcErrorMessage(error),
+        reason,
+      }),
     };
   }
 
@@ -287,6 +449,10 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     recordInboundAudit({
       runId,
       peerId: peer.peerId,
+      peerInstanceId: peerInstanceIdFromEnvelope(envelope),
+      authMode,
+      method,
+      agentId: envelope.recipient_agent_id,
       signatureOutcome: 'passed',
       intent: envelope.intent,
       downstreamDisposition: 'delivered',
@@ -295,7 +461,11 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     });
     return {
       statusCode: 202,
-      body: { ...confirmation },
+      body: {
+        jsonrpc: '2.0',
+        result: { ...confirmation },
+        id: requestId,
+      },
     };
   } catch (error) {
     const isDuplicate = error instanceof A2AEnvelopeDuplicateError;
@@ -303,6 +473,10 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     recordInboundAudit({
       runId,
       peerId: peer.peerId,
+      peerInstanceId: peerInstanceIdFromEnvelope(envelope),
+      authMode,
+      method,
+      agentId: envelope.recipient_agent_id,
       signatureOutcome: 'passed',
       intent: envelope.intent,
       downstreamDisposition: isDuplicate ? 'duplicate' : 'error',
@@ -312,9 +486,43 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     });
     return {
       statusCode: isDuplicate ? 409 : 500,
-      body: { error: reason },
+      body: jsonRpcErrorBody({
+        id: requestId,
+        code: jsonRpcErrorCode(error),
+        message: jsonRpcErrorMessage(error),
+        reason,
+      }),
     };
   }
+}
+
+export function resolveA2AAgentCardPeerTrust(params: {
+  authorization: string | null | undefined;
+  audience: string;
+  mtlsPublicKeyPem?: string | null;
+  now?: Date;
+}): A2AAgentCardPeerTrustResult {
+  if (String(params.authorization || '').trim()) {
+    try {
+      const token = extractBearerToken(params.authorization);
+      const peer = resolveTrustedPeerForToken({ token });
+      verifyA2ADelegationToken({
+        token,
+        publicKeyPem: peer.publicKeyPem,
+        audience: params.audience,
+        requiredScope: A2A_AGENT_CARD_READ_SCOPE,
+        now: params.now,
+      });
+      return { trustLevel: 'trusted', peerId: peer.peerId };
+    } catch {
+      return { trustLevel: 'public' };
+    }
+  }
+  if (params.mtlsPublicKeyPem) {
+    const peer = resolveTrustedPeerForMtlsPublicKey(params.mtlsPublicKeyPem);
+    if (peer) return { trustLevel: 'trusted', peerId: peer.peerId };
+  }
+  return { trustLevel: 'public' };
 }
 
 export async function handleA2AJsonRpcInbound(
@@ -339,6 +547,7 @@ export async function handleA2AJsonRpcInbound(
       rawBody,
       authorization: readHeader(req.headers, 'authorization'),
       audience: normalizeAudience(url),
+      mtlsPublicKeyPem: extractA2AMtlsPublicKeyPem(req),
     });
     sendJson(res, result.statusCode, result.body);
   } catch (error) {

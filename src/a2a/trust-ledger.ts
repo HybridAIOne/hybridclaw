@@ -9,6 +9,8 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { listAgents } from '../agents/agent-registry.js';
+import type { AgentA2AExposure, AgentConfig } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeAssetRevisionState,
@@ -21,6 +23,7 @@ import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
+import { resolveA2AAgentId } from './identity.js';
 import { isRecord, normalizePositiveInteger } from './utils.js';
 import {
   WEBHOOK_BODY_VERSION,
@@ -101,6 +104,7 @@ export interface A2AInstanceKeypair {
 }
 
 export type A2APublicKeyTrustStatus = 'trusted' | 'revoked';
+export type A2AAgentCardTrustLevel = 'public' | 'trusted';
 
 // TOFU trust records persist until operator revocation; key changes fail closed
 // and emit mismatch audit events.
@@ -147,6 +151,11 @@ export interface UpsertA2ATrustedWebhookPeerInput {
   version?: string;
   replayWindowMs?: number;
   rateLimitPerMinute?: number;
+}
+
+export interface BuildLocalA2AAgentCardOptions {
+  peerTrustLevel?: A2AAgentCardTrustLevel;
+  peerId?: string;
 }
 
 export interface A2ATrustedA2APeer {
@@ -382,15 +391,104 @@ export function getA2AInstancePublicKey(): KeyObject {
   return cachedInstancePublicKey;
 }
 
-export function buildLocalA2AAgentCard(baseUrl: string): A2AAgentCard {
+function exposureVisibleTo(
+  exposure: AgentA2AExposure | undefined,
+  trustLevel: A2AAgentCardTrustLevel,
+): boolean {
+  const normalized = exposure || 'public';
+  if (normalized === 'private') return false;
+  if (normalized === 'trusted') return trustLevel === 'trusted';
+  return true;
+}
+
+function agentDisplayName(agent: AgentConfig): string {
+  return agent.displayName || agent.name || agent.id;
+}
+
+function agentDescription(agent: AgentConfig): string {
+  return agent.cv?.summary || agent.role || 'HybridClaw agent';
+}
+
+function visibleAgentSkills(
+  agent: AgentConfig,
+  trustLevel: A2AAgentCardTrustLevel,
+): string[] {
+  return (agent.skills ?? []).filter((skill) =>
+    exposureVisibleTo(agent.a2a?.skillExposure?.[skill], trustLevel),
+  );
+}
+
+function buildAgentCardAgentEntry(
+  agent: AgentConfig,
+  trustLevel: A2AAgentCardTrustLevel,
+): Record<string, unknown> {
+  const canonicalAgentId = resolveA2AAgentId(agent.id);
+  return {
+    id: canonicalAgentId,
+    name: agentDisplayName(agent),
+    description: agentDescription(agent),
+    skills: visibleAgentSkills(agent, trustLevel),
+    metadata: {
+      hybridclaw: {
+        localAgentId: agent.id,
+        owner: agent.owner || null,
+        exposure: agent.a2a?.exposure || 'public',
+      },
+    },
+  };
+}
+
+function buildAgentCardSkillEntries(
+  agent: AgentConfig,
+  trustLevel: A2AAgentCardTrustLevel,
+): Record<string, unknown>[] {
+  const canonicalAgentId = resolveA2AAgentId(agent.id);
+  return visibleAgentSkills(agent, trustLevel).map((skill) => ({
+    id: `${canonicalAgentId}:skill:${skill}`,
+    name: skill,
+    agentId: canonicalAgentId,
+    metadata: {
+      hybridclaw: {
+        localAgentId: agent.id,
+        skill,
+        exposure: agent.a2a?.skillExposure?.[skill] || 'public',
+      },
+    },
+  }));
+}
+
+function visibleA2AAgents(trustLevel: A2AAgentCardTrustLevel): AgentConfig[] {
+  return listAgents().filter((agent) =>
+    exposureVisibleTo(agent.a2a?.exposure, trustLevel),
+  );
+}
+
+export function buildLocalA2AAgentCard(
+  baseUrl: string,
+  options: BuildLocalA2AAgentCardOptions = {},
+): A2AAgentCard {
   const url = new URL(baseUrl);
   const identity = ensureA2AInstanceKeypair();
+  const peerTrustLevel = options.peerTrustLevel || 'public';
+  const agents = visibleA2AAgents(peerTrustLevel);
   return {
     name: 'HybridClaw',
     url: new URL('/a2a', url.origin).toString(),
-    capabilities: ['message/send', 'tasks/send'],
+    capabilities: {
+      messageSend: true,
+      tasksSend: true,
+      streaming: false,
+    },
+    agents: agents.map((agent) =>
+      buildAgentCardAgentEntry(agent, peerTrustLevel),
+    ),
+    skills: agents.flatMap((agent) =>
+      buildAgentCardSkillEntries(agent, peerTrustLevel),
+    ),
     hybridclaw: {
       instanceId: identity.instanceId,
+      peerTrustLevel,
+      peerId: options.peerId || null,
       // This TOFU identity key identifies Agent Cards; delegation JWT verification
       // uses delegation-token.ts until key distribution is unified.
       publicKeyJwk: identity.publicKeyJwk,
