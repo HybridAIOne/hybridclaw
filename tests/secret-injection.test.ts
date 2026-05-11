@@ -9,6 +9,28 @@ afterEach(() => {
   vi.resetModules();
 });
 
+describe('SecretRef', () => {
+  test('hardened refs block accidental coercion and JSON serialization', async () => {
+    const { hardenSecretRef } = await import('../src/security/secret-refs.js');
+
+    const ref = hardenSecretRef({
+      source: 'env',
+      id: 'HYBRIDCLAW_TEST_SECRET',
+    });
+
+    expect(ref).toMatchObject({
+      source: 'env',
+      id: 'HYBRIDCLAW_TEST_SECRET',
+    });
+    expect(Object.keys(ref).sort()).toEqual(['id', 'source']);
+    expect(() => String(ref)).toThrow(/SecretRef cannot be coerced/i);
+    expect(() => `${ref}`).toThrow(/SecretRef cannot be coerced/i);
+    expect(() => JSON.stringify(ref)).toThrow(
+      /SecretRef cannot be JSON-stringified/i,
+    );
+  });
+});
+
 describe('SecretHandle', () => {
   test('blocks accidental coercion and JSON serialization', async () => {
     process.env.HYBRIDCLAW_TEST_SECRET = 'super-secret-value';

@@ -20,6 +20,14 @@ import {
   resetPolicyNetwork,
   setPolicyDefault,
 } from '../policy/policy-store.js';
+import {
+  acceptPendingPolicyUpdate,
+  formatPendingPolicyUpdateDiff,
+  formatPolicyUpdateResult,
+  listPendingPolicyUpdates,
+  listPolicyRevisions,
+  rollbackPolicyRevision,
+} from '../policy/remote-policy-authority.js';
 
 export interface PolicyCommandOutput {
   kind: 'plain' | 'info' | 'error';
@@ -300,6 +308,14 @@ function parseListFlags(args: string[]): {
   return { agent, json };
 }
 
+function parseRevisionId(raw: string): number {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid policy revision id: ${raw}`);
+  }
+  return parsed;
+}
+
 export function runPolicyCommand(
   args: string[],
   params: {
@@ -323,15 +339,88 @@ export function runPolicyCommand(
       };
     }
 
-    if (subcommand === 'list') {
+    if (subcommand === 'list' || subcommand === 'show') {
       const flags = parseListFlags(args.slice(1));
       const state = readPolicyState(workspacePath);
       return {
         kind: 'info',
-        title: 'Policy Rules',
+        title: subcommand === 'show' ? 'Policy' : 'Policy Rules',
         text: flags.json
           ? buildListJson(state, flags.agent)
           : formatRuleTable(state, flags.agent),
+      };
+    }
+
+    if (subcommand === 'diff') {
+      const pendingId = stripWrappedQuotes(parseIdArg(args, 1));
+      if (args.length > 2) {
+        throw new Error('Usage: `policy diff [pending-id|update-id]`');
+      }
+      return {
+        kind: 'info',
+        title: 'Policy Diff',
+        text: formatPendingPolicyUpdateDiff(pendingId || undefined),
+      };
+    }
+
+    if (subcommand === 'accept-pending') {
+      const pendingId = stripWrappedQuotes(parseIdArg(args, 1));
+      if (!pendingId || args.length > 2) {
+        throw new Error(
+          'Usage: `policy accept-pending <pending-id|update-id>`',
+        );
+      }
+      const result = acceptPendingPolicyUpdate(pendingId, workspacePath);
+      return {
+        kind: 'plain',
+        text: formatPolicyUpdateResult(result),
+      };
+    }
+
+    if (subcommand === 'rollback') {
+      const revisionId = parseRevisionId(
+        stripWrappedQuotes(parseIdArg(args, 1)),
+      );
+      if (args.length > 2) {
+        throw new Error('Usage: `policy rollback <revision-id>`');
+      }
+      return {
+        kind: 'plain',
+        text: rollbackPolicyRevision(workspacePath, revisionId),
+      };
+    }
+
+    if (subcommand === 'revisions') {
+      const revisions = listPolicyRevisions(workspacePath);
+      return {
+        kind: 'info',
+        title: 'Policy Revisions',
+        text:
+          revisions.length > 0
+            ? revisions
+                .map(
+                  (revision) =>
+                    `#${revision.id} ${revision.createdAt} actor=${revision.actor} route=${revision.route} source=${revision.source} md5=${revision.md5}`,
+                )
+                .join('\n')
+            : 'No policy revisions saved yet.',
+      };
+    }
+
+    if (subcommand === 'pending') {
+      const pending = listPendingPolicyUpdates();
+      return {
+        kind: 'info',
+        title: 'Pending Policy Updates',
+        text:
+          pending.length > 0
+            ? pending
+                .map(
+                  (entry) =>
+                    `${entry.pendingId} update=${entry.updateId} from=${entry.principal.senderAgentId}`,
+                )
+                .join('\n')
+            : 'No pending policy updates.',
       };
     }
 
@@ -465,7 +554,7 @@ export function runPolicyCommand(
     }
 
     throw new Error(
-      'Usage: `policy [status|list|allow|deny|delete|reset|preset|default] ...`',
+      'Usage: `policy [status|show|list|diff|accept-pending|rollback|revisions|pending|allow|deny|delete|reset|preset|default] ...`',
     );
   } catch (error) {
     return {

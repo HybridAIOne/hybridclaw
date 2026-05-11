@@ -10,6 +10,10 @@ import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
 import { normalizeTelegramChatId } from '../channels/telegram/target.js';
 import {
+  normalizeThreemaChannelId,
+  normalizeThreemaId,
+} from '../channels/threema/target.js';
+import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   type IMessageBackend,
@@ -112,6 +116,21 @@ function normalizeSignalAllowEntry(value: string): string | null {
   return normalized;
 }
 
+function parseChannelPolicy(
+  flagName: string,
+  raw: string,
+): 'open' | 'allowlist' | 'disabled' {
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === 'open' ||
+    normalized === 'allowlist' ||
+    normalized === 'disabled'
+  ) {
+    return normalized;
+  }
+  throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
+}
+
 function parseTelegramSetupArgs(args: string[]): {
   token: string | null;
   allowFrom: string[];
@@ -132,21 +151,6 @@ function parseTelegramSetupArgs(args: string[]): {
   let requireMention: boolean | null = null;
   const allowFrom: string[] = [];
   const groupAllowFrom: string[] = [];
-
-  const parsePolicy = (
-    flagName: string,
-    raw: string,
-  ): 'open' | 'allowlist' | 'disabled' => {
-    const normalized = raw.trim().toLowerCase();
-    if (
-      normalized === 'open' ||
-      normalized === 'allowlist' ||
-      normalized === 'disabled'
-    ) {
-      return normalized;
-    }
-    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  };
 
   const parseAllow = (label: string, raw: string): string => {
     const normalized = normalizeTelegramAllowEntry(raw);
@@ -206,23 +210,26 @@ function parseTelegramSetupArgs(args: string[]): {
     if (arg === '--dm-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--dm-policy`.');
-      dmPolicy = parsePolicy('--dm-policy', next);
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--dm-policy=')) {
-      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
       continue;
     }
     if (arg === '--group-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--group-policy`.');
-      groupPolicy = parsePolicy('--group-policy', next);
+      groupPolicy = parseChannelPolicy('--group-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--group-policy=')) {
-      groupPolicy = parsePolicy(
+      groupPolicy = parseChannelPolicy(
         '--group-policy',
         arg.slice('--group-policy='.length),
       );
@@ -327,6 +334,155 @@ function parseTelegramSetupArgs(args: string[]): {
   };
 }
 
+function normalizeThreemaAllowEntry(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  if (trimmed === '*') return '*';
+  return normalizeThreemaChannelId(trimmed) ?? null;
+}
+
+function parseThreemaSetupArgs(args: string[]): {
+  identity: string | null;
+  secret: string | null;
+  apiBaseUrl: string | null;
+  allowFrom: string[];
+  dmPolicy: 'open' | 'allowlist' | 'disabled' | null;
+  textChunkLimit: number | null;
+  outboundDelayMs: number | null;
+} {
+  let identity: string | null = null;
+  let secret: string | null = null;
+  let apiBaseUrl: string | null = null;
+  let dmPolicy: 'open' | 'allowlist' | 'disabled' | null = null;
+  let textChunkLimit: number | null = null;
+  let outboundDelayMs: number | null = null;
+  const allowFrom: string[] = [];
+
+  const parseAllow = (raw: string): string => {
+    const normalized = normalizeThreemaAllowEntry(raw);
+    if (!normalized) {
+      throw new Error(
+        `Invalid Threema allowlist entry: ${raw}. Use a Threema ID, threema:phone:<number>, threema:email:<address>, or *.`,
+      );
+    }
+    return normalized;
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--identity') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--identity`.');
+      identity = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--identity=')) {
+      identity = arg.slice('--identity='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--secret') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--secret`.');
+      secret = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--secret=')) {
+      secret = arg.slice('--secret='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--api-base-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--api-base-url`.');
+      apiBaseUrl = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--api-base-url=')) {
+      apiBaseUrl = arg.slice('--api-base-url='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--allow-from') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--allow-from`.');
+      allowFrom.push(parseAllow(next));
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow-from=')) {
+      allowFrom.push(parseAllow(arg.slice('--allow-from='.length)));
+      continue;
+    }
+    if (arg === '--dm-policy') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--dm-policy`.');
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--dm-policy=')) {
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
+      continue;
+    }
+    if (arg === '--text-chunk-limit') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--text-chunk-limit`.');
+      textChunkLimit = parseIntegerFlagValue('--text-chunk-limit', next, {
+        min: 200,
+        max: 3_500,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--text-chunk-limit=')) {
+      textChunkLimit = parseIntegerFlagValue(
+        '--text-chunk-limit',
+        arg.slice('--text-chunk-limit='.length),
+        { min: 200, max: 3_500 },
+      );
+      continue;
+    }
+    if (arg === '--outbound-delay-ms') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--outbound-delay-ms`.');
+      outboundDelayMs = parseIntegerFlagValue('--outbound-delay-ms', next, {
+        min: 0,
+        max: 10_000,
+      });
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--outbound-delay-ms=')) {
+      outboundDelayMs = parseIntegerFlagValue(
+        '--outbound-delay-ms',
+        arg.slice('--outbound-delay-ms='.length),
+        { min: 0, max: 10_000 },
+      );
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels threema setup --identity <gateway-id> [--secret <secret>] [--allow-from <target|*>]...\`.`,
+    );
+  }
+
+  return {
+    identity,
+    secret,
+    apiBaseUrl,
+    allowFrom: [...new Set(allowFrom)],
+    dmPolicy,
+    textChunkLimit,
+    outboundDelayMs,
+  };
+}
+
 function parseSignalSetupArgs(args: string[]): {
   daemonUrl: string | null;
   account: string | null;
@@ -347,21 +503,6 @@ function parseSignalSetupArgs(args: string[]): {
   let outboundDelayMs: number | null = null;
   const allowFrom: string[] = [];
   const groupAllowFrom: string[] = [];
-
-  const parsePolicy = (
-    flagName: string,
-    raw: string,
-  ): 'open' | 'allowlist' | 'disabled' => {
-    const normalized = raw.trim().toLowerCase();
-    if (
-      normalized === 'open' ||
-      normalized === 'allowlist' ||
-      normalized === 'disabled'
-    ) {
-      return normalized;
-    }
-    throw new Error(`Invalid value for \`${flagName}\`: ${raw}`);
-  };
 
   const parseAllow = (label: string, raw: string): string => {
     const normalized = normalizeSignalAllowEntry(raw);
@@ -439,23 +580,26 @@ function parseSignalSetupArgs(args: string[]): {
     if (arg === '--dm-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--dm-policy`.');
-      dmPolicy = parsePolicy('--dm-policy', next);
+      dmPolicy = parseChannelPolicy('--dm-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--dm-policy=')) {
-      dmPolicy = parsePolicy('--dm-policy', arg.slice('--dm-policy='.length));
+      dmPolicy = parseChannelPolicy(
+        '--dm-policy',
+        arg.slice('--dm-policy='.length),
+      );
       continue;
     }
     if (arg === '--group-policy') {
       const next = args[index + 1];
       if (!next) throw new Error('Missing value for `--group-policy`.');
-      groupPolicy = parsePolicy('--group-policy', next);
+      groupPolicy = parseChannelPolicy('--group-policy', next);
       index += 1;
       continue;
     }
     if (arg.startsWith('--group-policy=')) {
-      groupPolicy = parsePolicy(
+      groupPolicy = parseChannelPolicy(
         '--group-policy',
         arg.slice('--group-policy='.length),
       );
@@ -1785,6 +1929,90 @@ async function configureSignalChannel(args: string[]): Promise<void> {
   }
 }
 
+async function configureThreemaChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseThreemaSetupArgs(args);
+  const currentConfig = getRuntimeConfig().threema;
+  const identity = normalizeThreemaId(
+    parsed.identity || currentConfig.identity || '',
+  );
+  if (!identity) {
+    throw new Error(
+      'Missing Threema Gateway identity. Pass `--identity <gateway-id>`.',
+    );
+  }
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.threema.enabled = true;
+    draft.threema.identity = identity;
+    if (parsed.apiBaseUrl) {
+      draft.threema.apiBaseUrl = parsed.apiBaseUrl;
+    }
+    draft.threema.allowFrom =
+      parsed.allowFrom.length > 0 ? parsed.allowFrom : draft.threema.allowFrom;
+    draft.threema.dmPolicy =
+      parsed.dmPolicy ??
+      (parsed.allowFrom.length > 0 ? 'allowlist' : draft.threema.dmPolicy);
+    if (parsed.textChunkLimit != null) {
+      draft.threema.textChunkLimit = parsed.textChunkLimit;
+    }
+    if (parsed.outboundDelayMs != null) {
+      draft.threema.outboundDelayMs = parsed.outboundDelayMs;
+    }
+    if (parsed.secret) {
+      draft.threema.secret = '';
+    }
+  });
+
+  const secretsPath = parsed.secret
+    ? saveRuntimeSecrets({ THREEMA_GATEWAY_SECRET: parsed.secret })
+    : runtimeSecretsPath();
+  if (parsed.secret) {
+    setRuntimeConfigSecretInput(
+      'threema.secret',
+      {
+        source: 'store',
+        id: 'THREEMA_GATEWAY_SECRET',
+      },
+      {
+        route: 'cli.channels.threema.setup-secret-ref',
+        source: 'user',
+      },
+    );
+  }
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (parsed.secret) {
+    console.log(`Saved Threema Gateway secret to ${secretsPath}.`);
+  } else {
+    console.log(
+      `Threema Gateway secret unchanged. Secrets path: ${secretsPath}`,
+    );
+  }
+  console.log('Threema mode: enabled');
+  console.log(`Gateway identity: ${nextConfig.threema.identity}`);
+  console.log(`API base URL: ${nextConfig.threema.apiBaseUrl}`);
+  console.log(`DM policy: ${nextConfig.threema.dmPolicy}`);
+  if (nextConfig.threema.allowFrom.length > 0) {
+    console.log(
+      `Allowed Threema senders: ${nextConfig.threema.allowFrom.join(', ')}`,
+    );
+  } else if (nextConfig.threema.dmPolicy === 'open') {
+    console.log('Allowed Threema senders: all (DM policy open)');
+  } else {
+    console.log('Allowed Threema senders: none (inbound is not enabled)');
+  }
+  console.log(`Text chunk limit: ${nextConfig.threema.textChunkLimit}`);
+  console.log(`Outbound delay: ${nextConfig.threema.outboundDelayMs}ms`);
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up Threema settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  console.log(
+    '  Send with: message {"action":"send","to":"threema:<id>","content":"message text"}',
+  );
+}
+
 async function configureIMessageChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseIMessageSetupArgs(args);
@@ -2128,6 +2356,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   const channel = normalized[0].toLowerCase();
   if (
     channel !== 'telegram' &&
+    channel !== 'threema' &&
     channel !== 'signal' &&
     channel !== 'whatsapp' &&
     channel !== 'discord' &&
@@ -2136,7 +2365,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -2162,6 +2391,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
       await configureSignalChannel(normalized.slice(2));
       return;
     }
+    if (channel === 'threema') {
+      await configureThreemaChannel(normalized.slice(2));
+      return;
+    }
     if (channel === 'imessage') {
       await configureIMessageChannel(normalized.slice(2));
       return;
@@ -2182,6 +2415,6 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

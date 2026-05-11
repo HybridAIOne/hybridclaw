@@ -148,6 +148,7 @@ export const TASK_MODEL_KEYS = [
   'web_extract',
   'session_search',
   'skills_hub',
+  'eval_judge',
   'mcp',
   'flush_memories',
 ] as const;
@@ -246,6 +247,21 @@ export interface MediaContextItem {
 export type ToolExecutionStakesSignal = CanonicalStakesSignal;
 export type ToolExecutionStakesScore = CanonicalStakesScore;
 
+export interface ToolExecutionAnomalyScore {
+  score: number;
+  threshold: number | null;
+  reason: string;
+  status: 'scored' | 'abstained' | 'borderline';
+  model: string;
+  trajectoryCount: number;
+  tuple: string;
+  traceJudge?: {
+    verdict: 'normal' | 'anomalous' | 'inconclusive' | 'error';
+    score: number | null;
+    reason: string;
+  };
+}
+
 export interface EscalationTarget {
   channel: string;
   recipient: string;
@@ -277,6 +293,7 @@ export interface ToolExecution {
   autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
   stakes?: 'low' | 'medium' | 'high';
   stakesScore?: ToolExecutionStakesScore;
+  anomaly?: ToolExecutionAnomalyScore;
   escalationRoute?:
     | 'none'
     | 'implicit_notice'

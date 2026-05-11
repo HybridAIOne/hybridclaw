@@ -11,6 +11,7 @@ import {
   SLACK_CAPABILITIES,
   SYSTEM_CAPABILITIES,
   TELEGRAM_CAPABILITIES,
+  THREEMA_CAPABILITIES,
   TUI_CAPABILITIES,
   VOICE_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
@@ -20,6 +21,7 @@ import { isIMessageHandle } from './imessage/handle.js';
 import { isSignalChannelId } from './signal/target.js';
 import { isSlackChannelTarget } from './slack/target.js';
 import { isTelegramChannelId } from './telegram/target.js';
+import { isThreemaChannelId } from './threema/target.js';
 import { isVoiceChannelId } from './voice/channel-id.js';
 import { isWhatsAppJid } from './whatsapp/phone.js';
 
@@ -35,6 +37,7 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   signal: SIGNAL_CAPABILITIES,
   slack: SLACK_CAPABILITIES,
   telegram: TELEGRAM_CAPABILITIES,
+  threema: THREEMA_CAPABILITIES,
   tui: TUI_CAPABILITIES,
   voice: VOICE_CAPABILITIES,
   whatsapp: WHATSAPP_CAPABILITIES,
@@ -115,6 +118,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
   if (isSignalChannelId(normalized)) return 'signal';
   if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';
+  if (isThreemaChannelId(normalized)) return 'threema';
   if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_SNOWFLAKE_RE.test(normalized)) return 'discord';
   return undefined;

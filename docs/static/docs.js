@@ -65,6 +65,7 @@ export const DEVELOPMENT_DOCS_SECTIONS = [
       { title: 'Discord', path: 'channels/discord.md' },
       { title: 'Slack', path: 'channels/slack.md' },
       { title: 'Telegram', path: 'channels/telegram.md' },
+      { title: 'Threema', path: 'channels/threema.md' },
       { title: 'Email', path: 'channels/email.md' },
       { title: 'WhatsApp', path: 'channels/whatsapp.md' },
       { title: 'iMessage', path: 'channels/imessage.md' },

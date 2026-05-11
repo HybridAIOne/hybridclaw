@@ -2450,7 +2450,6 @@ describe('gateway HTTP server', () => {
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2538,7 +2537,6 @@ describe('gateway HTTP server', () => {
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       executionSessionId: expect.stringMatching(OPENAI_EXECUTION_SESSION_ID_RE),
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -2572,7 +2570,6 @@ describe('gateway HTTP server', () => {
     expect(state.handleGatewayMessage).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(OPENAI_SESSION_ID_RE),
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       guildId: null,
       channelId: 'openai',
       userId: expect.stringMatching(OPENAI_SESSION_ID_RE),
@@ -6387,7 +6384,9 @@ describe('gateway HTTP server', () => {
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer);
+    expect(state.uploadGatewayAdminSkillZip).toHaveBeenCalledWith(zipBuffer, {
+      force: false,
+    });
     expect(res.statusCode).toBe(201);
   });
 
@@ -8007,7 +8006,7 @@ describe('gateway HTTP server', () => {
       tools.httpRequest = {
         authRules: [
           {
-            urlPrefix: 'https://hybridai.one/v1/',
+            urlPrefix: 'https://hybridai.one/v1/completions/',
             header: 'Authorization',
             prefix: 'Bearer',
             secret: { source: 'store', id: 'HYBRIDAI_API_KEY' },

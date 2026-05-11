@@ -306,6 +306,11 @@ function buildMessageToolPromptLines(
       'Example: "Send this on Signal" -> `message` {"action":"send","to":"signal:+15551234567","content":"message text"}',
     );
   }
+  if (activeChannels.includes('threema')) {
+    examples.push(
+      'Example: "Send this on Threema" -> `message` {"action":"send","to":"threema:ABCDEFGH","content":"message text"}',
+    );
+  }
   if (activeChannels.includes('whatsapp')) {
     examples.push(
       'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
@@ -637,6 +642,7 @@ function isChannelInstructionKind(
     kind === 'signal' ||
     kind === 'slack' ||
     kind === 'telegram' ||
+    kind === 'threema' ||
     kind === 'voice' ||
     kind === 'whatsapp' ||
     kind === 'email' ||

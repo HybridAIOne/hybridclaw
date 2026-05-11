@@ -5,6 +5,7 @@ import {
   startA2AOutboxProcessor,
   stopA2AOutboxProcessor,
 } from '../a2a/a2a-outbound.js';
+import { ensureA2AInstanceKeypair } from '../a2a/trust-ledger.js';
 import {
   startWebhookOutboxProcessor,
   stopWebhookOutboxProcessor,
@@ -77,6 +78,13 @@ import {
   type TelegramReplyFn,
 } from '../channels/telegram/runtime.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
+import {
+  hasThreemaGatewaySecret,
+  initThreema,
+  sendToThreemaChat,
+  shutdownThreema,
+} from '../channels/threema/runtime.js';
+import { isThreemaChannelId } from '../channels/threema/target.js';
 import { initVoice, shutdownVoice } from '../channels/voice/runtime.js';
 import {
   createVoiceTextStreamFormatter,
@@ -272,6 +280,22 @@ function hasSignalConfigChanged(
   );
 }
 
+function hasThreemaConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['threema'],
+  prev: ReturnType<typeof getConfigSnapshot>['threema'],
+): boolean {
+  return (
+    next.enabled !== prev.enabled ||
+    next.apiBaseUrl !== prev.apiBaseUrl ||
+    next.identity !== prev.identity ||
+    next.secret !== prev.secret ||
+    next.dmPolicy !== prev.dmPolicy ||
+    !equalStringSets(next.allowFrom, prev.allowFrom) ||
+    next.textChunkLimit !== prev.textChunkLimit ||
+    next.outboundDelayMs !== prev.outboundDelayMs
+  );
+}
+
 function hasSlackConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['slack'],
   prev: ReturnType<typeof getConfigSnapshot>['slack'],
@@ -433,6 +457,7 @@ function logGatewayStartup(params: {
     email: boolean;
     imessage: boolean;
     telegram: boolean;
+    threema: boolean;
     voice: boolean;
     whatsapp: boolean;
   };
@@ -1021,6 +1046,43 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to Telegram chat',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isThreemaChannelId(channelId)) {
+    const threemaConfig = getConfigSnapshot().threema;
+    const hasSecret = hasThreemaGatewaySecret();
+    if (
+      !threemaConfig.enabled ||
+      threemaConfig.dmPolicy === 'disabled' ||
+      !threemaConfig.identity ||
+      !hasSecret
+    ) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Threema message suppressed: Threema channel is not configured or is disabled',
+      );
+      return;
+    }
+
+    try {
+      if (text.trim()) {
+        await sendToThreemaChat(channelId, text);
+      }
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'Threema channel does not support proactive attachments; dropping artifacts',
+        );
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Threema chat',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -2138,6 +2200,40 @@ async function startSignalIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startThreemaIntegration(): Promise<boolean> {
+  const threemaConfig = getConfigSnapshot().threema;
+  const hasSecret = hasThreemaGatewaySecret();
+
+  if (!threemaConfig.enabled) {
+    logger.info('Threema integration disabled: threema.enabled=false');
+    return false;
+  }
+  if (threemaConfig.dmPolicy === 'disabled') {
+    logger.info('Threema integration disabled: transport is off');
+    return false;
+  }
+  if (!threemaConfig.identity) {
+    logger.info('Threema integration disabled: threema.identity is not set');
+    return false;
+  }
+  if (!hasSecret) {
+    logger.info(
+      'Threema integration disabled: THREEMA_GATEWAY_SECRET is not configured',
+    );
+    return false;
+  }
+
+  try {
+    await initThreema();
+  } catch (error) {
+    logger.warn({ error }, 'Threema integration failed to start');
+    return false;
+  }
+
+  logger.info('Threema integration started inside gateway');
+  return true;
+}
+
 function trimValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
@@ -2373,6 +2469,30 @@ async function refreshSignalIntegrationForConfigChange(
     );
   });
   await startSignalIntegration();
+}
+
+async function refreshThreemaIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasThreemaConfigChanged(next.threema, prev.threema)) return;
+
+  logger.info(
+    {
+      enabled: next.threema.enabled,
+      apiBaseUrl: next.threema.apiBaseUrl,
+      identity: next.threema.identity,
+      dmPolicy: next.threema.dmPolicy,
+    },
+    'Config changed, restarting Threema integration',
+  );
+  await shutdownThreema().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Threema runtime during config-change restart',
+    );
+  });
+  await startThreemaIntegration();
 }
 
 async function refreshSlackIntegrationForConfigChange(
@@ -2791,6 +2911,7 @@ function setupShutdown(broadcastShutdown: () => void): void {
     );
     await runShutdownStep('stop email runtime', shutdownEmail);
     await runShutdownStep('stop Signal runtime', shutdownSignal);
+    await runShutdownStep('stop Threema runtime', shutdownThreema);
     await runShutdownStep('stop Slack runtime', shutdownSlack);
     await runShutdownStep('stop Telegram runtime', shutdownTelegram);
     await runShutdownStep('stop WhatsApp runtime', shutdownWhatsApp);
@@ -3038,6 +3159,7 @@ function logWarmProcessPoolStartup(config: RuntimeConfig['container']): void {
 async function main(): Promise<void> {
   await initOtel();
   logger.info('Starting HybridClaw gateway');
+  ensureA2AInstanceKeypair();
   logger.info(
     { instanceId: resolveLocalInstanceId() },
     'Local instance identity ready',
@@ -3056,6 +3178,7 @@ async function main(): Promise<void> {
   const discordActive = await startDiscordIntegration();
   const msteamsActive = await startMSTeamsIntegration();
   const signalActive = await startSignalIntegration();
+  const threemaActive = await startThreemaIntegration();
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
@@ -3094,6 +3217,12 @@ async function main(): Promise<void> {
       logger.warn(
         { error },
         'Signal integration restart failed after config change',
+      );
+    });
+    void refreshThreemaIntegrationForConfigChange(next, prev).catch((error) => {
+      logger.warn(
+        { error },
+        'Threema integration restart failed after config change',
       );
     });
     void refreshSlackIntegrationForConfigChange(next, prev).catch((error) => {
@@ -3189,6 +3318,7 @@ async function main(): Promise<void> {
       discord: discordActive,
       msteams: msteamsActive,
       signal: signalActive,
+      threema: threemaActive,
       slack: slackActive,
       email: emailActive,
       imessage: imessageActive,

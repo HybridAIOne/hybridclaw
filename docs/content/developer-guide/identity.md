@@ -1,6 +1,6 @@
 ---
 title: Identity
-description: Canonical user identity formats and authority boundaries.
+description: Canonical identity formats, authority boundaries, and discovery records.
 sidebar_position: 7
 ---
 
@@ -92,3 +92,28 @@ Use `parseAgentIdentity()` and `formatAgentIdentity()` from
 `resolveLocalInstanceId()` for local allocation and
 `slugifyAgentIdentityComponent()` when deriving a canonical component from a
 display name, config value, or environment value.
+
+## Identity Discovery
+
+Federated peers can resolve canonical user or agent IDs through DNS-style TXT
+records. `identityDiscoveryDnsName(canonicalId, zone)` hashes the normalized ID
+with SHA-256/base64url and looks up:
+
+```text
+_hybridclaw-id.<identity-hash>.<zone>
+```
+
+TXT record values are JSON objects:
+
+```json
+{
+  "canonicalId": "support-lena@acme@inst-7f3a",
+  "url": "https://bot.example.com",
+  "publicKey": "test-public-key"
+}
+```
+
+`IdentityResolver` validates the canonical ID, normalizes the URL, deduplicates
+concurrent cold-cache lookups, caches successful records for five minutes by
+default, and supports explicit invalidation. Discovery URLs must use HTTPS
+unless they target loopback.

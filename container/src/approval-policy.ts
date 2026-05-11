@@ -19,6 +19,12 @@ import {
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
+import {
+  type BehaviorAnomalyInput,
+  BehaviorAnomalyReranker,
+  type BehaviorAnomalyScore,
+  type BehaviorAnomalyTraceJudgeResult,
+} from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
 import {
@@ -87,6 +93,7 @@ export const DEFAULT_APPROVAL_RULE_ORDER = [
   'autonomy',
   'safety_tier',
   'stakes',
+  'anomaly_reranker',
   'autonomy_override',
   'red_hard_deny',
   'red_one_shot',
@@ -190,6 +197,7 @@ export interface ToolApprovalEvaluation {
   pinned: boolean;
   implicitDelayMs?: number;
   hostHints: string[];
+  anomaly?: BehaviorAnomalyScore;
 }
 
 export interface ToolCallContext {
@@ -199,6 +207,7 @@ export interface ToolCallContext {
     latestUserPrompt: string;
     channelId?: string;
     escalationTarget?: EscalationTarget;
+    now?: Date;
   };
   args: Record<string, unknown>;
   policy: ApprovalPolicyConfig;
@@ -213,6 +222,7 @@ export interface ToolCallContext {
   stakes?: StakesLevel;
   stakesScore?: StakesScore;
   stakesMiddlewareDecision?: StakesMiddlewareResult['decision'];
+  anomaly?: BehaviorAnomalyScore;
   outOfBoundByAutonomy: boolean;
   escalationTarget?: EscalationTarget;
   helpers: ToolCallContextHelpers;
@@ -238,6 +248,7 @@ export interface ToolCallContextHelpers {
   runStakesMiddleware(
     context: Omit<StakesMiddlewareContext, 'recordStakesScore'>,
   ): StakesMiddlewareResult;
+  scoreBehaviorAnomaly(input: BehaviorAnomalyInput): BehaviorAnomalyScore;
   hasOneShotFingerprint(fingerprint: string): boolean;
   consumeOneShotFingerprint(fingerprint: string): void;
   hasSessionTrust(actionKey: string, fingerprint: string): boolean;
@@ -1385,6 +1396,7 @@ function buildEvaluation(
     reason: overrides.reason || classified.reason,
     commandPreview: classified.commandPreview,
     pinned: pinnedByPolicy,
+    ...(context.anomaly ? { anomaly: context.anomaly } : {}),
     implicitDelayMs:
       tier === 'yellow' &&
       nextDecision === 'implicit' &&
@@ -1462,6 +1474,7 @@ function buildPipelineFailureEvaluation(
     reason: `Approval policy rule ${ruleName} failed: ${message}`,
     commandPreview: classified.commandPreview,
     pinned: context.pinnedByPolicy === true,
+    ...(context.anomaly ? { anomaly: context.anomaly } : {}),
     hostHints: classified.hostHints,
   };
 }
@@ -1479,6 +1492,12 @@ function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
 
 function isRedRuleActive(context: ToolCallContext): boolean {
   return requireBaseTier(context) === 'red' && context.decision === 'auto';
+}
+
+function elevateApprovalTier(tier: ApprovalTier): ApprovalTier {
+  if (tier === 'green') return 'yellow';
+  if (tier === 'yellow') return 'red';
+  return 'red';
 }
 
 export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
@@ -1560,6 +1579,32 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     context.stakesScore = stakesMiddleware.stakesScore;
     context.stakes = stakesMiddleware.stakesScore.level;
     context.stakesMiddlewareDecision = stakesMiddleware.decision;
+    return nextRule();
+  },
+
+  anomaly_reranker(context) {
+    const classified = requireClassified(context);
+    const currentTier = context.tier || requireBaseTier(context);
+    const anomaly = context.helpers.scoreBehaviorAnomaly({
+      toolName: context.params.toolName,
+      args: context.args,
+      actionKey: classified.actionKey,
+      pathHints: classified.pathHints,
+      hostHints: classified.hostHints,
+      writeIntent: classified.writeIntent,
+      now: context.params.now,
+    });
+    context.anomaly = anomaly;
+    if (
+      anomaly.status === 'scored' &&
+      anomaly.threshold != null &&
+      anomaly.score > anomaly.threshold &&
+      currentTier !== 'red'
+    ) {
+      const elevatedTier = elevateApprovalTier(currentTier);
+      context.tier = elevatedTier;
+      context.decision = 'auto';
+    }
     return nextRule();
   },
 
@@ -1838,6 +1883,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly invalidPinnedRedPatternWarnings = new Set<string>();
   private readonly stakesClassifier: StakesClassifier;
   private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
+  private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
   private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
@@ -1855,6 +1901,7 @@ export class TrustedAgentApprovalRuntime {
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
     this.stakesClassifier = stakesClassifier;
     this.stakesMiddleware = createStakesMiddlewareSkill(this.stakesClassifier);
+    this.behaviorAnomalyReranker = new BehaviorAnomalyReranker();
     this.reloadPolicyIfNeeded(true);
     this.loadPersistedTrustStore({
       trustStorePath: this.agentTrustStorePath,
@@ -1913,6 +1960,13 @@ export class TrustedAgentApprovalRuntime {
     }
   }
 
+  recordAnomalyTraceJudgeResult(
+    tuple: string,
+    result: BehaviorAnomalyTraceJudgeResult,
+  ): void {
+    this.behaviorAnomalyReranker.recordTraceJudgeResult(tuple, result);
+  }
+
   private shouldNeverAutoApprove(toolName: string, actionKey: string): boolean {
     if (this.fullAutoNeverApprove.size === 0) return false;
     const normalizedTool = toolName.trim().toLowerCase();
@@ -1931,6 +1985,8 @@ export class TrustedAgentApprovalRuntime {
       isPinnedRed: (input) => this.isPinnedRed(input),
       resolveAutonomyLevel: (input) => this.resolveAutonomyLevel(input),
       runStakesMiddleware: (context) => this.runStakesMiddleware(context),
+      scoreBehaviorAnomaly: (input) =>
+        this.behaviorAnomalyReranker.score(input),
       hasOneShotFingerprint: (fingerprint) =>
         this.oneShotFingerprints.has(fingerprint),
       consumeOneShotFingerprint: (fingerprint) => {
@@ -2186,6 +2242,7 @@ export class TrustedAgentApprovalRuntime {
     latestUserPrompt: string;
     channelId?: string;
     escalationTarget?: EscalationTarget;
+    now?: Date;
   }): ToolApprovalEvaluation {
     const context: ToolCallContext = {
       params,
@@ -2204,6 +2261,15 @@ export class TrustedAgentApprovalRuntime {
   ): void {
     if (!succeeded) return;
     this.bumpCount(this.actionExecutionCounts, evaluation.actionKey);
+    if (
+      evaluation.decision !== 'required' &&
+      evaluation.decision !== 'denied' &&
+      evaluation.anomaly
+    ) {
+      this.behaviorAnomalyReranker.recordApprovedTuple(
+        evaluation.anomaly.tuple,
+      );
+    }
     if (evaluation.hostHints.length > 0) {
       for (const host of evaluation.hostHints) {
         this.seenNetworkHosts.add(host.toLowerCase());

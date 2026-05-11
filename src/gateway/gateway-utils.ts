@@ -1,16 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { StructuredAuditEntry } from '../types/audit.js';
+import { finiteNumberOrNull } from '../utils/number-normalization.js';
 
 export function numberFromUnknown(value: unknown): number | null {
-  if (
-    typeof value !== 'number' ||
-    Number.isNaN(value) ||
-    !Number.isFinite(value)
-  ) {
-    return null;
-  }
-  return value;
+  return finiteNumberOrNull(value);
 }
 
 export function firstNumber(values: unknown[]): number | null {

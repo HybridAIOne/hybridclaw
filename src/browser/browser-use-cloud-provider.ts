@@ -2,9 +2,13 @@ import { Buffer } from 'node:buffer';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { recordUsageEvent } from '../memory/db.js';
-import type { SecretHandle } from '../security/secret-handles.js';
 import {
-  resolveSecretInputUnsafe,
+  type SecretHandle,
+  withSecretHeader,
+} from '../security/secret-handles.js';
+import {
+  hardenSecretRef,
+  resolveSecretHandleInput,
   type SecretInput,
   type SecretRef,
 } from '../security/secret-refs.js';
@@ -13,6 +17,7 @@ import {
   loadPlaywrightModule,
   noopSecretAudit,
   normalizeScrollDelta,
+  type PlaywrightSecretFillLocator,
   toNavigationOptions,
 } from './playwright-utils.js';
 import type {
@@ -68,6 +73,7 @@ type BrowserUseCloudPage = {
   }): Promise<unknown>;
   click(selector: string, opts?: { timeout?: number }): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
+  url(): string;
   mouse: {
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
@@ -75,7 +81,7 @@ type BrowserUseCloudPage = {
     selector: string,
     opts?: { state?: WaitOptions['state']; timeout?: number },
   ): Promise<unknown>;
-  locator(selector: string): {
+  locator(selector: string): PlaywrightSecretFillLocator & {
     evaluate<TArg>(
       fn: (element: Element, arg: TArg) => void,
       arg: TArg,
@@ -140,7 +146,7 @@ interface BrowserUseCloudSessionResponse {
 interface ActiveCloudSession {
   cloud: BrowserUseCloudSessionResponse;
   browser: BrowserUseCloudBrowser;
-  apiKey: string;
+  apiKeyRef: SecretRef;
   metering: BrowserSessionMeteringContext;
   startedAtMs: number;
   accruedCostUsd: number;
@@ -310,6 +316,7 @@ class BrowserUseCloudSession implements BrowserSession {
   constructor(
     private readonly page: BrowserUseCloudPage,
     private readonly recordAction: (name: string) => void,
+    private readonly metering: BrowserSessionMeteringContext,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
@@ -358,7 +365,13 @@ class BrowserUseCloudSession implements BrowserSession {
 
   async fill(selector: string, value: SecretInput): Promise<void> {
     this.recordAction('fill');
-    await fillBrowserField(this.page, selector, value, this.secretAudit);
+    await fillBrowserField(
+      this.page,
+      selector,
+      value,
+      this.secretAudit,
+      this.metering,
+    );
   }
 
   async scroll(opts: ScrollOptions): Promise<void> {
@@ -409,8 +422,8 @@ export class BrowserUseCloudProvider implements BrowserProvider {
     }
     const metering = this.resolveMetering(opts);
 
-    const apiKey = this.resolveApiKey();
-    const cloud = await this.createCloudSession(apiKey, opts);
+    const apiKeyRef = this.resolveApiKeyRef();
+    const cloud = await this.createCloudSession(apiKeyRef, opts);
     let browser: BrowserUseCloudBrowser | null = null;
     try {
       const cdpUrl = normalizeCloudCdpUrl(cloud.cdpUrl);
@@ -428,6 +441,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       const session = new BrowserUseCloudSession(
         page,
         (name) => this.recordActionUsage(metering, name),
+        metering,
         this.options.secretAudit,
       );
 
@@ -462,14 +476,14 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       this.activeSessions.set(session, {
         cloud,
         browser,
-        apiKey,
+        apiKeyRef,
         metering,
         startedAtMs,
         accruedCostUsd: startingCostUsd,
       });
       return session;
     } catch (error) {
-      await this.cleanupFailedLaunch(apiKey, cloud, browser);
+      await this.cleanupFailedLaunch(apiKeyRef, cloud, browser);
       throw error;
     }
   }
@@ -486,7 +500,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
     }
 
     const [stopResult, closeResult] = await Promise.allSettled([
-      this.stopCloudSession(active.apiKey, active.cloud.id),
+      this.stopCloudSession(active.apiKeyRef, active.cloud.id),
       active.browser.close(),
     ]);
     const stopped = stopResult.status === 'fulfilled' ? stopResult.value : null;
@@ -505,20 +519,20 @@ export class BrowserUseCloudProvider implements BrowserProvider {
     }
   }
 
-  private resolveApiKey(): string {
-    const value = resolveSecretInputUnsafe(
-      this.options.apiKeyRef || DEFAULT_API_KEY_REF,
-      {
-        path: 'BrowserUseCloudProvider.apiKeyRef',
-        required: true,
-        reason: 'call Browser Use Cloud API',
-        audit: this.options.secretAudit || noopSecretAudit,
-      },
-    );
-    if (!value) {
+  private resolveApiKeyRef(): SecretRef {
+    return hardenSecretRef(this.options.apiKeyRef || DEFAULT_API_KEY_REF);
+  }
+
+  private resolveApiKeyHandle(ref: SecretRef): SecretHandle {
+    const handle = resolveSecretHandleInput(ref, {
+      path: 'BrowserUseCloudProvider.apiKeyRef',
+      required: true,
+      sinkKind: 'http',
+    });
+    if (!handle) {
       throw new Error('Browser Use Cloud API key did not resolve.');
     }
-    return value;
+    return handle;
   }
 
   private resolveMetering(opts: SessionOptions): BrowserSessionMeteringContext {
@@ -532,14 +546,15 @@ export class BrowserUseCloudProvider implements BrowserProvider {
       sessionId: metering.sessionId.trim(),
       agentId: metering.agentId.trim(),
       auditRunId: metering.auditRunId?.trim() || undefined,
+      skillName: metering.skillName?.trim() || undefined,
     };
   }
 
   private async createCloudSession(
-    apiKey: string,
+    apiKeyRef: SecretRef,
     opts: SessionOptions,
   ): Promise<BrowserUseCloudSessionResponse> {
-    return await this.requestJson(apiKey, '/browsers', {
+    return await this.requestJson(apiKeyRef, '/browsers', {
       method: 'POST',
       body: JSON.stringify(
         buildCreateBrowserBody(opts, this.options.browser || {}),
@@ -548,22 +563,22 @@ export class BrowserUseCloudProvider implements BrowserProvider {
   }
 
   private async cleanupFailedLaunch(
-    apiKey: string,
+    apiKeyRef: SecretRef,
     cloud: BrowserUseCloudSessionResponse,
     browser: BrowserUseCloudBrowser | null,
   ): Promise<void> {
     if (browser) {
       await browser.close().catch(() => {});
     }
-    await this.stopCloudSession(apiKey, cloud.id).catch(() => {});
+    await this.stopCloudSession(apiKeyRef, cloud.id).catch(() => {});
   }
 
   private async stopCloudSession(
-    apiKey: string,
+    apiKeyRef: SecretRef,
     providerSessionId: string,
   ): Promise<BrowserUseCloudSessionResponse> {
     return await this.requestJson(
-      apiKey,
+      apiKeyRef,
       `/browsers/${encodeURIComponent(providerSessionId)}`,
       {
         method: 'PATCH',
@@ -573,16 +588,20 @@ export class BrowserUseCloudProvider implements BrowserProvider {
   }
 
   private async requestJson(
-    apiKey: string,
+    apiKeyRef: SecretRef,
     path: string,
     init: { method: string; body?: string },
   ): Promise<BrowserUseCloudSessionResponse> {
+    const apiKey = this.resolveApiKeyHandle(apiKeyRef);
+    const apiKeyHeader = withSecretHeader(apiKey, 'X-Browser-Use-API-Key', {
+      audit: this.options.secretAudit || noopSecretAudit,
+    });
     const requestFetch = this.options.fetch || fetch;
     const response = await requestFetch(`${this.baseUrl}${path}`, {
       method: init.method,
       headers: {
         'Content-Type': 'application/json',
-        'X-Browser-Use-API-Key': apiKey,
+        [apiKeyHeader.name]: apiKeyHeader.value,
       },
       body: init.body,
       signal: AbortSignal.timeout(30_000),

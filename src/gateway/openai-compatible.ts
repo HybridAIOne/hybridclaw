@@ -304,7 +304,6 @@ function buildGatewayChatRequest(params: {
     ...(params.prepared.isEvalRequest
       ? {
           autoApproveTools: true,
-          neverAutoApproveTools: [] as string[],
         }
       : {}),
     guildId: null,

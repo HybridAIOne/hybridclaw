@@ -21,6 +21,7 @@ export const RUNTIME_REVISION_ASSET_TYPES = [
   'cv',
   'classifier',
   'template',
+  'policy',
   'a2a',
   'team',
   'pending_approval',

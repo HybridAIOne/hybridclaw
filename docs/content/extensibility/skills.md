@@ -128,7 +128,7 @@ Operator surfaces:
 - `hybridclaw skill toggle [--channel <kind>]` for the interactive checklist
 - TUI `/skill config` for the same checklist over the gateway
 - admin `Skills` page for the current disabled list, local skill authoring,
-  ZIP upload, and adaptive-skill review
+  ZIP upload, explicit overwrite with `--force`, and adaptive-skill review
 
 `--channel teams` is normalized to `msteams`.
 

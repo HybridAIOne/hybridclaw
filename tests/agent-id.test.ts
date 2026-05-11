@@ -8,6 +8,7 @@ import {
   AgentIdentityValidationError,
   formatAgentIdentity,
   formatLocalInstanceIdFromUuid,
+  isAgentIdentityComponent,
   isCanonicalAgentIdentity,
   parseAgentIdentity,
   resolveLocalInstanceId,
@@ -49,6 +50,12 @@ describe('canonical agent identities', () => {
       instanceId: 'inst-7f3a',
     });
     expect(isCanonicalAgentIdentity('support-lena@acme@inst-7f3a')).toBe(true);
+  });
+
+  test('validates individual identity components without formatting an identity', () => {
+    expect(isAgentIdentityComponent(' Inst-7F3A ')).toBe(true);
+    expect(isAgentIdentityComponent('support lena')).toBe(false);
+    expect(isAgentIdentityComponent('_inst-1')).toBe(false);
   });
 
   test('round-trips valid identities through parse and format', () => {

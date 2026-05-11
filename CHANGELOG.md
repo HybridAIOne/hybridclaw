@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Changed
+
+- **A2A delegation bearer auth**: Outbound A2A uses signed delegation JWTs as
+  the HTTP bearer credential. `bearerTokenRef` remains a required explicit
+  opt-in gate for non-loopback peer URLs, but its secret value is not sent on
+  the wire.
+
+### Fixed
+
+- **A2A delegation revocation cleanup**: Expired delegation-token revocation
+  records are pruned when new revocations are written, preventing stale
+  short-lived token revocations from accumulating indefinitely.
+
+## [0.16.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.16.0) - 2026-05-07
+
 ### Added
 
 - **macOS desktop wrapper**: Source builds can run `npm run desktop` for a
@@ -45,6 +60,9 @@
 - **AI-generated session titles**: `auxiliaryModels.session_title` can use an
   auxiliary model to title recent sessions from the first user message while
   preserving the local preview fallback when disabled.
+- **Canonical identity discovery**: User and agent identities now have shared
+  parsers, local instance-id allocation, and DNS-style TXT discovery records
+  that map canonical identities to peer URLs and public keys for federation.
 - **Per-agent liveness surface**: Gateway status now includes agent liveness
   metadata for admin and health surfaces.
 - **Workflow definition schema**: YAML workflow definitions can declare
@@ -54,12 +72,24 @@
   transform, block, or escalate pre-send and post-receive content, giving
   plugins such as `brand-voice` and confidential leak checks a shared runtime
   surface.
+- **Console skill ZIP overwrite control**: The admin Skills page can upload a
+  skill ZIP with an explicit `--force` overwrite option while preserving the
+  existing skill if the replacement copy fails.
 
 ### Changed
 
+- **Approval policy rule pipeline**: Container approval evaluation now runs
+  through a hook-fed, policy-orderable rule pipeline, preserving the existing
+  trust-store layout while giving plugins pre/post tool-use visibility.
 - **Provider fallback chains**: `HYBRIDAI_FALLBACK_CHAIN` can route model calls
   to alternate providers on auth and rate-limit failures, with primary-provider
   cooldowns and streaming-safe retry gates.
+- **A2A retry classification is shared**: Outbound A2A delivery and transport
+  error handling use common retry classifications so transient failures,
+  permanent failures, and escalation paths stay consistent.
+- **Web chat sessions are easier to resume**: Recent-session history has clearer
+  titles/snippets, agent switching is more stable, and active-session routing is
+  less prone to stale agent state after UI changes.
 - **Browser tooling is stricter and more capable**: Browser tools share
   navigation/profile guards, support reusable browser login state across host
   and container runtimes, and handle download-heavy invoice flows more
@@ -74,9 +104,15 @@
   normalized OpenRouter fallback hints keep model selection output less noisy.
 - **IMAP polling failures stay local**: Email transport timeouts are contained
   to the IMAP connection path instead of leaking into broader gateway state.
+- **Release automation is stricter**: Release workflows validate promoted image
+  tags, pin newer checkout/setup actions, tolerate build-cache export failures,
+  and enforce the Node engine during npm installs.
 
 ### Fixed
 
+- **Gateway transport timeout resilience**: Host/container transport timeouts no
+  longer bring down the gateway; affected runs fail locally while the gateway
+  stays available for subsequent work.
 - **Google Ads invoice harvesting**: Google Ads invoice discovery and PDF
   downloads use the correct InvoiceService and GoogleAdsService paths,
   including accessible-customer, manager-client, and billing-setup discovery.

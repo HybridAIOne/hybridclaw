@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { A2ATrustPage } from './routes/a2a-trust';
 import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
@@ -81,6 +82,12 @@ const approvalsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/approvals',
   component: ApprovalsPage,
+});
+
+const a2aTrustRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/a2a-trust',
+  component: A2ATrustPage,
 });
 
 const agentFilesRoute = createRoute({
@@ -195,6 +202,7 @@ const routeTree = rootRoute.addChildren([
     dashboardRoute,
     statisticsRoute,
     approvalsRoute,
+    a2aTrustRoute,
     agentFilesRoute,
     agentScoreboardRoute,
     terminalRoute,

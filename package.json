@@ -1,6 +1,6 @@
 {
   "name": "@hybridaione/hybridclaw",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "type": "module",
   "description": "Enterprise-ready self-hosted AI assistant runtime with sandboxed execution, secure credentials, approvals, and memory",
   "repository": {
@@ -70,9 +70,11 @@
     "test:console": "npm --workspace console run test",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
     "desktop:mac": "npm run build:desktop && npm --workspace desktop run dist:mac",
+    "desktop:linux": "npm run build:desktop && npm --workspace desktop run dist:linux",
     "test:live": "vitest run --configLoader runner --config vitest.live.config.ts --passWithNoTests",
     "setup": "npm --prefix container install",
     "dev": "tsx src/cli.ts gateway",
+    "dev:console": "HYBRIDCLAW_DEV_VITE_URL=http://127.0.0.1:4173 tsx src/cli.ts gateway restart && npm --workspace console run dev",
     "gateway": "tsx src/cli.ts gateway",
     "tui": "tsx src/cli.ts tui",
     "start": "node dist/cli.js gateway",

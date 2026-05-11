@@ -123,10 +123,11 @@ function ManagedSecretField(props: {
     | 'SLACK_BOT_TOKEN'
     | 'SLACK_APP_TOKEN'
     | 'TELEGRAM_BOT_TOKEN'
+    | 'THREEMA_GATEWAY_SECRET'
     | 'TWILIO_AUTH_TOKEN'
     | 'EMAIL_PASSWORD'
     | 'IMESSAGE_PASSWORD';
-  secretLabel: 'token' | 'password';
+  secretLabel: 'token' | 'password' | 'secret';
   configValue?: string;
   configured: boolean;
   source: SecretSource;
@@ -999,6 +1000,163 @@ function TelegramChannelEditor(props: {
       ) : null}
       <ChannelInstructionsField
         kind="telegram"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
+    </>
+  );
+}
+
+function ThreemaChannelEditor(props: {
+  draft: AdminConfig;
+  updateDraft: ConfigUpdater;
+  secretConfigured: boolean;
+  secretSource: SecretSource;
+  token: string;
+  onSecretSaved: () => void;
+}) {
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={props.draft.threema.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            threema: {
+              ...current.threema,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Gateway identity</span>
+          <input
+            value={props.draft.threema.identity}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                threema: {
+                  ...current.threema,
+                  identity: event.target.value,
+                },
+              }))
+            }
+            placeholder="*HYBRID1"
+          />
+        </label>
+        <ManagedSecretField
+          label="Gateway secret"
+          secretName="THREEMA_GATEWAY_SECRET"
+          secretLabel="secret"
+          configValue={props.draft.threema.secret}
+          configured={props.secretConfigured}
+          source={props.secretSource}
+          token={props.token}
+          onSecretSaved={props.onSecretSaved}
+        />
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>API base URL</span>
+          <input
+            value={props.draft.threema.apiBaseUrl}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                threema: {
+                  ...current.threema,
+                  apiBaseUrl: event.target.value,
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>DM policy</span>
+          <select
+            value={props.draft.threema.dmPolicy}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                threema: {
+                  ...current.threema,
+                  dmPolicy: event.target
+                    .value as AdminConfig['threema']['dmPolicy'],
+                },
+              }))
+            }
+          >
+            <option value="open">open</option>
+            <option value="allowlist">allowlist</option>
+            <option value="disabled">disabled</option>
+          </select>
+        </label>
+      </div>
+
+      <ListField
+        label="Allowed senders"
+        value={props.draft.threema.allowFrom}
+        rows={3}
+        placeholder="threema:ABCDEFGH, threema:phone:41791234567, or *"
+        onChange={(allowFrom) =>
+          props.updateDraft((current) => ({
+            ...current,
+            threema: {
+              ...current.threema,
+              allowFrom,
+            },
+          }))
+        }
+      />
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Text chunk limit</span>
+          <input
+            type="number"
+            value={String(props.draft.threema.textChunkLimit)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                threema: {
+                  ...current.threema,
+                  textChunkLimit: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Outbound delay ms</span>
+          <input
+            type="number"
+            value={String(props.draft.threema.outboundDelayMs)}
+            onChange={(event) =>
+              props.updateDraft((current) => ({
+                ...current,
+                threema: {
+                  ...current.threema,
+                  outboundDelayMs: parseInteger(event.target.value),
+                },
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <p className="muted-copy">
+        Threema Gateway Basic mode supports outbound text only. Inbound chat
+        history, typing, and attachments are not available.
+      </p>
+      <ChannelInstructionsField
+        kind="threema"
         draft={props.draft}
         updateDraft={props.updateDraft}
       />
@@ -2679,6 +2837,10 @@ function renderSelectedEditor(
       configured: boolean;
       source: SecretSource;
     };
+    threema: {
+      configured: boolean;
+      source: SecretSource;
+    };
     voice: {
       configured: boolean;
       source: SecretSource;
@@ -2758,6 +2920,17 @@ function renderSelectedEditor(
           cliAvailable={signalStatus.cliAvailable}
           cliVersion={signalStatus.cliVersion}
           cliError={signalStatus.cliError}
+        />
+      );
+    case 'threema':
+      return (
+        <ThreemaChannelEditor
+          draft={draft}
+          updateDraft={updateDraft}
+          secretConfigured={secretStatus.threema.configured}
+          secretSource={secretStatus.threema.source}
+          token={token}
+          onSecretSaved={onSecretSaved}
         />
       );
     case 'voice':
@@ -2842,6 +3015,7 @@ export function ChannelsPage() {
         slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
+        threemaSecretConfigured: statusQuery.data?.threema?.secretConfigured,
         signalDaemonUrlConfigured:
           statusQuery.data?.signal?.daemonUrlConfigured,
         signalAccountConfigured: statusQuery.data?.signal?.accountConfigured,
@@ -2897,6 +3071,10 @@ export function ChannelsPage() {
     telegram: {
       configured: statusQuery.data?.telegram?.tokenConfigured ?? false,
       source: statusQuery.data?.telegram?.tokenSource ?? null,
+    },
+    threema: {
+      configured: statusQuery.data?.threema?.secretConfigured ?? false,
+      source: statusQuery.data?.threema?.secretSource ?? null,
     },
     voice: {
       configured: statusQuery.data?.voice?.authTokenConfigured ?? false,

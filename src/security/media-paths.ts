@@ -86,6 +86,31 @@ function resolveDisplayPathToHost(params: {
   } = params;
   const normalized = normalizePathSlashes(rawPath);
 
+  // If the input is already an absolute path that lives inside one of the
+  // known *host* roots, leave the display-to-host remap to the caller's
+  // host-absolute branch. Otherwise a host path that happens to share a
+  // leading segment with a display prefix (e.g. host path
+  // /workspace/.data/data/uploaded-media-cache/foo.ogg vs.
+  // workspaceRootDisplay='/workspace') would be falsely re-rooted under the
+  // workspace and stat would fail.
+  if (path.isAbsolute(normalized)) {
+    const hostRoots = [
+      workspaceRoot,
+      mediaCacheRoot,
+      uploadedMediaRoot,
+      ...mountAliases.map((alias) => alias.hostPath),
+    ];
+    for (const root of hostRoots) {
+      const normalizedRoot = normalizePathSlashes(path.resolve(root));
+      if (
+        normalized === normalizedRoot ||
+        normalized.startsWith(`${normalizedRoot}/`)
+      ) {
+        return null;
+      }
+    }
+  }
+
   for (const alias of mountAliases) {
     const resolved = resolveUnderPrefix(
       normalized,

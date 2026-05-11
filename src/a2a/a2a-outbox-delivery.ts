@@ -1,14 +1,9 @@
-import { createHmac } from 'node:crypto';
-
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   createSuspendedSession,
   emitInteractionNeededEvent,
 } from '../gateway/interactive-escalation.js';
-import {
-  resolveSecretInputUnsafe,
-  type SecretRef,
-} from '../security/secret-refs.js';
+import { resolveSecretHandleInput } from '../security/secret-refs.js';
 import {
   A2AFailFastError,
   A2AHttpError,
@@ -20,7 +15,17 @@ import {
   nowIso,
   persistA2AOutboxItem,
 } from './a2a-outbox-persistence.js';
+import {
+  classifyA2AHttpStatus,
+  shouldRetryA2AJsonRpcErrorCode,
+} from './a2a-retry-policy.js';
+import { signA2ADelegationToken } from './delegation-token.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
+import {
+  type A2APeerPublicKeyMaterial,
+  assertA2APeerPublicKeyTrust,
+  extractA2APeerPublicKey,
+} from './trust-ledger.js';
 import {
   isA2AAllowedHttpUrl,
   isA2ALoopbackHttpUrl,
@@ -30,6 +35,9 @@ import {
 
 export const A2A_RETRY_BASE_DELAY_MS = 1_000;
 export const A2A_RETRY_MAX_DELAY_MS = 5 * 60_000;
+export const A2A_AGENT_CARD_READ_SCOPE = 'a2a:agent-card:read';
+export const A2A_MESSAGE_SEND_SCOPE = 'a2a:message:send';
+export const A2A_TASK_SEND_SCOPE = 'a2a:task:send';
 
 export interface A2AOutboxProcessOptions {
   /** Test hook for deterministic delivery without making live network calls. */
@@ -46,57 +54,6 @@ export interface A2AOutboxProcessOptions {
   agentCardCacheTtlMs?: number;
 }
 
-function base64UrlJson(value: unknown): string {
-  return Buffer.from(JSON.stringify(value)).toString('base64url');
-}
-
-function makeSignedBearer(input: {
-  item: A2AOutboxItem;
-  secret: string;
-  audience: string;
-  now: Date;
-}): string {
-  const issuedAt = Math.trunc(input.now.getTime() / 1000);
-  const header = base64UrlJson({ alg: 'HS256', typ: 'JWT' });
-  // pre-F7 (#574): descriptor-key bearer auth only until trust-ledger auth lands.
-  const payload = base64UrlJson({
-    iss: 'hybridclaw',
-    sub: input.item.envelope.sender_agent_id,
-    aud: input.audience,
-    jti: input.item.envelope.id,
-    thread_id: input.item.envelope.thread_id,
-    iat: issuedAt,
-    nbf: issuedAt,
-    exp: issuedAt + 300,
-  });
-  const signature = createHmac('sha256', input.secret)
-    .update(`${header}.${payload}`)
-    .digest('base64url');
-  return `${header}.${payload}.${signature}`;
-}
-
-function auditSecretEscape(params: {
-  sessionId: string;
-  runId: string;
-  ref: SecretRef;
-  url: string;
-  reason: string;
-}): void {
-  recordAuditEvent({
-    sessionId: params.sessionId,
-    runId: params.runId,
-    event: {
-      type: 'secret.unsafe_escape',
-      skill: 'a2a.outbound',
-      secretRef: params.ref,
-      sinkKind: 'http',
-      host: new URL(params.url).host,
-      selector: null,
-      reason: params.reason,
-    },
-  });
-}
-
 function resolveItemSessionId(item: A2AOutboxItem): string {
   return item.sessionId || `a2a:outbound:${item.envelope.thread_id}`;
 }
@@ -105,49 +62,88 @@ function resolveItemRunId(item: A2AOutboxItem, prefix: string): string {
   return item.runId || makeAuditRunId(prefix);
 }
 
-function resolveBearerSecret(
+function assertBearerAuthConfigured(
   item: A2AOutboxItem,
   authUrl: string,
-): string | undefined {
+  opts: { required?: boolean } = {},
+): void {
   if (!item.bearerTokenRef) {
-    if (isA2ALoopbackHttpUrl(authUrl)) return undefined;
+    if (!opts.required || isA2ALoopbackHttpUrl(authUrl)) return;
     throw new A2AFailFastError(
       'a2a.bearerTokenRef is required for non-loopback peers',
     );
   }
-  const secret = resolveSecretInputUnsafe(item.bearerTokenRef, {
-    path: 'a2a.bearerTokenRef',
-    required: true,
-    reason: 'sign outbound A2A bearer token',
-    audit: (handle, reason) =>
-      auditSecretEscape({
-        sessionId: resolveItemSessionId(item),
-        runId: resolveItemRunId(item, 'a2a-outbound-secret'),
-        ref: handle.ref,
-        url: authUrl,
-        reason,
-      }),
-  });
-  if (!secret) {
-    throw new Error(
-      `a2a.bearerTokenRef resolved to an empty secret for ${item.bearerTokenRef.source}:${item.bearerTokenRef.id}`,
+  try {
+    resolveSecretHandleInput(item.bearerTokenRef, {
+      path: 'a2a.bearerTokenRef',
+      required: true,
+      sinkKind: 'http',
+    });
+  } catch (error) {
+    throw new A2AFailFastError(
+      error instanceof Error ? error.message : String(error),
     );
   }
-  return secret;
+}
+
+function recordDelegationAuthAudit(params: {
+  item: A2AOutboxItem;
+  audience: string;
+  scope: string;
+  peerKey?: A2APeerPublicKeyMaterial;
+}): void {
+  recordA2AAudit(params.item, {
+    type: 'a2a.outbound.delegation_auth',
+    authMode: 'signed_delegation_jwt',
+    bearerTokenRefRole: params.item.bearerTokenRef
+      ? 'non_loopback_policy_gate'
+      : params.peerKey
+        ? 'not_required_public_key_trust'
+        : 'not_required_for_loopback_or_agent_card',
+    bearerTokenRef: params.item.bearerTokenRef
+      ? {
+          source: params.item.bearerTokenRef.source,
+          id: params.item.bearerTokenRef.id,
+        }
+      : null,
+    peerPublicKey: params.peerKey
+      ? {
+          peerId: params.peerKey.peerId,
+          fingerprint: params.peerKey.publicKeyFingerprint,
+        }
+      : null,
+    audience: params.audience,
+    scope: params.scope,
+    envelope: summarizeA2AEnvelopeForAudit(params.item.envelope),
+  });
+}
+
+function resolveParentRunId(item: A2AOutboxItem): string {
+  return item.runId || item.sessionId || item.envelope.thread_id;
 }
 
 function authHeaders(params: {
   item: A2AOutboxItem;
   audience: string;
+  scope: string;
   now: Date;
+  peerKey?: A2APeerPublicKeyMaterial;
+  requireBearer?: boolean;
 }): Record<string, string> {
-  const secret = resolveBearerSecret(params.item, params.audience);
-  if (!secret) return {};
+  assertBearerAuthConfigured(params.item, params.audience, {
+    required: params.requireBearer !== false,
+  });
+  recordDelegationAuthAudit(params);
   return {
-    authorization: `Bearer ${makeSignedBearer({
-      item: params.item,
-      secret,
+    authorization: `Bearer ${signA2ADelegationToken({
+      senderAgentId: params.item.envelope.sender_agent_id,
+      targetAgentId: params.item.envelope.recipient_agent_id,
       audience: params.audience,
+      scope: params.scope,
+      parentRunId: resolveParentRunId(params.item),
+      jwtId: params.item.envelope.id,
+      messageId: params.item.envelope.id,
+      threadId: params.item.envelope.thread_id,
       now: params.now,
     })}`,
   };
@@ -308,10 +304,6 @@ function retryA2AItem(
   return retry;
 }
 
-function shouldRetryJsonRpcError(code: number): boolean {
-  return code === -32603 || (code <= -32000 && code >= -32099);
-}
-
 async function readJsonRpcResponse(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text.trim()) return null;
@@ -354,7 +346,13 @@ export async function deliverA2AItem(
       agentCardUrl: item.agentCardUrl,
       fetchImpl: opts.fetchImpl,
       now,
-      headers: authHeaders({ item, audience: item.agentCardUrl, now }),
+      headers: authHeaders({
+        item,
+        audience: item.agentCardUrl,
+        scope: A2A_AGENT_CARD_READ_SCOPE,
+        now,
+        requireBearer: false,
+      }),
       authCacheKey: agentCardAuthCacheKey(item),
       agentCardCacheTtlMs: opts.agentCardCacheTtlMs,
     });
@@ -366,9 +364,20 @@ export async function deliverA2AItem(
       failA2AItem(item, now, reason);
       return 'failed';
     }
-    if (statusCode && statusCode >= 400 && statusCode < 500) {
+    const httpDecision = statusCode
+      ? classifyA2AHttpStatus(statusCode)
+      : 'retry';
+    if (httpDecision === 'fail-fast') {
       failA2AItem(item, now, reason, { statusCode });
       return 'failed';
+    }
+    if (httpDecision === 'retry') {
+      if (attemptNumber >= maxAttempts) {
+        failA2AItem(item, now, reason, { statusCode });
+        return 'failed';
+      }
+      retryA2AItem(item, now, reason, retryOptions, { statusCode });
+      return 'retried';
     }
     if (attemptNumber >= maxAttempts) {
       failA2AItem(item, now, reason, { statusCode });
@@ -376,6 +385,24 @@ export async function deliverA2AItem(
     }
     retryA2AItem(item, now, reason, retryOptions, { statusCode });
     return 'retried';
+  }
+
+  let peerKey: A2APeerPublicKeyMaterial | undefined;
+  try {
+    peerKey = extractA2APeerPublicKey(card) ?? undefined;
+    if (peerKey) {
+      assertA2APeerPublicKeyTrust({
+        agentCardUrl: item.agentCardUrl,
+        deliveryUrl: card.url,
+        key: peerKey,
+        runId: resolveItemRunId(item, 'a2a-trust'),
+        now,
+      });
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    failA2AItem(item, now, reason);
+    return 'failed';
   }
 
   const request = encodeA2AJsonRpcRequest(item.envelope, card);
@@ -394,7 +421,17 @@ export async function deliverA2AItem(
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...authHeaders({ item, audience: card.url, now }),
+        ...authHeaders({
+          item,
+          audience: card.url,
+          scope:
+            request.method === 'tasks/send'
+              ? A2A_TASK_SEND_SCOPE
+              : A2A_MESSAGE_SEND_SCOPE,
+          now,
+          peerKey,
+          requireBearer: !peerKey,
+        }),
       },
       body,
       redirect: 'error',
@@ -413,13 +450,14 @@ export async function deliverA2AItem(
     return 'retried';
   }
 
-  if (response.status >= 400 && response.status < 500) {
+  const httpDecision = classifyA2AHttpStatus(response.status);
+  if (httpDecision === 'fail-fast') {
     failA2AItem(item, now, `HTTP ${response.status}`, {
       statusCode: response.status,
     });
     return 'failed';
   }
-  if (response.status >= 500) {
+  if (httpDecision === 'retry') {
     if (attemptNumber >= maxAttempts) {
       failA2AItem(item, now, `HTTP ${response.status}`, {
         statusCode: response.status,
@@ -451,7 +489,7 @@ export async function deliverA2AItem(
         ? jsonRpcResponse.error.message
         : 'JSON-RPC error';
     const reason = `JSON-RPC ${Number.isFinite(code) ? code : 'error'}: ${message}`;
-    if (Number.isFinite(code) && shouldRetryJsonRpcError(code)) {
+    if (Number.isFinite(code) && shouldRetryA2AJsonRpcErrorCode(code)) {
       if (attemptNumber >= maxAttempts) {
         failA2AItem(item, now, reason, {
           statusCode: response.status,

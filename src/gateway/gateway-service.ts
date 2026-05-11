@@ -9,6 +9,15 @@ import {
   currentDateStampInTimezone,
   extractUserTimezone,
 } from '../../container/shared/workspace-time.js';
+import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
+import {
+  buildLocalA2AAgentCard,
+  deleteA2ATrustedPublicKeyPeer,
+  ensureA2AInstanceKeypair,
+  listA2ATrustedPublicKeyPeers,
+  revokeA2ATrustedPublicKeyPeer,
+  upsertA2ATrustedPublicKeyPeer,
+} from '../a2a/trust-ledger.js';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import {
@@ -120,6 +129,7 @@ import {
   SLACK_APP_TOKEN,
   SLACK_BOT_TOKEN,
   TELEGRAM_BOT_TOKEN,
+  THREEMA_GATEWAY_SECRET,
   TWILIO_AUTH_TOKEN,
   WEB_API_TOKEN,
 } from '../config/config.js';
@@ -129,6 +139,7 @@ import {
   isGoogleOAuthSecretRef,
   isGoogleOAuthSpecifier,
   makeGoogleOAuthSecretRef,
+  normalizeHttpRequestAuthRuleUrlPrefix,
   type RuntimeConfig,
   type RuntimeHttpRequestAuthRule,
   type RuntimeHttpRequestAuthRuleSecret,
@@ -219,6 +230,7 @@ import {
   setPolicyDefault,
   updatePolicyRule,
 } from '../policy/policy-store.js';
+import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   allowHttpSecretRouteInWorkspacePolicy,
   captureHttpSecretRoutePolicySnapshot,
@@ -414,6 +426,9 @@ import {
   reconnectGatewayAdminTunnel,
 } from './gateway-tunnel-service.js';
 import {
+  type GatewayAdminA2ATrustPeer,
+  type GatewayAdminA2ATrustResponse,
+  type GatewayAdminA2ATrustUpsertRequest,
   type GatewayAdminAgent,
   type GatewayAdminAgentMarkdownFile,
   type GatewayAdminAgentMarkdownFileResponse,
@@ -3381,29 +3396,6 @@ function plainCommand(text: string): GatewayCommandResult {
   return { kind: 'plain', text };
 }
 
-function normalizeUrlPrefix(raw: string): string {
-  const value = String(raw || '').trim();
-  if (!value) {
-    throw new Error('URL prefix is required.');
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Invalid URL prefix: ${value}`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported URL prefix protocol: ${parsed.protocol}`);
-  }
-  parsed.username = '';
-  parsed.password = '';
-  parsed.search = '';
-  parsed.hash = '';
-  const pathname = parsed.pathname || '/';
-  parsed.pathname = `${pathname.replace(/\/+$/, '') || ''}/`;
-  return parsed.toString();
-}
-
 function normalizeSecretRouteHeader(raw: string | undefined): string {
   const header = String(raw || 'Authorization').trim();
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(header)) {
@@ -3837,6 +3829,17 @@ export async function getGatewayStatus(
     configValue: runtimeConfig.telegram.botToken,
     storedValue: storedSecrets.TELEGRAM_BOT_TOKEN,
   });
+  const threemaCredential = resolveRuntimeCredentialStatus(
+    'THREEMA_GATEWAY_SECRET',
+    [THREEMA_GATEWAY_SECRET],
+    storedSecrets.THREEMA_GATEWAY_SECRET,
+  );
+  const threemaConfigSecret = String(runtimeConfig.threema.secret || '').trim();
+  const threema = {
+    secretConfigured: Boolean(threemaCredential.value || threemaConfigSecret),
+    secretSource:
+      threemaCredential.source || (threemaConfigSecret ? 'config' : null),
+  } as NonNullable<GatewayStatus['threema']>;
   const email = resolveGatewayPasswordStatus({
     storedSecretName: 'EMAIL_PASSWORD',
     envValues: [EMAIL_PASSWORD],
@@ -3901,6 +3904,7 @@ export async function getGatewayStatus(
       cliVersion: signalCli.version,
       cliError: signalCli.error,
     },
+    threema,
     slack,
     telegram,
     email,
@@ -4882,6 +4886,102 @@ export function saveGatewayAdminConfig(
   };
 }
 
+function mapA2ATrustPeer(
+  peer: ReturnType<typeof listA2ATrustedPublicKeyPeers>[number],
+): GatewayAdminA2ATrustPeer {
+  return {
+    peerId: peer.peerId,
+    agentCardUrl: peer.agentCardUrl,
+    deliveryUrl: peer.deliveryUrl,
+    publicKeyFingerprint: peer.publicKeyFingerprint,
+    publicKeyJwk: peer.publicKeyJwk,
+    status: peer.status,
+    trustedAt: peer.trustedAt,
+    createdAt: peer.createdAt,
+    updatedAt: peer.updatedAt,
+    lastSeenAt: peer.lastSeenAt,
+    revokedAt: peer.revokedAt || null,
+    revokedReason: peer.revokedReason || null,
+    lastMismatchAt: peer.lastMismatchAt || null,
+    lastMismatchFingerprint: peer.lastMismatchFingerprint || null,
+  };
+}
+
+export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
+  const identity = ensureA2AInstanceKeypair();
+  return {
+    identity: {
+      instanceId: identity.instanceId,
+      publicKeyFingerprint: identity.publicKeyFingerprint,
+      publicKeyJwk: identity.publicKeyJwk,
+    },
+    peers: listA2ATrustedPublicKeyPeers().map(mapA2ATrustPeer),
+  };
+}
+
+export function revokeGatewayAdminA2ATrustPeer(params: {
+  peerId: string;
+  reason?: string;
+}): GatewayAdminA2ATrustResponse {
+  revokeA2ATrustedPublicKeyPeer(params.peerId, {
+    reason: params.reason,
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+function normalizeA2AStringInput(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new GatewayRequestError(400, `Expected string \`${label}\`.`);
+  }
+  return value.trim();
+}
+
+function normalizeOptionalA2AStringInput(
+  value: unknown,
+  label: string,
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new GatewayRequestError(400, `Expected string \`${label}\`.`);
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+export function upsertGatewayAdminA2ATrustPeer(
+  input: GatewayAdminA2ATrustUpsertRequest,
+): GatewayAdminA2ATrustResponse {
+  upsertA2ATrustedPublicKeyPeer({
+    peerId: normalizeA2AStringInput(input.peerId, 'peerId'),
+    agentCardUrl: normalizeOptionalA2AStringInput(
+      input.agentCardUrl,
+      'agentCardUrl',
+    ),
+    deliveryUrl: normalizeOptionalA2AStringInput(
+      input.deliveryUrl,
+      'deliveryUrl',
+    ),
+    publicKeyFingerprint: normalizeOptionalA2AStringInput(
+      input.publicKeyFingerprint,
+      'publicKeyFingerprint',
+    ),
+    publicKeyJwk: input.publicKeyJwk,
+    reason: normalizeOptionalA2AStringInput(input.reason, 'reason'),
+  });
+  return getGatewayAdminA2ATrust();
+}
+
+export function deleteGatewayAdminA2ATrustPeer(params: {
+  peerId: string;
+}): GatewayAdminA2ATrustResponse {
+  deleteA2ATrustedPublicKeyPeer(params.peerId);
+  return getGatewayAdminA2ATrust();
+}
+
+export function getGatewayA2AAgentCard(baseUrl: string): A2AAgentCard {
+  return buildLocalA2AAgentCard(baseUrl);
+}
+
 function mapAdminAuditEntry(
   entry: StructuredAuditEntry,
 ): GatewayAdminAuditResponse['entries'][number] {
@@ -5834,6 +5934,7 @@ function resolveUploadedSkillZipRoot(extractedDir: string): string {
 
 export async function uploadGatewayAdminSkillZip(
   zipBuffer: Buffer,
+  options: { force?: boolean } = {},
 ): Promise<GatewayAdminSkillsResponse> {
   if (zipBuffer.length === 0) {
     throw new GatewayRequestError(400, 'Uploaded file is empty.');
@@ -5929,21 +6030,73 @@ export async function uploadGatewayAdminSkillZip(
 
     const projectSkillsDir = resolveManagedCommunitySkillsDir();
     const targetDir = path.join(projectSkillsDir, skillName);
-    if (fs.existsSync(targetDir)) {
+    const targetExists = fs.existsSync(targetDir);
+    if (targetExists && !options.force) {
       throw new GatewayRequestError(
         409,
         `Skill \`${skillName}\` already exists at ${targetDir}.`,
       );
     }
-
-    // Copy extracted skill to project skills directory (copy instead of
-    // rename to avoid EXDEV when tmp and skills/ are on different mounts)
+    // Copy extracted skill to a sibling staging directory first (copy instead
+    // of rename to avoid EXDEV when tmp and skills/ are on different mounts).
+    // The existing skill is moved aside only after the copy succeeds.
     fs.mkdirSync(projectSkillsDir, { recursive: true });
-    fs.cpSync(skillRoot, targetDir, {
-      recursive: true,
-      force: false,
-      errorOnExist: true,
-    });
+    const stagedParentDir = fs.mkdtempSync(
+      path.join(projectSkillsDir, `.${skillName}.upload-`),
+    );
+    const stagedSkillDir = path.join(stagedParentDir, skillName);
+    let replacedParentDir: string | undefined;
+    let replacedSkillDir: string | undefined;
+    try {
+      fs.cpSync(skillRoot, stagedSkillDir, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+      });
+
+      if (targetExists) {
+        replacedParentDir = fs.mkdtempSync(
+          path.join(projectSkillsDir, `.${skillName}.replace-`),
+        );
+        replacedSkillDir = path.join(replacedParentDir, skillName);
+        fs.renameSync(targetDir, replacedSkillDir);
+      }
+
+      try {
+        fs.renameSync(stagedSkillDir, targetDir);
+      } catch (error) {
+        if (replacedSkillDir && fs.existsSync(replacedSkillDir)) {
+          if (fs.existsSync(targetDir)) {
+            fs.rmSync(targetDir, { recursive: true, force: true });
+          }
+          fs.renameSync(replacedSkillDir, targetDir);
+        }
+        const code = (error as NodeJS.ErrnoException).code;
+        if (
+          code === 'EEXIST' ||
+          code === 'ENOTEMPTY' ||
+          fs.existsSync(targetDir)
+        ) {
+          throw new GatewayRequestError(
+            409,
+            `Skill \`${skillName}\` already exists at ${targetDir}.`,
+          );
+        }
+        throw error;
+      }
+
+      if (replacedParentDir) {
+        fs.rmSync(replacedParentDir, { recursive: true, force: true });
+      }
+    } finally {
+      fs.rmSync(stagedParentDir, { recursive: true, force: true });
+      if (
+        replacedParentDir &&
+        (!replacedSkillDir || !fs.existsSync(replacedSkillDir))
+      ) {
+        fs.rmSync(replacedParentDir, { recursive: true, force: true });
+      }
+    }
 
     return getGatewayAdminSkills();
   } finally {
@@ -6230,7 +6383,10 @@ export async function ensureGatewayBootstrapAutostart(params: {
       channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled: isFullAutoEnabled(session),
-      fullAutoNeverApproveTools: FULLAUTO_NEVER_APPROVE_TOOLS,
+      fullAutoNeverApproveTools: [
+        ...FULLAUTO_NEVER_APPROVE_TOOLS,
+        ...loadPolicyFullAutoNeverApprove(agentWorkspaceDir(resolved.agentId)),
+      ],
       scheduledTasks: [],
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
     });
@@ -9065,7 +9221,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               if (
                 isGoogleOAuthSecretRef(secret) &&
                 !isGoogleApisUrlPrefix(urlPrefix)
@@ -9134,7 +9291,8 @@ export async function handleGatewayCommand(
               );
             }
             try {
-              const urlPrefix = normalizeUrlPrefix(rawPrefix);
+              const urlPrefix =
+                normalizeHttpRequestAuthRuleUrlPrefix(rawPrefix);
               const header = rawHeader
                 ? normalizeSecretRouteHeader(rawHeader)
                 : '';

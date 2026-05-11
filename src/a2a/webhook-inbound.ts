@@ -4,6 +4,7 @@ import { getAgentById, listAgents } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { readRequestBody, sendJson } from '../gateway/gateway-http-utils.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import { resolveSecretInputUnsafe } from '../security/secret-refs.js';
 import {
   type A2AEnvelope,
@@ -209,11 +210,57 @@ function localRecipientResolves(recipientAgentId: string): boolean {
   return localCanonicalRecipientIds().has(recipientAgentId.toLowerCase());
 }
 
+function resolveLocalRecipientWorkspacePath(recipientAgentId: string): string {
+  if (!recipientAgentId.includes('@')) {
+    const agent = getAgentById(recipientAgentId);
+    if (agent) return agentWorkspaceDir(agent.id);
+    throw new A2AEnvelopeValidationError([
+      'recipient_agent_id does not resolve to a local agent',
+    ]);
+  }
+
+  const normalizedRecipient = recipientAgentId.toLowerCase();
+  for (const agent of listAgents()) {
+    try {
+      if (resolveA2AAgentId(agent.id) === normalizedRecipient) {
+        return agentWorkspaceDir(agent.id);
+      }
+    } catch {
+      // Malformed local agent records are ignored here; registry mutation
+      // validation owns surfacing those errors.
+    }
+  }
+  throw new A2AEnvelopeValidationError([
+    'recipient_agent_id does not resolve to a local agent',
+  ]);
+}
+
 function extractErrorReason(error: unknown): string {
   if (error instanceof A2AEnvelopeValidationError) {
     return error.issues.join('; ');
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+function policyUpdateStatusCode(confirmation: {
+  disposition?: unknown;
+  statusCode?: unknown;
+}): number {
+  if (typeof confirmation.statusCode === 'number') {
+    return confirmation.statusCode;
+  }
+  if (confirmation.disposition !== 'rejected') return 202;
+  return 400;
+}
+
+function inboundResponseBody(
+  confirmation: Record<string, unknown>,
+): Record<string, unknown> {
+  if (confirmation.disposition !== 'rejected') return { ...confirmation };
+  return {
+    ...confirmation,
+    reason: 'Policy update rejected',
+  };
 }
 
 function validateWebhookEnvelopeForPeer(
@@ -392,19 +439,39 @@ export function acceptA2AWebhookInboundEnvelope(params: {
       actor: peerId,
       sessionId,
       auditRunId: runId,
+      workspacePath: resolveLocalRecipientWorkspacePath(
+        envelope.recipient_agent_id,
+      ),
+      policyUpdatePrincipal: {
+        peerId,
+        senderAgentId: peer.senderAgentId,
+        ...(peer.policyAuthority
+          ? { policyAuthority: peer.policyAuthority }
+          : {}),
+        capabilities: peer.capabilities,
+      },
     });
+    const statusCode =
+      'disposition' in confirmation
+        ? policyUpdateStatusCode(confirmation)
+        : 202;
     recordInboundAudit({
       peerId,
       runId,
       signatureOutcome: 'passed',
       intent: envelope.intent,
-      downstreamDisposition: 'delivered',
+      downstreamDisposition: statusCode === 202 ? 'delivered' : 'rejected',
       envelope,
-      statusCode: 202,
+      statusCode,
+      ...('reason' in confirmation && confirmation.reason
+        ? { reason: confirmation.reason }
+        : {}),
     });
     return {
-      statusCode: 202,
-      body: { ...confirmation },
+      statusCode,
+      body: inboundResponseBody(
+        confirmation as unknown as Record<string, unknown>,
+      ),
     };
   } catch (error) {
     const isDuplicate = error instanceof A2AEnvelopeDuplicateError;

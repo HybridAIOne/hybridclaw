@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { handleA2AJsonRpcInbound } from '../a2a/a2a-inbound.js';
 import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
@@ -142,11 +143,14 @@ import {
   applyGatewayAdminPolicyPreset,
   createGatewayAdminAgent,
   createGatewayAdminSkill,
+  deleteGatewayAdminA2ATrustPeer,
   deleteGatewayAdminAgent,
   deleteGatewayAdminEmailMessage,
   deleteGatewayAdminPolicyRule,
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
+  getGatewayA2AAgentCard,
+  getGatewayAdminA2ATrust,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
   getGatewayAdminAgentScoreboard,
@@ -182,6 +186,7 @@ import {
   removeGatewayAdminMcpServer,
   restoreGatewayAdminAgentMarkdownRevision,
   restoreGatewayAdminTeamStructureRevision,
+  revokeGatewayAdminA2ATrustPeer,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
   saveGatewayAdminModels,
@@ -190,10 +195,12 @@ import {
   setGatewayAdminSkillEnabled,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
+  upsertGatewayAdminA2ATrustPeer,
   upsertGatewayAdminChannel,
   upsertGatewayAdminMcpServer,
 } from './gateway-service.js';
 import type {
+  GatewayAdminA2ATrustUpsertRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
@@ -362,6 +369,7 @@ function parseThreadReferenceListInput(value: unknown): string[] | undefined {
   if (normalized.length === 0) return undefined;
   return [...new Set(normalized)];
 }
+
 type ApiPluginToolRequestBody = {
   toolName?: unknown;
   args?: unknown;
@@ -2978,6 +2986,66 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminA2ATrust(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method === 'GET') {
+    sendJson(res, 200, getGatewayAdminA2ATrust());
+    return;
+  }
+
+  if (method === 'POST' || method === 'PUT') {
+    const body = (await readJsonBody(req).catch(() => ({}))) as
+      | GatewayAdminA2ATrustUpsertRequest
+      | undefined;
+    try {
+      sendJson(res, 200, upsertGatewayAdminA2ATrustPeer(body || {}));
+    } catch (error) {
+      sendJson(
+        res,
+        error instanceof GatewayRequestError ? error.statusCode : 400,
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+    return;
+  }
+
+  if (method !== 'DELETE') {
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  const peerId = (url.searchParams.get('peerId') || '').trim();
+  if (!peerId) {
+    sendJson(res, 400, { error: 'Missing `peerId` query parameter.' });
+    return;
+  }
+  const reason = (url.searchParams.get('reason') || '').trim() || undefined;
+  const action = (url.searchParams.get('action') || '').trim();
+  try {
+    sendJson(
+      res,
+      200,
+      action === 'delete'
+        ? deleteGatewayAdminA2ATrustPeer({ peerId })
+        : revokeGatewayAdminA2ATrustPeer({ peerId, reason }),
+    );
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 async function handleApiAdminSignalLink(
   req: IncomingMessage,
   res: ServerResponse,
@@ -3845,6 +3913,9 @@ async function handleApiAdminSkillUpload(
     return;
   }
 
+  const url = new URL(req.url || '/', 'http://localhost');
+  const force = url.searchParams.get('force') === 'true';
+
   try {
     const buffer = await readRequestBody(req, MAX_SKILL_ZIP_UPLOAD_BYTES);
     if (buffer.length === 0) {
@@ -3853,7 +3924,7 @@ async function handleApiAdminSkillUpload(
       });
       return;
     }
-    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer));
+    sendJson(res, 201, await uploadGatewayAdminSkillZip(buffer, { force }));
   } catch (error) {
     if (error instanceof GatewayRequestError) {
       const message =
@@ -4100,6 +4171,152 @@ function writeUpgradeError(
   socket.destroy();
 }
 
+// Optional Vite dev passthrough: when HYBRIDCLAW_DEV_VITE_URL is set the
+// gateway forwards SPA HTML, Vite source/asset paths, and the HMR WebSocket
+// to the configured Vite dev server so the console can be developed under
+// the gateway's origin (and pick up the hybridclaw_local_session cookie).
+// Refused unless the upstream is http:// AND the gateway is bound to
+// loopback, since the proxy intentionally bypasses the console-surface auth
+// gate (Vite serves source straight from disk).
+const DEV_VITE_URL = (() => {
+  const raw = (process.env.HYBRIDCLAW_DEV_VITE_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!raw) return '';
+  if (!raw.startsWith('http://')) {
+    logger.warn(
+      { value: raw },
+      'HYBRIDCLAW_DEV_VITE_URL must be an http:// URL — Vite passthrough disabled',
+    );
+    return '';
+  }
+  if (!isLoopbackHost(HEALTH_HOST)) {
+    logger.warn(
+      { healthHost: HEALTH_HOST },
+      'HYBRIDCLAW_DEV_VITE_URL ignored: gateway is not bound to a loopback host',
+    );
+    return '';
+  }
+  return raw;
+})();
+
+function isViteSourcePath(pathname: string): boolean {
+  return (
+    pathname.startsWith('/@vite/') ||
+    pathname === '/@react-refresh' ||
+    pathname.startsWith('/@id/') ||
+    pathname.startsWith('/@fs/') ||
+    pathname.startsWith('/src/') ||
+    pathname.startsWith('/node_modules/')
+  );
+}
+
+function canUseDevViteProxy(req: IncomingMessage): boolean {
+  return (
+    DEV_VITE_URL.length > 0 &&
+    isLoopbackSocketAddress(req.socket.remoteAddress) &&
+    !hasForwardingHeaders(req)
+  );
+}
+
+function buildViteRequestOptions(
+  req: IncomingMessage,
+  targetPath: string,
+): http.RequestOptions {
+  const upstream = new URL(targetPath, DEV_VITE_URL);
+  return {
+    protocol: upstream.protocol,
+    hostname: upstream.hostname,
+    port: upstream.port,
+    method: req.method,
+    path: upstream.pathname + upstream.search,
+    headers: { ...req.headers, host: upstream.host },
+  };
+}
+
+function proxyToVite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  targetPath: string,
+): void {
+  const upstreamReq = http.request(
+    buildViteRequestOptions(req, targetPath),
+    (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    },
+  );
+  upstreamReq.on('error', (error) => {
+    if (!res.headersSent) {
+      sendText(
+        res,
+        502,
+        `Vite dev server unreachable at ${DEV_VITE_URL}: ${error.message}`,
+      );
+    } else {
+      res.destroy(error);
+    }
+  });
+  // Abort the upstream request if the client disconnects before we finish
+  // streaming the response back. ServerResponse 'close' fires only on
+  // premature closure, not on normal end-of-response, so this won't fight
+  // the happy path.
+  res.on('close', () => {
+    if (!res.writableEnded) upstreamReq.destroy();
+  });
+  req.pipe(upstreamReq);
+}
+
+function proxyViteUpgrade(
+  req: IncomingMessage,
+  socket: import('node:stream').Duplex,
+  head: Buffer,
+): void {
+  const upstreamReq = http.request(
+    buildViteRequestOptions(req, req.url || '/'),
+  );
+  upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+    const lines = [
+      `HTTP/1.1 ${upstreamRes.statusCode ?? 101} ${upstreamRes.statusMessage || 'Switching Protocols'}`,
+    ];
+    for (const [key, value] of Object.entries(upstreamRes.headers)) {
+      if (Array.isArray(value)) {
+        for (const item of value) lines.push(`${key}: ${item}`);
+      } else if (value != null) {
+        lines.push(`${key}: ${value}`);
+      }
+    }
+    socket.write(`${lines.join('\r\n')}\r\n\r\n`);
+    if (upstreamHead.length > 0) socket.write(upstreamHead);
+    if (head.length > 0) upstreamSocket.write(head);
+    upstreamSocket.pipe(socket);
+    socket.pipe(upstreamSocket);
+    const closeBoth = (): void => {
+      socket.destroy();
+      upstreamSocket.destroy();
+    };
+    upstreamSocket.on('error', closeBoth);
+    upstreamSocket.on('close', closeBoth);
+    socket.on('error', closeBoth);
+    socket.on('close', closeBoth);
+  });
+  // Vite may answer with a regular HTTP response (e.g. 426/4xx) instead of
+  // upgrading. Surface that as an upgrade error so the client socket doesn't
+  // hang.
+  upstreamReq.on('response', (upstreamRes) => {
+    writeUpgradeError(
+      socket,
+      502,
+      `Vite did not upgrade (status ${upstreamRes.statusCode ?? 'unknown'})`,
+    );
+    upstreamRes.resume();
+  });
+  upstreamReq.on('error', () => {
+    writeUpgradeError(socket, 502, 'Vite dev server unreachable');
+  });
+  upstreamReq.end();
+}
+
 export interface GatewayHttpServer {
   broadcastShutdown: () => void;
   setReady: () => void;
@@ -4230,6 +4447,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     const voicePaths = resolveVoiceWebhookPaths(
       getRuntimeConfig().voice.webhookPath,
     );
+    if (pathname === '/.well-known/agent.json' && method === 'GET') {
+      sendJson(res, 200, getGatewayA2AAgentCard(resolveRequestOrigin(req)));
+      return;
+    }
     if (
       method === 'POST' &&
       (pathname === voicePaths.webhookPath ||
@@ -4241,6 +4462,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
     if (parseA2AWebhookInboundPath(pathname)) {
       dispatchWebhookRoute(res, () => handleA2AWebhookInbound(req, res, url));
+      return;
+    }
+    if (pathname === '/a2a') {
+      dispatchWebhookRoute(res, () => handleA2AJsonRpcInbound(req, res, url));
       return;
     }
 
@@ -4407,6 +4632,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/a2a/trust' &&
+            (method === 'GET' || method === 'DELETE')
+          ) {
+            await handleApiAdminA2ATrust(req, res, url);
             return;
           }
           if (
@@ -4660,6 +4892,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       return;
     }
 
+    if (canUseDevViteProxy(req) && isViteSourcePath(pathname)) {
+      proxyToVite(req, res, pathname + url.search);
+      return;
+    }
+
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
       return;
     }
@@ -4679,6 +4916,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (isConsoleSpaPath(pathname)) {
+      if (canUseDevViteProxy(req)) {
+        proxyToVite(req, res, '/');
+        return;
+      }
       if (serveConsoleIndex(res)) return;
       sendText(
         res,
@@ -4701,6 +4942,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (url.pathname !== '/api/admin/terminal/stream') {
+      if (canUseDevViteProxy(req)) {
+        proxyViteUpgrade(req, socket, head);
+        return;
+      }
       writeUpgradeError(socket, 404, 'Not Found');
       return;
     }

@@ -211,6 +211,10 @@ function buildResolvedContext(params: {
   discoveredMaxTokens?: number;
   isLocal?: boolean;
 }): AuxiliaryTextCallContext {
+  const providerMaxTokens = resolveProviderRequestMaxTokens({
+    model: params.model,
+    discoveredMaxTokens: params.discoveredMaxTokens,
+  });
   const context: Partial<AuxiliaryTextCallContext> = {
     provider: params.provider,
     providerMethod: params.providerMethod,
@@ -220,10 +224,10 @@ function buildResolvedContext(params: {
     chatbotId: params.chatbotId.trim(),
     enableRag: params.enableRag,
     requestHeaders: params.requestHeaders ? { ...params.requestHeaders } : {},
-    maxTokens: resolveProviderRequestMaxTokens({
-      model: params.model,
-      discoveredMaxTokens: params.discoveredMaxTokens,
-    }),
+    maxTokens:
+      providerMaxTokens == null
+        ? undefined
+        : (normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens),
   };
   validateContext(params.task, context);
   return context;

@@ -803,7 +803,7 @@ test('registers policy as a local-only slash command and parses slash args', asy
     buildLocalSessionSlashHelpEntries('web').some(
       (entry) =>
         entry.command ===
-        '/policy [status|list|allow|deny|delete|preset|default|reset]',
+        '/policy [status|show|list|diff|accept-pending|rollback|revisions|pending|allow|deny|delete|preset|default|reset]',
     ),
   ).toBe(true);
   expect(

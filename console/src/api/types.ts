@@ -69,6 +69,10 @@ export interface GatewayStatus {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  threema?: {
+    secretConfigured: boolean;
+    secretSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
   signal?: {
     enabled: boolean;
     daemonUrlConfigured: boolean;
@@ -438,6 +442,7 @@ export interface AdminConfig {
     slack: string;
     signal: string;
     telegram: string;
+    threema: string;
     voice: string;
     whatsapp: string;
     email: string;
@@ -567,6 +572,16 @@ export interface AdminConfig {
     groupAllowFrom: string[];
     textChunkLimit: number;
     reconnectIntervalMs: number;
+    outboundDelayMs: number;
+  };
+  threema: {
+    enabled: boolean;
+    apiBaseUrl: string;
+    identity: string;
+    secret: string;
+    dmPolicy: 'open' | 'allowlist' | 'disabled';
+    allowFrom: string[];
+    textChunkLimit: number;
     outboundDelayMs: number;
   };
   voice: {
@@ -1029,6 +1044,43 @@ export interface AdminAuditResponse {
   entries: AdminAuditEntry[];
 }
 
+export interface AdminA2AIdentity {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  publicKeyJwk: JsonWebKey;
+}
+
+export interface AdminA2ATrustPeer {
+  peerId: string;
+  agentCardUrl: string;
+  deliveryUrl: string;
+  publicKeyFingerprint: string;
+  publicKeyJwk: JsonWebKey | null;
+  status: 'trusted' | 'revoked';
+  trustedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  revokedReason: string | null;
+  lastMismatchAt: string | null;
+  lastMismatchFingerprint: string | null;
+}
+
+export interface AdminA2ATrustResponse {
+  identity: AdminA2AIdentity;
+  peers: AdminA2ATrustPeer[];
+}
+
+export interface AdminA2ATrustUpsertRequest {
+  peerId: string;
+  agentCardUrl?: string;
+  deliveryUrl?: string;
+  publicKeyFingerprint?: string;
+  publicKeyJwk?: JsonWebKey;
+  reason?: string;
+}
+
 export interface AdminApprovalAgent {
   id: string;
   name: string | null;
@@ -1253,6 +1305,9 @@ export interface AdminAgentScoreboardEntry {
   avg_timing_score: number;
   best_skills: AdminAgentSkillScore[];
   last_observed_at: string | null;
+  weekly_anomalies_flagged: number;
+  weekly_anomalies_confirmed_normal: number;
+  weekly_anomaly_summary: string;
 }
 
 export interface AdminAgentScoreboardResponse {

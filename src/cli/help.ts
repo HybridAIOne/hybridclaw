@@ -16,7 +16,7 @@ export function printMainUsage(): void {
   eval       Run local eval recipes or launch detached benchmark commands
   tui        Start terminal adapter (starts gateway automatically when needed)
   onboarding Run interactive auth + trust-model onboarding
-  channels   Channel setup helpers (Discord, Slack, Telegram, Signal, WhatsApp, Email)
+  channels   Channel setup helpers (Discord, Slack, Telegram, Signal, Threema, WhatsApp, Email)
   browser    Manage persistent browser profiles for agent web automation
   migrate    Import state from another agent home
   plugin     Manage HybridClaw plugins
@@ -146,7 +146,7 @@ Interactive slash commands inside TUI:
   /memory inspect [sessionId]   /memory query <query>
   /model [name]   /model info|list [provider]|set <name>|clear|default [name]
   /paste
-  /policy [status|list|allow|deny|delete|preset|default|reset]
+  /policy [status|show|list|diff|accept-pending|rollback|revisions|pending|allow|deny|delete|preset|default|reset]
   /plugin [list|enable|disable|config|install|reinstall|reload|uninstall]
   /rag [on|off]
   /ralph [info|on|off|set n]
@@ -289,6 +289,7 @@ Commands:
   hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
+  hybridclaw channels threema setup --identity <gateway-id> [--secret <secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
   hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
   hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
   hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
@@ -567,7 +568,13 @@ export function printPolicyUsage(): void {
 
 Commands:
   hybridclaw policy status
+  hybridclaw policy show [--agent <id>] [--json]
   hybridclaw policy list [--agent <id>] [--json]
+  hybridclaw policy diff [pending-id|update-id]
+  hybridclaw policy accept-pending <pending-id|update-id>
+  hybridclaw policy rollback <revision-id>
+  hybridclaw policy revisions
+  hybridclaw policy pending
   hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
   hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
   hybridclaw policy delete <number|host>

@@ -15,6 +15,7 @@ function restoreEnvVar(name: string, value: string | undefined): void {
 export function setupA2AWebhookTestEnv(tempHomePrefix: string): void {
   const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
   const originalHome = process.env.HOME;
+  const originalInstanceId = process.env.HYBRIDCLAW_INSTANCE_ID;
   let tmpDir = '';
 
   beforeEach(() => {
@@ -27,6 +28,7 @@ export function setupA2AWebhookTestEnv(tempHomePrefix: string): void {
   afterEach(() => {
     restoreEnvVar('HYBRIDCLAW_DATA_DIR', originalDataDir);
     restoreEnvVar('HOME', originalHome);
+    restoreEnvVar('HYBRIDCLAW_INSTANCE_ID', originalInstanceId);
     vi.resetModules();
     if (tmpDir) {
       fs.rmSync(tmpDir, { recursive: true, force: true });

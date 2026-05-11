@@ -89,6 +89,9 @@ export interface AgentScoreboardEntry {
   best_skills: AgentSkillScore[];
   last_observed_at: string | null;
   cv_path: string;
+  weekly_anomalies_flagged: number;
+  weekly_anomalies_confirmed_normal: number;
+  weekly_anomaly_summary: string;
 }
 
 export interface SkillHealthMetrics {

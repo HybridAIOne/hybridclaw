@@ -1,4 +1,6 @@
+import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
   AgentTeamStructureDiff,
@@ -400,6 +402,10 @@ export interface GatewayStatus {
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
+  };
+  threema?: {
+    secretConfigured: boolean;
+    secretSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
   email?: {
     passwordConfigured: boolean;
@@ -883,6 +889,47 @@ export type GatewayAdminChannelUpsertRequest =
 export interface GatewayAdminConfigResponse {
   path: string;
   config: RuntimeConfig;
+}
+
+export interface GatewayAdminA2AIdentity {
+  instanceId: string;
+  publicKeyFingerprint: string;
+  publicKeyJwk: JsonWebKey;
+}
+
+type GatewayAdminA2ATrustPeerBase = Pick<
+  A2ATrustedPublicKeyPeer,
+  | 'peerId'
+  | 'agentCardUrl'
+  | 'deliveryUrl'
+  | 'publicKeyFingerprint'
+  | 'publicKeyJwk'
+  | 'status'
+  | 'trustedAt'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'lastSeenAt'
+>;
+
+export interface GatewayAdminA2ATrustPeer extends GatewayAdminA2ATrustPeerBase {
+  revokedAt: string | null;
+  revokedReason: string | null;
+  lastMismatchAt: string | null;
+  lastMismatchFingerprint: string | null;
+}
+
+export interface GatewayAdminA2ATrustResponse {
+  identity: GatewayAdminA2AIdentity;
+  peers: GatewayAdminA2ATrustPeer[];
+}
+
+export interface GatewayAdminA2ATrustUpsertRequest {
+  peerId?: unknown;
+  agentCardUrl?: unknown;
+  deliveryUrl?: unknown;
+  publicKeyFingerprint?: unknown;
+  publicKeyJwk?: unknown;
+  reason?: unknown;
 }
 
 export interface GatewayAdminAgentMarkdownFile {

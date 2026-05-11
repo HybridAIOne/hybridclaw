@@ -59,6 +59,7 @@ import {
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { ScheduledTaskInput } from '../types/scheduler.js';
+import { ensureBehaviorAnomalyTrajectoryStoreDir } from './behavior-anomaly-runtime.js';
 import {
   collectConfiguredDiscordChannelIds,
   remapOutputArtifacts,
@@ -171,6 +172,13 @@ function resolveHostAgentBrowserBinary(): string | undefined {
     if (fs.existsSync(candidate)) return candidate;
   }
   return undefined;
+}
+
+function buildHostGatewayRuntimeEnv(): Record<string, string> {
+  return {
+    HYBRIDCLAW_GATEWAY_URL: GATEWAY_BASE_URL,
+    HYBRIDCLAW_GATEWAY_TOKEN: GATEWAY_API_TOKEN || '',
+  };
 }
 
 interface PoolEntry extends WarmRunnerEntry {
@@ -638,6 +646,7 @@ function getOrSpawnHostProcess(
   const agentBrowserBin = resolveHostAgentBrowserBinary();
   const env: NodeJS.ProcessEnv = {
     ...buildSanitizedEnv(process.env),
+    ...buildHostGatewayRuntimeEnv(),
     HYBRIDCLAW_AGENT_SANDBOX_MODE: 'host',
     HYBRIDAI_BASE_URL,
     HYBRIDAI_MODEL,
@@ -657,6 +666,8 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
     SEARXNG_BASE_URL: WEB_SEARCH_SEARXNG_BASE_URL,
     HYBRIDCLAW_AGENT_ID: agentId,
+    HYBRIDCLAW_BEHAVIOR_ANOMALY_TRAJECTORY_STORE_DIR:
+      ensureBehaviorAnomalyTrajectoryStoreDir(),
     HYBRIDCLAW_AGENT_WORKSPACE_ROOT: workspacePath,
     HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT:
       params.workspaceDisplayRootOverride?.trim() || '/workspace',
