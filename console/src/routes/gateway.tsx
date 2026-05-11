@@ -15,6 +15,7 @@ import {
 import { ProviderHealthPanel } from '../components/provider-health';
 import { useToast } from '../components/toast';
 import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatUptime } from '../lib/format';
@@ -23,6 +24,7 @@ export function GatewayPage() {
   const auth = useAuth();
   const toast = useToast();
   const live = useLiveEvents(auth.token);
+  useLiveConnectionToasts(live.connection);
   const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
   const status = live.status || auth.gatewayStatus;
   const providerEntries = Object.entries(
@@ -53,32 +55,22 @@ export function GatewayPage() {
       <PageHeader
         title="Gateway"
         actions={
-          <div className="button-row">
-            <div className="status-pill">
-              <span
-                className={
-                  live.connection === 'open' ? 'status-dot live' : 'status-dot'
-                }
-              />
-              {live.connection === 'open' ? 'connected' : 'status snapshot'}
-            </div>
-            <button
-              type="button"
-              className="primary-button"
-              disabled={reloadBusy}
-              onClick={() => setReloadConfirmOpen(true)}
-              aria-busy={reloadBusy}
-            >
-              {reloadBusy ? (
-                <span className="button-with-spinner">
-                  <span aria-hidden="true" className="button-spinner" />
-                  Reloading Gateway
-                </span>
-              ) : (
-                'Reload Gateway'
-              )}
-            </button>
-          </div>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={reloadBusy}
+            onClick={() => setReloadConfirmOpen(true)}
+            aria-busy={reloadBusy}
+          >
+            {reloadBusy ? (
+              <span className="button-with-spinner">
+                <span aria-hidden="true" className="button-spinner" />
+                Reloading Gateway
+              </span>
+            ) : (
+              'Reload Gateway'
+            )}
+          </button>
         }
       />
       <div className="metric-grid">

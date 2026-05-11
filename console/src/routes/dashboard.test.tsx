@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminOverview, AdminTunnelStatus } from '../api/types';
+import { ToastProvider } from '../components/toast';
 import { DashboardPage } from './dashboard';
 
 const fetchOverviewMock = vi.fn();
@@ -103,7 +104,9 @@ function renderDashboardPage(): void {
 
   render(
     <QueryClientProvider client={queryClient}>
-      <DashboardPage />
+      <ToastProvider>
+        <DashboardPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
