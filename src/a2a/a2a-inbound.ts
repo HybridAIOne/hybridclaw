@@ -5,6 +5,7 @@ import { getAgentById, listAgents } from '../agents/agent-registry.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { readRequestBody, sendJson } from '../gateway/gateway-http-utils.js';
+import { logger } from '../logger.js';
 import { decodeA2AJsonRpcRequest, type JsonRpcId } from './a2a-json-rpc.js';
 import {
   A2A_AGENT_CARD_READ_SCOPE,
@@ -13,6 +14,7 @@ import {
 } from './a2a-outbox-delivery.js';
 import {
   A2ADelegationTokenError,
+  A2ARevokedDelegationTokenError,
   decodeA2ADelegationTokenClaims,
   verifyA2ADelegationToken,
 } from './delegation-token.js';
@@ -25,6 +27,7 @@ import {
 import { resolveA2AAgentId } from './identity.js';
 import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
 import {
+  type A2AAgentCardTrustLevel,
   type A2ATrustedA2APeer,
   getA2ATrustedA2APeerBySender,
   listA2ATrustedA2APeers,
@@ -47,7 +50,7 @@ export type A2AJsonRpcInboundDownstreamDisposition =
   | 'duplicate'
   | 'rejected'
   | 'error';
-export type A2AAgentCardPeerTrustLevel = 'public' | 'trusted';
+export type A2AAgentCardPeerTrustLevel = A2AAgentCardTrustLevel;
 type A2AInboundAuthMode = 'signed_bearer' | 'peer_public_key';
 
 export type { A2ATrustedA2APeer, UpsertA2ATrustedA2APeerInput };
@@ -230,7 +233,6 @@ function recordInboundAudit(params: {
       agentId: params.agentId,
       signatureOutcome: params.signatureOutcome,
       intent: params.intent,
-      outcome: params.downstreamDisposition,
       downstreamDisposition: params.downstreamDisposition,
       statusCode: params.statusCode,
       ...(params.reason ? { reason: params.reason } : {}),
@@ -307,6 +309,8 @@ function resolveTrustedPeerForMtls(params: {
 function resolveTrustedPeerForMtlsPublicKey(
   mtlsPublicKeyPem: string,
 ): A2ATrustedA2APeer | null {
+  // Agent Card reads may not include a sender agent id, so trust is resolved
+  // from the presented certificate key alone.
   return (
     listA2ATrustedA2APeers().find((peer) =>
       publicKeysMatch(mtlsPublicKeyPem, peer.publicKeyPem),
@@ -340,12 +344,7 @@ function signatureOutcomeForError(
   error: unknown,
 ): A2AJsonRpcInboundSignatureOutcome {
   if (error instanceof A2AMissingTrustedPeerError) return 'missing_peer';
-  if (
-    error instanceof A2ADelegationTokenError &&
-    error.message.includes('revoked')
-  ) {
-    return 'revoked';
-  }
+  if (error instanceof A2ARevokedDelegationTokenError) return 'revoked';
   return 'failed';
 }
 
@@ -370,11 +369,6 @@ export function acceptA2AJsonRpcInboundRequest(params: {
     method = meta.method;
     requestId = meta.id;
     envelope = decodeA2AJsonRpcRequest(parsed);
-    if (!localRecipientResolves(envelope.recipient_agent_id)) {
-      throw new A2AEnvelopeValidationError([
-        'recipient_agent_id does not resolve to a local agent',
-      ]);
-    }
     const authorization = String(params.authorization || '').trim();
     if (authorization) {
       authMode = 'signed_bearer';
@@ -404,6 +398,11 @@ export function acceptA2AJsonRpcInboundRequest(params: {
       throw new A2ADelegationTokenError(
         'Authorization bearer token or mTLS client certificate is required',
       );
+    }
+    if (!localRecipientResolves(envelope.recipient_agent_id)) {
+      throw new A2AEnvelopeValidationError([
+        'recipient_agent_id does not resolve to a local agent',
+      ]);
     }
   } catch (error) {
     const reason = extractErrorReason(error);
@@ -511,13 +510,25 @@ export function resolveA2AAgentCardPeerTrust(params: {
         now: params.now,
       });
       return { trustLevel: 'trusted', peerId: peer.peerId };
-    } catch {
+    } catch (error) {
+      logger.debug(
+        {
+          err: error,
+          authMode: 'signed_bearer',
+          trustLevel: 'public',
+        },
+        'A2A Agent Card trust degraded to public after bearer auth failure',
+      );
       return { trustLevel: 'public' };
     }
   }
   if (params.mtlsPublicKeyPem) {
     const peer = resolveTrustedPeerForMtlsPublicKey(params.mtlsPublicKeyPem);
     if (peer) return { trustLevel: 'trusted', peerId: peer.peerId };
+    logger.debug(
+      { authMode: 'peer_public_key', trustLevel: 'public' },
+      'A2A Agent Card trust degraded to public after unmatched mTLS key',
+    );
   }
   return { trustLevel: 'public' };
 }

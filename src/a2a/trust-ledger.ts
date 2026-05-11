@@ -420,14 +420,14 @@ function visibleAgentSkills(
 
 function buildAgentCardAgentEntry(
   agent: AgentConfig,
-  trustLevel: A2AAgentCardTrustLevel,
+  canonicalAgentId: string,
+  skills: string[],
 ): Record<string, unknown> {
-  const canonicalAgentId = resolveA2AAgentId(agent.id);
   return {
     id: canonicalAgentId,
     name: agentDisplayName(agent),
     description: agentDescription(agent),
-    skills: visibleAgentSkills(agent, trustLevel),
+    skills,
     metadata: {
       hybridclaw: {
         localAgentId: agent.id,
@@ -440,10 +440,10 @@ function buildAgentCardAgentEntry(
 
 function buildAgentCardSkillEntries(
   agent: AgentConfig,
-  trustLevel: A2AAgentCardTrustLevel,
+  canonicalAgentId: string,
+  skills: string[],
 ): Record<string, unknown>[] {
-  const canonicalAgentId = resolveA2AAgentId(agent.id);
-  return visibleAgentSkills(agent, trustLevel).map((skill) => ({
+  return skills.map((skill) => ({
     id: `${canonicalAgentId}:skill:${skill}`,
     name: skill,
     agentId: canonicalAgentId,
@@ -470,7 +470,11 @@ export function buildLocalA2AAgentCard(
   const url = new URL(baseUrl);
   const identity = ensureA2AInstanceKeypair();
   const peerTrustLevel = options.peerTrustLevel || 'public';
-  const agents = visibleA2AAgents(peerTrustLevel);
+  const agents = visibleA2AAgents(peerTrustLevel).map((agent) => ({
+    agent,
+    canonicalAgentId: resolveA2AAgentId(agent.id),
+    skills: visibleAgentSkills(agent, peerTrustLevel),
+  }));
   return {
     name: 'HybridClaw',
     url: new URL('/a2a', url.origin).toString(),
@@ -479,11 +483,11 @@ export function buildLocalA2AAgentCard(
       tasksSend: true,
       streaming: false,
     },
-    agents: agents.map((agent) =>
-      buildAgentCardAgentEntry(agent, peerTrustLevel),
+    agents: agents.map(({ agent, canonicalAgentId, skills }) =>
+      buildAgentCardAgentEntry(agent, canonicalAgentId, skills),
     ),
-    skills: agents.flatMap((agent) =>
-      buildAgentCardSkillEntries(agent, peerTrustLevel),
+    skills: agents.flatMap(({ agent, canonicalAgentId, skills }) =>
+      buildAgentCardSkillEntries(agent, canonicalAgentId, skills),
     ),
     hybridclaw: {
       instanceId: identity.instanceId,
@@ -647,13 +651,12 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
       signatureHeader: parsed.signatureHeader,
       version: parsed.version,
     });
+    const policyAuthority = normalizePolicyAuthority(parsed.policyAuthority);
     return {
       schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
       peerId: normalizeA2APeerId(parsed.peerId),
       senderAgentId: normalizeSenderAgentId(parsed.senderAgentId),
-      ...(normalizePolicyAuthority(parsed.policyAuthority)
-        ? { policyAuthority: normalizePolicyAuthority(parsed.policyAuthority) }
-        : {}),
+      ...(policyAuthority ? { policyAuthority } : {}),
       capabilities: normalizeCapabilities(parsed.capabilities),
       secretRef: webhookConfig.secretRef,
       signatureHeader: webhookConfig.signatureHeader,
@@ -1099,13 +1102,12 @@ export function upsertA2ATrustedWebhookPeer(
   const webhookConfig = normalizeTrustedWebhookPeerConfig(input);
   const existing = getA2ATrustedWebhookPeer(peerId);
   const updatedAt = now.toISOString();
+  const policyAuthority = normalizePolicyAuthority(input.policyAuthority);
   const peer: A2ATrustedWebhookPeer = {
     schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
     peerId,
     senderAgentId: normalizeSenderAgentId(input.senderAgentId),
-    ...(normalizePolicyAuthority(input.policyAuthority)
-      ? { policyAuthority: normalizePolicyAuthority(input.policyAuthority) }
-      : {}),
+    ...(policyAuthority ? { policyAuthority } : {}),
     capabilities: normalizeCapabilities(input.capabilities),
     secretRef: webhookConfig.secretRef,
     signatureHeader: webhookConfig.signatureHeader,

@@ -141,12 +141,53 @@ describe('A2A JSON-RPC inbound adapter', () => {
           method: 'message/send',
           agentId: 'main',
           signatureOutcome: 'passed',
-          outcome: 'delivered',
           downstreamDisposition: 'delivered',
           statusCode: 202,
         }),
       ]),
     );
+    const deliveredAudit = audit.find(
+      (event) => event.type === 'a2a.inbound_post' && event.statusCode === 202,
+    );
+    expect(deliveredAudit).not.toHaveProperty('outcome');
+  });
+
+  test('does not reveal local recipient existence before authentication', async () => {
+    process.env.HYBRIDCLAW_INSTANCE_ID = 'local-dev';
+    const { inbound } = await loadInboundTestModules();
+
+    const envelope = {
+      ...inboundEnvelope('msg-unknown-recipient-no-auth-a2a'),
+      recipient_agent_id: 'unknown-local-agent',
+    };
+    const rawBody = JSON.stringify(
+      encodeA2AJsonRpcRequest(envelope, {
+        url: 'http://localhost/a2a',
+      }),
+    );
+
+    expect(
+      inbound.acceptA2AJsonRpcInboundRequest({
+        rawBody,
+        authorization: null,
+        audience: 'http://localhost/a2a',
+        now: new Date('2030-01-01T00:00:30.000Z'),
+      }),
+    ).toEqual({
+      statusCode: 401,
+      body: {
+        jsonrpc: '2.0',
+        error: {
+          code: -32001,
+          message: 'Unauthorized',
+          data: {
+            reason:
+              'Authorization bearer token or mTLS client certificate is required',
+          },
+        },
+        id: null,
+      },
+    });
   });
 
   test('accepts trusted mTLS client certificates and delivers to the local inbox', async () => {
