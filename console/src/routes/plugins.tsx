@@ -4,10 +4,16 @@ import { fetchPlugins } from '../api/client';
 import type { AdminPlugin } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   BooleanPill,
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -146,10 +152,14 @@ export function PluginsPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel
-          title="Registry"
-          subtitle={`${plugins.length} plugin${plugins.length === 1 ? '' : 's'} visible`}
-        >
+        <Card>
+          <CardHeader>
+            <CardTitle>Registry</CardTitle>
+            <CardDescription>
+              {`${plugins.length} plugin${plugins.length === 1 ? '' : 's'} visible`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {pluginsQuery.isLoading ? (
             <div className="empty-state">Loading plugins...</div>
           ) : plugins.length === 0 ? (
@@ -250,9 +260,14 @@ export function PluginsPage() {
               </table>
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Failures" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Failures</CardTitle>
+          </CardHeader>
+          <CardContent>
           {pluginsQuery.isLoading ? (
             <div className="empty-state">Loading plugin status...</div>
           ) : failedPlugins.length > 0 ? (
@@ -281,7 +296,8 @@ export function PluginsPage() {
               No plugin load failures were reported.
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -4,8 +4,14 @@ import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -223,7 +229,11 @@ export function ModelsPage() {
       />
 
       <div className="two-column-grid">
-        <Panel title="Provider status">
+        <Card>
+          <CardHeader>
+            <CardTitle>Provider status</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="list-stack">
             {providerEntries.map(({ name, status }) => (
               <div className="list-row" key={name}>
@@ -265,9 +275,14 @@ export function ModelsPage() {
               </div>
             ) : null}
           </div>
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Selection" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Selection</CardTitle>
+          </CardHeader>
+          <CardContent>
           {modelsQuery.isLoading ? (
             <div className="empty-state">Loading model catalog...</div>
           ) : (
@@ -304,13 +319,18 @@ export function ModelsPage() {
               </div>
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
 
-      <Panel
-        title="Catalog"
-        subtitle={`${pluralize(models.length, 'model')} visible`}
-      >
+      <Card>
+        <CardHeader>
+          <CardTitle>Catalog</CardTitle>
+          <CardDescription>
+            {`${pluralize(models.length, 'model')} visible`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
         {modelsQuery.isLoading ? (
           <div className="empty-state">Loading model catalog...</div>
         ) : (
@@ -399,13 +419,18 @@ export function ModelsPage() {
             </table>
           </div>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
 
       {modelsWithDailyUsage.length > 0 ? (
-        <Panel
-          title="Recent daily activity"
-          subtitle={`Updated ${formatRelativeTime(new Date().toISOString())}`}
-        >
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent daily activity</CardTitle>
+            <CardDescription>
+              {`Updated ${formatRelativeTime(new Date().toISOString())}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           <div className="list-stack">
             {modelsWithDailyUsage
               .sort(
@@ -429,7 +454,8 @@ export function ModelsPage() {
                 </div>
               ))}
           </div>
-        </Panel>
+          </CardContent>
+        </Card>
       ) : null}
     </div>
   );

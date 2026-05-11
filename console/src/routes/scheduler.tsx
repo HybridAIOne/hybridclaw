@@ -17,7 +17,14 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime } from '../lib/format';
 import { buildChannelCatalog } from './channels-catalog';
@@ -538,7 +545,11 @@ function SchedulerTaskDetail(props: {
   onDelete: () => void;
 }) {
   return (
-    <Panel title="Task" accent="warm">
+    <Card variant="muted">
+      <CardHeader>
+        <CardTitle>Task</CardTitle>
+      </CardHeader>
+      <CardContent>
       <div className="stack-form">
         <div className="key-value-grid">
           <div>
@@ -607,7 +618,8 @@ function SchedulerTaskDetail(props: {
           </button>
         </div>
       </div>
-    </Panel>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -628,7 +640,11 @@ function SchedulerJobEditor(props: {
   const { draft, selectedJob } = props;
 
   return (
-    <Panel title="Job" accent="warm">
+    <Card variant="muted">
+      <CardHeader>
+        <CardTitle>Job</CardTitle>
+      </CardHeader>
+      <CardContent>
       <div className="stack-form">
         <div className="field-grid">
           <label className="field">
@@ -1009,7 +1025,8 @@ function SchedulerJobEditor(props: {
           ) : null}
         </div>
       </div>
-    </Panel>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1168,10 +1185,14 @@ export function SchedulerPage() {
       />
 
       <div className="two-column-grid">
-        <Panel
-          title="Jobs"
-          subtitle={`${schedulerQuery.data?.jobs.length || 0} item${schedulerQuery.data?.jobs.length === 1 ? '' : 's'}`}
-        >
+        <Card>
+          <CardHeader>
+            <CardTitle>Jobs</CardTitle>
+            <CardDescription>
+              {`${schedulerQuery.data?.jobs.length || 0} item${schedulerQuery.data?.jobs.length === 1 ? '' : 's'}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {schedulerQuery.isLoading ? (
             <div className="empty-state">Loading scheduler items...</div>
           ) : schedulerQuery.data?.jobs.length ? (
@@ -1205,7 +1226,8 @@ export function SchedulerPage() {
           ) : (
             <div className="empty-state">No scheduled work yet.</div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
         {isTaskJob(selectedJob) ? (
           <SchedulerTaskDetail

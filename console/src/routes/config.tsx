@@ -4,7 +4,14 @@ import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { BooleanField, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { BooleanField, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 
 function cloneConfig<T>(value: T): T {
@@ -72,12 +79,13 @@ export function ConfigPage() {
         }
       />
 
-      <Panel
-        title="Runtime config"
-        subtitle={configQuery.data.path}
-        accent="warm"
-      >
-        {rawMode ? (
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>Runtime config</CardTitle>
+          <CardDescription>{configQuery.data.path}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {rawMode ? (
           <div className="stack-form">
             <label className="field textarea-field">
               <span>config.json</span>
@@ -314,7 +322,8 @@ export function ConfigPage() {
             {saveMutation.isPending ? 'Saving...' : 'Save config'}
           </button>
         </div>
-      </Panel>
+        </CardContent>
+      </Card>
     </div>
   );
 }

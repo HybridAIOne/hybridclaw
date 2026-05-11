@@ -20,7 +20,13 @@ import {
 } from '../components/dialog';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
 import { useToast } from '../components/toast';
-import { MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -360,7 +366,11 @@ export function ApprovalsPage() {
       </div>
 
       <div className="page-stack">
-        <Panel title="Policy" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Policy</CardTitle>
+          </CardHeader>
+          <CardContent>
           {approvalsQuery.isLoading ? (
             <div className="empty-state">Loading policy...</div>
           ) : approvalsQuery.data ? (
@@ -621,9 +631,14 @@ export function ApprovalsPage() {
           ) : (
             <div className="empty-state">Policy state is unavailable.</div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Blocked sessions">
+        <Card>
+          <CardHeader>
+            <CardTitle>Blocked sessions</CardTitle>
+          </CardHeader>
+          <CardContent>
           {approvalsQuery.isLoading ? (
             <div className="empty-state">Loading blocked sessions...</div>
           ) : approvalsQuery.data?.suspendedSessions.length ? (
@@ -668,9 +683,14 @@ export function ApprovalsPage() {
           ) : (
             <div className="empty-state">No blocked sessions right now.</div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Pending approvals">
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending approvals</CardTitle>
+          </CardHeader>
+          <CardContent>
           {approvalsQuery.isLoading ? (
             <div className="empty-state">Loading pending approvals...</div>
           ) : approvalsQuery.data?.pending.length ? (
@@ -722,7 +742,8 @@ export function ApprovalsPage() {
           ) : (
             <div className="empty-state">No pending approvals right now.</div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
       <Dialog
         open={deleteRuleTarget !== null}

@@ -19,12 +19,18 @@ import type {
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   BooleanField,
   BooleanPill,
   BooleanToggle,
   MetricCard,
   PageHeader,
-  Panel,
   SegmentedToggle,
   SortableHeader,
   useSortableRows,
@@ -485,7 +491,11 @@ export function SkillsPage() {
       />
 
       {showCreate ? (
-        <Panel title="Create skill" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Create skill</CardTitle>
+          </CardHeader>
+          <CardContent>
           <SegmentedToggle
             ariaLabel="Create mode"
             value={createMode}
@@ -773,7 +783,8 @@ export function SkillsPage() {
               </div>
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       ) : null}
 
       <div className="metric-grid">
@@ -801,10 +812,14 @@ export function SkillsPage() {
         />
       </div>
 
-      <Panel
-        title="Installed skills"
-        subtitle={`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
-      >
+      <Card>
+        <CardHeader>
+          <CardTitle>Installed skills</CardTitle>
+          <CardDescription>
+            {`${sortedInstalledSkills.length} skill${sortedInstalledSkills.length === 1 ? '' : 's'} visible`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
         {skillsQuery.isLoading ? (
           <div className="empty-state">Loading skill catalog...</div>
         ) : (
@@ -940,14 +955,18 @@ export function SkillsPage() {
             </table>
           </div>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
 
       <div className="two-column-grid">
-        <Panel
-          id="observed-skill-health"
-          title="Observed skill health"
-          subtitle={`${sortedHealthMetrics.length} observed skill${sortedHealthMetrics.length === 1 ? '' : 's'} visible`}
-        >
+        <Card id="observed-skill-health">
+          <CardHeader>
+            <CardTitle>Observed skill health</CardTitle>
+            <CardDescription>
+              {`${sortedHealthMetrics.length} observed skill${sortedHealthMetrics.length === 1 ? '' : 's'} visible`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {healthQuery.isLoading ? (
             <div className="empty-state">Loading AdaptiveSkills health...</div>
           ) : sortedHealthMetrics.length === 0 ? (
@@ -1044,14 +1063,17 @@ export function SkillsPage() {
               </table>
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel
-          id="staged-amendments"
-          title="Staged amendments"
-          subtitle={`${stagedAmendments.length} waiting for review`}
-          accent="warm"
-        >
+        <Card id="staged-amendments" variant="muted">
+          <CardHeader>
+            <CardTitle>Staged amendments</CardTitle>
+            <CardDescription>
+              {`${stagedAmendments.length} waiting for review`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {stagedAmendmentsQuery.isLoading ? (
             <div className="empty-state">Loading staged amendments...</div>
           ) : stagedAmendments.length === 0 ? (
@@ -1118,17 +1140,22 @@ export function SkillsPage() {
               ))}
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
 
-      <Panel
-        title={
-          effectiveSelectedSkillName
-            ? `Amendment history: ${effectiveSelectedSkillName}`
-            : 'Amendment history'
-        }
-        subtitle="Full review trail for the selected skill"
-      >
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {effectiveSelectedSkillName
+              ? `Amendment history: ${effectiveSelectedSkillName}`
+              : 'Amendment history'}
+          </CardTitle>
+          <CardDescription>
+            Full review trail for the selected skill
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
         {!effectiveSelectedSkillName ? (
           <div className="empty-state">
             Select a skill to inspect its amendment history.
@@ -1175,7 +1202,8 @@ export function SkillsPage() {
             ))}
           </div>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
     </div>
   );
 }

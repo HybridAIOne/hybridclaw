@@ -14,7 +14,13 @@ import {
 } from '../components/dialog';
 import { ProviderHealthPanel } from '../components/provider-health';
 import { useToast } from '../components/toast';
-import { BooleanPill, MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { BooleanPill, MetricCard, PageHeader } from '../components/ui';
 import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
@@ -84,7 +90,11 @@ export function GatewayPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Runtime">
+        <Card>
+          <CardHeader>
+            <CardTitle>Runtime</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="key-value-grid">
             <div>
               <span>Version</span>
@@ -103,9 +113,14 @@ export function GatewayPage() {
               <strong>{status.defaultModel}</strong>
             </div>
           </div>
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Services" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Services</CardTitle>
+          </CardHeader>
+          <CardContent>
           <div className="key-value-grid">
             <div>
               <span>Sandbox mode</span>
@@ -160,7 +175,8 @@ export function GatewayPage() {
           {status.observability?.lastError ? (
             <p className="error-banner">{status.observability.lastError}</p>
           ) : null}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="two-column-grid">
@@ -170,7 +186,11 @@ export function GatewayPage() {
           onLogin={() => void navigate({ to: '/admin/config' })}
         />
 
-        <Panel title="Scheduler snapshot" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Scheduler snapshot</CardTitle>
+          </CardHeader>
+          <CardContent>
           {schedulerJobs.length === 0 ? (
             <div className="empty-state">No scheduler jobs are registered.</div>
           ) : (
@@ -197,7 +217,8 @@ export function GatewayPage() {
               ))}
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
       <Dialog open={reloadConfirmOpen} onOpenChange={setReloadConfirmOpen}>
         <DialogContent size="sm" role="alertdialog">

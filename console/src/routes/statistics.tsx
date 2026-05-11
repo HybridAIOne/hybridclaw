@@ -6,7 +6,14 @@ import type {
   AdminStatisticsTrendDay,
 } from '../api/types';
 import { useAuth } from '../auth';
-import { MetricCard, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { MetricCard, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
@@ -123,52 +130,68 @@ export function StatisticsPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel
-          title="Message trend"
-          subtitle="User vs assistant messages per day"
-        >
-          <TrendChart
-            trend={trend}
-            series={[
-              {
-                key: 'userMessages',
-                label: 'User',
-                color: 'var(--primary)',
-              },
-              {
-                key: 'assistantMessages',
-                label: 'Assistant',
-                color: 'var(--success)',
-              },
-            ]}
-          />
-        </Panel>
-        <Panel title="Session trend" subtitle="New vs active sessions per day">
-          <TrendChart
-            trend={trend}
-            series={[
-              {
-                key: 'newSessions',
-                label: 'New',
-                color: 'var(--primary)',
-              },
-              {
-                key: 'activeSessions',
-                label: 'Active',
-                color: 'var(--accent-foreground)',
-              },
-            ]}
-            stacked={false}
-          />
-        </Panel>
+        <Card>
+          <CardHeader>
+            <CardTitle>Message trend</CardTitle>
+            <CardDescription>
+              User vs assistant messages per day
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TrendChart
+              trend={trend}
+              series={[
+                {
+                  key: 'userMessages',
+                  label: 'User',
+                  color: 'var(--primary)',
+                },
+                {
+                  key: 'assistantMessages',
+                  label: 'Assistant',
+                  color: 'var(--success)',
+                },
+              ]}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Session trend</CardTitle>
+            <CardDescription>New vs active sessions per day</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TrendChart
+              trend={trend}
+              series={[
+                {
+                  key: 'newSessions',
+                  label: 'New',
+                  color: 'var(--primary)',
+                },
+                {
+                  key: 'activeSessions',
+                  label: 'Active',
+                  color: 'var(--accent-foreground)',
+                },
+              ]}
+              stacked={false}
+            />
+          </CardContent>
+        </Card>
       </div>
 
-      <Panel
-        title="Channel breakdown"
-        subtitle="Distribution of sessions and messages by channel"
-      >
-        <ChannelBreakdown channels={channels} />
-      </Panel>
+      <Card>
+        <CardHeader>
+          <CardTitle>Channel breakdown</CardTitle>
+          <CardDescription>
+            Distribution of sessions and messages by channel
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ChannelBreakdown channels={channels} />
+        </CardContent>
+      </Card>
     </div>
   );
 }

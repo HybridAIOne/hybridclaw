@@ -4,9 +4,14 @@ import { fetchTools } from '../api/client';
 import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -192,7 +197,11 @@ export function ToolsPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Catalog">
+        <Card>
+          <CardHeader>
+            <CardTitle>Catalog</CardTitle>
+          </CardHeader>
+          <CardContent>
           {toolsQuery.isLoading ? (
             <div className="empty-state">Loading tool catalog...</div>
           ) : sortedTools.length === 0 ? (
@@ -254,9 +263,14 @@ export function ToolsPage() {
               </table>
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Recent executions" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Recent executions</CardTitle>
+          </CardHeader>
+          <CardContent>
           {toolsQuery.isLoading ? (
             <div className="empty-state">Loading recent executions...</div>
           ) : toolsQuery.data?.recentExecutions.length ? (
@@ -300,7 +314,8 @@ export function ToolsPage() {
               No recent tool executions were found in structured audit events.
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

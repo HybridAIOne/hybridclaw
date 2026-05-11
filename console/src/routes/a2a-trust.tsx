@@ -8,7 +8,14 @@ import {
 } from '../api/client';
 import type { AdminA2ATrustPeer } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { BooleanPill, PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
 function shortFingerprint(value: string): string {
@@ -100,7 +107,11 @@ export function A2ATrustPage() {
     <div className="page-stack">
       <PageHeader title="A2A Trust" />
 
-      <Panel title="Local identity">
+      <Card>
+        <CardHeader>
+          <CardTitle>Local identity</CardTitle>
+        </CardHeader>
+        <CardContent>
         {trustQuery.isLoading ? (
           <div className="empty-state">Loading identity...</div>
         ) : trustQuery.data ? (
@@ -121,13 +132,18 @@ export function A2ATrustPage() {
         ) : (
           <div className="empty-state">Identity unavailable.</div>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
 
       <div className="two-column-grid">
-        <Panel
-          title="Trusted peers"
-          subtitle={`${peers.length} peer${peers.length === 1 ? '' : 's'}`}
-        >
+        <Card>
+          <CardHeader>
+            <CardTitle>Trusted peers</CardTitle>
+            <CardDescription>
+              {`${peers.length} peer${peers.length === 1 ? '' : 's'}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {trustQuery.isLoading ? (
             <div className="empty-state">Loading peers...</div>
           ) : peers.length ? (
@@ -154,10 +170,15 @@ export function A2ATrustPage() {
           ) : (
             <div className="empty-state">No A2A peer keys cached.</div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
         <div className="sticky-detail">
-          <Panel title="Peer detail" accent="warm">
+          <Card variant="muted">
+            <CardHeader>
+              <CardTitle>Peer detail</CardTitle>
+            </CardHeader>
+            <CardContent>
             {!selectedPeer ? (
               <div className="empty-state">Select a peer.</div>
             ) : (
@@ -248,9 +269,14 @@ export function A2ATrustPage() {
                 ) : null}
               </div>
             )}
-          </Panel>
+            </CardContent>
+          </Card>
 
-          <Panel title="Operator override">
+          <Card>
+            <CardHeader>
+              <CardTitle>Operator override</CardTitle>
+            </CardHeader>
+            <CardContent>
             <div className="detail-stack">
               <label className="field">
                 <span>Peer</span>
@@ -311,7 +337,8 @@ export function A2ATrustPage() {
                 </small>
               ) : null}
             </div>
-          </Panel>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

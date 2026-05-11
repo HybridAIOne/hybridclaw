@@ -17,7 +17,13 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth';
 import { useToast } from '../components/toast';
-import { Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
 import { getErrorMessage } from '../lib/error-message';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
@@ -313,7 +319,7 @@ export function AgentFilesPage() {
 
   return (
     <div className="page-stack">
-      <Panel accent="warm">
+      <Card variant="muted">
         {agentsQuery.isLoading ? (
           <div className="empty-state">Loading agents...</div>
         ) : !agentsQuery.data?.length ? (
@@ -428,10 +434,14 @@ export function AgentFilesPage() {
                 </div>
 
                 <div className="two-column-grid">
-                  <Panel
-                    title="Versions"
-                    subtitle={`${fileQuery.data?.file.revisions.length || 0} saved revision${fileQuery.data?.file.revisions.length === 1 ? '' : 's'}`}
-                  >
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Versions</CardTitle>
+                      <CardDescription>
+                        {`${fileQuery.data?.file.revisions.length || 0} saved revision${fileQuery.data?.file.revisions.length === 1 ? '' : 's'}`}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
                     {!fileQuery.data?.file.revisions.length ? (
                       <div className="empty-state">
                         Revisions appear here after the file changes.
@@ -462,9 +472,14 @@ export function AgentFilesPage() {
                         ))}
                       </div>
                     )}
-                  </Panel>
+                    </CardContent>
+                  </Card>
 
-                  <Panel title="Version Preview" accent="warm">
+                  <Card variant="muted">
+                    <CardHeader>
+                      <CardTitle>Version Preview</CardTitle>
+                    </CardHeader>
+                    <CardContent>
                     {!selectedRevisionId ? (
                       <div className="empty-state">
                         Select a saved version to preview or restore it.
@@ -522,14 +537,19 @@ export function AgentFilesPage() {
                         </div>
                       </div>
                     )}
-                  </Panel>
+                    </CardContent>
+                  </Card>
                 </div>
 
                 <div className="two-column-grid">
-                  <Panel
-                    title="Team Revisions"
-                    subtitle={`${teamQuery.data?.revisions.length || 0} saved revision${teamQuery.data?.revisions.length === 1 ? '' : 's'}`}
-                  >
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Team Revisions</CardTitle>
+                      <CardDescription>
+                        {`${teamQuery.data?.revisions.length || 0} saved revision${teamQuery.data?.revisions.length === 1 ? '' : 's'}`}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
                     {teamQuery.isLoading ? (
                       <div className="empty-state">
                         Loading team revisions...
@@ -569,9 +589,14 @@ export function AgentFilesPage() {
                         ))}
                       </div>
                     )}
-                  </Panel>
+                    </CardContent>
+                  </Card>
 
-                  <Panel title="Team Diff" accent="warm">
+                  <Card variant="muted">
+                    <CardHeader>
+                      <CardTitle>Team Diff</CardTitle>
+                    </CardHeader>
+                    <CardContent>
                     {!selectedTeamRevisionId ? (
                       <div className="empty-state">
                         Select a team revision to inspect its diff.
@@ -620,13 +645,14 @@ export function AgentFilesPage() {
                         </div>
                       </div>
                     )}
-                  </Panel>
+                    </CardContent>
+                  </Card>
                 </div>
               </>
             )}
           </div>
         )}
-      </Panel>
+      </Card>
     </div>
   );
 }

@@ -2,7 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useState } from 'react';
 import { fetchAudit } from '../api/client';
 import { useAuth } from '../auth';
-import { PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
 function prettifyPayload(raw: string): string {
@@ -56,7 +63,11 @@ export function AuditPage() {
     <div className="page-stack">
       <PageHeader title="Audit Log" />
 
-      <Panel title="Filters">
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="field-grid">
           <label className="field">
             <span>Search</span>
@@ -83,13 +94,18 @@ export function AuditPage() {
             placeholder="approval.response"
           />
         </label>
-      </Panel>
+        </CardContent>
+      </Card>
 
       <div className="two-column-grid">
-        <Panel
-          title="Entries"
-          subtitle={`${auditQuery.data?.entries.length || 0} matching event${auditQuery.data?.entries.length === 1 ? '' : 's'}`}
-        >
+        <Card>
+          <CardHeader>
+            <CardTitle>Entries</CardTitle>
+            <CardDescription>
+              {`${auditQuery.data?.entries.length || 0} matching event${auditQuery.data?.entries.length === 1 ? '' : 's'}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {auditQuery.isLoading ? (
             <div className="empty-state">Loading audit entries...</div>
           ) : auditQuery.data?.entries.length ? (
@@ -120,10 +136,15 @@ export function AuditPage() {
               No audit entries match these filters.
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
         <div className="sticky-detail">
-          <Panel title="Inspection" accent="warm">
+          <Card variant="muted">
+            <CardHeader>
+              <CardTitle>Inspection</CardTitle>
+            </CardHeader>
+            <CardContent>
             {!selectedEntry ? (
               <div className="empty-state">
                 Select an audit event to inspect it.
@@ -164,7 +185,8 @@ export function AuditPage() {
                 </div>
               </div>
             )}
-          </Panel>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

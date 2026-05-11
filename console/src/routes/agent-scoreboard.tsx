@@ -3,9 +3,15 @@ import { fetchAgentScoreboard } from '../api/client';
 import type { AdminAgentScoreboardEntry } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -126,11 +132,15 @@ export function AgentsPage() {
         />
       </div>
 
-      <Panel
-        title="Agent scoreboard"
-        subtitle={`${sortedRows.length} agent${sortedRows.length === 1 ? '' : 's'} visible`}
-      >
-        {scoreboardQuery.isLoading ? (
+      <Card>
+        <CardHeader>
+          <CardTitle>Agent scoreboard</CardTitle>
+          <CardDescription>
+            {`${sortedRows.length} agent${sortedRows.length === 1 ? '' : 's'} visible`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {scoreboardQuery.isLoading ? (
           <div className="empty-state">Loading agent scoreboard...</div>
         ) : sortedRows.length === 0 ? (
           <div className="empty-state">No agent skill runs recorded yet.</div>
@@ -243,7 +253,8 @@ export function AgentsPage() {
             </table>
           </div>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
     </div>
   );
 }

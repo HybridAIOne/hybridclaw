@@ -8,6 +8,7 @@
   background: var(--panel-bg);
   color: var(--text);
   box-sizing: border-box;
+  min-width: 0;
 }
 
 .card[data-variant="muted"] {
@@ -80,4 +81,10 @@
   gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+}
+
+@media (max-width: 780px) {
+  .card {
+    padding: 18px;
+  }
 }

@@ -117,31 +117,6 @@ export function PageHeader(props: {
   );
 }
 
-export function Panel(props: {
-  title?: string;
-  subtitle?: string;
-  children: ReactNode;
-  accent?: 'default' | 'warm';
-  id?: string;
-}) {
-  return (
-    <section
-      id={props.id}
-      className={props.accent === 'warm' ? 'panel warm' : 'panel'}
-    >
-      {props.title ? (
-        <header className="panel-header">
-          <h4 className="panel-title">{props.title}</h4>
-          {props.subtitle ? (
-            <p className="panel-subtitle">{props.subtitle}</p>
-          ) : null}
-        </header>
-      ) : null}
-      {props.children}
-    </section>
-  );
-}
-
 export function MetricCard(props: {
   label: string;
   value: string;

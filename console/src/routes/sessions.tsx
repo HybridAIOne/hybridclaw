@@ -12,7 +12,14 @@ import {
   DialogTitle,
 } from '../components/dialog';
 import { useToast } from '../components/toast';
-import { BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import { formatRelativeTime } from '../lib/format';
 
@@ -87,10 +94,14 @@ export function SessionsPage() {
       />
 
       <div className="two-column-grid sessions-layout">
-        <Panel
-          title="Session list"
-          subtitle={`${filtered.length} result${filtered.length === 1 ? '' : 's'}`}
-        >
+        <Card>
+          <CardHeader>
+            <CardTitle>Session list</CardTitle>
+            <CardDescription>
+              {`${filtered.length} result${filtered.length === 1 ? '' : 's'}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           {sessionsQuery.isLoading ? (
             <div className="empty-state">Loading sessions...</div>
           ) : filtered.length === 0 ? (
@@ -121,9 +132,14 @@ export function SessionsPage() {
               ))}
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
 
-        <Panel title="Inspection" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Inspection</CardTitle>
+          </CardHeader>
+          <CardContent>
           {!selectedSession ? (
             <div className="empty-state">Select a session to inspect it.</div>
           ) : (
@@ -185,7 +201,8 @@ export function SessionsPage() {
               </button>
             </div>
           )}
-        </Panel>
+          </CardContent>
+        </Card>
       </div>
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent size="sm" role="alertdialog">
