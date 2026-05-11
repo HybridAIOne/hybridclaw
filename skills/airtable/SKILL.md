@@ -229,7 +229,8 @@ types before emitting write payloads:
   present
 - linked records require Airtable record id arrays
 - attachments require an array of objects with `url` for new files or `id` for
-  existing files
+  existing files; new attachment URLs must be public `http(s)` URLs and must
+  not target localhost, private, or link-local IP ranges
 - collaborator and barcode fields require Airtable-shaped objects
 
 Unknown field types are allowed after schema lookup so newly introduced
@@ -265,6 +266,7 @@ Read operations and computed-field reads are green tier.
   read-only.
 - Prefer record ids for writes and deletes. If a lookup returns multiple
   records, stop and ask for the exact record id.
+- Use base ids that start with `app` and record ids that start with `rec`.
 - Keep list calls paginated; Airtable returns at most 100 records per page.
 - Respect Airtable's per-base API rate limit. Avoid loops that hammer one base.
 - Cost per assistant run is recorded by HybridClaw `UsageTotals`; helper output

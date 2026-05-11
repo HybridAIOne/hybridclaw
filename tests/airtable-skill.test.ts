@@ -60,6 +60,9 @@ test('Airtable helper --help exits cleanly', () => {
   expect(result.stdout).toContain('validate-fields');
   expect(result.stdout).toContain('attachment-payload');
   expect(result.stdout).toContain('eval-scenarios');
+  expect(result.stdout).not.toContain('--pat-secret');
+  expect(result.stdout).not.toContain('--typecast');
+  expect(result.stdout).not.toContain('--return-fields-by-field-id');
 });
 
 test('Airtable helper plans reads, writes, attachments, and deletes offline', () => {
@@ -196,6 +199,100 @@ test('Airtable helper validates list-record page size bounds', () => {
   );
 });
 
+test('Airtable helper fails fast for missing write arguments and invalid ids', () => {
+  const missingFields = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'create-record',
+    '--base-id',
+    'appBase',
+    '--table',
+    'tblPipeline',
+    '--operator-grant',
+  ]);
+  const missingRecordId = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'update-record',
+    '--base-id',
+    'appBase',
+    '--table',
+    'tblPipeline',
+    '--fields-json',
+    'not-json',
+    '--operator-grant',
+  ]);
+  const invalidBaseId = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-records',
+    '--base-id',
+    'tblNotBase',
+    '--table',
+    'tblPipeline',
+  ]);
+  const invalidRecordId = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'get-record',
+    '--base-id',
+    'appBase',
+    '--table',
+    'tblPipeline',
+    '--record-id',
+    'tblWrong',
+  ]);
+
+  expect(missingFields.status).not.toBe(0);
+  expect(missingFields.stderr).toContain('--fields-json is required.');
+  expect(missingRecordId.status).not.toBe(0);
+  expect(missingRecordId.stderr).toContain('--record-id is required.');
+  expect(invalidBaseId.status).not.toBe(0);
+  expect(invalidBaseId.stderr).toContain('--base-id must start with "app".');
+  expect(invalidRecordId.status).not.toBe(0);
+  expect(invalidRecordId.stderr).toContain(
+    '--record-id must start with "rec".',
+  );
+});
+
+test('Airtable helper rejects removed auth and typecast escape-hatch flags', () => {
+  const patSecret = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'list-bases',
+    '--pat-secret',
+    'OTHER_SECRET',
+  ]);
+  const typecast = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'create-record',
+    '--base-id',
+    'appBase',
+    '--table',
+    'tblPipeline',
+    '--fields-json',
+    '{"Name":"Acme"}',
+    '--operator-grant',
+    '--typecast',
+  ]);
+
+  expect(patSecret.status).not.toBe(0);
+  expect(patSecret.stderr).toContain(
+    '--pat-secret is not supported by the Airtable helper.',
+  );
+  expect(typecast.status).not.toBe(0);
+  expect(typecast.stderr).toContain(
+    '--typecast is not supported by the Airtable helper.',
+  );
+});
+
 test('Airtable helper validates fields before creating record payloads', () => {
   const result = runHelper([
     '--format',
@@ -259,6 +356,39 @@ test('Airtable helper refuses computed field writes and bad select choices', () 
   expect(JSON.parse(badChoice.stdout)).toMatchObject({
     allowed: false,
     findings: ['Status must be one of: New, Active, Closed.'],
+  });
+});
+
+test('Airtable helper blocks private attachment URLs', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'attachment-payload',
+    '--field',
+    'Files',
+    '--url',
+    'https://169.254.169.254/latest/meta-data',
+  ]);
+  const schemaResult = runHelper([
+    '--format',
+    'json',
+    'validate-fields',
+    '--schema-file',
+    schemaPath,
+    '--table',
+    'Pipeline',
+    '--fields-json',
+    '{"Files":[{"url":"http://127.0.0.1/internal.pdf"}]}',
+  ]);
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain(
+    'url must not target private or internal addresses',
+  );
+  expect(schemaResult.status).toBe(0);
+  expect(JSON.parse(schemaResult.stdout)).toMatchObject({
+    allowed: false,
+    findings: ['Files[0].url must not target private or internal addresses.'],
   });
 });
 

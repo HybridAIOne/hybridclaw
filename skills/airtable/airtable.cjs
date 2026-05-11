@@ -9,6 +9,29 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_PAT_SECRET = 'AIRTABLE_PAT';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
 
+const COST_MEASUREMENT = {
+  system: 'UsageTotals',
+  source: 'HybridClaw usage_events',
+  scope: 'per assistant run/session',
+  fields: [
+    'total_input_tokens',
+    'total_output_tokens',
+    'total_tokens',
+    'total_cost_usd',
+    'call_count',
+    'total_tool_calls',
+  ],
+};
+
+const SCHEMA_RE = /\b(base|bases|schema|metadata|inspect|describe)\b/;
+const COMPUTED_RE = /\b(formula|rollup|lookup|computed)\b/;
+const ATTACHMENT_RE = /\b(attach|attachments?|files?)\b/;
+const CREATE_RE = /\b(create|add|insert|new)\b/;
+const CREATE_TARGET_RE =
+  /\b(records?|rows?|leads?|tasks?|entries|attachments?|files?)\b/;
+const UPDATE_RE = /\b(update|edit|change|modify|set)\b/;
+const DELETE_RE = /\b(delete|remove|destroy)\b/;
+
 const COMPUTED_FIELD_TYPES = new Set([
   'aiText',
   'autoNumber',
@@ -41,22 +64,6 @@ const TEXT_FIELD_TYPES = new Set([
   'url',
   'phoneNumber',
 ]);
-
-function usageTotalsMeasurement() {
-  return {
-    system: 'UsageTotals',
-    source: 'HybridClaw usage_events',
-    scope: 'per assistant run/session',
-    fields: [
-      'total_input_tokens',
-      'total_output_tokens',
-      'total_tokens',
-      'total_cost_usd',
-      'call_count',
-      'total_tool_calls',
-    ],
-  };
-}
 
 function die(message, code = 2) {
   process.stderr.write(`${message}\n`);
@@ -120,7 +127,7 @@ function parsePageSize(raw) {
   if (pageSize < 1 || pageSize > 100) {
     die('--page-size must be between 1 and 100.');
   }
-  return String(pageSize);
+  return pageSize;
 }
 
 function loadJsonFile(filePath) {
@@ -172,7 +179,7 @@ function buildHttpRequest({
       bearerSecretName,
       skillName: 'airtable',
     },
-    costMeasurement: usageTotalsMeasurement(),
+    costMeasurement: COST_MEASUREMENT,
   };
   if (json !== undefined) {
     payload.httpRequest.json = json;
@@ -205,12 +212,18 @@ function normalizeSchema(schema) {
 
 function findTable(schema, tableIdOrName) {
   const normalized = normalizeSchema(schema);
+  const exactMatch = normalized.tables.find(
+    (candidate) =>
+      candidate.id === tableIdOrName || candidate.name === tableIdOrName,
+  );
+  if (exactMatch) {
+    return exactMatch;
+  }
+  const lookup = tableIdOrName.toLowerCase();
   const table = normalized.tables.find(
     (candidate) =>
-      candidate.id === tableIdOrName ||
-      candidate.name === tableIdOrName ||
-      candidate.id?.toLowerCase() === tableIdOrName.toLowerCase() ||
-      candidate.name?.toLowerCase() === tableIdOrName.toLowerCase(),
+      candidate.id?.toLowerCase() === lookup ||
+      candidate.name?.toLowerCase() === lookup,
   );
   if (!table) {
     die(`Table not found in schema: ${tableIdOrName}`);
@@ -244,6 +257,38 @@ function isIsoDateTime(value) {
   );
 }
 
+function isPrivateAttachmentUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (hostname === 'localhost' || hostname === '::1') {
+    return true;
+  }
+  if (
+    hostname.startsWith('fe80:') ||
+    hostname.startsWith('fc') ||
+    hostname.startsWith('fd')
+  ) {
+    return true;
+  }
+  const octets = hostname.split('.').map((part) => Number.parseInt(part, 10));
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
+    return false;
+  }
+  const [first, second] = octets;
+  return (
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
 function validateAttachment(value, fieldName, findings) {
   if (!Array.isArray(value)) {
     findings.push(`${fieldName} must be an array of attachment objects.`);
@@ -258,16 +303,23 @@ function validateAttachment(value, fieldName, findings) {
       findings.push(`${fieldName}[${index}] must be an attachment object.`);
       return;
     }
-    const hasUrl = typeof attachment.url === 'string' && attachment.url.trim();
+    const attachmentUrl =
+      typeof attachment.url === 'string' ? attachment.url.trim() : '';
+    const hasUrl = attachmentUrl.length > 0;
     const hasId = typeof attachment.id === 'string' && attachment.id.trim();
     if (!hasUrl && !hasId) {
       findings.push(
         `${fieldName}[${index}] needs a url for new files or id for existing files.`,
       );
     }
-    if (hasUrl && !/^https?:\/\//i.test(attachment.url)) {
+    if (hasUrl && !/^https?:\/\//i.test(attachmentUrl)) {
       findings.push(
         `${fieldName}[${index}].url must be an absolute http(s) URL.`,
+      );
+    }
+    if (hasUrl && isPrivateAttachmentUrl(attachmentUrl)) {
+      findings.push(
+        `${fieldName}[${index}].url must not target private or internal addresses.`,
       );
     }
     if (
@@ -413,83 +465,86 @@ function validateFields({
     table: { id: table.id, name: table.name },
     allowed: findings.length === 0,
     findings,
-    costMeasurement: usageTotalsMeasurement(),
+    costMeasurement: COST_MEASUREMENT,
   };
 }
 
 function planRequest(request) {
   const text = request.toLowerCase();
-  let operation = 'record-read';
-  let stakesTier = 'green';
-  let requiresEscalation = false;
-  let requiredGrant = null;
-  let computedFieldRead = false;
-  let allowed = true;
-  const findings = [];
+  const computedFieldRead = COMPUTED_RE.test(text);
 
-  if (/\b(base|bases|schema|metadata|inspect|describe)\b/.test(text)) {
-    operation = 'schema-read';
+  function makePlan({
+    operation = 'record-read',
+    stakesTier = 'green',
+    requiresEscalation = false,
+    requiredGrant = null,
+  } = {}) {
+    let allowed = true;
+    const findings = [];
+    if (computedFieldRead && requiresEscalation) {
+      allowed = false;
+      findings.push(
+        'Formula, lookup, rollup, count, and other computed Airtable fields are read-only through this skill.',
+      );
+    }
+    return {
+      command: 'plan',
+      request,
+      operation,
+      stakesTier,
+      requiresEscalation,
+      requiredGrant,
+      computedFieldRead,
+      allowed,
+      findings,
+      costMeasurement: COST_MEASUREMENT,
+    };
   }
-  if (/\b(formula|rollup|lookup|computed)\b/.test(text)) {
-    computedFieldRead = true;
-    operation = 'record-read';
+
+  function makeWritePlan(operation, requiredGrant, stakesTier = 'amber') {
+    return makePlan({
+      operation,
+      stakesTier,
+      requiresEscalation: true,
+      requiredGrant,
+    });
   }
-  if (/\b(attach|attachment|file)\b/.test(text)) {
-    operation = 'attachment-update';
-    stakesTier = 'amber';
-    requiresEscalation = true;
-    requiredGrant = 'approve-airtable-attachment-update';
-  }
-  if (
-    /\b(create|add|insert|new)\b/.test(text) &&
-    /\b(records?|rows?|leads?|tasks?|entries|attachments?|files?)\b/.test(text)
-  ) {
-    operation = /\b(attach|attachment|file)s?\b/.test(text)
-      ? 'attachment-update'
-      : 'record-create';
-    stakesTier = 'amber';
-    requiresEscalation = true;
-    requiredGrant =
-      operation === 'attachment-update'
-        ? 'approve-airtable-attachment-update'
-        : 'approve-airtable-record-create';
-  }
-  if (/\b(update|edit|change|modify|set)\b/.test(text)) {
-    operation = /\b(attach|attachment|file)s?\b/.test(text)
-      ? 'attachment-update'
-      : 'record-update';
-    stakesTier = 'amber';
-    requiresEscalation = true;
-    requiredGrant =
-      operation === 'attachment-update'
-        ? 'approve-airtable-attachment-update'
-        : 'approve-airtable-record-update';
-  }
-  if (/\b(delete|remove|destroy)\b/.test(text)) {
-    operation = 'record-delete';
-    stakesTier = 'red';
-    requiresEscalation = true;
-    requiredGrant = 'approve-airtable-record-delete';
-  }
-  if (computedFieldRead && requiresEscalation) {
-    allowed = false;
-    findings.push(
-      'Formula, lookup, rollup, count, and other computed Airtable fields are read-only through this skill.',
+
+  if (DELETE_RE.test(text)) {
+    return makeWritePlan(
+      'record-delete',
+      'approve-airtable-record-delete',
+      'red',
     );
   }
-
-  return {
-    command: 'plan',
-    request,
-    operation,
-    stakesTier,
-    requiresEscalation,
-    requiredGrant,
-    computedFieldRead,
-    allowed,
-    findings,
-    costMeasurement: usageTotalsMeasurement(),
-  };
+  if (UPDATE_RE.test(text)) {
+    if (ATTACHMENT_RE.test(text)) {
+      return makeWritePlan(
+        'attachment-update',
+        'approve-airtable-attachment-update',
+      );
+    }
+    return makeWritePlan('record-update', 'approve-airtable-record-update');
+  }
+  if (CREATE_RE.test(text) && CREATE_TARGET_RE.test(text)) {
+    if (ATTACHMENT_RE.test(text)) {
+      return makeWritePlan(
+        'attachment-update',
+        'approve-airtable-attachment-update',
+      );
+    }
+    return makeWritePlan('record-create', 'approve-airtable-record-create');
+  }
+  if (ATTACHMENT_RE.test(text)) {
+    return makeWritePlan(
+      'attachment-update',
+      'approve-airtable-attachment-update',
+    );
+  }
+  if (SCHEMA_RE.test(text)) {
+    return makePlan({ operation: 'schema-read' });
+  }
+  return makePlan();
 }
 
 function runEvalScenarios() {
@@ -520,7 +575,7 @@ function runEvalScenarios() {
     failed: failures.length,
     failures,
     categories,
-    costMeasurement: usageTotalsMeasurement(),
+    costMeasurement: COST_MEASUREMENT,
   };
 }
 
@@ -530,10 +585,39 @@ function parseCommonRecordArgs(args) {
   if (!baseId) {
     die('--base-id is required.');
   }
+  validateBaseId(baseId);
   if (!table) {
     die('--table is required.');
   }
   return { baseId, table };
+}
+
+function validateBaseId(baseId) {
+  if (!baseId.startsWith('app')) {
+    die('--base-id must start with "app".');
+  }
+}
+
+function validateRecordId(recordId) {
+  if (!recordId.startsWith('rec')) {
+    die('--record-id must start with "rec".');
+  }
+}
+
+function popFieldsJson(args) {
+  const fieldsRaw = popFlag(args, '--fields-json');
+  if (!fieldsRaw) {
+    die('--fields-json is required.');
+  }
+  return parseJsonValue(fieldsRaw, '--fields-json');
+}
+
+function rejectUnsupportedFlags(args, flags) {
+  for (const flag of flags) {
+    if (args.includes(flag)) {
+      die(`${flag} is not supported by the Airtable helper.`);
+    }
+  }
 }
 
 function validateWithOptionalSchema(args, table, fields, operation) {
@@ -556,15 +640,18 @@ function validateWithOptionalSchema(args, table, fields, operation) {
 
 function handleHttpRequest(args) {
   const operation = args.shift();
-  const bearerSecretName = popFlag(args, '--pat-secret', DEFAULT_PAT_SECRET);
   if (!operation) {
     die('http-request requires an operation.');
   }
+  rejectUnsupportedFlags(args, [
+    '--pat-secret',
+    '--return-fields-by-field-id',
+    '--typecast',
+  ]);
 
   if (operation === 'list-bases') {
     return buildHttpRequest({
       url: `${API_BASE}/meta/bases`,
-      bearerSecretName,
     });
   }
 
@@ -573,9 +660,9 @@ function handleHttpRequest(args) {
     if (!baseId) {
       die('--base-id is required.');
     }
+    validateBaseId(baseId);
     return buildHttpRequest({
       url: `${API_BASE}/meta/bases/${encodePathSegment(baseId)}/tables`,
-      bearerSecretName,
     });
   }
 
@@ -586,10 +673,6 @@ function handleHttpRequest(args) {
     const offset = popFlag(args, '--offset');
     const view = popFlag(args, '--view');
     const filterByFormula = popFlag(args, '--filter-by-formula');
-    const returnFieldsByFieldId = popBoolean(
-      args,
-      '--return-fields-by-field-id',
-    );
     const url = appendQuery(
       `${API_BASE}/${encodePathSegment(baseId)}/${encodePathSegment(table)}`,
       {
@@ -597,11 +680,10 @@ function handleHttpRequest(args) {
         offset,
         view,
         filterByFormula,
-        returnFieldsByFieldId: returnFieldsByFieldId ? 'true' : undefined,
         'fields[]': fields,
       },
     );
-    return buildHttpRequest({ url, bearerSecretName });
+    return buildHttpRequest({ url });
   }
 
   if (operation === 'get-record') {
@@ -610,30 +692,22 @@ function handleHttpRequest(args) {
     if (!recordId) {
       die('--record-id is required.');
     }
+    validateRecordId(recordId);
     return buildHttpRequest({
       url: `${API_BASE}/${encodePathSegment(baseId)}/${encodePathSegment(table)}/${encodePathSegment(recordId)}`,
-      bearerSecretName,
     });
   }
 
   if (operation === 'create-record') {
     requireGrant(args, 'approve-airtable-record-create');
     const { baseId, table } = parseCommonRecordArgs(args);
-    const fields = parseJsonValue(
-      popFlag(args, '--fields-json'),
-      '--fields-json',
-    );
+    const fields = popFieldsJson(args);
     validateWithOptionalSchema(args, table, fields, 'create');
-    const typecast = popBoolean(args, '--typecast');
     const payload = { records: [{ fields }] };
-    if (typecast) {
-      payload.typecast = true;
-    }
     return buildHttpRequest({
       url: `${API_BASE}/${encodePathSegment(baseId)}/${encodePathSegment(table)}`,
       method: 'POST',
       json: payload,
-      bearerSecretName,
     });
   }
 
@@ -641,24 +715,17 @@ function handleHttpRequest(args) {
     requireGrant(args, 'approve-airtable-record-update');
     const { baseId, table } = parseCommonRecordArgs(args);
     const recordId = popFlag(args, '--record-id');
-    const fields = parseJsonValue(
-      popFlag(args, '--fields-json'),
-      '--fields-json',
-    );
     if (!recordId) {
       die('--record-id is required.');
     }
+    validateRecordId(recordId);
+    const fields = popFieldsJson(args);
     validateWithOptionalSchema(args, table, fields, 'update');
-    const typecast = popBoolean(args, '--typecast');
     const payload = { fields };
-    if (typecast) {
-      payload.typecast = true;
-    }
     return buildHttpRequest({
       url: `${API_BASE}/${encodePathSegment(baseId)}/${encodePathSegment(table)}/${encodePathSegment(recordId)}`,
       method: 'PATCH',
       json: payload,
-      bearerSecretName,
     });
   }
 
@@ -669,10 +736,10 @@ function handleHttpRequest(args) {
     if (!recordId) {
       die('--record-id is required.');
     }
+    validateRecordId(recordId);
     return buildHttpRequest({
       url: `${API_BASE}/${encodePathSegment(baseId)}/${encodePathSegment(table)}/${encodePathSegment(recordId)}`,
       method: 'DELETE',
-      bearerSecretName,
     });
   }
 
@@ -718,12 +785,17 @@ function handleAttachmentPayload(args) {
     }
     return attachment;
   });
+  const findings = [];
+  validateAttachment(attachments, field, findings);
+  if (findings.length > 0) {
+    die(`Airtable attachment validation failed: ${findings.join(' ')}`);
+  }
   return {
     command: 'attachment-payload',
     fields: {
       [field]: attachments,
     },
-    costMeasurement: usageTotalsMeasurement(),
+    costMeasurement: COST_MEASUREMENT,
   };
 }
 
@@ -733,12 +805,12 @@ function usage() {
 Usage:
   node skills/airtable/airtable.cjs --help
   node skills/airtable/airtable.cjs plan "natural language request"
-  node skills/airtable/airtable.cjs http-request list-bases [--pat-secret NAME]
-  node skills/airtable/airtable.cjs http-request schema --base-id app... [--pat-secret NAME]
+  node skills/airtable/airtable.cjs http-request list-bases
+  node skills/airtable/airtable.cjs http-request schema --base-id app...
   node skills/airtable/airtable.cjs http-request list-records --base-id app... --table tbl... [--field Name] [--view VIEW] [--filter-by-formula FORMULA] [--offset OFFSET] [--page-size N]
   node skills/airtable/airtable.cjs http-request get-record --base-id app... --table tbl... --record-id rec...
-  node skills/airtable/airtable.cjs http-request create-record --base-id app... --table tbl... --fields-json JSON [--schema-file PATH] --operator-grant [--typecast]
-  node skills/airtable/airtable.cjs http-request update-record --base-id app... --table tbl... --record-id rec... --fields-json JSON [--schema-file PATH] --operator-grant [--typecast]
+  node skills/airtable/airtable.cjs http-request create-record --base-id app... --table tbl... --fields-json JSON [--schema-file PATH] --operator-grant
+  node skills/airtable/airtable.cjs http-request update-record --base-id app... --table tbl... --record-id rec... --fields-json JSON [--schema-file PATH] --operator-grant
   node skills/airtable/airtable.cjs http-request delete-record --base-id app... --table tbl... --record-id rec... --operator-grant
   node skills/airtable/airtable.cjs validate-fields --schema-file PATH --table NAME --fields-json JSON
   node skills/airtable/airtable.cjs attachment-payload --field FIELD --url URL [--filename NAME]
