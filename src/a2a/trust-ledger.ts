@@ -32,6 +32,7 @@ import {
 } from './webhook-outbound.js';
 
 export const A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE = 60;
+export const A2A_AGENT_CARD_STREAMING_SUPPORTED = false;
 export const A2A_POLICY_AUTHORITY_KINDS = [
   'platform',
   'org_admin',
@@ -74,6 +75,8 @@ const EPOCH_ISO = new Date(0).toISOString();
 const TOFU_AUDIT_SESSION_ID = 'a2a:trust-ledger';
 
 let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
+let trustedA2APeersByPublicKeyCache: Map<string, A2ATrustedA2APeer> | null =
+  null;
 let cachedInstanceKeypair: A2AInstanceKeypair | null = null;
 let cachedInstancePrivateKey: KeyObject | null = null;
 let cachedInstancePublicKey: KeyObject | null = null;
@@ -481,7 +484,7 @@ export function buildLocalA2AAgentCard(
     capabilities: {
       messageSend: true,
       tasksSend: true,
-      streaming: false,
+      streaming: A2A_AGENT_CARD_STREAMING_SUPPORTED,
     },
     agents: agents.map(({ agent, canonicalAgentId, skills }) =>
       buildAgentCardAgentEntry(agent, canonicalAgentId, skills),
@@ -535,6 +538,10 @@ function normalizePublicKeyPem(value: unknown): string {
       'publicKeyPem must be a valid public key',
     ]);
   }
+}
+
+function normalizePublicKeyPemText(value: string): string {
+  return value.trim().replace(/\r\n/g, '\n');
 }
 
 function normalizeSecretRef(value: unknown): SecretRef {
@@ -1166,6 +1173,7 @@ export function upsertA2ATrustedA2APeer(
     },
   );
   trustedA2APeersBySenderCache = null;
+  trustedA2APeersByPublicKeyCache = null;
   return peer;
 }
 
@@ -1213,10 +1221,31 @@ function trustedA2APeersBySender(): Map<string, A2ATrustedA2APeer> {
   return trustedA2APeersBySenderCache;
 }
 
+function trustedA2APeersByPublicKey(): Map<string, A2ATrustedA2APeer> {
+  if (trustedA2APeersByPublicKeyCache) return trustedA2APeersByPublicKeyCache;
+  trustedA2APeersByPublicKeyCache = new Map();
+  for (const peer of listA2ATrustedA2APeers()) {
+    const publicKey = normalizePublicKeyPemText(peer.publicKeyPem);
+    if (!trustedA2APeersByPublicKeyCache.has(publicKey)) {
+      trustedA2APeersByPublicKeyCache.set(publicKey, peer);
+    }
+  }
+  return trustedA2APeersByPublicKeyCache;
+}
+
 export function getA2ATrustedA2APeerBySender(
   senderAgentId: string,
 ): A2ATrustedA2APeer | null {
   const normalizedSenderAgentId =
     normalizeCanonicalSenderAgentId(senderAgentId);
   return trustedA2APeersBySender().get(normalizedSenderAgentId) ?? null;
+}
+
+export function getA2ATrustedA2APeerByPublicKeyPem(
+  publicKeyPem: string,
+): A2ATrustedA2APeer | null {
+  return (
+    trustedA2APeersByPublicKey().get(normalizePublicKeyPemText(publicKeyPem)) ??
+    null
+  );
 }

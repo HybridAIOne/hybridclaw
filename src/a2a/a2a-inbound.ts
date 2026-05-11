@@ -29,6 +29,7 @@ import { acceptA2AInboundEnvelope } from './inbound-pipeline.js';
 import {
   type A2AAgentCardTrustLevel,
   type A2ATrustedA2APeer,
+  getA2ATrustedA2APeerByPublicKeyPem,
   getA2ATrustedA2APeerBySender,
   listA2ATrustedA2APeers,
   type UpsertA2ATrustedA2APeerInput,
@@ -311,11 +312,7 @@ function resolveTrustedPeerForMtlsPublicKey(
 ): A2ATrustedA2APeer | null {
   // Agent Card reads may not include a sender agent id, so trust is resolved
   // from the presented certificate key alone.
-  return (
-    listA2ATrustedA2APeers().find((peer) =>
-      publicKeysMatch(mtlsPublicKeyPem, peer.publicKeyPem),
-    ) ?? null
-  );
+  return getA2ATrustedA2APeerByPublicKeyPem(mtlsPublicKeyPem);
 }
 
 function verifySignedRequest(params: {
