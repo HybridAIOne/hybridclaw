@@ -19,7 +19,7 @@ The roadmap is anchored in the [HybridClaw manifesto — *The AI Coworker Who's 
 
 | # | Feature | Description | Priority | Status |
 |---|---------|-------------|----------|--------|
-| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 3/81 |
+| 21 | **Business skills and connectors** | Production skills and connector work. See **R21 Production Skills** below for sub-issue rows. *Principle I — the skills are the product.* | P0 | 🟡 3/84 |
 | 1 | **Agent-to-agent messaging** | First-class primitive for agents to message, hand off, escalate, federate across instances, and speak multiple transport formats. See **R1 Messaging Work** below for sub-issue rows. *Principle VI.* | P0 | 🟡 4/15 |
 | 2 | **Workflow engine — autonomous-by-default with high-stakes escalation** | Declarative YAML workflows. Sequential runner; escalation gates only on high-stakes steps. Return-for-revision rewinds. Built on top of #1. See **R2 Workflow Work** below for sub-issue rows. *Principles II + VI.* | P0 | 🔄 #461 |
 | 3 | **Agent scoreboard + auto-`CV.md`** | Per-skill score data model populated from the skill-run event bus. Auto-rendered CV per agent; admin scoreboard; "best at X" recommendation API. See **R3 Scoreboard Work** below for the follow-up row. *Principle IV.* | P0 | ✅ (5/5; follow-up R3.7 ✅ #618; #616, #619 still open) |
