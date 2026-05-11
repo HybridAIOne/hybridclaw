@@ -111,6 +111,9 @@ describe.sequential('board card store', () => {
       }),
     ).toHaveLength(1);
     expect(boardModule.listCards({ sourcePrefix: 'manual' })).toHaveLength(1);
+    expect(boardModule.listCards({ sourcePrefix: 'autopilot' })).toHaveLength(
+      0,
+    );
 
     const deleted = boardModule.deleteCard('card-1', {
       actor: { userId: 'user_a' },
@@ -119,6 +122,45 @@ describe.sequential('board card store', () => {
     expect(deleted.deletedAt).toBeTruthy();
     expect(boardModule.getCard('card-1')).toBeNull();
     expect(boardModule.listCards({ includeDeleted: true })).toHaveLength(1);
+  });
+
+  test('update ignores undefined patch values and preserves createdAt', async () => {
+    const { boardModule } = await loadBoardStore();
+
+    const created = boardModule.createCard({
+      id: 'card-undefined-patch',
+      title: 'Patch target',
+      body: 'Body',
+      owner: { agentId: 'agent_builder' },
+      status: 'queued',
+      parent: 'parent-card',
+      source: 'autopilot/nightly',
+    });
+
+    const updated = boardModule.updateCard('card-undefined-patch', {
+      title: undefined,
+      status: undefined,
+      parent: undefined,
+      body: 'Updated body',
+    });
+
+    expect(updated).toMatchObject({
+      title: 'Patch target',
+      body: 'Updated body',
+      status: 'queued',
+      parent: 'parent-card',
+      source: 'autopilot/nightly',
+      createdAt: created.createdAt,
+    });
+    expect(boardModule.listCards({ sourcePrefix: 'autopilot' })).toHaveLength(
+      1,
+    );
+
+    const cleared = boardModule.updateCard('card-undefined-patch', {
+      parent: null,
+    });
+    expect(cleared.parent).toBeNull();
+    expect(cleared.createdAt).toBe(created.createdAt);
   });
 
   test('restores prior field state through F4 revisions', async () => {

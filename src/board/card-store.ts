@@ -383,7 +383,6 @@ function insertOrReplaceCard(database: Database.Database, card: Card): Card {
          status = excluded.status,
          source = excluded.source,
          parent = excluded.parent,
-         created_at = excluded.created_at,
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at`,
     )
@@ -402,7 +401,11 @@ function insertOrReplaceCard(database: Database.Database, card: Card): Card {
       normalized.updatedAt,
       normalized.deletedAt,
     );
-  return normalized;
+  const stored = selectCard(database, normalized.id, { includeDeleted: true });
+  if (!stored) {
+    throw new Error(`Failed to read persisted board card: ${normalized.id}`);
+  }
+  return stored;
 }
 
 function selectCard(
@@ -494,7 +497,7 @@ export function listCards(filter: ListCardsFilter = {}): Card[] {
         values.push('manual');
       } else {
         clauses.push('source >= ? AND source < ?');
-        values.push(`${filter.sourcePrefix}/`, `${filter.sourcePrefix}0`);
+        values.push(`${filter.sourcePrefix}/`, `${filter.sourcePrefix}/\uffff`);
       }
     }
 
@@ -521,9 +524,12 @@ export function updateCard(
     const { before, after } = database.transaction(() => {
       const current = selectCard(database, normalizedId);
       if (!current) throw new Error(`Board card not found: ${normalizedId}`);
+      const definedPatch = Object.fromEntries(
+        Object.entries(patch).filter(([, value]) => value !== undefined),
+      ) as UpdateCardPatch;
       const next = normalizeCardForPersistence({
         ...current,
-        ...patch,
+        ...definedPatch,
         updatedAt: new Date().toISOString(),
       });
       const stored = insertOrReplaceCard(database, next);
