@@ -5646,6 +5646,7 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
       always: skill.always,
       tags: skill.metadata.hybridclaw.tags,
       relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+      credentials: skill.manifest.credentials,
     })),
   };
 }
