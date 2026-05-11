@@ -1,7 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
 import { createContext, type ReactNode, useContext } from 'react';
-import { fetchConfig } from '../api/client';
 import { useAuth } from '../auth';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 import { AppSidebar } from './sidebar/app-sidebar';
@@ -17,12 +15,10 @@ import { ViewSwitchNav } from './view-switch';
 const SIDEBAR_STYLE = getSidebarStyleVars('15.5rem', '18rem');
 
 type AppShellConfigContextValue = {
-  configReady: boolean;
   emailEnabled: boolean;
 };
 
 const AppShellConfigContext = createContext<AppShellConfigContextValue>({
-  configReady: false,
   emailEnabled: false,
 });
 
@@ -31,12 +27,7 @@ export function AppShell(props: { children: ReactNode }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-  const configQuery = useQuery({
-    queryKey: ['config', auth.token],
-    queryFn: () => fetchConfig(auth.token),
-  });
-  const configReady = Boolean(configQuery.data);
-  const emailEnabled = configQuery.data?.config.email.enabled === true;
+  const emailEnabled = auth.gatewayStatus?.emailEnabled === true;
   const sidebarGroups = SIDEBAR_NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter(
@@ -46,7 +37,7 @@ export function AppShell(props: { children: ReactNode }) {
   const currentNavItem = resolveCurrentAdminNavItem(pathname);
 
   return (
-    <AppShellConfigContext.Provider value={{ configReady, emailEnabled }}>
+    <AppShellConfigContext.Provider value={{ emailEnabled }}>
       <SidebarProvider style={SIDEBAR_STYLE}>
         <AppSidebar
           groups={sidebarGroups}

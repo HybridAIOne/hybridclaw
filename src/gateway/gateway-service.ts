@@ -186,6 +186,7 @@ import {
   getSessionCount,
   getSessionFileChangeCounts,
   getSessionMessageCounts,
+  getSessionsByIds,
   getSessionToolCallBreakdown,
   getSessionUsageTotals,
   getSessionUsageTotalsSince,
@@ -3908,6 +3909,7 @@ export async function getGatewayStatus(
     slack,
     telegram,
     email,
+    emailEnabled: runtimeConfig.email.enabled === true,
     imessage,
     voice: {
       enabled: runtimeConfig.voice.enabled,
@@ -5531,8 +5533,17 @@ export function getGatewayAdminApprovals(params?: {
   agentId?: string;
 }): GatewayAdminApprovalsResponse {
   const selectedAgentId = resolveAgentConfig(params?.agentId).id;
+  const pendingApprovals = listPendingApprovals();
+  const suspendedSessions = listSuspendedSessions();
+  const referencedSessionIds = new Set<string>();
+  for (const pending of pendingApprovals) {
+    if (pending.sessionId) referencedSessionIds.add(pending.sessionId);
+  }
+  for (const suspended of suspendedSessions) {
+    if (suspended.sessionId) referencedSessionIds.add(suspended.sessionId);
+  }
   const sessionAgentIds = new Map(
-    getAllSessions().map((session) => [
+    getSessionsByIds(Array.from(referencedSessionIds)).map((session) => [
       session.id,
       resolveAgentForRequest({ session }).agentId,
     ]),
@@ -5541,10 +5552,10 @@ export function getGatewayAdminApprovals(params?: {
   return {
     selectedAgentId,
     agents: listGatewayAdminApprovalAgents(selectedAgentId),
-    pending: listPendingApprovals().map((pending) =>
+    pending: pendingApprovals.map((pending) =>
       mapGatewayAdminPendingApproval(pending, sessionAgentIds),
     ),
-    suspendedSessions: listSuspendedSessions().map((session) =>
+    suspendedSessions: suspendedSessions.map((session) =>
       mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
     policy: mapGatewayAdminPolicyState(selectedAgentId),
