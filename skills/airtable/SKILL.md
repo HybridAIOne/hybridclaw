@@ -86,7 +86,10 @@ asking the model whether the secret exists. The model cannot inspect the gateway
 secret store. If the operator says the secret was set, attempt the
 `http_request` call with `bearerSecretName: "AIRTABLE_PAT"`. Only say the secret
 is missing if the built-in `http_request` tool returns a gateway error that
-explicitly says `AIRTABLE_PAT` is unavailable, missing, forbidden, or unresolved.
+explicitly says `AIRTABLE_PAT` is not set, unavailable, missing, or unresolved.
+If the error says the secret is blocked by policy, report a policy/runtime
+configuration problem instead of asking the operator to set the same secret
+again.
 
 Required Airtable PAT scopes depend on the task:
 
@@ -97,11 +100,15 @@ Required Airtable PAT scopes depend on the task:
 
 ## Error Interpretation
 
-- Gateway/secret errors mentioning `AIRTABLE_PAT`: the active gateway runtime
-  cannot resolve that stored secret. Ask the operator to set it in the same
-  HybridClaw runtime/session using `/secret set AIRTABLE_PAT <pat>` or
+- Gateway errors saying `AIRTABLE_PAT` is not set, unavailable, missing, or
+  unresolved: the active gateway runtime cannot resolve that stored secret. Ask
+  the operator to set it in the same HybridClaw runtime/session using
+  `/secret set AIRTABLE_PAT <pat>` or
   `hybridclaw secret set AIRTABLE_PAT <pat>`, then start a fresh agent runtime
   if the gateway was already running.
+- Gateway errors saying `AIRTABLE_PAT` is blocked by secret resolution policy:
+  report that the stored secret exists but policy/runtime access blocked the
+  injection path. Do not ask the operator to set the same secret again.
 - Airtable 401 or 403 responses: the gateway injected a token, but Airtable
   rejected it or the PAT lacks the needed scopes/base access. Ask the operator
   to check PAT scopes and base access; do not say the secret is unconfigured.

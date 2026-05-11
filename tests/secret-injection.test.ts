@@ -385,6 +385,100 @@ describe('resolved secret leak corpus', () => {
 });
 
 describe('gateway secret injection', () => {
+  test('allows existing stored secrets by default when no policy rule matches', async () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-secret-policy-default-'),
+    );
+    const recordAuditEvent = vi.fn();
+
+    vi.doMock('../src/infra/ipc.js', () => ({
+      agentWorkspaceDir: () => workspacePath,
+    }));
+    vi.doMock('../src/audit/audit-events.js', () => ({
+      makeAuditRunId: () => 'run-secret',
+      recordAuditEvent,
+    }));
+    vi.doMock('../src/security/runtime-secrets.js', () => ({
+      isRuntimeSecretName: (value: string) =>
+        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
+      readStoredRuntimeSecret: (name: string) =>
+        name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
+    }));
+
+    const { resolveStoredSecretForInjection } = await import(
+      '../src/gateway/gateway-secret-injection.js'
+    );
+
+    expect(
+      resolveStoredSecretForInjection({
+        secretName: 'AIRTABLE_PAT',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        skillName: 'airtable',
+        sinkKind: 'http',
+        host: 'api.airtable.com',
+        selector: 'Authorization',
+      }),
+    ).toBe('pat-cleartext-secret');
+
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+  });
+
+  test('honors explicit stored-secret deny rules over default allow', async () => {
+    const workspacePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-secret-policy-deny-'),
+    );
+    fs.mkdirSync(path.join(workspacePath, '.hybridclaw'), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspacePath, '.hybridclaw', 'policy.yaml'),
+      [
+        'secret:',
+        '  rules:',
+        '    - when:',
+        '        predicate: secret_resolve_allowed',
+        '        id: AIRTABLE_PAT',
+        '        source: store',
+        '        sink: http',
+        '        host: api.airtable.com',
+        '        selector: Authorization',
+        '      action: deny',
+        '',
+      ].join('\n'),
+    );
+
+    vi.doMock('../src/infra/ipc.js', () => ({
+      agentWorkspaceDir: () => workspacePath,
+    }));
+    vi.doMock('../src/audit/audit-events.js', () => ({
+      makeAuditRunId: () => 'run-secret',
+      recordAuditEvent: vi.fn(),
+    }));
+    vi.doMock('../src/security/runtime-secrets.js', () => ({
+      isRuntimeSecretName: (value: string) =>
+        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
+      readStoredRuntimeSecret: (name: string) =>
+        name === 'AIRTABLE_PAT' ? 'pat-cleartext-secret' : null,
+    }));
+
+    const { resolveStoredSecretForInjection } = await import(
+      '../src/gateway/gateway-secret-injection.js'
+    );
+
+    expect(() =>
+      resolveStoredSecretForInjection({
+        secretName: 'AIRTABLE_PAT',
+        sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        skillName: 'airtable',
+        sinkKind: 'http',
+        host: 'api.airtable.com',
+        selector: 'Authorization',
+      }),
+    ).toThrow(
+      'Secret store:AIRTABLE_PAT is blocked by secret resolution policy.',
+    );
+
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+  });
+
   test('audits every stored secret resolve with sink metadata', async () => {
     const workspacePath = fs.mkdtempSync(
       path.join(os.tmpdir(), 'hybridclaw-secret-policy-'),
