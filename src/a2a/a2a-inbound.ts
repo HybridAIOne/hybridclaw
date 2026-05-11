@@ -1,4 +1,4 @@
-import { createPublicKey, X509Certificate } from 'node:crypto';
+import { X509Certificate } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getAgentById, listAgents } from '../agents/agent-registry.js';
@@ -84,18 +84,12 @@ function readHeader(
   return raw || '';
 }
 
-function publicKeyPem(value: string): string {
-  return createPublicKey(value)
-    .export({ format: 'pem', type: 'spki' })
-    .toString();
+function normalizePemText(value: string): string {
+  return value.trim().replace(/\r\n/g, '\n');
 }
 
 function publicKeysMatch(leftPem: string, rightPem: string): boolean {
-  try {
-    return publicKeyPem(leftPem) === publicKeyPem(rightPem);
-  } catch {
-    return false;
-  }
+  return normalizePemText(leftPem) === normalizePemText(rightPem);
 }
 
 export function extractA2AMtlsPublicKeyPem(
@@ -168,12 +162,14 @@ function localRecipientResolves(recipientAgentId: string): boolean {
   return localCanonicalRecipientIds().has(recipientAgentId.toLowerCase());
 }
 
-function jsonRpcRequestMeta(payload: unknown): {
+function parseJsonRpcPayload(rawBody: string): unknown {
+  return JSON.parse(rawBody) as unknown;
+}
+
+function jsonRpcRequestMeta(parsed: unknown): {
   method: 'message/send' | 'tasks/send';
   id: JsonRpcId;
 } {
-  const parsed =
-    typeof payload === 'string' ? (JSON.parse(payload) as unknown) : payload;
   if (!isRecord(parsed) || parsed.jsonrpc !== '2.0') {
     throw new A2AEnvelopeValidationError([
       'A2A JSON-RPC payload must use jsonrpc "2.0"',
@@ -369,10 +365,11 @@ export function acceptA2AJsonRpcInboundRequest(params: {
   let authMode: A2AInboundAuthMode | null = null;
 
   try {
-    const meta = jsonRpcRequestMeta(params.rawBody);
+    const parsed = parseJsonRpcPayload(params.rawBody);
+    const meta = jsonRpcRequestMeta(parsed);
     method = meta.method;
     requestId = meta.id;
-    envelope = decodeA2AJsonRpcRequest(params.rawBody);
+    envelope = decodeA2AJsonRpcRequest(parsed);
     if (!localRecipientResolves(envelope.recipient_agent_id)) {
       throw new A2AEnvelopeValidationError([
         'recipient_agent_id does not resolve to a local agent',
