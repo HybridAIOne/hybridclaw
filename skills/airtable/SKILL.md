@@ -81,6 +81,13 @@ the bearer token server-side. Do not use bash/curl for live Airtable calls when
 `http_request` is available, and do not ask the user to store a HybridClaw
 gateway token as an Airtable secret.
 
+Do not try to verify `AIRTABLE_PAT` with `bash`, environment inspection, or by
+asking the model whether the secret exists. The model cannot inspect the gateway
+secret store. If the operator says the secret was set, attempt the
+`http_request` call with `bearerSecretName: "AIRTABLE_PAT"`. Only say the secret
+is missing if the built-in `http_request` tool returns a gateway error that
+explicitly says `AIRTABLE_PAT` is unavailable, missing, forbidden, or unresolved.
+
 Required Airtable PAT scopes depend on the task:
 
 - base discovery: `schema.bases:read`
@@ -88,23 +95,39 @@ Required Airtable PAT scopes depend on the task:
 - record reads: `data.records:read`
 - record creates, updates, attachments, and deletes: `data.records:write`
 
+## Error Interpretation
+
+- Gateway/secret errors mentioning `AIRTABLE_PAT`: the active gateway runtime
+  cannot resolve that stored secret. Ask the operator to set it in the same
+  HybridClaw runtime/session using `/secret set AIRTABLE_PAT <pat>` or
+  `hybridclaw secret set AIRTABLE_PAT <pat>`, then start a fresh agent runtime
+  if the gateway was already running.
+- Airtable 401 or 403 responses: the gateway injected a token, but Airtable
+  rejected it or the PAT lacks the needed scopes/base access. Ask the operator
+  to check PAT scopes and base access; do not say the secret is unconfigured.
+- Network or Airtable 5xx responses: report the upstream failure and retry only
+  if the user asks.
+
 ## Default Workflow
 
 1. Start with base and table discovery unless the base id and table id are
    already known.
-2. Read table schema before writes so field ids, field types, select choices,
+2. If the user asks to list tables and does not provide a base id, first call
+   `list-bases` through `http_request`, then call `schema --base-id ...` for
+   each relevant base returned by Airtable.
+3. Read table schema before writes so field ids, field types, select choices,
    and computed fields are known.
-3. Use `plan` for natural-language requests when you need a mutation tier before
+4. Use `plan` for natural-language requests when you need a mutation tier before
    execution.
-4. Use `validate-fields` or `--schema-file` on write payload builders before
+5. Use `validate-fields` or `--schema-file` on write payload builders before
    creating or updating records.
-5. For writes, stop unless the operator has granted that exact mutation in the
+6. For writes, stop unless the operator has granted that exact mutation in the
    current task.
-6. Pass `--operator-grant` only after explicit approval or an approved F14
+7. Pass `--operator-grant` only after explicit approval or an approved F14
    escalation.
-7. Prefer table ids and field ids over names for durable automation. Table names
+8. Prefer table ids and field ids over names for durable automation. Table names
    work but are rename-sensitive.
-8. When deleting records, use exact record ids only.
+9. When deleting records, use exact record ids only.
 
 ## Command Contract
 
@@ -261,6 +284,8 @@ Read operations and computed-field reads are green tier.
 - Never print or ask for the Airtable PAT or OAuth token.
 - Never use legacy API keys in new setup guidance.
 - For live API calls, use `http-request` plus the built-in `http_request` tool.
+- Do not claim `AIRTABLE_PAT` is missing unless `http_request` returns an
+  explicit missing/forbidden/unresolved secret error.
 - Fetch schema before writes when the base/table is unfamiliar.
 - Treat formula, lookup, rollup, count, autonumber, and timestamp fields as
   read-only.
