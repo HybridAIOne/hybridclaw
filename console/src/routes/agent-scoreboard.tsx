@@ -115,9 +115,7 @@ export function AgentsPage() {
         />
         <MetricCard
           label="Observed skills"
-          value={
-            scoreboardQuery.data ? String(observedSkillCount) : undefined
-          }
+          value={scoreboardQuery.data ? String(observedSkillCount) : undefined}
           detail="across agent runs"
         />
         <MetricCard

@@ -343,9 +343,7 @@ export function ApprovalsPage() {
         />
         <MetricCard
           label="Policy rules"
-          value={
-            approvalsQuery.data ? String(policyRules.length) : undefined
-          }
+          value={approvalsQuery.data ? String(policyRules.length) : undefined}
         />
         <MetricCard
           label="Applied presets"
