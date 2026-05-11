@@ -129,10 +129,7 @@ export function AgentsPage() {
         <MetricCard
           label="Total runs"
           value={String(
-            agents.reduce(
-              (total, agent) => total + agent.total_executions,
-              0,
-            ),
+            agents.reduce((total, agent) => total + agent.total_executions, 0),
           )}
           detail="skill executions"
           loading={!scoreboardQuery.data}
