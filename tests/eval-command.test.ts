@@ -36,24 +36,6 @@ function defaultEvalParams(
   };
 }
 
-function stripAnsi(value: string): string {
-  let output = '';
-  for (let index = 0; index < value.length; ) {
-    if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
-      index += 2;
-      while (index < value.length) {
-        const code = value.charCodeAt(index);
-        index += 1;
-        if (code >= 64 && code <= 126) break;
-      }
-      continue;
-    }
-    output += value[index] || '';
-    index += 1;
-  }
-  return output;
-}
-
 vi.mock('../src/config/config.ts', async () => {
   const actual = await vi.importActual('../src/config/config.ts');
   return {
@@ -763,6 +745,26 @@ test('shows managed locomo usage', async () => {
   );
 });
 
+test('shows managed trace-judge usage', async () => {
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['trace-judge'],
+    }),
+  );
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Trace Judge');
+  expect(result.text).toContain('/eval trace-judge run');
+  expect(result.text).toContain(
+    '`--live` calls the configured trace judge through the same `judgeTrace` path',
+  );
+});
+
 test('starts detached tau2 setup', async () => {
   const dataDir = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
@@ -915,6 +917,40 @@ test('runs managed locomo with question cap flag', async () => {
   expect(shellArgs[1]).toContain('conversation-fresh');
   expect(shellArgs[1]).toContain('--budget');
   expect(shellArgs[1]).toContain('--max-questions');
+});
+
+test('runs managed trace-judge without setup', async () => {
+  const dataDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-eval-run-'),
+  );
+  spawnMock.mockReturnValue({
+    pid: 6812,
+    unref: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  });
+
+  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
+  const result = await handleEvalCommand(
+    defaultEvalParams({
+      args: ['trace-judge', 'run', '--criterion', 'risk'],
+      dataDir,
+    }),
+  );
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Trace Judge Run Started');
+  expect(result.text).toContain('Command: trace-judge run --criterion risk');
+
+  const [, shellArgs] = spawnMock.mock.calls[0] as [string, string[]];
+  expect(shellArgs[1]).toContain('__eval-trace-judge-native');
+  expect(shellArgs[1]).toContain('--criterion');
+  expect(shellArgs[1]).toContain('risk');
+  expect(shellArgs[1]).toContain('--job-dir');
+  expect(shellArgs[1]).toContain('trace-judge');
 });
 
 test('runs managed locomo with current agent override', async () => {
@@ -2025,8 +2061,8 @@ test('shows locomo retrieval matrix summary table in results', async () => {
   fs.writeFileSync(path.join(runDir, 'stdout.log'), `Job dir: ${jobDir}\n`);
   fs.writeFileSync(path.join(runDir, 'stderr.log'), '');
 
-  const { handleEvalCommand } = await import('../src/evals/eval-command.ts');
-  const result = await handleEvalCommand(
+  const evalCommand = await import('../src/evals/eval-command.ts');
+  const result = await evalCommand.handleEvalCommand(
     defaultEvalParams({
       args: ['locomo', 'results'],
       dataDir,
@@ -2042,7 +2078,7 @@ test('shows locomo retrieval matrix summary table in results', async () => {
   expect(result.text).not.toMatch(/Query prep\s+/);
   expect(result.text).not.toMatch(/Backend\s+/);
   expect(result.text).toContain('\x1b[30;103m');
-  const plainText = stripAnsi(result.text);
+  const plainText = evalCommand.stripAnsi(result.text);
   expect(plainText).toContain('full-text');
   expect(plainText).toContain('0.7470*');
   expect(result.text).toContain('Variant');

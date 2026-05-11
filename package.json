@@ -68,6 +68,8 @@
     "test:integration": "vitest run --configLoader runner --config vitest.integration.config.ts --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
     "test:console": "npm --workspace console run test",
+    "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",
+    "eval:trace-judge:gate:live": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-live-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate({live:true})).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
     "desktop:mac": "npm run build:desktop && npm --workspace desktop run dist:mac",
     "desktop:linux": "npm run build:desktop && npm --workspace desktop run dist:linux",
