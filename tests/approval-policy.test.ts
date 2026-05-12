@@ -1328,6 +1328,53 @@ autonomy:
     expect(approved.implicitDelayMs).toBeUndefined();
   });
 
+  test('yes response can approve a pending request after runtime restart', () => {
+    const agentTrustStorePath = tempTrustStorePath('restart-agent-trust');
+    const allTrustStorePath = tempTrustStorePath('restart-all-trust');
+    const legacyTrustStorePath = tempTrustStorePath('restart-legacy-trust');
+    const pendingStorePath = tempTrustStorePath('restart-pending');
+    const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
+    const originalPrompt = 'Delete dist and rebuild cleanly';
+    const argsJson = JSON.stringify({ command: 'rm -rf dist' });
+
+    const runtime = new TrustedAgentApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+      legacyTrustStorePath,
+      undefined,
+      pendingStorePath,
+    );
+    const pending = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(pending.decision).toBe('required');
+    expect(pending.requestId).toBeTruthy();
+
+    const restarted = new TrustedAgentApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+      legacyTrustStorePath,
+      undefined,
+      pendingStorePath,
+    );
+    const prelude = restarted.handleApprovalResponse([
+      userMessage(`yes ${pending.requestId}`),
+    ]);
+    expect(prelude?.replayPrompt).toContain('Approval already granted');
+    expect(prelude?.approvalMode).toBe('once');
+
+    const approved = restarted.evaluateToolCall({
+      toolName: 'bash',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(approved.decision).toBe('approved_once');
+  });
+
   test('bare yes without a pending approval is treated as a normal prompt', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

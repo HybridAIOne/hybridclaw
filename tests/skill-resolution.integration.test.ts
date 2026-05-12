@@ -433,7 +433,7 @@ Beta body.
     expect(names).toContain('multi-beta');
   });
 
-  it('disables newly discovered third-party skills until manually enabled', async () => {
+  it('bootstraps existing third-party skills and disables later discoveries', async () => {
     const claudeSkillsDir = path.join(tmpDir, '.claude', 'skills');
     writeSkill(
       claudeSkillsDir,
@@ -451,32 +451,61 @@ Paid ads body.
     let skill = catalog.find((entry) => entry.name === 'paid-ads');
     expect(skill).toBeDefined();
     expect(skill?.source).toBe('claude');
-    expect(skill?.enabled).toBe(false);
-    expect(configMod.getRuntimeConfig().skills.disabled).toContain('paid-ads');
+    expect(skill?.enabled).toBe(true);
+    expect(configMod.getRuntimeConfig().skills.disabled).not.toContain(
+      'paid-ads',
+    );
     expect(configMod.getRuntimeConfig().skills.externalDiscovered).toContain(
       'claude:paid-ads',
     );
+
+    writeSkill(
+      claudeSkillsDir,
+      'new-paid-ads',
+      `---
+name: new-paid-ads
+description: Newly discovered paid advertising workflows.
+---
+
+New paid ads body.
+`,
+    );
+
+    catalog = skillsMod.loadSkillCatalog();
+    skill = catalog.find((entry) => entry.name === 'new-paid-ads');
+    expect(skill).toBeDefined();
+    expect(skill?.source).toBe('claude');
+    expect(skill?.enabled).toBe(false);
+    expect(configMod.getRuntimeConfig().skills.disabled).toContain(
+      'new-paid-ads',
+    );
+    expect(configMod.getRuntimeConfig().skills.externalDiscovered).toContain(
+      'claude:new-paid-ads',
+    );
     expect(
-      skillsMod.loadSkills('main').some((entry) => entry.name === 'paid-ads'),
+      skillsMod
+        .loadSkills('main')
+        .some((entry) => entry.name === 'new-paid-ads'),
     ).toBe(false);
 
     const lifecycle = await import('../src/skills/skills-lifecycle.js');
     lifecycle.setSkillPackageEnabled({
-      skillName: 'paid-ads',
+      skillName: 'new-paid-ads',
       enabled: true,
       actor: 'test',
     });
 
     expect(configMod.getRuntimeConfig().skills.disabled).not.toContain(
-      'paid-ads',
+      'new-paid-ads',
     );
     catalog = skillsMod.loadSkillCatalog();
-    skill = catalog.find((entry) => entry.name === 'paid-ads');
+    skill = catalog.find((entry) => entry.name === 'new-paid-ads');
     expect(skill?.enabled).toBe(true);
     expect(
-      skillsMod.loadSkills('main').find((entry) => entry.name === 'paid-ads')
-        ?.location,
-    ).toBe('skills/paid-ads/SKILL.md');
+      skillsMod
+        .loadSkills('main')
+        .find((entry) => entry.name === 'new-paid-ads')?.location,
+    ).toBe('skills/new-paid-ads/SKILL.md');
   });
 
   it('exposes dangerous skills through the blocked catalog only', () => {

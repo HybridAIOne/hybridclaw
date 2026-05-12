@@ -2005,49 +2005,88 @@ function thirdPartySkillDiscoveryKey(skill: SkillCandidate): string {
   return `${skill.source}:${skill.name}`;
 }
 
-function applyThirdPartySkillDisabledDefaults(skills: SkillCandidate[]): void {
+function applyThirdPartySkillDisabledDefaults(
+  skills: SkillCandidate[],
+): Set<string> {
   const newThirdPartySkills = skills.filter((skill) =>
     THIRD_PARTY_SKILL_SOURCES.has(skill.source),
   );
-  if (newThirdPartySkills.length === 0) return;
-
   const config = getRuntimeConfig();
-  const discovered = new Set(config.skills.externalDiscovered ?? []);
   const disabled = new Set(config.skills.disabled ?? []);
+  if (newThirdPartySkills.length === 0) return disabled;
+
+  const discovered = new Set(config.skills.externalDiscovered ?? []);
+  const bootstrapExistingThirdPartySkills = discovered.size === 0;
   let changed = false;
 
   for (const skill of newThirdPartySkills) {
     const discoveryKey = thirdPartySkillDiscoveryKey(skill);
     if (discovered.has(discoveryKey)) continue;
     discovered.add(discoveryKey);
-    disabled.add(skill.name);
+    if (!bootstrapExistingThirdPartySkills) {
+      disabled.add(skill.name);
+    }
     changed = true;
   }
 
-  if (!changed) return;
+  if (!changed) return disabled;
 
-  updateRuntimeConfig(
-    (draft) => {
-      draft.skills.externalDiscovered = [...discovered].sort((left, right) =>
-        left.localeCompare(right),
-      );
-      draft.skills.disabled = [...disabled].sort((left, right) =>
-        left.localeCompare(right),
-      );
-    },
-    {
-      actor: 'skills-discovery',
-      source: 'external-skill-defaults',
-    },
-  );
+  try {
+    updateRuntimeConfig(
+      (draft) => {
+        draft.skills.externalDiscovered = [...discovered].sort((left, right) =>
+          left.localeCompare(right),
+        );
+        draft.skills.disabled = [...disabled].sort((left, right) =>
+          left.localeCompare(right),
+        );
+      },
+      {
+        actor: 'skills-discovery',
+        source: 'external-skill-defaults',
+      },
+    );
+  } catch (err) {
+    logger.warn(
+      {
+        err,
+        discovered: discovered.size,
+        disabled: disabled.size,
+      },
+      'Could not persist external skill discovery defaults',
+    );
+  }
+
+  return disabled;
+}
+
+function mergeDisabledSkillNames(
+  base: ReadonlySet<string>,
+  defaults: ReadonlySet<string>,
+): Set<string> {
+  return new Set([...base, ...defaults]);
+}
+
+function getDisabledSkillNamesWithDefaults(
+  defaults: ReadonlySet<string>,
+  channelKind?: SkillConfigChannelKind,
+): Set<string> {
+  return mergeDisabledSkillNames(getDisabledSkillNames(channelKind), defaults);
+}
+
+function applyThirdPartySkillDefaultsAndGetDisabled(
+  skills: SkillCandidate[],
+  channelKind?: SkillConfigChannelKind,
+): Set<string> {
+  const defaults = applyThirdPartySkillDisabledDefaults(skills);
+  return getDisabledSkillNamesWithDefaults(defaults, channelKind);
 }
 
 export function loadSkillCatalog(): SkillCatalogEntry[] {
   const candidates = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   );
-  applyThirdPartySkillDisabledDefaults(candidates);
-  const disabled = getDisabledSkillNames();
+  const disabled = applyThirdPartySkillDefaultsAndGetDisabled(candidates);
   return candidates
     .map((skill) => {
       const eligibility = checkEligibility(skill);
@@ -2093,8 +2132,10 @@ function loadSkillsInner(
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   );
-  applyThirdPartySkillDisabledDefaults(guarded);
-  const disabledAfterDefaults = getDisabledSkillNames(channelKind);
+  const disabledAfterDefaults = applyThirdPartySkillDefaultsAndGetDisabled(
+    guarded,
+    channelKind,
+  );
   const eligible = guarded.filter(
     (skill) =>
       checkEligibility(skill).available &&

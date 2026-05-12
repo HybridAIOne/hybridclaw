@@ -35,7 +35,7 @@ test('skill guard blocks SecretRef stringification patterns', () => {
   );
 });
 
-test('skill guard allows personal caution findings for manual enable flow', () => {
+test('skill guard blocks personal caution findings for explicit review', () => {
   const skillDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-caution-skill-'));
   try {
     fs.writeFileSync(
@@ -58,7 +58,7 @@ test('skill guard allows personal caution findings for manual enable flow', () =
     });
 
     expect(decision.result.verdict).toBe('caution');
-    expect(decision.allowed).toBe(true);
+    expect(decision.allowed).toBe(false);
   } finally {
     fs.rmSync(skillDir, { recursive: true, force: true });
   }
