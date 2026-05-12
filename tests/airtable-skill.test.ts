@@ -37,7 +37,6 @@ test('Airtable skill manifest declares productivity category and safety metadata
 
   expect(skill).toContain('name: airtable');
   expect(skill).toContain('category: productivity');
-  expect(skill).toContain('issue: 908');
   expect(skill).toContain('stakes_tiers:');
   expect(skill).toContain('formula-field-read');
   expect(skill).toContain('attachment-update');

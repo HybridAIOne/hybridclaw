@@ -16,9 +16,6 @@ metadata:
       - tables
       - attachments
       - formulas
-    related_roadmap:
-      - R21.52
-    issue: 908
     stakes_tiers:
       green:
         - base-list
