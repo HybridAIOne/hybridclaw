@@ -4748,9 +4748,6 @@ function normalizeBrowserProviderKind(
   ) {
     return normalized;
   }
-  if (normalized === 'browser_use_cloud' || normalized === 'browserusecloud') {
-    return 'browser-use-cloud';
-  }
   return fallback;
 }
 

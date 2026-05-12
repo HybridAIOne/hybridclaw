@@ -52,16 +52,20 @@ export function resolveConstrainedBrowserProfileDir(
   hint?: string,
 ): string {
   ensurePrivateDir(profileRoot);
+  const rootPath = path.resolve(profileRoot);
   const realRoot = fs.realpathSync(profileRoot);
-  const profileDir = path.resolve(hint || profileRoot);
+  const profileDir = path.resolve(hint || rootPath);
 
-  if (!isPathWithin(profileRoot, profileDir)) {
+  if (
+    !isPathWithin(rootPath, profileDir) &&
+    !isPathWithin(realRoot, profileDir)
+  ) {
     throw new Error(
-      `Browser profile directory must stay under ${profileRoot}: ${profileDir}`,
+      `Browser profile directory must stay under ${realRoot}: ${profileDir}`,
     );
   }
 
-  if (profileDir === profileRoot) return realRoot;
+  if (profileDir === rootPath || profileDir === realRoot) return realRoot;
 
   const existingAncestor = nearestExistingAncestor(profileDir);
   const realAncestor = fs.realpathSync(existingAncestor);

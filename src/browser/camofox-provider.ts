@@ -1,67 +1,22 @@
-import { Buffer } from 'node:buffer';
 import type { LaunchOptions as CamofoxLaunchOptions } from 'camoufox-js';
-import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
 import type { SecretHandle } from '../security/secret-handles.js';
-import type { SecretInput } from '../security/secret-refs.js';
 import {
-  fillBrowserField,
-  normalizeScrollDelta,
-  type PlaywrightNavigationOptions,
-  type PlaywrightSecretFillLocator,
-  toNavigationOptions,
+  PlaywrightBrowserSession,
+  type PlaywrightContextShape,
+  type PlaywrightPageShape,
 } from './playwright-utils.js';
 import {
   resolveBrowserProfileRoot,
   resolveConstrainedBrowserProfileDir,
 } from './profile-dir.js';
 import type {
-  BrowserEvaluateFunction,
   BrowserProvider,
   BrowserSession,
-  ClickOptions,
-  HistoryNavigationOptions,
-  NavigateOptions,
-  ScreenshotOptions,
-  ScrollOptions,
   SessionOptions,
-  WaitOptions,
 } from './provider.js';
 
-type PlaywrightScreenshotOptions = {
-  fullPage?: boolean;
-  type?: 'png' | 'jpeg';
-};
-
-type CamofoxPage = {
-  evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
-  screenshot(opts?: PlaywrightScreenshotOptions): Promise<Buffer | Uint8Array>;
-  goto(url: string, opts?: PlaywrightNavigationOptions): Promise<unknown>;
-  goBack(opts?: PlaywrightNavigationOptions): Promise<unknown>;
-  goForward(opts?: PlaywrightNavigationOptions): Promise<unknown>;
-  reload(opts?: PlaywrightNavigationOptions): Promise<unknown>;
-  click(selector: string, opts?: { timeout?: number }): Promise<void>;
-  fill(selector: string, value: string): Promise<void>;
-  url(): string;
-  mouse: {
-    wheel(deltaX: number, deltaY: number): Promise<void>;
-  };
-  waitForSelector(
-    selector: string,
-    opts?: { state?: WaitOptions['state']; timeout?: number },
-  ): Promise<unknown>;
-  locator(selector: string): PlaywrightSecretFillLocator & {
-    evaluate<TArg>(
-      fn: (element: Element, arg: TArg) => void,
-      arg: TArg,
-    ): Promise<void>;
-  };
-};
-
-type CamofoxContext = {
-  pages(): CamofoxPage[];
-  newPage(): Promise<CamofoxPage>;
-  close(): Promise<void>;
-};
+type CamofoxPage = PlaywrightPageShape;
+type CamofoxContext = PlaywrightContextShape<CamofoxPage>;
 
 export type CamofoxModule = {
   Camoufox(
@@ -70,6 +25,7 @@ export type CamofoxModule = {
 };
 
 export interface CamofoxProviderOptions {
+  /** Test/direct-construction fallback; production config passes profileRoot. */
   dataDir?: string;
   profileRoot?: string;
   headed?: boolean;
@@ -77,6 +33,8 @@ export interface CamofoxProviderOptions {
   camofox?: CamofoxModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
+
+let camofoxModulePromise: Promise<CamofoxModule> | null = null;
 
 async function launchCamofoxContext(
   camofox: CamofoxModule,
@@ -115,9 +73,12 @@ async function loadCamofoxModule(
   injected?: CamofoxModule,
 ): Promise<CamofoxModule> {
   if (injected) return injected;
+  if (camofoxModulePromise) return await camofoxModulePromise;
+  camofoxModulePromise = import('camoufox-js') as Promise<CamofoxModule>;
   try {
-    return (await import('camoufox-js')) as CamofoxModule;
+    return await camofoxModulePromise;
   } catch (error) {
+    camofoxModulePromise = null;
     const cause = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Camofox is not available. Run npm install, then npx camoufox-js fetch. Cause: ${cause}`,
@@ -125,80 +86,7 @@ async function loadCamofoxModule(
   }
 }
 
-class CamofoxSession implements BrowserSession {
-  constructor(
-    private readonly page: CamofoxPage,
-    private readonly secretAudit?: (
-      handle: SecretHandle,
-      reason: string,
-    ) => void,
-    private readonly metering?: SessionOptions['metering'],
-  ) {}
-
-  async evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T> {
-    return await this.page.evaluate(fn);
-  }
-
-  async screenshot(opts?: ScreenshotOptions): Promise<Buffer> {
-    const bytes = await this.page.screenshot({
-      fullPage: opts?.fullPage,
-      type: opts?.type,
-    });
-    return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-  }
-
-  async navigate(url: string, opts?: NavigateOptions): Promise<void> {
-    const parsed = await assertBrowserNavigationUrl(url);
-    await this.page.goto(parsed.toString(), toNavigationOptions(opts));
-  }
-
-  async back(opts?: HistoryNavigationOptions): Promise<void> {
-    await this.page.goBack(toNavigationOptions(opts));
-  }
-
-  async forward(opts?: HistoryNavigationOptions): Promise<void> {
-    await this.page.goForward(toNavigationOptions(opts));
-  }
-
-  async reload(opts?: HistoryNavigationOptions): Promise<void> {
-    await this.page.reload(toNavigationOptions(opts));
-  }
-
-  async click(selector: string, opts?: ClickOptions): Promise<void> {
-    await this.page.click(selector, { timeout: opts?.timeoutMs });
-  }
-
-  async fill(selector: string, value: SecretInput): Promise<void> {
-    await fillBrowserField(
-      this.page,
-      selector,
-      value,
-      this.secretAudit,
-      this.metering,
-    );
-  }
-
-  async scroll(opts: ScrollOptions): Promise<void> {
-    const delta = normalizeScrollDelta(opts);
-    if (opts.selector) {
-      await this.page
-        .locator(opts.selector)
-        .evaluate((element, scrollDelta) => {
-          element.scrollBy(scrollDelta.deltaX, scrollDelta.deltaY);
-        }, delta);
-      return;
-    }
-
-    await this.page.mouse.wheel(delta.deltaX, delta.deltaY);
-  }
-
-  async waitForSelector(selector: string, opts?: WaitOptions): Promise<void> {
-    await this.page.waitForSelector(selector, {
-      state: opts?.state,
-      timeout: opts?.timeoutMs,
-    });
-  }
-}
+class CamofoxSession extends PlaywrightBrowserSession<CamofoxPage> {}
 
 export class CamofoxProvider implements BrowserProvider {
   private readonly profileRoot: string;
