@@ -600,6 +600,82 @@ describe.sequential('schema migrations', () => {
     );
   });
 
+  test('self-heals schema v30 databases from parallel migrations', () => {
+    const branchDbPath = createTempDbPath();
+    const branchDb = new Database(branchDbPath);
+    branchDb.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      CREATE TABLE board_cards (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        owner_type TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        "column" TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source TEXT NOT NULL,
+        parent TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      PRAGMA user_version = 30;
+    `);
+    branchDb.close();
+
+    initDatabase({ quiet: true, dbPath: branchDbPath });
+
+    const branchInspect = new Database(branchDbPath, { readonly: true });
+    const branchSchemaVersion = branchInspect.pragma('user_version', {
+      simple: true,
+    });
+    const branchAgentColumns = branchInspect.pragma(
+      'table_info(agents)',
+    ) as Array<{ name: string }>;
+    branchInspect.close();
+
+    expect(Number(branchSchemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(branchAgentColumns.some((column) => column.name === 'a2a')).toBe(
+      true,
+    );
+
+    const mainDbPath = createTempDbPath();
+    const mainDb = new Database(mainDbPath);
+    mainDb.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        a2a TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      );
+      PRAGMA user_version = 30;
+    `);
+    mainDb.close();
+
+    initDatabase({ quiet: true, dbPath: mainDbPath });
+
+    const mainInspect = new Database(mainDbPath, { readonly: true });
+    const mainSchemaVersion = mainInspect.pragma('user_version', {
+      simple: true,
+    });
+    const boardCardsTable = mainInspect
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'board_cards'",
+      )
+      .get() as { name: string } | undefined;
+    mainInspect.close();
+
+    expect(Number(mainSchemaVersion)).toBe(DATABASE_SCHEMA_VERSION);
+    expect(boardCardsTable?.name).toBe('board_cards');
+  });
+
   test('fills admin statistics indexes for branch schema v23 databases', () => {
     const dbPath = createTempDbPath();
     const legacy = new Database(dbPath);
