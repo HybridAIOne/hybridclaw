@@ -7,6 +7,7 @@ export type JsonRpcId = string | number | null;
 export interface A2AAgentCard {
   url: string;
   capabilities?: unknown;
+  agents?: unknown;
   skills?: unknown;
   [key: string]: unknown;
 }
@@ -52,6 +53,7 @@ function hasTaskCapability(card: A2AAgentCard): boolean {
   // object-shaped capabilities, or skill entries; accept all three shapes.
   if (Array.isArray(card.capabilities)) values.push(...card.capabilities);
   if (isRecord(card.capabilities)) {
+    if (card.capabilities.tasksSend === true) return true;
     for (const [key, value] of Object.entries(card.capabilities)) {
       values.push(key, value);
     }
