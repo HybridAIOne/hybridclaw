@@ -5,6 +5,7 @@ import type {
 } from '../shared/web-search-config.js';
 import {
   buildSearxngSearchUrl,
+  normalizeSearxngListParam,
   parseSearxngSearchResponse,
   type SearxngTimeRange,
 } from './searxng-client.js';
@@ -115,8 +116,8 @@ interface NormalizedSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
-  categories?: string[] | string;
-  engines?: string[] | string;
+  categories?: string;
+  engines?: string;
   provider?: SearchProviderMode;
 }
 
@@ -124,8 +125,8 @@ interface SearchExecutionContext {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
-  categories?: string[] | string;
-  engines?: string[] | string;
+  categories?: string;
+  engines?: string;
 }
 
 export interface WebSearchExecutionResult {
@@ -331,8 +332,8 @@ export function normalizeSearchParams(
     freshness: normalizeFreshness(params.freshness),
     country: normalizeCountry(params.country),
     language: normalizeLanguage(params.language),
-    categories: params.categories,
-    engines: params.engines,
+    categories: normalizeSearxngListParam(params.categories) || undefined,
+    engines: normalizeSearxngListParam(params.engines) || undefined,
     provider: params.provider
       ? normalizeProviderMode(params.provider)
       : undefined,
@@ -604,12 +605,8 @@ function buildCacheKey(
   const suffix = [params.country || '', params.language || '']
     .filter(Boolean)
     .join(':');
-  const categories = Array.isArray(params.categories)
-    ? params.categories.join(',')
-    : params.categories || '';
-  const engines = Array.isArray(params.engines)
-    ? params.engines.join(',')
-    : params.engines || '';
+  const categories = params.categories || '';
+  const engines = params.engines || '';
   return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}${suffix ? `:${suffix}` : ''}`.toLowerCase();
 }
 

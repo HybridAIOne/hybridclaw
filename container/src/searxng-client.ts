@@ -101,7 +101,9 @@ function normalizeSafeSearch(value: unknown): SearxngSafeSearch {
   return value === 1 || value === 2 ? value : DEFAULT_SEARXNG_SAFE_SEARCH;
 }
 
-function normalizeListParam(value: string[] | string | undefined): string {
+export function normalizeSearxngListParam(
+  value: string[] | string | undefined,
+): string {
   const rawValues = Array.isArray(value)
     ? value
     : typeof value === 'string'
@@ -155,10 +157,10 @@ export function buildSearxngSearchUrl(options: SearxngSearchOptions): string {
     String(normalizeSafeSearch(options.safeSearch)),
   );
 
-  const categories = normalizeListParam(options.categories);
+  const categories = normalizeSearxngListParam(options.categories);
   if (categories) url.searchParams.set('categories', categories);
 
-  const engines = normalizeListParam(options.engines);
+  const engines = normalizeSearxngListParam(options.engines);
   if (engines) url.searchParams.set('engines', engines);
 
   if (options.timeRange) {

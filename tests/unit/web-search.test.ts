@@ -319,6 +319,49 @@ describe('SearXNG provider', () => {
     expect(requestUrl.searchParams.get('time_range')).toBe('year');
     expect(requestUrl.searchParams.has('results')).toBe(false);
   });
+
+  it('uses canonical SearXNG category and engine lists for cache keys', async () => {
+    process.env.HYBRIDCLAW_WEB_SEARCH_PROVIDER = 'searxng';
+    process.env.SEARXNG_BASE_URL = 'https://search.example.com';
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'Cached Result',
+              url: 'https://example.com/cached',
+              content: 'Cached snippet',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await searchWeb({
+      query: 'searxng cache',
+      categories: ['general', 'news', 'general'],
+      engines: 'brave, duckduckgo',
+      provider: 'searxng',
+    });
+    const second = await searchWeb({
+      query: 'searxng cache',
+      categories: 'general,news',
+      engines: ['brave', 'duckduckgo'],
+      provider: 'searxng',
+    });
+
+    expect(first.cached).toBeUndefined();
+    expect(second.cached).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('cache behavior', () => {
