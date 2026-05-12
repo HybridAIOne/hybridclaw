@@ -16,6 +16,7 @@ import {
   migrateLegacySessionKey,
 } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
+import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import {
@@ -168,6 +169,14 @@ export async function runIsolatedScheduledTask(params: {
       }),
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: activeSessionId,
+      agentId,
+      auditRunId: runId,
+      toolExecutions: output.toolExecutions || [],
+    })) {
+      enqueueTokenUsage(event);
+    }
 
     if (output.status === 'success' && output.result) {
       memoryService.storeTurn({

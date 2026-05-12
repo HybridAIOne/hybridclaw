@@ -40,6 +40,12 @@ interface GeneratedVideoBuffer {
   metadata?: Record<string, unknown>;
 }
 
+interface VideoGenerationUsage {
+  generated_videos?: number;
+  duration_seconds?: number;
+  estimated?: boolean;
+}
+
 const OUTPUT_DIR = '.generated-videos';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_GEMINI_BASE_URL =
@@ -515,6 +521,17 @@ function sanitizeProviderError(error: unknown): string {
   return String(error);
 }
 
+function buildVideoUsage(
+  generatedVideos: number,
+  durationSeconds: number | null,
+): VideoGenerationUsage {
+  return {
+    generated_videos: generatedVideos,
+    ...(durationSeconds != null ? { duration_seconds: durationSeconds } : {}),
+    estimated: true,
+  };
+}
+
 export async function runVideoGenerate(
   args: Record<string, unknown>,
   context: VideoGenerationRuntimeContext,
@@ -555,6 +572,7 @@ export async function runVideoGenerate(
           provider: candidate.id,
           model: candidate.model,
           videos: persisted,
+          usage: buildVideoUsage(persisted.length, request.durationSeconds),
           artifacts: persisted,
           warnings: providerWarnings,
           attempts,

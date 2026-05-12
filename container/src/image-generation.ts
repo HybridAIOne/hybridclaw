@@ -60,6 +60,20 @@ interface GeneratedImageBuffer {
   metadata?: Record<string, unknown>;
 }
 
+interface MediaGenerationUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  output_image_tokens?: number;
+  generated_images?: number;
+  estimated?: boolean;
+}
+
+interface ImageGenerationResult {
+  images: GeneratedImageBuffer[];
+  usage?: MediaGenerationUsage;
+}
+
 const OUTPUT_DIR = '.generated-images';
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_GENERATED_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -828,18 +842,69 @@ function decodeGeneratedImageBase64(value: string): Buffer {
   return buffer;
 }
 
+function readUsageNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
+  }
+  return undefined;
+}
+
+function parseProviderUsage(
+  payload: Record<string, unknown>,
+): MediaGenerationUsage | undefined {
+  const usage = isRecord(payload.usage) ? payload.usage : null;
+  if (!usage) return undefined;
+  const inputTokens = readUsageNumber(
+    usage.input_tokens ?? usage.prompt_tokens ?? usage.inputTokens,
+  );
+  const outputTokens = readUsageNumber(
+    usage.output_tokens ?? usage.completion_tokens ?? usage.outputTokens,
+  );
+  const totalTokens = readUsageNumber(usage.total_tokens ?? usage.totalTokens);
+  const outputTokenDetails = isRecord(usage.output_tokens_details)
+    ? usage.output_tokens_details
+    : null;
+  const outputImageTokens = outputTokenDetails
+    ? readUsageNumber(outputTokenDetails.image_tokens)
+    : undefined;
+  if (
+    inputTokens == null &&
+    outputTokens == null &&
+    totalTokens == null &&
+    outputImageTokens == null
+  ) {
+    return undefined;
+  }
+  return {
+    ...(inputTokens != null ? { input_tokens: inputTokens } : {}),
+    ...(outputTokens != null ? { output_tokens: outputTokens } : {}),
+    ...(totalTokens != null ? { total_tokens: totalTokens } : {}),
+    ...(outputImageTokens != null
+      ? { output_image_tokens: outputImageTokens }
+      : {}),
+  };
+}
+
 async function parseOpenAIStyleImageResponse(
   payload: Record<string, unknown>,
   mimeType = 'image/png',
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   const base64Images = findBase64Images(payload);
   const revisedPrompt = readRevisedPrompt(payload);
+  const usage = parseProviderUsage(payload);
   if (base64Images.length > 0) {
-    return base64Images.map((b64) => ({
-      buffer: decodeGeneratedImageBase64(b64),
-      mimeType,
-      ...(revisedPrompt ? { revisedPrompt } : {}),
-    }));
+    return {
+      images: base64Images.map((b64) => ({
+        buffer: decodeGeneratedImageBase64(b64),
+        mimeType,
+        ...(revisedPrompt ? { revisedPrompt } : {}),
+      })),
+      ...(usage ? { usage } : {}),
+    };
   }
 
   const data = Array.isArray(payload.data) ? payload.data : [];
@@ -857,7 +922,9 @@ async function parseOpenAIStyleImageResponse(
       metadata: { source_url: url },
     });
   }
-  if (urlImages.length > 0) return urlImages;
+  if (urlImages.length > 0) {
+    return { images: urlImages, ...(usage ? { usage } : {}) };
+  }
   throw new Error('provider response did not include generated image data');
 }
 
@@ -874,7 +941,7 @@ function buildImageInputContent(request: NormalizedImageGenerationRequest) {
 async function generateWithOpenAIResponses(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   const tool: Record<string, unknown> = { type: 'image_generation' };
   if (request.size) tool.size = request.size;
   if (request.quality) tool.quality = request.quality;
@@ -893,7 +960,7 @@ async function generateWithOpenAIResponses(
 async function generateWithOpenAIImages(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   const body: Record<string, unknown> = {
     model: candidate.model,
     prompt: request.prompt,
@@ -912,7 +979,7 @@ async function generateWithOpenAIImages(
 async function generateWithXai(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   const body: Record<string, unknown> = {
     model: candidate.model,
     prompt: request.prompt,
@@ -931,7 +998,7 @@ async function generateWithXai(
 async function generateWithGemini(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   const baseUrl = candidate.baseUrl.replace(/\/openai$/i, '');
   const endpoint = `${baseUrl}/models/${encodeURIComponent(candidate.model)}:generateContent?key=${encodeURIComponent(candidate.apiKey)}`;
   const parts: Record<string, unknown>[] = [{ text: request.prompt }];
@@ -972,7 +1039,25 @@ async function generateWithGemini(
       images.push({ buffer: decodeGeneratedImageBase64(data), mimeType });
     }
   }
-  if (images.length > 0) return images;
+  if (images.length > 0) {
+    const outputTokens = candidate.model.includes('3.1-flash-image')
+      ? images.length * 1120
+      : undefined;
+    return {
+      images,
+      usage: {
+        generated_images: images.length,
+        estimated: true,
+        ...(outputTokens != null
+          ? {
+              output_tokens: outputTokens,
+              total_tokens: outputTokens,
+              output_image_tokens: outputTokens,
+            }
+          : {}),
+      },
+    };
+  }
   throw new Error('Gemini response did not include generated image data');
 }
 
@@ -1034,7 +1119,7 @@ async function pollBflImageResult(
 async function generateWithBfl(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   const body: Record<string, unknown> = {
     prompt: request.prompt,
     output_format: 'png',
@@ -1056,22 +1141,25 @@ async function generateWithBfl(
   if (!pollingUrl)
     throw new Error('BFL response did not include a polling URL');
   const sampleUrl = await pollBflImageResult(pollingUrl, candidate.apiKey);
-  return [
-    {
-      buffer: await fetchProviderImageUrl(sampleUrl),
-      mimeType: 'image/png',
-      metadata: {
-        request_id: readStringValue(start.id) || undefined,
-        source_url: sampleUrl,
+  return {
+    images: [
+      {
+        buffer: await fetchProviderImageUrl(sampleUrl),
+        mimeType: 'image/png',
+        metadata: {
+          request_id: readStringValue(start.id) || undefined,
+          source_url: sampleUrl,
+        },
       },
-    },
-  ];
+    ],
+    usage: { generated_images: 1, estimated: true },
+  };
 }
 
 async function generateWithCandidate(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
-): Promise<GeneratedImageBuffer[]> {
+): Promise<ImageGenerationResult> {
   if (candidate.id === 'bfl') return generateWithBfl(candidate, request);
   if (candidate.id === 'gemini') return generateWithGemini(candidate, request);
   if (candidate.id === 'xai') return generateWithXai(candidate, request);
@@ -1118,6 +1206,16 @@ function validateGeneratedImageSizes(images: GeneratedImageBuffer[]): void {
       );
     }
   }
+}
+
+function buildImageUsage(
+  usage: MediaGenerationUsage | undefined,
+  generatedImages: number,
+): MediaGenerationUsage {
+  return {
+    ...(usage || {}),
+    generated_images: generatedImages,
+  };
 }
 
 function sanitizeProviderError(error: unknown): string {
@@ -1181,9 +1279,9 @@ export async function runImageGenerate(
         }
       }
 
-      const images = await generateWithCandidate(candidate, request);
+      const generation = await generateWithCandidate(candidate, request);
       const persisted = persistImages(
-        images.slice(0, request.count),
+        generation.images.slice(0, request.count),
         candidate,
       );
       attempts.push({
@@ -1197,6 +1295,7 @@ export async function runImageGenerate(
           provider: candidate.id,
           model: candidate.model,
           images: persisted,
+          usage: buildImageUsage(generation.usage, persisted.length),
           artifacts: persisted.map((image) => ({
             path: image.path,
             filename: image.filename,

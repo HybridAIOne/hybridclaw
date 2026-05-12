@@ -107,6 +107,12 @@ describe('image_generate tool', () => {
               revised_prompt: 'A revised prompt',
             },
           ],
+          usage: {
+            input_tokens: 12,
+            output_tokens: 1120,
+            total_tokens: 1132,
+            output_tokens_details: { image_tokens: 1120 },
+          },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
@@ -131,6 +137,13 @@ describe('image_generate tool', () => {
       success: boolean;
       images: Array<{ path: string; filename: string; mimeType: string }>;
       artifacts: Array<{ path: string; filename: string; mimeType: string }>;
+      usage: {
+        input_tokens: number;
+        output_tokens: number;
+        total_tokens: number;
+        output_image_tokens: number;
+        generated_images: number;
+      };
     };
 
     expect(result.isError).toBe(false);
@@ -145,6 +158,13 @@ describe('image_generate tool', () => {
         mimeType: 'image/png',
       },
     ]);
+    expect(parsed.usage).toEqual({
+      input_tokens: 12,
+      output_tokens: 1120,
+      total_tokens: 1132,
+      output_image_tokens: 1120,
+      generated_images: 1,
+    });
     const hostPath = path.join(
       workspaceRoot,
       '.generated-images',
