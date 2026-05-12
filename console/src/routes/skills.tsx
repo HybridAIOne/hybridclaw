@@ -395,7 +395,6 @@ export function SkillsPage() {
       skill.source,
       skill.blocked ? 'blocked' : '',
       skill.blockedReason || '',
-      skill.guardVerdict || '',
       ...(skill.tags || []),
       ...(skill.relatedSkills || []),
     ]

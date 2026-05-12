@@ -12,6 +12,8 @@ vi.mock('../src/agent/agent.js', () => ({
 }));
 
 let context: AdaptiveSkillsTestContext | null = null;
+const isThirdPartySkillSourceMock = (source: string): boolean =>
+  ['codex', 'claude', 'agents-personal', 'agents-project'].includes(source);
 
 afterEach(() => {
   runAgentMock.mockReset();
@@ -27,6 +29,7 @@ test('skill list groups skills by category in concise gateway command output', a
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadBlockedSkillCatalog: () => [],
     loadSkillCatalog: () => [
       {
@@ -158,6 +161,7 @@ test('skill list blocked reports blocked skills with guard findings', async () =
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadBlockedSkillCatalog: () => [
       {
         name: 'bad-skill',
@@ -182,7 +186,6 @@ test('skill list blocked reports blocked skills with guard findings', async () =
         blocked: true,
         blockedReason:
           'blocked (personal source + dangerous verdict, 1 finding(s))',
-        guardVerdict: 'dangerous',
         guardFindings: [
           {
             patternId: 'prompt_injection_ignore',
@@ -473,6 +476,7 @@ test('skill enable enables a disabled skill', async () => {
   });
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -523,6 +527,7 @@ test('skill disable disables an enabled skill', async () => {
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -578,6 +583,7 @@ test('skill enable with --channel flag scopes to a channel kind', async () => {
   });
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -625,6 +631,7 @@ test('skill enable with unknown skill name returns error', async () => {
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [],
   }));
 
@@ -673,6 +680,7 @@ test('skill enable treats --channel global as the global scope', async () => {
   });
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',

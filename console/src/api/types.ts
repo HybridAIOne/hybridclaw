@@ -1193,14 +1193,13 @@ export interface AdminSkill {
   enabled: boolean;
   blocked?: boolean;
   blockedReason?: string;
-  guardVerdict?: string;
+  // Mirrors GatewayAdminSkillGuardFinding; raw match text is intentionally omitted from the admin API.
   guardFindings?: Array<{
     patternId: string;
     severity: string;
     category: string;
     file: string;
     line: number;
-    match: string;
     description: string;
   }>;
   missing: string[];

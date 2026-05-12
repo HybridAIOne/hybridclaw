@@ -1375,6 +1375,52 @@ autonomy:
     expect(approved.decision).toBe('approved_once');
   });
 
+  test('logs when expired pending approvals are dropped on restart', () => {
+    const pendingStorePath = tempTrustStorePath('expired-pending');
+    const now = Date.now();
+    fs.writeFileSync(
+      pendingStorePath,
+      JSON.stringify({
+        version: 1,
+        pending: [
+          {
+            id: 'expired-approval',
+            fingerprint: 'expired-fingerprint',
+            actionKey: 'bash:rm -rf dist',
+            toolName: 'bash',
+            intent: 'Delete dist',
+            consequenceIfDenied: 'dist remains',
+            reason: 'red action',
+            commandPreview: 'rm -rf dist',
+            createdAtMs: now - 10_000,
+            expiresAtMs: now - 1_000,
+            originalPrompt: 'Delete dist',
+            pinned: false,
+          },
+        ],
+        updatedAt: new Date(now - 10_000).toISOString(),
+      }),
+      'utf-8',
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+      tempTrustStorePath('expired-agent-trust'),
+      tempTrustStorePath('expired-all-trust'),
+      tempTrustStorePath('expired-legacy-trust'),
+      undefined,
+      pendingStorePath,
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[approval-policy] dropped 1 expired persisted pending approval(s) on load',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(pendingStorePath, 'utf-8')).pending,
+    ).toEqual([]);
+  });
+
   test('bare yes without a pending approval is treated as a normal prompt', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

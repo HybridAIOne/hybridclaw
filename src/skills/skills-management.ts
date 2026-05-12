@@ -36,9 +36,6 @@ export interface SkillCatalogSummaryEntry extends SkillCatalogEntry {
 
 export interface BlockedSkillCatalogSummaryEntry
   extends BlockedSkillCatalogEntry {
-  available: false;
-  enabled: false;
-  missing: string[];
   installs: SkillCatalogInstallEntry[];
 }
 
@@ -90,9 +87,6 @@ export function listSkillCatalogEntries(): SkillCatalogSummaryEntry[] {
 export function listBlockedSkillCatalogEntries(): BlockedSkillCatalogSummaryEntry[] {
   return loadBlockedSkillCatalog().map((skill) => ({
     ...skill,
-    available: false,
-    enabled: false,
-    missing: [skill.blockedReason],
     installs: (skill.metadata.hybridclaw.install || []).map((spec, index) => ({
       id: resolveSkillInstallId(spec, index),
       kind: spec.kind,

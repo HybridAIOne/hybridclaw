@@ -2246,15 +2246,18 @@ export class TrustedAgentApprovalRuntime {
       );
       if (!parsed) return;
       const now = Date.now();
-      let droppedExpired = false;
+      let droppedExpiredCount = 0;
       for (const pending of parsed.pending) {
         if (pending.expiresAtMs <= now) {
-          droppedExpired = true;
+          droppedExpiredCount += 1;
           continue;
         }
         this.pending.set(pending.id, pending);
       }
-      if (droppedExpired) {
+      if (droppedExpiredCount > 0) {
+        console.warn(
+          `[approval-policy] dropped ${droppedExpiredCount} expired persisted pending approval(s) on load`,
+        );
         this.persistPendingApprovals();
       }
     } catch {

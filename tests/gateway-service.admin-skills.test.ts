@@ -281,12 +281,12 @@ test('getGatewayAdminSkills includes blocked skills for admin review', async () 
       blocked: true,
       blockedReason: expect.stringContaining('blocked'),
       enabled: false,
-      guardVerdict: 'dangerous',
     }),
   );
   expect(
     blockedSkill?.guardFindings.map((finding) => finding.patternId),
   ).toContain('prompt_injection_ignore');
+  expect(blockedSkill?.guardFindings?.[0]).not.toHaveProperty('match');
 });
 
 test('uploadGatewayAdminSkillZip accepts wrapped archives with macOS metadata entries', async () => {
