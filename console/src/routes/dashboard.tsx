@@ -3,11 +3,11 @@ import { useNavigate } from '@tanstack/react-router';
 import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
 import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { useAuth } from '../auth';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -104,60 +104,67 @@ function TunnelStatusPanel(props: {
       : null;
 
   return (
-    <Panel title="Public tunnel">
-      <div className="tunnel-panel-grid">
-        <div className="tunnel-url-stack">
-          <span>Public URL</span>
-          {tunnel.publicUrl ? (
-            <a href={tunnel.publicUrl} target="_blank" rel="noreferrer">
-              {publicUrl}
-            </a>
-          ) : (
-            <strong>{publicUrl}</strong>
-          )}
+    <Card>
+      <CardHeader>
+        <CardTitle>Public tunnel</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="tunnel-panel-grid">
+          <div className="tunnel-url-stack">
+            <span>Public URL</span>
+            {tunnel.publicUrl ? (
+              <a href={tunnel.publicUrl} target="_blank" rel="noreferrer">
+                {publicUrl}
+              </a>
+            ) : (
+              <strong>{publicUrl}</strong>
+            )}
+          </div>
+          <div className="tunnel-action-stack">
+            <button
+              type="button"
+              className="primary-button button-with-spinner"
+              onClick={props.onReconnect}
+              disabled={reconnectDisabled}
+            >
+              {props.reconnectPending ? (
+                <span className="button-spinner" aria-hidden="true" />
+              ) : null}
+              {props.reconnectPending ? 'Reconnecting' : 'Reconnect'}
+            </button>
+          </div>
         </div>
-        <div className="tunnel-action-stack">
-          <button
-            type="button"
-            className="primary-button button-with-spinner"
-            onClick={props.onReconnect}
-            disabled={reconnectDisabled}
-          >
-            {props.reconnectPending ? (
-              <span className="button-spinner" aria-hidden="true" />
-            ) : null}
-            {props.reconnectPending ? 'Reconnecting' : 'Reconnect'}
-          </button>
+        <div className="tunnel-detail-grid">
+          <div className="tunnel-detail">
+            <span>Provider</span>
+            <strong>{tunnel.provider || 'none'}</strong>
+          </div>
+          <div className="tunnel-detail">
+            <span>Status</span>
+            <strong className={tunnelStatusClass(tunnel.health)}>
+              <span className={tunnelStatusDotClass(tunnel.health)} />
+              {tunnel.health}
+            </strong>
+          </div>
+          <div className="tunnel-detail">
+            <span>Last checked</span>
+            <strong>{formatDateTime(tunnel.lastCheckedAt)}</strong>
+          </div>
+          <div className="tunnel-detail">
+            <span>Next reconnect</span>
+            <strong>{formatDateTime(tunnel.nextReconnectAt)}</strong>
+          </div>
         </div>
-      </div>
-      <div className="tunnel-detail-grid">
-        <div className="tunnel-detail">
-          <span>Provider</span>
-          <strong>{tunnel.provider || 'none'}</strong>
-        </div>
-        <div className="tunnel-detail">
-          <span>Status</span>
-          <strong className={tunnelStatusClass(tunnel.health)}>
-            <span className={tunnelStatusDotClass(tunnel.health)} />
-            {tunnel.health}
-          </strong>
-        </div>
-        <div className="tunnel-detail">
-          <span>Last checked</span>
-          <strong>{formatDateTime(tunnel.lastCheckedAt)}</strong>
-        </div>
-        <div className="tunnel-detail">
-          <span>Next reconnect</span>
-          <strong>{formatDateTime(tunnel.nextReconnectAt)}</strong>
-        </div>
-      </div>
-      {tunnel.lastError ? (
-        <p className="supporting-text tunnel-error">{tunnel.lastError}</p>
-      ) : null}
-      {distinctReconnectError ? (
-        <p className="supporting-text tunnel-error">{distinctReconnectError}</p>
-      ) : null}
-    </Panel>
+        {tunnel.lastError ? (
+          <p className="supporting-text tunnel-error">{tunnel.lastError}</p>
+        ) : null}
+        {distinctReconnectError ? (
+          <p className="supporting-text tunnel-error">
+            {distinctReconnectError}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -265,13 +272,18 @@ export function DashboardPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Usage">
-          <UsageRollup
-            usage={overview.usage}
-            trend={usageTrendQuery.data?.trend ?? null}
-            formatTrendDate={formatTrendDate}
-          />
-        </Panel>
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Usage rollup</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <UsageRollup
+              usage={overview.usage}
+              trend={usageTrendQuery.data?.trend ?? null}
+              formatTrendDate={formatTrendDate}
+            />
+          </CardContent>
+        </Card>
 
         <ProviderHealthPanel
           title="Backend health"
@@ -291,60 +303,65 @@ export function DashboardPage() {
         onReconnect={() => reconnectMutation.mutate()}
       />
 
-      <Panel title="Recent sessions">
-        <div className="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <SortableHeader
-                  label="Session"
-                  sortKey="session"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Model"
-                  sortKey="model"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Messages"
-                  sortKey="messages"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Tasks"
-                  sortKey="tasks"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Last active"
-                  sortKey="lastActive"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-              </tr>
-            </thead>
-            <tbody>
-              {recentSessions.map((session) => (
-                <tr key={session.id}>
-                  <td>
-                    <strong>{session.id}</strong>
-                    <small>{session.channelId}</small>
-                  </td>
-                  <td>{session.effectiveModel}</td>
-                  <td>{session.messageCount}</td>
-                  <td>{session.taskCount}</td>
-                  <td>{formatRelativeTime(session.lastActive)}</td>
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent sessions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <SortableHeader
+                    label="Session"
+                    sortKey="session"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Model"
+                    sortKey="model"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Messages"
+                    sortKey="messages"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Tasks"
+                    sortKey="tasks"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Last active"
+                    sortKey="lastActive"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+              </thead>
+              <tbody>
+                {recentSessions.map((session) => (
+                  <tr key={session.id}>
+                    <td>
+                      <strong>{session.id}</strong>
+                      <small>{session.channelId}</small>
+                    </td>
+                    <td>{session.effectiveModel}</td>
+                    <td>{session.messageCount}</td>
+                    <td>{session.taskCount}</td>
+                    <td>{formatRelativeTime(session.lastActive)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
