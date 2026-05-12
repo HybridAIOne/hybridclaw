@@ -5,6 +5,8 @@ const fs = require('node:fs');
 
 const DEFAULT_BASE_URL = 'https://api.firecrawl.dev/v2';
 const SECRET_NAME = 'FIRECRAWL_API_KEY';
+const SELF_HOST_BASE_URL_ENV = 'FIRECRAWL_SELF_HOST_BASE_URL';
+const SELF_HOST_SECRET_NAME = 'FIRECRAWL_SELF_HOST_API_KEY';
 const SKILL_NAME = 'firecrawl';
 const DEFAULT_CRAWL_LIMIT = 25;
 const DEFAULT_MAP_LIMIT = 500;
@@ -35,7 +37,7 @@ function usage() {
   return `
 Firecrawl skill helper
 
-Build gateway-proxied http_request payloads for the managed Firecrawl API.
+Build gateway-proxied http_request payloads for Firecrawl.
 
 Usage:
   node skills/firecrawl/firecrawl.cjs [--format json] http-request scrape.url --url https://example.com [--format-name markdown]
@@ -48,6 +50,11 @@ Usage:
 
 Global options:
   --format json|pretty       Output JSON or pretty-printed JSON. Default: pretty.
+  --adapter managed|self-host
+                              Firecrawl adapter. Default: managed.
+  --base-url <url>           Self-hosted Firecrawl API base URL. May include or omit /v2.
+                              Defaults to ${SELF_HOST_BASE_URL_ENV} in self-host mode.
+  --self-host-auth           Inject ${SELF_HOST_SECRET_NAME} as a bearer token for self-host mode.
   --timeout-ms <ms>          Gateway request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --max-response-bytes <n>   Gateway response cap. Default: ${DEFAULT_MAX_RESPONSE_BYTES}
 
@@ -89,6 +96,7 @@ function fail(message) {
 
 function parseArgs(argv) {
   const opts = {
+    adapter: 'managed',
     format: 'pretty',
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
@@ -121,6 +129,15 @@ function parseArgs(argv) {
     switch (arg) {
       case '--format':
         opts.format = readValue();
+        break;
+      case '--adapter':
+        opts.adapter = readValue();
+        break;
+      case '--base-url':
+        opts.baseUrl = readValue();
+        break;
+      case '--self-host-auth':
+        opts.selfHostAuth = true;
         break;
       case '--timeout-ms':
         opts.timeoutMs = parseInteger(readValue(), '--timeout-ms', 1, 600_000);
@@ -227,6 +244,19 @@ function parseArgs(argv) {
   return { opts, positional };
 }
 
+function normalizeAdapter(value) {
+  const raw =
+    value === undefined || value === null ? 'managed' : String(value).trim();
+  if (!raw) {
+    fail('--adapter requires a value.');
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized === 'managed' || normalized === 'self-host') {
+    return normalized;
+  }
+  fail('--adapter must be managed or self-host.');
+}
+
 function parseBoolean(value, label) {
   const normalized = String(value).trim().toLowerCase();
   if (normalized === 'true') return true;
@@ -278,6 +308,34 @@ function normalizeJobId(value, label = '--id') {
     fail(`${label} must contain only letters, numbers, "_" or "-".`);
   }
   return encodeURIComponent(normalized);
+}
+
+function normalizeSelfHostBaseUrl(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    fail(`Self-host mode requires --base-url or ${SELF_HOST_BASE_URL_ENV}.`);
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    fail('--base-url must be a valid http(s) URL.');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    fail('--base-url must use http or https.');
+  }
+  if (parsed.username || parsed.password) {
+    fail('--base-url must not contain embedded credentials.');
+  }
+  if (parsed.search || parsed.hash) {
+    fail('--base-url must not include query strings or fragments.');
+  }
+
+  const withoutTrailingSlash = parsed.toString().replace(/\/+$/u, '');
+  return withoutTrailingSlash.endsWith('/v2')
+    ? withoutTrailingSlash
+    : `${withoutTrailingSlash}/v2`;
 }
 
 function parseJsonObject(value, label) {
@@ -337,7 +395,21 @@ function scrapeOptions(opts, schema, defaults = ['markdown']) {
 }
 
 function buildRequest(command, opts) {
-  const baseUrl = DEFAULT_BASE_URL;
+  const adapter = normalizeAdapter(opts.adapter);
+  if (adapter === 'managed') {
+    if (opts.baseUrl) {
+      fail('--base-url is only supported with --adapter self-host.');
+    }
+    if (opts.selfHostAuth) {
+      fail('--self-host-auth is only supported with --adapter self-host.');
+    }
+  }
+  const baseUrl =
+    adapter === 'self-host'
+      ? normalizeSelfHostBaseUrl(
+          opts.baseUrl || process.env[SELF_HOST_BASE_URL_ENV],
+        )
+      : DEFAULT_BASE_URL;
   const schema = readSchema(opts);
   const operation = normalizeCommand(command);
   let path;
@@ -436,23 +508,34 @@ function buildRequest(command, opts) {
 
   const result = {
     command: 'http-request',
-    adapter: 'firecrawl-managed',
+    adapter:
+      adapter === 'self-host' ? 'firecrawl-self-host' : 'firecrawl-managed',
     operation,
     httpRequest: {
       url: `${baseUrl}${path}`,
       method,
-      bearerSecretName: SECRET_NAME,
       skillName: SKILL_NAME,
       timeoutMs: opts.timeoutMs,
       maxResponseBytes: opts.maxResponseBytes,
     },
   };
+  if (adapter === 'managed') {
+    result.httpRequest.bearerSecretName = SECRET_NAME;
+  } else if (opts.selfHostAuth) {
+    result.httpRequest.bearerSecretName = SELF_HOST_SECRET_NAME;
+  } else if (String(process.env[SELF_HOST_SECRET_NAME] || '').trim()) {
+    process.stderr.write(
+      `Warning: ${SELF_HOST_SECRET_NAME} is set but --self-host-auth was not passed; the secret will not be injected.\n`,
+    );
+  }
   if (json !== undefined) {
     result.httpRequest.json = json;
-    result.costMeasurement = {
-      system: 'UsageTotals',
-      subLimitKey: 'firecrawl',
-    };
+    if (adapter === 'managed') {
+      result.costMeasurement = {
+        system: 'UsageTotals',
+        subLimitKey: 'firecrawl',
+      };
+    }
   }
   return result;
 }
