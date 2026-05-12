@@ -237,9 +237,16 @@ def gateway_request(gw: GatewayConfig, payload: dict[str, Any]) -> Any:
     if not raw:
         return {}
     try:
-        return json.loads(raw)
+        response_payload = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise GatewayError("Gateway proxy returned non-JSON output.") from exc
+    if isinstance(response_payload, dict) and response_payload.get("ok") is False:
+        status = response_payload.get("status", "unknown")
+        body = response_payload.get("body", "")
+        raise GatewayError(
+            f"Gateway proxy upstream request failed with status {status}: {body}"
+        )
+    return response_payload
 
 
 def parse_json_object(value: str, label: str) -> dict[str, Any]:

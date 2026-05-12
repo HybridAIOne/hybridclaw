@@ -76,9 +76,21 @@ async function withMockGateway(
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
+          ok: true,
           status: 200,
+          statusText: 'OK',
+          url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
           headers: { 'content-type': 'application/json' },
-          bodyJson: {
+          body: JSON.stringify({
+            rows: [
+              {
+                dimensionValues: [{ value: '20260511' }],
+                metricValues: [{ value: '42' }],
+              },
+            ],
+            rowCount: 1,
+          }),
+          json: {
             rows: [
               {
                 dimensionValues: [{ value: '20260511' }],
@@ -343,7 +355,7 @@ test('GA4 helper sends live reports through the gateway with bearer handle only'
 
     expect(result.status).toBe(0);
     const payload = JSON.parse(result.stdout);
-    expect(payload.payload.bodyJson.rows[0].metricValues[0].value).toBe('42');
+    expect(payload.payload.json.rows[0].metricValues[0].value).toBe('42');
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
       url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
@@ -353,6 +365,62 @@ test('GA4 helper sends live reports through the gateway with bearer handle only'
     });
     expect(captured[0]).not.toHaveProperty('secretHeaders');
   });
+});
+
+test('GA4 helper fails closed when gateway reports upstream failure', async () => {
+  const captured: unknown[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      captured.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          ok: false,
+          status: 403,
+          statusText: 'Forbidden',
+          url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
+          headers: { 'content-type': 'application/json' },
+          body: '{"error":{"message":"Permission denied"}}',
+          json: { error: { message: 'Permission denied' } },
+        }),
+      );
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address !== 'object') {
+      throw new Error('Expected server address.');
+    }
+    const result = await runHelperAsync([
+      '--format',
+      'json',
+      '--gateway-url',
+      `http://127.0.0.1:${address.port}`,
+      'run-report',
+      '123456789',
+      '--request-json',
+      JSON.stringify({
+        dateRanges: [{ startDate: '7daysAgo', endDate: 'yesterday' }],
+        metrics: [{ name: 'sessions' }],
+      }),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(
+      'Gateway proxy upstream request failed with status 403',
+    );
+    expect(result.stderr).toContain('Permission denied');
+    expect(captured).toHaveLength(1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });
 
 test('GA4 helper refuses unauthenticated remote gateway URLs', () => {
