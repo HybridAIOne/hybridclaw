@@ -1,3 +1,4 @@
+import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
 import {
   normalizeTrimmedString,
@@ -33,6 +34,11 @@ export interface AgentA2AConfig {
   skillExposure?: Record<string, AgentA2AExposure>;
 }
 
+export interface AgentWebSearchConfig {
+  searxngBaseUrl?: string;
+  searxngBearerTokenRef?: SecretRef;
+}
+
 export interface AgentConfig {
   id: string;
   name?: string;
@@ -51,6 +57,7 @@ export interface AgentConfig {
   cv?: AgentCv;
   escalationTarget?: EscalationTarget;
   a2a?: AgentA2AConfig;
+  webSearch?: AgentWebSearchConfig;
 }
 
 export interface AgentDefaultsConfig {
@@ -110,6 +117,48 @@ export function cloneAgentCv(value: AgentCv | undefined): AgentCv | undefined {
     ...value,
     ...(value.capabilities ? { capabilities: [...value.capabilities] } : {}),
   };
+}
+
+export function cloneAgentWebSearchConfig(
+  value: AgentWebSearchConfig | undefined,
+): AgentWebSearchConfig | undefined {
+  if (!value) return undefined;
+  const clone: AgentWebSearchConfig = {
+    ...(value.searxngBaseUrl ? { searxngBaseUrl: value.searxngBaseUrl } : {}),
+    ...(value.searxngBearerTokenRef
+      ? { searxngBearerTokenRef: { ...value.searxngBearerTokenRef } }
+      : {}),
+  };
+  return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+export function normalizeAgentWebSearchConfig(
+  value: unknown,
+  path = 'agents.list[].webSearch',
+): AgentWebSearchConfig | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  const searxngBaseUrl = normalizeTrimmedString(raw.searxngBaseUrl);
+  let searxngBearerTokenRef: SecretRef | undefined;
+  if (
+    raw.searxngBearerTokenRef !== undefined &&
+    raw.searxngBearerTokenRef !== ''
+  ) {
+    const parsed = parseSecretInput(raw.searxngBearerTokenRef);
+    if (parsed.kind !== 'ref') {
+      throw new Error(
+        `${path}.searxngBearerTokenRef must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR_NAME}\`.`,
+      );
+    }
+    searxngBearerTokenRef = parsed.ref;
+  }
+  const normalized: AgentWebSearchConfig = {
+    ...(searxngBaseUrl ? { searxngBaseUrl } : {}),
+    ...(searxngBearerTokenRef ? { searxngBearerTokenRef } : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function normalizeAgentA2AExposureValue(

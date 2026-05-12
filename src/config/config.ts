@@ -567,6 +567,7 @@ export let WEB_SEARCH_FALLBACK_PROVIDERS: RuntimeConfig['web']['search']['fallba
 export let WEB_SEARCH_DEFAULT_COUNT = 5;
 export let WEB_SEARCH_CACHE_TTL_MINUTES = 5;
 export let WEB_SEARCH_SEARXNG_BASE_URL = '';
+export let WEB_SEARCH_SEARXNG_BEARER_TOKEN_REF: RuntimeConfig['web']['search']['searxngBearerTokenRef'];
 export let WEB_SEARCH_TAVILY_SEARCH_DEPTH: RuntimeConfig['web']['search']['tavilySearchDepth'] =
   'advanced';
 
@@ -1117,6 +1118,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   );
   WEB_SEARCH_SEARXNG_BASE_URL =
     process.env.SEARXNG_BASE_URL || config.web.search.searxngBaseUrl;
+  WEB_SEARCH_SEARXNG_BEARER_TOKEN_REF = config.web.search.searxngBearerTokenRef;
   WEB_SEARCH_TAVILY_SEARCH_DEPTH = config.web.search.tavilySearchDepth;
 
   HEARTBEAT_ENABLED = config.heartbeat.enabled;

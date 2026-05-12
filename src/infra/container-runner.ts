@@ -15,7 +15,6 @@ import { getBrowserProfileDir } from '../browser/browser-login.js';
 import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-advertising.js';
 import {
   ADDITIONAL_MOUNTS,
-  BRAVE_API_KEY,
   BROWSER_PROVIDER,
   CONTAINER_BINDS,
   CONTAINER_CPUS,
@@ -42,18 +41,15 @@ import {
   MAX_CONCURRENT_CONTAINERS,
   MCP_SERVERS,
   onConfigChange,
-  PERPLEXITY_API_KEY,
   PROACTIVE_AUTO_RETRY_BASE_DELAY_MS,
   PROACTIVE_AUTO_RETRY_ENABLED,
   PROACTIVE_AUTO_RETRY_MAX_ATTEMPTS,
   PROACTIVE_AUTO_RETRY_MAX_DELAY_MS,
   PROACTIVE_RALPH_MAX_ITERATIONS,
-  TAVILY_API_KEY,
   WEB_SEARCH_CACHE_TTL_MINUTES,
   WEB_SEARCH_DEFAULT_COUNT,
   WEB_SEARCH_FALLBACK_PROVIDERS,
   WEB_SEARCH_PROVIDER,
-  WEB_SEARCH_SEARXNG_BASE_URL,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
 import { GATEWAY_DEBUG_MODEL_RESPONSES_ENV } from '../gateway/gateway-lifecycle.js';
@@ -121,6 +117,7 @@ import {
   stopWarmEntries as stopWarmPoolEntries,
   type WarmRunnerEntry,
 } from './warm-runner-utils.js';
+import { resolveWebSearchRuntimeConfig } from './web-search-runtime-config.js';
 import { computeWorkerSignature } from './worker-signature.js';
 
 function resolveExecutorMaxTokens(params: {
@@ -735,6 +732,7 @@ function getOrSpawnContainer(
     );
   }
   const containerName = `hybridclaw-${ipcSessionId.replace(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}`;
+  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
 
   const args = [
     'run',
@@ -810,7 +808,7 @@ function getOrSpawnContainer(
     '-e',
     `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH=${WEB_SEARCH_TAVILY_SEARCH_DEPTH}`,
     '-e',
-    `SEARXNG_BASE_URL=${WEB_SEARCH_SEARXNG_BASE_URL}`,
+    `SEARXNG_BASE_URL=${webSearchRuntime.searxngBaseUrl}`,
     '-e',
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
     '-e',
@@ -1089,6 +1087,7 @@ async function runContainerInner(
   }
 
   const startTime = Date.now();
+  const webSearchRuntime = resolveWebSearchRuntimeConfig(agentId);
 
   const input: ContainerInput = {
     sessionId,
@@ -1147,17 +1146,7 @@ async function runContainerInner(
       overflowRatio: CONTEXT_GUARD_OVERFLOW_RATIO,
       maxRetries: CONTEXT_GUARD_MAX_RETRIES,
     },
-    webSearch: {
-      provider: WEB_SEARCH_PROVIDER,
-      fallbackProviders: [...WEB_SEARCH_FALLBACK_PROVIDERS],
-      defaultCount: WEB_SEARCH_DEFAULT_COUNT,
-      cacheTtlMinutes: WEB_SEARCH_CACHE_TTL_MINUTES,
-      searxngBaseUrl: WEB_SEARCH_SEARXNG_BASE_URL,
-      tavilySearchDepth: WEB_SEARCH_TAVILY_SEARCH_DEPTH,
-      braveApiKey: BRAVE_API_KEY,
-      perplexityApiKey: PERPLEXITY_API_KEY,
-      tavilyApiKey: TAVILY_API_KEY,
-    },
+    webSearch: webSearchRuntime,
     providerCredentials: resolveProviderCredentials(),
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,

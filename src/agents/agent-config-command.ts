@@ -17,6 +17,7 @@ import {
   hasSnakeCamelAlias,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
 } from './agent-types.js';
 
@@ -273,6 +274,22 @@ function applyAgentConfigFieldUpdates(
         );
       }
       next.escalationTarget = escalationTarget;
+    }
+  }
+  if (Object.hasOwn(updates, 'webSearch')) {
+    if (updates.webSearch === null) {
+      delete next.webSearch;
+    } else {
+      const webSearch = normalizeAgentWebSearchConfig(
+        updates.webSearch,
+        'webSearch',
+      );
+      if (!webSearch) {
+        throw new Error(
+          '`webSearch` must include searxngBaseUrl or searxngBearerTokenRef fields, or null.',
+        );
+      }
+      next.webSearch = webSearch;
     }
   }
   return next;

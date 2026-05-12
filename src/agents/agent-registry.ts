@@ -31,10 +31,12 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
   cloneAgentCv,
+  cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from './agent-types.js';
@@ -192,6 +194,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     (value as { escalationTarget?: unknown }).escalationTarget,
   );
   const a2a = normalizeAgentA2AConfig((value as { a2a?: unknown }).a2a);
+  const webSearch = normalizeAgentWebSearchConfig(
+    (value as { webSearch?: unknown }).webSearch,
+  );
   return {
     id,
     ...(name ? { name } : {}),
@@ -209,6 +214,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
 }
 
@@ -242,6 +248,15 @@ function fingerprintCv(cv: AgentConfig['cv']): string {
   ].join(':');
 }
 
+function fingerprintWebSearch(webSearch: AgentConfig['webSearch']): string {
+  if (!webSearch) return '';
+  return [
+    fingerprintString(webSearch.searxngBaseUrl),
+    fingerprintString(webSearch.searxngBearerTokenRef?.source),
+    fingerprintString(webSearch.searxngBearerTokenRef?.id),
+  ].join(':');
+}
+
 function fingerprintAgent(agent: AgentConfig): string {
   return [
     fingerprintString(agent.id),
@@ -267,6 +282,7 @@ function fingerprintAgent(agent: AgentConfig): string {
         .map(([skill, exposure]) => `${skill}:${exposure}`)
         .sort(),
     ),
+    fingerprintWebSearch(agent.webSearch),
   ].join('|');
 }
 
@@ -346,6 +362,9 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
       ? { escalationTarget: { ...agent.escalationTarget } }
       : {}),
     ...(agent.a2a ? { a2a: cloneAgentA2AConfig(agent.a2a) } : {}),
+    ...(agent.webSearch
+      ? { webSearch: cloneAgentWebSearchConfig(agent.webSearch) }
+      : {}),
   };
 }
 
@@ -397,6 +416,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     cv: cloneAgentCv(agent.cv),
     escalationTarget: agent.escalationTarget,
     a2a: cloneAgentA2AConfig(agent.a2a),
+    webSearch: cloneAgentWebSearchConfig(agent.webSearch),
   };
 }
 

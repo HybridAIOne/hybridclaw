@@ -24,8 +24,30 @@ Add the runtime config section below to `~/.hybridclaw/config.json`:
       "defaultCount": 5,
       "cacheTtlMinutes": 5,
       "searxngBaseUrl": "",
+      "searxngBearerTokenRef": { "source": "store", "id": "SEARXNG_BEARER_TOKEN" },
       "tavilySearchDepth": "advanced"
     }
+  }
+}
+```
+
+Agent-specific SearXNG settings can override the global instance:
+
+```json
+{
+  "agents": {
+    "list": [
+      {
+        "id": "research",
+        "webSearch": {
+          "searxngBaseUrl": "https://search.research.example",
+          "searxngBearerTokenRef": {
+            "source": "store",
+            "id": "RESEARCH_SEARXNG_BEARER_TOKEN"
+          }
+        }
+      }
+    ]
   }
 }
 ```
@@ -43,6 +65,7 @@ Runtime settings are forwarded into the agent container with these derived env v
 - `HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS`
 - `HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT`
 - `HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES`
+- `HYBRIDCLAW_WEB_SEARCH_SEARXNG_BASE_URL`
 - `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH`
 
 ## Auto Mode
@@ -70,5 +93,7 @@ If `provider` is set explicitly, the tool uses that provider first, then `fallba
 
 - Search responses are cached for 5 minutes by default.
 - API keys are read from environment variables only.
+- SearXNG bearer tokens must use env/store SecretRefs and are injected through
+  the gateway HTTP proxy so they do not enter the LLM context.
 - Result URLs are validated before they are returned.
 - Provider errors are aggregated without echoing secrets.

@@ -152,6 +152,9 @@ saved revision history directly.
   an immediate local consolidation run
 - `agents.defaultAgentId` for the default agent used by new requests and fresh
   web sessions when no agent is pinned explicitly
+- `agents.list[].webSearch.searxngBaseUrl` and
+  `agents.list[].webSearch.searxngBearerTokenRef` override the global SearXNG
+  instance and bearer SecretRef for a specific agent
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short"
@@ -218,9 +221,14 @@ saved revision history directly.
   fallback values when no encrypted secret is present
 - `web.search.provider`, `web.search.fallbackProviders`,
   `web.search.defaultCount`, `web.search.cacheTtlMinutes`,
-  `web.search.searxngBaseUrl`, and `web.search.tavilySearchDepth` control the
-  built-in web-search provider chain. Set `web.search.searxngBaseUrl` or
-  `SEARXNG_BASE_URL` when using the self-hosted SearXNG provider.
+  `web.search.searxngBaseUrl`, `web.search.searxngBearerTokenRef`, and
+  `web.search.tavilySearchDepth` control the built-in web-search provider
+  chain. Set `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL` when using the
+  self-hosted SearXNG provider. Use `web.search.searxngBearerTokenRef` for
+  authenticated SearXNG instances; plaintext bearer tokens are rejected. Agent
+  entries can set `webSearch.searxngBaseUrl` and
+  `webSearch.searxngBearerTokenRef` to bind a tenant-specific SearXNG instance
+  without exposing the bearer token to the agent context.
 - `media.audio` for inbound audio transcription backend selection. Generated
   image and video artifacts are written through the native media-generation
   tools when the corresponding provider credentials and models are configured.
