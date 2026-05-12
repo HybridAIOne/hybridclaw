@@ -199,7 +199,7 @@ export function McpPage() {
           </button>
         </div>
       ) : (
-        <div className="two-column-grid">
+        <div className={showEditor ? 'two-column-grid' : 'page-stack'}>
           <Card>
             <CardHeader>
               <CardTitle>Servers</CardTitle>
