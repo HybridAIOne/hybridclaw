@@ -32,6 +32,20 @@ export interface MediaContextItem {
 
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
+export interface ProviderCredential {
+  apiKey?: string;
+  baseUrl?: string;
+  imageModel?: string;
+  videoModel?: string;
+}
+
+export interface ProviderCredentials {
+  openai?: ProviderCredential;
+  gemini?: ProviderCredential;
+  xai?: ProviderCredential;
+  bfl?: ProviderCredential;
+}
+
 export interface ContainerInput {
   healthCheck?: {
     nonce: string;
@@ -71,6 +85,7 @@ export interface ContainerInput {
   taskModels?: TaskModelPolicies;
   contextGuard?: ContextGuardConfig;
   webSearch?: WebSearchConfig;
+  providerCredentials?: ProviderCredentials;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
   escalationTarget?: EscalationTarget;

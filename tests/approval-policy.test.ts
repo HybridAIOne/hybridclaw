@@ -1017,7 +1017,7 @@ autonomy:
     expect(channelInfo.tier).toBe('green');
   });
 
-  test('vision analysis tools are green and do not wait for interruption', () => {
+  test('vision analysis tool is green and does not wait for interruption', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
@@ -1030,21 +1030,45 @@ autonomy:
       }),
       latestUserPrompt: 'Analyze the attached image',
     });
-    const imageAlias = runtime.evaluateToolCall({
-      toolName: 'image',
-      argsJson: JSON.stringify({
-        image_url: '/tmp/example.jpg',
-        question: 'What is in this image?',
-      }),
-      latestUserPrompt: 'Analyze the attached image',
-    });
 
     expect(visionAnalyze.tier).toBe('green');
     expect(visionAnalyze.decision).toBe('auto');
     expect(visionAnalyze.implicitDelayMs).toBeUndefined();
-    expect(imageAlias.tier).toBe('green');
-    expect(imageAlias.decision).toBe('auto');
-    expect(imageAlias.implicitDelayMs).toBeUndefined();
+  });
+
+  test('media generation tools classify list as green and generation as yellow', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const imageList = runtime.evaluateToolCall({
+      toolName: 'image_generate',
+      argsJson: JSON.stringify({ action: 'list' }),
+      latestUserPrompt: 'Which image providers are configured?',
+    });
+    const videoList = runtime.evaluateToolCall({
+      toolName: 'video_generate',
+      argsJson: JSON.stringify({ action: 'list' }),
+      latestUserPrompt: 'Which video providers are configured?',
+    });
+    const imageGenerate = runtime.evaluateToolCall({
+      toolName: 'image_generate',
+      argsJson: JSON.stringify({ prompt: 'A cinematic product image' }),
+      latestUserPrompt: 'Generate an image',
+    });
+    const videoGenerate = runtime.evaluateToolCall({
+      toolName: 'video_generate',
+      argsJson: JSON.stringify({ prompt: 'A cinematic product shot' }),
+      latestUserPrompt: 'Generate a video',
+    });
+
+    expect(imageList.tier).toBe('green');
+    expect(videoList.tier).toBe('green');
+    expect(imageGenerate.tier).toBe('yellow');
+    expect(imageGenerate.implicitDelayMs).toBeUndefined();
+    expect(videoGenerate.tier).toBe('yellow');
+    expect(videoGenerate.implicitDelayMs).toBeUndefined();
+    expect(videoGenerate.reason).toContain('video generation may call');
   });
 
   test('delegate tool is green by default', () => {

@@ -220,6 +220,7 @@ export async function callAuxiliaryModel(
       question: params.question,
       imageDataUrl: params.imageDataUrl,
       maxTokens,
+      toolName,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

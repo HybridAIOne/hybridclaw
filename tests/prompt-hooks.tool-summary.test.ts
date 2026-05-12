@@ -30,7 +30,9 @@ test('buildToolsSummary groups the full tool catalog', () => {
   );
   expect(summary).toContain('**Communication**: `message`');
   expect(summary).toContain('**Delegation**: `delegate`');
-  expect(summary).toContain('**Vision**: `vision_analyze`, `image`');
+  expect(summary).toContain('**Vision**: `vision_analyze`');
+  expect(summary).toContain('**Image Generation**: `image_generate`');
+  expect(summary).toContain('**Video Generation**: `video_generate`');
 });
 
 test('buildSystemPromptFromHooks reflects restricted tool availability', () => {

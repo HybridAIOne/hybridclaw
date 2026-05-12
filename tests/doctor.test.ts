@@ -155,7 +155,7 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
       'read',
       'browser_close',
       'browser_navigate',
-      'image',
+      'vision_analyze',
     ],
   }));
   const actualRuntimeConfig = await import('../src/config/runtime-config.js');
@@ -241,7 +241,7 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
   expect(runtimeConfigState.tools.disabled).toEqual([
     'browser_close',
     'browser_navigate',
-    'image',
+    'vision_analyze',
   ]);
   expect(runtimeConfigState.mcpServers.github.enabled).toBeUndefined();
   expect(runtimeConfigState.mcpServers.slack.enabled).toBe(false);

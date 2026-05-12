@@ -72,6 +72,7 @@ export interface RoutedVisionCallParams extends RoutedModelContext {
   imageDataUrl: string;
   instructions?: string;
   maxTokens?: number;
+  toolName?: string;
 }
 
 function buildCallArgs(params: RoutedModelCallParams): NormalizedCallArgs {
@@ -223,8 +224,9 @@ function buildVisionMessages(params: RoutedVisionCallParams): ChatMessage[] {
 }
 
 export function getVisionModelContextError(
-  params: RoutedModelContext,
+  params: RoutedModelContext & { toolName?: string },
 ): string | null {
+  const toolName = params.toolName || 'vision_analyze';
   return getProviderContextError({
     provider: params.provider,
     providerMethod: params.providerMethod,
@@ -232,7 +234,7 @@ export function getVisionModelContextError(
     apiKey: params.apiKey,
     model: params.model,
     chatbotId: params.chatbotId,
-    toolName: 'vision_analyze',
+    toolName,
   });
 }
 
