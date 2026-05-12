@@ -3295,6 +3295,8 @@ async function executeToolInternal(
           freshness: args.freshness,
           country: args.country,
           language: args.language,
+          categories: args.categories,
+          engines: args.engines,
           provider: args.provider,
         },
         currentWebSearchConfig,
@@ -4165,6 +4167,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           language: {
             type: 'string',
             description: 'ISO 639-1 language code (e.g. "en", "de").',
+          },
+          categories: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional SearXNG categories such as "general", "images", or "news". Only used by the searxng provider.',
+          },
+          engines: {
+            type: ['string', 'array'],
+            items: {
+              type: 'string',
+            },
+            description:
+              'Optional SearXNG engine names or comma-separated engine list. Only used by the searxng provider.',
           },
           provider: {
             type: 'string',

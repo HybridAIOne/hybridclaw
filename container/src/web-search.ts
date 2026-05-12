@@ -3,6 +3,11 @@ import type {
   SearchProviderName,
   WebSearchConfig,
 } from '../shared/web-search-config.js';
+import {
+  buildSearxngSearchUrl,
+  parseSearxngSearchResponse,
+  type SearxngTimeRange,
+} from './searxng-client.js';
 
 const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
@@ -86,6 +91,9 @@ export interface SearchResult {
   url: string;
   snippet: string;
   age?: string;
+  category?: string;
+  engine?: string;
+  thumbnail?: string;
 }
 
 export type WebSearchRuntimeConfig = WebSearchConfig;
@@ -96,6 +104,8 @@ export interface WebSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string[] | string;
+  engines?: string[] | string;
   provider?: SearchProviderMode;
 }
 
@@ -105,6 +115,8 @@ interface NormalizedSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string[] | string;
+  engines?: string[] | string;
   provider?: SearchProviderMode;
 }
 
@@ -112,6 +124,8 @@ interface SearchExecutionContext {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string[] | string;
+  engines?: string[] | string;
 }
 
 export interface WebSearchExecutionResult {
@@ -317,6 +331,8 @@ export function normalizeSearchParams(
     freshness: normalizeFreshness(params.freshness),
     country: normalizeCountry(params.country),
     language: normalizeLanguage(params.language),
+    categories: params.categories,
+    engines: params.engines,
     provider: params.provider
       ? normalizeProviderMode(params.provider)
       : undefined,
@@ -588,7 +604,13 @@ function buildCacheKey(
   const suffix = [params.country || '', params.language || '']
     .filter(Boolean)
     .join(':');
-  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+  const categories = Array.isArray(params.categories)
+    ? params.categories.join(',')
+    : params.categories || '';
+  const engines = Array.isArray(params.engines)
+    ? params.engines.join(',')
+    : params.engines || '';
+  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}${suffix ? `:${suffix}` : ''}`.toLowerCase();
 }
 
 export function mapFreshnessForProvider(
@@ -622,7 +644,7 @@ function buildProviderRequestContext(
   braveLanguage?: string;
   perplexityFreshness?: string;
   tavilyDays?: number;
-  searxngTimeRange?: string;
+  searxngTimeRange?: SearxngTimeRange;
 } {
   return {
     ...context,
@@ -642,7 +664,10 @@ function buildProviderRequestContext(
         : undefined,
     searxngTimeRange:
       typeof mapFreshnessForProvider('searxng', context.freshness) === 'string'
-        ? (mapFreshnessForProvider('searxng', context.freshness) as string)
+        ? (mapFreshnessForProvider(
+            'searxng',
+            context.freshness,
+          ) as SearxngTimeRange)
         : undefined,
   };
 }
@@ -702,21 +727,6 @@ function parseTavilySearchResponse(payload: unknown): SearchResult[] {
         url: entry.url,
         snippet: entry.content ?? entry.snippet ?? entry.description,
         age: entry.published_date,
-      })),
-  );
-}
-
-function parseSearxngSearchResponse(payload: unknown): SearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid SearXNG search response');
-  const rawResults = extractArray(payload.results);
-  return normalizeSearchResults(
-    rawResults
-      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-      .map((entry) => ({
-        title: entry.title,
-        url: entry.url,
-        snippet: entry.content ?? entry.snippet ?? entry.description,
-        age: entry.publishedDate ?? entry.published_date ?? entry.age,
       })),
   );
 }
@@ -958,30 +968,6 @@ function createDuckDuckGoProvider(): SearchProvider {
   };
 }
 
-function buildSearxngSearchUrl(
-  baseUrl: string,
-  query: string,
-  count: number,
-  context: ReturnType<typeof buildProviderRequestContext>,
-): string {
-  const normalizedBase = validateHttpUrl(baseUrl);
-  if (!normalizedBase) throw new Error('SearXNG base URL is invalid');
-  const url = new URL(normalizedBase);
-  if (!url.pathname.endsWith('/search')) {
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/search`;
-  }
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('q', query);
-  url.searchParams.set('pageno', '1');
-  url.searchParams.set('language', context.language || 'all');
-  url.searchParams.set('safesearch', '0');
-  url.searchParams.set('results', String(count));
-  if (context.searxngTimeRange) {
-    url.searchParams.set('time_range', context.searxngTimeRange);
-  }
-  return url.toString();
-}
-
 function createSearxngProvider(
   config: WebSearchConfig,
   context: SearchExecutionContext,
@@ -989,18 +975,20 @@ function createSearxngProvider(
   const requestContext = buildProviderRequestContext(context);
   return {
     name: 'searxng',
-    async search(query: string, count: number, signal: AbortSignal) {
+    async search(query: string, _count: number, signal: AbortSignal) {
       if (!config.searxngBaseUrl) throw new Error('SearXNG is not configured');
 
       const timeout = createTimeoutSignal(signal, DEFAULT_PROVIDER_TIMEOUT_MS);
       try {
         const res = await fetch(
-          buildSearxngSearchUrl(
-            config.searxngBaseUrl,
+          buildSearxngSearchUrl({
+            baseUrl: config.searxngBaseUrl,
             query,
-            count,
-            requestContext,
-          ),
+            language: requestContext.language,
+            categories: requestContext.categories,
+            engines: requestContext.engines,
+            timeRange: requestContext.searxngTimeRange,
+          }),
           {
             headers: {
               Accept: 'application/json',
@@ -1157,6 +1145,9 @@ function formatSearchResults(result: WebSearchExecutionResult): string {
     lines.push(`${index + 1}. ${entry.title}`);
     lines.push(entry.url);
     if (entry.age) lines.push(`Age: ${entry.age}`);
+    if (entry.category) lines.push(`Category: ${entry.category}`);
+    if (entry.engine) lines.push(`Engine: ${entry.engine}`);
+    if (entry.thumbnail) lines.push(`Thumbnail: ${entry.thumbnail}`);
     if (entry.snippet) lines.push(entry.snippet);
   }
   return lines.join('\n');
