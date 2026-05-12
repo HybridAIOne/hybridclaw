@@ -334,6 +334,7 @@ const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
   'browser_secret_type',
   'browser_upload',
 ]);
+const NO_IMPLICIT_DELAY_TOOLS = new Set(['image_generate', 'video_generate']);
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
 const SCRATCH_ROOTS = Array.from(
@@ -2437,6 +2438,7 @@ export class TrustedAgentApprovalRuntime {
   ): boolean {
     if (isVoiceChannelId(channelId)) return false;
     const lowerTool = toolName.trim().toLowerCase();
+    if (NO_IMPLICIT_DELAY_TOOLS.has(lowerTool)) return false;
     if (!lowerTool.startsWith('browser_')) return true;
     return IMPLICIT_DELAY_BROWSER_INPUT_TOOLS.has(lowerTool);
   }

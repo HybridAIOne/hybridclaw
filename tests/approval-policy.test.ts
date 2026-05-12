@@ -1051,6 +1051,11 @@ autonomy:
       argsJson: JSON.stringify({ action: 'list' }),
       latestUserPrompt: 'Which video providers are configured?',
     });
+    const imageGenerate = runtime.evaluateToolCall({
+      toolName: 'image_generate',
+      argsJson: JSON.stringify({ prompt: 'A cinematic product image' }),
+      latestUserPrompt: 'Generate an image',
+    });
     const videoGenerate = runtime.evaluateToolCall({
       toolName: 'video_generate',
       argsJson: JSON.stringify({ prompt: 'A cinematic product shot' }),
@@ -1059,7 +1064,10 @@ autonomy:
 
     expect(imageList.tier).toBe('green');
     expect(videoList.tier).toBe('green');
+    expect(imageGenerate.tier).toBe('yellow');
+    expect(imageGenerate.implicitDelayMs).toBeUndefined();
     expect(videoGenerate.tier).toBe('yellow');
+    expect(videoGenerate.implicitDelayMs).toBeUndefined();
     expect(videoGenerate.reason).toContain('video generation may call');
   });
 
