@@ -20,6 +20,7 @@ import {
   normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
@@ -2515,31 +2516,6 @@ function normalizeAgentDefaultsConfig(
   };
 }
 
-function normalizeAgentWebSearchConfig(
-  value: unknown,
-  fallback?: AgentConfig['webSearch'],
-): AgentConfig['webSearch'] | undefined {
-  if (!isRecord(value)) return cloneAgentWebSearchConfig(fallback);
-  const searxngBaseUrl = normalizeString(
-    value.searxngBaseUrl,
-    fallback?.searxngBaseUrl ?? '',
-    { allowEmpty: true },
-  );
-  const searxngBearerTokenRef = Object.hasOwn(value, 'searxngBearerTokenRef')
-    ? normalizeOptionalSecretRef(
-        value.searxngBearerTokenRef,
-        'agents.list[].webSearch.searxngBearerTokenRef',
-      )
-    : fallback?.searxngBearerTokenRef
-      ? cloneConfig(fallback.searxngBearerTokenRef)
-      : undefined;
-  const normalized: AgentConfig['webSearch'] = {
-    ...(searxngBaseUrl ? { searxngBaseUrl } : {}),
-    ...(searxngBearerTokenRef ? { searxngBearerTokenRef } : {}),
-  };
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-
 function normalizeAgentConfig(
   value: unknown,
   fallback?: AgentConfig,
@@ -2627,7 +2603,11 @@ function normalizeAgentConfig(
     ? normalizeAgentA2AConfig(value.a2a)
     : cloneAgentA2AConfig(fallback?.a2a);
   const webSearch = Object.hasOwn(value, 'webSearch')
-    ? normalizeAgentWebSearchConfig(value.webSearch, fallback?.webSearch)
+    ? normalizeAgentWebSearchConfig(
+        value.webSearch,
+        'agents.list[].webSearch',
+        fallback?.webSearch,
+      )
     : cloneAgentWebSearchConfig(fallback?.webSearch);
   return {
     id,

@@ -135,12 +135,17 @@ export function cloneAgentWebSearchConfig(
 export function normalizeAgentWebSearchConfig(
   value: unknown,
   path = 'agents.list[].webSearch',
+  fallback?: AgentWebSearchConfig,
 ): AgentWebSearchConfig | undefined {
+  if (value === undefined) return cloneAgentWebSearchConfig(fallback);
+  if (value === null || value === '') return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return undefined;
+    return cloneAgentWebSearchConfig(fallback);
   }
   const raw = value as Record<string, unknown>;
-  const searxngBaseUrl = normalizeTrimmedString(raw.searxngBaseUrl);
+  const searxngBaseUrl = Object.hasOwn(raw, 'searxngBaseUrl')
+    ? normalizeTrimmedString(raw.searxngBaseUrl)
+    : fallback?.searxngBaseUrl;
   let searxngBearerTokenRef: SecretRef | undefined;
   if (
     raw.searxngBearerTokenRef !== undefined &&
@@ -153,6 +158,10 @@ export function normalizeAgentWebSearchConfig(
       );
     }
     searxngBearerTokenRef = parsed.ref;
+  } else if (!Object.hasOwn(raw, 'searxngBearerTokenRef')) {
+    searxngBearerTokenRef = fallback?.searxngBearerTokenRef
+      ? { ...fallback.searxngBearerTokenRef }
+      : undefined;
   }
   const normalized: AgentWebSearchConfig = {
     ...(searxngBaseUrl ? { searxngBaseUrl } : {}),

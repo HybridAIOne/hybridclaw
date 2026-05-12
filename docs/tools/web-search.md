@@ -65,7 +65,6 @@ Runtime settings are forwarded into the agent container with these derived env v
 - `HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS`
 - `HYBRIDCLAW_WEB_SEARCH_DEFAULT_COUNT`
 - `HYBRIDCLAW_WEB_SEARCH_CACHE_TTL_MINUTES`
-- `HYBRIDCLAW_WEB_SEARCH_SEARXNG_BASE_URL`
 - `HYBRIDCLAW_WEB_SEARCH_TAVILY_SEARCH_DEPTH`
 
 ## Auto Mode
@@ -93,7 +92,6 @@ If `provider` is set explicitly, the tool uses that provider first, then `fallba
 
 - Search responses are cached for 5 minutes by default.
 - API keys are read from environment variables only.
-- SearXNG bearer tokens must use env/store SecretRefs and are injected through
-  the gateway HTTP proxy so they do not enter the LLM context.
+- SearXNG bearer tokens must use env/store SecretRefs and are injected through the gateway HTTP proxy so they do not enter the LLM context.
 - Result URLs are validated before they are returned.
 - Provider errors are aggregated without echoing secrets.
