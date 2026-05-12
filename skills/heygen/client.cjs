@@ -1,10 +1,12 @@
 'use strict';
 
 const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
-const DEFAULT_TIMEOUT_MS = 60_000;
 const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
-const RATE_LIMIT_BODY_RE =
-  /rate.?limit|too many requests|quota exceeded|exceed rate limit|daily rate limit/i;
+const {
+  DEFAULT_TIMEOUT_MS,
+  isRateLimitBody,
+  parseRetryAfterMs,
+} = require('./lib/common.cjs');
 
 class HeyGenApiError extends Error {
   constructor(message, input = {}) {
@@ -31,20 +33,8 @@ function resolveGatewayToken() {
   return (
     (process.env.HYBRIDCLAW_GATEWAY_TOKEN || '').trim() ||
     (process.env.GATEWAY_API_TOKEN || '').trim() ||
-    (process.env.WEB_API_TOKEN || '').trim() ||
     ''
   );
-}
-
-function parseRetryAfterMs(value, nowMs = Date.now()) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  if (/^\d+(\.\d+)?$/.test(raw)) {
-    return Math.max(0, Math.ceil(Number(raw) * 1_000));
-  }
-  const timestamp = Date.parse(raw);
-  if (Number.isNaN(timestamp)) return null;
-  return Math.max(0, timestamp - nowMs);
 }
 
 function parseJsonMaybe(text) {
@@ -69,7 +59,7 @@ function classifyHeyGenResponse(input) {
   const status = Number(input.status || 0);
   const body = String(input.body || '');
   const retryAfterMs = parseRetryAfterMs(input.retryAfter);
-  const rateLimited = status === 429 || RATE_LIMIT_BODY_RE.test(body);
+  const rateLimited = status === 429 || isRateLimitBody(body);
   const retryable =
     rateLimited || (status >= 500 && status <= 504 && status !== 501);
   return {
@@ -79,6 +69,10 @@ function classifyHeyGenResponse(input) {
     retryAfterMs:
       retryAfterMs ?? (rateLimited ? 2_000 : retryable ? 5_000 : null),
   };
+}
+
+function firstString(...candidates) {
+  return candidates.find((candidate) => typeof candidate === 'string') ?? null;
 }
 
 function normalizeHeyGenPayload(wrapper) {
@@ -106,24 +100,9 @@ function normalizeHeyGenPayload(wrapper) {
         : {},
     body,
     json,
-    videoId:
-      typeof record.video_id === 'string'
-        ? record.video_id
-        : typeof record.id === 'string'
-          ? record.id
-          : null,
-    videoTranslateId:
-      typeof record.video_translate_id === 'string'
-        ? record.video_translate_id
-        : typeof record.id === 'string'
-          ? record.id
-          : null,
-    statusValue:
-      typeof record.status === 'string'
-        ? record.status
-        : typeof record.state === 'string'
-          ? record.state
-          : null,
+    videoId: firstString(record.video_id, record.id),
+    videoTranslateId: firstString(record.video_translate_id, record.id),
+    statusValue: firstString(record.status, record.state),
   };
 }
 
@@ -199,6 +178,7 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
       timeoutMs + GATEWAY_TIMEOUT_BUFFER_MS,
     );
     let response;
+    let text = '';
     try {
       response = await fetchImpl(`${gatewayUrl}/api/http/request`, {
         method: 'POST',
@@ -206,10 +186,12 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
         body: JSON.stringify(httpRequest),
         signal: controller.signal,
       });
+      text = await response.text();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      response = undefined;
       lastError = new HeyGenApiError(
-        `Gateway proxy failed before HeyGen was contacted: ${message}`,
+        `Gateway proxy failed before the HeyGen response completed: ${message}`,
         { status: 0, retryable: true },
       );
     } finally {
@@ -217,7 +199,6 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
     }
 
     if (response) {
-      const text = await response.text();
       if (!response.ok) {
         const retryAfter = extractHeader(response.headers, 'retry-after');
         const classification = classifyHeyGenResponse({
@@ -266,16 +247,9 @@ async function executeHeyGenGatewayRequest(httpRequest, options = {}) {
   throw lastError;
 }
 
-function createHeyGenClient(options = {}) {
-  return {
-    request: (httpRequest) => executeHeyGenGatewayRequest(httpRequest, options),
-  };
-}
-
 module.exports = {
   HeyGenApiError,
   classifyHeyGenResponse,
-  createHeyGenClient,
   executeHeyGenGatewayRequest,
   normalizeHeyGenPayload,
   parseRetryAfterMs,

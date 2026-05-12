@@ -2,9 +2,15 @@
 'use strict';
 
 const net = require('node:net');
+const {
+  DEFAULT_TIMEOUT_MS,
+  INSUFFICIENT_CREDITS_RE,
+  isRateLimitBody,
+  parseRetryAfterMs,
+} = require('./lib/common.cjs');
+const { runEvalScenarios } = require('./eval.cjs');
 
 const API_BASE = 'https://api.heygen.com';
-const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_API_KEY_SECRET = 'HEYGEN_API_KEY';
 
 const COST_MEASUREMENT = {
@@ -90,17 +96,6 @@ function parsePositiveInteger(raw, label) {
     die(`${label} must be a positive integer.`);
   }
   return value;
-}
-
-function parseRetryAfterMs(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  if (/^\d+(\.\d+)?$/.test(raw)) {
-    return Math.max(0, Math.ceil(Number(raw) * 1_000));
-  }
-  const timestamp = Date.parse(raw);
-  if (Number.isNaN(timestamp)) return null;
-  return Math.max(0, timestamp - Date.now());
 }
 
 function required(value, label) {
@@ -290,7 +285,6 @@ function classifyPlan(text) {
 }
 
 function buildGenerateVideo(args) {
-  requireGrant(args, 'video-generate');
   const avatarId = popFlag(args, '--avatar-id');
   const imageUrl = popFlag(args, '--image-url');
   const imageAssetId = popFlag(args, '--image-asset-id');
@@ -318,15 +312,13 @@ function buildGenerateVideo(args) {
   }
 
   const json = {};
-  if (avatarId) json.avatar_id = required(avatarId, '--avatar-id');
+  if (avatarId) json.avatar_id = avatarId;
   if (imageUrl) json.image_url = validatePublicUrl(imageUrl, '--image-url');
-  if (imageAssetId)
-    json.image_asset_id = required(imageAssetId, '--image-asset-id');
-  if (script) json.script = required(script, '--script');
-  if (voiceId) json.voice_id = required(voiceId, '--voice-id');
+  if (imageAssetId) json.image_asset_id = imageAssetId;
+  if (script) json.script = script;
+  if (voiceId) json.voice_id = voiceId;
   if (audioUrl) json.audio_url = validatePublicUrl(audioUrl, '--audio-url');
-  if (audioAssetId)
-    json.audio_asset_id = required(audioAssetId, '--audio-asset-id');
+  if (audioAssetId) json.audio_asset_id = audioAssetId;
 
   const title = popFlag(args, '--title');
   if (title) json.title = title;
@@ -361,6 +353,7 @@ function buildGenerateVideo(args) {
       '--voice-settings-json',
     );
   }
+  requireGrant(args, 'video-generate');
   return buildHttpRequest({
     url: `${API_BASE}/v2/videos`,
     method: 'POST',
@@ -369,7 +362,6 @@ function buildGenerateVideo(args) {
 }
 
 function buildTranslateVideo(args) {
-  requireGrant(args, 'video-translate');
   const videoUrl = validatePublicUrl(
     popFlag(args, '--video-url'),
     '--video-url',
@@ -405,6 +397,7 @@ function buildTranslateVideo(args) {
   if (mode) json.mode = mode;
   if (popBoolean(args, '--keep-the-same-format'))
     json.keep_the_same_format = true;
+  requireGrant(args, 'video-translate');
   return buildHttpRequest({
     url: `${API_BASE}/v2/video_translate`,
     method: 'POST',
@@ -412,7 +405,7 @@ function buildTranslateVideo(args) {
   });
 }
 
-function buildReadRequest(args) {
+function buildRequest(args) {
   const operation = args.shift();
   switch (operation) {
     case 'list-avatars':
@@ -455,12 +448,7 @@ function classifyRateLimit(args) {
   const body = bodyJson
     ? JSON.stringify(parseJsonValue(bodyJson, '--body-json'))
     : bodyText;
-  const lower = body.toLowerCase();
-  const rateLimited =
-    status === 429 ||
-    /rate.?limit|too many requests|quota exceeded|exceed rate limit|daily rate limit/i.test(
-      body,
-    );
+  const rateLimited = status === 429 || isRateLimitBody(body);
   const retryable =
     rateLimited || (status >= 500 && status <= 504 && status !== 501);
   return {
@@ -474,49 +462,12 @@ function classifyRateLimit(args) {
     shouldBackoff: retryable,
     reason: rateLimited
       ? 'heygen-rate-limit'
-      : lower.includes('insufficient credits')
+      : INSUFFICIENT_CREDITS_RE.test(body)
         ? 'heygen-insufficient-credits'
         : retryable
           ? 'heygen-retryable-upstream'
           : 'not-retryable',
     rateLimitPolicy: RATE_LIMIT_POLICY,
-  };
-}
-
-function runEvalScenarios() {
-  const scenarios = [
-    {
-      name: 'read avatars',
-      output: buildHttpRequest({ url: `${API_BASE}/v2/avatars` }),
-      check: (output) =>
-        output.httpRequest.method === 'GET' &&
-        output.httpRequest.secretHeaders[0].secretName ===
-          DEFAULT_API_KEY_SECRET,
-    },
-    {
-      name: 'plan generation',
-      output: classifyPlan('Create an avatar video from this approved script'),
-      check: (output) =>
-        output.operation === 'video-generate' && output.stakesTier === 'amber',
-    },
-    {
-      name: 'rate limit',
-      output: classifyRateLimit(['--status', '429', '--retry-after', '3']),
-      check: (output) =>
-        output.rateLimited === true && output.retryAfterMs === 3_000,
-    },
-  ];
-  const failed = scenarios.filter(
-    (scenario) => !scenario.check(scenario.output),
-  );
-  return {
-    scenarioCount: scenarios.length,
-    failed: failed.length,
-    categories: {
-      read: 1,
-      planning: 1,
-      'rate-limit': 1,
-    },
   };
 }
 
@@ -574,7 +525,8 @@ Credit-consuming operations, requiring --operator-grant:
 
 Authentication:
   Store the Direct API key as HEYGEN_API_KEY. The helper never accepts or prints API keys.
-  The request command sends the same secret-backed payload through the local gateway and retries bounded 429/5xx responses.`;
+  The request command sends the same secret-backed payload through the local gateway and retries bounded 429/5xx responses.
+  eval-scenarios runs local adapter contract smoke checks without contacting HeyGen.`;
 }
 
 async function main() {
@@ -594,12 +546,12 @@ async function main() {
       args.length = 0;
       break;
     case 'http-request':
-      payload = buildReadRequest(args);
+      payload = buildRequest(args);
       break;
     case 'request': {
       const { executeHeyGenGatewayRequest } = require('./client.cjs');
       payload = await executeHeyGenGatewayRequest(
-        buildReadRequest(args).httpRequest,
+        buildRequest(args).httpRequest,
       );
       break;
     }
@@ -607,7 +559,13 @@ async function main() {
       payload = classifyRateLimit(args);
       break;
     case 'eval-scenarios':
-      payload = runEvalScenarios();
+      payload = runEvalScenarios({
+        apiBase: API_BASE,
+        apiKeySecret: DEFAULT_API_KEY_SECRET,
+        buildHttpRequest,
+        classifyPlan,
+        classifyRateLimit,
+      });
       break;
     default:
       die(`Unknown command: ${command || '(missing)'}.`);
@@ -629,8 +587,8 @@ if (require.main === module) {
 
 module.exports = {
   RATE_LIMIT_POLICY,
-  buildReadRequest,
   buildHttpRequest,
+  buildRequest,
   classifyPlan,
   classifyRateLimit,
   validatePublicUrl,

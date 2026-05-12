@@ -8,6 +8,7 @@ import { expect, test, vi } from 'vitest';
 const helperPath = path.join(process.cwd(), 'skills', 'heygen', 'heygen.cjs');
 const skillPath = path.join(process.cwd(), 'skills', 'heygen', 'SKILL.md');
 const require = createRequire(import.meta.url);
+const heygen = require('../skills/heygen/heygen.cjs');
 
 function runHelper(args: string[]) {
   return spawnSync('node', [helperPath, ...args], {
@@ -64,21 +65,16 @@ test('HeyGen client executes through gateway secret injection and normalizes ids
       }),
   });
 
-  const payload = JSON.parse(
-    runHelper([
-      '--format',
-      'json',
-      'http-request',
-      'generate-video',
-      '--avatar-id',
-      'avatar_123',
-      '--voice-id',
-      'voice_123',
-      '--script',
-      'Approved script',
-      '--operator-grant',
-    ]).stdout,
-  );
+  const payload = heygen.buildRequest([
+    'generate-video',
+    '--avatar-id',
+    'avatar_123',
+    '--voice-id',
+    'voice_123',
+    '--script',
+    'Approved script',
+    '--operator-grant',
+  ]);
 
   const result = await executeHeyGenGatewayRequest(payload.httpRequest, {
     gatewayUrl: 'http://127.0.0.1:9090',
@@ -137,9 +133,7 @@ test('HeyGen client retries 429 responses with Retry-After before succeeding', a
         }),
     });
 
-  const payload = JSON.parse(
-    runHelper(['--format', 'json', 'http-request', 'list-voices']).stdout,
-  );
+  const payload = heygen.buildRequest(['list-voices']);
 
   const result = await executeHeyGenGatewayRequest(payload.httpRequest, {
     fetch: fetchMock,
@@ -167,16 +161,61 @@ test('HeyGen client fails closed for requests missing F13 secret binding', async
   ).rejects.toBeInstanceOf(HeyGenApiError);
 });
 
-test('HeyGen helper emits gateway-proxied read requests with secret header binding', () => {
-  const result = runHelper([
-    '--format',
-    'json',
-    'http-request',
-    'list-avatars',
-  ]);
+test('HeyGen client ignores undocumented WEB_API_TOKEN fallback', async () => {
+  const {
+    executeHeyGenGatewayRequest,
+  } = require('../skills/heygen/client.cjs');
+  const previousHybridClawToken = process.env.HYBRIDCLAW_GATEWAY_TOKEN;
+  const previousGatewayToken = process.env.GATEWAY_API_TOKEN;
+  const previousWebToken = process.env.WEB_API_TOKEN;
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: new Headers(),
+    text: async () =>
+      JSON.stringify({
+        ok: true,
+        status: 200,
+        headers: {},
+        body: '{}',
+      }),
+  });
 
-  expect(result.status).toBe(0);
-  const payload = JSON.parse(result.stdout);
+  try {
+    delete process.env.HYBRIDCLAW_GATEWAY_TOKEN;
+    delete process.env.GATEWAY_API_TOKEN;
+    process.env.WEB_API_TOKEN = 'legacy-token';
+
+    await executeHeyGenGatewayRequest(
+      heygen.buildRequest(['list-avatars']).httpRequest,
+      { fetch: fetchMock },
+    );
+  } finally {
+    if (previousHybridClawToken === undefined) {
+      delete process.env.HYBRIDCLAW_GATEWAY_TOKEN;
+    } else {
+      process.env.HYBRIDCLAW_GATEWAY_TOKEN = previousHybridClawToken;
+    }
+    if (previousGatewayToken === undefined) {
+      delete process.env.GATEWAY_API_TOKEN;
+    } else {
+      process.env.GATEWAY_API_TOKEN = previousGatewayToken;
+    }
+    if (previousWebToken === undefined) {
+      delete process.env.WEB_API_TOKEN;
+    } else {
+      process.env.WEB_API_TOKEN = previousWebToken;
+    }
+  }
+
+  expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty(
+    'Authorization',
+  );
+});
+
+test('HeyGen helper emits gateway-proxied read requests with secret header binding', () => {
+  const payload = heygen.buildRequest(['list-avatars']);
+
   expect(payload.httpRequest).toMatchObject({
     method: 'GET',
     url: 'https://api.heygen.com/v2/avatars',
@@ -191,32 +230,24 @@ test('HeyGen helper emits gateway-proxied read requests with secret header bindi
   });
   expect(payload.costMeasurement.system).toBe('UsageTotals');
   expect(payload.rateLimit.retryableStatuses).toContain(429);
-  expect(result.stdout).not.toContain('api-key-value');
+  expect(JSON.stringify(payload)).not.toContain('api-key-value');
 });
 
 test('HeyGen helper plans generate and translate requests as guarded operations', () => {
-  const generate = runHelper([
-    '--format',
-    'json',
-    'plan',
+  const generate = heygen.classifyPlan(
     'Create an avatar video from this approved script',
-  ]);
-  const translate = runHelper([
-    '--format',
-    'json',
-    'plan',
+  );
+  const translate = heygen.classifyPlan(
     'Translate this customer training video to German with lip sync',
-  ]);
+  );
 
-  expect(generate.status).toBe(0);
-  expect(translate.status).toBe(0);
-  expect(JSON.parse(generate.stdout)).toMatchObject({
+  expect(generate).toMatchObject({
     operation: 'video-generate',
     stakesTier: 'amber',
     requiredGrant: 'approve-heygen-video-generate',
     brandVoiceGateRequired: true,
   });
-  expect(JSON.parse(translate.stdout)).toMatchObject({
+  expect(translate).toMatchObject({
     operation: 'video-translate',
     stakesTier: 'amber',
     requiredGrant: 'approve-heygen-video-translate',
@@ -244,10 +275,7 @@ test('HeyGen helper requires operator grants for credit-consuming requests', () 
 });
 
 test('HeyGen helper emits generate and translate payloads with validated bodies', () => {
-  const generate = runHelper([
-    '--format',
-    'json',
-    'http-request',
+  const generate = heygen.buildRequest([
     'generate-video',
     '--avatar-id',
     'avatar_123',
@@ -263,10 +291,7 @@ test('HeyGen helper emits generate and translate payloads with validated bodies'
     '16:9',
     '--operator-grant',
   ]);
-  const translate = runHelper([
-    '--format',
-    'json',
-    'http-request',
+  const translate = heygen.buildRequest([
     'translate-video',
     '--video-url',
     'https://example.com/source.mp4',
@@ -277,9 +302,7 @@ test('HeyGen helper emits generate and translate payloads with validated bodies'
     '--operator-grant',
   ]);
 
-  expect(generate.status).toBe(0);
-  expect(translate.status).toBe(0);
-  expect(JSON.parse(generate.stdout).httpRequest).toMatchObject({
+  expect(generate.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://api.heygen.com/v2/videos',
     json: {
@@ -291,7 +314,7 @@ test('HeyGen helper emits generate and translate payloads with validated bodies'
       aspect_ratio: '16:9',
     },
   });
-  expect(JSON.parse(translate.stdout).httpRequest).toMatchObject({
+  expect(translate.httpRequest).toMatchObject({
     method: 'POST',
     url: 'https://api.heygen.com/v2/video_translate',
     json: {
@@ -379,49 +402,45 @@ test('HeyGen helper blocks internal media URLs and removed API-key flags', () =>
 });
 
 test('HeyGen helper classifies rate limits and transient upstream failures', () => {
-  const retryAfter = runHelper([
-    '--format',
-    'json',
-    'classify-rate-limit',
+  const retryAfter = heygen.classifyRateLimit([
     '--status',
     '429',
     '--retry-after',
     '7',
   ]);
-  const bodyLimit = runHelper([
-    '--format',
-    'json',
-    'classify-rate-limit',
+  const bodyLimit = heygen.classifyRateLimit([
     '--status',
     '200',
     '--body-json',
     '{"data":{"error":{"message":"Exceed rate limit"}}}',
   ]);
-  const serverError = runHelper([
-    '--format',
-    'json',
-    'classify-rate-limit',
+  const serverError = heygen.classifyRateLimit(['--status', '503']);
+  const insufficientCredits = heygen.classifyRateLimit([
     '--status',
-    '503',
+    '402',
+    '--body',
+    'Insufficient credits for this request',
   ]);
 
-  expect(retryAfter.status).toBe(0);
-  expect(bodyLimit.status).toBe(0);
-  expect(serverError.status).toBe(0);
-  expect(JSON.parse(retryAfter.stdout)).toMatchObject({
+  expect(retryAfter).toMatchObject({
     rateLimited: true,
     retryable: true,
     retryAfterMs: 7000,
     reason: 'heygen-rate-limit',
   });
-  expect(JSON.parse(bodyLimit.stdout)).toMatchObject({
+  expect(bodyLimit).toMatchObject({
     rateLimited: true,
     shouldBackoff: true,
   });
-  expect(JSON.parse(serverError.stdout)).toMatchObject({
+  expect(serverError).toMatchObject({
     rateLimited: false,
     retryable: true,
     reason: 'heygen-retryable-upstream',
+  });
+  expect(insufficientCredits).toMatchObject({
+    rateLimited: false,
+    retryable: false,
+    reason: 'heygen-insufficient-credits',
   });
 });
 
