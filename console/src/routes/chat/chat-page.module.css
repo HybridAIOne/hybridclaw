@@ -398,8 +398,12 @@ aside[data-state="collapsed"] .chatSidebarContent {
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  /* Disable browser scroll anchoring on the container; we let .messageBlock
+     anchor instead so anchors land on message boundaries, not mid-paragraph. */
+  overflow-anchor: none;
   padding: 16px 24px 12px;
-  scroll-behavior: smooth;
+  position: relative;
 }
 
 .messageList {
@@ -441,6 +445,51 @@ aside[data-state="collapsed"] .chatSidebarContent {
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  /* Let the browser anchor scroll position to message boundaries so content
+     growth above the viewport doesn't tug the user's reading position. */
+  overflow-anchor: auto;
+}
+
+/* Anchored to .chatMain (position: relative) and sits just above the
+   composer. Only rendered when the user has scrolled away from the latest
+   message. */
+.jumpToLatest {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--chat-composer-height, 132px) + 12px);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-raised);
+  z-index: 40;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    transform 0.12s;
+}
+
+.jumpToLatest:hover {
+  background: var(--chat-hover-bg);
+}
+
+.jumpToLatest:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.jumpToLatest span:first-child {
+  font-weight: 700;
+  line-height: 1;
 }
 
 .messageBlockUser {

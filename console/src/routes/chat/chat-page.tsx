@@ -25,7 +25,6 @@ import {
   buildApprovalCommand,
   copyToClipboard,
   DEFAULT_AGENT_ID,
-  isScrolledNearBottom,
   nextMsgId,
   readStoredUserId,
 } from '../../lib/chat-helpers';
@@ -46,6 +45,7 @@ import { ContextRing } from './context-ring';
 import { EditInline, MessageBlock } from './message-block';
 import { useChatSession } from './use-chat-session';
 import { useChatStream } from './use-chat-stream';
+import { useStickToBottom } from './use-stick-to-bottom';
 
 type BranchInfo = {
   current: number;
@@ -114,8 +114,13 @@ export function ChatPage() {
   );
   const trimmedSessionSearchQuery = debouncedSessionSearchQuery.trim();
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messageAreaRef = useRef<HTMLDivElement>(null);
+  const {
+    scrollRef: messageAreaRef,
+    contentRef: messageListRef,
+    isPinned,
+    jumpToBottom,
+    resetToBottom,
+  } = useStickToBottom();
   const mobileQrDialogRef = useRef<HTMLDivElement>(null);
   const mobileQrCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -376,22 +381,13 @@ export function ChatPage() {
     wasStreamingRef.current = stream.isStreaming;
   }, [stream.isStreaming, queryClient, auth.token, sessionId]);
 
-  const scrollRafRef = useRef(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs on message changes to auto-scroll
+  // Reset pin state and instantly snap to the latest message on session
+  // switch so a long history doesn't crawl by under a smooth animation.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only resets on session change, not on every history hydration.
   useEffect(() => {
-    if (scrollRafRef.current) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = 0;
-      if (isScrolledNearBottom(messageAreaRef.current)) {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }
-    });
-  }, [messages]);
-  useEffect(() => {
-    return () => {
-      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    };
-  }, []);
+    if (!sessionId) return;
+    resetToBottom();
+  }, [sessionId]);
 
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {
@@ -430,13 +426,14 @@ export function ChatPage() {
   const handleRegenerate = useCallback(
     (msg: ChatMessage) => {
       if (!msg.replayRequest) return;
+      jumpToBottom();
       void stream.sendMessage(
         msg.replayRequest.content,
         msg.replayRequest.media,
         { hideUser: true },
       );
     },
-    [stream.sendMessage],
+    [jumpToBottom, stream.sendMessage],
   );
 
   const handleApprovalAction = useCallback(
@@ -445,12 +442,13 @@ export function ChatPage() {
       if (!cmd) return;
       setApprovalBusy(true);
       try {
+        jumpToBottom();
         await stream.sendMessage(cmd, [], { hideUser: true });
       } finally {
         setApprovalBusy(false);
       }
     },
-    [stream.sendMessage],
+    [jumpToBottom, stream.sendMessage],
   );
 
   const handleUploadFiles = useCallback(
@@ -483,9 +481,13 @@ export function ChatPage() {
   const handleSendMessage = useCallback(
     (content: string, media: MediaItem[]) => {
       ensureSessionForSend();
+      // Sending re-engages the user with the live conversation — snap back so
+      // their bubble and the incoming stream are visible without the "↓ Latest"
+      // chip getting in the way.
+      jumpToBottom();
       void stream.sendMessage(content, media);
     },
-    [ensureSessionForSend, stream.sendMessage],
+    [ensureSessionForSend, jumpToBottom, stream.sendMessage],
   );
 
   const appendLocalCommandResult = useCallback(
@@ -780,7 +782,7 @@ export function ChatPage() {
             </div>
           ) : (
             <div className={css.messageArea} ref={messageAreaRef}>
-              <div className={css.messageList}>
+              <div className={css.messageList} ref={messageListRef}>
                 {messages.map((msg) =>
                   editingId === msg.id && msg.role !== 'thinking' ? (
                     <div key={msg.id} className={css.messageBlock}>
@@ -808,10 +810,20 @@ export function ChatPage() {
                     />
                   ),
                 )}
-                <div ref={messagesEndRef} />
               </div>
             </div>
           )}
+          {!isEmpty && !isPinned ? (
+            <button
+              type="button"
+              className={css.jumpToLatest}
+              onClick={jumpToBottom}
+              aria-label="Jump to latest message"
+            >
+              <span aria-hidden="true">↓</span>
+              <span>Latest</span>
+            </button>
+          ) : null}
 
           {error ? <div className={css.errorBanner}>{error}</div> : null}
 
