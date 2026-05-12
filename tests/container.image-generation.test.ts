@@ -6,8 +6,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
 const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
-const ORIGINAL_XAI_API_KEY = process.env.XAI_API_KEY;
-const ORIGINAL_BFL_API_KEY = process.env.BFL_API_KEY;
 
 let workspaceRoot = '';
 
@@ -22,8 +20,6 @@ beforeEach(() => {
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
-  delete process.env.XAI_API_KEY;
-  delete process.env.BFL_API_KEY;
   vi.unstubAllGlobals();
 });
 
@@ -38,16 +34,6 @@ afterEach(() => {
   } else {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
       ORIGINAL_WORKSPACE_DISPLAY_ROOT;
-  }
-  if (ORIGINAL_XAI_API_KEY == null) {
-    delete process.env.XAI_API_KEY;
-  } else {
-    process.env.XAI_API_KEY = ORIGINAL_XAI_API_KEY;
-  }
-  if (ORIGINAL_BFL_API_KEY == null) {
-    delete process.env.BFL_API_KEY;
-  } else {
-    process.env.BFL_API_KEY = ORIGINAL_BFL_API_KEY;
   }
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -85,6 +71,28 @@ describe('image_generate tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('image_generate is not configured');
+  });
+
+  test('lists gateway-resolved provider credentials without env exposure', async () => {
+    const { executeTool, setProviderCredentials } = await loadTools();
+    setProviderCredentials({
+      openai: { apiKey: 'openai-test-key' },
+      gemini: { apiKey: 'gemini-test-key' },
+    });
+
+    const output = await executeTool('image_generate', '{"action":"list"}');
+    const parsed = JSON.parse(output) as {
+      configured_count: number;
+      providers: Array<{ id: string; ready: boolean }>;
+    };
+
+    expect(parsed.configured_count).toBe(2);
+    expect(parsed.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'openai', ready: true }),
+        expect.objectContaining({ id: 'gemini', ready: true }),
+      ]),
+    );
   });
 
   test('persists generated image buffers and surfaces artifacts', async () => {
@@ -145,7 +153,6 @@ describe('image_generate tool', () => {
   });
 
   test('falls back to another configured provider and reports attempts', async () => {
-    process.env.XAI_API_KEY = 'xai-test-key';
     const imageBytes = Buffer.from('xai-png');
     const fetchMock = vi
       .fn()
@@ -164,7 +171,9 @@ describe('image_generate tool', () => {
         ),
       );
     vi.stubGlobal('fetch', fetchMock);
-    const { executeToolWithMetadata, setModelContext } = await loadTools();
+    const { executeToolWithMetadata, setModelContext, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({ xai: { apiKey: 'xai-test-key' } });
     setModelContext(
       'openai-codex',
       undefined,
@@ -258,7 +267,6 @@ describe('image_generate tool', () => {
   });
 
   test('persists BFL FLUX.2 image output from async polling', async () => {
-    process.env.BFL_API_KEY = 'bfl-test-key';
     const imageBytes = Buffer.from('flux-png');
     const fetchMock = vi
       .fn()
@@ -287,7 +295,9 @@ describe('image_generate tool', () => {
         }),
       );
     vi.stubGlobal('fetch', fetchMock);
-    const { executeToolWithMetadata } = await loadTools();
+    const { executeToolWithMetadata, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({ bfl: { apiKey: 'bfl-test-key' } });
 
     const result = await executeToolWithMetadata(
       'image_generate',

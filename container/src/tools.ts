@@ -44,6 +44,7 @@ import {
   type DelegationTaskSpec,
   type MediaContextItem,
   type PluginRuntimeToolDefinition,
+  type ProviderCredentials,
   type ScheduleSideEffect,
   TASK_MODEL_KEYS,
   type TaskModelKey,
@@ -112,6 +113,7 @@ let currentChatbotId = '';
 let currentModelHeaders: Record<string, string> = {};
 let currentModelMaxTokens: number | undefined;
 let currentModelDebugResponses = false;
+let currentProviderCredentials: ProviderCredentials = {};
 let currentMediaContext: MediaContextItem[] = [];
 let currentWebSearchConfig: WebSearchRuntimeConfig | undefined;
 let currentTaskModelPolicies: TaskModelPolicies | undefined;
@@ -804,6 +806,12 @@ export function setModelContext(
     currentModelMaxTokens,
     debugModelResponses,
   );
+}
+
+export function setProviderCredentials(
+  credentials?: ProviderCredentials,
+): void {
+  currentProviderCredentials = credentials ? { ...credentials } : {};
 }
 
 export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
@@ -3306,6 +3314,7 @@ async function executeToolInternal(
           model: currentModelName,
           requestHeaders: currentModelHeaders,
           media: currentMediaContext,
+          providerCredentials: currentProviderCredentials,
         });
       } catch (err) {
         return failTool(
@@ -3322,6 +3331,7 @@ async function executeToolInternal(
           apiKey: currentModelApiKey,
           model: currentModelName,
           requestHeaders: currentModelHeaders,
+          providerCredentials: currentProviderCredentials,
         });
       } catch (err) {
         return failTool(

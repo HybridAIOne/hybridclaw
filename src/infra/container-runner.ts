@@ -60,6 +60,7 @@ import { logger } from '../logger.js';
 import { resolveUploadedMediaCacheHostDir } from '../media/uploaded-media-cache.js';
 import { withSpan } from '../observability/otel.js';
 import { resolveModelRuntimeCredentials } from '../providers/factory.js';
+import { resolveProviderCredentials } from '../providers/provider-credentials.js';
 import { resolveProviderRequestMaxTokens } from '../providers/request-max-tokens.js';
 import { resolveTaskModelPolicies } from '../providers/task-routing.js';
 import { resolveConfiguredAdditionalMounts } from '../security/mount-config.js';
@@ -1154,6 +1155,7 @@ async function runContainerInner(
       perplexityApiKey: PERPLEXITY_API_KEY,
       tavilyApiKey: TAVILY_API_KEY,
     },
+    providerCredentials: resolveProviderCredentials(),
     persistBashState: CONTAINER_PERSIST_BASH_STATE,
     escalationTarget,
   };

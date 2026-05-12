@@ -14,7 +14,7 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROOT_DISPLAY,
 } from './runtime-paths.js';
-import type { MediaContextItem } from './types.js';
+import type { MediaContextItem, ProviderCredentials } from './types.js';
 
 type ImageGenerationProviderId = 'openai' | 'gemini' | 'xai' | 'bfl';
 
@@ -25,6 +25,7 @@ export interface ImageGenerationRuntimeContext {
   model: string;
   requestHeaders?: Record<string, string>;
   media: MediaContextItem[];
+  providerCredentials?: ProviderCredentials;
 }
 
 interface ImageReference {
@@ -469,12 +470,15 @@ function hasImageModelHint(model: string): boolean {
   return /image|gpt-image|nano-banana|flux/i.test(model);
 }
 
-function envValue(...names: string[]): string {
-  for (const name of names) {
-    const value = String(process.env[name] || '').trim();
-    if (value) return value;
-  }
-  return '';
+function readCredentialValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function providerCredentials(
+  context: ImageGenerationRuntimeContext,
+  provider: ImageGenerationProviderId,
+) {
+  return context.providerCredentials?.[provider] || {};
 }
 
 function candidateFromCurrentContext(
@@ -521,58 +525,77 @@ function buildProviderCandidates(
   context: ImageGenerationRuntimeContext,
 ): ProviderCandidate[] {
   const candidates: ProviderCandidate[] = [];
-  const current = candidateFromCurrentContext(context);
-  if (current) candidates.push(current);
-
-  const openaiKey = envValue('OPENAI_API_KEY');
-  if (openaiKey && !candidates.some((entry) => entry.id === 'openai')) {
-    candidates.push({
+  const configured: ProviderCandidate[] = [];
+  const openaiConfig = providerCredentials(context, 'openai');
+  const openaiKey = readCredentialValue(openaiConfig.apiKey);
+  if (openaiKey) {
+    configured.push({
       id: 'openai',
       label: 'OpenAI',
       apiKey: openaiKey,
       baseUrl: normalizeBaseUrl(
-        envValue('OPENAI_BASE_URL'),
+        readCredentialValue(openaiConfig.baseUrl),
         DEFAULT_OPENAI_BASE_URL,
       ),
-      model: envValue('OPENAI_IMAGE_MODEL') || DEFAULT_OPENAI_IMAGE_MODEL,
+      model:
+        readCredentialValue(openaiConfig.imageModel) ||
+        DEFAULT_OPENAI_IMAGE_MODEL,
     });
   }
 
-  const geminiKey = envValue('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-  if (geminiKey && !candidates.some((entry) => entry.id === 'gemini')) {
-    candidates.push({
+  const geminiConfig = providerCredentials(context, 'gemini');
+  const geminiKey = readCredentialValue(geminiConfig.apiKey);
+  if (geminiKey) {
+    configured.push({
       id: 'gemini',
       label: 'Google Gemini',
       apiKey: geminiKey,
       baseUrl: normalizeBaseUrl(
-        envValue('GEMINI_BASE_URL', 'GOOGLE_GENAI_BASE_URL'),
+        readCredentialValue(geminiConfig.baseUrl),
         DEFAULT_GEMINI_BASE_URL,
       ),
-      model: envValue('GEMINI_IMAGE_MODEL') || DEFAULT_GEMINI_IMAGE_MODEL,
+      model:
+        readCredentialValue(geminiConfig.imageModel) ||
+        DEFAULT_GEMINI_IMAGE_MODEL,
     });
   }
 
-  const xaiKey = envValue('XAI_API_KEY');
-  if (xaiKey && !candidates.some((entry) => entry.id === 'xai')) {
-    candidates.push({
+  const xaiConfig = providerCredentials(context, 'xai');
+  const xaiKey = readCredentialValue(xaiConfig.apiKey);
+  if (xaiKey) {
+    configured.push({
       id: 'xai',
       label: 'xAI',
       apiKey: xaiKey,
-      baseUrl: normalizeBaseUrl(envValue('XAI_BASE_URL'), DEFAULT_XAI_BASE_URL),
-      model: envValue('XAI_IMAGE_MODEL') || DEFAULT_XAI_IMAGE_MODEL,
+      baseUrl: normalizeBaseUrl(
+        readCredentialValue(xaiConfig.baseUrl),
+        DEFAULT_XAI_BASE_URL,
+      ),
+      model:
+        readCredentialValue(xaiConfig.imageModel) || DEFAULT_XAI_IMAGE_MODEL,
     });
   }
 
-  const bflKey = envValue('BFL_API_KEY', 'BLACK_FOREST_LABS_API_KEY');
-  if (bflKey && !candidates.some((entry) => entry.id === 'bfl')) {
-    candidates.push({
+  const bflConfig = providerCredentials(context, 'bfl');
+  const bflKey = readCredentialValue(bflConfig.apiKey);
+  if (bflKey) {
+    configured.push({
       id: 'bfl',
       label: 'Black Forest Labs',
       apiKey: bflKey,
-      baseUrl: normalizeBaseUrl(envValue('BFL_BASE_URL'), DEFAULT_BFL_BASE_URL),
-      model: envValue('BFL_IMAGE_MODEL') || DEFAULT_BFL_IMAGE_MODEL,
+      baseUrl: normalizeBaseUrl(
+        readCredentialValue(bflConfig.baseUrl),
+        DEFAULT_BFL_BASE_URL,
+      ),
+      model:
+        readCredentialValue(bflConfig.imageModel) || DEFAULT_BFL_IMAGE_MODEL,
     });
   }
+
+  const current = candidateFromCurrentContext(context);
+  if (current && !configured.some((entry) => entry.id === current.id))
+    candidates.push(current);
+  candidates.push(...configured);
 
   return candidates;
 }

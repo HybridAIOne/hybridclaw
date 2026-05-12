@@ -20,8 +20,6 @@ beforeEach(() => {
   );
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
-  delete process.env.OPENAI_API_KEY;
-  delete process.env.GEMINI_API_KEY;
   vi.unstubAllGlobals();
 });
 

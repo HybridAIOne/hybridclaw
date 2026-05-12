@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { RuntimeProvider } from './providers/provider-ids.js';
 import { ProviderRequestError } from './providers/shared.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
+import type { ProviderCredentials } from './types.js';
 
 type VideoGenerationProviderId = 'openai' | 'gemini';
 
@@ -13,6 +14,7 @@ export interface VideoGenerationRuntimeContext {
   apiKey: string;
   model: string;
   requestHeaders?: Record<string, string>;
+  providerCredentials?: ProviderCredentials;
 }
 
 interface ProviderCandidate {
@@ -86,12 +88,15 @@ function hasVideoModelHint(model: string): boolean {
   return /sora|veo|video/i.test(model);
 }
 
-function envValue(...names: string[]): string {
-  for (const name of names) {
-    const value = String(process.env[name] || '').trim();
-    if (value) return value;
-  }
-  return '';
+function readCredentialValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function providerCredentials(
+  context: VideoGenerationRuntimeContext,
+  provider: VideoGenerationProviderId,
+) {
+  return context.providerCredentials?.[provider] || {};
 }
 
 function normalizeAspectRatio(value: unknown): string | null {
@@ -157,36 +162,45 @@ function buildProviderCandidates(
   context: VideoGenerationRuntimeContext,
 ): ProviderCandidate[] {
   const candidates: ProviderCandidate[] = [];
-  const current = candidateFromCurrentContext(context);
-  if (current) candidates.push(current);
-
-  const openaiKey = envValue('OPENAI_API_KEY');
-  if (openaiKey && !candidates.some((entry) => entry.id === 'openai')) {
-    candidates.push({
+  const configured: ProviderCandidate[] = [];
+  const openaiConfig = providerCredentials(context, 'openai');
+  const openaiKey = readCredentialValue(openaiConfig.apiKey);
+  if (openaiKey) {
+    configured.push({
       id: 'openai',
       label: 'OpenAI',
       apiKey: openaiKey,
       baseUrl: normalizeBaseUrl(
-        envValue('OPENAI_BASE_URL'),
+        readCredentialValue(openaiConfig.baseUrl),
         DEFAULT_OPENAI_BASE_URL,
       ),
-      model: envValue('OPENAI_VIDEO_MODEL') || DEFAULT_OPENAI_VIDEO_MODEL,
+      model:
+        readCredentialValue(openaiConfig.videoModel) ||
+        DEFAULT_OPENAI_VIDEO_MODEL,
     });
   }
 
-  const geminiKey = envValue('GEMINI_API_KEY', 'GOOGLE_API_KEY');
-  if (geminiKey && !candidates.some((entry) => entry.id === 'gemini')) {
-    candidates.push({
+  const geminiConfig = providerCredentials(context, 'gemini');
+  const geminiKey = readCredentialValue(geminiConfig.apiKey);
+  if (geminiKey) {
+    configured.push({
       id: 'gemini',
       label: 'Google Gemini',
       apiKey: geminiKey,
       baseUrl: normalizeBaseUrl(
-        envValue('GEMINI_BASE_URL', 'GOOGLE_GENAI_BASE_URL'),
+        readCredentialValue(geminiConfig.baseUrl),
         DEFAULT_GEMINI_BASE_URL,
       ),
-      model: envValue('GEMINI_VIDEO_MODEL') || DEFAULT_GEMINI_VIDEO_MODEL,
+      model:
+        readCredentialValue(geminiConfig.videoModel) ||
+        DEFAULT_GEMINI_VIDEO_MODEL,
     });
   }
+
+  const current = candidateFromCurrentContext(context);
+  if (current && !configured.some((entry) => entry.id === current.id))
+    candidates.push(current);
+  candidates.push(...configured);
 
   return candidates;
 }
