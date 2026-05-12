@@ -164,7 +164,6 @@ test('browser provider factory creates the configured camofox provider', async (
     block_webrtc: true,
     user_data_dir: fs.realpathSync(path.join(root, 'profiles')),
     headless: true,
-    timeout: 15_000,
   });
 });
 

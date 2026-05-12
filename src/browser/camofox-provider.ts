@@ -78,6 +78,39 @@ export interface CamofoxProviderOptions {
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
 
+async function launchCamofoxContext(
+  camofox: CamofoxModule,
+  launchOptions: CamofoxLaunchOptions & { user_data_dir: string },
+  timeoutMs?: number,
+): Promise<CamofoxContext> {
+  const launchPromise = camofox.Camoufox(launchOptions);
+  if (timeoutMs === undefined) return await launchPromise;
+
+  let timedOut = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`Camofox launch timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([launchPromise, timeoutPromise]);
+  } catch (error) {
+    if (timedOut) {
+      launchPromise
+        .then(async (context) => {
+          await context.close();
+        })
+        .catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
 async function loadCamofoxModule(
   injected?: CamofoxModule,
 ): Promise<CamofoxModule> {
@@ -186,11 +219,12 @@ export class CamofoxProvider implements BrowserProvider {
       user_data_dir: profileDir,
       headless: !(opts.headed ?? this.options.headed ?? false),
     };
-    if (opts.timeoutMs !== undefined) {
-      launchOptions.timeout = opts.timeoutMs;
-    }
 
-    const context = await camofox.Camoufox(launchOptions);
+    const context = await launchCamofoxContext(
+      camofox,
+      launchOptions,
+      opts.timeoutMs,
+    );
     const page = context.pages()[0] || (await context.newPage());
     const session = new CamofoxSession(
       page,

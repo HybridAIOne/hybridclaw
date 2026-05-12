@@ -122,7 +122,6 @@ test('camofox provider launches a persistent profile with stealth launch options
     window: [1366, 768],
     user_data_dir: fs.realpathSync(profileDir),
     headless: false,
-    timeout: 12_000,
   });
   expect(mock.page.goto).toHaveBeenCalledWith('https://example.com/', {
     waitUntil: 'domcontentloaded',
@@ -189,4 +188,43 @@ test('camofox provider uses browser secret fill policy for SecretRef values', as
 
   expect(mock.page.fill).not.toHaveBeenCalled();
   expect(mock.page.locator).not.toHaveBeenCalled();
+});
+
+test('camofox provider enforces launch timeout without forwarding it to Camoufox', async () => {
+  vi.useFakeTimers();
+  try {
+    const root = makeTempRoot();
+    const context = {
+      pages: vi.fn(() => []),
+      newPage: vi.fn(async () => createMockCamofox().page),
+      close: vi.fn(async () => undefined),
+    };
+    let resolveLaunch: ((value: typeof context) => void) | undefined;
+    const Camoufox = vi.fn(
+      () =>
+        new Promise<typeof context>((resolve) => {
+          resolveLaunch = resolve;
+        }),
+    );
+    const provider = new CamofoxProvider({
+      profileRoot: path.join(root, 'browser-profiles'),
+      camofox: { Camoufox },
+    });
+
+    const launch = provider.launchSession({ timeoutMs: 25 });
+    launch.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(launch).rejects.toThrow(/timed out after 25ms/u);
+    expect(Camoufox).toHaveBeenCalledWith(
+      expect.not.objectContaining({ timeout: 25 }),
+    );
+
+    resolveLaunch?.(context);
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+    expect(context.close).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });

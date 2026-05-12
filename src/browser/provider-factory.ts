@@ -1,4 +1,3 @@
-import type { LaunchOptions as CamofoxLaunchOptions } from 'camoufox-js';
 import type { RuntimeBrowserConfig } from '../config/runtime-config.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import { BrowserUseCloudProvider } from './browser-use-cloud-provider.js';
@@ -24,7 +23,7 @@ export function createBrowserProvider(
       return new CamofoxProvider({
         profileRoot: config.camofox.profileRoot || undefined,
         headed: config.camofox.headed,
-        launchOptions: config.camofox.launchOptions as CamofoxLaunchOptions,
+        launchOptions: config.camofox.launchOptions,
         camofox: deps.camofox,
         secretAudit: deps.secretAudit,
       });
