@@ -37,7 +37,7 @@ function resolveArchiveRoot(baseDir?: string): string {
 export function archiveTranscript(params: {
   sessionId: string;
   messages: StoredMessage[];
-  baseDir?: string;
+  baseDir?: string | undefined;
 }): ArchiveEntry {
   const archivedAt = new Date().toISOString();
   const archiveRoot = resolveArchiveRoot(params.baseDir);

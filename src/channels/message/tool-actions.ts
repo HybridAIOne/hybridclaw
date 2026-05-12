@@ -304,8 +304,8 @@ function buildEmailSendResultMeta(params: {
   subject: string | null;
   cc: string[] | undefined;
   bcc: string[] | undefined;
-  inReplyTo?: string;
-  references?: string[];
+  inReplyTo?: string | undefined;
+  references?: string[] | undefined;
 }): Record<string, unknown> {
   return {
     ...(params.subject ? { subject: params.subject } : {}),

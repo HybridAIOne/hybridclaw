@@ -43,8 +43,8 @@ export interface GoogleLoginInput {
   clientId: string;
   clientSecret: string;
   scopes: string[];
-  refreshToken?: string;
-  redirectPort?: number;
+  refreshToken?: string | undefined;
+  redirectPort?: number | undefined;
 }
 
 export interface GoogleLoginResult {
@@ -193,8 +193,8 @@ async function exchangeAuthorizationCode(input: {
 async function waitForAuthorizationCode(input: {
   clientId: string;
   scopes: string[];
-  redirectPort?: number;
-  timeoutMs?: number;
+  redirectPort?: number | undefined;
+  timeoutMs?: number | undefined;
 }): Promise<{ code: string; redirectUri: string }> {
   const state = makeState();
   const timeoutMs = input.timeoutMs || DEFAULT_CALLBACK_TIMEOUT_MS;

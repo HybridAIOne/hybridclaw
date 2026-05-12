@@ -32,14 +32,14 @@ type RuntimeProvider = RuntimeProviderId;
 
 interface AuxiliaryTextCallContext {
   provider: RuntimeProvider;
-  providerMethod?: string;
+  providerMethod?: string | undefined;
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
   enableRag: boolean;
-  requestHeaders?: Record<string, string>;
-  maxTokens?: number;
+  requestHeaders?: Record<string, string> | undefined;
+  maxTokens?: number | undefined;
 }
 
 interface AuxiliaryToolSchemaProperty {
@@ -68,38 +68,38 @@ interface AuxiliaryToolDefinition {
 
 interface AuxiliaryRequestOptions {
   tools: AuxiliaryToolDefinition[];
-  temperature?: number;
-  timeoutMs?: number;
-  extraBody?: Record<string, unknown>;
+  temperature?: number | undefined;
+  timeoutMs?: number | undefined;
+  extraBody?: Record<string, unknown> | undefined;
 }
 
 export interface AuxiliaryModelCallParams {
   task: AuxiliaryTextTask;
   messages: ChatMessage[];
-  fallbackModel?: string;
-  fallbackChatbotId?: string;
-  fallbackEnableRag?: boolean;
-  fallbackMaxTokens?: number;
-  agentId?: string;
-  provider?: RuntimeProvider | 'auto';
-  model?: string;
-  tools?: AuxiliaryToolDefinition[];
-  maxTokens?: number;
-  temperature?: number;
-  timeoutMs?: number;
-  extraBody?: Record<string, unknown>;
+  fallbackModel?: string | undefined;
+  fallbackChatbotId?: string | undefined;
+  fallbackEnableRag?: boolean | undefined;
+  fallbackMaxTokens?: number | undefined;
+  agentId?: string | undefined;
+  provider?: RuntimeProvider | 'auto' | undefined;
+  model?: string | undefined;
+  tools?: AuxiliaryToolDefinition[] | undefined;
+  maxTokens?: number | undefined;
+  temperature?: number | undefined;
+  timeoutMs?: number | undefined;
+  extraBody?: Record<string, unknown> | undefined;
 }
 
 export interface AuxiliaryModelUsage {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  costUsd?: number;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  totalTokens?: number | undefined;
+  costUsd?: number | undefined;
 }
 
 interface AuxiliaryTextResponse {
   content: string;
-  usage?: AuxiliaryModelUsage;
+  usage?: AuxiliaryModelUsage | undefined;
 }
 
 function normalizeTemperature(value: number | undefined): number | undefined {
@@ -200,16 +200,16 @@ function validateContext(
 function buildResolvedContext(params: {
   task: AuxiliaryTextTask;
   provider: RuntimeProvider;
-  providerMethod?: string;
+  providerMethod?: string | undefined;
   baseUrl: string;
   apiKey: string;
   model: string;
   chatbotId: string;
   enableRag: boolean;
-  requestHeaders?: Record<string, string>;
-  maxTokens?: number;
-  discoveredMaxTokens?: number;
-  isLocal?: boolean;
+  requestHeaders?: Record<string, string> | undefined;
+  maxTokens?: number | undefined;
+  discoveredMaxTokens?: number | undefined;
+  isLocal?: boolean | undefined;
 }): AuxiliaryTextCallContext {
   const providerMaxTokens = resolveProviderRequestMaxTokens({
     model: params.model,
@@ -236,11 +236,11 @@ function buildResolvedContext(params: {
 async function resolveContextFromModel(params: {
   task: AuxiliaryTextTask;
   model: string;
-  agentId?: string;
-  chatbotId?: string;
+  agentId?: string | undefined;
+  chatbotId?: string | undefined;
   enableRag: boolean;
-  maxTokens?: number;
-  expectedProvider?: RuntimeProvider;
+  maxTokens?: number | undefined;
+  expectedProvider?: RuntimeProvider | undefined;
 }): Promise<AuxiliaryTextCallContext> {
   const model = params.model.trim();
   if (!model) {
@@ -341,9 +341,9 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
 
 async function resolveOpenRouterFallbackContext(params: {
   task: AuxiliaryTextTask;
-  agentId?: string;
-  maxTokens?: number;
-  modelHint?: string;
+  agentId?: string | undefined;
+  maxTokens?: number | undefined;
+  modelHint?: string | undefined;
 }): Promise<AuxiliaryTextCallContext | null> {
   const fallbackModel = buildOpenRouterFallbackModel(params.modelHint);
   if (!fallbackModel) return null;
@@ -499,9 +499,9 @@ async function resolveTextCallContext(
 }
 
 function buildJsonHeaders(params: {
-  apiKey?: string;
-  requestHeaders?: Record<string, string>;
-  includeAuthorization?: boolean;
+  apiKey?: string | undefined;
+  requestHeaders?: Record<string, string> | undefined;
+  includeAuthorization?: boolean | undefined;
 }): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -518,8 +518,8 @@ function buildJsonHeaders(params: {
 
 function createTimeoutSignal(
   timeoutMs: number | undefined,
-): AbortSignal | undefined {
-  return timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
+): AbortSignal | null {
+  return timeoutMs ? AbortSignal.timeout(timeoutMs) : null;
 }
 
 function normalizeOpenRouterRuntimeModelName(model: string): string {

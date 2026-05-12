@@ -76,7 +76,7 @@ export function resolveUsageCostUsd(params: {
 
 export async function resolveUsageCostUsdAfterMetadataRefresh(params: {
   model: string;
-  tokenUsage?: TokenUsageStats;
+  tokenUsage?: TokenUsageStats | undefined;
   usage: UsageTokenCounts;
 }): Promise<number> {
   const explicitCost = extractExplicitUsageCostUsd(params.tokenUsage);

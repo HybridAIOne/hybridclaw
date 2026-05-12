@@ -19,8 +19,8 @@ const execFileAsync = promisify(execFile);
 export type ContextReferenceUrlFetcher = (url: string) => Promise<string>;
 
 export interface ExpandReferenceOptions {
-  allowedRoot?: string;
-  urlFetcher?: ContextReferenceUrlFetcher;
+  allowedRoot?: string | undefined;
+  urlFetcher?: ContextReferenceUrlFetcher | undefined;
 }
 
 type ResolvedContextPath =

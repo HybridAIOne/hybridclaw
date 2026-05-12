@@ -18,9 +18,9 @@ export function sendOpenAICompatibleError(
   statusCode: number,
   message: string,
   options?: {
-    type?: string;
-    param?: string;
-    code?: string;
+    type?: string | undefined;
+    param?: string | undefined;
+    code?: string | undefined;
   },
 ): void {
   sendJson(res, statusCode, {
@@ -79,9 +79,9 @@ export function buildOpenAICompatibleCompletionResponse(params: {
   created: number;
   model: string;
   content: string | null;
-  toolCalls?: ToolCall[];
-  finishReason?: string;
-  tokenUsage?: TokenUsageStats;
+  toolCalls?: ToolCall[] | undefined;
+  finishReason?: string | undefined;
+  tokenUsage?: TokenUsageStats | undefined;
 }): Record<string, unknown> {
   return {
     id: params.completionId,
@@ -219,7 +219,7 @@ export function buildOpenAICompatibleStreamUsageChunk(params: {
   completionId: string;
   created: number;
   model: string;
-  tokenUsage?: TokenUsageStats;
+  tokenUsage?: TokenUsageStats | undefined;
 }): Record<string, unknown> {
   return {
     id: params.completionId,
@@ -236,9 +236,9 @@ export function sendOpenAICompatibleStreamError(
   statusCode: number,
   message: string,
   options?: {
-    type?: string;
-    param?: string;
-    code?: string;
+    type?: string | undefined;
+    param?: string | undefined;
+    code?: string | undefined;
   },
 ): void {
   if (!res.headersSent) {

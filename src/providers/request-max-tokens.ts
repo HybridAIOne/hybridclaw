@@ -21,7 +21,7 @@ export function isAnthropicProviderModel(model: string): boolean {
 
 export function resolveProviderRequestMaxTokens(params: {
   model: string;
-  discoveredMaxTokens?: number;
+  discoveredMaxTokens?: number | undefined;
 }): number | undefined {
   const discoveredMaxTokens = normalizePositiveInteger(
     params.discoveredMaxTokens,

@@ -1,7 +1,7 @@
 export interface AdditionalMount {
   hostPath: string;
-  containerPath?: string;
-  readonly?: boolean;
+  containerPath?: string | undefined;
+  readonly?: boolean | undefined;
 }
 
 export interface MountAllowlist {
@@ -12,5 +12,5 @@ export interface MountAllowlist {
 export interface AllowedRoot {
   path: string;
   allowReadWrite: boolean;
-  description?: string;
+  description?: string | undefined;
 }

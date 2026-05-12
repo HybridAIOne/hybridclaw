@@ -28,7 +28,7 @@ export function buildModelUsageAuditStats(params: {
   messages: ChatMessage[];
   resultText: string | null | undefined;
   toolCallCount: number;
-  tokenUsage?: TokenUsageStats;
+  tokenUsage?: TokenUsageStats | undefined;
 }): ModelUsageAuditStats {
   const estimatedPromptTokens =
     params.tokenUsage?.estimatedPromptTokens ||

@@ -71,10 +71,7 @@ export async function checkConnection(
   try {
     const payload = await fetchHealthJson(
       endpoint,
-      {
-        headers:
-          backend === 'vllm' ? buildOpenAICompatHeaders(apiKey) : undefined,
-      },
+      backend === 'vllm' ? { headers: buildOpenAICompatHeaders(apiKey) } : {},
       timeoutMs,
     );
     const modelCount =

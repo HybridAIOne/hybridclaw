@@ -146,7 +146,7 @@ export interface LeakScanRecord {
   seq: number;
   timestamp: string;
   runId: string;
-  parentRunId?: string;
+  parentRunId?: string | undefined;
   eventType: string;
   findings: ConfidentialFinding[];
   totalMatches: number;
@@ -192,9 +192,9 @@ export const SEVERITY_LEVELS: ReadonlyArray<
 
 export interface LeakReportFilter {
   /** Floor severity — keep only records whose severity is at or above this. */
-  minSeverity?: ConfidentialFinding['sensitivity'];
+  minSeverity?: ConfidentialFinding['sensitivity'] | undefined;
   /** Allow-list of categories — keep only records bucketed in one of these. */
-  categories?: ReadonlySet<PromptCategory>;
+  categories?: ReadonlySet<PromptCategory> | undefined;
 }
 
 /**

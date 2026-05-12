@@ -22,9 +22,9 @@ import { A2A_TRANSPORT_PATTERN, normalizeTransportString } from './utils.js';
 import { webhookOutboundAdapter } from './webhook-outbound.js';
 
 export interface TransportAdapterContext {
-  sessionId?: string;
-  runId?: string;
-  escalationTarget?: EscalationTarget;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  escalationTarget?: EscalationTarget | undefined;
 }
 
 export interface TransportAdapter<WirePayload = unknown> {
@@ -107,9 +107,9 @@ const defaultTransportRegistry = createDefaultTransportRegistry();
 export interface TransportEscalationAuditInput {
   envelope: A2AEnvelope;
   transport: string;
-  sessionId?: string;
-  runId?: string;
-  escalationTarget?: EscalationTarget;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  escalationTarget?: EscalationTarget | undefined;
 }
 
 function transportEscalationPrompt(params: {
@@ -135,7 +135,7 @@ function transportEscalationPrompt(params: {
 function createTransportEscalationSession(input: {
   transport: string;
   summary: A2AEnvelopeAuditSummary;
-  escalationTarget?: EscalationTarget;
+  escalationTarget?: EscalationTarget | undefined;
   runId: string;
   sessionId: string;
   approvalId: string;
@@ -258,10 +258,10 @@ export function recordTransportEscalationAudit(
 export function encodeForRegisteredTransport(params: {
   envelope: unknown;
   peerDescriptor?: unknown;
-  registry?: TransportRegistry;
-  sessionId?: string;
-  runId?: string;
-  escalationTarget?: EscalationTarget;
+  registry?: TransportRegistry | undefined;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  escalationTarget?: EscalationTarget | undefined;
 }): A2AEnvelope {
   const normalizedEnvelope = validateA2AEnvelope(params.envelope);
   const registry = params.registry || defaultTransportRegistry;

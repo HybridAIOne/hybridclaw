@@ -243,12 +243,12 @@ export function normalizeAuxiliaryProviderModel(params: {
 export async function resolveTaskModelPolicy(
   task: AuxiliaryTask,
   params: {
-    agentId?: string;
-    chatbotId?: string;
+    agentId?: string | undefined;
+    chatbotId?: string | undefined;
     /** The session/fallback model that would be used if no task override is
      *  configured.  For the `vision` task this is checked for vision capability
      *  so the router can substitute a capable model when necessary. */
-    sessionModel?: string;
+    sessionModel?: string | undefined;
   } = {},
 ): Promise<TaskModelPolicy | undefined> {
   const configured = getConfiguredTaskSelection(task);

@@ -1,35 +1,37 @@
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
-  provider?: string;
-  providerMethod?: string;
-  baseUrl?: string;
-  apiKey?: string;
-  requestHeaders?: Record<string, string>;
-  isLocal?: boolean;
-  contextWindow?: number;
-  thinkingFormat?: string;
+  provider?: string | undefined;
+  providerMethod?: string | undefined;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
+  requestHeaders?: Record<string, string> | undefined;
+  isLocal?: boolean | undefined;
+  contextWindow?: number | undefined;
+  thinkingFormat?: string | undefined;
   model: string;
-  chatbotId?: string;
-  maxTokens?: number;
-  error?: string;
+  chatbotId?: string | undefined;
+  maxTokens?: number | undefined;
+  error?: string | undefined;
 }
 
 export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
-  providerMethod?: string;
+  providerMethod?: string | undefined;
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
-  taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
+  taskModels?:
+    | Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>
+    | undefined;
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
   bashProxy?:
     | {
         mode: 'docker-exec';
         containerName: string;
-        cwd?: string;
+        cwd?: string | undefined;
       }
     | undefined;
 }

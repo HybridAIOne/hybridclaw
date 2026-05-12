@@ -18,7 +18,7 @@ function normalizeParamValues(
 export function buildTwilioSignature(params: {
   authToken: string;
   url: string;
-  values?: TwilioSignatureParams;
+  values?: TwilioSignatureParams | undefined;
 }): string {
   const authToken = String(params.authToken || '');
   const url = String(params.url || '');

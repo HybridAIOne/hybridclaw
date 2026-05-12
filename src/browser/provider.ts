@@ -21,8 +21,8 @@ export interface SessionOptions {
 export interface BrowserSessionMeteringContext {
   sessionId: string;
   agentId: string;
-  auditRunId?: string;
-  skillName?: string;
+  auditRunId?: string | undefined;
+  skillName?: string | undefined;
 }
 
 export interface BrowserSession {

@@ -42,7 +42,7 @@ const READY_OUTPUT_RE =
   /connection .+ registered|registered tunnel connection|tunnel server connection/i;
 
 type CloudflaredProcessOptions = {
-  env?: NodeJS.ProcessEnv;
+  env?: NodeJS.ProcessEnv | undefined;
 };
 
 export interface CloudflaredProcess {

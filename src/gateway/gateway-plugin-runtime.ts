@@ -7,7 +7,7 @@ import {
 export async function tryEnsurePluginManagerInitializedForGateway(params: {
   sessionId: string;
   channelId: string;
-  agentId?: string | null;
+  agentId?: string | null | undefined;
   surface: 'chat' | 'command' | 'webhook';
 }): Promise<{
   pluginManager: PluginManager | null;

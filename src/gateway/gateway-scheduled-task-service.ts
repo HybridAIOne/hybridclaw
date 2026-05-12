@@ -445,8 +445,8 @@ export function setGatewayAdminSchedulerJobPaused(params: {
 
 export function moveGatewayAdminSchedulerJob(params: {
   jobId: string;
-  beforeJobId?: string | null;
-  boardStatus?: SchedulerBoardStatus | null;
+  beforeJobId?: string | null | undefined;
+  boardStatus?: SchedulerBoardStatus | null | undefined;
 }): GatewayAdminSchedulerResponse {
   const normalizedJobId = params.jobId.trim();
   if (!normalizedJobId) {
@@ -468,7 +468,7 @@ export function moveGatewayAdminSchedulerJob(params: {
     if (fromIndex < 0) return;
     const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
     if ('boardStatus' in params) {
-      if (params.boardStatus === null) {
+      if (params.boardStatus === null || params.boardStatus === undefined) {
         delete job!.boardStatus;
       } else {
         job!.boardStatus = params.boardStatus;

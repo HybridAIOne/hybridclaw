@@ -61,19 +61,19 @@ export interface WebhookOutboxItem {
   nextAttemptAt: string;
   createdAt: string;
   updatedAt: string;
-  sessionId?: string;
-  runId?: string;
-  escalationTarget?: EscalationTarget;
-  lastAttemptAt?: string;
-  deliveredAt?: string;
-  failedAt?: string;
-  lastError?: string;
-  lastStatusCode?: number;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  escalationTarget?: EscalationTarget | undefined;
+  lastAttemptAt?: string | undefined;
+  deliveredAt?: string | undefined;
+  failedAt?: string | undefined;
+  lastError?: string | undefined;
+  lastStatusCode?: number | undefined;
 }
 
 export interface WebhookOutboundAdapterOptions {
-  autoProcess?: boolean;
-  maxAttempts?: number;
+  autoProcess?: boolean | undefined;
+  maxAttempts?: number | undefined;
 }
 
 export interface WebhookOutboxProcessOptions {

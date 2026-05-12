@@ -1062,8 +1062,8 @@ export async function handleGatewayPluginWebhook(
 export async function runGatewayPluginTool(params: {
   toolName: string;
   args: Record<string, unknown>;
-  sessionId?: string;
-  channelId?: string;
+  sessionId?: string | undefined;
+  channelId?: string | undefined;
 }): Promise<string> {
   const pluginManager = await ensurePluginManagerInitialized();
   return pluginManager.executeTool({

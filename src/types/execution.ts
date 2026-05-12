@@ -76,21 +76,26 @@ export interface ToolExecution {
   arguments: string;
   result: string;
   durationMs: number;
-  isError?: boolean;
-  blocked?: boolean;
-  blockedReason?: string;
-  approvalTier?: 'green' | 'yellow' | 'red';
-  approvalBaseTier?: 'green' | 'yellow' | 'red';
-  autonomyLevel?: 'full-autonomous' | 'low-stakes-autonomous' | 'confirm-each';
-  stakes?: 'low' | 'medium' | 'high';
-  stakesScore?: ToolExecutionStakesScore;
-  anomaly?: ToolExecutionAnomalyScore;
+  isError?: boolean | undefined;
+  blocked?: boolean | undefined;
+  blockedReason?: string | undefined;
+  approvalTier?: 'green' | 'yellow' | 'red' | undefined;
+  approvalBaseTier?: 'green' | 'yellow' | 'red' | undefined;
+  autonomyLevel?:
+    | 'full-autonomous'
+    | 'low-stakes-autonomous'
+    | 'confirm-each'
+    | undefined;
+  stakes?: 'low' | 'medium' | 'high' | undefined;
+  stakesScore?: ToolExecutionStakesScore | undefined;
+  anomaly?: ToolExecutionAnomalyScore | undefined;
   escalationRoute?:
     | 'none'
     | 'implicit_notice'
     | 'approval_request'
-    | 'policy_denial';
-  escalationTarget?: EscalationTarget;
+    | 'policy_denial'
+    | undefined;
+  escalationTarget?: EscalationTarget | undefined;
   approvalDecision?:
     | 'auto'
     | 'implicit'
@@ -101,15 +106,16 @@ export interface ToolExecution {
     | 'approved_fullauto'
     | 'promoted'
     | 'required'
-    | 'denied';
-  approvalActionKey?: string;
-  approvalIntent?: string;
-  approvalReason?: string;
-  approvalRequestId?: string;
-  approvalExpiresAt?: number;
-  approvalAllowSession?: boolean;
-  approvalAllowAgent?: boolean;
-  approvalAllowAll?: boolean;
+    | 'denied'
+    | undefined;
+  approvalActionKey?: string | undefined;
+  approvalIntent?: string | undefined;
+  approvalReason?: string | undefined;
+  approvalRequestId?: string | undefined;
+  approvalExpiresAt?: number | undefined;
+  approvalAllowSession?: boolean | undefined;
+  approvalAllowAgent?: boolean | undefined;
+  approvalAllowAll?: boolean | undefined;
 }
 
 export interface PendingApproval {
@@ -121,7 +127,7 @@ export interface PendingApproval {
   allowAgent: boolean;
   allowAll: boolean;
   expiresAt: number | null;
-  escalationTarget?: EscalationTarget;
+  escalationTarget?: EscalationTarget | undefined;
 }
 
 export interface ToolProgressEvent {

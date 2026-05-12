@@ -77,39 +77,39 @@ export interface SuspendedSession {
   userId: string;
   createdAt: number;
   expiresAt: number;
-  resolvedAt?: number | null;
+  resolvedAt?: number | null | undefined;
   status: SuspendedSessionStatus;
   modality: InteractionModality;
   expectedReturnKinds: OperatorReturnKind[];
   frameSnapshot: SuspendedFrameSnapshot;
   context: SuspendedSessionContext;
-  agentId?: string | null;
-  skillId?: string | null;
-  escalationTarget?: EscalationTarget;
-  response?: StoredOperatorReturn | null;
+  agentId?: string | null | undefined;
+  skillId?: string | null | undefined;
+  escalationTarget?: EscalationTarget | undefined;
+  response?: StoredOperatorReturn | null | undefined;
 }
 
 export type StoredOperatorReturn =
   | { kind: 'code'; valueRedacted: true }
   | { kind: 'approved' }
   | { kind: 'scanned' }
-  | { kind: 'declined'; reason?: string }
+  | { kind: 'declined'; reason?: string | undefined }
   | { kind: 'timeout' };
 
 export interface CreateSuspendedSessionInput {
-  sessionId?: string;
-  approvalId?: string;
+  sessionId?: string | undefined;
+  approvalId?: string | undefined;
   prompt: string;
   userId: string;
   modality: InteractionModality;
   frameSnapshot: SuspendedFrameSnapshot;
-  context?: SuspendedSessionContext;
-  agentId?: string | null;
-  skillId?: string | null;
-  escalationTarget?: EscalationTarget;
-  expectedReturnKinds?: OperatorReturnKind[];
-  expiresAt?: number | null;
-  ttlMs?: number | null;
+  context?: SuspendedSessionContext | undefined;
+  agentId?: string | null | undefined;
+  skillId?: string | null | undefined;
+  escalationTarget?: EscalationTarget | undefined;
+  expectedReturnKinds?: OperatorReturnKind[] | undefined;
+  expiresAt?: number | null | undefined;
+  ttlMs?: number | null | undefined;
 }
 
 export interface TwoFactorDetectionInput {
@@ -678,8 +678,8 @@ export function resumeWithText(
 }
 
 export function findPendingSuspendedSessionForOperator(params: {
-  userId?: string | null;
-  modality?: InteractionModality | null;
+  userId?: string | null | undefined;
+  modality?: InteractionModality | null | undefined;
 }): SuspendedSession | null {
   const normalizedUserId = String(params.userId || '').trim();
   const sessions = listSuspendedSessions();

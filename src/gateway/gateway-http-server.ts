@@ -1014,9 +1014,9 @@ function resolveSessionAuthenticatedUserId(
 
 function resolveGatewayRequestUserId(params: {
   req: IncomingMessage;
-  channelId?: string | null;
-  requestedUserId?: string | null;
-  fallbackUserId?: string | null;
+  channelId?: string | null | undefined;
+  requestedUserId?: string | null | undefined;
+  fallbackUserId?: string | null | undefined;
 }): string | undefined {
   const channelId = String(params.channelId || '')
     .trim()
@@ -2407,17 +2407,17 @@ type ApiAdminAgentPayloadBody = {
 };
 
 type ApiAdminAgentPayload = {
-  id?: string;
-  name?: string;
-  model?: string;
-  skills?: string[] | null;
-  chatbotId?: string;
-  enableRag?: boolean;
-  role?: string;
-  reportsTo?: string | null;
-  delegatesTo?: string[] | null;
-  peers?: string[] | null;
-  workspace?: string;
+  id?: string | undefined;
+  name?: string | undefined;
+  model?: string | undefined;
+  skills?: string[] | null | undefined;
+  chatbotId?: string | undefined;
+  enableRag?: boolean | undefined;
+  role?: string | undefined;
+  reportsTo?: string | null | undefined;
+  delegatesTo?: string[] | null | undefined;
+  peers?: string[] | null | undefined;
+  workspace?: string | undefined;
 };
 
 type ApiAdminAgentsRouteMatch =

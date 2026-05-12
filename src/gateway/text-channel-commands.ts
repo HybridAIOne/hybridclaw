@@ -45,10 +45,12 @@ function isApprovalScopeMode(value: string): value is ApprovalScopeMode {
 export interface HandledTextChannelApprovalResult {
   handled: true;
   sessionId: string;
-  sessionKey?: string;
-  mainSessionKey?: string;
-  approvalId?: string;
-  pendingApproval?: NonNullable<GatewayChatResult['pendingApproval']>;
+  sessionKey?: string | undefined;
+  mainSessionKey?: string | undefined;
+  approvalId?: string | undefined;
+  pendingApproval?:
+    | NonNullable<GatewayChatResult['pendingApproval']>
+    | undefined;
   text: string | null;
   artifacts: ArtifactMetadata[];
 }

@@ -69,19 +69,19 @@ export interface EmailSendParams {
   transport: MailTransport;
   to: string;
   body: string;
-  subject?: string | null;
-  cc?: string[] | null;
-  bcc?: string[] | null;
-  inReplyTo?: string | null;
-  references?: string[] | null;
+  subject?: string | null | undefined;
+  cc?: string[] | null | undefined;
+  bcc?: string[] | null | undefined;
+  inReplyTo?: string | null | undefined;
+  references?: string[] | null | undefined;
   selfAddress: string;
   threadContext: ThreadContext | null;
-  metadata?: EmailDeliveryMetadata | null;
+  metadata?: EmailDeliveryMetadata | null | undefined;
   attachment?:
     | {
         filePath: string;
-        filename?: string | null;
-        mimeType?: string | null;
+        filename?: string | null | undefined;
+        mimeType?: string | null | undefined;
       }
     | undefined;
 }
@@ -219,7 +219,7 @@ function buildThreadHeaders(
   ].filter(Boolean);
   return {
     inReplyTo: threadContext.messageId,
-    references: references.length > 0 ? references.join(' ') : undefined,
+    ...(references.length > 0 ? { references: references.join(' ') } : {}),
   };
 }
 

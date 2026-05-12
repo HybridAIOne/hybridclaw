@@ -797,13 +797,13 @@ interface PendingSessionReset {
 
 interface NormalizedDelegationTask {
   prompt: string;
-  label?: string;
+  label?: string | undefined;
   model: string;
 }
 
 interface NormalizedDelegationPlan {
   mode: DelegationMode;
-  label?: string;
+  label?: string | undefined;
   tasks: NormalizedDelegationTask[];
 }
 
@@ -814,11 +814,11 @@ interface DelegationRunResult {
   durationMs: number;
   attempts: number;
   toolsUsed: string[];
-  toolExecutions?: ToolExecution[];
-  tokenCount?: number;
-  result?: string;
-  error?: string;
-  artifacts?: ArtifactMetadata[];
+  toolExecutions?: ToolExecution[] | undefined;
+  tokenCount?: number | undefined;
+  result?: string | undefined;
+  error?: string | undefined;
+  artifacts?: ArtifactMetadata[] | undefined;
 }
 
 interface DelegationCompletionEntry {
@@ -831,11 +831,11 @@ interface DelegationStatusEntry {
   model: string;
   status: 'queued' | 'running' | DelegationRunStatus;
   toolUses: number;
-  tokenCount?: number;
-  currentTool?: string;
-  currentToolDetail?: string;
-  lastTool?: string;
-  lastToolDetail?: string;
+  tokenCount?: number | undefined;
+  currentTool?: string | undefined;
+  currentToolDetail?: string | undefined;
+  lastTool?: string | undefined;
+  lastToolDetail?: string | undefined;
 }
 
 interface DelegationTaskRunInput {
@@ -989,7 +989,7 @@ export function resolveCanonicalContextScope(
 function clearCanonicalPromptContext(params: {
   agentId: string;
   session: Pick<Session, 'main_session_key' | 'session_key' | 'id'>;
-  userId?: string | null;
+  userId?: string | null | undefined;
 }): void {
   const scopes = new Set<string>();
   const canonicalScope = resolveCanonicalContextScope(params.session);
@@ -1129,7 +1129,7 @@ function getGatewayAdminAgentMarkdownFileStats(
 function mapGatewayAdminAgentMarkdownFile(params: {
   workspacePath: string;
   fileName: AdminAgentMarkdownFileName;
-  stats?: GatewayAdminAgentMarkdownFileStats;
+  stats?: GatewayAdminAgentMarkdownFileStats | undefined;
 }): GatewayAdminAgentMarkdownFile {
   const filePath = path.join(params.workspacePath, params.fileName);
   const stats = params.stats ?? getGatewayAdminAgentMarkdownFileStats(filePath);
@@ -2001,7 +2001,6 @@ export function resolveMediaToolPolicy(
   const imageMedia = media.filter((item) => isImageMediaItem(item));
   if (imageMedia.length === 0) {
     return {
-      blockedTools: undefined,
       prioritizeVisionTool: false,
     };
   }
@@ -2016,7 +2015,6 @@ export function resolveMediaToolPolicy(
   }
 
   return {
-    blockedTools: undefined,
     prioritizeVisionTool: false,
   };
 }
@@ -2831,7 +2829,7 @@ function resolveGatewayPasswordStatus(params: {
   storedSecretName: string;
   envValues: Array<string | undefined>;
   configValue: string;
-  storedValue?: string;
+  storedValue?: string | undefined;
 }): NonNullable<GatewayStatus['email']> {
   const credential = resolveRuntimeCredentialStatus(
     params.storedSecretName,
@@ -2855,7 +2853,7 @@ function resolveGatewayPasswordStatus(params: {
 function resolveGatewayVoiceAuthStatus(params: {
   envValues: Array<string | undefined>;
   configValue: string;
-  storedValue?: string;
+  storedValue?: string | undefined;
 }): Pick<
   NonNullable<GatewayStatus['voice']>,
   'authTokenConfigured' | 'authTokenSource'
@@ -2883,7 +2881,7 @@ function resolveGatewayTokenStatus(params: {
   storedSecretName: string;
   envValues: Array<string | undefined>;
   configValue: string;
-  storedValue?: string;
+  storedValue?: string | undefined;
 }): NonNullable<GatewayStatus['telegram']> {
   const credential = resolveRuntimeCredentialStatus(
     params.storedSecretName,
@@ -3206,7 +3204,7 @@ export function recordSuccessfulTurn(opts: {
   enableRag: boolean;
   model: string;
   channelId: string;
-  promptMode?: PromptMode;
+  promptMode?: PromptMode | undefined;
   runId: string;
   turnIndex: number;
   userId: string;
@@ -3214,10 +3212,10 @@ export function recordSuccessfulTurn(opts: {
   canonicalScopeId: string;
   userContent: string;
   resultText: string;
-  artifacts?: ArtifactMetadata[] | null;
+  artifacts?: ArtifactMetadata[] | null | undefined;
   toolCallCount: number;
   startedAt: number;
-  replaceBuiltInMemory?: boolean;
+  replaceBuiltInMemory?: boolean | undefined;
 }): {
   userMessageId: number;
   assistantMessageId: number;
@@ -3674,7 +3672,7 @@ function getPendingSessionReset(sessionId: string): PendingSessionReset | null {
 export function buildTokenUsageAuditPayload(
   messages: ChatMessage[],
   resultText: string | null | undefined,
-  tokenUsage?: TokenUsageStats,
+  tokenUsage?: TokenUsageStats | undefined,
 ): Record<string, boolean | number | unknown[]> {
   const promptChars = messages.reduce((total, message) => {
     const content = typeof message.content === 'string' ? message.content : '';
@@ -3995,7 +3993,7 @@ function toIsoDate(daysOffsetFromToday: number): string {
 }
 
 export function getGatewayAdminStatistics(params?: {
-  days?: number | string;
+  days?: number | string | undefined;
 }): GatewayAdminStatisticsResponse {
   const days = normalizeStatisticsDays(params?.days);
   const startDate = toIsoDate(-(days - 1));
@@ -4305,10 +4303,10 @@ export function restoreGatewayAdminAgentMarkdownRevision(params: {
 }
 
 type GatewayAdminAgentOrgChartParams = {
-  role?: string | null;
-  reportsTo?: string | null;
-  delegatesTo?: string[] | null;
-  peers?: string[] | null;
+  role?: string | null | undefined;
+  reportsTo?: string | null | undefined;
+  delegatesTo?: string[] | null | undefined;
+  peers?: string[] | null | undefined;
 };
 
 function buildGatewayAdminAgentOrgChartPatch(
@@ -4342,16 +4340,16 @@ function buildGatewayAdminAgentOrgChartPatch(
 
 export function createGatewayAdminAgent(params: {
   id: string;
-  name?: string | null;
-  model?: string | null;
-  skills?: string[] | null;
-  chatbotId?: string | null;
-  enableRag?: boolean | null;
-  role?: string | null;
-  reportsTo?: string | null;
-  delegatesTo?: string[] | null;
-  peers?: string[] | null;
-  workspace?: string | null;
+  name?: string | null | undefined;
+  model?: string | null | undefined;
+  skills?: string[] | null | undefined;
+  chatbotId?: string | null | undefined;
+  enableRag?: boolean | null | undefined;
+  role?: string | null | undefined;
+  reportsTo?: string | null | undefined;
+  delegatesTo?: string[] | null | undefined;
+  peers?: string[] | null | undefined;
+  workspace?: string | null | undefined;
 }): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const saved = upsertRegisteredAgent({
     id: params.id,
@@ -4375,16 +4373,16 @@ export function createGatewayAdminAgent(params: {
 export function updateGatewayAdminAgent(
   agentId: string,
   params: {
-    name?: string | null;
-    model?: string | null;
-    skills?: string[] | null;
-    chatbotId?: string | null;
-    enableRag?: boolean | null;
-    role?: string | null;
-    reportsTo?: string | null;
-    delegatesTo?: string[] | null;
-    peers?: string[] | null;
-    workspace?: string | null;
+    name?: string | null | undefined;
+    model?: string | null | undefined;
+    skills?: string[] | null | undefined;
+    chatbotId?: string | null | undefined;
+    enableRag?: boolean | null | undefined;
+    role?: string | null | undefined;
+    reportsTo?: string | null | undefined;
+    delegatesTo?: string[] | null | undefined;
+    peers?: string[] | null | undefined;
+    workspace?: string | null | undefined;
   },
 ): { agent: ReturnType<typeof mapGatewayAdminAgent> } {
   const existing = getAgentById(agentId);
@@ -4938,7 +4936,7 @@ export function getGatewayAdminA2ATrust(): GatewayAdminA2ATrustResponse {
 
 export function revokeGatewayAdminA2ATrustPeer(params: {
   peerId: string;
-  reason?: string;
+  reason?: string | undefined;
 }): GatewayAdminA2ATrustResponse {
   revokeA2ATrustedPublicKeyPeer(params.peerId, {
     reason: params.reason,
@@ -5587,8 +5585,8 @@ export function getGatewayAdminApprovals(params?: {
 }
 
 export function saveGatewayAdminPolicyRule(input: {
-  agentId?: string;
-  index?: number | null;
+  agentId?: string | undefined;
+  index?: number | null | undefined;
   rule: Parameters<typeof addPolicyRule>[1];
 }): GatewayAdminPolicyState {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
@@ -5607,7 +5605,7 @@ export function saveGatewayAdminPolicyRule(input: {
 }
 
 export function deleteGatewayAdminPolicyRule(input: {
-  agentId?: string;
+  agentId?: string | undefined;
   index: number;
 }): GatewayAdminPolicyState {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
@@ -5623,7 +5621,7 @@ export function deleteGatewayAdminPolicyRule(input: {
 }
 
 export function saveGatewayAdminPolicyDefault(input: {
-  agentId?: string;
+  agentId?: string | undefined;
   defaultAction: 'allow' | 'deny';
 }): GatewayAdminPolicyState {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
@@ -5639,7 +5637,7 @@ export function saveGatewayAdminPolicyDefault(input: {
 }
 
 export function applyGatewayAdminPolicyPreset(input: {
-  agentId?: string;
+  agentId?: string | undefined;
   presetName: string;
 }): GatewayAdminPolicyState {
   const workspacePath = resolveGatewayAdminPolicyWorkspace(input.agentId);
@@ -5732,7 +5730,7 @@ export function getGatewayAdminAgentScoreboard(): GatewayAdminAgentScoreboardRes
 export function setGatewayAdminSkillEnabled(input: {
   name: string;
   enabled: boolean;
-  channel?: string;
+  channel?: string | undefined;
 }): GatewayAdminSkillsResponse {
   const name = String(input.name || '').trim();
   if (!name) {
@@ -5792,13 +5790,13 @@ function assertGatewayAdminSkillAllowed(
 export function createGatewayAdminSkill(input: {
   name: string;
   description: string;
-  category?: string;
-  shortDescription?: string;
-  userInvocable?: boolean;
-  disableModelInvocation?: boolean;
-  tags?: string[];
+  category?: string | undefined;
+  shortDescription?: string | undefined;
+  userInvocable?: boolean | undefined;
+  disableModelInvocation?: boolean | undefined;
+  tags?: string[] | undefined;
   body: string;
-  files?: Array<{ path: string; content: string }>;
+  files?: Array<{ path: string; content: string }> | undefined;
 }): GatewayAdminSkillsResponse {
   const name = String(input.name || '').trim();
   if (!name) {
@@ -7289,10 +7287,14 @@ async function runDelegationTaskWithRetry(
 
 function formatDelegationCompletion(params: {
   mode: DelegationMode;
-  label?: string;
+  label?: string | undefined;
   entries: DelegationCompletionEntry[];
   totalDurationMs: number;
-}): { forUser: string; forLLM: string; artifacts?: ArtifactMetadata[] } {
+}): {
+  forUser: string;
+  forLLM: string;
+  artifacts?: ArtifactMetadata[] | undefined;
+} {
   const { mode, label, entries, totalDurationMs } = params;
   const completedCount = entries.filter(
     (entry) => entry.run.status === 'completed',
@@ -7369,9 +7371,9 @@ function formatDelegationCompletion(params: {
 }
 
 function formatDelegationStatus(params: {
-  label?: string;
+  label?: string | undefined;
   entries: DelegationStatusEntry[];
-  parentModel?: string;
+  parentModel?: string | undefined;
 }): string {
   const runningCount = params.entries.filter(
     (entry) => entry.status === 'running' || entry.status === 'queued',
@@ -7433,10 +7435,10 @@ async function synthesizeDelegationFinal(params: {
   enableRag: boolean;
   agentId: string;
   model: string;
-  parentPrompt?: string;
-  parentResult?: string;
+  parentPrompt?: string | undefined;
+  parentResult?: string | undefined;
   delegationResults: string;
-  onTextDelta?: (delta: string) => void;
+  onTextDelta?: ((delta: string) => void) | undefined;
 }): Promise<string | null> {
   if (!params.parentPrompt?.trim()) return null;
   const sessionId = nextDelegationSessionId(params.parentSessionId, 0);
@@ -7582,10 +7584,10 @@ async function publishDelegationLifecycleMessage(params: {
   parentSessionId: string;
   channelId: string;
   text: string;
-  artifacts?: ArtifactMetadata[];
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
+  artifacts?: ArtifactMetadata[] | undefined;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | undefined;
 }): Promise<void> {
   const text = params.text.trim();
   if (!text) return;
@@ -7624,11 +7626,11 @@ async function publishDelegationCompletion(params: {
   agentId: string;
   forLLM: string;
   forUser: string;
-  artifacts?: ArtifactMetadata[];
-  publishForUser?: boolean;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
+  artifacts?: ArtifactMetadata[] | undefined;
+  publishForUser?: boolean | undefined;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | undefined;
 }): Promise<void> {
   const {
     parentSessionId,
@@ -7676,13 +7678,13 @@ export function enqueueDelegationFromSideEffect(params: {
   chatbotId: string;
   enableRag: boolean;
   agentId: string;
-  parentModel?: string;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
+  parentModel?: string | undefined;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | undefined;
   parentDepth: number;
-  parentPrompt?: string;
-  parentResult?: string;
+  parentPrompt?: string | undefined;
+  parentResult?: string | undefined;
 }): void {
   enqueueDelegationBatchFromSideEffects({
     ...params,
@@ -7697,13 +7699,13 @@ export function enqueueDelegationBatchFromSideEffects(params: {
   chatbotId: string;
   enableRag: boolean;
   agentId: string;
-  parentModel?: string;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
+  parentModel?: string | undefined;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | undefined;
   parentDepth: number;
-  parentPrompt?: string;
-  parentResult?: string;
+  parentPrompt?: string | undefined;
+  parentResult?: string | undefined;
 }): void {
   const {
     plans,
@@ -7970,10 +7972,10 @@ export function enqueueDelegationBatchFromSideEffects(params: {
 export async function prepareSessionAutoReset(params: {
   sessionId: string;
   channelId: string;
-  agentId?: string | null;
-  chatbotId?: string | null;
-  model?: string | null;
-  enableRag?: boolean;
+  agentId?: string | null | undefined;
+  chatbotId?: string | null | undefined;
+  model?: string | null | undefined;
+  enableRag?: boolean | undefined;
   policy: SessionResetPolicy;
 }): Promise<SessionExpiryEvaluation | undefined> {
   const existingSession = memoryService.getSessionById(params.sessionId);

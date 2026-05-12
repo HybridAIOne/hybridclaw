@@ -286,7 +286,7 @@ function buildListJson(
 }
 
 function parseListFlags(args: string[]): {
-  agent?: string;
+  agent?: string | undefined;
   json: boolean;
 } {
   let agent: string | undefined;

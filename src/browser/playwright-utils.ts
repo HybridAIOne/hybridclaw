@@ -21,8 +21,8 @@ import type {
 } from './provider.js';
 
 export type PlaywrightNavigationOptions = {
-  waitUntil?: 'load' | 'domcontentloaded';
-  timeout?: number;
+  waitUntil?: 'load' | 'domcontentloaded' | undefined;
+  timeout?: number | undefined;
 };
 
 export type PlaywrightFillPage = {
@@ -43,7 +43,7 @@ export type PlaywrightSecretFillLocator = {
 type CredentialFillParams = {
   selector: string;
   host: string;
-  context?: BrowserSessionMeteringContext;
+  context?: BrowserSessionMeteringContext | undefined;
   ref: SecretRef;
   skillName: string;
 };
@@ -101,7 +101,7 @@ function resolvePageHost(page: PlaywrightFillPage, selector: string): string {
 function resolveCredentialFillParams(params: {
   selector: string;
   host: string;
-  context?: BrowserSessionMeteringContext;
+  context?: BrowserSessionMeteringContext | undefined;
   ref: SecretRef;
 }): CredentialFillParams {
   const skillName = normalizeString(params.context?.skillName);
@@ -164,8 +164,8 @@ async function injectSecretIntoElement(
   opts: {
     selector: string;
     host: string;
-    context?: BrowserSessionMeteringContext;
-    secretAudit?: (handle: SecretHandle, reason: string) => void;
+    context?: BrowserSessionMeteringContext | undefined;
+    secretAudit?: ((handle: SecretHandle, reason: string) => void) | undefined;
   },
 ): Promise<void> {
   try {

@@ -120,7 +120,7 @@ export function prepareThreemaTextChunks(
 }
 
 export async function sendChunkedThreemaText(params: {
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   target: string;
   text: string;
 }): Promise<void> {

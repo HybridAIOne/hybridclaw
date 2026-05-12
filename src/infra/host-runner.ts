@@ -120,7 +120,7 @@ const APPROVAL_RE = /^\[approval\]\s+([A-Za-z0-9+/=]+)$/;
 
 function resolveExecutorMaxTokens(params: {
   model: string;
-  discoveredMaxTokens?: number;
+  discoveredMaxTokens?: number | undefined;
 }): number | undefined {
   return resolveProviderRequestMaxTokens({
     model: params.model,
@@ -150,7 +150,7 @@ function buildHostAllowedRoots(extraRoots: string[] = []): string[] {
 function getHostWorkspacePath(params: {
   sessionId: string;
   agentId: string;
-  workspacePathOverride?: string;
+  workspacePathOverride?: string | undefined;
 }): string {
   const trimmed = params.workspacePathOverride?.trim();
   if (trimmed) return path.resolve(trimmed);
@@ -197,13 +197,13 @@ interface PoolEntry extends WarmRunnerEntry {
   streamDebug: StreamDebugState;
   workerSignature: string;
   terminalError: string | null;
-  onTextDelta?: (delta: string) => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
+  onTextDelta?: ((delta: string) => void) | undefined;
+  onThinkingDelta?: ((delta: string) => void) | undefined;
+  onToolProgress?: ((event: ToolProgressEvent) => void) | undefined;
+  onApprovalProgress?: ((approval: PendingApproval) => void) | undefined;
   /** Activity tracker that resets the IPC read timeout on agent progress. */
-  activity?: import('./ipc.js').ActivityTracker;
-  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
+  activity?: import('./ipc.js').ActivityTracker | undefined;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot> | undefined;
 }
 
 const pool = new Map<string, PoolEntry>();
@@ -556,9 +556,9 @@ function enforceWarmHostPressure(): void {
 function claimWarmHostProcess(params: {
   sessionId: string;
   agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
+  bashProxy?: ExecutorRequest['bashProxy'] | undefined;
 }): PoolEntry | null {
   return claimWarmEntry({
     pool,
@@ -580,9 +580,9 @@ function claimWarmHostProcess(params: {
 
 function maintainWarmHostPool(params: {
   agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  bashProxy?: ExecutorRequest['bashProxy'];
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
+  bashProxy?: ExecutorRequest['bashProxy'] | undefined;
 }): void {
   maintainWarmPool({
     pool,
@@ -605,7 +605,7 @@ function getOrSpawnHostProcess(
     | 'workspacePathOverride'
     | 'workspaceDisplayRootOverride'
     | 'bashProxy'
-  > & { ipcSessionId?: string; warm?: boolean },
+  > & { ipcSessionId?: string | undefined; warm?: boolean | undefined },
 ): PoolEntry {
   const sessionId = params.sessionId;
   const ipcSessionId = params.ipcSessionId || sessionId;

@@ -52,10 +52,10 @@ export type TelegramMessageHandler = (
 export interface TelegramMediaSendParams {
   target: string;
   filePath: string;
-  mimeType?: string | null;
-  filename?: string | null;
-  caption?: string;
-  replyToMessageId?: number;
+  mimeType?: string | null | undefined;
+  filename?: string | null | undefined;
+  caption?: string | undefined;
+  replyToMessageId?: number | undefined;
 }
 
 const TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = 25;

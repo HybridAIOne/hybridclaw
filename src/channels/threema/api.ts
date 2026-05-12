@@ -75,12 +75,12 @@ function describeThreemaStatus(status: number, fallback: string): string {
 }
 
 export async function sendThreemaSimpleText(params: {
-  apiBaseUrl?: string | null;
+  apiBaseUrl?: string | null | undefined;
   identity: string;
   secret: string;
   target: ParsedThreemaTarget;
   text: string;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }): Promise<string> {
   const body = new URLSearchParams();
   body.set('from', params.identity);
@@ -97,7 +97,7 @@ export async function sendThreemaSimpleText(params: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
       },
       body,
-      signal: params.signal,
+      signal: params.signal ?? null,
     },
   ).catch((error: unknown) => {
     if (params.signal?.aborted) {

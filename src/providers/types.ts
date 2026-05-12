@@ -5,26 +5,26 @@ export type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
 
 export interface ResolvedModelRuntimeCredentials {
   provider: RuntimeProviderId;
-  providerMethod?: string;
-  model?: string;
+  providerMethod?: string | undefined;
+  model?: string | undefined;
   apiKey: string;
   baseUrl: string;
   chatbotId: string;
   enableRag: boolean;
   requestHeaders: Record<string, string>;
   agentId: string;
-  accountId?: string;
-  isLocal?: boolean;
-  contextWindow?: number;
-  maxTokens?: number;
-  thinkingFormat?: LocalThinkingFormat;
+  accountId?: string | undefined;
+  isLocal?: boolean | undefined;
+  contextWindow?: number | undefined;
+  maxTokens?: number | undefined;
+  thinkingFormat?: LocalThinkingFormat | undefined;
 }
 
 export interface ResolveProviderRuntimeParams {
   model: string;
-  chatbotId?: string;
-  enableRag?: boolean;
-  agentId?: string;
+  chatbotId?: string | undefined;
+  enableRag?: boolean | undefined;
+  agentId?: string | undefined;
 }
 
 export interface AIProvider {

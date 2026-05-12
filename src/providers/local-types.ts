@@ -10,10 +10,10 @@ export interface LocalModelInfo {
   maxTokens: number;
   isReasoning: boolean;
   backend: LocalBackendType;
-  thinkingFormat?: LocalThinkingFormat;
-  sizeBytes?: number;
-  family?: string;
-  parameterSize?: string;
+  thinkingFormat?: LocalThinkingFormat | undefined;
+  sizeBytes?: number | undefined;
+  family?: string | undefined;
+  parameterSize?: string | undefined;
   cost: {
     input: 0;
     output: 0;
@@ -25,7 +25,7 @@ export interface LocalModelInfo {
 export interface LocalBackendConfig {
   enabled: boolean;
   baseUrl: string;
-  apiKey?: string;
+  apiKey?: string | undefined;
 }
 
 export interface LocalProviderConfig {
@@ -54,8 +54,8 @@ export interface HealthCheckResult {
   backend: LocalBackendType;
   reachable: boolean;
   latencyMs: number;
-  error?: string;
-  modelCount?: number;
+  error?: string | undefined;
+  modelCount?: number | undefined;
 }
 
 export interface ModelHealthCheckResult {
@@ -63,5 +63,5 @@ export interface ModelHealthCheckResult {
   backend: LocalBackendType;
   usable: boolean;
   latencyMs: number;
-  error?: string;
+  error?: string | undefined;
 }

@@ -28,7 +28,7 @@ export interface WireRecord {
   timestamp: string;
   runId: string;
   sessionId: string;
-  parentRunId?: string;
+  parentRunId?: string | undefined;
   event: AuditEventPayload;
   _prevHash: string;
   _hash: string;

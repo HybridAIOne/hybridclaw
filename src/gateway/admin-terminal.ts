@@ -44,8 +44,8 @@ export class AdminTerminalCapacityError extends Error {
 }
 
 export interface AdminTerminalStartOptions {
-  cols?: number;
-  rows?: number;
+  cols?: number | undefined;
+  rows?: number | undefined;
 }
 
 export interface AdminTerminalStartResponse {

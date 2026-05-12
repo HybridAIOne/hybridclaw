@@ -49,24 +49,26 @@ export interface JudgeTraceModelCallParams {
 
 export interface JudgeTraceModelCallResponse {
   content: string;
-  model?: string;
-  usage?: AuxiliaryModelUsage | null;
+  model?: string | undefined;
+  usage?: AuxiliaryModelUsage | null | undefined;
 }
 
 export interface JudgeTraceOptions {
-  model?: string;
-  fallbackModels?: string[];
-  capabilities?: ModelCapabilityRequirements;
-  usageContext?: JudgeTraceUsageContext;
-  tracePreparation?: TracePreparationOptions;
-  maxInputChars?: number;
-  maxTokens?: number;
-  temperature?: number;
-  timeoutMs?: number;
-  refreshCatalog?: boolean;
-  modelCaller?: (
-    params: JudgeTraceModelCallParams,
-  ) => Promise<JudgeTraceModelCallResponse>;
+  model?: string | undefined;
+  fallbackModels?: string[] | undefined;
+  capabilities?: ModelCapabilityRequirements | undefined;
+  usageContext?: JudgeTraceUsageContext | undefined;
+  tracePreparation?: TracePreparationOptions | undefined;
+  maxInputChars?: number | undefined;
+  maxTokens?: number | undefined;
+  temperature?: number | undefined;
+  timeoutMs?: number | undefined;
+  refreshCatalog?: boolean | undefined;
+  modelCaller?:
+    | ((
+        params: JudgeTraceModelCallParams,
+      ) => Promise<JudgeTraceModelCallResponse>)
+    | undefined;
 }
 
 const DEFAULT_JUDGE_CAPABILITIES: ModelCapabilityRequirements = {
@@ -189,7 +191,7 @@ function readUsageNumber(value: number | null | undefined): number | null {
 function estimateJudgeUsage(params: {
   messages: ChatMessage[];
   content: string;
-  usage?: AuxiliaryModelUsage | null;
+  usage?: AuxiliaryModelUsage | null | undefined;
 }): {
   inputTokens: number;
   outputTokens: number;
@@ -304,7 +306,7 @@ async function recordJudgeUsage(params: {
   model: string;
   messages: ChatMessage[];
   content: string;
-  usage?: AuxiliaryModelUsage | null;
+  usage?: AuxiliaryModelUsage | null | undefined;
 }): Promise<void> {
   if (!params.context) return;
   const usage = estimateJudgeUsage({

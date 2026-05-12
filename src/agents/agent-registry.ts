@@ -518,10 +518,10 @@ export function resolveAgentWorkspaceId(agentId?: string | null): string {
 }
 
 export function resolveAgentForRequest(params?: {
-  agentId?: string | null;
-  session?: Session | null;
-  model?: string | null;
-  chatbotId?: string | null;
+  agentId?: string | null | undefined;
+  session?: Session | null | undefined;
+  model?: string | null | undefined;
+  chatbotId?: string | null | undefined;
 }): {
   agentId: string;
   model: string;

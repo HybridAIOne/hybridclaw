@@ -31,8 +31,8 @@ type ApiSecretInjectBody = {
 };
 
 export function resolveSecretAgentId(params: {
-  sessionId?: string;
-  agentId?: string;
+  sessionId?: string | undefined;
+  agentId?: string | undefined;
 }): string {
   const explicit = normalizeString(params.agentId);
   if (explicit) return explicit;
@@ -41,14 +41,14 @@ export function resolveSecretAgentId(params: {
 }
 
 export function assertSecretResolveAllowed(params: {
-  sessionId?: string;
-  agentId?: string;
-  skillName?: string;
+  sessionId?: string | undefined;
+  agentId?: string | undefined;
+  skillName?: string | undefined;
   secretSource: 'env' | 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
-  host?: string;
-  selector?: string;
+  host?: string | undefined;
+  selector?: string | undefined;
 }): void {
   const agentId = resolveSecretAgentId(params);
   const workspacePath = agentWorkspaceDir(agentId);
@@ -80,14 +80,14 @@ export function assertSecretResolveAllowed(params: {
 }
 
 export function recordSecretResolved(params: {
-  sessionId?: string;
-  runId?: string;
-  skillName?: string;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  skillName?: string | undefined;
   secretSource: 'env' | 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
-  host?: string;
-  selector?: string;
+  host?: string | undefined;
+  selector?: string | undefined;
 }): void {
   const sessionId = normalizeSecretSessionId(params.sessionId);
   recordAuditEvent({
@@ -108,14 +108,14 @@ export function recordSecretResolved(params: {
 }
 
 export function recordSecretUnsafeEscaped(params: {
-  sessionId?: string;
-  runId?: string;
-  skillName?: string;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  skillName?: string | undefined;
   secretSource: 'env' | 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
-  host?: string;
-  selector?: string;
+  host?: string | undefined;
+  selector?: string | undefined;
   reason: string;
 }): void {
   const sessionId = normalizeSecretSessionId(params.sessionId);
@@ -139,12 +139,12 @@ export function recordSecretUnsafeEscaped(params: {
 
 export function resolveStoredSecretForInjection(params: {
   secretName: string;
-  sessionId?: string;
-  agentId?: string;
-  skillName?: string;
+  sessionId?: string | undefined;
+  agentId?: string | undefined;
+  skillName?: string | undefined;
   sinkKind: SecretSinkKind;
-  host?: string;
-  selector?: string;
+  host?: string | undefined;
+  selector?: string | undefined;
 }): string {
   const secretName = normalizeString(params.secretName);
   if (!isRuntimeSecretName(secretName)) {

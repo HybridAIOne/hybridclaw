@@ -7,7 +7,10 @@ export interface WhatsAppSelfEchoCache {
   remember: (
     refs: WhatsAppOutboundMessageRef | WhatsAppOutboundMessageRef[],
   ) => void;
-  has: (ref: { chatJid?: string | null; messageId?: string | null }) => boolean;
+  has: (ref: {
+    chatJid?: string | null | undefined;
+    messageId?: string | null | undefined;
+  }) => boolean;
   clear: () => void;
 }
 
@@ -16,8 +19,8 @@ const MAX_SELF_ECHO_ENTRIES = 1_024;
 const CLEANUP_MIN_INTERVAL_MS = 1_000;
 
 function buildCacheKey(ref: {
-  chatJid?: string | null;
-  messageId?: string | null;
+  chatJid?: string | null | undefined;
+  messageId?: string | null | undefined;
 }): string | null {
   const chatJid = String(ref.chatJid || '').trim();
   const messageId = String(ref.messageId || '').trim();
@@ -42,7 +45,10 @@ class DefaultWhatsAppSelfEchoCache implements WhatsAppSelfEchoCache {
     this.maybeCleanup(now);
   }
 
-  has(ref: { chatJid?: string | null; messageId?: string | null }): boolean {
+  has(ref: {
+    chatJid?: string | null | undefined;
+    messageId?: string | null | undefined;
+  }): boolean {
     this.maybeCleanup(Date.now());
     const key = buildCacheKey(ref);
     if (!key) return false;

@@ -478,7 +478,7 @@ export function createWhatsAppConnectionManager(params?: {
         markOnlineOnConnect: false,
         printQRInTerminal: false,
         syncFullHistory: false,
-        version: latestVersion?.version,
+        ...(latestVersion?.version ? { version: latestVersion.version } : {}),
       });
       if (stopped) {
         try {

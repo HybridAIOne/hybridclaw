@@ -764,10 +764,11 @@ async function deliverFullAutoMessage(params: {
   channelId: string;
   text: string;
   source: string;
-  artifacts?: ArtifactMetadata[];
+  artifacts?: ArtifactMetadata[] | undefined;
   onProactiveMessage?:
     | ((message: ProactiveMessagePayload) => void | Promise<void>)
-    | null;
+    | null
+    | undefined;
 }): Promise<void> {
   const trimmed = params.text.trim();
   if (!trimmed) return;
@@ -807,12 +808,13 @@ async function deliverFullAutoMessage(params: {
 
 export async function disableFullAutoSession(params: {
   sessionId: string;
-  reason?: string | null;
-  notify?: boolean;
-  channelId?: string;
+  reason?: string | null | undefined;
+  notify?: boolean | undefined;
+  channelId?: string | undefined;
   onProactiveMessage?:
     | ((message: ProactiveMessagePayload) => void | Promise<void>)
-    | null;
+    | null
+    | undefined;
 }): Promise<void> {
   updateSessionFullAuto(params.sessionId, {
     enabled: false,

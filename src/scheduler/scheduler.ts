@@ -56,9 +56,9 @@ export function parseSchedulerTimestampMs(
 
 export interface SchedulerDispatchRequest {
   source: 'db-task' | 'config-job';
-  taskId?: number;
-  jobId?: string;
-  agentId?: string;
+  taskId?: number | undefined;
+  jobId?: string | undefined;
+  agentId?: string | undefined;
   sessionId: string;
   channelId: string;
   prompt: string;
@@ -456,9 +456,9 @@ export function normalizeMondayZeroBasedCronExpressionWeekdays(
 function parseCronExpression(
   expr: string,
   options: {
-    currentDateMs?: number;
-    tz?: string;
-    weekdayNumbering?: CronWeekdayNumbering;
+    currentDateMs?: number | undefined;
+    tz?: string | undefined;
+    weekdayNumbering?: CronWeekdayNumbering | undefined;
   } = {},
 ): ReturnType<typeof CronExpressionParser.parse> {
   const normalizedExpr =

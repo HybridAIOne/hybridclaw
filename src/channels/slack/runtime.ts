@@ -104,11 +104,11 @@ export type SlackCommandHandler = (
 
 export interface SlackActiveSessionSendParams {
   sessionId: string;
-  text?: string;
-  filePath?: string | null;
-  mimeType?: string | null;
-  filename?: string | null;
-  caption?: string | null;
+  text?: string | undefined;
+  filePath?: string | null | undefined;
+  mimeType?: string | null | undefined;
+  filename?: string | null | undefined;
+  caption?: string | null | undefined;
 }
 
 interface ActiveSlackSession {
@@ -584,8 +584,8 @@ async function postSlackText(target: string, text: string): Promise<void> {
 async function postSlackFile(params: {
   target: string;
   filePath: string;
-  filename?: string | null;
-  caption?: string | null;
+  filename?: string | null | undefined;
+  caption?: string | null | undefined;
 }): Promise<void> {
   const parsedTarget = parseSlackChannelTarget(params.target);
   if (!parsedTarget) {

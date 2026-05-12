@@ -277,7 +277,7 @@ function jsonRpcErrorMessage(error: unknown): string {
 
 function resolveTrustedPeerForToken(params: {
   token: string;
-  peer?: A2ATrustedA2APeer;
+  peer?: A2ATrustedA2APeer | undefined;
 }): A2ATrustedA2APeer {
   const unverifiedClaims = decodeA2ADelegationTokenClaims(params.token);
   const peer =
@@ -292,7 +292,7 @@ function resolveTrustedPeerForToken(params: {
 function resolveTrustedPeerForMtls(params: {
   senderAgentId: string;
   mtlsPublicKeyPem: string;
-  peer?: A2ATrustedA2APeer;
+  peer?: A2ATrustedA2APeer | undefined;
 }): A2ATrustedA2APeer {
   const peer =
     params.peer ?? getA2ATrustedA2APeerBySender(params.senderAgentId);
@@ -320,7 +320,7 @@ function verifySignedRequest(params: {
   envelope: A2AEnvelope;
   method: 'message/send' | 'tasks/send';
   audience: string;
-  now?: Date;
+  now?: Date | undefined;
   peer: A2ATrustedA2APeer;
 }): void {
   verifyA2ADelegationToken({

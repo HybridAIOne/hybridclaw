@@ -352,7 +352,7 @@ function formatDailyEntriesForPrompt(entries: DailyMemoryEntry[]): string {
 function buildModelCleanupPrompt(params: {
   existing: string;
   entries: DailyMemoryEntry[];
-  language?: string;
+  language?: string | undefined;
 }): string {
   const sections = extractCanonicalMemorySections(params.existing);
   const existingSummary =
@@ -387,7 +387,7 @@ async function rewriteMemoryContentWithModel(params: {
   agentId: string;
   existing: string;
   entries: DailyMemoryEntry[];
-  language?: string;
+  language?: string | undefined;
 }): Promise<MemoryCleanupRewriteResult> {
   const runtime = resolveAgentForRequest({ agentId: params.agentId });
   const result = await callAuxiliaryModel({

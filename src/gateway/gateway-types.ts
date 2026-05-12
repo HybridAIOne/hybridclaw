@@ -62,37 +62,39 @@ export interface GatewayChatResult {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
-  pluginsUsed?: string[];
-  skillUsed?: string;
-  agentId?: string;
-  assistantPresentation?: GatewayAssistantPresentation;
-  model?: string;
-  provider?: string;
-  memoryCitations?: MemoryCitation[];
-  components?: GatewayMessageComponents;
-  sessionId?: string;
-  sessionKey?: string;
-  mainSessionKey?: string;
-  artifacts?: Array<{
-    path: string;
-    filename: string;
-    mimeType: string;
-  }>;
-  toolExecutions?: ToolExecution[];
-  pendingApproval?: PendingApproval;
-  tokenUsage?: TokenUsageStats;
-  error?: string;
-  effectiveUserPrompt?: string;
-  userMessageId?: number;
-  assistantMessageId?: number;
+  pluginsUsed?: string[] | undefined;
+  skillUsed?: string | undefined;
+  agentId?: string | undefined;
+  assistantPresentation?: GatewayAssistantPresentation | undefined;
+  model?: string | undefined;
+  provider?: string | undefined;
+  memoryCitations?: MemoryCitation[] | undefined;
+  components?: GatewayMessageComponents | undefined;
+  sessionId?: string | undefined;
+  sessionKey?: string | undefined;
+  mainSessionKey?: string | undefined;
+  artifacts?:
+    | Array<{
+        path: string;
+        filename: string;
+        mimeType: string;
+      }>
+    | undefined;
+  toolExecutions?: ToolExecution[] | undefined;
+  pendingApproval?: PendingApproval | undefined;
+  tokenUsage?: TokenUsageStats | undefined;
+  error?: string | undefined;
+  effectiveUserPrompt?: string | undefined;
+  userMessageId?: number | undefined;
+  assistantMessageId?: number | undefined;
 }
 
 export interface GatewayChatToolProgressEvent {
   type: 'tool';
   phase: 'start' | 'finish';
   toolName: string;
-  preview?: string;
-  durationMs?: number;
+  preview?: string | undefined;
+  durationMs?: number | undefined;
 }
 
 export interface GatewayChatTextDeltaEvent {
@@ -141,47 +143,49 @@ export interface GatewayChatRequestBody {
 
 export interface GatewayChatRequest {
   sessionId: GatewayChatRequestBody['sessionId'];
-  executionSessionId?: string;
-  executorModeOverride?: 'host' | 'container';
-  autoApproveTools?: boolean;
-  neverAutoApproveTools?: string[];
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  maxTokens?: number;
-  maxWallClockMs?: number | null;
-  inactivityTimeoutMs?: number | null;
+  executionSessionId?: string | undefined;
+  executorModeOverride?: 'host' | 'container' | undefined;
+  autoApproveTools?: boolean | undefined;
+  neverAutoApproveTools?: string[] | undefined;
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
+  maxTokens?: number | undefined;
+  maxWallClockMs?: number | null | undefined;
+  inactivityTimeoutMs?: number | null | undefined;
   bashProxy?:
     | {
         mode: 'docker-exec';
         containerName: string;
-        cwd?: string;
+        cwd?: string | undefined;
       }
     | undefined;
-  sessionMode?: GatewayChatRequestBody['sessionMode'];
+  sessionMode?: GatewayChatRequestBody['sessionMode'] | undefined;
   guildId: GatewayChatRequestBody['guildId'];
   channelId: GatewayChatRequestBody['channelId'];
   userId: GatewayChatRequestBody['userId'];
   username: GatewayChatRequestBody['username'];
   content: GatewayChatRequestBody['content'];
-  media?: GatewayChatRequestBody['media'];
-  agentId?: GatewayChatRequestBody['agentId'];
-  chatbotId?: GatewayChatRequestBody['chatbotId'];
-  model?: GatewayChatRequestBody['model'];
-  enableRag?: GatewayChatRequestBody['enableRag'];
-  promptMode?: PromptMode;
-  includePromptParts?: PromptPartName[];
-  omitPromptParts?: PromptPartName[];
-  onTextDelta?: (delta: string) => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  onProactiveMessage?: (message: {
-    channelId?: string;
-    text: string;
-    artifacts?: ArtifactMetadata[];
-  }) => void | Promise<void>;
-  abortSignal?: AbortSignal;
-  source?: string;
+  media?: GatewayChatRequestBody['media'] | undefined;
+  agentId?: GatewayChatRequestBody['agentId'] | undefined;
+  chatbotId?: GatewayChatRequestBody['chatbotId'] | undefined;
+  model?: GatewayChatRequestBody['model'] | undefined;
+  enableRag?: GatewayChatRequestBody['enableRag'] | undefined;
+  promptMode?: PromptMode | undefined;
+  includePromptParts?: PromptPartName[] | undefined;
+  omitPromptParts?: PromptPartName[] | undefined;
+  onTextDelta?: ((delta: string) => void) | undefined;
+  onThinkingDelta?: ((delta: string) => void) | undefined;
+  onToolProgress?: ((event: ToolProgressEvent) => void) | undefined;
+  onApprovalProgress?: ((approval: PendingApproval) => void) | undefined;
+  onProactiveMessage?:
+    | ((message: {
+        channelId?: string | undefined;
+        text: string;
+        artifacts?: ArtifactMetadata[] | undefined;
+      }) => void | Promise<void>)
+    | undefined;
+  abortSignal?: AbortSignal | undefined;
+  source?: string | undefined;
 }
 
 export interface GatewayMediaUploadResult {
@@ -190,12 +194,12 @@ export interface GatewayMediaUploadResult {
 
 export interface GatewayCommandRequest {
   sessionId: string;
-  sessionMode?: 'new' | 'resume';
+  sessionMode?: 'new' | 'resume' | undefined;
   guildId: string | null;
   channelId: string;
   args: string[];
-  userId?: string | null;
-  username?: string | null;
+  userId?: string | null | undefined;
+  username?: string | null | undefined;
 }
 
 export interface GatewayProactiveMessage {
@@ -328,7 +332,7 @@ export interface GatewayProviderHealthEntry {
 
 export interface GatewayPluginCommandSummary {
   name: string;
-  description?: string;
+  description?: string | undefined;
 }
 
 export interface GatewayStatus {
@@ -471,17 +475,19 @@ export interface GatewayStatus {
       GatewayProviderHealthEntry
     >
   >;
-  localBackends?: Partial<
-    Record<
-      'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
-      {
-        reachable: boolean;
-        latencyMs: number;
-        error?: string;
-        modelCount?: number;
-      }
-    >
-  >;
+  localBackends?:
+    | Partial<
+        Record<
+          'ollama' | 'lmstudio' | 'llamacpp' | 'vllm',
+          {
+            reachable: boolean;
+            latencyMs: number;
+            error?: string;
+            modelCount?: number;
+          }
+        >
+      >
+    | undefined;
   coworkerLiveness?: GatewayCoworkerLivenessSummary;
   pluginCommands?: GatewayPluginCommandSummary[];
 }
@@ -780,7 +786,7 @@ export interface GatewayAgentsResponse {
     agents: GatewayLogicalAgentTotals;
     sessions: GatewayCollectionTotals;
   };
-  liveness?: GatewayCoworkerLivenessSummary;
+  liveness?: GatewayCoworkerLivenessSummary | undefined;
   agents: GatewayLogicalAgentCard[];
   sessions: GatewaySessionCard[];
 }
@@ -1186,13 +1192,13 @@ export interface GatewayAdminSkill {
   name: string;
   description: string;
   category: string;
-  shortDescription?: string;
+  shortDescription?: string | undefined;
   source: string;
   available: boolean;
   enabled: boolean;
-  blocked?: boolean;
-  blockedReason?: string;
-  guardFindings?: GatewayAdminSkillGuardFinding[];
+  blocked?: boolean | undefined;
+  blockedReason?: string | undefined;
+  guardFindings?: GatewayAdminSkillGuardFinding[] | undefined;
   missing: string[];
   userInvocable: boolean;
   disableModelInvocation: boolean;

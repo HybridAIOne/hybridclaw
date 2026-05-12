@@ -746,7 +746,7 @@ function shouldRenderCv(input: {
   state: AgentCvState;
   now: Date;
   throttleMs: number;
-  force?: boolean;
+  force?: boolean | undefined;
 }): boolean {
   if (input.force) return true;
   if (!input.state.last_rendered_at) return true;

@@ -27,8 +27,8 @@ export type ChatMessageContent = string | ChatContentPart[] | null;
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
+  tool_calls?: ToolCall[] | undefined;
+  tool_call_id?: string | undefined;
 }
 
 export interface ToolCall {

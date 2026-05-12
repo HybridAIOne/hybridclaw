@@ -137,11 +137,11 @@ export interface A2APeerPublicKeyMaterial {
 
 export interface UpsertA2ATrustedPublicKeyPeerInput {
   peerId: string;
-  agentCardUrl?: string;
-  deliveryUrl?: string;
+  agentCardUrl?: string | undefined;
+  deliveryUrl?: string | undefined;
   publicKeyJwk?: unknown;
-  publicKeyFingerprint?: string;
-  reason?: string;
+  publicKeyFingerprint?: string | undefined;
+  reason?: string | undefined;
 }
 
 export interface UpsertA2ATrustedWebhookPeerInput {
@@ -157,8 +157,8 @@ export interface UpsertA2ATrustedWebhookPeerInput {
 }
 
 export interface BuildLocalA2AAgentCardOptions {
-  peerTrustLevel?: A2AAgentCardTrustLevel;
-  peerId?: string;
+  peerTrustLevel?: A2AAgentCardTrustLevel | undefined;
+  peerId?: string | undefined;
 }
 
 export interface A2ATrustedA2APeer {
@@ -823,7 +823,7 @@ function resolveOperatorPublicKeyInput(
 }
 
 function recordTrustAudit(params: {
-  runId?: string;
+  runId?: string | undefined;
   event: Record<string, unknown> & { type: string };
 }): void {
   recordAuditEvent({
@@ -996,7 +996,11 @@ export function assertA2APeerPublicKeyTrust(params: {
 
 export function revokeA2ATrustedPublicKeyPeer(
   peerId: string,
-  params: { reason?: string; runId?: string; now?: Date } = {},
+  params: {
+    reason?: string | undefined;
+    runId?: string | undefined;
+    now?: Date | undefined;
+  } = {},
 ): A2ATrustedPublicKeyPeer {
   const normalizedPeerId = normalizeA2APeerId(peerId);
   const existing = getA2ATrustedPublicKeyPeer(normalizedPeerId);

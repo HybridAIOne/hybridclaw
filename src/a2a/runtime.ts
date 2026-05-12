@@ -20,12 +20,12 @@ export interface A2ADeliveryConfirmation {
 }
 
 export interface A2ASendMessageMeta {
-  actor?: string;
+  actor?: string | undefined;
   peerDescriptor?: unknown;
-  transportRegistry?: TransportRegistry;
-  sessionId?: string;
-  auditRunId?: string;
-  escalationTarget?: EscalationTarget;
+  transportRegistry?: TransportRegistry | undefined;
+  sessionId?: string | undefined;
+  auditRunId?: string | undefined;
+  escalationTarget?: EscalationTarget | undefined;
 }
 
 function validateRuntimeEnvelope(envelope: unknown): A2AEnvelope {

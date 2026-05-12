@@ -19,20 +19,24 @@ export type MiddlewarePredicate<TContext> =
 
 export interface ClassifierMiddlewareSkill<TContext = unknown> {
   id: string;
-  priority?: number;
+  priority?: number | undefined;
   predicate?: MiddlewarePredicate<TContext>;
-  pre_send?: (
-    context: TContext,
-  ) =>
-    | Promise<MiddlewareDecision | null | undefined>
-    | MiddlewareDecision
-    | null
+  pre_send?:
+    | ((
+        context: TContext,
+      ) =>
+        | Promise<MiddlewareDecision | null | undefined>
+        | MiddlewareDecision
+        | null
+        | undefined)
     | undefined;
-  post_receive?: (
-    context: TContext,
-  ) =>
-    | Promise<MiddlewareDecision | null | undefined>
-    | MiddlewareDecision
-    | null
+  post_receive?:
+    | ((
+        context: TContext,
+      ) =>
+        | Promise<MiddlewareDecision | null | undefined>
+        | MiddlewareDecision
+        | null
+        | undefined)
     | undefined;
 }

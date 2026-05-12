@@ -26,9 +26,9 @@ function optionalEnvConfig(name: string): string | undefined {
 
 function providerConfig(params: {
   apiKey: string;
-  baseUrl?: string;
-  imageModel?: string;
-  videoModel?: string;
+  baseUrl?: string | undefined;
+  imageModel?: string | undefined;
+  videoModel?: string | undefined;
 }): ProviderCredential | undefined {
   const apiKey = readConfigValue(params.apiKey);
   if (!apiKey) return undefined;

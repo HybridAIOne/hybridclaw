@@ -1254,10 +1254,10 @@ function parseDiscordSetupArgs(args: string[]): {
 async function promptWithDefault(params: {
   rl: readline.Interface;
   question: string;
-  defaultValue?: string;
-  validate?: (value: string) => string | null;
-  errorMessage?: string;
-  secret?: boolean;
+  defaultValue?: string | undefined;
+  validate?: ((value: string) => string | null) | undefined;
+  errorMessage?: string | undefined;
+  secret?: boolean | undefined;
 }): Promise<string> {
   while (true) {
     const suffix =

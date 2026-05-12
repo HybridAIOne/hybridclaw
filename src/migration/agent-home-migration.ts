@@ -44,11 +44,11 @@ interface MigrationItem {
 
 export interface AgentMigrationOptions {
   sourceKind: AgentMigrationSource;
-  sourceRoot?: string;
-  agentId?: string;
-  execute?: boolean;
-  overwrite?: boolean;
-  migrateSecrets?: boolean;
+  sourceRoot?: string | undefined;
+  agentId?: string | undefined;
+  execute?: boolean | undefined;
+  overwrite?: boolean | undefined;
+  migrateSecrets?: boolean | undefined;
 }
 
 export interface AgentMigrationResult {

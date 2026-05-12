@@ -83,7 +83,9 @@ export function normalizeSessionResetMode(
 }
 
 function normalizePolicy(
-  value?: Partial<SessionResetPolicy>,
+  value?: {
+    [K in keyof SessionResetPolicy]?: SessionResetPolicy[K] | undefined;
+  },
 ): SessionResetPolicy {
   const atHour = Number.isFinite(value?.atHour)
     ? Math.max(0, Math.min(23, Math.trunc(value?.atHour ?? 0)))
@@ -209,8 +211,8 @@ export function isSessionExpired(
 }
 
 export function resolveResetPolicy(opts?: {
-  channelKind?: string;
-  config?: RuntimeConfig;
+  channelKind?: string | undefined;
+  config?: RuntimeConfig | undefined;
 }): SessionResetPolicy {
   const config = opts?.config;
   if (!config) {

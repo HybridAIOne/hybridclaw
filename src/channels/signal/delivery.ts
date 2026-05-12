@@ -131,7 +131,7 @@ export async function sendSignalTyping(params: {
   daemonUrl: string;
   account: string;
   target: string;
-  stop?: boolean;
+  stop?: boolean | undefined;
 }): Promise<boolean> {
   const target = parseSignalTarget(params.target);
   if (!target) return false;

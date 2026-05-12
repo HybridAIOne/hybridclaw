@@ -114,8 +114,8 @@ export function getSignalCliAvailability(
 }
 
 export function startSignalLink(params?: {
-  cliPath?: string;
-  deviceName?: string;
+  cliPath?: string | undefined;
+  deviceName?: string | undefined;
 }): SignalPairingState {
   if (activeLinkProcess && !activeLinkProcess.killed) {
     return getSignalPairingState();

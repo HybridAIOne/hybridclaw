@@ -186,8 +186,8 @@ export async function callTelegramApi<T>(
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
       },
-      body: body ? JSON.stringify(body) : undefined,
-      signal,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: signal ?? null,
     });
     return await parseTelegramEnvelope<T>(response, method);
   } catch (error) {
@@ -205,7 +205,7 @@ export async function callTelegramMultipartApi<T>(
     const response = await fetch(buildTelegramApiUrl(token, method), {
       method: 'POST',
       body: formData,
-      signal,
+      signal: signal ?? null,
     });
     return await parseTelegramEnvelope<T>(response, method);
   } catch (error) {
@@ -221,7 +221,7 @@ export async function fetchTelegramFile(
   try {
     const response = await fetch(buildTelegramFileUrl(token, filePath), {
       method: 'GET',
-      signal,
+      signal: signal ?? null,
     });
     if (!response.ok) {
       const description = (await response.text().catch(() => '')).trim();
@@ -243,11 +243,11 @@ export async function createTelegramUploadForm(params: {
   fileField: 'audio' | 'document' | 'photo' | 'video';
   filePath: string;
   filename: string;
-  mimeType?: string | null;
-  topicId?: number;
-  replyToMessageId?: number;
-  caption?: string;
-  disableNotification?: boolean;
+  mimeType?: string | null | undefined;
+  topicId?: number | undefined;
+  replyToMessageId?: number | undefined;
+  caption?: string | undefined;
+  disableNotification?: boolean | undefined;
 }): Promise<FormData> {
   const formData = new FormData();
   formData.set('chat_id', params.chatId);

@@ -30,14 +30,14 @@ export interface SkillPolicyAccessInput {
   rules: SkillPolicyRule[];
   agentId: string;
   skillName: string;
-  skillId?: string;
-  source?: string;
-  category?: string;
-  channel?: string;
-  capabilities?: string[];
-  roles?: string[];
-  tenantId?: string;
-  qualityScore?: number;
+  skillId?: string | undefined;
+  source?: string | undefined;
+  category?: string | undefined;
+  channel?: string | undefined;
+  capabilities?: string[] | undefined;
+  roles?: string[] | undefined;
+  tenantId?: string | undefined;
+  qualityScore?: number | undefined;
 }
 
 export interface SkillPolicyAccessEvaluation {

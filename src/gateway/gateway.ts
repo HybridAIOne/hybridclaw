@@ -358,14 +358,16 @@ async function handlePendingApprovalRouting(params: {
   userId: string;
   channelId: string;
   buttonPresentation: ApprovalPresentation;
-  sendApprovalNotification?: ApprovalNotificationSender;
+  sendApprovalNotification?: ApprovalNotificationSender | undefined;
   sendText: (text: string) => Promise<void>;
-  formatTextPrompt?: (input: {
-    approval: GatewayChatApprovalEvent;
-    approvalUserId: string;
-    responseText: string;
-    storedPrompt: string;
-  }) => string;
+  formatTextPrompt?:
+    | ((input: {
+        approval: GatewayChatApprovalEvent;
+        approvalUserId: string;
+        responseText: string;
+        storedPrompt: string;
+      }) => string)
+    | undefined;
 }): Promise<{ cleanup: { disableButtons: () => Promise<void> } | null }> {
   const escalationTarget = normalizeEscalationTarget(
     params.pendingApproval.escalationTarget,

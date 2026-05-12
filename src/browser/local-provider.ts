@@ -29,8 +29,8 @@ import type {
 } from './provider.js';
 
 type PlaywrightScreenshotOptions = {
-  fullPage?: boolean;
-  type?: 'png' | 'jpeg';
+  fullPage?: boolean | undefined;
+  type?: 'png' | 'jpeg' | undefined;
 };
 
 type PlaywrightPage = {
@@ -40,7 +40,10 @@ type PlaywrightPage = {
   goBack(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   goForward(opts?: PlaywrightNavigationOptions): Promise<unknown>;
   reload(opts?: PlaywrightNavigationOptions): Promise<unknown>;
-  click(selector: string, opts?: { timeout?: number }): Promise<void>;
+  click(
+    selector: string,
+    opts?: { timeout?: number | undefined },
+  ): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
   url(): string;
   mouse: {
@@ -48,7 +51,10 @@ type PlaywrightPage = {
   };
   waitForSelector(
     selector: string,
-    opts?: { state?: WaitOptions['state']; timeout?: number },
+    opts?: {
+      state?: WaitOptions['state'] | undefined;
+      timeout?: number | undefined;
+    },
   ): Promise<unknown>;
   locator(selector: string): PlaywrightSecretFillLocator & {
     evaluate<TArg>(
@@ -70,7 +76,7 @@ export type LocalBrowserPlaywrightModule = {
       userDataDir: string,
       opts: {
         headless: boolean;
-        timeout?: number;
+        timeout?: number | undefined;
         args: string[];
       },
     ): Promise<PlaywrightContext>;

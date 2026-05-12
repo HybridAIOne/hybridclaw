@@ -18,13 +18,13 @@ import {
 export type SecretPolicyDecision = 'allow' | 'deny';
 
 export interface SecretPolicyContext {
-  agentId?: string;
-  skillName?: string;
+  agentId?: string | undefined;
+  skillName?: string | undefined;
   secretSource: 'env' | 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
-  host?: string;
-  selector?: string;
+  host?: string | undefined;
+  selector?: string | undefined;
 }
 
 export interface SecretPolicyState {
@@ -263,7 +263,7 @@ export function evaluateSecretPolicyAccess(params: {
   context: SecretPolicyContext;
 }): {
   decision: SecretPolicyDecision;
-  matchedRule?: PolicyRule<SecretPolicyDecision>;
+  matchedRule?: PolicyRule<SecretPolicyDecision> | undefined;
 } {
   const evaluation = evaluatePolicyRules({
     rules: params.state.rules,

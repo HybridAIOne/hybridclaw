@@ -156,7 +156,7 @@ interface ParsedHybridAILoginArgs {
 }
 
 function extractBaseUrlArg(args: string[]): {
-  baseUrl?: string;
+  baseUrl?: string | undefined;
   remaining: string[];
 } {
   let baseUrl: string | undefined;
@@ -202,9 +202,9 @@ function parseHybridAILoginArgs(args: string[]): ParsedHybridAILoginArgs {
 }
 
 interface ParsedOpenRouterLoginArgs {
-  modelId?: string;
-  baseUrl?: string;
-  apiKey?: string;
+  modelId?: string | undefined;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
   setDefault: boolean;
 }
 
@@ -256,9 +256,9 @@ function parseHuggingFaceLoginArgs(args: string[]): ParsedOpenRouterLoginArgs {
 }
 
 interface ParsedAnthropicLoginArgs {
-  modelId?: string;
-  baseUrl?: string;
-  apiKey?: string;
+  modelId?: string | undefined;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
   method: 'claude-cli' | 'api-key';
   setDefault: boolean;
 }
@@ -1224,12 +1224,12 @@ function clearGoogleCredentials(): void {
 }
 
 function parseGoogleLoginArgs(args: string[]): {
-  account?: string;
-  clientId?: string;
-  clientSecret?: string;
-  refreshToken?: string;
-  scopes?: string;
-  redirectPort?: number;
+  account?: string | undefined;
+  clientId?: string | undefined;
+  clientSecret?: string | undefined;
+  refreshToken?: string | undefined;
+  scopes?: string | undefined;
+  redirectPort?: number | undefined;
 } {
   type GoogleStringFlagKey =
     | 'account'
@@ -1238,12 +1238,12 @@ function parseGoogleLoginArgs(args: string[]): {
     | 'refreshToken'
     | 'scopes';
   const parsed: {
-    account?: string;
-    clientId?: string;
-    clientSecret?: string;
-    refreshToken?: string;
-    scopes?: string;
-    redirectPort?: number;
+    account?: string | undefined;
+    clientId?: string | undefined;
+    clientSecret?: string | undefined;
+    refreshToken?: string | undefined;
+    scopes?: string | undefined;
+    redirectPort?: number | undefined;
   } = {};
   const stringFlags: Array<{
     key: GoogleStringFlagKey;
@@ -1712,9 +1712,9 @@ function normalizeLocalBaseUrl(
 
 interface ParsedLocalConfigureArgs {
   backend: LocalBackendType;
-  modelId?: string;
-  baseUrl?: string;
-  apiKey?: string;
+  modelId?: string | undefined;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
   setDefault: boolean;
 }
 
@@ -2288,9 +2288,9 @@ function parseMSTeamsLoginArgs(args: string[]): {
 async function promptWithDefault(params: {
   rl: readline.Interface;
   question: string;
-  defaultValue?: string;
-  required?: boolean;
-  secret?: boolean;
+  defaultValue?: string | undefined;
+  required?: boolean | undefined;
+  secret?: boolean | undefined;
 }): Promise<string> {
   while (true) {
     const suffix =

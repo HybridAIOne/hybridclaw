@@ -65,7 +65,7 @@ function detectThinkingFormat(
 function createLocalModelInfo(
   backend: LocalBackendType,
   modelId: string,
-  overrides?: Partial<LocalModelInfo>,
+  overrides?: { [K in keyof LocalModelInfo]?: LocalModelInfo[K] | undefined },
 ): LocalModelInfo {
   const normalizedId = normalizeModelId(modelId);
   const contextWindow =

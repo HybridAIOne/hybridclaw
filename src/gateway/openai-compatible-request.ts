@@ -73,8 +73,8 @@ function normalizeEvalProfileHeader(
 export class OpenAICompatibleRequestError extends Error {
   statusCode: number;
   type: string;
-  param?: string;
-  code?: string;
+  param?: string | undefined;
+  code?: string | undefined;
 
   constructor(
     statusCode: number,

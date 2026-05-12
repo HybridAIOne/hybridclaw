@@ -68,16 +68,16 @@ export type SkillInstallKind =
   | 'download';
 
 export interface SkillInstallSpec {
-  id?: string;
+  id?: string | undefined;
   kind: SkillInstallKind;
-  label?: string;
-  bins?: string[];
-  formula?: string;
-  package?: string;
-  module?: string;
-  url?: string;
-  path?: string;
-  chmod?: string;
+  label?: string | undefined;
+  bins?: string[] | undefined;
+  formula?: string | undefined;
+  package?: string | undefined;
+  module?: string | undefined;
+  url?: string | undefined;
+  path?: string | undefined;
+  chmod?: string | undefined;
 }
 
 interface SkillCandidate {
@@ -94,7 +94,7 @@ interface SkillCandidate {
   };
   metadata: {
     hybridclaw: {
-      shortDescription?: string;
+      shortDescription?: string | undefined;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -119,7 +119,7 @@ export interface Skill {
   };
   metadata: {
     hybridclaw: {
-      shortDescription?: string;
+      shortDescription?: string | undefined;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -724,7 +724,7 @@ function parseRequiresFromFrontmatter(
 }
 
 function parseHybridClawMetadata(frontmatter: FrontmatterParseResult): {
-  shortDescription?: string;
+  shortDescription?: string | undefined;
   tags: string[];
   relatedSkills: string[];
   install: SkillInstallSpec[];
@@ -1720,7 +1720,7 @@ export interface SkillCatalogEntry {
   };
   metadata: {
     hybridclaw: {
-      shortDescription?: string;
+      shortDescription?: string | undefined;
       tags: string[];
       relatedSkills: string[];
       install: SkillInstallSpec[];
@@ -1764,7 +1764,7 @@ function isAllowedBySkillPolicy(params: {
   policy: SkillPolicyState;
   skill: SkillCandidate;
   agentId: string;
-  channelKind?: SkillConfigChannelKind;
+  channelKind?: SkillConfigChannelKind | undefined;
 }): boolean {
   const evaluation = evaluateSkillPolicyAccess({
     rules: params.policy.rules,

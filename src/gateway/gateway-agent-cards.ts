@@ -403,9 +403,9 @@ function getLogicalAgentStatus(
 export function mapLogicalAgentCard(params: {
   agent: AgentConfig;
   sessions: GatewaySessionCard[];
-  usage?: GatewaySessionUsageSummary;
-  monthlySpendUsd?: number;
-  liveness?: GatewayCoworkerLivenessProbe;
+  usage?: GatewaySessionUsageSummary | undefined;
+  monthlySpendUsd?: number | undefined;
+  liveness?: GatewayCoworkerLivenessProbe | undefined;
 }): GatewayLogicalAgentCard {
   const resolved = resolveAgentConfig(params.agent.id);
   const sessions = [...params.sessions].sort((left, right) => {

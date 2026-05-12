@@ -2973,7 +2973,7 @@ async function waitForImmediateExit(
 }
 
 function startEvalProgressTracker(params: {
-  channelId?: string;
+  channelId?: string | undefined;
   runId: string;
   pid: number | null;
   metaPath: string;
@@ -3069,15 +3069,15 @@ export async function startDetachedEvalRun(params: {
   commandArgs: string[];
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
-  cwd?: string;
-  suiteId?: string;
-  operation?: string;
-  displayCommand?: string;
-  title?: string;
-  footerLines?: string[];
-  earlyExitCheckMs?: number;
-  dataDirForNotifications?: string;
+  channelId?: string | undefined;
+  cwd?: string | undefined;
+  suiteId?: string | undefined;
+  operation?: string | undefined;
+  displayCommand?: string | undefined;
+  title?: string | undefined;
+  footerLines?: string[] | undefined;
+  earlyExitCheckMs?: number | undefined;
+  dataDirForNotifications?: string | undefined;
 }): Promise<GatewayCommandResult> {
   const prepared = prepareEvalRun(params.commandArgs);
   const { runId, runDir, stdoutPath, stderrPath, metaPath } =
@@ -3360,7 +3360,7 @@ function renderTau2Results(dataDir: string): GatewayCommandResult {
 async function handleTau2Setup(params: {
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
+  channelId?: string | undefined;
 }): Promise<GatewayCommandResult> {
   const activeSetup = findLatestEvalRun(
     params.dataDir,
@@ -3403,7 +3403,7 @@ async function handleTau2Setup(params: {
 async function handleTau2Run(params: {
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
+  channelId?: string | undefined;
   args: string[];
 }): Promise<GatewayCommandResult> {
   if (!isTau2Installed(params.dataDir)) {
@@ -4242,7 +4242,7 @@ async function handleManagedSuiteSetup(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
+  channelId?: string | undefined;
 }): Promise<GatewayCommandResult> {
   if (params.suite.id === 'trace-judge') {
     return infoResult(
@@ -4310,8 +4310,8 @@ async function handleManagedSuiteRun(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
-  effectiveAgentId?: string;
-  channelId?: string;
+  effectiveAgentId?: string | undefined;
+  channelId?: string | undefined;
   args: string[];
   workspaceModeExplicit: boolean;
 }): Promise<GatewayCommandResult> {
@@ -4430,10 +4430,10 @@ async function handleManagedSuiteCommand(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
-  effectiveAgentId?: string;
-  channelId?: string;
-  subcommand?: string;
-  args?: string[];
+  effectiveAgentId?: string | undefined;
+  channelId?: string | undefined;
+  subcommand?: string | undefined;
+  args?: string[] | undefined;
   workspaceModeExplicit: boolean;
 }): Promise<GatewayCommandResult> {
   const subcommand = String(params.subcommand || '')
@@ -4504,8 +4504,8 @@ async function handleManagedSuiteCommand(params: {
 async function handleTau2Command(params: {
   dataDir: string;
   env: EvalEnvironment;
-  channelId?: string;
-  subcommand?: string;
+  channelId?: string | undefined;
+  subcommand?: string | undefined;
   args: string[];
 }): Promise<GatewayCommandResult> {
   const subcommand = String(params.subcommand || '')

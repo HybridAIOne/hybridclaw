@@ -237,8 +237,8 @@ async function promptForSecretInputWithReadline(
 
 export async function promptForSecretInput(params: {
   prompt: string;
-  missingMessage?: string;
-  rl?: readline.Interface;
+  missingMessage?: string | undefined;
+  rl?: readline.Interface | undefined;
 }): Promise<string> {
   const normalizedPrompt = normalizeSecretPrompt(params.prompt);
   ensureInteractiveTerminal(params.missingMessage);

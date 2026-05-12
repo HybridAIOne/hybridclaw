@@ -12,7 +12,7 @@ export const A2A_AGENT_CARD_CACHE_MAX_ENTRIES = 256;
 
 interface CachedAgentCard {
   card: A2AAgentCard;
-  etag?: string;
+  etag?: string | undefined;
   expiresAt: number;
 }
 
@@ -41,7 +41,7 @@ function isAgentCard(value: unknown): value is A2AAgentCard {
 
 function cacheKeyFor(input: {
   agentCardUrl: string;
-  authCacheKey?: string;
+  authCacheKey?: string | undefined;
 }): string {
   if (!input.authCacheKey) return input.agentCardUrl;
   const authHash = createHash('sha256')
@@ -78,11 +78,11 @@ function cacheAgentCard(
 
 export async function fetchA2AAgentCard(input: {
   agentCardUrl: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: typeof fetch | undefined;
   now: Date;
-  headers?: Record<string, string>;
-  authCacheKey?: string;
-  agentCardCacheTtlMs?: number;
+  headers?: Record<string, string> | undefined;
+  authCacheKey?: string | undefined;
+  agentCardCacheTtlMs?: number | undefined;
 }): Promise<A2AAgentCard> {
   if (!isA2AAllowedHttpUrl(input.agentCardUrl)) {
     throw new A2AFailFastError(

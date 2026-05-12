@@ -261,11 +261,10 @@ export function createBlueBubblesIMessageBackend(
       if (caption) {
         formData.set('message', caption);
       }
+      const mimeTypeStr = String(params.mimeType || '').trim();
       formData.set(
         'attachment',
-        new Blob([bytes], {
-          type: String(params.mimeType || '').trim() || undefined,
-        }),
+        new Blob([bytes], mimeTypeStr ? { type: mimeTypeStr } : {}),
         filename,
       );
 

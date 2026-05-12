@@ -37,8 +37,8 @@ export type CanonicalSlashStringOptionDefinition = {
   kind: 'string';
   name: string;
   description: string;
-  required?: boolean;
-  choices?: Array<{ name: string; value: string }>;
+  required?: boolean | undefined;
+  choices?: Array<{ name: string; value: string }> | undefined;
 };
 
 export type CanonicalSlashSubcommandOptionDefinition = {
@@ -62,7 +62,7 @@ export interface CanonicalSlashInteractionInput {
 
 export interface PluginSlashCommandCatalogEntry {
   name: string;
-  description?: string;
+  description?: string | undefined;
 }
 
 interface LocalSessionHelpPresentation {

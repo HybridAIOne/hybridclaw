@@ -26,8 +26,8 @@ function deleteGatewayRequestEntry(
 
 export function registerActiveGatewayRequest(params: {
   sessionId: string;
-  abortSignal?: AbortSignal;
-  executionSessionId?: string;
+  abortSignal?: AbortSignal | undefined;
+  executionSessionId?: string | undefined;
 }): {
   signal: AbortSignal;
   release: () => void;

@@ -12,11 +12,11 @@ export interface ContextReference {
   value: string | null;
   start: number;
   end: number;
-  path?: string;
-  lineStart?: number;
-  lineEnd?: number;
-  commitCount?: number;
-  url?: string;
+  path?: string | undefined;
+  lineStart?: number | undefined;
+  lineEnd?: number | undefined;
+  commitCount?: number | undefined;
+  url?: string | undefined;
 }
 
 export interface ContextReferenceResult {

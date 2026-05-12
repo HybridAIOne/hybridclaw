@@ -5,8 +5,8 @@ import {
 import { normalizeTrimmedStringSet } from '../utils/normalized-strings.js';
 
 export function mergeBlockedToolNames(params?: {
-  explicit?: readonly string[] | null;
-  runtimeDisabled?: Iterable<string>;
+  explicit?: readonly string[] | null | undefined;
+  runtimeDisabled?: Iterable<string> | undefined;
 }): string[] | undefined {
   const explicit = Array.isArray(params?.explicit) ? params.explicit : [];
   const runtimeDisabled =

@@ -173,7 +173,7 @@ type RegisteredCommand = {
 
 export interface PluginCommandSummary {
   name: string;
-  description?: string;
+  description?: string | undefined;
 }
 
 type RegisteredProvider = {
@@ -210,14 +210,16 @@ export interface ExecutePluginToolParams {
 }
 
 export interface PluginManagerOptions {
-  homeDir?: string;
-  cwd?: string;
-  getRuntimeConfig?: () => RuntimeConfig;
-  logger?: PluginLogger;
-  dispatchInboundMessage?: (
-    pluginId: string,
-    request: PluginDispatchInboundMessageRequest,
-  ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>;
+  homeDir?: string | undefined;
+  cwd?: string | undefined;
+  getRuntimeConfig?: (() => RuntimeConfig) | undefined;
+  logger?: PluginLogger | undefined;
+  dispatchInboundMessage?:
+    | ((
+        pluginId: string,
+        request: PluginDispatchInboundMessageRequest,
+      ) => Promise<import('../gateway/gateway-types.js').GatewayChatResult>)
+    | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1260,10 +1262,10 @@ export class PluginManager {
   private recordPluginLoadFailure(params: {
     candidate: PluginCandidate;
     error: unknown;
-    definition?: HybridClawPluginDefinition;
+    definition?: HybridClawPluginDefinition | undefined;
     api?: LoadedPlugin['api'];
-    toolsRegistered?: string[];
-    hooksRegistered?: string[];
+    toolsRegistered?: string[] | undefined;
+    hooksRegistered?: string[] | undefined;
   }): void {
     const errorMessage =
       params.error instanceof Error
@@ -1882,7 +1884,7 @@ export class PluginManager {
     userId: string;
     agentId: string;
     channelId: string;
-    model?: string;
+    model?: string | undefined;
   }): Promise<void> {
     await this.ensureInitialized();
     this.rememberSessionUserId(params.sessionId, params.userId);

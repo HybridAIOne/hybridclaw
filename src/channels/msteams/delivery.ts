@@ -15,15 +15,15 @@ export { formatError };
 
 export interface MSTeamsChunkedActivity {
   text: string;
-  attachments?: Attachment[];
+  attachments?: Attachment[] | undefined;
 }
 
 export interface BuildMSTeamsMessageActivityParams {
-  id?: string;
+  id?: string | undefined;
   text: string;
-  attachments?: Attachment[];
+  attachments?: Attachment[] | undefined;
   replyStyle: MSTeamsReplyStyle;
-  replyToId?: string | null;
+  replyToId?: string | null | undefined;
 }
 
 export function buildResponseText(text: string, toolsUsed?: string[]): string {
@@ -42,7 +42,7 @@ export function buildAdaptiveCardAttachment(
 
 export function prepareChunkedActivities(params: {
   text: string;
-  attachments?: Attachment[];
+  attachments?: Attachment[] | undefined;
 }): MSTeamsChunkedActivity[] {
   const chunks = chunkMessage(params.text, {
     maxChars: Math.max(200, Math.min(20_000, MSTEAMS_TEXT_CHUNK_LIMIT)),
@@ -83,8 +83,8 @@ export async function sendChunkedReply(params: {
   turnContext: TurnContext;
   text: string;
   replyStyle: MSTeamsReplyStyle;
-  replyToId?: string | null;
-  attachments?: Attachment[];
+  replyToId?: string | null | undefined;
+  attachments?: Attachment[] | undefined;
 }): Promise<void> {
   const chunks = prepareChunkedActivities({
     text: params.text,

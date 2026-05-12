@@ -378,7 +378,7 @@ export function buildSlackInboundRouting(params: {
   botUserId: string | null;
   config: RuntimeSlackConfig;
   activeThreadKeys: ReadonlySet<string>;
-  agentId?: string;
+  agentId?: string | undefined;
 }): SlackInboundRouting | null {
   const userId = normalizeSlackUserId(params.event.user);
   const channelId = parseSlackChannelTarget(params.event.channel)?.channelId;

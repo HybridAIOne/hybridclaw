@@ -16,14 +16,14 @@ export interface DiscordSendPermissionSnapshot {
 
 export interface ResolveSendAllowedParams {
   channelId: string;
-  guildId?: string | null;
-  requestingUserId?: string | null;
-  requestingRoleIds?: string[];
+  guildId?: string | null | undefined;
+  requestingUserId?: string | null | undefined;
+  requestingRoleIds?: string[] | undefined;
 }
 
 export interface ResolveSendAllowedResult {
   allowed: boolean;
-  reason?: string;
+  reason?: string | undefined;
 }
 
 function normalizeId(rawValue: string | null | undefined): string {

@@ -16,53 +16,53 @@ export type AgentModelConfig =
   | string
   | {
       primary: string;
-      fallbacks?: string[];
+      fallbacks?: string[] | undefined;
     };
 
 export interface AgentCv {
-  summary?: string;
-  background?: string;
-  capabilities?: string[];
-  asset?: string;
+  summary?: string | undefined;
+  background?: string | undefined;
+  capabilities?: string[] | undefined;
+  asset?: string | undefined;
 }
 
 export type AgentA2AExposure = 'public' | 'trusted' | 'private';
 
 export interface AgentA2AConfig {
-  exposure?: AgentA2AExposure;
-  skillExposure?: Record<string, AgentA2AExposure>;
+  exposure?: AgentA2AExposure | undefined;
+  skillExposure?: Record<string, AgentA2AExposure> | undefined;
 }
 
 export interface AgentConfig {
   id: string;
-  name?: string;
-  displayName?: string;
-  imageAsset?: string;
-  model?: AgentModelConfig;
-  skills?: string[];
-  workspace?: string;
-  chatbotId?: string;
-  enableRag?: boolean;
-  owner?: string;
-  role?: string;
-  reportsTo?: string;
-  delegatesTo?: string[];
-  peers?: string[];
-  cv?: AgentCv;
-  escalationTarget?: EscalationTarget;
-  a2a?: AgentA2AConfig;
+  name?: string | undefined;
+  displayName?: string | undefined;
+  imageAsset?: string | undefined;
+  model?: AgentModelConfig | undefined;
+  skills?: string[] | undefined;
+  workspace?: string | undefined;
+  chatbotId?: string | undefined;
+  enableRag?: boolean | undefined;
+  owner?: string | undefined;
+  role?: string | undefined;
+  reportsTo?: string | undefined;
+  delegatesTo?: string[] | undefined;
+  peers?: string[] | undefined;
+  cv?: AgentCv | undefined;
+  escalationTarget?: EscalationTarget | undefined;
+  a2a?: AgentA2AConfig | undefined;
 }
 
 export interface AgentDefaultsConfig {
-  model?: AgentModelConfig;
-  chatbotId?: string;
-  enableRag?: boolean;
+  model?: AgentModelConfig | undefined;
+  chatbotId?: string | undefined;
+  enableRag?: boolean | undefined;
 }
 
 export interface AgentsConfig {
-  defaultAgentId?: string;
-  defaults?: AgentDefaultsConfig;
-  list?: AgentConfig[];
+  defaultAgentId?: string | undefined;
+  defaults?: AgentDefaultsConfig | undefined;
+  list?: AgentConfig[] | undefined;
 }
 
 export function buildOptionalAgentPresentation(

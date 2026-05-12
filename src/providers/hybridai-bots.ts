@@ -22,14 +22,14 @@ let accountChatbotCache: AccountChatbotCacheEntry | null = null;
 
 export class HybridAIBotFetchError extends Error {
   status: number;
-  code?: number | string;
-  type?: string;
+  code?: number | string | undefined;
+  type?: string | undefined;
 
   constructor(params: {
     status: number;
     message: string;
-    code?: number | string;
-    type?: string;
+    code?: number | string | undefined;
+    type?: string | undefined;
   }) {
     super(params.message);
     this.name = 'HybridAIBotFetchError';
@@ -71,8 +71,8 @@ function formatTransportFailure(error: unknown): string {
 
 function parseHybridAIErrorPayload(payload: unknown): {
   message: string | null;
-  code?: number | string;
-  type?: string;
+  code?: number | string | undefined;
+  type?: string | undefined;
 } {
   if (typeof payload === 'string' && payload.trim()) {
     return { message: payload.trim() };

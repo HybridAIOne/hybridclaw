@@ -194,9 +194,9 @@ function writeZipArchive(
 }
 
 export interface CreateBackupOptions {
-  sourceDir?: string;
-  outputPath?: string;
-  now?: Date;
+  sourceDir?: string | undefined;
+  outputPath?: string | undefined;
+  now?: Date | undefined;
 }
 
 export interface CreateBackupResult {
@@ -372,13 +372,15 @@ function parseBackupManifest(raw: string): BackupManifest {
 
 export interface RestoreBackupOptions {
   archivePath: string;
-  targetDir?: string;
-  force?: boolean;
-  confirm?: (details: {
-    targetDir: string;
-    existingEntries: number;
-    manifest: BackupManifest;
-  }) => Promise<boolean> | boolean;
+  targetDir?: string | undefined;
+  force?: boolean | undefined;
+  confirm?:
+    | ((details: {
+        targetDir: string;
+        existingEntries: number;
+        manifest: BackupManifest;
+      }) => Promise<boolean> | boolean)
+    | undefined;
 }
 
 export interface RestoreBackupResult {

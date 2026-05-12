@@ -3460,8 +3460,8 @@ export function normalizeUsageCost(value: unknown): number {
 function applyUsageFilters(params: {
   whereClauses: string[];
   args: unknown[];
-  agentId?: string;
-  window?: UsageWindow;
+  agentId?: string | undefined;
+  window?: UsageWindow | undefined;
 }): void {
   const agentId = params.agentId?.trim();
   if (agentId) {
@@ -4079,8 +4079,8 @@ export function getSessionFileChangeCounts(
 }
 
 export function listUsageByModel(params?: {
-  agentId?: string;
-  window?: UsageWindow;
+  agentId?: string | undefined;
+  window?: UsageWindow | undefined;
 }): UsageModelAggregate[] {
   const whereClauses: string[] = [];
   const args: unknown[] = [];
@@ -4874,7 +4874,7 @@ export function resetSessionIfExpired(
   sessionId: string,
   opts: {
     policy: SessionResetPolicy;
-    expiryEvaluation?: SessionExpiryEvaluation;
+    expiryEvaluation?: SessionExpiryEvaluation | undefined;
   },
 ): Session | null {
   const existing = getSessionById(sessionId);
@@ -5926,10 +5926,10 @@ function buildRecentSessionSummaries(params: {
 
 export function getRecentSessionsForUser(params: {
   userId: string;
-  channelId?: string | null;
-  limit?: number;
-  query?: string | null;
-  includeScheduled?: boolean;
+  channelId?: string | null | undefined;
+  limit?: number | undefined;
+  query?: string | null | undefined;
+  includeScheduled?: boolean | undefined;
 }): RecentUserSessionSummary[] {
   const userId = params.userId.trim();
   if (!userId) return [];
@@ -5997,9 +5997,9 @@ export function getRecentSessionsForUser(params: {
 
 export function getRecentSessionsForChannel(params: {
   channelId: string;
-  limit?: number;
-  query?: string | null;
-  includeScheduled?: boolean;
+  limit?: number | undefined;
+  query?: string | null | undefined;
+  includeScheduled?: boolean | undefined;
 }): RecentUserSessionSummary[] {
   const channelId = params.channelId.trim();
   if (!channelId) return [];
@@ -6745,7 +6745,7 @@ export interface SemanticRecallFilter {
 function applySemanticRecallFilterClauses(params: {
   whereClauses: string[];
   args: unknown[];
-  filter?: SemanticRecallFilter;
+  filter?: SemanticRecallFilter | undefined;
 }): void {
   if (!params.filter) return;
   const role = params.filter.role?.trim();
@@ -6781,8 +6781,8 @@ function recallSemanticMemoriesByLike(params: {
   queryTerms: string[];
   limit: number;
   minConfidence: number;
-  filter?: SemanticRecallFilter;
-  touch?: boolean;
+  filter?: SemanticRecallFilter | undefined;
+  touch?: boolean | undefined;
 }): SemanticMemoryEntry[] {
   if (params.queryTerms.length === 0) return [];
   const candidateLimit = Math.max(params.limit * 8, 50);
@@ -6853,8 +6853,8 @@ function recallSemanticMemoriesByVector(params: {
   queryEmbedding: Float32Array;
   limit: number;
   minConfidence: number;
-  filter?: SemanticRecallFilter;
-  touch?: boolean;
+  filter?: SemanticRecallFilter | undefined;
+  touch?: boolean | undefined;
 }): SemanticMemoryEntry[] {
   const candidateLimit = Math.max(params.limit * 10, 100);
   const whereClauses: string[] = [
@@ -7102,8 +7102,8 @@ function recallSemanticMemoriesByFts(params: {
   minConfidence: number;
   tokenizer: MemoryRecallTokenizer;
   rankMode: 'source' | 'bm25';
-  filter?: SemanticRecallFilter;
-  touch?: boolean;
+  filter?: SemanticRecallFilter | undefined;
+  touch?: boolean | undefined;
 }): SemanticMemoryEntry[] {
   const whereClauses: string[] = [
     'session_id = ?',
@@ -7145,8 +7145,8 @@ function recallSemanticMemoriesByRecent(params: {
   sessionId: string;
   limit: number;
   minConfidence: number;
-  filter?: SemanticRecallFilter;
-  touch?: boolean;
+  filter?: SemanticRecallFilter | undefined;
+  touch?: boolean | undefined;
 }): SemanticMemoryEntry[] {
   const whereClauses: string[] = [
     'session_id = ?',
@@ -7199,16 +7199,16 @@ export function listSemanticMemoriesForSession(
 export function storeSemanticMemory(params: {
   sessionId: string;
   role: string;
-  source?: string | null;
-  scope?: string | null;
-  metadata?: Record<string, unknown> | string | null;
+  source?: string | null | undefined;
+  scope?: string | null | undefined;
+  metadata?: Record<string, unknown> | string | null | undefined;
   content: string;
-  confidence?: number;
-  embedding?: number[] | null;
-  sourceMessageId?: number | null;
-  createdAt?: string | null;
-  accessedAt?: string | null;
-  deleted?: boolean | number | null;
+  confidence?: number | undefined;
+  embedding?: number[] | null | undefined;
+  sourceMessageId?: number | null | undefined;
+  createdAt?: string | null | undefined;
+  accessedAt?: string | null | undefined;
+  deleted?: boolean | number | null | undefined;
 }): number {
   const resolvedSessionId = resolveSessionIdCompat(params.sessionId);
   const normalizedContent = params.content.trim();
@@ -7259,15 +7259,15 @@ export function storeSemanticMemory(params: {
 export function recallSemanticMemories(params: {
   sessionId: string;
   query: string;
-  limit?: number;
-  limitHardCap?: number | null;
-  minConfidence?: number;
-  queryEmbedding?: number[] | null;
-  backend?: MemoryRecallBackend;
-  rerank?: MemoryRecallRerank;
-  tokenizer?: MemoryRecallTokenizer;
-  filter?: SemanticRecallFilter;
-  touch?: boolean;
+  limit?: number | undefined;
+  limitHardCap?: number | null | undefined;
+  minConfidence?: number | undefined;
+  queryEmbedding?: number[] | null | undefined;
+  backend?: MemoryRecallBackend | undefined;
+  rerank?: MemoryRecallRerank | undefined;
+  tokenizer?: MemoryRecallTokenizer | undefined;
+  filter?: SemanticRecallFilter | undefined;
+  touch?: boolean | undefined;
 }): SemanticMemoryEntry[] {
   const resolvedSessionId = resolveSessionIdCompat(params.sessionId);
   const normalizedQuery = params.query.trim().toLowerCase();
@@ -8824,13 +8824,13 @@ export function getWeeklyAgentAnomalyRollups(
 }
 
 function queryStructuredAuditEntries(params?: {
-  sessionId?: string;
-  eventType?: string;
-  query?: string;
-  limit?: number;
-  maxLimit?: number;
-  orderBy?: 'id' | 'seq';
-  sortDirection?: 'ASC' | 'DESC';
+  sessionId?: string | undefined;
+  eventType?: string | undefined;
+  query?: string | undefined;
+  limit?: number | undefined;
+  maxLimit?: number | undefined;
+  orderBy?: 'id' | 'seq' | undefined;
+  sortDirection?: 'ASC' | 'DESC' | undefined;
 }): StructuredAuditEntry[] {
   const sessionId = String(params?.sessionId || '').trim();
   const eventType = String(params?.eventType || '').trim();

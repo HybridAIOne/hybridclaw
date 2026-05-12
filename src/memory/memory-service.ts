@@ -91,7 +91,7 @@ export interface MemoryBackend {
     sessionId: string,
     opts: {
       policy: SessionResetPolicy;
-      expiryEvaluation?: SessionExpiryEvaluation;
+      expiryEvaluation?: SessionExpiryEvaluation | undefined;
     },
   ) => Session | null;
   getOrCreateSession: (
@@ -178,26 +178,26 @@ export interface MemoryBackend {
   storeSemanticMemory: (params: {
     sessionId: string;
     role: string;
-    source?: string | null;
-    scope?: string | null;
-    metadata?: Record<string, unknown> | string | null;
+    source?: string | null | undefined;
+    scope?: string | null | undefined;
+    metadata?: Record<string, unknown> | string | null | undefined;
     content: string;
-    confidence?: number;
-    embedding?: number[] | null;
-    sourceMessageId?: number | null;
+    confidence?: number | undefined;
+    embedding?: number[] | null | undefined;
+    sourceMessageId?: number | null | undefined;
   }) => number;
   recallSemanticMemories: (params: {
     sessionId: string;
     query: string;
-    limit?: number;
-    limitHardCap?: number | null;
-    minConfidence?: number;
-    queryEmbedding?: number[] | null;
-    backend?: MemoryRecallBackend;
-    rerank?: MemoryRecallRerank;
-    tokenizer?: MemoryRecallTokenizer;
-    filter?: SemanticRecallFilter;
-    touch?: boolean;
+    limit?: number | undefined;
+    limitHardCap?: number | null | undefined;
+    minConfidence?: number | undefined;
+    queryEmbedding?: number[] | null | undefined;
+    backend?: MemoryRecallBackend | undefined;
+    rerank?: MemoryRecallRerank | undefined;
+    tokenizer?: MemoryRecallTokenizer | undefined;
+    filter?: SemanticRecallFilter | undefined;
+    touch?: boolean | undefined;
   }) => SemanticMemoryEntry[];
   forgetSemanticMemory: (id: number) => boolean;
   decaySemanticMemories: (params?: {
@@ -242,11 +242,11 @@ export interface StoreTurnParams {
     content: string;
   };
   assistant: {
-    userId?: string;
-    username?: string | null;
-    agentId?: string | null;
+    userId?: string | undefined;
+    username?: string | null | undefined;
+    agentId?: string | null | undefined;
     content: string;
-    artifacts?: ArtifactMetadata[] | null;
+    artifacts?: ArtifactMetadata[] | null | undefined;
   };
 }
 
@@ -267,16 +267,16 @@ export interface BuildMemoryPromptResult {
 export interface RecallSemanticMemoriesParams {
   sessionId: string;
   query: string;
-  limit?: number;
-  limitHardCap?: number | null;
-  minConfidence?: number;
-  queryMode?: MemoryQueryMode;
-  backend?: MemoryRecallBackend;
-  rerank?: MemoryRecallRerank;
-  tokenizer?: MemoryRecallTokenizer;
-  embeddingProvider?: MemoryEmbeddingProviderKind;
-  filter?: SemanticRecallFilter;
-  touch?: boolean;
+  limit?: number | undefined;
+  limitHardCap?: number | null | undefined;
+  minConfidence?: number | undefined;
+  queryMode?: MemoryQueryMode | undefined;
+  backend?: MemoryRecallBackend | undefined;
+  rerank?: MemoryRecallRerank | undefined;
+  tokenizer?: MemoryRecallTokenizer | undefined;
+  embeddingProvider?: MemoryEmbeddingProviderKind | undefined;
+  filter?: SemanticRecallFilter | undefined;
+  touch?: boolean | undefined;
 }
 
 const DEFAULT_CONFIG: MemoryServiceConfig = {
@@ -478,7 +478,7 @@ export class MemoryService {
     sessionId: string,
     opts: {
       policy: SessionResetPolicy;
-      expiryEvaluation?: SessionExpiryEvaluation;
+      expiryEvaluation?: SessionExpiryEvaluation | undefined;
     },
   ): Session | null {
     return this.backend.resetSessionIfExpired(sessionId, opts);
@@ -726,8 +726,8 @@ export class MemoryService {
     username: string | null;
     role: string;
     content: string;
-    agentId?: string | null;
-    artifacts?: ArtifactMetadata[] | null;
+    agentId?: string | null | undefined;
+    artifacts?: ArtifactMetadata[] | null | undefined;
   }): number {
     return this.backend.storeMessage(
       params.sessionId,
@@ -743,14 +743,14 @@ export class MemoryService {
   storeSemanticMemory(params: {
     sessionId: string;
     role: string;
-    source?: string | null;
-    scope?: string | null;
-    metadata?: Record<string, unknown> | string | null;
+    source?: string | null | undefined;
+    scope?: string | null | undefined;
+    metadata?: Record<string, unknown> | string | null | undefined;
     content: string;
-    confidence?: number;
-    embedding?: number[] | null;
-    embeddingProvider?: MemoryEmbeddingProviderKind;
-    sourceMessageId?: number | null;
+    confidence?: number | undefined;
+    embedding?: number[] | null | undefined;
+    embeddingProvider?: MemoryEmbeddingProviderKind | undefined;
+    sourceMessageId?: number | null | undefined;
   }): number {
     const content = params.content.trim();
     if (!content) {

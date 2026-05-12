@@ -291,7 +291,7 @@ function prepareOpenAICompatibleRequest(
 function buildGatewayChatRequest(params: {
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
-  executionSessionId?: string;
+  executionSessionId?: string | undefined;
 }): GatewayChatRequest {
   const includeAgentId =
     Boolean(params.prepared.cleanupAgentId) ||

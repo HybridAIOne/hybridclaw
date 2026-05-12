@@ -36,19 +36,19 @@ export interface TokenUsageEvent {
   model: string;
   inputTokens: number;
   outputTokens: number;
-  totalTokens?: number;
-  toolCalls?: number;
-  costUsd?: number;
+  totalTokens?: number | undefined;
+  toolCalls?: number | undefined;
+  costUsd?: number | undefined;
   /** ISO-8601 timestamp; auto-generated if omitted. */
-  timestamp?: string;
+  timestamp?: string | undefined;
   /** Optional run context to thread the batch audit event. */
-  auditRunId?: string;
+  auditRunId?: string | undefined;
 }
 
 export interface StartTokenUsageBufferOptions {
-  flushIntervalMs?: number;
-  maxBatchSize?: number;
-  maxQueueSize?: number;
+  flushIntervalMs?: number | undefined;
+  maxBatchSize?: number | undefined;
+  maxQueueSize?: number | undefined;
 }
 
 export interface TokenUsageBufferStats {
@@ -91,7 +91,7 @@ export interface TokenUsageBatchHashRow {
 
 interface PreparedUsageEvent extends TokenUsageBatchHashRow {
   id: string;
-  auditRunId?: string;
+  auditRunId?: string | undefined;
   batchHash: string;
 }
 
@@ -100,7 +100,7 @@ interface PreparedUsageBatchGroup {
   batchId: string;
   batchHash: string;
   events: PreparedUsageEvent[];
-  auditRunId?: string;
+  auditRunId?: string | undefined;
 }
 
 export interface TokenUsageBatchVerificationResult {

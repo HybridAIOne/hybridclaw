@@ -19,8 +19,8 @@ export type DoctorCategory = (typeof DOCTOR_CATEGORIES)[number];
 export interface DiagFix {
   summary: string;
   apply: () => Promise<void>;
-  rollback?: () => Promise<void>;
-  requiresApproval?: boolean;
+  rollback?: (() => Promise<void>) | undefined;
+  requiresApproval?: boolean | undefined;
 }
 
 export interface DiagResult {

@@ -68,10 +68,10 @@ function readHeaderValue(lookup: HeaderLookup, headerName: string): unknown {
 }
 
 export function buildEmailDeliveryMetadata(params: {
-  agentId?: string | null;
-  model?: string | null;
-  provider?: string | null;
-  tokenUsage?: TokenUsageStats;
+  agentId?: string | null | undefined;
+  model?: string | null | undefined;
+  provider?: string | null | undefined;
+  tokenUsage?: TokenUsageStats | undefined;
 }): EmailDeliveryMetadata | null {
   const agentId = trimString(params.agentId);
   const model = trimString(params.model);

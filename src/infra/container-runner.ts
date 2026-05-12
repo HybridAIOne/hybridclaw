@@ -124,7 +124,7 @@ import { computeWorkerSignature } from './worker-signature.js';
 
 function resolveExecutorMaxTokens(params: {
   model: string;
-  discoveredMaxTokens?: number;
+  discoveredMaxTokens?: number | undefined;
 }): number | undefined {
   return resolveProviderRequestMaxTokens({
     model: params.model,
@@ -148,12 +148,12 @@ interface PoolEntry extends WarmRunnerEntry {
   streamDebug: StreamDebugState;
   workerSignature: string;
   terminalError: string | null;
-  onTextDelta?: (delta: string) => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  activity?: import('./ipc.js').ActivityTracker;
-  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
+  onTextDelta?: ((delta: string) => void) | undefined;
+  onThinkingDelta?: ((delta: string) => void) | undefined;
+  onToolProgress?: ((event: ToolProgressEvent) => void) | undefined;
+  onApprovalProgress?: ((approval: PendingApproval) => void) | undefined;
+  activity?: import('./ipc.js').ActivityTracker | undefined;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot> | undefined;
 }
 
 interface ContainerPathAliasMount {
@@ -529,8 +529,8 @@ function enforceWarmContainerPressure(): void {
 function claimWarmContainer(params: {
   sessionId: string;
   agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): PoolEntry | null {
   return claimWarmEntry({
@@ -554,8 +554,8 @@ function claimWarmContainer(params: {
 
 function maintainWarmContainerPool(params: {
   agentId: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
   bashProxy?: ExecutorRequest['bashProxy'];
 }): void {
   maintainWarmPool({
@@ -663,7 +663,7 @@ function remapHostBaseUrlForContainer(baseUrl: string): string {
 function getContainerWorkspacePath(params: {
   sessionId: string;
   agentId: string;
-  workspacePathOverride?: string;
+  workspacePathOverride?: string | undefined;
 }): string {
   const trimmed = params.workspacePathOverride?.trim();
   if (trimmed) return path.resolve(trimmed);

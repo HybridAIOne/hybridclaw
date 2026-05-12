@@ -15,25 +15,25 @@ import {
 export interface SlashCommandDefinition {
   name: string;
   description: string;
-  dmPermission?: boolean;
-  integrationTypes?: readonly ApplicationIntegrationType[];
-  contexts?: readonly InteractionContextType[];
-  options?: SlashCommandOptionDefinition[];
+  dmPermission?: boolean | undefined;
+  integrationTypes?: readonly ApplicationIntegrationType[] | undefined;
+  contexts?: readonly InteractionContextType[] | undefined;
+  options?: SlashCommandOptionDefinition[] | undefined;
 }
 
 type SlashCommandStringOptionDefinition = {
   type: ApplicationCommandOptionType.String;
   name: string;
   description: string;
-  required?: boolean;
-  choices?: Array<{ name: string; value: string }>;
+  required?: boolean | undefined;
+  choices?: Array<{ name: string; value: string }> | undefined;
 };
 
 type SlashCommandSubcommandOptionDefinition = {
   type: ApplicationCommandOptionType.Subcommand;
   name: string;
   description: string;
-  options?: SlashCommandStringOptionDefinition[];
+  options?: SlashCommandStringOptionDefinition[] | undefined;
 };
 
 export type SlashCommandOptionDefinition =

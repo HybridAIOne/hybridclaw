@@ -14,9 +14,9 @@ export const DISCORD_CDN_HOST_PATTERNS: RegExp[] = [
 ];
 
 interface DiscordCdnFetchOptions {
-  timeoutMs?: number;
-  readIdleTimeoutMs?: number;
-  maxBytes?: number | null;
+  timeoutMs?: number | undefined;
+  readIdleTimeoutMs?: number | undefined;
+  maxBytes?: number | null | undefined;
 }
 
 export interface DiscordCdnFetchResult {

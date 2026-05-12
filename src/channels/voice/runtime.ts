@@ -820,7 +820,9 @@ export function handleVoiceUpgrade(
   return true;
 }
 
-export async function shutdownVoice(opts?: { drain?: boolean }): Promise<void> {
+export async function shutdownVoice(opts?: {
+  drain?: boolean | undefined;
+}): Promise<void> {
   draining = true;
   if (opts?.drain) {
     const deadline = Date.now() + SHUTDOWN_DRAIN_TIMEOUT_MS;

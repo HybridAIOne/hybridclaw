@@ -15,21 +15,21 @@ export type SessionChatType =
   | 'thread';
 
 export interface SessionSource {
-  channelKind?: string;
+  channelKind?: string | undefined;
   chatId: string;
   chatType: SessionChatType;
-  userId?: string;
-  userName?: string;
-  guildId?: string | null;
-  guildName?: string;
+  userId?: string | undefined;
+  userName?: string | undefined;
+  guildId?: string | null | undefined;
+  guildName?: string | undefined;
 }
 
 export interface SessionContext {
   source: SessionSource;
   agentId: string;
   sessionId: string;
-  sessionKey?: string;
-  mainSessionKey?: string;
+  sessionKey?: string | undefined;
+  mainSessionKey?: string | undefined;
 }
 
 const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {

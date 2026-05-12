@@ -842,7 +842,7 @@ export async function handleApiHttpRequest(
     response = await fetch(url, {
       method,
       headers,
-      body: payloadBody,
+      ...(payloadBody !== undefined ? { body: payloadBody } : {}),
       signal: controller.signal,
       redirect: 'manual',
     });

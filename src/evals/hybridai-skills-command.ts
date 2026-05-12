@@ -33,8 +33,8 @@ export interface HybridaiSkillFixture {
   prompt: string;
   mode: HybridaiSkillFixtureMode;
   kind: HybridaiSkillFixtureKind;
-  turnIndex?: number;
-  conversationId?: string;
+  turnIndex?: number | undefined;
+  conversationId?: string | undefined;
 }
 
 export interface HybridaiSkillFixtureSet {
@@ -48,18 +48,19 @@ interface FixtureGradeResult {
   fixture: HybridaiSkillFixture;
   status: 'passed' | 'failed' | 'skipped';
   observedSkill: string | null;
-  artifactsObserved?: boolean;
+  artifactsObserved?: boolean | undefined;
   toolNames: string[];
-  sessionId?: string;
-  auditPath?: string;
+  sessionId?: string | undefined;
+  auditPath?: string | undefined;
   observationSource?:
     | 'audit.skill.execution'
     | 'audit.expected-skill-ref'
     | 'audit.tool.trace'
-    | 'response';
-  reason?: string;
+    | 'response'
+    | undefined;
+  reason?: string | undefined;
   durationMs: number;
-  assistantPreview?: string;
+  assistantPreview?: string | undefined;
 }
 
 interface HybridaiSkillsModelRunSummary {
@@ -80,17 +81,17 @@ interface HybridaiSkillsRunSummary {
   baseUrl: string;
   mode: 'dry-run' | 'live';
   totalFixtures: number;
-  profile?: EvalProfile;
-  model?: string;
-  executedFixtures?: number;
-  passed?: number;
-  failed?: number;
-  skipped?: number;
-  filterSkill?: string;
-  maxFixtures?: number;
-  forceExplicit?: boolean;
-  results?: FixtureGradeResult[];
-  runs?: HybridaiSkillsModelRunSummary[];
+  profile?: EvalProfile | undefined;
+  model?: string | undefined;
+  executedFixtures?: number | undefined;
+  passed?: number | undefined;
+  failed?: number | undefined;
+  skipped?: number | undefined;
+  filterSkill?: string | undefined;
+  maxFixtures?: number | undefined;
+  forceExplicit?: boolean | undefined;
+  results?: FixtureGradeResult[] | undefined;
+  runs?: HybridaiSkillsModelRunSummary[] | undefined;
 }
 
 interface HybridaiSkillsEvalEnvironment {
@@ -283,8 +284,8 @@ function buildFixture(input: {
   prompt: string;
   kind: HybridaiSkillFixtureKind;
   index: number;
-  turnIndex?: number;
-  conversationId?: string;
+  turnIndex?: number | undefined;
+  conversationId?: string | undefined;
 }): HybridaiSkillFixture {
   const explicit = promptNamesSkill(input.prompt, input.skill);
   return {
@@ -448,9 +449,9 @@ export function loadBundledSkillCatalogForGrader(installRoot: string): Skill[] {
 export async function handleHybridaiSkillsCommand(params: {
   dataDir: string;
   env: HybridaiSkillsEvalEnvironment;
-  workspaceModeExplicit?: boolean;
-  subcommand?: string;
-  args?: string[];
+  workspaceModeExplicit?: boolean | undefined;
+  subcommand?: string | undefined;
+  args?: string[] | undefined;
 }): Promise<GatewayCommandResult> {
   const rawSub = String(params.subcommand || '')
     .trim()
@@ -574,7 +575,7 @@ function renderFixtureLine(fixture: HybridaiSkillFixture): string {
 async function handleRun(params: {
   dataDir: string;
   env: HybridaiSkillsEvalEnvironment;
-  workspaceModeExplicit?: boolean;
+  workspaceModeExplicit?: boolean | undefined;
   args: string[];
 }): Promise<GatewayCommandResult> {
   const set = syncHybridaiSkillsFixturesWithDocs(params.dataDir);
@@ -954,14 +955,14 @@ interface ExecutedLiveTurn {
   durationMs: number;
   parsed: ParsedChatCompletion;
   artifactsObserved: boolean;
-  agentId?: string;
-  sessionKey?: string;
-  executionSessionId?: string;
-  sessionId?: string;
-  auditPath?: string;
+  agentId?: string | undefined;
+  sessionKey?: string | undefined;
+  executionSessionId?: string | undefined;
+  sessionId?: string | undefined;
+  auditPath?: string | undefined;
   auditTrace: ParsedAuditTrace | null;
   httpStatus: number;
-  errorText?: string;
+  errorText?: string | undefined;
 }
 
 async function runFixtureGroupLive(
@@ -969,7 +970,7 @@ async function runFixtureGroupLive(
   env: HybridaiSkillsLiveRunEnvironment,
   skills: Skill[],
   dataDir: string,
-  options: { forceExplicit?: boolean } = {},
+  options: { forceExplicit?: boolean | undefined } = {},
 ): Promise<FixtureGradeResult[]> {
   if (fixtures.length <= 1) {
     const fixture = fixtures[0];
@@ -1041,7 +1042,7 @@ async function runFixtureLive(
   env: HybridaiSkillsLiveRunEnvironment,
   skills: Skill[],
   dataDir: string,
-  options: { forceExplicit?: boolean } = {},
+  options: { forceExplicit?: boolean | undefined } = {},
 ): Promise<FixtureGradeResult> {
   const prompt = options.forceExplicit
     ? `/${fixture.skill} ${fixture.prompt}`
@@ -1221,8 +1222,8 @@ function gradeExecutedFixture(
 
 interface ParsedChatCompletion {
   toolExecutions: ToolExecution[];
-  assistantPreview?: string;
-  assistantText?: string;
+  assistantPreview?: string | undefined;
+  assistantText?: string | undefined;
 }
 
 interface ParsedAuditTrace {
@@ -1373,7 +1374,7 @@ function cleanupTempEvalResources(params: {
 
 function resolveHybridaiSkillsRunProfile(params: {
   baseProfile: EvalProfile;
-  workspaceModeExplicit?: boolean;
+  workspaceModeExplicit?: boolean | undefined;
   runFlags: ParsedRunFlags;
 }): EvalProfile {
   const profile: EvalProfile = {

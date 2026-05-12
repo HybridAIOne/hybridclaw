@@ -5,9 +5,9 @@ export interface ParsedSessionKey {
   channelKind: string;
   chatType: string;
   peerId: string;
-  threadId?: string;
-  topicId?: string;
-  subagentId?: string;
+  threadId?: string | undefined;
+  topicId?: string | undefined;
+  subagentId?: string | undefined;
 }
 
 export interface SessionKeyMigrationResult {

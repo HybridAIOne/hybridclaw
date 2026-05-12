@@ -68,10 +68,10 @@ export async function sendWhatsAppMedia(params: {
   sock: Pick<WASocket, 'sendMessage'>;
   jid: string;
   filePath: string;
-  mimeType?: string | null;
-  filename?: string | null;
-  caption?: string;
-  onSentMessage?: SentMessageHandler;
+  mimeType?: string | null | undefined;
+  filename?: string | null | undefined;
+  caption?: string | undefined;
+  onSentMessage?: SentMessageHandler | undefined;
 }): Promise<WhatsAppOutboundMessageRef | null> {
   const mimeType =
     String(params.mimeType || '')
@@ -81,11 +81,13 @@ export async function sendWhatsAppMedia(params: {
     String(params.filename || '').trim() || path.basename(params.filePath);
   const upload = { url: params.filePath };
 
+  const captionSpread =
+    params.caption !== undefined ? { caption: params.caption } : {};
   let content: AnyMessageContent;
   if (mimeType.startsWith('image/')) {
-    content = { image: upload, caption: params.caption };
+    content = { image: upload, ...captionSpread };
   } else if (mimeType.startsWith('video/')) {
-    content = { video: upload, caption: params.caption };
+    content = { video: upload, ...captionSpread };
   } else if (mimeType.startsWith('audio/')) {
     content = { audio: upload, mimetype: mimeType };
   } else {
@@ -93,7 +95,7 @@ export async function sendWhatsAppMedia(params: {
       document: upload,
       mimetype: mimeType,
       fileName: filename,
-      caption: params.caption,
+      ...captionSpread,
     };
   }
 
@@ -140,11 +142,12 @@ export async function sendWhatsAppReadReceipt(
   const remoteJid = message.key.remoteJid?.trim();
   const id = message.key.id?.trim();
   if (!remoteJid || !id || message.key.fromMe) return false;
+  const participant = message.key.participant ?? undefined;
   await sock.readMessages([
     {
       remoteJid,
       id,
-      participant: message.key.participant ?? undefined,
+      ...(participant !== undefined && { participant }),
       fromMe: false,
     },
   ]);

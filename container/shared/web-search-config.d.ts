@@ -14,9 +14,9 @@ export interface WebSearchConfig {
   cacheTtlMinutes: number;
   searxngBaseUrl: string;
   tavilySearchDepth: 'basic' | 'advanced';
-  braveApiKey?: string;
-  perplexityApiKey?: string;
-  tavilyApiKey?: string;
+  braveApiKey?: string | undefined;
+  perplexityApiKey?: string | undefined;
+  tavilyApiKey?: string | undefined;
 }
 
 export declare const WEB_SEARCH_PROVIDER_NAMES: SearchProviderName[];

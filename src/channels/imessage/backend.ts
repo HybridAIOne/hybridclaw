@@ -5,9 +5,9 @@ import type { IMessageInbound } from './types.js';
 export interface IMessageMediaSendParams {
   target: string;
   filePath: string;
-  mimeType?: string | null;
-  filename?: string | null;
-  caption?: string;
+  mimeType?: string | null | undefined;
+  filename?: string | null | undefined;
+  caption?: string | undefined;
 }
 
 export interface IMessageBackendInstance {

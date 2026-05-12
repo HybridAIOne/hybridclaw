@@ -95,18 +95,18 @@ function jitterReconnectDelayMs(delayMs: number): number {
 export class NgrokTunnelProvider implements TunnelProvider {
   private readonly addr: Config['addr'];
   private readonly auditSessionId: string;
-  private readonly domain?: string;
+  private readonly domain?: string | undefined;
   private readonly fetch: TunnelHealthFetch;
-  private readonly forwardsTo?: string;
+  private readonly forwardsTo?: string | undefined;
   private readonly healthCheckIntervalMs: number;
   private readonly healthCheckPath: string;
   private readonly healthCheckTimeoutMs: number;
-  private readonly metadata?: string;
+  private readonly metadata?: string | undefined;
   private readonly readSecret: (secretName: string) => string | null;
   private readonly reconnectInitialBackoffMs: number;
   private readonly reconnectMaxBackoffMs: number;
   private readonly recordAuditEvent: TunnelAuditRecorder;
-  private readonly schemes?: string[];
+  private readonly schemes?: string[] | undefined;
   private readonly tokenSecretName: string;
   private readonly loadNgrok: () => Promise<NgrokClient>;
   private readonly statusTracker: TunnelStatusTracker;
@@ -217,7 +217,7 @@ export class NgrokTunnelProvider implements TunnelProvider {
     try {
       const ngrok = await this.loadNgrok();
       const config: Config = {
-        addr: this.addr,
+        ...(this.addr !== undefined && { addr: this.addr }),
         authtoken: token,
         proto: 'http',
       };

@@ -16,22 +16,22 @@ const FULLAUTO_DEFAULT_USER_ID = 'fullauto-user';
 const FULLAUTO_DEFAULT_USERNAME = 'fullauto';
 
 export interface ProactiveMessagePayload {
-  channelId?: string;
+  channelId?: string | undefined;
   text: string;
-  artifacts?: ArtifactMetadata[];
+  artifacts?: ArtifactMetadata[] | undefined;
 }
 
 export interface FullAutoRequestContext {
   guildId: string | null;
   userId: string;
   username: string | null;
-  chatbotId?: string | null;
-  model?: string | null;
-  enableRag?: boolean;
-  onProactiveMessage?: (
-    message: ProactiveMessagePayload,
-  ) => void | Promise<void>;
-  source?: string;
+  chatbotId?: string | null | undefined;
+  model?: string | null | undefined;
+  enableRag?: boolean | undefined;
+  onProactiveMessage?:
+    | ((message: ProactiveMessagePayload) => void | Promise<void>)
+    | undefined;
+  source?: string | undefined;
 }
 
 export interface FullAutoRuntimeState {
@@ -168,15 +168,16 @@ export function markFullAutoProgress(
 export function syncFullAutoRuntimeContext(
   sessionId: string,
   params: {
-    guildId?: string | null;
-    userId?: string | null;
-    username?: string | null;
-    chatbotId?: string | null;
-    model?: string | null;
-    enableRag?: boolean | null;
+    guildId?: string | null | undefined;
+    userId?: string | null | undefined;
+    username?: string | null | undefined;
+    chatbotId?: string | null | undefined;
+    model?: string | null | undefined;
+    enableRag?: boolean | null | undefined;
     onProactiveMessage?:
       | ((message: ProactiveMessagePayload) => void | Promise<void>)
-      | null;
+      | null
+      | undefined;
   },
 ): FullAutoRuntimeState {
   const state = getOrCreateFullAutoRuntimeState(sessionId);

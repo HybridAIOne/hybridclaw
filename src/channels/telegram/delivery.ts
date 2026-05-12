@@ -271,11 +271,11 @@ export async function sendTelegramMedia(params: {
   botToken: string;
   target: string;
   filePath: string;
-  mimeType?: string | null;
-  filename?: string | null;
-  caption?: string;
-  replyToMessageId?: number;
-  disableNotification?: boolean;
+  mimeType?: string | null | undefined;
+  filename?: string | null | undefined;
+  caption?: string | undefined;
+  replyToMessageId?: number | undefined;
+  disableNotification?: boolean | undefined;
 }): Promise<TelegramOutboundMessageRef | null> {
   const target = parseTelegramTarget(params.target);
   if (!target) {

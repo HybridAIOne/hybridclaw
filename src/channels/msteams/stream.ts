@@ -22,14 +22,14 @@ interface SentActivityRef {
 
 export interface MSTeamsStreamOptions {
   replyStyle: MSTeamsReplyStyle;
-  replyToId?: string | null;
-  editIntervalMs?: number;
+  replyToId?: string | null | undefined;
+  editIntervalMs?: number | undefined;
 }
 
 export class MSTeamsStreamManager {
   private readonly turnContext: TurnContext;
   private readonly replyStyle: MSTeamsReplyStyle;
-  private readonly replyToId?: string | null;
+  private readonly replyToId?: string | null | undefined;
   private readonly editIntervalMs: number;
 
   private readonly sent: SentActivityRef[] = [];

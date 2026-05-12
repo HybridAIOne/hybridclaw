@@ -43,16 +43,12 @@ export async function initOtel(): Promise<void> {
     const { OTLPTraceExporter } = await import(
       '@opentelemetry/exporter-trace-otlp-http'
     );
-    traceExporter = new OTLPTraceExporter({
-      url: endpoint || undefined,
-    });
+    traceExporter = new OTLPTraceExporter(endpoint ? { url: endpoint } : {});
   } else {
     const { OTLPTraceExporter } = await import(
       '@opentelemetry/exporter-trace-otlp-grpc'
     );
-    traceExporter = new OTLPTraceExporter({
-      url: endpoint || undefined,
-    });
+    traceExporter = new OTLPTraceExporter(endpoint ? { url: endpoint } : {});
   }
 
   const serviceName = process.env.OTEL_SERVICE_NAME || 'hybridclaw-gateway';

@@ -64,7 +64,7 @@ function normalizeBaseUrl(
 
 function composeAbortSignal(
   timeoutMs: number,
-  abortSignal?: AbortSignal,
+  abortSignal?: AbortSignal | undefined,
 ): AbortSignal {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   if (!abortSignal) return timeoutSignal;
@@ -492,8 +492,8 @@ async function transcribeOpenAiCompatibleAudio(params: {
   prompt: string;
   language: string;
   timeoutMs: number;
-  abortSignal?: AbortSignal;
-  headers?: Record<string, string>;
+  abortSignal?: AbortSignal | undefined;
+  headers?: Record<string, string> | undefined;
 }): Promise<string> {
   const form = new FormData();
   form.set('model', params.model);
@@ -552,9 +552,9 @@ async function transcribeDeepgramAudio(params: {
   mimeType: string | null;
   language: string;
   timeoutMs: number;
-  abortSignal?: AbortSignal;
-  headers?: Record<string, string>;
-  query?: Record<string, string>;
+  abortSignal?: AbortSignal | undefined;
+  headers?: Record<string, string> | undefined;
+  query?: Record<string, string> | undefined;
 }): Promise<string> {
   const url = new URL(`${params.baseUrl}/listen`);
   url.searchParams.set('model', params.model);
@@ -607,8 +607,8 @@ async function transcribeGoogleAudio(params: {
   mimeType: string | null;
   prompt: string;
   timeoutMs: number;
-  abortSignal?: AbortSignal;
-  headers?: Record<string, string>;
+  abortSignal?: AbortSignal | undefined;
+  headers?: Record<string, string> | undefined;
 }): Promise<string> {
   const headers = new Headers(params.headers);
   for (const [key, value] of Object.entries(
@@ -740,7 +740,7 @@ async function runCommand(params: {
   command: string;
   args: string[];
   timeoutMs: number;
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }): Promise<{
   exitCode: number | null;
   stdout: string;
@@ -817,7 +817,7 @@ async function transcribeWithCli(params: {
   config: RuntimeMediaAudioConfig;
   filePath: string;
   fileName: string;
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }): Promise<AudioTranscriptionResult> {
   const prompt = resolveEntryPrompt(params.entry, params.config);
   const timeoutMs = resolveEntryTimeoutMs(params.entry, params.config);
@@ -881,7 +881,7 @@ async function transcribeWithProvider(params: {
   fileBuffer: Buffer;
   fileName: string;
   mimeType: string | null;
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }): Promise<AudioTranscriptionResult> {
   const apiKey = readProviderApiKey(params.entry.provider);
   if (!apiKey) {
@@ -948,7 +948,7 @@ export async function transcribeAudioWithFallback(params: {
   mimeType: string | null;
   config: RuntimeMediaAudioConfig;
   models?: RuntimeAudioTranscriptionModelConfig[];
-  abortSignal?: AbortSignal;
+  abortSignal?: AbortSignal | undefined;
 }): Promise<AudioTranscriptionResult | null> {
   const models =
     params.models ?? (await resolveAudioTranscriptionModels(params.config));

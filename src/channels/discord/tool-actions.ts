@@ -80,31 +80,31 @@ export function normalizeDiscordToolAction(
 
 export interface DiscordToolActionRequest {
   action: DiscordToolAction;
-  sessionId?: string;
-  channelId?: string;
-  guildId?: string;
-  userId?: string;
-  username?: string;
-  user?: string;
-  memberId?: string;
-  resolveAmbiguous?: 'error' | 'best';
-  limit?: number;
-  before?: string;
-  after?: string;
-  around?: string;
-  content?: string;
-  subject?: string;
-  cc?: string[];
-  bcc?: string[];
-  inReplyTo?: string;
-  references?: string[];
-  filePath?: string;
+  sessionId?: string | undefined;
+  channelId?: string | undefined;
+  guildId?: string | undefined;
+  userId?: string | undefined;
+  username?: string | undefined;
+  user?: string | undefined;
+  memberId?: string | undefined;
+  resolveAmbiguous?: 'error' | 'best' | undefined;
+  limit?: number | undefined;
+  before?: string | undefined;
+  after?: string | undefined;
+  around?: string | undefined;
+  content?: string | undefined;
+  subject?: string | undefined;
+  cc?: string[] | undefined;
+  bcc?: string[] | undefined;
+  inReplyTo?: string | undefined;
+  references?: string[] | undefined;
+  filePath?: string | undefined;
   components?: unknown;
-  contextChannelId?: string;
-  messageId?: string;
-  emoji?: string;
-  name?: string;
-  autoArchiveDuration?: number;
+  contextChannelId?: string | undefined;
+  messageId?: string | undefined;
+  emoji?: string | undefined;
+  name?: string | undefined;
+  autoArchiveDuration?: number | undefined;
 }
 
 export interface CachedDiscordPresenceActivity {
@@ -171,7 +171,7 @@ function normalizeDiscordChannelLookupQuery(
 interface DiscordChannelLookupCandidate {
   id: string;
   name: string;
-  guildId?: string;
+  guildId?: string | undefined;
   isTextBased: boolean;
 }
 
@@ -290,10 +290,10 @@ function collectChannelLookupCandidates(
 
 async function resolveDiscordChannelIdFromLookup(params: {
   requireDiscordClientReady: () => Awaitable<Client>;
-  guildId?: string;
+  guildId?: string | undefined;
   rawChannel: string;
-  resolveAmbiguous?: 'error' | 'best';
-}): Promise<{ channelId: string; note?: string }> {
+  resolveAmbiguous?: 'error' | 'best' | undefined;
+}): Promise<{ channelId: string; note?: string | undefined }> {
   const activeClient = await params.requireDiscordClientReady();
   const normalized = normalizeDiscordChannelLookupQuery(params.rawChannel);
   if (!normalized) {
@@ -403,7 +403,7 @@ async function resolveGuildMemberIdFromLookup(params: {
   requireDiscordClientReady: () => Awaitable<Client>;
   guildId: string;
   rawUser: string;
-  resolveAmbiguous?: 'error' | 'best';
+  resolveAmbiguous?: 'error' | 'best' | undefined;
 }): Promise<GuildMemberLookupResult> {
   const activeClient = await params.requireDiscordClientReady();
   const guildId = sanitizeDiscordId(params.guildId, 'guildId');
@@ -498,7 +498,7 @@ function resolveMessageIdFromRequest(
 async function resolveDiscordChannelForAction(
   request: DiscordToolActionRequest,
   deps: DiscordToolActionDependencies,
-): Promise<{ channelId: string; channel: unknown; note?: string }> {
+): Promise<{ channelId: string; channel: unknown; note?: string | undefined }> {
   const activeClient = await deps.requireDiscordClientReady();
   const resolvedChannel = await resolveDiscordChannelIdFromLookup({
     requireDiscordClientReady: deps.requireDiscordClientReady,
@@ -532,7 +532,7 @@ function resolveChannelGuildId(channel: unknown): string | undefined {
 
 async function resolveGuildIdFromContextChannel(params: {
   deps: DiscordToolActionDependencies;
-  contextChannelId?: string;
+  contextChannelId?: string | undefined;
 }): Promise<string | undefined> {
   const rawContextChannelId = (params.contextChannelId || '').trim();
   if (!rawContextChannelId) return undefined;
@@ -551,7 +551,7 @@ async function resolveGuildIdFromContextChannel(params: {
 
 async function resolveRequestingRoleIdsForSend(params: {
   channel: unknown;
-  requestingUserId?: string;
+  requestingUserId?: string | undefined;
 }): Promise<string[] | undefined> {
   const { channel, requestingUserId } = params;
   if (!requestingUserId) return undefined;
@@ -617,13 +617,13 @@ type DiscordSendTargetResolution =
   | {
       ok: true;
       channelId: string;
-      note?: string;
-      candidates?: DiscordMemberLookupCandidate[];
+      note?: string | undefined;
+      candidates?: DiscordMemberLookupCandidate[] | undefined;
     }
   | {
       ok: false;
       error: string;
-      candidates?: DiscordMemberLookupCandidate[];
+      candidates?: DiscordMemberLookupCandidate[] | undefined;
     };
 
 function isLikelyUserTarget(rawTarget: string): boolean {
@@ -672,7 +672,7 @@ async function resolveDmChannelForLookupTarget(params: {
   request: DiscordToolActionRequest;
   deps: DiscordToolActionDependencies;
   activeClient: Client;
-  inferredGuildId?: string;
+  inferredGuildId?: string | undefined;
   rawTarget: string;
 }): Promise<DiscordSendTargetResolution> {
   const normalizedUser = normalizeDiscordUserLookupQuery(params.rawTarget);
@@ -841,7 +841,7 @@ async function fetchDiscordMessageForAction(params: {
   channel: unknown;
   messageId: string;
   message: unknown;
-  note?: string;
+  note?: string | undefined;
 }> {
   const resolved = await resolveDiscordChannelForAction(
     params.request,

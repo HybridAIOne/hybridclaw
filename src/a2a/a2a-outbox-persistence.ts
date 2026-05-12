@@ -31,21 +31,21 @@ export interface A2AOutboxItem {
   status: A2AOutboundStatus;
   envelope: A2AEnvelope;
   agentCardUrl: string;
-  bearerTokenRef?: SecretRef;
+  bearerTokenRef?: SecretRef | undefined;
   attempts: number;
   maxAttempts: number;
   nextAttemptAt: string;
   createdAt: string;
   updatedAt: string;
-  sessionId?: string;
-  runId?: string;
-  escalationTarget?: EscalationTarget;
-  lastAttemptAt?: string;
-  deliveredAt?: string;
-  failedAt?: string;
-  lastError?: string;
-  lastStatusCode?: number;
-  lastJsonRpcCode?: number;
+  sessionId?: string | undefined;
+  runId?: string | undefined;
+  escalationTarget?: EscalationTarget | undefined;
+  lastAttemptAt?: string | undefined;
+  deliveredAt?: string | undefined;
+  failedAt?: string | undefined;
+  lastError?: string | undefined;
+  lastStatusCode?: number | undefined;
+  lastJsonRpcCode?: number | undefined;
 }
 
 export interface A2AOutboundAdapterOptions {

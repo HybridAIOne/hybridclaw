@@ -72,16 +72,16 @@ function mergeUnique(values: string[]): string[] {
 }
 
 function resolveChannelConfig(params: {
-  teamConfig?: RuntimeMSTeamsTeamConfig;
-  channelId?: string | null;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
+  channelId?: string | null | undefined;
 }): RuntimeMSTeamsTeamConfig['channels'][string] | undefined {
   const channelId = normalizeValue(params.channelId);
   return channelId ? params.teamConfig?.channels[channelId] : undefined;
 }
 
 function resolveCascaded<T>(params: {
-  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
-  teamConfig?: RuntimeMSTeamsTeamConfig;
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string] | undefined;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
   fallback: T;
   getChannelValue: (
     channelConfig: RuntimeMSTeamsTeamConfig['channels'][string] | undefined,
@@ -89,11 +89,13 @@ function resolveCascaded<T>(params: {
   getTeamValue: (
     teamConfig: RuntimeMSTeamsTeamConfig | undefined,
   ) => T | undefined;
-  merge?: (params: {
-    channelValue: T | undefined;
-    teamValue: T | undefined;
-    fallback: T;
-  }) => T;
+  merge?:
+    | ((params: {
+        channelValue: T | undefined;
+        teamValue: T | undefined;
+        fallback: T;
+      }) => T)
+    | undefined;
 }): T {
   const channelValue = params.getChannelValue(params.channelConfig);
   const teamValue = params.getTeamValue(params.teamConfig);
@@ -110,9 +112,9 @@ function resolveCascaded<T>(params: {
 }
 
 function resolveEffectiveAllowFrom(params: {
-  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string] | undefined;
   globalAllowFrom: string[];
-  teamConfig?: RuntimeMSTeamsTeamConfig;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
 }): string[] {
   return resolveCascaded({
     channelConfig: params.channelConfig,
@@ -130,8 +132,8 @@ function resolveEffectiveAllowFrom(params: {
 }
 
 function resolveTools(params: {
-  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
-  teamConfig?: RuntimeMSTeamsTeamConfig;
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string] | undefined;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
 }): string[] {
   return resolveCascaded({
     channelConfig: params.channelConfig,
@@ -145,9 +147,9 @@ function resolveTools(params: {
 }
 
 function resolveRequireMention(params: {
-  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string] | undefined;
   defaultRequireMention: boolean;
-  teamConfig?: RuntimeMSTeamsTeamConfig;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
 }): boolean {
   return resolveCascaded({
     channelConfig: params.channelConfig,
@@ -159,9 +161,9 @@ function resolveRequireMention(params: {
 }
 
 function resolveReplyStyle(params: {
-  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string] | undefined;
   defaultReplyStyle: MSTeamsReplyStyle;
-  teamConfig?: RuntimeMSTeamsTeamConfig;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
 }): MSTeamsReplyStyle {
   return resolveCascaded({
     channelConfig: params.channelConfig,
@@ -173,9 +175,9 @@ function resolveReplyStyle(params: {
 }
 
 function resolveGroupPolicy(params: {
-  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string];
+  channelConfig?: RuntimeMSTeamsTeamConfig['channels'][string] | undefined;
   defaultGroupPolicy: MSTeamsGroupPolicy;
-  teamConfig?: RuntimeMSTeamsTeamConfig;
+  teamConfig?: RuntimeMSTeamsTeamConfig | undefined;
 }): MSTeamsGroupPolicy {
   return resolveCascaded({
     channelConfig: params.channelConfig,

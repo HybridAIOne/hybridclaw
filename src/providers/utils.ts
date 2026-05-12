@@ -20,7 +20,10 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
   let discoveredAtMs = 0;
   let discoveryInFlight: Promise<T> | null = null;
 
-  const replaceState = (nextState: T, opts?: { skipCache?: boolean }) => {
+  const replaceState = (
+    nextState: T,
+    opts?: { skipCache?: boolean | undefined },
+  ) => {
     state = nextState;
     discoveredAtMs = opts?.skipCache ? 0 : Date.now();
   };
@@ -28,8 +31,8 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
   const discover = async (
     fetchFreshState: () => Promise<T>,
     opts?: {
-      force?: boolean;
-      onError?: (err: unknown, staleState: T) => T | Promise<T>;
+      force?: boolean | undefined;
+      onError?: ((err: unknown, staleState: T) => T | Promise<T>) | undefined;
     },
   ): Promise<T> => {
     if (

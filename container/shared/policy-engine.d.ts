@@ -19,11 +19,11 @@ export type PolicyPredicateExpression =
   | { not: PolicyPredicateExpression };
 
 export interface PolicyRule<Action = PolicyAction> {
-  id?: string;
-  description?: string;
-  when?: PolicyPredicateExpression | PolicyPredicateExpression[];
+  id?: string | undefined;
+  description?: string | undefined;
+  when?: PolicyPredicateExpression | PolicyPredicateExpression[] | undefined;
   action: Action;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export type PolicyPredicate<Context> = (
@@ -38,7 +38,7 @@ export type PolicyPredicateRegistry<Context> = Record<
 
 export interface PolicyEvaluation<Action, Rule extends PolicyRule<Action>> {
   action: Action;
-  matchedRule?: Rule;
+  matchedRule?: Rule | undefined;
   matchedRules: Rule[];
 }
 

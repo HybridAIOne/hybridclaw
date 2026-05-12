@@ -113,7 +113,7 @@ function parseSkillChannelKind(
 }
 
 export function parseSkillScopeArgs(args: string[]): {
-  channelKind?: SkillConfigChannelKind;
+  channelKind?: SkillConfigChannelKind | undefined;
   remaining: string[];
 } {
   const remaining: string[] = [];

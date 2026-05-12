@@ -7,8 +7,8 @@ const PROBE_TTL_MS = 30_000;
 export interface HybridAIHealthResult {
   reachable: boolean;
   latencyMs: number;
-  modelCount?: number;
-  error?: string;
+  modelCount?: number | undefined;
+  error?: string | undefined;
 }
 
 async function runProbe(): Promise<HybridAIHealthResult> {

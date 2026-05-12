@@ -196,10 +196,10 @@ export async function readOutput(
   sessionId: string,
   timeoutMs: number | null | undefined,
   opts?: {
-    signal?: AbortSignal;
-    activity?: ActivityTracker;
-    maxWallClockMs?: number | null;
-    terminalError?: () => string | null;
+    signal?: AbortSignal | undefined;
+    activity?: ActivityTracker | undefined;
+    maxWallClockMs?: number | null | undefined;
+    terminalError?: (() => string | null) | undefined;
   },
 ): Promise<ContainerOutput> {
   return readOutputFile(sessionId, 'output.json', timeoutMs, opts);
@@ -210,10 +210,10 @@ async function readOutputFile(
   filename: string,
   timeoutMs: number | null | undefined,
   opts?: {
-    signal?: AbortSignal;
-    activity?: ActivityTracker;
-    maxWallClockMs?: number | null;
-    terminalError?: () => string | null;
+    signal?: AbortSignal | undefined;
+    activity?: ActivityTracker | undefined;
+    maxWallClockMs?: number | null | undefined;
+    terminalError?: (() => string | null) | undefined;
   },
 ): Promise<ContainerOutput> {
   const outputPath = ipcFilePath(sessionId, filename);

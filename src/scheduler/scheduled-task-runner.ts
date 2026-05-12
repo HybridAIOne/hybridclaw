@@ -31,12 +31,14 @@ export async function runIsolatedScheduledTask(params: {
   chatbotId: string;
   model: string;
   agentId: string;
-  sessionId?: string;
-  sessionKey?: string;
-  mainSessionKey?: string;
+  sessionId?: string | undefined;
+  sessionKey?: string | undefined;
+  mainSessionKey?: string | undefined;
   onResult: (result: {
     text: string;
-    artifacts?: Array<{ path: string; filename: string; mimeType: string }>;
+    artifacts?:
+      | Array<{ path: string; filename: string; mimeType: string }>
+      | undefined;
   }) => void | Promise<void>;
   onError: (error: unknown) => void;
 }): Promise<void> {

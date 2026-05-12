@@ -90,7 +90,7 @@ function recordDelegationAuthAudit(params: {
   item: A2AOutboxItem;
   audience: string;
   scope: string;
-  peerKey?: A2APeerPublicKeyMaterial;
+  peerKey?: A2APeerPublicKeyMaterial | undefined;
 }): void {
   recordA2AAudit(params.item, {
     type: 'a2a.outbound.delegation_auth',
@@ -127,8 +127,8 @@ function authHeaders(params: {
   audience: string;
   scope: string;
   now: Date;
-  peerKey?: A2APeerPublicKeyMaterial;
-  requireBearer?: boolean;
+  peerKey?: A2APeerPublicKeyMaterial | undefined;
+  requireBearer?: boolean | undefined;
 }): Record<string, string> {
   assertBearerAuthConfigured(params.item, params.audience, {
     required: params.requireBearer !== false,
@@ -200,7 +200,10 @@ function failA2AItem(
   item: A2AOutboxItem,
   now: Date,
   reason: string,
-  details: { statusCode?: number; jsonRpcCode?: number } = {},
+  details: {
+    statusCode?: number | undefined;
+    jsonRpcCode?: number | undefined;
+  } = {},
 ): A2AOutboxItem {
   const failed: A2AOutboxItem = {
     ...item,
@@ -271,7 +274,10 @@ function retryA2AItem(
       'baseDelayMs' | 'maxDelayMs' | 'jitterRatio' | 'random'
     >
   >,
-  details: { statusCode?: number; jsonRpcCode?: number } = {},
+  details: {
+    statusCode?: number | undefined;
+    jsonRpcCode?: number | undefined;
+  } = {},
 ): A2AOutboxItem {
   const attempts = item.attempts + 1;
   const exponentialDelay = Math.min(

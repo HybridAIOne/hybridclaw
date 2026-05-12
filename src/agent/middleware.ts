@@ -23,32 +23,36 @@ import {
 
 export interface AgentTurnContext {
   sessionId: string;
-  userId?: string;
+  userId?: string | undefined;
   agentId: string;
   channelId: string;
-  model?: string;
-  workspacePath?: string;
+  model?: string | undefined;
+  workspacePath?: string | undefined;
   messages: ChatMessage[];
   userContent: string;
-  resultText?: string;
-  toolExecutions?: ToolExecution[];
-  skill?: {
-    name: string;
-    middleware?: {
-      preSend: boolean;
-      postReceive: boolean;
-    };
-  };
+  resultText?: string | undefined;
+  toolExecutions?: ToolExecution[] | undefined;
+  skill?:
+    | {
+        name: string;
+        middleware?:
+          | {
+              preSend: boolean;
+              postReceive: boolean;
+            }
+          | undefined;
+      }
+    | undefined;
 }
 
 export interface MiddlewareEvent {
   skillId: string;
   phase: MiddlewarePhase;
   action: MiddlewareDecision['action'];
-  reason?: string;
-  before?: string;
-  after?: string;
-  route?: EscalationRoute;
+  reason?: string | undefined;
+  before?: string | undefined;
+  after?: string | undefined;
+  route?: EscalationRoute | undefined;
 }
 
 export interface MiddlewareOutcome {

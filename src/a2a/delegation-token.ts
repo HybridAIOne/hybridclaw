@@ -68,12 +68,12 @@ export interface SignA2ADelegationTokenInput {
 export interface VerifyA2ADelegationTokenInput {
   token: string;
   publicKeyPem: string;
-  audience?: string;
-  requiredScope?: string | string[];
-  senderAgentId?: string;
-  targetAgentId?: string;
-  now?: Date;
-  revocationRootDir?: string;
+  audience?: string | undefined;
+  requiredScope?: string | string[] | undefined;
+  senderAgentId?: string | undefined;
+  targetAgentId?: string | undefined;
+  now?: Date | undefined;
+  revocationRootDir?: string | undefined;
 }
 
 export interface A2ADelegationTokenRevocation {
@@ -463,9 +463,9 @@ function parseRevocation(raw: string): A2ADelegationTokenRevocation | null {
 
 export function pruneExpiredA2ADelegationTokenRevocations(
   options: {
-    now?: Date;
-    maxAgeSeconds?: number;
-    revocationRootDir?: string;
+    now?: Date | undefined;
+    maxAgeSeconds?: number | undefined;
+    revocationRootDir?: string | undefined;
   } = {},
 ): A2ADelegationTokenRevocationPruneResult {
   const rootDir = options.revocationRootDir ?? delegationRevocationRootDir();
@@ -536,7 +536,7 @@ export function revokeA2ADelegationTokenId(
 
 export function isA2ADelegationTokenRevoked(
   jwtId: string,
-  options: { revocationRootDir?: string } = {},
+  options: { revocationRootDir?: string | undefined } = {},
 ): boolean {
   return fs.existsSync(
     revocationAssetPath(

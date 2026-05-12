@@ -26,11 +26,11 @@ interface DiscordEditMessage {
 }
 
 export interface DiscordStreamOptions {
-  maxChars?: number;
-  maxLines?: number;
-  editIntervalMs?: number;
-  onFirstMessage?: () => void;
-  humanDelay?: HumanDelayConfig;
+  maxChars?: number | undefined;
+  maxLines?: number | undefined;
+  editIntervalMs?: number | undefined;
+  onFirstMessage?: (() => void) | undefined;
+  humanDelay?: HumanDelayConfig | undefined;
 }
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
@@ -46,8 +46,8 @@ export class DiscordStreamManager {
   private readonly maxChars: number;
   private readonly maxLines: number;
   private readonly editIntervalMs: number;
-  private readonly onFirstMessage?: () => void;
-  private readonly humanDelay?: HumanDelayConfig;
+  private readonly onFirstMessage?: (() => void) | undefined;
+  private readonly humanDelay?: HumanDelayConfig | undefined;
 
   private readonly messages: DiscordEditMessage[] = [];
   private sentChunks: string[] = [];

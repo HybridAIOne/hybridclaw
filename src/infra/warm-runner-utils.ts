@@ -30,7 +30,7 @@ export interface WarmRunnerEntry extends WarmProcessPoolEntry {
   readyForInputAt: number | null;
   pendingColdStartProbeStartedAt: number | null;
   stderrHistory: string[];
-  activity?: import('./ipc.js').ActivityTracker;
+  activity?: import('./ipc.js').ActivityTracker | undefined;
 }
 
 export type WarmRunnerMode = 'container' | 'host';
@@ -42,12 +42,12 @@ export interface WarmRunnerHealthEntry extends WarmRunnerEntry {
   startedAt: number;
   lastUsedAt: number;
   terminalError: string | null;
-  healthProbe?: Promise<ExecutorSessionHealthSnapshot>;
+  healthProbe?: Promise<ExecutorSessionHealthSnapshot> | undefined;
 }
 
 export interface WarmPoolEligibilityParams {
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
   bashProxy?: unknown;
 }
 

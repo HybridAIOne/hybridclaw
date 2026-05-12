@@ -327,7 +327,7 @@ export async function maybeCompactSession(params: {
   enableRag: boolean;
   model: string;
   channelId: string;
-  promptMode?: PromptMode;
+  promptMode?: PromptMode | undefined;
 }): Promise<void> {
   if (!SESSION_COMPACTION_ENABLED) return;
 

@@ -244,14 +244,14 @@ export function recordSkillExecution(input: {
   toolExecutions: ToolExecution[];
   outcome: SkillExecutionOutcome;
   durationMs: number;
-  model?: string | null;
-  tokenUsage?: TokenUsageStats;
-  costUsd?: number | null;
-  agentId?: string | null;
+  model?: string | null | undefined;
+  tokenUsage?: TokenUsageStats | undefined;
+  costUsd?: number | null | undefined;
+  agentId?: string | null | undefined;
   input?: unknown;
   output?: unknown;
-  errorCategory?: SkillErrorCategory | null;
-  errorDetail?: string | null;
+  errorCategory?: SkillErrorCategory | null | undefined;
+  errorDetail?: string | null | undefined;
 }): SkillObservation | null {
   const skillName = input.skillName.trim();
   if (!skillName) return null;

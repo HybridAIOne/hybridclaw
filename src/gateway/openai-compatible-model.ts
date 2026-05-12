@@ -37,17 +37,19 @@ export interface OpenAICompatibleModelResponse {
     message: {
       role: 'assistant';
       content: ChatMessage['content'];
-      tool_calls?: ToolCall[];
+      tool_calls?: ToolCall[] | undefined;
     };
     finish_reason: string;
   }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-    input_tokens?: number;
-    output_tokens?: number;
-  };
+  usage?:
+    | {
+        prompt_tokens?: number | undefined;
+        completion_tokens?: number | undefined;
+        total_tokens?: number | undefined;
+        input_tokens?: number | undefined;
+        output_tokens?: number | undefined;
+      }
+    | undefined;
 }
 
 interface OpenAICompatibleModelCallParams {
@@ -55,7 +57,7 @@ interface OpenAICompatibleModelCallParams {
   model: string;
   messages: ChatMessage[];
   tools: OpenAICompatibleToolDefinition[];
-  toolChoice?: OpenAICompatibleToolChoice;
+  toolChoice?: OpenAICompatibleToolChoice | undefined;
 }
 
 interface OpenAICompatibleModelStreamParams
@@ -644,11 +646,11 @@ export async function callOpenAICompatibleModelStream(
 }
 
 export function mapOpenAICompatibleUsageToTokenStats(usage?: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  input_tokens?: number;
-  output_tokens?: number;
+  prompt_tokens?: number | undefined;
+  completion_tokens?: number | undefined;
+  total_tokens?: number | undefined;
+  input_tokens?: number | undefined;
+  output_tokens?: number | undefined;
 }): TokenUsageStats | undefined {
   if (!usage) return undefined;
   const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? 0;

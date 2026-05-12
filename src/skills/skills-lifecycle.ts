@@ -111,8 +111,8 @@ function actorOrDefault(actor?: string): string {
 
 function buildLifecycleMeta(params: {
   action: SkillLifecycleAction;
-  actor?: string;
-  source?: string;
+  actor?: string | undefined;
+  source?: string | undefined;
 }): RuntimeConfigChangeMeta {
   return {
     actor: actorOrDefault(params.actor),
@@ -395,10 +395,10 @@ function recordSkillLifecycleAudit(params: {
   action: SkillLifecycleAction;
   manifest: SkillManifest | null;
   skillName: string;
-  skillDir?: string;
-  source?: string;
-  revisionId?: number;
-  actor?: string;
+  skillDir?: string | undefined;
+  source?: string | undefined;
+  revisionId?: number | undefined;
+  actor?: string | undefined;
 }): void {
   appendAuditEvent({
     sessionId: SKILL_LIFECYCLE_SESSION_ID,
@@ -630,8 +630,8 @@ export async function upgradeSkillPackage(
 export function setSkillPackageEnabled(params: {
   skillName: string;
   enabled: boolean;
-  channelKind?: SkillConfigChannelKind;
-  actor?: string;
+  channelKind?: SkillConfigChannelKind | undefined;
+  actor?: string | undefined;
 }): SkillPackageStatusResult {
   const target = resolveSkillPackageTarget(params.skillName);
   const action = params.enabled ? 'enable' : 'disable';

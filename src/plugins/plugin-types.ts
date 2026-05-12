@@ -29,8 +29,8 @@ export type PluginDiscoverySource = 'home' | 'project' | 'config';
 
 export interface PluginInstallSpec {
   kind: 'npm' | 'node' | 'download';
-  package?: string;
-  url?: string;
+  package?: string | undefined;
+  url?: string | undefined;
 }
 
 export interface PluginPackageDependency {
@@ -45,9 +45,9 @@ export interface PluginExternalDependency {
 }
 
 export interface PluginConfigUiHint {
-  label?: string;
-  placeholder?: string;
-  help?: string;
+  label?: string | undefined;
+  placeholder?: string | undefined;
+  help?: string | undefined;
 }
 
 export interface PluginBinaryRequirement {
@@ -78,25 +78,27 @@ export interface PluginConfigSchema {
 
 export interface PluginManifest {
   id: string;
-  name?: string;
-  version?: string;
-  description?: string;
-  kind?: PluginKind;
-  memoryProvider?: boolean;
-  author?: string;
-  entrypoint?: string;
-  requires?: {
-    bins?: PluginBinaryRequirement[];
-    env?: string[];
-    node?: string;
-  };
-  credentials?: string[];
-  install?: PluginInstallSpec[];
-  pipDependencies?: PluginPackageDependency[];
-  nodeDependencies?: PluginPackageDependency[];
-  externalDependencies?: PluginExternalDependency[];
-  configSchema?: PluginConfigSchema;
-  configUiHints?: Record<string, PluginConfigUiHint>;
+  name?: string | undefined;
+  version?: string | undefined;
+  description?: string | undefined;
+  kind?: PluginKind | undefined;
+  memoryProvider?: boolean | undefined;
+  author?: string | undefined;
+  entrypoint?: string | undefined;
+  requires?:
+    | {
+        bins?: PluginBinaryRequirement[] | undefined;
+        env?: string[] | undefined;
+        node?: string | undefined;
+      }
+    | undefined;
+  credentials?: string[] | undefined;
+  install?: PluginInstallSpec[] | undefined;
+  pipDependencies?: PluginPackageDependency[] | undefined;
+  nodeDependencies?: PluginPackageDependency[] | undefined;
+  externalDependencies?: PluginExternalDependency[] | undefined;
+  configSchema?: PluginConfigSchema | undefined;
+  configUiHints?: Record<string, PluginConfigUiHint> | undefined;
 }
 
 export interface PluginCandidate {
@@ -190,9 +192,9 @@ export interface PluginAgentEndContext {
   messages: StoredMessage[];
   resultText: string;
   toolNames: string[];
-  model?: string;
-  durationMs?: number;
-  tokenUsage?: PluginTokenUsage;
+  model?: string | undefined;
+  durationMs?: number | undefined;
+  tokenUsage?: PluginTokenUsage | undefined;
 }
 
 export interface PluginToolHookContext {
@@ -275,14 +277,14 @@ export interface PluginHookHandlerMap {
     userId: string;
     agentId: string;
     channelId: string;
-    workspacePath?: string;
+    workspacePath?: string | undefined;
   }) => Promise<void> | void;
   session_end: (context: {
     sessionId: string;
     userId: string;
     agentId: string;
     channelId: string;
-    workspacePath?: string;
+    workspacePath?: string | undefined;
   }) => Promise<void> | void;
   session_reset: (context: PluginSessionResetContext) => Promise<void> | void;
   before_prompt_build: (
@@ -293,7 +295,7 @@ export interface PluginHookHandlerMap {
     userId: string;
     agentId: string;
     channelId: string;
-    model?: string;
+    model?: string | undefined;
   }) => Promise<void> | void;
   agent_end: (context: PluginAgentEndContext) => Promise<void> | void;
   pre_tool_use: (context: PluginToolHookContext) => Promise<void> | void;
@@ -316,7 +318,7 @@ export interface PluginHookHandlerMap {
 
 export interface PluginPromptHook {
   id: string;
-  priority?: number;
+  priority?: number | undefined;
   render: (
     context: PluginPromptBuildContext,
   ) => Promise<string | null> | string | null;
@@ -327,13 +329,13 @@ export interface PluginOutputGuardContext {
   userId: string;
   agentId: string;
   channelId: string;
-  model?: string;
-  workspacePath?: string;
-  messages?: ChatMessage[];
+  model?: string | undefined;
+  workspacePath?: string | undefined;
+  messages?: ChatMessage[] | undefined;
   userContent: string;
   resultText: string;
-  toolExecutions?: ToolExecution[];
-  skill?: AgentTurnContext['skill'];
+  toolExecutions?: ToolExecution[] | undefined;
+  skill?: AgentTurnContext['skill'] | undefined;
 }
 
 export type PluginOutputGuardDecision =
@@ -344,8 +346,10 @@ export type PluginOutputGuardDecision =
 
 export interface PluginOutputGuard {
   id: string;
-  priority?: number;
-  predicate?: (context: PluginOutputGuardContext) => Promise<boolean> | boolean;
+  priority?: number | undefined;
+  predicate?:
+    | ((context: PluginOutputGuardContext) => Promise<boolean> | boolean)
+    | undefined;
   inspect: (
     context: PluginOutputGuardContext,
   ) =>
@@ -359,9 +363,9 @@ export interface PluginOutputGuardEvent {
   pluginId: string;
   guardId: string;
   action: 'allow' | 'rewrite' | 'block' | 'warn';
-  reason?: string;
-  before?: string;
-  after?: string;
+  reason?: string | undefined;
+  before?: string | undefined;
+  after?: string | undefined;
 }
 
 export interface PluginOutputGuardOutcome {
@@ -387,7 +391,7 @@ export interface MemoryLayerPlugin {
     sessionId: string;
     userId: string;
     agentId: string;
-    workspacePath?: string;
+    workspacePath?: string | undefined;
     recentMessages: StoredMessage[];
   }) => Promise<string | null>;
   onTurnComplete?: (params: {
@@ -408,16 +412,16 @@ export interface MemoryLayerPlugin {
 
 export interface PluginCommandDefinition {
   name: string;
-  description?: string;
+  description?: string | undefined;
   handler: (
     args: string[],
     context: {
       sessionId: string;
       channelId: string;
-      userId?: string | null;
-      username?: string | null;
-      guildId?: string | null;
-      workspacePath?: string;
+      userId?: string | null | undefined;
+      username?: string | null | undefined;
+      guildId?: string | null | undefined;
+      workspacePath?: string | undefined;
     },
   ) => Promise<unknown> | unknown;
 }
@@ -430,26 +434,26 @@ export interface PluginService {
 
 export interface PluginInboundProactiveMessage {
   text: string;
-  artifacts?: ArtifactMetadata[];
+  artifacts?: ArtifactMetadata[] | undefined;
 }
 
 export interface PluginDispatchInboundMessageRequest {
   sessionId: string;
-  sessionMode?: 'new' | 'resume';
+  sessionMode?: 'new' | 'resume' | undefined;
   guildId: string | null;
   channelId: string;
   userId: string;
   username: string | null;
   content: string;
-  media?: MediaContextItem[];
-  agentId?: string | null;
-  chatbotId?: string | null;
-  model?: string | null;
-  enableRag?: boolean;
-  onProactiveMessage?: (
-    message: PluginInboundProactiveMessage,
-  ) => void | Promise<void>;
-  abortSignal?: AbortSignal;
+  media?: MediaContextItem[] | undefined;
+  agentId?: string | null | undefined;
+  chatbotId?: string | null | undefined;
+  model?: string | null | undefined;
+  enableRag?: boolean | undefined;
+  onProactiveMessage?:
+    | ((message: PluginInboundProactiveMessage) => void | Promise<void>)
+    | undefined;
+  abortSignal?: AbortSignal | undefined;
 }
 
 export interface PluginInboundWebhookContext {
@@ -527,21 +531,21 @@ export interface LoadedPlugin {
   candidate: PluginCandidate;
   enabled: boolean;
   status: 'loaded' | 'failed';
-  error?: string;
+  error?: string | undefined;
   toolsRegistered: string[];
   hooksRegistered: string[];
-  definition?: HybridClawPluginDefinition;
-  api?: HybridClawPluginApi;
+  definition?: HybridClawPluginDefinition | undefined;
+  api?: HybridClawPluginApi | undefined;
 }
 
 export interface PluginSummary {
   id: string;
-  name?: string;
-  version?: string;
-  description?: string;
+  name?: string | undefined;
+  version?: string | undefined;
+  description?: string | undefined;
   source: PluginDiscoverySource;
   enabled: boolean;
-  error?: string;
+  error?: string | undefined;
   commands: string[];
   tools: string[];
   hooks: string[];

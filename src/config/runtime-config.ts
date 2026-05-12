@@ -1015,10 +1015,10 @@ export interface RuntimeConfig {
     byChannelKind?: Record<
       string,
       {
-        mode?: SessionResetMode;
+        mode?: SessionResetMode | undefined;
         // Interpreted in the gateway host's local timezone, not UTC.
-        atHour?: number;
-        idleMinutes?: number;
+        atHour?: number | undefined;
+        idleMinutes?: number | undefined;
       }
     >;
   };

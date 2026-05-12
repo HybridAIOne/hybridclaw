@@ -65,14 +65,14 @@ export class TuiMultilineInputController {
   private readonly rl: InternalReadline;
   private readonly originalTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   private readonly closeHandler: () => void;
-  private readonly onPasteShortcut?: () => void;
+  private readonly onPasteShortcut?: (() => void) | undefined;
   private installedTtyWrite: InternalReadline['_ttyWrite'] | undefined;
   private pendingSplitShiftReturnSequence = '';
   private insertedContinuationLineBreakCount = 0;
 
   constructor(params: {
     rl: readline.Interface;
-    onPasteShortcut?: () => void;
+    onPasteShortcut?: (() => void) | undefined;
   }) {
     this.rl = params.rl as InternalReadline;
     this.originalTtyWrite = this.rl._ttyWrite?.bind(this.rl);

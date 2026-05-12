@@ -145,7 +145,7 @@ function createMenuEntry(params: {
   label: string;
   insertText: string;
   description: string;
-  aliases?: string[];
+  aliases?: string[] | undefined;
   depth: number;
   sortIndex: number;
 }): TuiSlashMenuEntry {

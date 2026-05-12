@@ -13,38 +13,38 @@ export interface ExecutorRequest {
   messages: ChatMessage[];
   chatbotId: string;
   enableRag: boolean;
-  executorModeOverride?: 'host' | 'container';
-  model?: string;
-  agentId?: string;
-  workspacePathOverride?: string;
-  workspaceDisplayRootOverride?: string;
-  skipContainerSystemPrompt?: boolean;
-  maxTokens?: number;
-  maxWallClockMs?: number | null;
-  inactivityTimeoutMs?: number | null;
+  executorModeOverride?: 'host' | 'container' | undefined;
+  model?: string | undefined;
+  agentId?: string | undefined;
+  workspacePathOverride?: string | undefined;
+  workspaceDisplayRootOverride?: string | undefined;
+  skipContainerSystemPrompt?: boolean | undefined;
+  maxTokens?: number | undefined;
+  maxWallClockMs?: number | null | undefined;
+  inactivityTimeoutMs?: number | null | undefined;
   bashProxy?:
     | {
         mode: 'docker-exec';
         containerName: string;
-        cwd?: string;
+        cwd?: string | undefined;
       }
     | undefined;
-  channelId?: string;
-  ralphMaxIterations?: number | null;
-  fullAutoEnabled?: boolean;
-  fullAutoNeverApproveTools?: string[];
-  scheduledTasks?: ScheduledTask[];
-  allowedTools?: string[];
-  blockedTools?: string[];
-  onTextDelta?: (delta: string) => void;
-  onThinkingDelta?: (delta: string) => void;
-  onToolProgress?: (event: ToolProgressEvent) => void;
-  onApprovalProgress?: (approval: PendingApproval) => void;
-  abortSignal?: AbortSignal;
-  media?: MediaContextItem[];
-  audioTranscriptsPrepended?: boolean;
-  pluginTools?: PluginRuntimeToolDefinition[];
-  escalationTarget?: EscalationTarget;
+  channelId?: string | undefined;
+  ralphMaxIterations?: number | null | undefined;
+  fullAutoEnabled?: boolean | undefined;
+  fullAutoNeverApproveTools?: string[] | undefined;
+  scheduledTasks?: ScheduledTask[] | undefined;
+  allowedTools?: string[] | undefined;
+  blockedTools?: string[] | undefined;
+  onTextDelta?: ((delta: string) => void) | undefined;
+  onThinkingDelta?: ((delta: string) => void) | undefined;
+  onToolProgress?: ((event: ToolProgressEvent) => void) | undefined;
+  onApprovalProgress?: ((approval: PendingApproval) => void) | undefined;
+  abortSignal?: AbortSignal | undefined;
+  media?: MediaContextItem[] | undefined;
+  audioTranscriptsPrepended?: boolean | undefined;
+  pluginTools?: PluginRuntimeToolDefinition[] | undefined;
+  escalationTarget?: EscalationTarget | undefined;
 }
 
 export interface Executor {

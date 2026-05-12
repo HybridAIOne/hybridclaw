@@ -1389,10 +1389,10 @@ export interface SpinnerToolEntry {
 
 export function formatTuiToolActivityLine(params: {
   toolName: string;
-  preview?: string;
+  preview?: string | undefined;
   columns: number;
-  frameIndex?: number;
-  count?: number;
+  frameIndex?: number | undefined;
+  count?: number | undefined;
 }): string {
   const frameIndex = Math.max(0, params.frameIndex || 0);
   const frame =
@@ -1829,7 +1829,9 @@ function syncTuiSessionId(nextSessionId: string | null | undefined): void {
   tuiSessionId = normalized;
 }
 
-function syncTuiSessionIdFromResult(result: { sessionId?: string }): void {
+function syncTuiSessionIdFromResult(result: {
+  sessionId?: string | undefined;
+}): void {
   syncTuiSessionId(result.sessionId);
 }
 

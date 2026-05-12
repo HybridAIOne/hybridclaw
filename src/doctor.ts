@@ -88,7 +88,7 @@ async function applyFixes(
   const applied: Array<{
     category: DiagResult['category'];
     label: string;
-    rollback?: () => Promise<void>;
+    rollback?: (() => Promise<void>) | undefined;
   }> = [];
 
   const promptForFixes = shouldPromptForFixes(args);
@@ -215,7 +215,7 @@ export async function runDoctor(args: DoctorArgs): Promise<DoctorReport> {
       ...result,
       fixable: Boolean(result.fix),
       fix: undefined,
-    })) as Array<DiagResult & { fixable: boolean }>,
+    })) as unknown as Array<DiagResult & { fixable: boolean }>,
     summary: summarizeCounts(results),
     fixes,
   };

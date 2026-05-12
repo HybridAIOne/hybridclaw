@@ -452,7 +452,7 @@ export async function injectPdfContextMessages(params: {
   sessionId: string;
   messages: ChatMessage[];
   workspaceRoot: string;
-  media?: MediaContextItem[];
+  media?: MediaContextItem[] | undefined;
 }): Promise<ChatMessage[]> {
   trimSessionPdfCache();
 

@@ -33,9 +33,9 @@ export type RuntimeRevisionAssetType =
   (typeof RUNTIME_REVISION_ASSET_TYPES)[number];
 
 export interface RuntimeConfigChangeMeta {
-  actor?: string | null;
-  route?: string | null;
-  source?: string | null;
+  actor?: string | null | undefined;
+  route?: string | null | undefined;
+  source?: string | null | undefined;
 }
 
 export interface RuntimeConfigRevisionSummary {

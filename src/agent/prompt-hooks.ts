@@ -55,31 +55,31 @@ export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
 export { PROMPT_PART_NAMES } from './prompt-parts.js';
 
 export interface PromptRuntimeInfo {
-  chatbotId?: string;
-  model?: string;
-  defaultModel?: string;
-  channelType?: string;
-  channelId?: string;
-  guildId?: string | null;
-  channel?: ChannelInfo;
-  sessionContext?: SessionContext;
-  workspacePath?: string;
+  chatbotId?: string | undefined;
+  model?: string | undefined;
+  defaultModel?: string | undefined;
+  channelType?: string | undefined;
+  channelId?: string | undefined;
+  guildId?: string | null | undefined;
+  channel?: ChannelInfo | undefined;
+  sessionContext?: SessionContext | undefined;
+  workspacePath?: string | undefined;
 }
 
 export interface PromptHookContext {
   agentId: string;
-  sessionSummary?: string | null;
-  retrievedContext?: string | null;
+  sessionSummary?: string | null | undefined;
+  retrievedContext?: string | null | undefined;
   skills: Skill[];
-  explicitSkillInvocation?: SkillInvocation | null;
-  purpose?: 'conversation' | 'memory-flush';
-  promptMode?: PromptMode;
-  includePromptParts?: PromptPartName[];
-  omitPromptParts?: PromptPartName[];
-  extraSafetyText?: string;
-  runtimeInfo?: PromptRuntimeInfo;
-  allowedTools?: string[];
-  blockedTools?: string[];
+  explicitSkillInvocation?: SkillInvocation | null | undefined;
+  purpose?: 'conversation' | 'memory-flush' | undefined;
+  promptMode?: PromptMode | undefined;
+  includePromptParts?: PromptPartName[] | undefined;
+  omitPromptParts?: PromptPartName[] | undefined;
+  extraSafetyText?: string | undefined;
+  runtimeInfo?: PromptRuntimeInfo | undefined;
+  allowedTools?: string[] | undefined;
+  blockedTools?: string[] | undefined;
 }
 
 export interface PromptHookOutput {

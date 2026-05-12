@@ -16,10 +16,10 @@ import { threemaAgentPromptAdapter } from './threema/prompt-adapter.js';
 import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
 
 export interface ChannelPromptRuntimeInfo {
-  channel?: ChannelInfo;
-  channelType?: string;
-  channelId?: string;
-  guildId?: string | null;
+  channel?: ChannelInfo | undefined;
+  channelType?: string | undefined;
+  channelId?: string | undefined;
+  guildId?: string | null | undefined;
 }
 
 export type ChannelAgentPromptAdapter = {

@@ -38,15 +38,15 @@ export function isConfidentialRedactionEnabled(): boolean {
 }
 
 export interface DehydrateMessageToolCall {
-  id?: string;
-  type?: string;
-  function?: { name?: string; arguments?: unknown };
+  id?: string | undefined;
+  type?: string | undefined;
+  function?: { name?: string | undefined; arguments?: unknown } | undefined;
 }
 
 export interface DehydrateMessageContent {
-  role?: string;
+  role?: string | undefined;
   content: unknown;
-  tool_calls?: DehydrateMessageToolCall[];
+  tool_calls?: DehydrateMessageToolCall[] | undefined;
 }
 
 function dehydrateText(

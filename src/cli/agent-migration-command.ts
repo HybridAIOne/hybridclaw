@@ -16,8 +16,8 @@ interface ParsedMigrationArgs {
   overwrite: boolean;
   migrateSecrets: boolean;
   yes: boolean;
-  agentId?: string;
-  sourceRoot?: string;
+  agentId?: string | undefined;
+  sourceRoot?: string | undefined;
 }
 
 type PromptDecision = 'yes' | 'no' | 'cancel';

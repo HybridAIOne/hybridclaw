@@ -43,18 +43,18 @@ export interface ConversationContext {
 
 export function buildConversationContext(params: {
   agentId: string;
-  sessionSummary?: string | null;
-  retrievedContext?: string | null;
+  sessionSummary?: string | null | undefined;
+  retrievedContext?: string | null | undefined;
   history: HistoryMessage[];
-  expandLatestHistoryUser?: boolean;
-  promptMode?: PromptMode;
-  includePromptParts?: PromptPartName[];
-  omitPromptParts?: PromptPartName[];
-  extraSafetyText?: string;
-  runtimeInfo?: PromptRuntimeInfo;
-  allowedTools?: string[];
-  blockedTools?: string[];
-  currentUserContent?: ChatMessage['content'];
+  expandLatestHistoryUser?: boolean | undefined;
+  promptMode?: PromptMode | undefined;
+  includePromptParts?: PromptPartName[] | undefined;
+  omitPromptParts?: PromptPartName[] | undefined;
+  extraSafetyText?: string | undefined;
+  runtimeInfo?: PromptRuntimeInfo | undefined;
+  allowedTools?: string[] | undefined;
+  blockedTools?: string[] | undefined;
+  currentUserContent?: ChatMessage['content'] | undefined;
 }): ConversationContext {
   const {
     agentId,

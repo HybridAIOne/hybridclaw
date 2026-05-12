@@ -112,7 +112,10 @@ function decodePayload(raw: string): GatewayRestartPayload {
 }
 
 function resolveRestartState(
-  params: { currentPid?: number; state?: GatewayPidState | null } = {},
+  params: {
+    currentPid?: number | undefined;
+    state?: GatewayPidState | null | undefined;
+  } = {},
 ): {
   helperCommand: string[] | null;
   restartCommand: string[] | null;

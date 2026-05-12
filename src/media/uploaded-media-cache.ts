@@ -312,9 +312,9 @@ export async function writeUploadedMediaCacheFile(params: {
 export async function createUploadedMediaContextItem(params: {
   attachmentName: string;
   buffer: Buffer;
-  mimeType?: string | null;
-  sizeBytes?: number;
-  originalUrl?: string | null;
+  mimeType?: string | null | undefined;
+  sizeBytes?: number | undefined;
+  originalUrl?: string | null | undefined;
 }): Promise<MediaContextItem> {
   const normalizedMimeType = normalizeMimeType(params.mimeType);
   const { runtimePath, filename } = await writeUploadedMediaCacheFile({

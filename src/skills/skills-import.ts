@@ -52,20 +52,22 @@ export interface SkillImportResult {
   resolvedSource: string;
   replacedExisting: boolean;
   filesImported: number;
-  guardOverrideApplied?: boolean;
-  guardSkipped?: boolean;
-  guardVerdict?: SkillGuardVerdict;
-  guardFindingsCount?: number;
+  guardOverrideApplied?: boolean | undefined;
+  guardSkipped?: boolean | undefined;
+  guardVerdict?: SkillGuardVerdict | undefined;
+  guardFindingsCount?: number | undefined;
 }
 
 export interface ImportSkillOptions {
-  homeDir?: string;
-  fetchImpl?: typeof fetch;
-  force?: boolean;
-  installRootDir?: string;
-  replaceExisting?: boolean;
-  skipGuard?: boolean;
-  validateSkillFile?: (skillFilePath: string, skillName: string) => void;
+  homeDir?: string | undefined;
+  fetchImpl?: typeof fetch | undefined;
+  force?: boolean | undefined;
+  installRootDir?: string | undefined;
+  replaceExisting?: boolean | undefined;
+  skipGuard?: boolean | undefined;
+  validateSkillFile?:
+    | ((skillFilePath: string, skillName: string) => void)
+    | undefined;
 }
 
 function resolveManagedCommunitySkillsDir(

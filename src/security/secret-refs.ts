@@ -146,8 +146,8 @@ export function resolveSecretInput(
   value: unknown,
   opts: {
     path: string;
-    required?: boolean;
-    sinkKind?: SecretSinkKind;
+    required?: boolean | undefined;
+    sinkKind?: SecretSinkKind | undefined;
   },
 ): string | SecretHandle | undefined {
   const parsed = parseSecretInput(value);
@@ -189,7 +189,7 @@ export function resolveSecretInputUnsafe(
   value: unknown,
   opts: {
     path: string;
-    required?: boolean;
+    required?: boolean | undefined;
     reason: string;
     audit: (handle: SecretHandle, reason: string) => void;
   },

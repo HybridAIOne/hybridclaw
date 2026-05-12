@@ -132,7 +132,7 @@ export function evaluateTelegramAccessPolicy(params: {
   groupAllowFrom: string[];
   chatType: TelegramMessage['chat']['type'];
   senderId: string;
-  senderUsername?: string | null;
+  senderUsername?: string | null | undefined;
   isBotMessage: boolean;
   requireMention: boolean;
   isMentioned: boolean;

@@ -16,18 +16,18 @@ export interface McpServerConfig {
 }
 
 export interface TaskModelPolicy {
-  provider?: ProviderKind;
-  providerMethod?: string;
-  baseUrl?: string;
-  apiKey?: string;
-  requestHeaders?: Record<string, string>;
-  isLocal?: boolean;
-  contextWindow?: number;
-  thinkingFormat?: 'qwen';
+  provider?: ProviderKind | undefined;
+  providerMethod?: string | undefined;
+  baseUrl?: string | undefined;
+  apiKey?: string | undefined;
+  requestHeaders?: Record<string, string> | undefined;
+  isLocal?: boolean | undefined;
+  contextWindow?: number | undefined;
+  thinkingFormat?: 'qwen' | undefined;
   model: string;
-  chatbotId?: string;
-  maxTokens?: number;
-  error?: string;
+  chatbotId?: string | undefined;
+  maxTokens?: number | undefined;
+  error?: string | undefined;
 }
 
 export const TASK_MODEL_KEYS = [

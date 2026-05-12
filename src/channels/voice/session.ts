@@ -68,7 +68,7 @@ function createSession(params: {
   to: string;
   userId: string;
   username: string;
-  callerName?: string;
+  callerName?: string | undefined;
 }): VoiceCallSession {
   const timestamp = now();
   return {
@@ -125,7 +125,7 @@ export class VoiceCallSessionStore {
     remoteIp: string;
     from: string;
     to: string;
-    callerName?: string;
+    callerName?: string | undefined;
   }): VoiceCallSession | null {
     const existing = this.sessions.get(params.callSid);
     if (existing) {

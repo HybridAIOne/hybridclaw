@@ -71,14 +71,16 @@ export function formatDependencyPlanDetails(plan: {
 }
 
 export interface InstallPluginOptions {
-  homeDir?: string;
-  cwd?: string;
-  runCommand?: PluginInstallCommandRunner;
-  runCheckCommand?: PluginDependencyCommandChecker;
-  approveDependencyInstall?: boolean;
-  onDependenciesAlreadySatisfied?: (plan: PluginDependencyPlan) => void;
-  getRuntimeConfig?: PluginConfigGetter;
-  updateRuntimeConfig?: PluginConfigUpdater;
+  homeDir?: string | undefined;
+  cwd?: string | undefined;
+  runCommand?: PluginInstallCommandRunner | undefined;
+  runCheckCommand?: PluginDependencyCommandChecker | undefined;
+  approveDependencyInstall?: boolean | undefined;
+  onDependenciesAlreadySatisfied?:
+    | ((plan: PluginDependencyPlan) => void)
+    | undefined;
+  getRuntimeConfig?: PluginConfigGetter | undefined;
+  updateRuntimeConfig?: PluginConfigUpdater | undefined;
 }
 
 export interface InstallPluginResult {
@@ -569,7 +571,9 @@ function installPreparedPlugin(
     runCommand: PluginInstallCommandRunner;
     runCheckCommand: PluginDependencyCommandChecker;
     approveDependencyInstall: boolean;
-    onDependenciesAlreadySatisfied?: (plan: PluginDependencyPlan) => void;
+    onDependenciesAlreadySatisfied?:
+      | ((plan: PluginDependencyPlan) => void)
+      | undefined;
     getRuntimeConfig: PluginConfigGetter;
     updateRuntimeConfig: PluginConfigUpdater;
     replaceExisting: boolean;

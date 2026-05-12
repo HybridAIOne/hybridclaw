@@ -4,8 +4,8 @@ export interface ToolGroup {
 }
 
 export interface ToolSummaryOptions {
-  allowedTools?: readonly string[] | null;
-  blockedTools?: readonly string[] | null;
+  allowedTools?: readonly string[] | null | undefined;
+  blockedTools?: readonly string[] | null | undefined;
 }
 
 const TOOL_GROUPS: ToolGroup[] = [

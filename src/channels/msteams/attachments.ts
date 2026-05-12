@@ -890,8 +890,8 @@ function buildUploadedAttachmentUrl(
 export async function buildTeamsUploadedFileAttachment(params: {
   turnContext: TurnContext;
   filePath: string;
-  filename?: string | null;
-  mimeType?: string | null;
+  filename?: string | null | undefined;
+  mimeType?: string | null | undefined;
 }): Promise<Attachment> {
   const conversationId = normalizeValue(
     params.turnContext.activity.conversation?.id,

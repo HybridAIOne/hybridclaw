@@ -103,7 +103,7 @@ export async function callSignalRpc<T>(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
-      signal,
+      signal: signal ?? null,
     });
   } catch (error) {
     const message =

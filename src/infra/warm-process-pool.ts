@@ -214,7 +214,7 @@ export class WarmProcessPool<T extends WarmProcessPoolEntry> {
   evictForPressure(params: {
     totalProcessCount: number;
     maxProcessCount: number;
-    rssBytes?: number;
+    rssBytes?: number | undefined;
   }): T[] {
     const memoryPressure =
       this.config.memoryPressureRssBytes > 0 &&

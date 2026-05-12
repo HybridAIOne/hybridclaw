@@ -33,17 +33,17 @@ export interface MediaContextItem {
 export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
 export interface ProviderCredential {
-  apiKey?: string;
-  baseUrl?: string;
-  imageModel?: string;
-  videoModel?: string;
+  apiKey?: string | undefined;
+  baseUrl?: string | undefined;
+  imageModel?: string | undefined;
+  videoModel?: string | undefined;
 }
 
 export interface ProviderCredentials {
-  openai?: ProviderCredential;
-  gemini?: ProviderCredential;
-  xai?: ProviderCredential;
-  bfl?: ProviderCredential;
+  openai?: ProviderCredential | undefined;
+  gemini?: ProviderCredential | undefined;
+  xai?: ProviderCredential | undefined;
+  bfl?: ProviderCredential | undefined;
 }
 
 export interface ContainerInput {
@@ -56,54 +56,56 @@ export interface ContainerInput {
   enableRag: boolean;
   apiKey: string;
   baseUrl: string;
-  provider?: ProviderKind;
-  providerMethod?: string;
-  requestHeaders?: Record<string, string>;
-  isLocal?: boolean;
-  contextWindow?: number;
-  thinkingFormat?: 'qwen';
-  gatewayBaseUrl?: string;
-  gatewayApiToken?: string;
+  provider?: ProviderKind | undefined;
+  providerMethod?: string | undefined;
+  requestHeaders?: Record<string, string> | undefined;
+  isLocal?: boolean | undefined;
+  contextWindow?: number | undefined;
+  thinkingFormat?: 'qwen' | undefined;
+  gatewayBaseUrl?: string | undefined;
+  gatewayApiToken?: string | undefined;
   model: string;
-  ralphMaxIterations?: number | null;
-  fullAutoEnabled?: boolean;
-  fullAutoNeverApproveTools?: string[];
-  skipContainerSystemPrompt?: boolean;
-  streamTextDeltas?: boolean;
-  debugModelResponses?: boolean;
-  maxTokens?: number;
+  ralphMaxIterations?: number | null | undefined;
+  fullAutoEnabled?: boolean | undefined;
+  fullAutoNeverApproveTools?: string[] | undefined;
+  skipContainerSystemPrompt?: boolean | undefined;
+  streamTextDeltas?: boolean | undefined;
+  debugModelResponses?: boolean | undefined;
+  maxTokens?: number | undefined;
   channelId: string;
-  configuredDiscordChannels?: string[];
-  activeMessageChannels?: string[];
-  scheduledTasks?: ScheduledTaskInput[];
-  allowedTools?: string[];
-  blockedTools?: string[];
-  media?: MediaContextItem[];
-  audioTranscriptsPrepended?: boolean;
-  pluginTools?: PluginRuntimeToolDefinition[];
-  mcpServers?: Record<string, McpServerConfig>;
-  taskModels?: TaskModelPolicies;
-  contextGuard?: ContextGuardConfig;
-  webSearch?: WebSearchConfig;
-  providerCredentials?: ProviderCredentials;
-  persistBashState?: boolean;
-  runtimeEnv?: Record<string, string>;
-  escalationTarget?: EscalationTarget;
+  configuredDiscordChannels?: string[] | undefined;
+  activeMessageChannels?: string[] | undefined;
+  scheduledTasks?: ScheduledTaskInput[] | undefined;
+  allowedTools?: string[] | undefined;
+  blockedTools?: string[] | undefined;
+  media?: MediaContextItem[] | undefined;
+  audioTranscriptsPrepended?: boolean | undefined;
+  pluginTools?: PluginRuntimeToolDefinition[] | undefined;
+  mcpServers?: Record<string, McpServerConfig> | undefined;
+  taskModels?: TaskModelPolicies | undefined;
+  contextGuard?: ContextGuardConfig | undefined;
+  webSearch?: WebSearchConfig | undefined;
+  providerCredentials?: ProviderCredentials | undefined;
+  persistBashState?: boolean | undefined;
+  runtimeEnv?: Record<string, string> | undefined;
+  escalationTarget?: EscalationTarget | undefined;
 }
 
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   toolsUsed: string[];
-  artifacts?: ArtifactMetadata[];
-  memoryCitations?: MemoryCitation[];
-  toolExecutions?: ToolExecution[];
-  pendingApproval?: PendingApproval;
-  tokenUsage?: TokenUsageStats;
-  error?: string;
-  effectiveUserPrompt?: string;
-  sideEffects?: {
-    schedules?: ScheduleSideEffect[];
-    delegations?: DelegationSideEffect[];
-  };
+  artifacts?: ArtifactMetadata[] | undefined;
+  memoryCitations?: MemoryCitation[] | undefined;
+  toolExecutions?: ToolExecution[] | undefined;
+  pendingApproval?: PendingApproval | undefined;
+  tokenUsage?: TokenUsageStats | undefined;
+  error?: string | undefined;
+  effectiveUserPrompt?: string | undefined;
+  sideEffects?:
+    | {
+        schedules?: ScheduleSideEffect[] | undefined;
+        delegations?: DelegationSideEffect[] | undefined;
+      }
+    | undefined;
 }

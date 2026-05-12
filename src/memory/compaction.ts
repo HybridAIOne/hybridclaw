@@ -187,7 +187,7 @@ function buildStructuredSystemPrompt(params: {
 
 function buildSummaryPrompt(params: {
   messages: StoredMessage[];
-  previousSummary?: string | null;
+  previousSummary?: string | null | undefined;
   stageKind: CompactionStage['kind'];
 }): string {
   const previousSummary = params.previousSummary?.trim() || '(none)';
@@ -266,7 +266,7 @@ async function runSummaryAttempt(params: {
   promptRunner: CompactionPromptRunner;
   messages: StoredMessage[];
   targetTokens: number;
-  previousSummary?: string | null;
+  previousSummary?: string | null | undefined;
   stageKind: CompactionStage['kind'];
   stageIndex: number;
   stageTotal: number;
@@ -415,7 +415,7 @@ export async function summarizeWithFallback(params: {
   session: Session;
   promptRunner: CompactionPromptRunner;
   messages: StoredMessage[];
-  previousSummary?: string | null;
+  previousSummary?: string | null | undefined;
   targetTokens: number;
   stageKind: CompactionStage['kind'];
   stageIndex: number;
@@ -534,7 +534,7 @@ async function summarizeInStages(params: {
   session: Session;
   promptRunner: CompactionPromptRunner;
   messages: StoredMessage[];
-  previousSummary?: string | null;
+  previousSummary?: string | null | undefined;
   config: CompactionConfig;
 }): Promise<{ summary: string; stages: CompactionStage[] }> {
   const totalTokens = estimateTokenCountFromMessages(

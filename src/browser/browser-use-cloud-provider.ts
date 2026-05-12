@@ -37,10 +37,10 @@ import type {
 type BrowserUseCloudFetch = (
   input: string,
   init?: {
-    method?: string;
-    headers?: Record<string, string>;
-    body?: string;
-    signal?: AbortSignal;
+    method?: string | undefined;
+    headers?: Record<string, string> | undefined;
+    body?: string | undefined;
+    signal?: AbortSignal | undefined;
   },
 ) => Promise<{
   ok: boolean;
@@ -52,26 +52,46 @@ type BrowserUseCloudFetch = (
 type BrowserUseCloudPage = {
   evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
   screenshot(opts?: {
-    fullPage?: boolean;
-    type?: 'png' | 'jpeg';
+    fullPage?: boolean | undefined;
+    type?: 'png' | 'jpeg' | undefined;
   }): Promise<Buffer | Uint8Array>;
   goto(
     url: string,
-    opts?: { waitUntil?: NavigateOptions['waitUntil']; timeout?: number },
+    opts?:
+      | {
+          waitUntil?: NavigateOptions['waitUntil'] | undefined;
+          timeout?: number | undefined;
+        }
+      | undefined,
   ): Promise<unknown>;
-  goBack(opts?: {
-    waitUntil?: NavigateOptions['waitUntil'];
-    timeout?: number;
-  }): Promise<unknown>;
-  goForward(opts?: {
-    waitUntil?: NavigateOptions['waitUntil'];
-    timeout?: number;
-  }): Promise<unknown>;
-  reload(opts?: {
-    waitUntil?: NavigateOptions['waitUntil'];
-    timeout?: number;
-  }): Promise<unknown>;
-  click(selector: string, opts?: { timeout?: number }): Promise<void>;
+  goBack(
+    opts?:
+      | {
+          waitUntil?: NavigateOptions['waitUntil'] | undefined;
+          timeout?: number | undefined;
+        }
+      | undefined,
+  ): Promise<unknown>;
+  goForward(
+    opts?:
+      | {
+          waitUntil?: NavigateOptions['waitUntil'] | undefined;
+          timeout?: number | undefined;
+        }
+      | undefined,
+  ): Promise<unknown>;
+  reload(
+    opts?:
+      | {
+          waitUntil?: NavigateOptions['waitUntil'] | undefined;
+          timeout?: number | undefined;
+        }
+      | undefined,
+  ): Promise<unknown>;
+  click(
+    selector: string,
+    opts?: { timeout?: number | undefined },
+  ): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
   url(): string;
   mouse: {
@@ -79,7 +99,10 @@ type BrowserUseCloudPage = {
   };
   waitForSelector(
     selector: string,
-    opts?: { state?: WaitOptions['state']; timeout?: number },
+    opts?: {
+      state?: WaitOptions['state'] | undefined;
+      timeout?: number | undefined;
+    },
   ): Promise<unknown>;
   locator(selector: string): PlaywrightSecretFillLocator & {
     evaluate<TArg>(
@@ -603,7 +626,7 @@ export class BrowserUseCloudProvider implements BrowserProvider {
         'Content-Type': 'application/json',
         [apiKeyHeader.name]: apiKeyHeader.value,
       },
-      body: init.body,
+      ...(init.body !== undefined && { body: init.body }),
       signal: AbortSignal.timeout(30_000),
     });
     const text = await response.text();

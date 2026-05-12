@@ -154,8 +154,8 @@ function parseArgs(argv: string[]): NativeRunnerOptions {
 function runCommand(params: {
   command: string;
   args: string[];
-  cwd?: string;
-  input?: string;
+  cwd?: string | undefined;
+  input?: string | undefined;
 }): string {
   const result = spawnSync(params.command, params.args, {
     cwd: params.cwd,

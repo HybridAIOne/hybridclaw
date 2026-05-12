@@ -96,7 +96,7 @@ export async function gatewayChat(
       ...authHeaders(),
     },
     body: JSON.stringify(params),
-    signal,
+    ...(signal !== undefined && { signal }),
   });
 }
 
@@ -119,7 +119,7 @@ export async function gatewayUploadMedia(params: {
       ...authHeaders(),
     },
     body,
-    signal: params.signal,
+    ...(params.signal !== undefined && { signal: params.signal }),
   });
 }
 
@@ -136,7 +136,7 @@ export async function gatewayChatStream(
       ...authHeaders(),
     },
     body: JSON.stringify({ ...params, stream: true }),
-    signal,
+    ...(signal !== undefined && { signal }),
   });
 
   if (!response.ok) {
@@ -297,7 +297,7 @@ export async function fetchGatewayAdminSkills(): Promise<GatewayAdminSkillsRespo
 export async function saveGatewayAdminSkillEnabled(params: {
   name: string;
   enabled: boolean;
-  channel?: SkillConfigChannelKind;
+  channel?: SkillConfigChannelKind | undefined;
 }): Promise<GatewayAdminSkillsResponse> {
   return requestJson<GatewayAdminSkillsResponse>('/api/admin/skills', {
     method: 'PUT',

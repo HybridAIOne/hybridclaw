@@ -32,22 +32,22 @@ export interface ConversationRelaySetupMessage {
   type: 'setup';
   sessionId: string;
   accountSid: string;
-  parentCallSid?: string;
+  parentCallSid?: string | undefined;
   callSid: string;
   from: string;
   to: string;
-  forwardedFrom?: string;
-  callType?: string;
-  callerName?: string;
-  direction?: string;
-  callStatus?: string;
-  customParameters?: Record<string, string>;
+  forwardedFrom?: string | undefined;
+  callType?: string | undefined;
+  callerName?: string | undefined;
+  direction?: string | undefined;
+  callStatus?: string | undefined;
+  customParameters?: Record<string, string> | undefined;
 }
 
 export interface ConversationRelayPromptMessage {
   type: 'prompt';
   voicePrompt: string;
-  lang?: string;
+  lang?: string | undefined;
   last: boolean;
 }
 
@@ -58,8 +58,8 @@ export interface ConversationRelayDtmfMessage {
 
 export interface ConversationRelayInterruptMessage {
   type: 'interrupt';
-  utteranceUntilInterrupt?: string;
-  durationUntilInterruptMs?: number;
+  utteranceUntilInterrupt?: string | undefined;
+  durationUntilInterruptMs?: number | undefined;
 }
 
 export interface ConversationRelayErrorMessage {

@@ -109,8 +109,8 @@ interface ActiveMSTeamsSession {
   channelId: string;
   isDm: boolean;
   replyStyle: ResolveMSTeamsChannelPolicyResult['replyStyle'];
-  replyToId?: string | null;
-  reference?: Partial<ConversationReference> | null;
+  replyToId?: string | null | undefined;
+  reference?: Partial<ConversationReference> | null | undefined;
   turnContext: TurnContext;
 }
 
@@ -231,22 +231,24 @@ function readStoredConversationReference(
     return null;
   }
 
+  const activityIdValue = normalizeOptionalValue(referenceValue.activityId);
+  const localeValue = normalizeOptionalValue(referenceValue.locale);
+  const reference: Partial<ConversationReference> = {
+    bot: bot as unknown as ConversationReference['bot'],
+    channelId: referenceChannelId,
+    conversation:
+      conversation as unknown as ConversationReference['conversation'],
+    serviceUrl,
+  };
+  if (activityIdValue) reference.activityId = activityIdValue;
+  if (localeValue) reference.locale = localeValue;
+  if (isRecord(referenceValue.user)) {
+    (reference as Record<string, unknown>).user = referenceValue.user;
+  }
   return {
     channelId,
     isDm,
-    reference: {
-      activityId:
-        normalizeOptionalValue(referenceValue.activityId) || undefined,
-      bot: bot as unknown as ConversationReference['bot'],
-      channelId: referenceChannelId,
-      conversation:
-        conversation as unknown as ConversationReference['conversation'],
-      locale: normalizeOptionalValue(referenceValue.locale) || undefined,
-      serviceUrl,
-      user: isRecord(referenceValue.user)
-        ? (referenceValue.user as unknown as ConversationReference['user'])
-        : undefined,
-    },
+    reference,
     replyStyle,
     replyToId: normalizeOptionalValue(stored.replyToId),
   };
@@ -255,9 +257,9 @@ function readStoredConversationReference(
 async function buildTeamsMessageAttachments(
   turnContext: TurnContext,
   params: {
-    filePath?: string | null;
-    filename?: string | null;
-    mimeType?: string | null;
+    filePath?: string | null | undefined;
+    filename?: string | null | undefined;
+    mimeType?: string | null | undefined;
   },
 ): Promise<Attachment[] | undefined> {
   if (!normalizeValue(params.filePath)) {
@@ -280,9 +282,9 @@ async function sendViaConversationReference(
   >,
   params: {
     text: string;
-    filePath?: string | null;
-    filename?: string | null;
-    mimeType?: string | null;
+    filePath?: string | null | undefined;
+    filename?: string | null | undefined;
+    mimeType?: string | null | undefined;
   },
 ): Promise<number> {
   let attachmentCount = 0;
@@ -480,12 +482,12 @@ function buildAdapter(): CloudAdapter {
     MicrosoftAppId: MSTEAMS_APP_ID,
     MicrosoftAppPassword: MSTEAMS_APP_PASSWORD,
     MicrosoftAppType: MSTEAMS_TENANT_ID ? 'SingleTenant' : 'MultiTenant',
-    MicrosoftAppTenantId: MSTEAMS_TENANT_ID || undefined,
+    ...(MSTEAMS_TENANT_ID ? { MicrosoftAppTenantId: MSTEAMS_TENANT_ID } : {}),
   });
   const auth = new ConfigurationBotFrameworkAuthentication(
     {
       MicrosoftAppId: MSTEAMS_APP_ID,
-      MicrosoftAppTenantId: MSTEAMS_TENANT_ID || undefined,
+      ...(MSTEAMS_TENANT_ID ? { MicrosoftAppTenantId: MSTEAMS_TENANT_ID } : {}),
     },
     credentialsFactory,
   );

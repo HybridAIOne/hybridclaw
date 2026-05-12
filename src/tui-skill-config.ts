@@ -45,7 +45,7 @@ export interface TuiSkillConfigDraft {
 export interface TuiSkillConfigMutation {
   name: string;
   enabled: boolean;
-  channel?: SkillConfigChannelKind;
+  channel?: SkillConfigChannelKind | undefined;
 }
 
 export interface TuiSkillConfigResult {

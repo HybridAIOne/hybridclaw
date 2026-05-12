@@ -110,8 +110,8 @@ export interface WorkspaceNodeModulesLinkOptions {
 
 interface WorkspaceOnboardingState {
   version: typeof WORKSPACE_STATE_VERSION;
-  bootstrapSeededAt?: string;
-  onboardingCompletedAt?: string;
+  bootstrapSeededAt?: string | undefined;
+  onboardingCompletedAt?: string | undefined;
 }
 
 function resolveWorkspaceStatePath(wsDir: string): string {

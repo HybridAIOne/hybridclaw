@@ -53,9 +53,9 @@ export type WhatsAppMessageHandler = (
 export interface WhatsAppMediaSendParams {
   jid: string;
   filePath: string;
-  mimeType?: string | null;
-  filename?: string | null;
-  caption?: string;
+  mimeType?: string | null | undefined;
+  filename?: string | null | undefined;
+  caption?: string | undefined;
 }
 
 const SELF_CHAT_REPLY_PREFIX = '[hybridclaw]';
@@ -195,7 +195,13 @@ export function createWhatsAppRuntime() {
   };
 
   const resolveSelfJids = (socket: {
-    user?: { id?: string; jid?: string; lid?: string };
+    user?:
+      | {
+          id?: string | undefined;
+          jid?: string | undefined;
+          lid?: string | undefined;
+        }
+      | undefined;
   }): string[] => [
     ...new Set(
       [socket.user?.jid, socket.user?.id, socket.user?.lid].filter(

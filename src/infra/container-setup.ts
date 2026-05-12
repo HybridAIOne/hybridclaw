@@ -49,7 +49,11 @@ function runCommand(
     env?: NodeJS.ProcessEnv;
     captureStdout?: boolean;
   },
-): Promise<{ code: number | null; out?: string; err?: string }> {
+): Promise<{
+  code: number | null;
+  out?: string | undefined;
+  err?: string | undefined;
+}> {
   return new Promise((resolve) => {
     const captureStdout = options?.captureStdout === true;
     const proc = spawn(command, args, {

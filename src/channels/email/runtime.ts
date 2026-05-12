@@ -38,24 +38,24 @@ export type EmailMessageHandler = (
 export interface EmailAttachmentSendParams {
   to: string;
   filePath: string;
-  body?: string;
-  subject?: string | null;
-  cc?: string[] | null;
-  bcc?: string[] | null;
-  inReplyTo?: string | null;
-  references?: string[] | null;
-  filename?: string | null;
-  mimeType?: string | null;
-  metadata?: EmailDeliveryMetadata | null;
+  body?: string | undefined;
+  subject?: string | null | undefined;
+  cc?: string[] | null | undefined;
+  bcc?: string[] | null | undefined;
+  inReplyTo?: string | null | undefined;
+  references?: string[] | null | undefined;
+  filename?: string | null | undefined;
+  mimeType?: string | null | undefined;
+  metadata?: EmailDeliveryMetadata | null | undefined;
 }
 
 export interface EmailTextSendOptions {
-  subject?: string | null;
-  cc?: string[] | null;
-  bcc?: string[] | null;
-  inReplyTo?: string | null;
-  references?: string[] | null;
-  metadata?: EmailDeliveryMetadata | null;
+  subject?: string | null | undefined;
+  cc?: string[] | null | undefined;
+  bcc?: string[] | null | undefined;
+  inReplyTo?: string | null | undefined;
+  references?: string[] | null | undefined;
+  metadata?: EmailDeliveryMetadata | null | undefined;
 }
 
 function createEmailShutdownAbortError(): Error {

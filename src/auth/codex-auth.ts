@@ -114,7 +114,7 @@ export class CodexAuthError extends Error {
   code: CodexAuthErrorCode;
   reloginRequired: boolean;
   retryable: boolean;
-  status?: number;
+  status?: number | undefined;
 
   constructor(
     code: CodexAuthErrorCode,
