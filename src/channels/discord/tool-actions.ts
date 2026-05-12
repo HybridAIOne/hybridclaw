@@ -147,9 +147,9 @@ function normalizeDiscordUserLookupQuery(rawValue: string | undefined): string {
   if (!trimmed) return '';
 
   const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
-  if (mentionMatch) return mentionMatch[1];
+  if (mentionMatch) return mentionMatch[1]!;
   const prefixedId = trimmed.match(/^(?:user:|discord:)?(\d{16,22})$/i);
-  if (prefixedId) return prefixedId[1];
+  if (prefixedId) return prefixedId[1]!;
 
   return trimmed.replace(/^@+/, '').trim();
 }
@@ -161,9 +161,9 @@ function normalizeDiscordChannelLookupQuery(
   if (!trimmed) return '';
 
   const mentionMatch = trimmed.match(/^<#(\d{16,22})>$/);
-  if (mentionMatch) return mentionMatch[1];
+  if (mentionMatch) return mentionMatch[1]!;
   const prefixedId = trimmed.match(/^(?:channel:|discord:)?(\d{16,22})$/i);
-  if (prefixedId) return prefixedId[1];
+  if (prefixedId) return prefixedId[1]!;
 
   return trimmed.replace(/^#+/, '').trim();
 }
@@ -226,10 +226,10 @@ function pickBestDiscordChannelLookupMatch(
   if (matched.length === 0) return null;
   const exactMatches = matched.filter((match) => match.exact);
   if (exactMatches.length === 1) {
-    return { channelId: exactMatches[0].candidate.id };
+    return { channelId: exactMatches[0]!.candidate.id };
   }
   if (exactMatches.length === 0 && matched.length === 1) {
-    return { channelId: matched[0].candidate.id };
+    return { channelId: matched[0]!.candidate.id };
   }
 
   const ambiguousMatches = exactMatches.length > 1 ? exactMatches : matched;
@@ -242,7 +242,7 @@ function pickBestDiscordChannelLookupMatch(
   );
 
   if (resolveAmbiguous === 'best') {
-    const best = ambiguousMatches[0];
+    const best = ambiguousMatches[0]!;
     const others = ambiguousMatches
       .slice(1, 10)
       .map((match) => formatDiscordChannelLookupCandidate(match.candidate))
@@ -458,7 +458,7 @@ async function resolveGuildMemberIdFromLookup(params: {
       .slice(0, 10)
       .map(({ member }) => toDiscordMemberLookupCandidate(member));
     if (resolveAmbiguous === 'best') {
-      const best = matched[0];
+      const best = matched[0]!;
       const others = sortedCandidates
         .slice(1)
         .map((candidate) => `${candidate.name} (${candidate.id})`)
@@ -478,7 +478,7 @@ async function resolveGuildMemberIdFromLookup(params: {
     };
   }
 
-  return { ok: true, userId: matched[0].member.id };
+  return { ok: true, userId: matched[0]!.member.id };
 }
 
 function normalizeDate(value: Date | null | undefined): string | null {

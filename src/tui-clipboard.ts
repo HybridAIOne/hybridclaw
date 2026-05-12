@@ -317,8 +317,8 @@ export function convertWindowsPathToWsl(filePath: string): string | null {
   if (!driveMatch) return null;
 
   const [, drive, rest] = driveMatch;
-  const suffix = rest.replace(/\\/g, '/');
-  return `/mnt/${drive.toLowerCase()}/${suffix}`;
+  const suffix = rest!.replace(/\\/g, '/');
+  return `/mnt/${drive!.toLowerCase()}/${suffix}`;
 }
 
 function stripWrappingQuotes(value: string): string {

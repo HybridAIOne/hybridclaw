@@ -140,7 +140,7 @@ export function parseSlackApprovalAction(
   }
   const [, action] = match;
   return {
-    action,
+    action: action!,
     approvalId: normalizedApprovalId,
   };
 }

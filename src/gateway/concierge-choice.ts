@@ -63,8 +63,8 @@ export function parseConciergeChoiceCustomId(
   try {
     return {
       profile: profile as ConciergeProfile,
-      userId,
-      sessionId: decodeURIComponent(encodedSessionId),
+      userId: userId!,
+      sessionId: decodeURIComponent(encodedSessionId!),
     };
   } catch {
     return null;

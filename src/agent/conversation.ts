@@ -114,7 +114,7 @@ export function buildConversationContext(params: {
   );
 
   if (expandLatestHistoryUser && historyMessages.length > 0) {
-    const latest = historyMessages[historyMessages.length - 1];
+    const latest = historyMessages[historyMessages.length - 1]!;
     if (latest.role === 'user' && typeof latest.content === 'string') {
       latest.content = expandSkillInvocation(latest.content, skills);
     }

@@ -173,7 +173,7 @@ export async function sendChunkedSignalText(params: {
       for (let index = 0; index < chunks.length; index += 1) {
         const sendParams = buildSendParams({
           account: params.account,
-          text: chunks[index],
+          text: chunks[index]!,
           recipientKind: target.kind,
           recipient: target.recipient,
         });

@@ -36,7 +36,7 @@ function parseValueFlag(
   index: number,
   name: string,
 ): { value: string | null; consumed: number } {
-  const arg = args[index];
+  const arg = args[index]!;
   const eqIdx = arg.indexOf('=');
   if (eqIdx >= 0) {
     return { value: arg.slice(eqIdx + 1), consumed: 1 };
@@ -57,7 +57,7 @@ function parseScanFlags(args: string[]): ParsedScanFlags {
   const remaining: string[] = [];
   let i = 0;
   while (i < args.length) {
-    const arg = args[i];
+    const arg = args[i]!;
     if (arg === '--level' || arg.startsWith('--level=')) {
       const { value, consumed } = parseValueFlag(args, i, '--level');
       if (!value) {

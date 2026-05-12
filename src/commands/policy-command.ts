@@ -427,7 +427,7 @@ export function runPolicyCommand(
     if (subcommand === 'allow' || subcommand === 'deny') {
       const rule = parseRuleCommand(subcommand, args.slice(1));
       const state = addPolicyRule(workspacePath, rule);
-      const added = state.rules[state.rules.length - 1];
+      const added = state.rules[state.rules.length - 1]!;
       const notes = collectHostScopeExpansionNotes([added]);
       return {
         kind: 'plain',
@@ -447,7 +447,7 @@ export function runPolicyCommand(
       if (deleted.length === 1) {
         return {
           kind: 'plain',
-          text: `Deleted rule #${deleted[0].index}: ${deleted[0].host} (agent: ${deleted[0].agent})`,
+          text: `Deleted rule #${deleted[0]!.index}: ${deleted[0]!.host} (agent: ${deleted[0]!.agent})`,
         };
       }
       return {

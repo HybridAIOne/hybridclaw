@@ -557,7 +557,7 @@ function satisfiesNodeRequirement(requirement?: string): boolean {
     .filter(Number.isFinite);
   const gteMatch = normalized.match(/^>=\s*(\d+(?:\.\d+)*)$/);
   if (gteMatch) {
-    const expected = gteMatch[1]
+    const expected = gteMatch[1]!
       .split('.')
       .map((part) => Number.parseInt(part, 10))
       .filter(Number.isFinite);
@@ -565,7 +565,7 @@ function satisfiesNodeRequirement(requirement?: string): boolean {
   }
   const exactMatch = normalized.match(/^(\d+(?:\.\d+)*)$/);
   if (exactMatch) {
-    const expected = exactMatch[1]
+    const expected = exactMatch[1]!
       .split('.')
       .map((part) => Number.parseInt(part, 10))
       .filter(Number.isFinite);

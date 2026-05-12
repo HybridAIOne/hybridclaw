@@ -435,7 +435,7 @@ export function mapCanonicalCommandToGatewayArgs(
           return ['agent', 'create', agentId, ...parts.slice(3)];
         }
         if (parts.length === 4) {
-          return ['agent', 'create', agentId, '--model', parts[3]];
+          return ['agent', 'create', agentId, '--model', parts[3]!];
         }
         return ['agent', 'create', ...parts.slice(2)];
       }
@@ -473,7 +473,7 @@ export function mapCanonicalCommandToGatewayArgs(
       return ['channel', 'policy', ...parts.slice(1)];
 
     case 'rag':
-      return parts.length > 1 ? ['rag', parts[1]] : ['rag'];
+      return parts.length > 1 ? ['rag', parts[1]!] : ['rag'];
 
     case 'ralph':
       return parts.length > 1

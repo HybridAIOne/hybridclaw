@@ -31,7 +31,7 @@ function decodeBase64Line(line: string, pattern: RegExp): string | null {
   if (!match) return null;
 
   try {
-    return Buffer.from(match[1], 'base64').toString('utf-8');
+    return Buffer.from(match[1]!, 'base64').toString('utf-8');
   } catch {
     return null;
   }

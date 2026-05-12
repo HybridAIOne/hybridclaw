@@ -2481,15 +2481,15 @@ function renderLocomoVariantComparisonSection(
     separator.length * metricWidths.length;
   const maxContentWidth = Math.max(60, resolveEvalRenderColumns() - 6);
   const maxVariantWidth = Math.max(
-    visibleLength(header[0]),
+    visibleLength(header[0]!),
     ...variants.map((variant) => visibleLength(variant.label)),
   );
   const variantWidth = Math.max(
-    visibleLength(header[0]),
+    visibleLength(header[0]!),
     Math.min(maxVariantWidth, maxContentWidth - totalMetricWidth),
   );
   const rows = variants.map((variant, rowIndex) => {
-    const metrics = metricColumns[rowIndex];
+    const metrics = metricColumns[rowIndex]!;
     const isBestOverall =
       bestHitRate != null &&
       Number.isFinite(variant.overallScore) &&
@@ -2500,8 +2500,8 @@ function renderLocomoVariantComparisonSection(
     );
     const metricCells = metrics.map((_metric, index) => {
       const formatted = padAnsiEnd(
-        metricStrings[rowIndex][index] || '-',
-        metricWidths[index],
+        metricStrings[rowIndex]![index] || '-',
+        metricWidths[index]!,
       );
       const highlight = metricHighlightMatrix[rowIndex]?.[index] === true;
       return styleLocomoMatrixCell(formatted, {
@@ -2516,10 +2516,10 @@ function renderLocomoVariantComparisonSection(
   });
   return renderSectionCard(title, [
     [
-      padAnsiEnd(header[0], variantWidth),
+      padAnsiEnd(header[0]!, variantWidth),
       ...header
         .slice(1)
-        .map((entry, index) => padAnsiEnd(entry, metricWidths[index])),
+        .map((entry, index) => padAnsiEnd(entry, metricWidths[index]!)),
     ].join(separator),
     [variantWidth, ...metricWidths]
       .map((width) => '-'.repeat(width))
@@ -4642,7 +4642,7 @@ function parseEvalAction(
   let index = 0;
 
   while (index < args.length && args[index]?.startsWith('--')) {
-    const error = parseEvalProfileFlag(args[index], profile);
+    const error = parseEvalProfileFlag(args[index]!, profile);
     if (error) {
       return {
         action: '',
@@ -4691,7 +4691,7 @@ function parseEvalAction(
           workspaceModeExplicit,
         };
       }
-      const error = parseEvalProfileFlag(args[index], profile);
+      const error = parseEvalProfileFlag(args[index]!, profile);
       if (error) {
         return {
           action: 'run',
@@ -4807,7 +4807,7 @@ export async function handleEvalCommand(
       (parsed.commandArgs.length === 1 ||
         MANAGED_SUITE_SUBCOMMANDS.has(probableSubcommand))
     ) {
-      const suggestedSuite = prefixMatches[0];
+      const suggestedSuite = prefixMatches[0]!;
       return errorResult(
         'Unknown Eval',
         [

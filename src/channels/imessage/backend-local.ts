@@ -71,7 +71,7 @@ function normalizeLocalInboundText(value: string): string {
     /^(?:[^/\s]{1,3}\s+)(\/[a-z][\s\S]*)$/i,
   );
   if (prefixedSlashCommandMatch) {
-    return prefixedSlashCommandMatch[1].trim();
+    return prefixedSlashCommandMatch[1]!.trim();
   }
 
   return trimmed;

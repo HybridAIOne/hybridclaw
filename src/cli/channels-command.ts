@@ -1174,9 +1174,9 @@ function parseIMessageSetupArgs(args: string[]): {
 function normalizeDiscordUserId(raw: string): string | null {
   const trimmed = raw.trim();
   const mentionMatch = trimmed.match(/^<@!?(\d{16,22})>$/);
-  if (mentionMatch) return mentionMatch[1];
+  if (mentionMatch) return mentionMatch[1]!;
   const directMatch = trimmed.match(/^(?:user:|discord:)?(\d{16,22})$/i);
-  return directMatch ? directMatch[1] : null;
+  return directMatch ? directMatch[1]! : null;
 }
 
 function parseDiscordSetupArgs(args: string[]): {
@@ -2353,7 +2353,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const channel = normalized[0].toLowerCase();
+  const channel = normalized[0]!.toLowerCase();
   if (
     channel !== 'telegram' &&
     channel !== 'threema' &&

@@ -214,7 +214,7 @@ function parseFrontmatter(raw: string): FrontmatterParseResult {
   for (const line of block.split('\n')) {
     const m = line.match(/^([\w-]+)\s*:\s*(.*)$/);
     if (!m) continue;
-    const key = m[1].trim();
+    const key = m[1]!.trim();
     const value = stripQuotes((m[2] || '').trim());
     if (!key || !value) continue;
     meta[key] = value;
@@ -476,7 +476,7 @@ function parseSectionObjectList(
       if (!remainder) continue;
       const inlineMatch = remainder.match(/^([\w-]+):\s*(.*)$/);
       if (inlineMatch) {
-        current[inlineMatch[1]] = stripQuotes((inlineMatch[2] || '').trim());
+        current[inlineMatch[1]!] = stripQuotes((inlineMatch[2] || '').trim());
       }
       continue;
     }
@@ -484,7 +484,7 @@ function parseSectionObjectList(
     const fieldMatch = trimmed.match(/^([\w-]+):\s*(.*)$/);
     if (!fieldMatch) continue;
     if (!current) current = {};
-    current[fieldMatch[1]] = stripQuotes((fieldMatch[2] || '').trim());
+    current[fieldMatch[1]!] = stripQuotes((fieldMatch[2] || '').trim());
   }
 
   if (current && Object.keys(current).length > 0) values.push(current);
@@ -1089,7 +1089,7 @@ function buildSharedSkillsRootDirNames(
   const dirNames = new Map<string, string>();
   for (const [sanitizedName, group] of grouped) {
     if (group.length === 1) {
-      dirNames.set(skillSyncTargetKey(group[0]), sanitizedName);
+      dirNames.set(skillSyncTargetKey(group[0]!), sanitizedName);
       continue;
     }
     for (const skill of group) {

@@ -148,7 +148,7 @@ function inferThemeFromColorFgBg(): TerminalTheme | null {
     .filter(Boolean);
   if (parts.length === 0) return null;
 
-  const bg = Number.parseInt(parts[parts.length - 1], 10);
+  const bg = Number.parseInt(parts[parts.length - 1]!, 10);
   if (Number.isNaN(bg)) return null;
 
   if (bg === 7 || bg === 11 || bg === 14 || bg === 15) return 'light';
@@ -639,10 +639,10 @@ async function chooseDefaultBot(
     return manual || fallbackBotId || accountChatbotId;
   }
 
-  const defaultBotId = fallbackBotId || accountChatbotId || bots[0].id;
+  const defaultBotId = fallbackBotId || accountChatbotId || bots[0]!.id;
   console.log(`${TEAL}${ICON_TITLE}${RESET} Available bots:`);
   for (let i = 0; i < Math.min(10, bots.length); i++) {
-    const bot = bots[i];
+    const bot = bots[i]!;
     console.log(
       `${TEAL}${i + 1}.${RESET} ${bot.name} ${MUTED}(${bot.id})${RESET}`,
     );
@@ -661,7 +661,7 @@ async function chooseDefaultBot(
 
   const asNumber = Number.parseInt(selection, 10);
   if (!Number.isNaN(asNumber) && asNumber >= 1 && asNumber <= bots.length) {
-    return bots[asNumber - 1].id;
+    return bots[asNumber - 1]!.id;
   }
 
   const byId = bots.find((bot) => bot.id === selection);

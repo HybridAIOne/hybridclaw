@@ -134,7 +134,7 @@ export function parseCommand(
   ) {
     return {
       isCommand: true,
-      command: parts[0].toLowerCase(),
+      command: parts[0]!.toLowerCase(),
       args: parts.slice(1),
     };
   }

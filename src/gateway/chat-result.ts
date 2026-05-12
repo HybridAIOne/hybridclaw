@@ -104,7 +104,7 @@ function summarizePlaceholderToolFailure(
     ),
   ];
   const lastFailureText = extractToolFailureText(
-    failedExecutions[failedExecutions.length - 1],
+    failedExecutions[failedExecutions.length - 1]!,
   );
   if (toolNames.length === 1) {
     return lastFailureText
@@ -169,7 +169,7 @@ export function fallbackResultFromTools(result: GatewayChatResult): string {
     ? result.toolExecutions
     : [];
   for (let i = executions.length - 1; i >= 0; i -= 1) {
-    const execution = executions[i];
+    const execution = executions[i]!;
     if (execution.isError) continue;
     const text = String(execution.result || '').trim();
     if (!text) continue;
@@ -188,7 +188,7 @@ export function normalizePlaceholderToolReply(
     ? result.toolExecutions
     : [];
   for (let i = executions.length - 1; i >= 0; i -= 1) {
-    const execution = executions[i];
+    const execution = executions[i]!;
     if (execution.isError) continue;
     const toolName = String(execution.name || '')
       .trim()

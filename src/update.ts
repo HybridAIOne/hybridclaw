@@ -205,9 +205,9 @@ function parseSemver(value: string): ParsedSemver | null {
   const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
   if (!match) return null;
 
-  const major = Number.parseInt(match[1], 10);
-  const minor = Number.parseInt(match[2], 10);
-  const patch = Number.parseInt(match[3], 10);
+  const major = Number.parseInt(match[1]!, 10);
+  const minor = Number.parseInt(match[2]!, 10);
+  const patch = Number.parseInt(match[3]!, 10);
   if (
     !Number.isFinite(major) ||
     !Number.isFinite(minor) ||
@@ -252,7 +252,7 @@ function fetchLatestVersion(packageName: string): LatestVersionResult {
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || '').trim();
     const message = detail
-      ? detail.split('\n').slice(-1)[0]
+      ? detail.split('\n').slice(-1)[0]!
       : `npm exited with code ${result.status ?? 1}`;
     return { version: null, error: message };
   }

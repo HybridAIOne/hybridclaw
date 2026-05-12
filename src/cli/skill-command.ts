@@ -30,7 +30,7 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
   if (sub === 'list') {
     const { listSkillCatalogEntries } = await import(
       '../skills/skills-management.js'

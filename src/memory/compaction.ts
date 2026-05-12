@@ -325,7 +325,7 @@ function splitConversation(
   while (recentStart > 0) {
     recentStart -= 1;
     keptRecentCount += 1;
-    keptRecentTokens += estimateMessageTokens(nonSystem[recentStart]);
+    keptRecentTokens += estimateMessageTokens(nonSystem[recentStart]!);
     if (
       keptRecentCount >= minRecentCount &&
       keptRecentTokens >= targetRecentTokens
@@ -582,7 +582,7 @@ async function summarizeInStages(params: {
   const partialSummaries: string[] = [];
 
   for (let index = 0; index < chunks.length; index += 1) {
-    const chunk = chunks[index];
+    const chunk = chunks[index]!;
     const chunkTokens = estimateTokenCountFromMessages(toChatMessages(chunk));
     const summary = await summarizeWithFallback({
       session: params.session,
@@ -610,7 +610,7 @@ async function summarizeInStages(params: {
   }
 
   if (partialSummaries.length === 1) {
-    return { summary: partialSummaries[0], stages };
+    return { summary: partialSummaries[0]!, stages };
   }
 
   const mergeMessages = partialSummaries.map<StoredMessage>(

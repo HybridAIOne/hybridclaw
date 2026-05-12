@@ -962,7 +962,7 @@ async function handleGatewayMessageInner(
       blockedTools: mediaPolicy.blockedTools,
     });
   const historyStart =
-    messages.length > 0 && messages[0].role === 'system' ? 1 : 0;
+    messages.length > 0 && messages[0]!.role === 'system' ? 1 : 0;
   recordAuditEvent({
     sessionId: req.sessionId,
     runId,

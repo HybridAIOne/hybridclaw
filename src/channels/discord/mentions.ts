@@ -128,7 +128,7 @@ async function enrichMentionLookupFromGuild(
         return username === alias || displayName === alias;
       });
       if (exactMatches.length !== 1) continue;
-      const match = exactMatches[0];
+      const match = exactMatches[0]!;
       addMentionAlias(lookup, alias, match.id);
       addMentionAlias(lookup, match.user?.username || '', match.id);
       addMentionAlias(lookup, match.displayName || '', match.id);

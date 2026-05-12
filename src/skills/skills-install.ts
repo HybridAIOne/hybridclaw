@@ -263,7 +263,7 @@ async function runCommand(
   stderr: string;
 }> {
   return new Promise((resolve) => {
-    const child = spawn(argv[0], argv.slice(1), {
+    const child = spawn(argv[0]!, argv.slice(1), {
       stdio: ['ignore', 'pipe', 'pipe'],
       env,
     });

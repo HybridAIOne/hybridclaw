@@ -103,7 +103,7 @@ function resolveAppVersion(): string {
   const probePaths = [
     path.join(path.dirname(modulePath), '..', '..', 'package.json'),
   ];
-  const moduleVersion = readVersionFromPackageJson(probePaths[0]);
+  const moduleVersion = readVersionFromPackageJson(probePaths[0]!);
   if (moduleVersion) return moduleVersion;
 
   const entryPath = process.argv[1];

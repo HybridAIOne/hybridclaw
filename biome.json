@@ -18,8 +18,8 @@
     "rules": {
       "recommended": true,
       "style": {
-        "noNonNullAssertion": "error",
-        "noParameterAssign": "error"
+        "noParameterAssign": "error",
+        "noNonNullAssertion": "off"
       }
     }
   },

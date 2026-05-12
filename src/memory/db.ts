@@ -6588,7 +6588,7 @@ function normalizeEmbeddingInput(
 function embeddingToBlob(embedding: Float32Array): Buffer {
   const buffer = Buffer.allocUnsafe(embedding.length * 4);
   for (let i = 0; i < embedding.length; i += 1) {
-    buffer.writeFloatLE(embedding[i], i * 4);
+    buffer.writeFloatLE(embedding[i]!, i * 4);
   }
   return buffer;
 }
@@ -6614,10 +6614,10 @@ function cosineSimilarity(a: Float32Array, b: number[]): number {
   let normA = 0;
   let normB = 0;
   for (let i = 0; i < a.length; i += 1) {
-    const bv = b[i];
+    const bv = b[i]!;
     if (!Number.isFinite(bv)) return -1;
-    dot += a[i] * bv;
-    normA += a[i] * a[i];
+    dot += a[i]! * bv;
+    normA += a[i]! * a[i]!;
     normB += bv * bv;
   }
   if (normA <= Number.EPSILON || normB <= Number.EPSILON) return -1;
@@ -7054,14 +7054,14 @@ function fuseHybridSemanticMemories(params: {
   const fullTextRankById = new Map<number, number>();
 
   for (let index = 0; index < params.cosineRows.length; index += 1) {
-    const row = params.cosineRows[index];
+    const row = params.cosineRows[index]!;
     rowsById.set(row.id, row);
     cosineRankById.set(row.id, index + 1);
     scoreById.set(row.id, (scoreById.get(row.id) || 0) + 1 / (60 + index + 1));
   }
 
   for (let index = 0; index < params.fullTextRows.length; index += 1) {
-    const row = params.fullTextRows[index];
+    const row = params.fullTextRows[index]!;
     rowsById.set(row.id, row);
     fullTextRankById.set(row.id, index + 1);
     scoreById.set(row.id, (scoreById.get(row.id) || 0) + 1 / (60 + index + 1));

@@ -734,7 +734,7 @@ async function buildMediaItem(params: {
     const buffer = Buffer.from(await response.arrayBuffer());
     const responseMimeType =
       normalizeValue(response.headers.get('content-type'))
-        .split(';')[0]
+        .split(';')[0]!
         .trim()
         .toLowerCase() || null;
     const resolvedMimeType =

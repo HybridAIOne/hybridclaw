@@ -248,7 +248,7 @@ function resolveMSTeamsMemberCandidate(
   const query = normalizeMSTeamsMemberLookupQuery(rawQuery);
   if (!query) {
     if (candidates.length === 1) {
-      return { ok: true, candidate: candidates[0] };
+      return { ok: true, candidate: candidates[0]! };
     }
     return {
       ok: false,
@@ -280,10 +280,10 @@ function resolveMSTeamsMemberCandidate(
     };
   }
   if (matched.length === 1) {
-    return { ok: true, candidate: matched[0] };
+    return { ok: true, candidate: matched[0]! };
   }
   if (resolveAmbiguous === 'best') {
-    const best = matched[0];
+    const best = matched[0]!;
     const others = matched
       .slice(1, 10)
       .map((candidate) => `${candidate.name} (${candidate.id})`)

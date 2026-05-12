@@ -68,7 +68,7 @@ function buildAgentName(session: Session): string {
 
 function buildAgentTask(session: Session, messages: StoredMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
+    const message = messages[index]!;
     if (String(message.role || '').toLowerCase() !== 'user') continue;
     const preview = trimSessionPreviewText(
       message.content,
@@ -267,7 +267,7 @@ function buildAgentPreview(
   } else if (uniqueAuditTypes.length > 0) {
     title =
       uniqueAuditTypes.length === 1
-        ? uniqueAuditTypes[0]
+        ? uniqueAuditTypes[0]!
         : `${uniqueAuditTypes[0]} + ${uniqueAuditTypes[1]}`;
   } else if (chatCount > 0) {
     title = 'Chat transcript';
@@ -275,7 +275,7 @@ function buildAgentPreview(
 
   return {
     title,
-    meta: `${activity.length} items · ${formatRelativeTimeFromMs(mostRecent.timestampMs)}`,
+    meta: `${activity.length} items · ${formatRelativeTimeFromMs(mostRecent!.timestampMs)}`,
     lines: activity
       .map((entry) => entry.line)
       .filter((line): line is string => Boolean(line)),

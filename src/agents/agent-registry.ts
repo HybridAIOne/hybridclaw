@@ -780,7 +780,7 @@ export function migrateWorkspaceDirs(): void {
   );
   if (legacyMatches.length === 0) return;
 
-  const primaryMatch = legacyMatches[0];
+  const primaryMatch = legacyMatches[0]!;
   const primarySourceRoot = agentRootDirByWorkspaceName(primaryMatch);
   try {
     fs.mkdirSync(path.dirname(targetRoot), { recursive: true });

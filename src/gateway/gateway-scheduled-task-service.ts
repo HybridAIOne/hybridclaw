@@ -469,9 +469,9 @@ export function moveGatewayAdminSchedulerJob(params: {
     const [job] = draft.scheduler.jobs.splice(fromIndex, 1);
     if ('boardStatus' in params) {
       if (params.boardStatus === null) {
-        delete job.boardStatus;
+        delete job!.boardStatus;
       } else {
-        job.boardStatus = params.boardStatus;
+        job!.boardStatus = params.boardStatus;
       }
     }
     let insertIndex = draft.scheduler.jobs.length;
@@ -483,7 +483,7 @@ export function moveGatewayAdminSchedulerJob(params: {
         insertIndex = beforeIndex;
       }
     }
-    draft.scheduler.jobs.splice(insertIndex, 0, job);
+    draft.scheduler.jobs.splice(insertIndex, 0, job!);
   });
 
   if (

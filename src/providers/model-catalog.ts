@@ -414,7 +414,7 @@ export async function refreshAvailableModelCatalogs(opts?: {
   let discoveredModelCount = 0;
   const failures: ModelCatalogRefreshFailure[] = [];
   for (let index = 0; index < results.length; index += 1) {
-    const result = results[index];
+    const result = results[index]!;
     if (result.status === 'fulfilled') {
       discoveredModelCount += result.value.models.length;
       continue;
@@ -658,7 +658,7 @@ export function findVisionCapableModel(preferredModel?: string): string | null {
     }
   }
 
-  return visionModels[0];
+  return visionModels[0]!;
 }
 
 export async function getAvailableModelChoices(

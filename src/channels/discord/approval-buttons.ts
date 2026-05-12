@@ -45,7 +45,7 @@ export function parseApprovalCustomId(
   );
   if (!match) return null;
   const [, action, approvalId] = match;
-  return { action, approvalId };
+  return { action: action!, approvalId: approvalId! };
 }
 
 export async function disableApprovalButtons(message: Message): Promise<void> {

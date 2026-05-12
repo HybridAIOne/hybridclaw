@@ -10,10 +10,10 @@ export function extractMemoryCitations(
   const cited: MemoryCitation[] = [];
 
   for (const match of responseText.matchAll(CITATION_PATTERN)) {
-    const idx = Number.parseInt(match[1], 10) - 1;
+    const idx = Number.parseInt(match[1]!, 10) - 1;
     if (idx >= 0 && idx < citationIndex.length && !seen.has(idx)) {
       seen.add(idx);
-      cited.push(citationIndex[idx]);
+      cited.push(citationIndex[idx]!);
     }
   }
 

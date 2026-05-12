@@ -145,7 +145,7 @@ export async function sendChunkedThreemaText(params: {
             secret: config.secret,
             signal: params.signal,
             target,
-            text: chunks[index],
+            text: chunks[index]!,
           }),
         );
         if (index < chunks.length - 1) {

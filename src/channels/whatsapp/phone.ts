@@ -36,7 +36,7 @@ export function jidToPhone(jid: string): string | null {
   const candidate = stripWhatsAppPrefix(jid);
   const match = candidate.match(WHATSAPP_USER_JID_RE);
   if (!match) return null;
-  const digits = match[1];
+  const digits = match[1]!;
   if (!E164_DIGITS_RE.test(digits)) return null;
   return `+${digits}`;
 }

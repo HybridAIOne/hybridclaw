@@ -101,7 +101,7 @@ async function applyFixes(
 
   try {
     for (let index = 0; index < results.length; index += 1) {
-      const result = results[index];
+      const result = results[index]!;
       if (!result.fix || result.severity === 'ok') continue;
 
       if (!rl && result.fix.requiresApproval) {
@@ -152,7 +152,7 @@ async function applyFixes(
           rollbackIndex >= 0;
           rollbackIndex -= 1
         ) {
-          const appliedFix = applied[rollbackIndex];
+          const appliedFix = applied[rollbackIndex]!;
           if (!appliedFix.rollback) continue;
           try {
             await appliedFix.rollback();
@@ -177,7 +177,7 @@ async function applyFixes(
           remaining < results.length;
           remaining += 1
         ) {
-          const pending = results[remaining];
+          const pending = results[remaining]!;
           if (!pending.fix || pending.severity === 'ok') continue;
           outcomes.push({
             category: pending.category,

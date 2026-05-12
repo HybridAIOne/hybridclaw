@@ -173,7 +173,7 @@ function resolveExplicitThreadHeaders(
   let inReplyTo = normalizeMessageId(params.inReplyTo);
   const references = normalizeMessageIdList(params.references);
   if (references.length > 0) {
-    const lastReference = references[references.length - 1];
+    const lastReference = references[references.length - 1]!;
     if (!inReplyTo) {
       inReplyTo = lastReference;
     } else if (references.includes(inReplyTo)) {

@@ -251,16 +251,16 @@ function extractMarkdownEntries(text: string): string[] {
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.*\S)\s*$/);
     if (headingMatch) {
       flushParagraph();
-      const level = headingMatch[1].length;
+      const level = headingMatch[1]!.length;
       while (headings.length >= level) headings.pop();
-      headings.push(headingMatch[2].trim());
+      headings.push(headingMatch[2]!.trim());
       continue;
     }
 
     const bulletMatch = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*\S)\s*$/);
     if (bulletMatch) {
       flushParagraph();
-      const content = bulletMatch[1].trim();
+      const content = bulletMatch[1]!.trim();
       const prefix = contextPrefix();
       entries.push(prefix ? `${prefix}: ${content}` : content);
       continue;
@@ -729,7 +729,7 @@ function resolveSecretInput(
     const trimmed = value.trim();
     if (!trimmed) return null;
     const envMatch = trimmed.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
-    if (envMatch) return env[envMatch[1]]?.trim() || null;
+    if (envMatch) return env[envMatch[1]!]?.trim() || null;
     return trimmed;
   }
   if (isRecord(value)) {

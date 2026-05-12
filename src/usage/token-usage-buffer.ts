@@ -636,7 +636,7 @@ export function verifyTokenUsageBatchHash(
     ok: errors.length === 0,
     batchId: normalizedBatchId,
     rowCount: rows.length,
-    expectedHash: hashes.length === 1 ? hashes[0] : null,
+    expectedHash: hashes.length === 1 ? hashes[0]! : null,
     actualHash,
     errors,
   };

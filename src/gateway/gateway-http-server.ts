@@ -3176,7 +3176,7 @@ async function handleApiAdminEmailConfigFetch(
   }
 
   const activeHandle = handles.find((h) => h.status === 'active') || handles[0];
-  const handleId = activeHandle.id || activeHandle.handle;
+  const handleId = activeHandle!.id || activeHandle!.handle;
 
   if (!handleId) {
     res.setHeader('Cache-Control', 'no-store');

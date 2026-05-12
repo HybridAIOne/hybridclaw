@@ -282,7 +282,7 @@ function dedupeTuiSlashMenuEntries(
       continue;
     }
     deduped[existingIndex] = mergeDuplicateMenuEntries(
-      deduped[existingIndex],
+      deduped[existingIndex]!,
       entry,
     );
   }

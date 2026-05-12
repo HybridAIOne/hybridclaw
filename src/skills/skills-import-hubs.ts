@@ -409,7 +409,7 @@ function flattenSingleSkillRoot(rootDir: string): void {
     .filter((entry) => entry.isDirectory());
   if (entries.length !== 1) return;
 
-  const nestedDir = path.join(rootDir, entries[0].name);
+  const nestedDir = path.join(rootDir, entries[0]!.name);
   if (!resolveSkillManifestPath(nestedDir)) return;
 
   const flattenedDir = `${rootDir}.flatten-${randomUUID().slice(0, 8)}`;
@@ -636,7 +636,7 @@ async function resolveClaudeMarketplaceGitHubSource(
           matches.push({
             repo,
             marketplaceName,
-            requestedPath: skillPaths[0],
+            requestedPath: skillPaths[0]!,
           });
           continue;
         }
@@ -646,7 +646,7 @@ async function resolveClaudeMarketplaceGitHubSource(
               .map((skillPath) => path.posix.basename(skillPath))
               .join(
                 ', ',
-              )}. Import one skill with claude-marketplace/${pluginName}/${path.posix.basename(skillPaths[0])}@${marketplaceName}.`,
+              )}. Import one skill with claude-marketplace/${pluginName}/${path.posix.basename(skillPaths[0]!)}@${marketplaceName}.`,
           );
         }
       }
@@ -677,7 +677,7 @@ async function resolveClaudeMarketplaceGitHubSource(
     );
   }
 
-  const match = matches[0];
+  const match = matches[0]!;
   const [owner, repo] = match.repo.split('/');
   if (!owner || !repo) {
     throw new SkillImportError(

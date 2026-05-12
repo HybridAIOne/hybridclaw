@@ -32,7 +32,7 @@ function firstForwardedHeader(
   const raw = req.headers[name];
   const value = Array.isArray(raw) ? raw[0] : raw;
   return String(value || '')
-    .split(',')[0]
+    .split(',')[0]!
     .trim();
 }
 

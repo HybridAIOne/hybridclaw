@@ -29,7 +29,7 @@ export function consumeModelResponseDebugFileLine(line: string): boolean {
     if (!isModelResponseDebugEnabled()) return true;
 
     try {
-      const decoded = Buffer.from(modelResponseMatch[1], 'base64').toString(
+      const decoded = Buffer.from(modelResponseMatch[1]!, 'base64').toString(
         'utf-8',
       );
       ensureDebugDir(GATEWAY_MODEL_RESPONSE_DEBUG_PATH);
@@ -46,7 +46,9 @@ export function consumeModelResponseDebugFileLine(line: string): boolean {
   if (!isModelResponseDebugEnabled()) return true;
 
   try {
-    const decoded = Buffer.from(lastPromptMatch[1], 'base64').toString('utf-8');
+    const decoded = Buffer.from(lastPromptMatch[1]!, 'base64').toString(
+      'utf-8',
+    );
     ensureDebugDir(LAST_PROMPT_PATH);
     fs.writeFileSync(LAST_PROMPT_PATH, decoded, 'utf-8');
   } catch {

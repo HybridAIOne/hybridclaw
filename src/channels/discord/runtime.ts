@@ -344,7 +344,7 @@ function buildPendingHistoryContext(
   const selected: string[] = [];
   let totalChars = 0;
   for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const line = summarizePendingHistoryEntry(entries[i]);
+    const line = summarizePendingHistoryEntry(entries[i]!);
     if (!line) continue;
     if (
       totalChars + line.length > GUILD_INBOUND_HISTORY_MAX_CHARS &&
@@ -1124,7 +1124,7 @@ function trimRecentConversationMetrics(nowMs = Date.now()): void {
   const cutoff = nowMs - PRESENCE_WINDOW_MS;
   while (
     recentConversationMetrics.length > 0 &&
-    recentConversationMetrics[0].atMs < cutoff
+    recentConversationMetrics[0]!.atMs < cutoff
   ) {
     recentConversationMetrics.shift();
   }
@@ -1946,7 +1946,7 @@ export async function initDiscord(
     const items = pending.items;
     if (items.length === 0) return;
 
-    const sourceItem = items[items.length - 1];
+    const sourceItem = items[items.length - 1]!;
     const msg = sourceItem.msg;
     const sessionId = getSessionId(msg);
     const guildId = msg.guild?.id || null;
@@ -2345,7 +2345,7 @@ export async function initDiscord(
       );
       if (index === -1) continue;
       const [removed] = pending.items.splice(index, 1);
-      await removed.clearAckReaction();
+      await removed!.clearAckReaction();
       if (pending.items.length === 0) {
         clearTimeout(pending.timer);
         pending.typingController.stop();
@@ -2370,16 +2370,16 @@ export async function initDiscord(
 
       if (!nextContent) {
         const [removed] = pending.items.splice(index, 1);
-        await removed.clearAckReaction();
+        await removed!.clearAckReaction();
       } else {
-        pending.items[index].msg = nextMsg;
-        pending.items[index].content = nextContent;
-        pending.items[index].behavior = nextBehavior;
-        pending.items[index].wasExplicitlyAddressed =
+        pending.items[index]!.msg = nextMsg;
+        pending.items[index]!.content = nextContent;
+        pending.items[index]!.behavior = nextBehavior;
+        pending.items[index]!.wasExplicitlyAddressed =
           !nextMsg.guild ||
           hasPrefixInvocation(nextMsg.content || '') ||
           Boolean(client.user && nextMsg.mentions.has(client.user));
-        pending.items[index].cooldownKey = buildConversationCooldownKey(
+        pending.items[index]!.cooldownKey = buildConversationCooldownKey(
           nextMsg.channelId,
           nextMsg.author.id,
         );

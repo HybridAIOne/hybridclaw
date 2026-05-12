@@ -171,7 +171,7 @@ function readSessionStateFromDisk(
   let lastHash = FALLBACK_PREV_HASH;
   let startIndex = 0;
   try {
-    const firstParsed = JSON.parse(lines[0]) as Partial<WireMetadataRecord>;
+    const firstParsed = JSON.parse(lines[0]!) as Partial<WireMetadataRecord>;
     if (firstParsed.type === 'metadata') {
       const metadata: WireMetadataRecord = {
         type: 'metadata',
@@ -194,7 +194,7 @@ function readSessionStateFromDisk(
 
   for (let i = startIndex; i < lines.length; i++) {
     try {
-      const parsed = JSON.parse(lines[i]) as Partial<WireRecord>;
+      const parsed = JSON.parse(lines[i]!) as Partial<WireRecord>;
       if (
         typeof parsed.seq === 'number' &&
         Number.isFinite(parsed.seq) &&
@@ -287,7 +287,7 @@ export function verifyAuditSessionChain(sessionId: string): AuditVerifyResult {
   let startIndex = 0;
 
   try {
-    const first = JSON.parse(lines[0]) as Partial<WireMetadataRecord>;
+    const first = JSON.parse(lines[0]!) as Partial<WireMetadataRecord>;
     if (first.type === 'metadata') {
       const metadata: WireMetadataRecord = {
         type: 'metadata',
@@ -307,7 +307,7 @@ export function verifyAuditSessionChain(sessionId: string): AuditVerifyResult {
     const lineNo = i + 1;
     let parsed: WireRecord;
     try {
-      parsed = JSON.parse(lines[i]) as WireRecord;
+      parsed = JSON.parse(lines[i]!) as WireRecord;
     } catch (err) {
       errors.push(
         `Line ${lineNo}: invalid JSON (${err instanceof Error ? err.message : 'parse failure'}).`,

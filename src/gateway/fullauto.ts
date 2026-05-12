@@ -466,7 +466,7 @@ function normalizeFullAutoLearningBody(text: string): string | null {
   const trimmed = text.replace(/\r\n/g, '\n').trim();
   if (!trimmed) return null;
   const fenceMatch = trimmed.match(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/i);
-  const unwrapped = fenceMatch ? fenceMatch[1].trim() : trimmed;
+  const unwrapped = fenceMatch ? fenceMatch[1]!.trim() : trimmed;
   if (!unwrapped) return null;
   if (unwrapped.length <= FULLAUTO_LEARNING_STATE_MAX_CHARS) {
     return unwrapped;

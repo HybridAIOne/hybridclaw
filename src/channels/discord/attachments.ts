@@ -134,7 +134,7 @@ async function cacheDiscordAttachment(params: {
       const resolvedMime = String(
         response.contentType || fallbackMimeType || '',
       )
-        .split(';')[0]
+        .split(';')[0]!
         .trim()
         .toLowerCase();
       if (!acceptMime(resolvedMime, attachmentName)) {

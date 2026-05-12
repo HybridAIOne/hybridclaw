@@ -191,7 +191,7 @@ async function runWithConcurrency<TInput, TOutput>(
       while (cursor < items.length) {
         const index = cursor;
         cursor += 1;
-        outputs[index] = await worker(items[index]);
+        outputs[index] = await worker(items[index]!);
       }
     }),
   );

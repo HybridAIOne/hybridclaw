@@ -1400,7 +1400,7 @@ function pickBestLocomoRetrievalVariant(
       return (right.contextF1 ?? 0) - (left.contextF1 ?? 0);
     }
     return left.label.localeCompare(right.label);
-  })[0];
+  })[0]!;
 }
 
 async function runRetrievalMatrixEvaluation(params: {
@@ -2259,7 +2259,7 @@ async function evaluateSample(params: {
         return;
       }
 
-      const qa = sampleQa[questionIndex];
+      const qa = sampleQa[questionIndex]!;
       const prepared = buildQuestionPrompt(
         params.sample,
         qa,
@@ -2630,9 +2630,9 @@ function selectConversationContext(
   let totalTokens = 0;
 
   for (let index = chronologicalTurns.length - 1; index >= 0; index -= 1) {
-    const turn = chronologicalTurns[index];
+    const turn = chronologicalTurns[index]!;
     const headerTokens =
-      selected.length === 0 || selected[0].sessionNum !== turn.sessionNum
+      selected.length === 0 || selected[0]!.sessionNum !== turn.sessionNum
         ? estimateTokenCount(`DATE: ${turn.dateTime}\nCONVERSATION:\n`)
         : 0;
     const turnTokens = estimateTokenCount(formatConversationTurn(turn));
@@ -2858,7 +2858,7 @@ function expandEvidenceIds(evidence: string[]): string[] {
 function normalizeDiaId(value: string): string {
   const match = /^D(\d+):(\d+)$/i.exec(String(value || '').trim());
   if (!match) return String(value || '').trim();
-  return `D${Number.parseInt(match[1], 10)}:${Number.parseInt(match[2], 10)}`;
+  return `D${Number.parseInt(match[1]!, 10)}:${Number.parseInt(match[2]!, 10)}`;
 }
 
 function computeContextTokenF1(prediction: string, answer: string): number {
@@ -2975,7 +2975,7 @@ function mergeUsage(
 function normalizeModelPrediction(value: string): string {
   return String(value || '')
     .replace(/^short answer:\s*/i, '')
-    .split('\n')[0]
+    .split('\n')[0]!
     .trim()
     .replace(/^["']+|["']+$/g, '');
 }
@@ -3071,10 +3071,12 @@ function buildLocomoVariantComparisonTable(
     ),
   );
   return [
-    header.map((entry, index) => entry.padEnd(widths[index])).join('  '),
+    header.map((entry, index) => entry.padEnd(widths[index]!)).join('  '),
     widths.map((width) => '-'.repeat(width)).join('  '),
     ...rows.map((row) =>
-      row.map((entry, index) => String(entry).padEnd(widths[index])).join('  '),
+      row
+        .map((entry, index) => String(entry).padEnd(widths[index]!))
+        .join('  '),
     ),
   ];
 }

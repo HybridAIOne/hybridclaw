@@ -222,7 +222,7 @@ function shouldExcludePortableArchivePath(relativePath: string): boolean {
   ) {
     return true;
   }
-  const basename = segments[segments.length - 1];
+  const basename = segments[segments.length - 1]!;
   return (
     ARCHIVE_EXCLUDED_BASENAMES.has(basename) ||
     isPortableArchiveEnvFile(basename)

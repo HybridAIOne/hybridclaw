@@ -156,7 +156,7 @@ export class MSTeamsStreamManager {
     if (chunks.length === 0) return;
 
     for (let index = 0; index < chunks.length; index += 1) {
-      const chunk = chunks[index];
+      const chunk = chunks[index]!;
       const existing = this.sent[index];
       const outgoing = buildMSTeamsMessageActivity({
         ...(existing ? { id: existing.id } : {}),

@@ -187,7 +187,7 @@ export class DiscordStreamManager {
     }
 
     for (let i = 0; i < chunks.length; i += 1) {
-      const chunk = chunks[i];
+      const chunk = chunks[i]!;
       const isLast = i === chunks.length - 1;
 
       if (i >= this.messages.length) {
@@ -225,7 +225,7 @@ export class DiscordStreamManager {
 
       await withDiscordRetry(
         'edit',
-        () => this.messages[i].edit({ content: chunk }),
+        () => this.messages[i]!.edit({ content: chunk }),
         { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
       );
       this.sentChunks[i] = chunk;
@@ -234,7 +234,7 @@ export class DiscordStreamManager {
 
     if (this.messages.length > chunks.length) {
       for (let i = this.messages.length - 1; i >= chunks.length; i -= 1) {
-        await withDiscordRetry('delete', () => this.messages[i].delete(), {
+        await withDiscordRetry('delete', () => this.messages[i]!.delete(), {
           logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE,
         });
       }
@@ -247,10 +247,13 @@ export class DiscordStreamManager {
       await withDiscordRetry(
         'edit',
         () =>
-          this.messages[lastIndex].edit({ content: chunks[lastIndex], files }),
+          this.messages[lastIndex]!.edit({
+            content: chunks[lastIndex]!,
+            files,
+          }),
         { logMessage: DISCORD_STREAM_RETRY_LOG_MESSAGE },
       );
-      this.sentChunks[lastIndex] = chunks[lastIndex];
+      this.sentChunks[lastIndex] = chunks[lastIndex]!;
       this.lastEditAt = Date.now();
     }
   }

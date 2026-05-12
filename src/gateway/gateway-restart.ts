@@ -186,7 +186,7 @@ function spawnRestartHelper(
   cwd: string,
 ): ChildProcess {
   const helper = spawn(
-    helperCommand[0],
+    helperCommand[0]!,
     [...helperCommand.slice(1), encodePayload(payload)],
     {
       cwd,
@@ -331,7 +331,7 @@ export async function runGatewayRestartHelperFromArg(
 ): Promise<void> {
   const payload = decodePayload(rawPayload);
   await waitForParentExit(payload.parentPid);
-  const child = spawn(payload.command[0], payload.command.slice(1), {
+  const child = spawn(payload.command[0]!, payload.command.slice(1), {
     cwd: payload.cwd || process.cwd(),
     detached: true,
     stdio: 'ignore',

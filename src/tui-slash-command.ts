@@ -47,7 +47,7 @@ export function parseTuiSlashCommand(input: string): ParsedTuiSlashCommand {
   const [, name, jsonPayload] = addMatch;
   return {
     cmd,
-    parts: ['mcp', 'add', name, jsonPayload.trim()],
+    parts: ['mcp', 'add', name!, jsonPayload!.trim()],
   };
 }
 

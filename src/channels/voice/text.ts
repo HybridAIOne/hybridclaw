@@ -125,7 +125,7 @@ function findChunkBoundary(text: string): number {
   let lastSentenceBoundary = 0;
   let lastWhitespaceBoundary = 0;
   for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
+    const char = text[index]!;
     if (
       char === '\n' ||
       char === '.' ||

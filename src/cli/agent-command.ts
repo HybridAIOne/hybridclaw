@@ -74,7 +74,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   await ensureAgentPackagingRuntime();
 
-  const rawSub = normalized[0].toLowerCase();
+  const rawSub = normalized[0]!.toLowerCase();
   const sub =
     rawSub === 'pack' ? 'export' : rawSub === 'unpack' ? 'install' : rawSub;
   if (sub === 'list') {
@@ -104,7 +104,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     let activate = false;
 
     for (let index = 1; index < normalized.length; index += 1) {
-      const arg = normalized[index];
+      const arg = normalized[index]!;
       if (arg === '--activate') {
         activate = true;
         continue;
@@ -198,7 +198,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     let positionalConsumed = false;
 
     for (let index = 1; index < normalized.length; index += 1) {
-      const arg = normalized[index];
+      const arg = normalized[index]!;
       const outputFlag = parseValueFlag({
         arg,
         args: normalized,
@@ -509,7 +509,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     let yes = false;
 
     for (let index = 1; index < normalized.length; index += 1) {
-      const arg = normalized[index];
+      const arg = normalized[index]!;
       if (!archivePath && !arg.startsWith('-')) {
         archivePath = arg;
         continue;
@@ -670,7 +670,7 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
     let yes = false;
 
     for (let index = 1; index < normalized.length; index += 1) {
-      const arg = normalized[index];
+      const arg = normalized[index]!;
       if (!targetAgentId && !arg.startsWith('-')) {
         targetAgentId = arg;
         continue;

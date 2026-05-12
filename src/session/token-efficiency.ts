@@ -56,7 +56,7 @@ function trimToRecentWithinBudget(
   let usedChars = 0;
 
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
+    const message = messages[i]!;
     const size = message.content.length;
     if (size > maxTotalChars) continue;
     if (usedChars + size > maxTotalChars) continue;
@@ -233,7 +233,7 @@ export function optimizeHistoryMessagesForPrompt(
       const selectedMiddleRev: PromptHistoryMessage[] = [];
       let usedChars = baseChars;
       for (let i = middle.length - 1; i >= 0; i -= 1) {
-        const candidate = middle[i];
+        const candidate = middle[i]!;
         const nextSize = candidate.content.length;
         if (usedChars + nextSize > maxTotalChars) continue;
         selectedMiddleRev.push(candidate);

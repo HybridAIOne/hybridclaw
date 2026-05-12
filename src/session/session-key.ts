@@ -108,7 +108,11 @@ function parseTypedSessionKey(parts: string[]): ParsedSessionKey | null {
   for (let index = 0; index < parts.length; index += 2) {
     const marker = parts[index];
     const rawValue = parts[index + 1];
-    if (!SESSION_KEY_MARKERS.has(marker) || rawValue === undefined) {
+    if (
+      marker === undefined ||
+      !SESSION_KEY_MARKERS.has(marker) ||
+      rawValue === undefined
+    ) {
       return null;
     }
     if (values.has(marker)) return null;

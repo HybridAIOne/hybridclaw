@@ -252,10 +252,10 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
     try {
       callback({
         sessionId: entry.sessionId,
-        toolName: resultMatch[1],
+        toolName: resultMatch[1]!,
         phase: 'finish',
-        durationMs: parseInt(resultMatch[2], 10),
-        preview: redactCredentialSecrets(resultMatch[3]),
+        durationMs: parseInt(resultMatch[2]!, 10),
+        preview: redactCredentialSecrets(resultMatch[3]!),
       });
     } catch (err) {
       logger.debug(
@@ -271,9 +271,9 @@ function emitToolProgress(entry: PoolEntry, line: string): void {
     try {
       callback({
         sessionId: entry.sessionId,
-        toolName: startMatch[1],
+        toolName: startMatch[1]!,
         phase: 'start',
-        preview: redactCredentialSecrets(startMatch[2]),
+        preview: redactCredentialSecrets(startMatch[2]!),
       });
     } catch (err) {
       logger.debug(
@@ -288,7 +288,7 @@ function parseApprovalProgress(line: string): PendingApproval | null {
   const match = line.match(APPROVAL_RE);
   if (!match) return null;
   try {
-    const raw = Buffer.from(match[1], 'base64').toString('utf-8');
+    const raw = Buffer.from(match[1]!, 'base64').toString('utf-8');
     const parsed = JSON.parse(raw) as Partial<PendingApproval> & {
       escalationTarget?: unknown;
     };

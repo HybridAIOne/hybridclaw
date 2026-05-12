@@ -226,7 +226,7 @@ function parseDevelopmentDoc(
   }
   let metadata: DevelopmentDocMetadata = {};
   try {
-    metadata = (parseYaml(match[1]) as DevelopmentDocMetadata | null) || {};
+    metadata = (parseYaml(match[1]!) as DevelopmentDocMetadata | null) || {};
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid frontmatter in ${relativePath}: ${message}`);
@@ -493,8 +493,8 @@ function extractHeadingsFromMarkdown(body: string): DevelopmentDocHeading[] {
     const match = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
     if (!match) continue;
 
-    const depth = match[1].length;
-    const text = stripMarkdownFormatting(match[2]);
+    const depth = match[1]!.length;
+    const text = stripMarkdownFormatting(match[2]!);
     if (!text) continue;
 
     const baseSlug = slugifyHeadingText(text);
@@ -652,7 +652,7 @@ function rewriteRelativeHref(
   }
 
   const [hrefWithoutHash, hashFragment] = href.split('#', 2);
-  const [hrefPath, queryString] = hrefWithoutHash.split('?', 2);
+  const [hrefPath, queryString] = hrefWithoutHash!.split('?', 2);
   if (!hrefPath) return href;
 
   const currentAbsolutePath = path.resolve(

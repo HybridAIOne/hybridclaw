@@ -134,7 +134,7 @@ function renderBlockedSkillCatalogList(
       `  ${skill.name}${externalSourceMarker} [blocked: ${skill.blockedReason}]`,
     );
     if (skill.guardFindings.length) {
-      const finding = skill.guardFindings[0];
+      const finding = skill.guardFindings[0]!;
       lines.push(
         `    ${finding.severity}/${finding.category}: ${finding.description} (${finding.file}:${finding.line})`,
       );

@@ -152,16 +152,16 @@ function parseOfficialClawsSource(
       repo,
       ref: OFFICIAL_CLAWS_REF,
       selector: normalizeOfficialClawSelector(
-        segments[2],
+        segments[2]!,
         '`github:owner/repo/<agent-dir>` install source',
       ),
     };
   }
   return {
     repo,
-    ref: segments[2],
+    ref: segments[2]!,
     selector: normalizeOfficialClawSelector(
-      segments[3],
+      segments[3]!,
       '`github:owner/repo/<ref>/<agent-dir>` install source',
     ),
   };
@@ -224,7 +224,7 @@ function parseGitHubArchiveUrl(rawValue: string): string | null {
       const repo = `${segments[0]}/${segments[1]}`;
       const ref = segments[3];
       const filePath = segments.slice(4).join('/');
-      return `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(ref)}/${filePath}`;
+      return `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(ref!)}/${filePath}`;
     }
   }
 

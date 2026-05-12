@@ -505,7 +505,7 @@ async function mapLimit<T, R>(
     while (cursor < values.length) {
       const index = cursor;
       cursor += 1;
-      results[index] = await mapper(values[index], index);
+      results[index] = await mapper(values[index]!, index);
     }
   }
   await Promise.all(

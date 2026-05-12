@@ -455,7 +455,7 @@ export function scanAuditSessionForLeaks(
   let severity: ConfidentialFinding['sensitivity'] = 'low';
 
   for (let i = 0; i < lines.length; i++) {
-    const parsed = parseWireLine(lines[i]);
+    const parsed = parseWireLine(lines[i]!);
     if (!parsed || !parsed.event) continue;
     const eventType =
       typeof parsed.event?.type === 'string' ? parsed.event.type : 'unknown';

@@ -140,7 +140,7 @@ async function extractAttachments(
 
   const media: MediaContextItem[] = [];
   for (let index = 0; index < accepted.length; index += 1) {
-    const attachment = accepted[index];
+    const attachment = accepted[index]!;
     const filename = buildAttachmentFilename(attachment, index);
     media.push(
       await createUploadedMediaContextItem({

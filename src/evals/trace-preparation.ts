@@ -223,7 +223,7 @@ function replaceAtPath(
   if (!isRecord(value)) return value;
   return {
     ...value,
-    [head]: replaceAtPath(value[head], tail, replacement),
+    [head!]: replaceAtPath(value[head as string], tail, replacement),
   };
 }
 

@@ -89,7 +89,7 @@ export async function sendChunkedReply(params: {
   );
   for (let i = 0; i < payloads.length; i += 1) {
     if (i === 0) {
-      await params.withRetry('reply', () => params.msg.reply(payloads[i]));
+      await params.withRetry('reply', () => params.msg.reply(payloads[i]!));
     } else {
       const delayMs = getHumanDelayMs(params.humanDelay);
       if (delayMs > 0) {
@@ -103,7 +103,7 @@ export async function sendChunkedReply(params: {
               files?: AttachmentBuilder[];
             }) => Promise<void>;
           }
-        ).send(payloads[i]),
+        ).send(payloads[i]!),
       );
     }
   }
@@ -134,7 +134,7 @@ export async function sendChunkedDirectReply(params: {
         await sleep(delayMs);
       }
     }
-    const payload = payloads[i];
+    const payload = payloads[i]!;
     await params.withRetry('dm-send', () => dm.send(payload));
   }
 }
@@ -154,8 +154,8 @@ export async function sendChunkedInteractionReply(params: {
   const isGuildInteraction = Boolean(params.interaction.guildId);
   for (let i = 0; i < payloads.length; i += 1) {
     const payload = isGuildInteraction
-      ? { ...payloads[i], flags: 'Ephemeral' as const }
-      : payloads[i];
+      ? { ...payloads[i]!, flags: 'Ephemeral' as const }
+      : payloads[i]!;
     if (i === 0) {
       if (params.interaction.replied || params.interaction.deferred) {
         await params.withRetry('interaction-followup', () =>

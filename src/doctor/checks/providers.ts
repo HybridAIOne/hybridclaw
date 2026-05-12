@@ -249,7 +249,7 @@ export async function checkProviders(): Promise<DiagResult[]> {
   const errorsByKey = new Map<ProviderKey, string>();
 
   probeResults.forEach((result, index) => {
-    const plan = selectedPlans[index];
+    const plan = selectedPlans[index]!;
     if (result.status === 'fulfilled') {
       probesByKey.set(plan.key, result.value.probe);
       return;

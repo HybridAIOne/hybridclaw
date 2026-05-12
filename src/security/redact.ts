@@ -75,7 +75,7 @@ function isPublicIpv4(value: string): boolean {
   if (a === 10 || a === 127 || a === 0) return false;
   if (a === 169 && b === 254) return false;
   if (a === 192 && b === 168) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 172 && b! >= 16 && b! <= 31) return false;
   return true;
 }
 
@@ -97,7 +97,7 @@ function isValidSsn(value: string): boolean {
   const match = value.match(/^(\d{3})-(\d{2})-(\d{4})$/);
   if (!match) return false;
   const [, area, group, serial] = match;
-  if (area === '000' || area === '666' || area.startsWith('9')) return false;
+  if (area === '000' || area === '666' || area!.startsWith('9')) return false;
   if (group === '00' || serial === '0000') return false;
   return true;
 }

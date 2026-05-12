@@ -103,7 +103,7 @@ export function parseConciergeChoice(content: string): ConciergeProfile | null {
     .map((line) => normalizeToken(line))
     .filter(Boolean);
   if (lines.length > 1) {
-    return parseConciergeChoice(lines[lines.length - 1]);
+    return parseConciergeChoice(lines[lines.length - 1]!);
   }
   return normalizeConciergeProfileName(normalized);
 }

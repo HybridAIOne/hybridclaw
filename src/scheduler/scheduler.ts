@@ -390,8 +390,8 @@ function expandMondayZeroBasedWeekdayBase(
 
   const match = value.match(/^(\d+)-(\d+)$/);
   if (!match) return null;
-  const start = parseMondayZeroBasedWeekdayValue(match[1]);
-  const end = parseMondayZeroBasedWeekdayValue(match[2]);
+  const start = parseMondayZeroBasedWeekdayValue(match[1]!);
+  const end = parseMondayZeroBasedWeekdayValue(match[2]!);
   if (start == null || end == null) return null;
 
   const days: number[] = [];
@@ -420,7 +420,10 @@ function normalizeMondayZeroBasedCronWeekdaySegment(segment: string): string {
   if (step == null || step <= 0) return trimmed;
   if (rawBase === '*' && step === 1) return trimmed;
 
-  const baseValues = expandMondayZeroBasedWeekdayBase(rawBase, rawStep != null);
+  const baseValues = expandMondayZeroBasedWeekdayBase(
+    rawBase!,
+    rawStep != null,
+  );
   if (!baseValues) return trimmed;
 
   const normalizedValues = baseValues

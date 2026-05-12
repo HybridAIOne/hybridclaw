@@ -1477,8 +1477,8 @@ function getGatewayAdminAgentMarkdownRevisionEntryTimestamp(
   entry: string,
 ): number {
   const [revisionId] = entry.split('.json', 1);
-  const [encodedTimestamp] = revisionId.split('-', 1);
-  const timestamp = Number.parseInt(encodedTimestamp, 36);
+  const [encodedTimestamp] = revisionId!.split('-', 1);
+  const timestamp = Number.parseInt(encodedTimestamp!, 36);
   return Number.isFinite(timestamp) ? timestamp : Number.NaN;
 }
 
@@ -1822,7 +1822,7 @@ function resolveRequestedCatalogModelName(
     );
   });
   if (matchingHybridAIModels.length === 1) {
-    return matchingHybridAIModels[0];
+    return matchingHybridAIModels[0]!;
   }
 
   return requested;
@@ -4635,7 +4635,7 @@ function collectRecentAssistantOutputs(
   const messages = getRecentMessages(sessionId, limit);
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
+    const message = messages[index]!;
     if (String(message.role || '').toLowerCase() !== 'assistant') continue;
     const content = String(message.content || '').trim();
     if (!content || seen.has(content)) continue;
@@ -5984,8 +5984,8 @@ function resolveUploadedSkillZipRoot(extractedDir: string): string {
     .readdirSync(extractedDir, { withFileTypes: true })
     .filter((entry) => !isIgnoredSkillZipTopLevelEntry(entry));
 
-  if (topEntries.length === 1 && topEntries[0].isDirectory()) {
-    return path.join(extractedDir, topEntries[0].name);
+  if (topEntries.length === 1 && topEntries[0]!.isDirectory()) {
+    return path.join(extractedDir, topEntries[0]!.name);
   }
 
   return extractedDir;
@@ -6065,7 +6065,7 @@ export async function uploadGatewayAdminSkillZip(
     const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
     const nameMatch = manifestContent.match(/^---[\s\S]*?^name:\s*(.+?)$/m);
     const skillName = nameMatch
-      ? nameMatch[1].trim().replace(/^["']|["']$/g, '')
+      ? nameMatch[1]!.trim().replace(/^["']|["']$/g, '')
       : '';
     if (!skillName) {
       throw new GatewayRequestError(
@@ -6740,7 +6740,7 @@ export function getGatewayHistorySummary(
 export function extractDelegationDepth(sessionId: string): number {
   const match = sessionId.match(/^delegate:d(\d+):/);
   if (!match) return 0;
-  const parsed = Number.parseInt(match[1], 10);
+  const parsed = Number.parseInt(match[1]!, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -7836,7 +7836,7 @@ export function enqueueDelegationBatchFromSideEffects(params: {
                 plan,
                 task,
                 index,
-                statusEntry: planStatusEntries[index],
+                statusEntry: planStatusEntries[index]!,
               }),
             ),
           );
@@ -7846,12 +7846,12 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           const planEntries: DelegationCompletionEntry[] = [];
           let previousResult = '';
           for (let i = 0; i < plan.tasks.length; i++) {
-            const task = plan.tasks[i];
+            const task = plan.tasks[i]!;
             const entry = await runTask({
               plan,
               task,
               index: i,
-              statusEntry: planStatusEntries[i],
+              statusEntry: planStatusEntries[i]!,
               prompt: interpolateChainPrompt(task.prompt, previousResult),
             });
             planEntries.push(entry);
@@ -7861,13 +7861,13 @@ export function enqueueDelegationBatchFromSideEffects(params: {
           return planEntries;
         }
 
-        const task = plan.tasks[0];
+        const task = plan.tasks[0]!;
         return [
           await runTask({
             plan,
             task,
             index: 0,
-            statusEntry: planStatusEntries[0],
+            statusEntry: planStatusEntries[0]!,
           }),
         ];
       };
@@ -10626,7 +10626,7 @@ export async function handleGatewayCommand(
           const atMatch = rest.match(/^at\s+"([^"]+)"\s+(.+)$/i);
           if (atMatch) {
             const [, runAtRaw, prompt] = atMatch;
-            const parsedDate = new Date(runAtRaw);
+            const parsedDate = new Date(runAtRaw!);
             if (Number.isNaN(parsedDate.getTime())) {
               return badCommand(
                 'Invalid Time',
@@ -10637,7 +10637,7 @@ export async function handleGatewayCommand(
               session.id,
               req.channelId,
               '',
-              prompt,
+              prompt!,
               parsedDate.toISOString(),
             );
             rearmScheduler();
@@ -10649,7 +10649,7 @@ export async function handleGatewayCommand(
           const everyMatch = rest.match(/^every\s+(\d+)\s+(.+)$/i);
           if (everyMatch) {
             const [, everyRaw, prompt] = everyMatch;
-            const everyMs = Number.parseInt(everyRaw, 10);
+            const everyMs = Number.parseInt(everyRaw!, 10);
             if (!Number.isFinite(everyMs) || everyMs < 10_000) {
               return badCommand(
                 'Invalid Interval',
@@ -10660,7 +10660,7 @@ export async function handleGatewayCommand(
               session.id,
               req.channelId,
               '',
-              prompt,
+              prompt!,
               undefined,
               everyMs,
             );
@@ -10679,7 +10679,7 @@ export async function handleGatewayCommand(
           }
           const [, cronExpr, prompt] = cronMatch;
           try {
-            CronExpressionParser.parse(cronExpr);
+            CronExpressionParser.parse(cronExpr!);
           } catch {
             return badCommand(
               'Invalid Cron',
@@ -10689,8 +10689,8 @@ export async function handleGatewayCommand(
           const taskId = createTask(
             session.id,
             req.channelId,
-            cronExpr,
-            prompt,
+            cronExpr!,
+            prompt!,
           );
           rearmScheduler();
           return plainCommand(

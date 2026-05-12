@@ -189,7 +189,7 @@ export async function runChecks(checks: DoctorCheck[]): Promise<DiagResult[]> {
   const results: DiagResult[] = [];
 
   settled.forEach((result, index) => {
-    const check = checks[index];
+    const check = checks[index]!;
     if (result.status === 'fulfilled') {
       results.push(...result.value);
       return;

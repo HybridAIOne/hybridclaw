@@ -192,7 +192,7 @@ function parseSkillsDoc(text: string, docFile: string): HybridaiSkillFixture[] {
     const headingMatch = line.match(SKILLS_HEADING_RE);
     if (headingMatch) {
       state = {
-        skill: headingMatch[1].toLowerCase(),
+        skill: headingMatch[1]!.toLowerCase(),
         conversationSeq: 0,
         promptSeq: 0,
       };
@@ -229,7 +229,7 @@ function parseSkillsDoc(text: string, docFile: string): HybridaiSkillFixture[] {
     if (mode === 'try-it') {
       const promptMatch = blockquote.match(BACKTICK_PROMPT_RE);
       if (!promptMatch) continue;
-      const prompt = promptMatch[1].trim();
+      const prompt = promptMatch[1]!.trim();
       if (!prompt) continue;
       state.promptSeq += 1;
       fixtures.push(
@@ -247,11 +247,11 @@ function parseSkillsDoc(text: string, docFile: string): HybridaiSkillFixture[] {
     if (mode === 'conversation') {
       const promptMatch = blockquote.match(BACKTICK_PROMPT_RE);
       if (!promptMatch) continue;
-      const inner = promptMatch[1].trim();
+      const inner = promptMatch[1]!.trim();
       const turnMatch = inner.match(CONVERSATION_TURN_RE);
-      const prompt = turnMatch ? turnMatch[1].trim() : inner;
+      const prompt = turnMatch ? turnMatch[1]!.trim() : inner;
       if (!prompt) continue;
-      const turnIndex = turnMatch ? Number.parseInt(turnMatch[0], 10) : null;
+      const turnIndex = turnMatch ? Number.parseInt(turnMatch[0]!, 10) : null;
       state.promptSeq += 1;
       fixtures.push(
         buildFixture({
@@ -274,7 +274,7 @@ function parseSkillsDoc(text: string, docFile: string): HybridaiSkillFixture[] {
 
 function stripBlockquote(line: string): string | null {
   const match = line.match(/^\s*>\s?(.*)$/);
-  return match ? match[1] : null;
+  return match ? match[1]! : null;
 }
 
 function buildFixture(input: {
@@ -1719,7 +1719,7 @@ function renderRunSummary(
     'Profile',
     describeEvalProfile(profile).map((entry) => {
       const [label, value] = entry.split(':', 2);
-      return [label, value?.trim() || null] as const;
+      return [label!, value?.trim() || null] as const;
     }),
   );
   const resultsSection = renderKeyValueSection('Results', [

@@ -50,8 +50,8 @@ export function parseResetConfirmationCustomId(
   try {
     return {
       action: action === 'yes' ? 'yes' : 'no',
-      userId,
-      sessionId: decodeURIComponent(encodedSessionId),
+      userId: userId!,
+      sessionId: decodeURIComponent(encodedSessionId!),
     };
   } catch {
     return null;

@@ -461,7 +461,7 @@ export async function injectPdfContextMessages(params: {
   if (latestUserIndex < 0) return messages;
 
   const latestUserText = normalizeMessageContentToText(
-    messages[latestUserIndex].content,
+    messages[latestUserIndex]!.content,
   );
   const mountAliases = buildValidatedMountAliases();
   const resolvedPdfPaths: string[] = [];

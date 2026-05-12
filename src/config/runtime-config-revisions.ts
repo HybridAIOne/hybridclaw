@@ -182,12 +182,12 @@ function sanitizeDetectedRoute(route: string): string {
     if (functionName) return functionName;
     const location = String(callsiteMatch[2] || '').trim();
     const basenameMatch = location.match(/([^/\\]+:\d+:\d+)$/);
-    if (basenameMatch) return basenameMatch[1];
+    if (basenameMatch) return basenameMatch[1]!;
     return location.replace(/^file:\/\//, '');
   }
 
   const basenameMatch = trimmed.match(/([^/\\]+:\d+:\d+)$/);
-  if (basenameMatch) return basenameMatch[1];
+  if (basenameMatch) return basenameMatch[1]!;
   return trimmed.replace(/^file:\/\//, '');
 }
 

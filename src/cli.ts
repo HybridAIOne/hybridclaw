@@ -850,7 +850,7 @@ async function startGatewayBackend(
 
   ensureGatewayRunDir();
   const logFd = fs.openSync(GATEWAY_LOG_PATH, 'a');
-  const cliEntry = process.argv[1];
+  const cliEntry = process.argv[1]!;
   const childArgs = [
     cliEntry,
     'gateway',
@@ -1072,7 +1072,7 @@ async function handleGatewayCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
   const subArgs = normalized.slice(1);
   if (sub === 'help' || sub === '--help' || sub === '-h') {
     printGatewayUsage();
@@ -1414,13 +1414,13 @@ async function handleBrowserCommand(args: string[]): Promise<void> {
   const { DATA_DIR } = await import('./config/config.js');
   const profileDir = getBrowserProfileDir(DATA_DIR);
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
 
   if (sub === 'login') {
     let url = 'https://accounts.google.com';
     for (let i = 1; i < normalized.length; i++) {
       if (normalized[i] === '--url' && normalized[i + 1]) {
-        url = normalized[++i];
+        url = normalized[++i]!;
       }
     }
 
@@ -1561,8 +1561,8 @@ export async function main(
   );
   if (topLevelResume) {
     const subargs = topLevelResume.consumedNextArg
-      ? [argv[0], argv[1]]
-      : [argv[0]];
+      ? [argv[0]!, argv[1]!]
+      : [argv[0]!];
     if (argv.length !== subargs.length) {
       throw new Error(
         `Unexpected CLI option after --resume: ${String(argv[subargs.length] || '').trim()}`,

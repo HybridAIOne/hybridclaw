@@ -114,7 +114,7 @@ export function buildSessionConversationPreview(
   let pendingAnswer: string | null = null;
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
+    const message = messages[index]!;
     const role = String(message.role || '').toLowerCase();
     const preview = trimSessionPreviewText(message.content, maxLength);
     if (!preview) continue;

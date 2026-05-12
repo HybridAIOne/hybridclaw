@@ -1884,7 +1884,7 @@ export async function handleLocalCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
   if (sub === 'status') {
     printLocalStatus();
     return;
@@ -1972,7 +1972,7 @@ export async function handleAuthCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
   if (sub === 'help' || sub === '--help' || sub === '-h') {
     printAuthUsage();
     return;
@@ -2022,7 +2022,7 @@ async function handleAuthWhatsAppCommand(
     return;
   }
 
-  const sub = normalizedArgs[0].toLowerCase();
+  const sub = normalizedArgs[0]!.toLowerCase();
   if (sub !== 'reset') {
     throw new Error(
       `Unknown auth whatsapp subcommand: ${sub}. Use \`hybridclaw auth whatsapp reset\`.`,
@@ -2546,7 +2546,7 @@ export async function handleHybridAICommand(args: string[]): Promise<void> {
     return;
   }
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
   if (sub === 'base-url') {
     configureHybridAIBaseUrl(normalized.slice(1));
     return;
@@ -2604,7 +2604,7 @@ export async function handleCodexCommand(args: string[]): Promise<void> {
 
   await ensureCodexAuthApi();
 
-  const sub = normalized[0].toLowerCase();
+  const sub = normalized[0]!.toLowerCase();
   if (sub === 'login') {
     const method = parseCodexLoginMethod(normalized.slice(1));
     const result = await getCodexAuthApi().loginCodexInteractive({ method });

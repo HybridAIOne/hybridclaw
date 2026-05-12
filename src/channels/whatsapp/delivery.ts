@@ -53,7 +53,7 @@ export async function sendChunkedWhatsAppText(
   const chunks = prepareWhatsAppTextChunks(text);
   const refs: WhatsAppOutboundMessageRef[] = [];
   for (let index = 0; index < chunks.length; index += 1) {
-    const sent = await sock.sendMessage(jid, { text: chunks[index] });
+    const sent = await sock.sendMessage(jid, { text: chunks[index]! });
     await onSentMessage?.(sent);
     const ref = toOutboundMessageRef(sent, jid);
     if (ref) refs.push(ref);

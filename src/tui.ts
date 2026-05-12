@@ -178,7 +178,7 @@ function inferThemeFromColorFgBg(): TuiTheme | null {
     .filter(Boolean);
   if (parts.length === 0) return null;
 
-  const bg = Number.parseInt(parts[parts.length - 1], 10);
+  const bg = Number.parseInt(parts[parts.length - 1]!, 10);
   if (Number.isNaN(bg)) return null;
 
   if (bg === 7 || bg === 11 || bg === 14 || bg === 15) return 'light';
@@ -1158,7 +1158,7 @@ function reflowTuiTableSection(
     }
     const cells = row.map((cell, cellIndex) => {
       const width =
-        cellIndex === 0 ? variantWidth : metricWidths[cellIndex - 1];
+        cellIndex === 0 ? variantWidth : metricWidths[cellIndex - 1]!;
       return padAnsiTuiEnd(truncateAnsiTuiEnd(cell, width), width);
     });
     return [cells.join(separator)];
@@ -1396,7 +1396,7 @@ export function formatTuiToolActivityLine(params: {
 }): string {
   const frameIndex = Math.max(0, params.frameIndex || 0);
   const frame =
-    JELLYFISH_PULSE_FRAMES[frameIndex % JELLYFISH_PULSE_FRAMES.length];
+    JELLYFISH_PULSE_FRAMES[frameIndex % JELLYFISH_PULSE_FRAMES.length]!;
   const previewText = params.preview
     ? ` ${MUTED}${params.preview}${RESET}`
     : '';
@@ -1500,7 +1500,7 @@ function spinner(): {
     }
     if (!showActivityPreview) return;
     clearLine();
-    const frame = JELLYFISH_PULSE_FRAMES[i % JELLYFISH_PULSE_FRAMES.length];
+    const frame = JELLYFISH_PULSE_FRAMES[i % JELLYFISH_PULSE_FRAMES.length]!;
     process.stdout.write(
       `\r  ${frame.emojiColor}${JELLYFISH}${RESET} ${frame.verbColor}${activityVerb}${RESET}`,
     );
@@ -1601,7 +1601,7 @@ function spinner(): {
       const normalizedPreview = preview || '';
       let existingEntry: SpinnerToolEntry | undefined;
       for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
-        const entry = toolEntries[idx];
+        const entry = toolEntries[idx]!;
         if (entry.name !== toolName || entry.preview !== normalizedPreview) {
           continue;
         }
@@ -1626,7 +1626,7 @@ function spinner(): {
       if (hasVisibleText) return;
       const normalizedPreview = preview || '';
       for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
-        const entry = toolEntries[idx];
+        const entry = toolEntries[idx]!;
         if (entry.name !== toolName || entry.preview !== normalizedPreview) {
           continue;
         }

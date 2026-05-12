@@ -101,7 +101,7 @@ function visibleTerminalLength(value: string): number {
 function sentenceCase(value: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) return '';
-  return normalized[0].toUpperCase() + normalized.slice(1);
+  return normalized[0]!.toUpperCase() + normalized.slice(1);
 }
 
 function sanitizeTerminalText(value: string): string {

@@ -37,7 +37,7 @@ export function parseTelegramTarget(
   let topicId: number | undefined;
   const topicMatch = normalized.match(/:topic:(\d+)$/i);
   if (topicMatch) {
-    topicId = normalizeTopicId(topicMatch[1]);
+    topicId = normalizeTopicId(topicMatch[1]!);
     normalized = normalized.slice(0, topicMatch.index).trim();
   }
 

@@ -29,7 +29,7 @@ export class SlidingWindowRateLimiter {
 
     if (active.length >= boundedLimit) {
       this.buckets.set(key, active);
-      const oldest = active[0];
+      const oldest = active[0]!;
       const retryAfterMs = Math.max(0, oldest + this.windowMs - nowMs);
       return {
         allowed: false,

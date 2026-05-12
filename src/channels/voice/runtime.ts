@@ -133,7 +133,7 @@ function resolveRemoteIp(req: IncomingMessage): string {
     ? forwardedFor[0]
     : forwardedFor;
   const candidate = String(forwarded || '')
-    .split(',')[0]
+    .split(',')[0]!
     .trim();
   return candidate || String(req.socket.remoteAddress || 'unknown').trim();
 }

@@ -365,7 +365,7 @@ function resolveWellKnownBaseUrl(rawInput: string): {
   );
   const parts = suffix.split('/').filter(Boolean);
   const explicitSkillName =
-    parts.length > 0 && parts[0] !== 'index.json' ? parts[0] : null;
+    parts.length > 0 && parts[0] !== 'index.json' ? parts[0]! : null;
 
   return {
     baseUrl: new URL(`${prefix || '/'}/`, parsed.origin).toString(),
@@ -466,8 +466,8 @@ function parseClaudeMarketplaceSource(
   return {
     kind: 'claude-marketplace',
     displaySource: input,
-    pluginName: parts.length === 2 ? parts[0] : null,
-    requestedName: parts.length === 2 ? parts[1] : parts[0],
+    pluginName: parts.length === 2 ? parts[0]! : null,
+    requestedName: parts.length === 2 ? parts[1]! : parts[0]!,
     marketplaceName: rawMarketplace || null,
   };
 }

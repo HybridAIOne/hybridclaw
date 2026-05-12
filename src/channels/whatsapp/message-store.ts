@@ -54,7 +54,7 @@ function sanitizeEntries(
 ): StoredWhatsAppMessage[] {
   const deduped = new Map<string, StoredWhatsAppMessage>();
   for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
+    const entry = entries[index]!;
     const id = normalizeString(entry.id);
     const remoteJid = normalizeString(entry.remoteJid);
     const participant = normalizeString(entry.participant);

@@ -879,17 +879,17 @@ async function sendProactiveMessageNow(
       if (artifacts && artifacts.length > 0) {
         await sendIMessageMediaToChat({
           target: channelId,
-          filePath: artifacts[0].path,
-          mimeType: artifacts[0].mimeType,
-          filename: artifacts[0].filename,
+          filePath: artifacts[0]!.path,
+          mimeType: artifacts[0]!.mimeType,
+          filename: artifacts[0]!.filename,
           caption: text,
         });
         for (let index = 1; index < artifacts.length; index += 1) {
           await sendIMessageMediaToChat({
             target: channelId,
-            filePath: artifacts[index].path,
-            mimeType: artifacts[index].mimeType,
-            filename: artifacts[index].filename,
+            filePath: artifacts[index]!.path,
+            mimeType: artifacts[index]!.mimeType,
+            filename: artifacts[index]!.filename,
           });
         }
         return;
@@ -922,17 +922,17 @@ async function sendProactiveMessageNow(
       if (artifacts && artifacts.length > 0) {
         await sendEmailAttachmentTo({
           to: channelId,
-          filePath: artifacts[0].path,
+          filePath: artifacts[0]!.path,
           body: text,
-          mimeType: artifacts[0].mimeType,
-          filename: artifacts[0].filename,
+          mimeType: artifacts[0]!.mimeType,
+          filename: artifacts[0]!.filename,
         });
         for (let index = 1; index < artifacts.length; index += 1) {
           await sendEmailAttachmentTo({
             to: channelId,
-            filePath: artifacts[index].path,
-            mimeType: artifacts[index].mimeType,
-            filename: artifacts[index].filename,
+            filePath: artifacts[index]!.path,
+            mimeType: artifacts[index]!.mimeType,
+            filename: artifacts[index]!.filename,
           });
         }
         return;
@@ -2820,17 +2820,17 @@ async function startIMessageIntegration(): Promise<boolean> {
           if (artifacts.length > 0) {
             await sendIMessageMediaToChat({
               target: channelId,
-              filePath: artifacts[0].path,
-              mimeType: artifacts[0].mimeType,
-              filename: artifacts[0].filename,
+              filePath: artifacts[0]!.path,
+              mimeType: artifacts[0]!.mimeType,
+              filename: artifacts[0]!.filename,
               caption: cleanedResultText || undefined,
             });
             for (let index = 1; index < artifacts.length; index += 1) {
               await sendIMessageMediaToChat({
                 target: channelId,
-                filePath: artifacts[index].path,
-                mimeType: artifacts[index].mimeType,
-                filename: artifacts[index].filename,
+                filePath: artifacts[index]!.path,
+                mimeType: artifacts[index]!.mimeType,
+                filename: artifacts[index]!.filename,
               });
             }
             return;

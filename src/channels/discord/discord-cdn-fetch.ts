@@ -38,15 +38,15 @@ function isPrivateIpv4(ip: string): boolean {
   if (a === 10) return true;
   if (a === 127) return true;
   if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 172 && b! >= 16 && b! <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 100 && b! >= 64 && b! <= 127) return true;
   if (a === 0) return true;
   return false;
 }
 
 function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().split('%')[0];
+  const lower = ip.toLowerCase().split('%')[0]!;
   if (lower === '::1') return true;
   if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
   if (/^fe[89ab]/.test(lower)) return true;
@@ -127,7 +127,7 @@ function createSsrfGuardedLookup(): LookupFunction {
           callback(null, resolved, resolved[0]?.family);
           return;
         }
-        const first = resolved[0];
+        const first = resolved[0]!;
         callback(null, first.address, first.family);
       })
       .catch((error) => {
