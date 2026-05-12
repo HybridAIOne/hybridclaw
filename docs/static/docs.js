@@ -272,7 +272,7 @@ const DOCS_SEARCH_ENTRIES = DEVELOPMENT_DOCS_SECTIONS.flatMap((section) =>
   section.pages.map((page) => ({
     label: page.title,
     parentTitle: section.title,
-    routePath: buildDocHtmlHref(page.path),
+    path: page.path,
   })),
 );
 
@@ -287,6 +287,14 @@ export function normalizeDocPath(input) {
 function normalizeBasePath(basePath = DOCS_BASE_PATH) {
   const normalized = normalizeDocPath(basePath);
   return normalized ? `/${normalized.replace(/\/$/, '')}` : '';
+}
+
+function buildSiteHref(pathname, siteBasePath = '') {
+  const normalizedBasePath = normalizeBasePath(siteBasePath);
+  const normalizedPathname = String(pathname || '/').startsWith('/')
+    ? String(pathname || '/')
+    : `/${String(pathname || '/')}`;
+  return `${normalizedBasePath}${normalizedPathname}`;
 }
 
 function rewriteLegacyDocPath(docPath) {
@@ -1021,7 +1029,7 @@ function scrollToHash() {
   });
 }
 
-function renderNotFoundState(mount, docPath, basePath) {
+function renderNotFoundState(mount, docPath, basePath, siteBasePath) {
   document.title = 'Docs Not Found · HybridClaw';
   mount.innerHTML = `
     <div class="docs-app-shell">
@@ -1029,12 +1037,16 @@ function renderNotFoundState(mount, docPath, basePath) {
         <a class="docs-brand" href="${escapeHtml(
           buildDocHtmlHref('README.md', basePath),
         )}">
-          <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
+          <img src="${escapeHtml(
+            buildSiteHref('/static/hybridclaw-logo.svg', siteBasePath),
+          )}" alt="HybridClaw">
           <span>HybridClaw</span>
           <span class="docs-brand-accent">Docs</span>
         </a>
         <nav class="docs-topnav" aria-label="Top navigation">
-          <a href="/about">Home</a>
+          <a href="${escapeHtml(
+            buildSiteHref('/about', siteBasePath),
+          )}">Home</a>
           <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
           <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
         </nav>
@@ -1095,6 +1107,7 @@ export async function mountDocsApp(options = {}) {
 
   const basePath = options.basePath || DOCS_BASE_PATH;
   const contentBasePath = options.contentBasePath || basePath;
+  const siteBasePath = options.siteBasePath || '';
   const mount = document.querySelector(
     options.mountSelector || '[data-docs-app]',
   );
@@ -1125,14 +1138,14 @@ export async function mountDocsApp(options = {}) {
 
   const docPath = resolveDocPathFromPathname(pathname, basePath);
   if (!KNOWN_DOC_PATHS.has(docPath)) {
-    renderNotFoundState(mount, docPath, basePath);
+    renderNotFoundState(mount, docPath, basePath, siteBasePath);
     return false;
   }
 
   const markdownHref = buildDocMarkdownHref(docPath, basePath, contentBasePath);
   const response = await fetch(markdownHref, { cache: 'no-store' });
   if (!response.ok) {
-    renderNotFoundState(mount, docPath, basePath);
+    renderNotFoundState(mount, docPath, basePath, siteBasePath);
     return false;
   }
 
@@ -1150,12 +1163,16 @@ export async function mountDocsApp(options = {}) {
         <a class="docs-brand" href="${escapeHtml(
           buildDocHtmlHref('README.md', basePath),
         )}">
-          <img src="/static/hybridclaw-logo.svg" alt="HybridClaw">
+          <img src="${escapeHtml(
+            buildSiteHref('/static/hybridclaw-logo.svg', siteBasePath),
+          )}" alt="HybridClaw">
           <span>HybridClaw</span>
           <span class="docs-brand-accent">Docs</span>
         </a>
         <nav class="docs-topnav" aria-label="Top navigation">
-          <a href="/about">Home</a>
+          <a href="${escapeHtml(
+            buildSiteHref('/about', siteBasePath),
+          )}">Home</a>
           <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
           <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
         </nav>
@@ -1291,7 +1308,7 @@ export async function mountDocsApp(options = {}) {
     for (const entry of matches) {
       const link = document.createElement('a');
       link.className = 'docs-search-result';
-      link.href = entry.routePath;
+      link.href = buildDocHtmlHref(entry.path, basePath);
 
       const title = document.createElement('strong');
       title.textContent = entry.label;
@@ -1331,8 +1348,8 @@ export async function mountDocsApp(options = {}) {
       }
       if (event.key === 'Enter') {
         const matches = renderSearchResults(searchInput.value || '');
-        if (matches[0]?.routePath) {
-          window.location.href = matches[0].routePath;
+        if (matches[0]?.path) {
+          window.location.href = buildDocHtmlHref(matches[0].path, basePath);
         }
       }
     });
