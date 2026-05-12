@@ -1,5 +1,5 @@
 {
-  "version": 27,
+  "version": 28,
   "security": {
     "trustModelAccepted": false,
     "trustModelAcceptedAt": "",
@@ -13,6 +13,27 @@
     "tunnel": {
       "provider": "manual",
       "health_check_interval_ms": 30000
+    }
+  },
+  "browser": {
+    "provider": "local",
+    "local": {
+      "profileRoot": "",
+      "headed": false
+    },
+    "camofox": {
+      "profileRoot": "",
+      "headed": false,
+      "launchOptions": {}
+    },
+    "browserUseCloud": {
+      "apiKeyRef": {
+        "source": "env",
+        "id": "BROWSER_USE_API_KEY"
+      },
+      "baseUrl": "",
+      "browser": {},
+      "pricing": {}
     }
   },
   "skills": {

@@ -64,6 +64,7 @@ import {
   parseSecretInput,
   resolveSecretInputUnsafe,
   type SecretInput,
+  type SecretRef,
 } from '../security/secret-refs.js';
 import {
   normalizeSessionResetMode,
@@ -236,6 +237,10 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
   RuntimeWebSearchProvider,
   'auto'
 >;
+export type RuntimeBrowserProviderKind =
+  | 'local'
+  | 'camofox'
+  | 'browser-use-cloud';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
 export type SlackDmPolicy = 'open' | 'allowlist' | 'disabled';
@@ -277,6 +282,42 @@ export interface RuntimeDeploymentConfig {
   mode: RuntimeDeploymentMode;
   public_url: string;
   tunnel: RuntimeDeploymentTunnelConfig;
+}
+
+export interface RuntimeBrowserLocalConfig {
+  profileRoot: string;
+  headed: boolean;
+}
+
+export interface RuntimeBrowserCamofoxConfig {
+  profileRoot: string;
+  headed: boolean;
+  launchOptions: Record<string, unknown>;
+}
+
+export interface RuntimeBrowserUseCloudConfig {
+  apiKeyRef: SecretRef;
+  baseUrl: string;
+  browser: {
+    profileId?: string | null;
+    proxyCountryCode?: string | null;
+    timeoutMinutes?: number;
+    browserScreenWidth?: number;
+    browserScreenHeight?: number;
+    allowResizing?: boolean;
+    enableRecording?: boolean;
+  };
+  pricing: {
+    browserUsdPerMinute?: number;
+    actionUsd?: number;
+  };
+}
+
+export interface RuntimeBrowserConfig {
+  provider: RuntimeBrowserProviderKind;
+  local: RuntimeBrowserLocalConfig;
+  camofox: RuntimeBrowserCamofoxConfig;
+  browserUseCloud: RuntimeBrowserUseCloudConfig;
 }
 
 export interface RuntimeAudioProviderModelConfig {
@@ -760,6 +801,7 @@ export interface RuntimeConfig {
   version: number;
   security: RuntimeSecurityConfig;
   deployment: RuntimeDeploymentConfig;
+  browser: RuntimeBrowserConfig;
   agents: AgentsConfig;
   skills: {
     extraDirs: string[];
@@ -1151,6 +1193,27 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     tunnel: {
       provider: 'manual',
       health_check_interval_ms: DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS,
+    },
+  },
+  browser: {
+    provider: 'local',
+    local: {
+      profileRoot: '',
+      headed: false,
+    },
+    camofox: {
+      profileRoot: '',
+      headed: false,
+      launchOptions: {},
+    },
+    browserUseCloud: {
+      apiKeyRef: {
+        source: 'env',
+        id: 'BROWSER_USE_API_KEY',
+      },
+      baseUrl: '',
+      browser: {},
+      pricing: {},
     },
   },
   agents: {
@@ -4639,6 +4702,155 @@ function normalizeWebSearchFallbackProviders(
   return providers;
 }
 
+function normalizeBrowserProviderKind(
+  value: unknown,
+  fallback: RuntimeBrowserProviderKind,
+): RuntimeBrowserProviderKind {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'local' ||
+    normalized === 'camofox' ||
+    normalized === 'browser-use-cloud'
+  ) {
+    return normalized;
+  }
+  if (normalized === 'browser_use_cloud' || normalized === 'browserusecloud') {
+    return 'browser-use-cloud';
+  }
+  return fallback;
+}
+
+function normalizeBrowserUseCloudApiKeyRef(
+  value: unknown,
+  fallback: SecretRef,
+): SecretRef {
+  if (value === undefined || value === null || value === '') {
+    return cloneConfig(fallback);
+  }
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
+  throw new Error(
+    'browser.browserUseCloud.apiKeyRef must use an env/store secret reference such as `{ "source": "env", "id": "BROWSER_USE_API_KEY" }`.',
+  );
+}
+
+function normalizeBrowserUseCloudSessionConfig(
+  value: unknown,
+  fallback: RuntimeBrowserUseCloudConfig['browser'],
+): RuntimeBrowserUseCloudConfig['browser'] {
+  const raw = isRecord(value) ? value : {};
+  const profileId = normalizeString(raw.profileId, fallback.profileId ?? '', {
+    allowEmpty: true,
+  });
+  const proxyCountryCode = normalizeString(
+    raw.proxyCountryCode,
+    fallback.proxyCountryCode ?? '',
+    { allowEmpty: true },
+  );
+  const timeoutMinutes = normalizeInteger(raw.timeoutMinutes, 0, {
+    min: 1,
+    max: 240,
+  });
+  const browserScreenWidth = normalizeInteger(raw.browserScreenWidth, 0, {
+    min: 1,
+    max: 10_000,
+  });
+  const browserScreenHeight = normalizeInteger(raw.browserScreenHeight, 0, {
+    min: 1,
+    max: 10_000,
+  });
+  return {
+    ...(profileId ? { profileId } : {}),
+    ...(proxyCountryCode ? { proxyCountryCode } : {}),
+    ...(timeoutMinutes > 0 ? { timeoutMinutes } : {}),
+    ...(browserScreenWidth > 0 ? { browserScreenWidth } : {}),
+    ...(browserScreenHeight > 0 ? { browserScreenHeight } : {}),
+    ...(typeof raw.allowResizing === 'boolean'
+      ? { allowResizing: raw.allowResizing }
+      : typeof fallback.allowResizing === 'boolean'
+        ? { allowResizing: fallback.allowResizing }
+        : {}),
+    ...(typeof raw.enableRecording === 'boolean'
+      ? { enableRecording: raw.enableRecording }
+      : typeof fallback.enableRecording === 'boolean'
+        ? { enableRecording: fallback.enableRecording }
+        : {}),
+  };
+}
+
+function normalizeBrowserUseCloudPricing(
+  value: unknown,
+  fallback: RuntimeBrowserUseCloudConfig['pricing'],
+): RuntimeBrowserUseCloudConfig['pricing'] {
+  const raw = isRecord(value) ? value : {};
+  const browserUsdPerMinute = normalizeNumber(
+    raw.browserUsdPerMinute,
+    fallback.browserUsdPerMinute ?? -1,
+    { min: 0 },
+  );
+  const actionUsd = normalizeNumber(raw.actionUsd, fallback.actionUsd ?? -1, {
+    min: 0,
+  });
+  return {
+    ...(browserUsdPerMinute >= 0 ? { browserUsdPerMinute } : {}),
+    ...(actionUsd >= 0 ? { actionUsd } : {}),
+  };
+}
+
+function normalizeBrowserConfig(
+  value: unknown,
+  fallback: RuntimeBrowserConfig,
+): RuntimeBrowserConfig {
+  const raw = isRecord(value) ? value : {};
+  const rawLocal = isRecord(raw.local) ? raw.local : {};
+  const rawCamofox = isRecord(raw.camofox) ? raw.camofox : {};
+  const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
+    ? raw.browserUseCloud
+    : {};
+  const launchOptions = isRecord(rawCamofox.launchOptions)
+    ? cloneConfig(rawCamofox.launchOptions)
+    : cloneConfig(fallback.camofox.launchOptions);
+  return {
+    provider: normalizeBrowserProviderKind(raw.provider, fallback.provider),
+    local: {
+      profileRoot: normalizeString(
+        rawLocal.profileRoot,
+        fallback.local.profileRoot,
+        { allowEmpty: true },
+      ),
+      headed: normalizeBoolean(rawLocal.headed, fallback.local.headed),
+    },
+    camofox: {
+      profileRoot: normalizeString(
+        rawCamofox.profileRoot,
+        fallback.camofox.profileRoot,
+        { allowEmpty: true },
+      ),
+      headed: normalizeBoolean(rawCamofox.headed, fallback.camofox.headed),
+      launchOptions,
+    },
+    browserUseCloud: {
+      apiKeyRef: normalizeBrowserUseCloudApiKeyRef(
+        rawBrowserUseCloud.apiKeyRef,
+        fallback.browserUseCloud.apiKeyRef,
+      ),
+      baseUrl: normalizeBaseUrl(
+        rawBrowserUseCloud.baseUrl,
+        fallback.browserUseCloud.baseUrl,
+      ),
+      browser: normalizeBrowserUseCloudSessionConfig(
+        rawBrowserUseCloud.browser,
+        fallback.browserUseCloud.browser,
+      ),
+      pricing: normalizeBrowserUseCloudPricing(
+        rawBrowserUseCloud.pricing,
+        fallback.browserUseCloud.pricing,
+      ),
+    },
+  };
+}
+
 function normalizeAudioTranscriptionProvider(
   value: unknown,
 ): RuntimeAudioTranscriptionProvider | null {
@@ -4858,6 +5070,7 @@ function normalizeRuntimeConfig(
 
   const rawSecurity = isRecord(raw.security) ? raw.security : {};
   const rawDeployment = isRecord(raw.deployment) ? raw.deployment : {};
+  const rawBrowser = isRecord(raw.browser) ? raw.browser : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
   const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
@@ -5239,6 +5452,7 @@ function normalizeRuntimeConfig(
       rawDeployment,
       DEFAULT_RUNTIME_CONFIG.deployment,
     ),
+    browser: normalizeBrowserConfig(rawBrowser, DEFAULT_RUNTIME_CONFIG.browser),
     agents: normalizeAgentsConfig(rawAgents, DEFAULT_RUNTIME_CONFIG.agents),
     skills: {
       extraDirs: normalizeStringArray(

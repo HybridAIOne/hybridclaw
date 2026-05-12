@@ -1,11 +1,10 @@
 import { Buffer } from 'node:buffer';
+import type { LaunchOptions as CamofoxLaunchOptions } from 'camoufox-js';
 import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
-import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../../container/shared/browser-profile.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import type { SecretInput } from '../security/secret-refs.js';
 import {
   fillBrowserField,
-  loadPlaywrightModule,
   normalizeScrollDelta,
   type PlaywrightNavigationOptions,
   type PlaywrightSecretFillLocator,
@@ -33,7 +32,7 @@ type PlaywrightScreenshotOptions = {
   type?: 'png' | 'jpeg';
 };
 
-type PlaywrightPage = {
+type CamofoxPage = {
   evaluate<T>(fn: BrowserEvaluateFunction<T>): Promise<T>;
   screenshot(opts?: PlaywrightScreenshotOptions): Promise<Buffer | Uint8Array>;
   goto(url: string, opts?: PlaywrightNavigationOptions): Promise<unknown>;
@@ -58,46 +57,44 @@ type PlaywrightPage = {
   };
 };
 
-type PlaywrightContext = {
-  pages(): PlaywrightPage[];
-  newPage(): Promise<PlaywrightPage>;
+type CamofoxContext = {
+  pages(): CamofoxPage[];
+  newPage(): Promise<CamofoxPage>;
   close(): Promise<void>;
 };
 
-export type LocalBrowserPlaywrightModule = {
-  chromium: {
-    launchPersistentContext(
-      userDataDir: string,
-      opts: {
-        headless: boolean;
-        timeout?: number;
-        args: string[];
-      },
-    ): Promise<PlaywrightContext>;
-  };
+export type CamofoxModule = {
+  Camoufox(
+    launchOptions: CamofoxLaunchOptions & { user_data_dir: string },
+  ): Promise<CamofoxContext>;
 };
 
-export interface LocalBrowserProviderOptions {
+export interface CamofoxProviderOptions {
   dataDir?: string;
   profileRoot?: string;
   headed?: boolean;
-  playwright?: LocalBrowserPlaywrightModule;
+  launchOptions?: CamofoxLaunchOptions;
+  camofox?: CamofoxModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
 }
 
-async function loadPlaywright(
-  injected?: LocalBrowserPlaywrightModule,
-): Promise<LocalBrowserPlaywrightModule> {
-  return await loadPlaywrightModule(
-    injected,
-    (cause) =>
-      `Playwright is not available. Run npm install, then hybridclaw doctor browser-use --fix. Cause: ${cause}`,
-  );
+async function loadCamofoxModule(
+  injected?: CamofoxModule,
+): Promise<CamofoxModule> {
+  if (injected) return injected;
+  try {
+    return (await import('camoufox-js')) as CamofoxModule;
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Camofox is not available. Run npm install, then npx camoufox-js fetch. Cause: ${cause}`,
+    );
+  }
 }
 
-class LocalBrowserSession implements BrowserSession {
+class CamofoxSession implements BrowserSession {
   constructor(
-    private readonly page: PlaywrightPage,
+    private readonly page: CamofoxPage,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
@@ -170,14 +167,11 @@ class LocalBrowserSession implements BrowserSession {
   }
 }
 
-export class LocalBrowserProvider implements BrowserProvider {
+export class CamofoxProvider implements BrowserProvider {
   private readonly profileRoot: string;
-  private readonly contexts = new WeakMap<
-    LocalBrowserSession,
-    PlaywrightContext
-  >();
+  private readonly contexts = new WeakMap<CamofoxSession, CamofoxContext>();
 
-  constructor(private readonly options: LocalBrowserProviderOptions = {}) {
+  constructor(private readonly options: CamofoxProviderOptions = {}) {
     this.profileRoot = resolveBrowserProfileRoot(options);
   }
 
@@ -186,17 +180,19 @@ export class LocalBrowserProvider implements BrowserProvider {
       this.profileRoot,
       opts.profileDirHint,
     );
-    const playwright = await loadPlaywright(this.options.playwright);
-    const context = await playwright.chromium.launchPersistentContext(
-      profileDir,
-      {
-        headless: !(opts.headed ?? this.options.headed ?? false),
-        timeout: opts.timeoutMs,
-        args: [...BROWSER_PROFILE_CHROMIUM_ARGS],
-      },
-    );
+    const camofox = await loadCamofoxModule(this.options.camofox);
+    const launchOptions: CamofoxLaunchOptions & { user_data_dir: string } = {
+      ...this.options.launchOptions,
+      user_data_dir: profileDir,
+      headless: !(opts.headed ?? this.options.headed ?? false),
+    };
+    if (opts.timeoutMs !== undefined) {
+      launchOptions.timeout = opts.timeoutMs;
+    }
+
+    const context = await camofox.Camoufox(launchOptions);
     const page = context.pages()[0] || (await context.newPage());
-    const session = new LocalBrowserSession(
+    const session = new CamofoxSession(
       page,
       this.options.secretAudit,
       opts.metering,
@@ -206,12 +202,12 @@ export class LocalBrowserProvider implements BrowserProvider {
   }
 
   async closeSession(session: BrowserSession): Promise<void> {
-    if (!(session instanceof LocalBrowserSession)) {
-      throw new Error('LocalBrowserProvider can only close its own sessions');
+    if (!(session instanceof CamofoxSession)) {
+      throw new Error('CamofoxProvider can only close its own sessions');
     }
     const context = this.contexts.get(session);
     if (!context) {
-      throw new Error('LocalBrowserProvider session is not active');
+      throw new Error('CamofoxProvider session is not active');
     }
     this.contexts.delete(session);
     await context.close();
