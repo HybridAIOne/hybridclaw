@@ -88,6 +88,83 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('reloadRuntimeConfig normalizes supported Camofox launch options', () => {
+    writeConfig({
+      browser: {
+        provider: 'camofox',
+        camofox: {
+          headed: true,
+          launchOptions: {
+            os: ['linux', 'macos'],
+            block_webrtc: true,
+            humanize: 1.25,
+            locale: ['de-DE', 'en-US'],
+            window: [1366, 768],
+            webgl_config: ['Apple', 'Apple GPU'],
+            env: {
+              CAMOFOX_TEST: 'enabled',
+              CAMOFOX_FLAG: true,
+              CAMOFOX_COUNT: 2,
+            },
+          },
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.browser).toMatchObject({
+      provider: 'camofox',
+      camofox: {
+        headed: true,
+        launchOptions: {
+          os: ['linux', 'macos'],
+          block_webrtc: true,
+          humanize: 1.25,
+          locale: ['de-DE', 'en-US'],
+          window: [1366, 768],
+          webgl_config: ['Apple', 'Apple GPU'],
+          env: {
+            CAMOFOX_TEST: 'enabled',
+            CAMOFOX_FLAG: true,
+            CAMOFOX_COUNT: 2,
+          },
+        },
+      },
+    });
+  });
+
+  it('reloadRuntimeConfig rejects unsupported Camofox launch option keys', () => {
+    writeConfig({
+      browser: {
+        camofox: {
+          launchOptions: {
+            stealth_magic: true,
+          },
+        },
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      /browser\.camofox\.launchOptions\.stealth_magic is not a supported Camofox launch option/u,
+    );
+  });
+
+  it('reloadRuntimeConfig rejects Camofox launch options managed by HybridClaw', () => {
+    writeConfig({
+      browser: {
+        camofox: {
+          launchOptions: {
+            timeout: 15_000,
+          },
+        },
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      /browser\.camofox\.launchOptions\.timeout is managed by HybridClaw/u,
+    );
+  });
+
   it('reloadRuntimeConfig normalizes trajectory retention policy', () => {
     writeConfig({
       adaptiveSkills: {

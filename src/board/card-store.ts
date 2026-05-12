@@ -16,8 +16,8 @@ import {
 } from '../memory/db.js';
 import {
   emitRuntimeEvent,
-  subscribeRuntimeEvents,
   type RuntimeEventPayload,
+  subscribeRuntimeEvents,
 } from '../skills/skill-run-events.js';
 
 export const BOARD_CARD_COLUMNS = [
