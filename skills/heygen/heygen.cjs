@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
-const net = require('node:net');
 const {
   DEFAULT_TIMEOUT_MS,
   INSUFFICIENT_CREDITS_RE,
+  isPrivateHostname,
   isRateLimitBody,
   parseRetryAfterMs,
 } = require('./lib/common.cjs');
@@ -46,11 +46,14 @@ function printJson(payload) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
-function popFlag(args, name, fallback = undefined) {
+function popFlag(args, name, fallback = undefined, options = {}) {
   const index = args.indexOf(name);
   if (index === -1) return fallback;
   const value = args[index + 1];
-  if (value === undefined || value.startsWith('--')) {
+  if (
+    value === undefined ||
+    (!options.allowDashValue && value.startsWith('--'))
+  ) {
     die(`${name} requires a value.`);
   }
   args.splice(index, 2);
@@ -132,65 +135,7 @@ function isPrivateUrl(rawUrl) {
   } catch {
     return false;
   }
-  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (hostname === 'localhost' || hostname === '::1') return true;
-
-  if (net.isIP(hostname) === 6) {
-    if (
-      hostname.startsWith('fe80:') ||
-      hostname.startsWith('fc') ||
-      hostname.startsWith('fd')
-    ) {
-      return true;
-    }
-    const mapped = ipv4OctetsFromMappedIpv6(hostname);
-    return mapped ? isPrivateIpv4Octets(mapped) : false;
-  }
-
-  const octets = parseIpv4Octets(hostname);
-  if (!octets) {
-    return false;
-  }
-  return isPrivateIpv4Octets(octets);
-}
-
-function parseIpv4Octets(hostname) {
-  const parts = hostname.split('.');
-  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
-    return null;
-  }
-  const octets = parts.map((part) => Number.parseInt(part, 10));
-  if (octets.some((octet) => octet < 0 || octet > 255)) {
-    return null;
-  }
-  return octets;
-}
-
-function ipv4OctetsFromMappedIpv6(hostname) {
-  const dotted = hostname.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
-  if (dotted) {
-    return parseIpv4Octets(dotted[1]);
-  }
-  const packed = hostname.match(
-    /^::ffff:(?:0:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/,
-  );
-  if (!packed) {
-    return null;
-  }
-  const high = Number.parseInt(packed[1], 16);
-  const low = Number.parseInt(packed[2], 16);
-  return [high >> 8, high & 255, low >> 8, low & 255];
-}
-
-function isPrivateIpv4Octets(octets) {
-  const [first, second] = octets;
-  return (
-    first === 10 ||
-    first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168)
-  );
+  return isPrivateHostname(parsed.hostname);
 }
 
 function validatePublicUrl(rawUrl, label) {
@@ -294,7 +239,9 @@ function buildGenerateVideo(args) {
       'Provide exactly one of --avatar-id, --image-url, or --image-asset-id.',
     );
   }
-  const script = popFlag(args, '--script');
+  const script = popFlag(args, '--script', undefined, {
+    allowDashValue: true,
+  });
   const voiceId = popFlag(args, '--voice-id');
   const audioUrl = popFlag(args, '--audio-url');
   const audioAssetId = popFlag(args, '--audio-asset-id');
