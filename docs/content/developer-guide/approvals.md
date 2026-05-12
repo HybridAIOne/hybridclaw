@@ -18,7 +18,7 @@ user explicitly approves or denies it.
 | Pending red approvals | `3` | New blocked actions are denied once the queue is full |
 | Approval timeout | `120s` | Expired requests are removed from the pending queue |
 | Network default | `deny` | Unmatched HTTP/network access falls back to prompt unless changed to `allow` |
-| Seeded network rule | `allow hybridclaw.io:443 * /** agent=*` | New workspaces start with one explicit allow rule |
+| Seeded network rule | `allow hybridaione.github.io:443 * /hybridclaw/** agent=*` | New workspaces start with one explicit allow rule |
 | Workspace fence | `on` | Writes outside the workspace are blocked by default |
 | Agent trust file | `.hybridclaw/approval-agent-trust.json` | Durable `yes for agent` trust |
 | Workspace allowlist file | `approval-trust.json` | Durable `yes for all` trust |

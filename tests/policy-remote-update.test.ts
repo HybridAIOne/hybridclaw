@@ -220,7 +220,7 @@ network:
         (readPolicy().network as { rules?: Array<{ host?: string }> }).rules ||
         []
       ).map((rule) => rule.host),
-    ).toEqual(['hybridclaw.io']);
+    ).toEqual(['hybridaione.github.io']);
   });
 
   test('rejects pipeline reorder operations outside the v1 update contract', async () => {
@@ -339,7 +339,7 @@ network:
       intent: 'policy.update',
       content: JSON.stringify({
         update_id: 'baseline-1',
-        operations: [{ kind: 'allowlist.add', host: 'docs.hybridclaw.io' }],
+        operations: [{ kind: 'allowlist.add', host: 'docs.example.com' }],
       }),
       created_at: '2026-05-01T10:00:00.000Z',
       version: '1',
@@ -369,7 +369,7 @@ network:
         (readPolicy().network as { rules?: Array<{ host?: string }> }).rules ||
         []
       ).map((rule) => rule.host),
-    ).toContain('docs.hybridclaw.io');
+    ).toContain('docs.example.com');
     expect(
       fs.existsSync(path.join(serverCwd, '.hybridclaw', 'policy.yaml')),
     ).toBe(false);
@@ -416,7 +416,7 @@ network:
           thread_id: 'policy-thread',
           intent: 'policy.update',
           content: JSON.stringify({
-            operations: [{ kind: 'allowlist.add', host: 'docs.hybridclaw.io' }],
+            operations: [{ kind: 'allowlist.add', host: 'docs.example.com' }],
           }),
           created_at: '2026-05-01T10:01:00.000Z',
           version: '1',

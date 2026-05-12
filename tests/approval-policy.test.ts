@@ -745,7 +745,7 @@ network:
     expect(loaded.networkDefault).toBe('deny');
     expect(loaded.networkRules).toEqual([
       expect.objectContaining({
-        host: 'hybridclaw.io',
+        host: 'hybridaione.github.io',
         action: 'allow',
       }),
     ]);
@@ -2133,18 +2133,18 @@ network:
     expect(httpEvaluation.decision).toBe('auto');
   });
 
-  test('hybridclaw.io is allowlisted by default and does not require approval', () => {
+  test('GitHub Pages docs are allowlisted by default and do not require approval', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://www.hybridclaw.io/docs/' }),
+      argsJson: JSON.stringify({ url: 'https://hybridaione.github.io/hybridclaw/docs/' }),
       latestUserPrompt: 'Open the HybridClaw docs',
     });
 
-    expect(evaluation.actionKey).toBe('network:hybridclaw.io');
+    expect(evaluation.actionKey).toBe('network:github.io');
     expect(evaluation.tier).toBe('green');
     expect(evaluation.decision).toBe('auto');
     expect(evaluation.reason).toBe(

@@ -193,7 +193,7 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
     'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. Never emit the real token in prose or tool arguments.',
   );
   expect(prompt).toContain(
-    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
+    'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the local docs route at `/docs/` or the most specific `/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
   );
   expect(prompt).toContain(
     'For structured documents, extracted fields, and comparisons, prefer complete field coverage over extreme brevity.',
@@ -250,7 +250,7 @@ test('buildSystemPromptFromHooks uses the provided workspace path in runtime met
 
   expect(prompt).toContain('Workspace: /tmp/hybridclaw-agent-workspace');
   expect(prompt).toContain(
-    'HybridClaw Documentation: [https://www.hybridclaw.io/docs/](https://www.hybridclaw.io/docs/)',
+    'HybridClaw Documentation: [/docs/](/docs/)',
   );
 });
 
