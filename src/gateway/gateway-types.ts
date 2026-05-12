@@ -30,6 +30,7 @@ import type {
 import type { MemoryCitation } from '../types/memory.js';
 import type { McpServerConfig } from '../types/models.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import type { GatewayModelProviderKey } from './model-provider-keys.js';
 
 export type GatewayMessageComponents = NonNullable<
   BaseMessageOptions['components']
@@ -449,28 +450,7 @@ export interface GatewayStatus {
     cliError: string | null;
   };
   providerHealth?: Partial<
-    Record<
-      | 'hybridai'
-      | 'codex'
-      | 'anthropic'
-      | 'openrouter'
-      | 'mistral'
-      | 'huggingface'
-      | 'gemini'
-      | 'deepseek'
-      | 'xai'
-      | 'zai'
-      | 'kimi'
-      | 'minimax'
-      | 'dashscope'
-      | 'xiaomi'
-      | 'kilo'
-      | 'ollama'
-      | 'lmstudio'
-      | 'llamacpp'
-      | 'vllm',
-      GatewayProviderHealthEntry
-    >
+    Record<GatewayModelProviderKey, GatewayProviderHealthEntry>
   >;
   localBackends?: Partial<
     Record<
@@ -1034,10 +1014,7 @@ export interface GatewayAdminAgentMarkdownRevisionResponse {
   };
 }
 
-/** Key into `GatewayAdminModelsResponse.providerStatus`. */
-export type GatewayModelProviderKey = keyof NonNullable<
-  GatewayAdminModelsResponse['providerStatus']
->;
+export type { GatewayModelProviderKey } from './model-provider-keys.js';
 
 export interface GatewayAdminModelCatalogEntry {
   id: string;
