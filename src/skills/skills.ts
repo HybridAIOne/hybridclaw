@@ -36,9 +36,17 @@ import {
   DEFAULT_SKILL_SUPPORTED_CHANNELS,
   isSkillSupportedOnChannel,
   parseSkillManifestFromFrontmatterBlock,
+  SKILL_MANIFEST_CREDENTIAL_KINDS,
   type SkillManifest,
 } from './skill-manifest.js';
 import { guardSkillDirectory } from './skills-guard.js';
+
+export type {
+  SkillManifestCredentialKind,
+  SkillManifestDeclaredCredential,
+  SkillManifestSecretRef,
+} from './skill-manifest.js';
+export { SKILL_MANIFEST_CREDENTIAL_KINDS };
 
 type SkillSource =
   | 'extra'
@@ -1655,6 +1663,7 @@ function resolveSkillManifest(skill: Skill): SkillManifest {
       version: '0.0.0',
       capabilities: [],
       requiredCredentials: [],
+      credentials: [],
       supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
     }
   );

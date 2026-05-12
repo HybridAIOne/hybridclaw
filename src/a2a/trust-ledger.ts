@@ -9,6 +9,8 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { listAgents } from '../agents/agent-registry.js';
+import type { AgentA2AExposure, AgentConfig } from '../agents/agent-types.js';
 import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import {
   getRuntimeAssetRevisionState,
@@ -21,6 +23,7 @@ import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
 import { writeFileAtomicExclusive } from '../utils/atomic-file.js';
 import type { A2AAgentCard } from './a2a-json-rpc.js';
 import { A2AEnvelopeValidationError, classifyA2AAgentId } from './envelope.js';
+import { resolveA2AAgentId } from './identity.js';
 import { isRecord, normalizePositiveInteger } from './utils.js';
 import {
   WEBHOOK_BODY_VERSION,
@@ -29,6 +32,7 @@ import {
 } from './webhook-outbound.js';
 
 export const A2A_TRUST_LEDGER_DEFAULT_WEBHOOK_RATE_LIMIT_PER_MINUTE = 60;
+export const A2A_AGENT_CARD_STREAMING_SUPPORTED = false;
 export const A2A_POLICY_AUTHORITY_KINDS = [
   'platform',
   'org_admin',
@@ -71,6 +75,8 @@ const EPOCH_ISO = new Date(0).toISOString();
 const TOFU_AUDIT_SESSION_ID = 'a2a:trust-ledger';
 
 let trustedA2APeersBySenderCache: Map<string, A2ATrustedA2APeer> | null = null;
+let trustedA2APeersByPublicKeyCache: Map<string, A2ATrustedA2APeer> | null =
+  null;
 let cachedInstanceKeypair: A2AInstanceKeypair | null = null;
 let cachedInstancePrivateKey: KeyObject | null = null;
 let cachedInstancePublicKey: KeyObject | null = null;
@@ -101,6 +107,7 @@ export interface A2AInstanceKeypair {
 }
 
 export type A2APublicKeyTrustStatus = 'trusted' | 'revoked';
+export type A2AAgentCardTrustLevel = 'public' | 'trusted';
 
 // TOFU trust records persist until operator revocation; key changes fail closed
 // and emit mismatch audit events.
@@ -147,6 +154,11 @@ export interface UpsertA2ATrustedWebhookPeerInput {
   version?: string;
   replayWindowMs?: number;
   rateLimitPerMinute?: number;
+}
+
+export interface BuildLocalA2AAgentCardOptions {
+  peerTrustLevel?: A2AAgentCardTrustLevel;
+  peerId?: string;
 }
 
 export interface A2ATrustedA2APeer {
@@ -382,15 +394,108 @@ export function getA2AInstancePublicKey(): KeyObject {
   return cachedInstancePublicKey;
 }
 
-export function buildLocalA2AAgentCard(baseUrl: string): A2AAgentCard {
+function exposureVisibleTo(
+  exposure: AgentA2AExposure | undefined,
+  trustLevel: A2AAgentCardTrustLevel,
+): boolean {
+  const normalized = exposure || 'public';
+  if (normalized === 'private') return false;
+  if (normalized === 'trusted') return trustLevel === 'trusted';
+  return true;
+}
+
+function agentDisplayName(agent: AgentConfig): string {
+  return agent.displayName || agent.name || agent.id;
+}
+
+function agentDescription(agent: AgentConfig): string {
+  return agent.cv?.summary || agent.role || 'HybridClaw agent';
+}
+
+function visibleAgentSkills(
+  agent: AgentConfig,
+  trustLevel: A2AAgentCardTrustLevel,
+): string[] {
+  return (agent.skills ?? []).filter((skill) =>
+    exposureVisibleTo(agent.a2a?.skillExposure?.[skill], trustLevel),
+  );
+}
+
+function buildAgentCardAgentEntry(
+  agent: AgentConfig,
+  canonicalAgentId: string,
+  skills: string[],
+): Record<string, unknown> {
+  return {
+    id: canonicalAgentId,
+    name: agentDisplayName(agent),
+    description: agentDescription(agent),
+    skills,
+    metadata: {
+      hybridclaw: {
+        localAgentId: agent.id,
+        owner: agent.owner || null,
+        exposure: agent.a2a?.exposure || 'public',
+      },
+    },
+  };
+}
+
+function buildAgentCardSkillEntries(
+  agent: AgentConfig,
+  canonicalAgentId: string,
+  skills: string[],
+): Record<string, unknown>[] {
+  return skills.map((skill) => ({
+    id: `${canonicalAgentId}:skill:${skill}`,
+    name: skill,
+    agentId: canonicalAgentId,
+    metadata: {
+      hybridclaw: {
+        localAgentId: agent.id,
+        skill,
+        exposure: agent.a2a?.skillExposure?.[skill] || 'public',
+      },
+    },
+  }));
+}
+
+function visibleA2AAgents(trustLevel: A2AAgentCardTrustLevel): AgentConfig[] {
+  return listAgents().filter((agent) =>
+    exposureVisibleTo(agent.a2a?.exposure, trustLevel),
+  );
+}
+
+export function buildLocalA2AAgentCard(
+  baseUrl: string,
+  options: BuildLocalA2AAgentCardOptions = {},
+): A2AAgentCard {
   const url = new URL(baseUrl);
   const identity = ensureA2AInstanceKeypair();
+  const peerTrustLevel = options.peerTrustLevel || 'public';
+  const agents = visibleA2AAgents(peerTrustLevel).map((agent) => ({
+    agent,
+    canonicalAgentId: resolveA2AAgentId(agent.id),
+    skills: visibleAgentSkills(agent, peerTrustLevel),
+  }));
   return {
     name: 'HybridClaw',
     url: new URL('/a2a', url.origin).toString(),
-    capabilities: ['message/send', 'tasks/send'],
+    capabilities: {
+      messageSend: true,
+      tasksSend: true,
+      streaming: A2A_AGENT_CARD_STREAMING_SUPPORTED,
+    },
+    agents: agents.map(({ agent, canonicalAgentId, skills }) =>
+      buildAgentCardAgentEntry(agent, canonicalAgentId, skills),
+    ),
+    skills: agents.flatMap(({ agent, canonicalAgentId, skills }) =>
+      buildAgentCardSkillEntries(agent, canonicalAgentId, skills),
+    ),
     hybridclaw: {
       instanceId: identity.instanceId,
+      peerTrustLevel,
+      peerId: options.peerId || null,
       // This TOFU identity key identifies Agent Cards; delegation JWT verification
       // uses delegation-token.ts until key distribution is unified.
       publicKeyJwk: identity.publicKeyJwk,
@@ -433,6 +538,10 @@ function normalizePublicKeyPem(value: unknown): string {
       'publicKeyPem must be a valid public key',
     ]);
   }
+}
+
+function normalizePublicKeyPemText(value: string): string {
+  return value.trim().replace(/\r\n/g, '\n');
 }
 
 function normalizeSecretRef(value: unknown): SecretRef {
@@ -549,13 +658,12 @@ function parseTrustedWebhookPeer(raw: string): A2ATrustedWebhookPeer | null {
       signatureHeader: parsed.signatureHeader,
       version: parsed.version,
     });
+    const policyAuthority = normalizePolicyAuthority(parsed.policyAuthority);
     return {
       schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
       peerId: normalizeA2APeerId(parsed.peerId),
       senderAgentId: normalizeSenderAgentId(parsed.senderAgentId),
-      ...(normalizePolicyAuthority(parsed.policyAuthority)
-        ? { policyAuthority: normalizePolicyAuthority(parsed.policyAuthority) }
-        : {}),
+      ...(policyAuthority ? { policyAuthority } : {}),
       capabilities: normalizeCapabilities(parsed.capabilities),
       secretRef: webhookConfig.secretRef,
       signatureHeader: webhookConfig.signatureHeader,
@@ -1001,13 +1109,12 @@ export function upsertA2ATrustedWebhookPeer(
   const webhookConfig = normalizeTrustedWebhookPeerConfig(input);
   const existing = getA2ATrustedWebhookPeer(peerId);
   const updatedAt = now.toISOString();
+  const policyAuthority = normalizePolicyAuthority(input.policyAuthority);
   const peer: A2ATrustedWebhookPeer = {
     schemaVersion: TRUSTED_WEBHOOK_PEER_SCHEMA_VERSION,
     peerId,
     senderAgentId: normalizeSenderAgentId(input.senderAgentId),
-    ...(normalizePolicyAuthority(input.policyAuthority)
-      ? { policyAuthority: normalizePolicyAuthority(input.policyAuthority) }
-      : {}),
+    ...(policyAuthority ? { policyAuthority } : {}),
     capabilities: normalizeCapabilities(input.capabilities),
     secretRef: webhookConfig.secretRef,
     signatureHeader: webhookConfig.signatureHeader,
@@ -1066,6 +1173,7 @@ export function upsertA2ATrustedA2APeer(
     },
   );
   trustedA2APeersBySenderCache = null;
+  trustedA2APeersByPublicKeyCache = null;
   return peer;
 }
 
@@ -1113,10 +1221,31 @@ function trustedA2APeersBySender(): Map<string, A2ATrustedA2APeer> {
   return trustedA2APeersBySenderCache;
 }
 
+function trustedA2APeersByPublicKey(): Map<string, A2ATrustedA2APeer> {
+  if (trustedA2APeersByPublicKeyCache) return trustedA2APeersByPublicKeyCache;
+  trustedA2APeersByPublicKeyCache = new Map();
+  for (const peer of listA2ATrustedA2APeers()) {
+    const publicKey = normalizePublicKeyPemText(peer.publicKeyPem);
+    if (!trustedA2APeersByPublicKeyCache.has(publicKey)) {
+      trustedA2APeersByPublicKeyCache.set(publicKey, peer);
+    }
+  }
+  return trustedA2APeersByPublicKeyCache;
+}
+
 export function getA2ATrustedA2APeerBySender(
   senderAgentId: string,
 ): A2ATrustedA2APeer | null {
   const normalizedSenderAgentId =
     normalizeCanonicalSenderAgentId(senderAgentId);
   return trustedA2APeersBySender().get(normalizedSenderAgentId) ?? null;
+}
+
+export function getA2ATrustedA2APeerByPublicKeyPem(
+  publicKeyPem: string,
+): A2ATrustedA2APeer | null {
+  return (
+    trustedA2APeersByPublicKey().get(normalizePublicKeyPemText(publicKeyPem)) ??
+    null
+  );
 }

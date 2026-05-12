@@ -210,7 +210,7 @@ function parseSkillPackageSnapshot(content: string): SkillPackageSnapshot {
   }
   return {
     schemaVersion: 1,
-    manifest: parsed.manifest as unknown as SkillManifest,
+    manifest: parseSkillPackageSnapshotManifest(parsed.manifest),
     files: parsed.files.map(parseSkillPackageSnapshotFile),
   };
 }
@@ -255,6 +255,16 @@ function parseSkillPackageSnapshotFile(
     path: filePath,
     mode,
     contentBase64,
+  };
+}
+
+function parseSkillPackageSnapshotManifest(
+  value: Record<string, unknown>,
+): SkillManifest {
+  const manifest = value as unknown as SkillManifest;
+  return {
+    ...manifest,
+    credentials: Array.isArray(value.credentials) ? manifest.credentials : [],
   };
 }
 
@@ -335,6 +345,7 @@ function toRuntimeInstalledSkillManifest(params: {
     capabilities: params.manifest.capabilities,
     middleware: params.manifest.middleware,
     requiredCredentials: params.manifest.requiredCredentials,
+    credentials: params.manifest.credentials,
     supportedChannels: params.manifest.supportedChannels,
     installedAt: params.previous?.installedAt || now,
     updatedAt: now,
@@ -493,6 +504,7 @@ function resolveSkillPackageTarget(nameOrId: string): {
         capabilities: installed.capabilities,
         middleware: installed.middleware,
         requiredCredentials: installed.requiredCredentials,
+        credentials: installed.credentials,
         supportedChannels: installed.supportedChannels,
       },
       source: 'installed',

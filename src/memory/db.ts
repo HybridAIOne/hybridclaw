@@ -9,6 +9,7 @@ import type {
 } from '../agents/agent-types.js';
 import {
   DEFAULT_AGENT_ID,
+  normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   validateAgentOrgChart,
@@ -135,7 +136,7 @@ let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 30;
+export const DATABASE_SCHEMA_VERSION = 31;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -192,6 +193,7 @@ type AgentRow = {
   peers: string | null;
   cv: string | null;
   escalation_target: string | null;
+  a2a: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -470,6 +472,14 @@ function skillObservationsNeedAgentMigration(
 
 function agentSkillScoresNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'agent_skill_scores');
+}
+
+function agentA2ANeedMigration(database: Database.Database): boolean {
+  return tableExists(database, 'agents') && !columnExists(database, 'agents', 'a2a');
+}
+
+function boardCardsNeedMigration(database: Database.Database): boolean {
+  return !tableExists(database, 'board_cards');
 }
 
 function messageAgentIdentityNeedMigration(
@@ -1269,6 +1279,7 @@ function migrateV6(
         chatbot_id TEXT,
         enable_rag INTEGER DEFAULT 1,
         workspace TEXT,
+        a2a TEXT,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       );
@@ -2322,7 +2333,21 @@ function migrateV29(database: Database.Database): void {
   );
 }
 
-function migrateV30(database: Database.Database): void {
+function migrateV30(
+  database: Database.Database,
+  opts?: InitDatabaseOptions,
+): void {
+  addColumnIfMissing({
+    database,
+    table: 'agents',
+    column: 'a2a',
+    ddl: 'a2a TEXT',
+    quiet: opts?.quiet === true,
+  });
+  recordMigration(database, 30, 'Persist per-agent A2A visibility metadata');
+}
+
+function migrateV31(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS board_cards (
       id TEXT PRIMARY KEY,
@@ -2350,7 +2375,7 @@ function migrateV30(database: Database.Database): void {
   `);
   recordMigration(
     database,
-    30,
+    31,
     'Persist board card data model for admin work board',
   );
 }
@@ -2422,7 +2447,12 @@ function runMigrations(
   ) {
     migrateV29(database);
   }
-  if (currentVersion < 30) migrateV30(database);
+  if (currentVersion < 30 || agentA2ANeedMigration(database)) {
+    migrateV30(database, opts);
+  }
+  if (currentVersion < 31 || boardCardsNeedMigration(database)) {
+    migrateV31(database);
+  }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
   if (!quiet && currentVersion < DATABASE_SCHEMA_VERSION) {
@@ -2663,6 +2693,25 @@ function parseAgentEscalationTarget(
   }
 }
 
+function serializeAgentA2AConfig(a2a: AgentConfig['a2a']): string | null {
+  return a2a ? JSON.stringify(a2a) : null;
+}
+
+function parseAgentA2AConfig(rawConfig: string | null): AgentConfig['a2a'] {
+  const normalized = rawConfig?.trim() || '';
+  if (!normalized) return undefined;
+
+  try {
+    return normalizeAgentA2AConfig(JSON.parse(normalized));
+  } catch {
+    logger.warn(
+      { configLength: normalized.length },
+      'Failed to parse persisted agent A2A configuration',
+    );
+    return undefined;
+  }
+}
+
 function mapAgentRow(row: AgentRow): AgentConfig {
   const name = row.name?.trim() || '';
   const displayName = row.display_name?.trim() || '';
@@ -2678,6 +2727,7 @@ function mapAgentRow(row: AgentRow): AgentConfig {
   const peers = parseAgentStringArray(row.peers, 'peers');
   const cv = parseAgentCv(row.cv);
   const escalationTarget = parseAgentEscalationTarget(row.escalation_target);
+  const a2a = parseAgentA2AConfig(row.a2a);
   return {
     id: row.id,
     ...(name ? { name } : {}),
@@ -2697,11 +2747,12 @@ function mapAgentRow(row: AgentRow): AgentConfig {
     ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
+    ...(a2a ? { a2a } : {}),
   };
 }
 
 const AGENT_SELECT_COLUMNS =
-  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, created_at, updated_at';
+  'id, name, display_name, image_asset, model, skills, chatbot_id, enable_rag, workspace, owner, role, reports_to, delegates_to, peers, cv, escalation_target, a2a, created_at, updated_at';
 
 export function getAgentById(agentId: string): AgentConfig | null {
   const normalizedAgentId = agentId.trim();
@@ -2748,6 +2799,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
   const normalizedEscalationTarget = serializeAgentEscalationTarget(
     agent.escalationTarget,
   );
+  const normalizedA2A = serializeAgentA2AConfig(agent.a2a);
   const enableRag =
     typeof agent.enableRag === 'boolean' ? (agent.enableRag ? 1 : 0) : null;
   db.prepare(
@@ -2768,9 +2820,10 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        peers,
        cv,
        escalation_target,
+       a2a,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        display_name = excluded.display_name,
@@ -2787,6 +2840,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
        peers = excluded.peers,
        cv = excluded.cv,
        escalation_target = excluded.escalation_target,
+       a2a = excluded.a2a,
        updated_at = datetime('now')`,
   ).run(
     normalizedId,
@@ -2805,6 +2859,7 @@ export function upsertAgent(agent: AgentConfig): AgentConfig {
     normalizedPeers,
     normalizedCv,
     normalizedEscalationTarget,
+    normalizedA2A,
   );
   const storedAgent = getAgentById(normalizedId);
   if (!storedAgent) {

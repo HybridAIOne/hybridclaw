@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { adminEventsUrl } from '../api/client';
 import type { AdminOverview, GatewayStatus } from '../api/types';
 
+export type LiveConnection = 'idle' | 'connecting' | 'open' | 'error';
+
 interface LiveState {
-  connection: 'idle' | 'connecting' | 'open' | 'error';
+  connection: LiveConnection;
   overview: AdminOverview | null;
   status: GatewayStatus | null;
   lastEventAt: number | null;
