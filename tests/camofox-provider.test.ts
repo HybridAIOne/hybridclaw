@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +9,10 @@ import {
   type CamofoxModule,
   CamofoxProvider,
 } from '../src/browser/camofox-provider.js';
+import {
+  createMockBrowserContext,
+  createMockBrowserPage,
+} from './helpers/mock-browser.js';
 
 let tempRoot = '';
 const ORIGINAL_TEST_BROWSER_PASSWORD = process.env.TEST_BROWSER_PASSWORD;
@@ -42,29 +45,8 @@ function createMockCamofox(): {
     locator: ReturnType<typeof vi.fn>;
   };
 } {
-  const page = {
-    evaluate: vi.fn(async (fn: () => unknown) => await fn()),
-    screenshot: vi.fn(async () => Buffer.from('camofox-png')),
-    goto: vi.fn(async () => undefined),
-    goBack: vi.fn(async () => undefined),
-    goForward: vi.fn(async () => undefined),
-    reload: vi.fn(async () => undefined),
-    click: vi.fn(async () => undefined),
-    fill: vi.fn(async () => undefined),
-    url: vi.fn(() => 'https://login.datev.de/login'),
-    mouse: { wheel: vi.fn(async () => undefined) },
-    waitForSelector: vi.fn(async () => undefined),
-    locator: vi.fn(() => ({
-      fill: vi.fn(async () => undefined),
-      pressSequentially: vi.fn(async () => undefined),
-      evaluate: vi.fn(async () => undefined),
-    })),
-  };
-  const context = {
-    pages: vi.fn(() => [page]),
-    newPage: vi.fn(async () => page),
-    close: vi.fn(async () => undefined),
-  };
+  const page = createMockBrowserPage({ screenshot: 'camofox-png' });
+  const context = createMockBrowserContext(page);
   const Camoufox = vi.fn(async () => context);
   return {
     camofox: { Camoufox },

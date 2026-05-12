@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +8,10 @@ import type { LocalBrowserPlaywrightModule } from '../src/browser/local-provider
 import { createBrowserProvider } from '../src/browser/provider-factory.js';
 import type { RuntimeBrowserConfig } from '../src/config/runtime-config.js';
 import { DEFAULT_RUNTIME_CONFIG } from '../src/config/runtime-config.js';
+import {
+  createMockBrowserContext,
+  createMockBrowserPage,
+} from './helpers/mock-browser.js';
 
 let tempRoot = '';
 
@@ -19,37 +22,15 @@ function makeTempRoot(): string {
   return tempRoot;
 }
 
-function createMockPage() {
-  return {
-    evaluate: vi.fn(async (fn: () => unknown) => await fn()),
-    screenshot: vi.fn(async () => Buffer.from('provider-png')),
-    goto: vi.fn(async () => undefined),
-    goBack: vi.fn(async () => undefined),
-    goForward: vi.fn(async () => undefined),
-    reload: vi.fn(async () => undefined),
-    click: vi.fn(async () => undefined),
-    fill: vi.fn(async () => undefined),
-    url: vi.fn(() => 'https://example.com/'),
-    mouse: { wheel: vi.fn(async () => undefined) },
-    waitForSelector: vi.fn(async () => undefined),
-    locator: vi.fn(() => ({
-      fill: vi.fn(async () => undefined),
-      pressSequentially: vi.fn(async () => undefined),
-      evaluate: vi.fn(async () => undefined),
-    })),
-  };
-}
-
 function createMockLocalPlaywright(): {
   playwright: LocalBrowserPlaywrightModule;
   launchPersistentContext: ReturnType<typeof vi.fn>;
 } {
-  const page = createMockPage();
-  const context = {
-    pages: vi.fn(() => [page]),
-    newPage: vi.fn(async () => page),
-    close: vi.fn(async () => undefined),
-  };
+  const page = createMockBrowserPage({
+    screenshot: 'provider-png',
+    url: 'https://example.com/',
+  });
+  const context = createMockBrowserContext(page);
   const launchPersistentContext = vi.fn(async () => context);
   return {
     playwright: {
@@ -65,12 +46,11 @@ function createMockCamofox(): {
   camofox: CamofoxModule;
   Camoufox: ReturnType<typeof vi.fn>;
 } {
-  const page = createMockPage();
-  const context = {
-    pages: vi.fn(() => [page]),
-    newPage: vi.fn(async () => page),
-    close: vi.fn(async () => undefined),
-  };
+  const page = createMockBrowserPage({
+    screenshot: 'provider-png',
+    url: 'https://example.com/',
+  });
+  const context = createMockBrowserContext(page);
   const Camoufox = vi.fn(async () => context);
   return {
     camofox: { Camoufox },
