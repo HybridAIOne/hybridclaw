@@ -125,7 +125,11 @@ describe('Toast', () => {
         <button
           type="button"
           onClick={() =>
-            toast.add({ title: 'Live updates paused', duration: 0, pinned: true })
+            toast.add({
+              title: 'Live updates paused',
+              duration: 0,
+              pinned: true,
+            })
           }
         >
           Trigger pinned
