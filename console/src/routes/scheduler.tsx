@@ -1189,8 +1189,8 @@ export function SchedulerPage() {
         }
       />
 
-      <div className="two-column-grid">
-<Card>
+      <div className={showEditor ? 'two-column-grid' : 'page-stack'}>
+        <Card>
           <CardHeader>
             <CardTitle>Jobs</CardTitle>
             <CardDescription>
@@ -1285,7 +1285,6 @@ export function SchedulerPage() {
                 setSelectedId(null);
                 setDraft(createDraft());
                 setShowEditor(false);
-                window.location.href = '/admin/jobs';
               }}
               onPauseToggle={() =>
                 pauseMutation.mutate(

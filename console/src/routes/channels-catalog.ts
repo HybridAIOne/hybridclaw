@@ -132,9 +132,10 @@ function describeTelegram(
   options: ChannelCatalogOptions,
 ): ChannelCatalogItem {
   const tokenConfigured = options.telegramTokenConfigured === true;
-  const inboundEnabled =
-    config.telegram?.dmPolicy !== 'disabled' ||
-    config.telegram?.groupPolicy !== 'disabled';
+  const inboundEnabled = config.telegram
+    ? config.telegram.dmPolicy !== 'disabled' ||
+      config.telegram.groupPolicy !== 'disabled'
+    : false;
   const active =
     (config.telegram?.enabled ?? false) && tokenConfigured && inboundEnabled;
   const configured =
