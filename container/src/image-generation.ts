@@ -65,7 +65,7 @@ const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_GENERATED_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_GENERATED_TOTAL_BYTES = 64 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
-const PROVIDER_API_TIMEOUT_MS = 60_000;
+const PROVIDER_API_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta';
@@ -76,7 +76,7 @@ const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const DEFAULT_XAI_IMAGE_MODEL = 'grok-imagine-image-quality';
 const DEFAULT_BFL_IMAGE_MODEL = 'flux-2-pro-preview';
 const BFL_POLL_INTERVAL_MS = 1_000;
-const BFL_POLL_TIMEOUT_MS = 180_000;
+const BFL_POLL_TIMEOUT_MS = 10 * 60_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);

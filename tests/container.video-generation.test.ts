@@ -24,6 +24,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   if (ORIGINAL_WORKSPACE_ROOT == null) {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
@@ -215,6 +216,47 @@ describe('video_generate tool', () => {
       expect.objectContaining({
         method: 'POST',
       }),
+    );
+  });
+
+  test('waits up to ten minutes before timing out provider API calls', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setModelContext } = await loadTools();
+    setModelContext(
+      'openai-codex',
+      undefined,
+      'https://api.openai.test/v1',
+      'test-key',
+      'openai-codex/sora-2',
+      '',
+      {},
+    );
+
+    let settled = false;
+    const resultPromise = executeToolWithMetadata(
+      'video_generate',
+      JSON.stringify({ prompt: 'a short cinematic product shot' }),
+    ).finally(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(599_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await resultPromise;
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'provider API request timed out after 600000ms',
     );
   });
 });

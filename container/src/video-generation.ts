@@ -46,7 +46,7 @@ const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_OPENAI_VIDEO_MODEL = 'sora-2-pro';
 const DEFAULT_GEMINI_VIDEO_MODEL = 'veo-3.1-fast-generate-preview';
-const PROVIDER_API_TIMEOUT_MS = 60_000;
+const PROVIDER_API_TIMEOUT_MS = 10 * 60_000;
 const VIDEO_POLL_INTERVAL_MS = 10_000;
 const VIDEO_POLL_TIMEOUT_MS = 15 * 60_000;
 const MAX_GENERATED_VIDEO_BYTES = 512 * 1024 * 1024;
