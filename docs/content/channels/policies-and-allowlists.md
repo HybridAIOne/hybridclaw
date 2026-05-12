@@ -29,6 +29,7 @@ smallest scope that proves the integration works.
 
 - Discord: allowlisted user IDs and guild-specific channel policy settings
 - Telegram: numeric user IDs, `@username`, or `*`; phone numbers are not valid
+- Signal: E.164 phone numbers, Signal UUIDs, or `*`
 - Email: exact email addresses, wildcard domains like `*@example.com`, or `*`
 - WhatsApp: E.164 phone numbers such as `+14155551212`
 - iMessage: phone numbers, email handles, or `chat:id` entries
@@ -40,6 +41,7 @@ smallest scope that proves the integration works.
 
 - Discord guild behavior can stay restricted while DMs continue to work
 - Telegram group handling is usually paired with `requireMention`
+- Signal groups stay disabled by default
 - WhatsApp and iMessage groups stay disabled by default
 - Microsoft Teams channel messages require a mention by default
 - Slack listens through Socket Mode events and app mentions in the channels
@@ -50,6 +52,7 @@ Use the channel-specific pages for the exact config keys and example commands:
 - [Discord](./discord.md)
 - [Slack](./slack.md)
 - [Telegram](./telegram.md)
+- [Signal](./signal.md)
 - [Email](./email.md)
 - [WhatsApp](./whatsapp.md)
 - [iMessage](./imessage.md)

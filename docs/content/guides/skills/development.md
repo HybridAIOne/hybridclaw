@@ -248,6 +248,60 @@ SOQL rows with a bundled Python helper. Read-only by default.
 
 ---
 
+## warehouse-sql
+
+Review and run read-only natural-language SQL against a customer data
+warehouse with cached schema introspection. SQLite execution is bundled for the
+reproducible TPC-H-style eval suite; Postgres, ClickHouse, BigQuery, and
+Snowflake can run through optional Python drivers or operator-approved
+connector commands.
+
+The bundled eval fixture is a tiny deterministic TPC-H-style dataset for
+offline SQL-generation coverage, not a TPC-H benchmark run.
+
+**Prerequisites**
+
+| Dependency | Purpose | Install |
+|---|---|---|
+| `python3` | Required runtime and SQLite eval execution | System install |
+| Warehouse connector | Production execution through the approved Python driver or connector command | Operator configured |
+
+> 💡 **Tips & Tricks**
+>
+> Start with `schema --refresh` so generated SQL can be checked against cached
+> tables, columns, and keys.
+>
+> Use `review` before `query --execute`; the helper blocks mutating SQL unless
+> an explicit per-skill write grant is provided.
+>
+> Pass `--model-review --question "<business question>"` when the helper should
+> invoke HybridClaw's OpenAI-compatible gateway for business-meaning review.
+>
+> Run `schedule-refresh` to register recurring schema-cache refreshes with the
+> HybridClaw gateway scheduler.
+
+> 🎯 **Try it yourself**
+>
+> `Draft and review SQL for the top customers by revenue`
+>
+> `Review this query before running it: SELECT c_name FROM customer LIMIT 10`
+>
+> `Refresh the schema cache for the analytics warehouse`
+>
+> `Run the TPC-H-style warehouse SQL eval scenarios`
+
+**Troubleshooting**
+
+- **SQL review fails** — revise the generated SQL, refresh the schema cache,
+  and pass the revised query through `review` before execution.
+- **Production backend does not execute** — install the relevant Python driver
+  or set `HYBRIDCLAW_WAREHOUSE_SQL_<BACKEND>_COMMAND` to a connector command
+  that reads SQL on stdin and emits JSON or CSV rows.
+- **Write blocked** — mutating SQL requires `--allow-write`, `--write-grant`,
+  and a matching `HYBRIDCLAW_WAREHOUSE_SQL_WRITE_GRANT` set by the operator.
+
+---
+
 ## skill-creator
 
 Create and update `SKILL.md`-based skills with strong trigger metadata, lean

@@ -52,6 +52,20 @@ vi.mock('../src/providers/factory.js', async () => {
   };
 });
 
+vi.mock('../src/config/config.js', async () => {
+  const actual =
+    await vi.importActual<typeof import('../src/config/config.js')>(
+      '../src/config/config.js',
+    );
+  return {
+    ...actual,
+    CONTAINER_WARM_POOL: {
+      ...actual.CONTAINER_WARM_POOL,
+      enabled: false,
+    },
+  };
+});
+
 vi.mock('../src/logger.js', () => ({
   logger: {
     debug: vi.fn(),

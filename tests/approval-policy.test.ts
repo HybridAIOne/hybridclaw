@@ -1,13 +1,27 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-
 import {
+  type ApprovalRuleHookEvent,
+  approvalRules,
+  type ClassifiedAction,
+  DEFAULT_APPROVAL_RULE_ORDER,
+  DEFAULT_POLICY,
   loadPolicyFromDisk,
   parsePolicyYaml,
-  TrustedCoworkerApprovalRuntime,
+  registerApprovalRule,
+  runApprovalRulePipeline,
+  type ToolCallContext,
+  type ToolCallContextHelpers,
+  TrustedAgentApprovalRuntime,
 } from '../container/src/approval-policy.js';
+import {
+  BehaviorAnomalyReranker,
+  buildBehaviorTuple,
+} from '../container/src/behavior-anomaly.js';
+import type { StakesScore } from '../container/src/stakes-classifier.js';
 import type { ChatMessage } from '../container/src/types.js';
 
 function userMessage(text: string): ChatMessage {
@@ -26,11 +40,694 @@ function writeTempPolicy(raw: string): string {
   return policyPath;
 }
 
+function writeBehaviorTrajectoryStore(params: {
+  storeDir: string;
+  agentId: string;
+  count: number;
+  toolName?: string;
+  args?: Record<string, unknown>;
+}): void {
+  const date = '2026-05-01';
+  const dir = path.join(params.storeDir, date);
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, `${params.agentId}.jsonl`);
+  const toolName = params.toolName || 'read';
+  const args = params.args || { path: '/workspace/docs/readme.md' };
+  const lines = Array.from({ length: params.count }, (_, index) =>
+    JSON.stringify({
+      schema_version: 2,
+      captured_at: `2026-05-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      agent_id: params.agentId,
+      outcome: 'success',
+      tools_used: [
+        {
+          name: toolName,
+          duration_ms: 1,
+          is_error: false,
+          blocked: false,
+          approval_tier: 'green',
+          approval_decision: 'auto',
+          arguments: {
+            content: JSON.stringify(args),
+            truncated: false,
+            source: 'full',
+          },
+          result: {
+            content: 'ok',
+            truncated: false,
+            source: 'full',
+          },
+        },
+      ],
+    }),
+  );
+  fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
+}
+
+const LOW_STAKES_SCORE: StakesScore = {
+  level: 'low',
+  score: 0,
+  confidence: 1,
+  reasons: ['test low stakes'],
+  classifier: 'test',
+};
+
+const GREEN_CLASSIFIED: ClassifiedAction = {
+  tier: 'green',
+  actionKey: 'read',
+  intent: 'run read',
+  consequenceIfDenied: 'I will continue without this lookup.',
+  reason: 'this is a read-only operation',
+  commandPreview: '{"path":"README.md"}',
+  pathHints: [],
+  hostHints: [],
+  writeIntent: false,
+  promotableRed: false,
+  stickyYellow: false,
+};
+
+function makeRuleContext(params?: {
+  classified?: ClassifiedAction;
+  helpers?: Partial<ToolCallContextHelpers>;
+  events?: ApprovalRuleHookEvent[];
+}): ToolCallContext {
+  const classified = params?.classified || GREEN_CLASSIFIED;
+  const helpers: ToolCallContextHelpers = {
+    reloadPolicyIfNeeded: () => DEFAULT_POLICY,
+    cleanupExpiredPending: () => {},
+    classifyAction: () => classified,
+    isPinnedRed: () => false,
+    resolveAutonomyLevel: () => 'full-autonomous',
+    runStakesMiddleware: () => ({
+      decision: { action: 'allow' },
+      stakesScore: LOW_STAKES_SCORE,
+    }),
+    scoreBehaviorAnomaly: () => ({
+      score: 0,
+      threshold: null,
+      reason: 'test anomaly abstain',
+      status: 'abstained',
+      model: 'order2_markov_frequency_v1',
+      trajectoryCount: 0,
+      tuple: 'read',
+    }),
+    hasOneShotFingerprint: () => false,
+    consumeOneShotFingerprint: () => {},
+    hasSessionTrust: () => false,
+    hasAgentTrust: () => false,
+    hasWorkspaceTrust: () => false,
+    getExplicitApprovalCount: () => 0,
+    isFullAutoEnabled: () => false,
+    shouldNeverAutoApprove: () => false,
+    getPendingCount: () => 0,
+    getOrCreatePending: () => ({
+      id: 'req123',
+      fingerprint: 'fp123',
+      actionKey: classified.actionKey,
+      toolName: 'read',
+      intent: classified.intent,
+      consequenceIfDenied: classified.consequenceIfDenied,
+      reason: classified.reason,
+      commandPreview: classified.commandPreview,
+      originalPrompt: 'Read the README',
+      createdAtMs: 1,
+      expiresAtMs: 2,
+      pinned: false,
+    }),
+    getActionExecutionCount: () => 0,
+    shouldApplyImplicitDelay: () => false,
+    emitHookEvent: params?.events
+      ? (event) => params.events?.push(event)
+      : undefined,
+    ...params?.helpers,
+  };
+
+  return {
+    params: {
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    },
+    args: { path: 'README.md' },
+    policy: DEFAULT_POLICY,
+    outOfBoundByAutonomy: false,
+    helpers,
+  };
+}
+
+function prepareRedRuleContext(params?: {
+  classified?: Partial<ClassifiedAction>;
+  helpers?: Partial<ToolCallContextHelpers>;
+  pinned?: boolean;
+}): ToolCallContext {
+  const classified: ClassifiedAction = {
+    ...GREEN_CLASSIFIED,
+    tier: 'red',
+    actionKey: 'bash:delete',
+    intent: 'run destructive command',
+    reason: 'the command deletes files',
+    commandPreview: 'rm -rf dist',
+    writeIntent: true,
+    stickyYellow: true,
+    ...params?.classified,
+  };
+  const context = makeRuleContext({
+    classified,
+    helpers: params?.helpers,
+  });
+  context.classified = classified;
+  context.fingerprint = 'fp123';
+  context.pinnedByPolicy = params?.pinned === true;
+  context.autonomyLevel = 'full-autonomous';
+  context.safetyTier = 'red';
+  context.baseTier = 'red';
+  context.tier = 'red';
+  context.decision = 'auto';
+  context.stakes = 'low';
+  context.stakesScore = LOW_STAKES_SCORE;
+  context.stakesMiddlewareDecision = { action: 'allow' };
+  return context;
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
-describe('TrustedCoworkerApprovalRuntime', () => {
+describe('TrustedAgentApprovalRuntime', () => {
+  test('parsePolicyYaml reads dependency-safe approval rule order and appends missing core rules', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - policy_reload
+    - classify_action
+    - unknown_future_rule
+`);
+
+    expect(parsed.approvalRuleOrder?.slice(0, 2)).toEqual([
+      'policy_reload',
+      'classify_action',
+    ]);
+    expect(parsed.approvalRuleOrder).toHaveLength(
+      DEFAULT_APPROVAL_RULE_ORDER.length,
+    );
+    expect(new Set(parsed.approvalRuleOrder)).toEqual(
+      new Set(DEFAULT_APPROVAL_RULE_ORDER),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[approval-policy] unknown approval.rule_order entry ignored: unknown_future_rule',
+    );
+  });
+
+  test('parsePolicyYaml falls back to default rule order when dependencies are misordered', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - fingerprint
+    - classify_action
+`);
+
+    expect(parsed.approvalRuleOrder).toEqual(DEFAULT_APPROVAL_RULE_ORDER);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'invalid approval.rule_order violates built-in rule dependencies',
+      ),
+    );
+  });
+
+  test('parsePolicyYaml slots registered external rules between built-in anchors', () => {
+    registerApprovalRule('test_anomaly_reranker', () => ({ kind: 'next' }));
+
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - stakes
+    - test_anomaly_reranker
+    - autonomy_override
+`);
+
+    const stakesIndex = parsed.approvalRuleOrder?.indexOf('stakes') ?? -1;
+    expect(stakesIndex).toBeGreaterThanOrEqual(0);
+    expect(
+      parsed.approvalRuleOrder?.slice(stakesIndex, stakesIndex + 4),
+    ).toEqual([
+      'stakes',
+      'anomaly_reranker',
+      'test_anomaly_reranker',
+      'autonomy_override',
+    ]);
+    expect(parsed.approvalRuleOrder).toHaveLength(
+      DEFAULT_APPROVAL_RULE_ORDER.length + 1,
+    );
+  });
+
+  test('approval rules are standalone predicates over a typed tool-call context', () => {
+    const setup = makeRuleContext();
+    expect(approvalRules.policy_reload(setup).kind).toBe('next');
+    expect(approvalRules.classify_action(setup).kind).toBe('next');
+    expect(setup.classified?.actionKey).toBe('read');
+    expect(approvalRules.fingerprint(setup).kind).toBe('next');
+    expect(setup.fingerprint).toBeTruthy();
+    expect(approvalRules.pinned_red(setup).kind).toBe('next');
+    expect(setup.pinnedByPolicy).toBe(false);
+    expect(approvalRules.autonomy(setup).kind).toBe('next');
+    expect(setup.autonomyLevel).toBe('full-autonomous');
+    expect(approvalRules.safety_tier(setup).kind).toBe('next');
+    expect(setup.baseTier).toBe('green');
+    expect(approvalRules.stakes(setup).kind).toBe('next');
+    expect(setup.stakes).toBe('low');
+    expect(approvalRules.autonomy_override(setup).kind).toBe('next');
+
+    const hardDeny = prepareRedRuleContext({
+      classified: { hardDeny: true },
+    });
+    expect(approvalRules.red_hard_deny(hardDeny)).toMatchObject({
+      kind: 'decision',
+      evaluation: { decision: 'denied', escalationRoute: 'policy_denial' },
+    });
+
+    const oneShot = prepareRedRuleContext({
+      helpers: {
+        hasOneShotFingerprint: () => true,
+      },
+    });
+    expect(approvalRules.red_one_shot(oneShot).kind).toBe('next');
+    expect(oneShot.decision).toBe('approved_once');
+
+    const session = prepareRedRuleContext({
+      helpers: {
+        hasSessionTrust: () => true,
+      },
+    });
+    expect(approvalRules.red_session_trust(session).kind).toBe('next');
+    expect(session.decision).toBe('approved_session');
+
+    const agent = prepareRedRuleContext({
+      helpers: {
+        hasAgentTrust: () => true,
+      },
+    });
+    expect(approvalRules.red_agent_trust(agent).kind).toBe('next');
+    expect(agent.decision).toBe('approved_agent');
+
+    const workspace = prepareRedRuleContext({
+      helpers: {
+        hasWorkspaceTrust: () => true,
+      },
+    });
+    expect(approvalRules.red_workspace_trust(workspace).kind).toBe('next');
+    expect(workspace.decision).toBe('approved_all');
+
+    const promotable = prepareRedRuleContext({
+      classified: { promotableRed: true },
+      helpers: {
+        getExplicitApprovalCount: () => 1,
+      },
+    });
+    expect(approvalRules.red_promotable(promotable).kind).toBe('next');
+    expect(promotable.decision).toBe('promoted');
+
+    const fullAuto = prepareRedRuleContext({
+      helpers: {
+        isFullAutoEnabled: () => true,
+      },
+    });
+    expect(approvalRules.red_full_auto(fullAuto).kind).toBe('next');
+    expect(fullAuto.decision).toBe('approved_fullauto');
+
+    const fullQueue = prepareRedRuleContext({
+      helpers: {
+        getPendingCount: () => DEFAULT_POLICY.maxPendingApprovals,
+      },
+    });
+    expect(approvalRules.red_queue(fullQueue)).toMatchObject({
+      kind: 'decision',
+      evaluation: {
+        decision: 'denied',
+        reason: expect.stringContaining('full'),
+      },
+    });
+
+    const prompt = prepareRedRuleContext();
+    expect(approvalRules.red_prompt(prompt)).toMatchObject({
+      kind: 'decision',
+      evaluation: { decision: 'required', requestId: 'req123' },
+    });
+
+    const yellowFullAuto = prepareRedRuleContext({
+      helpers: {
+        isFullAutoEnabled: () => true,
+      },
+    });
+    yellowFullAuto.baseTier = 'yellow';
+    yellowFullAuto.tier = 'yellow';
+    expect(approvalRules.yellow_full_auto(yellowFullAuto).kind).toBe('next');
+    expect(yellowFullAuto.decision).toBe('approved_fullauto');
+
+    const repeatedYellow = prepareRedRuleContext({
+      classified: { stickyYellow: false },
+      helpers: {
+        getActionExecutionCount: () => 1,
+      },
+    });
+    repeatedYellow.baseTier = 'yellow';
+    repeatedYellow.tier = 'yellow';
+    expect(approvalRules.yellow_execution_promotion(repeatedYellow).kind).toBe(
+      'next',
+    );
+    expect(repeatedYellow.tier).toBe('green');
+    expect(repeatedYellow.decision).toBe('promoted');
+
+    const fallback = makeRuleContext();
+    approvalRules.classify_action(fallback);
+    approvalRules.fingerprint(fallback);
+    approvalRules.pinned_red(fallback);
+    approvalRules.autonomy(fallback);
+    approvalRules.safety_tier(fallback);
+    approvalRules.stakes(fallback);
+    expect(approvalRules.green_fallback(fallback)).toMatchObject({
+      kind: 'decision',
+      evaluation: { decision: 'auto', tier: 'green' },
+    });
+  });
+
+  test('approval pipeline emits pre_tool_use and post_tool_use hook events around rules', () => {
+    const events: ApprovalRuleHookEvent[] = [];
+    const context = makeRuleContext({ events });
+
+    const result = runApprovalRulePipeline(context);
+
+    expect(result.evaluation.decision).toBe('auto');
+    expect(events[0]).toMatchObject({
+      hook: 'pre_tool_use',
+      kind: 'approval_rule',
+      ruleName: 'policy_reload',
+      toolName: 'read',
+    });
+    expect(events.at(-1)).toMatchObject({
+      hook: 'post_tool_use',
+      kind: 'approval_rule',
+      ruleName: 'green_fallback',
+      decision: 'auto',
+    });
+  });
+
+  test('approval pipeline runs registered external rules from configured order', () => {
+    const observed: string[] = [];
+    registerApprovalRule('test_external_stakes_rule', (context) => {
+      observed.push(context.stakes ? 'after_stakes' : 'before_stakes');
+      return { kind: 'next' };
+    });
+    const parsed = parsePolicyYaml(`
+approval:
+  rule_order:
+    - stakes
+    - test_external_stakes_rule
+    - autonomy_override
+`);
+    const context = makeRuleContext();
+    context.policy = {
+      ...DEFAULT_POLICY,
+      approvalRuleOrder:
+        parsed.approvalRuleOrder || DEFAULT_POLICY.approvalRuleOrder,
+    };
+    context.helpers.reloadPolicyIfNeeded = () => context.policy;
+
+    const result = runApprovalRulePipeline(context);
+
+    expect(result.evaluation.decision).toBe('auto');
+    expect(observed).toEqual(['after_stakes']);
+  });
+
+  test('behavior anomaly reranker abstains during cold start', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-cold-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 3,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+      cacheTtlMs: 0,
+    });
+
+    const score = reranker.score({
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    });
+
+    expect(score.status).toBe('abstained');
+    expect(score.reason).toContain('3/50 approved trajectories available');
+  });
+
+  test('behavior anomaly reranker cached scoring stays under 5ms per call', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-perf-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+    });
+    const input = {
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    };
+
+    reranker.score(input);
+    const startedAt = performance.now();
+    for (let index = 0; index < 100; index += 1) {
+      reranker.score(input);
+    }
+    const avgMs = (performance.now() - startedAt) / 100;
+
+    expect(avgMs).toBeLessThan(5);
+  });
+
+  test('behavior anomaly reranker reloads when cache expires and store changes', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-reload-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 3,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+      cacheTtlMs: 0,
+    });
+    const input = {
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    };
+
+    expect(reranker.score(input).trajectoryCount).toBe(3);
+
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+    });
+
+    expect(reranker.score(input).trajectoryCount).toBe(80);
+  });
+
+  test('behavior anomaly reranker applies F11 anomalous verdict on replay', () => {
+    const storeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-anomaly-f11-'),
+    );
+    writeBehaviorTrajectoryStore({
+      storeDir,
+      agentId: 'lena',
+      count: 80,
+    });
+    const reranker = new BehaviorAnomalyReranker({
+      storeDir,
+      agentId: 'lena',
+      minTrajectories: 50,
+      epsilon: 1,
+    });
+    const input = {
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      now: new Date('2026-05-01T10:15:00.000Z'),
+    };
+
+    const borderline = reranker.score(input);
+    expect(borderline.status).toBe('borderline');
+    reranker.recordTraceJudgeResult(borderline.tuple, {
+      verdict: 'anomalous',
+      score: 0.82,
+      reason: 'unusual for this agent',
+    });
+    const replay = reranker.score(input);
+
+    expect(replay.status).toBe('scored');
+    expect(replay.score).toBeGreaterThan(replay.threshold || 0);
+    expect(replay.traceJudge).toEqual({
+      verdict: 'anomalous',
+      score: 0.82,
+      reason: 'unusual for this agent',
+    });
+  });
+
+  test('behavior anomaly tuple uses UTC hour buckets', () => {
+    const at = new Date('2026-05-01T10:15:00.000Z');
+    vi.spyOn(at, 'getHours').mockReturnValue(23);
+
+    const tuple = buildBehaviorTuple({
+      toolName: 'read',
+      args: { path: '/workspace/docs/readme.md' },
+      actionKey: 'read',
+      pathHints: ['/workspace/docs/readme.md'],
+      hostHints: [],
+      writeIntent: false,
+      at,
+    });
+
+    expect(tuple).toContain('h08-11');
+  });
+
+  test('anomaly reranker elevates an unusual green call by one tier before autonomy override', () => {
+    const context = makeRuleContext({
+      helpers: {
+        scoreBehaviorAnomaly: () => ({
+          score: 0.99,
+          threshold: 0.9,
+          reason:
+            'behavior anomaly score 0.990 exceeds adaptive threshold 0.900',
+          status: 'scored',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 80,
+          tuple: 'write',
+        }),
+      },
+    });
+    approvalRules.classify_action(context);
+    approvalRules.fingerprint(context);
+    approvalRules.pinned_red(context);
+    approvalRules.autonomy(context);
+    approvalRules.safety_tier(context);
+    approvalRules.stakes(context);
+
+    expect(approvalRules.anomaly_reranker(context).kind).toBe('next');
+
+    expect(context.baseTier).toBe('green');
+    expect(context.tier).toBe('yellow');
+    expect(context.anomaly).toMatchObject({
+      score: 0.99,
+      threshold: 0.9,
+    });
+  });
+
+  test('approval pipeline denies instead of throwing when a rule runs before prerequisites', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const context = makeRuleContext();
+    context.policy = {
+      ...DEFAULT_POLICY,
+      approvalRuleOrder: ['fingerprint'],
+    };
+
+    const result = runApprovalRulePipeline(context);
+
+    expect(result.evaluation.decision).toBe('denied');
+    expect(result.evaluation.escalationRoute).toBe('policy_denial');
+    expect(result.evaluation.reason).toContain(
+      'Approval policy rule fingerprint failed',
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('approval rule fingerprint failed'),
+      expect.any(Error),
+    );
+  });
+
+  test('TrustedAgentApprovalRuntime sends rule hook events through the configured emitter', () => {
+    const events: ApprovalRuleHookEvent[] = [];
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setApprovalRuleHookEmitter((event) => {
+      events.push(event);
+    });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.decision).toBe('auto');
+    expect(events[0]).toMatchObject({
+      hook: 'pre_tool_use',
+      kind: 'approval_rule',
+      ruleName: 'policy_reload',
+      toolName: 'read',
+    });
+    expect(events.at(-1)).toMatchObject({
+      hook: 'post_tool_use',
+      kind: 'approval_rule',
+      ruleName: 'green_fallback',
+      decision: 'auto',
+    });
+  });
+
+  test('approval rule hook emitter failures are logged', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+    runtime.setApprovalRuleHookEmitter(async () => {
+      throw new Error('hook failed');
+    });
+
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[approval-policy] approval rule hook emitter failed:',
+      expect.any(Error),
+    );
+  });
+
   test('loadPolicyFromDisk logs malformed policy files before falling back to defaults', () => {
     const policyPath = writeTempPolicy(`
 network:
@@ -54,6 +751,34 @@ network:
     ]);
   });
 
+  test('invalid pinned_red regex patterns warn once instead of failing open silently', () => {
+    const policyPath = writeTempPolicy(`
+approval:
+  pinned_red:
+    - pattern: "[unterminated"
+`);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+    runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'AGENTS.md' }),
+      latestUserPrompt: 'Read the agent instructions',
+    });
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `[approval-policy] invalid pinned_red regex in ${policyPath}; rule will not match: [unterminated`,
+      ),
+    );
+  });
+
   test('parsePolicyYaml preserves quoted hash characters inside YAML strings', () => {
     const parsed = parsePolicyYaml(`
 network:
@@ -72,8 +797,25 @@ network:
     ]);
   });
 
+  test('parsePolicyYaml reads autonomy defaults and scoped overrides', () => {
+    const parsed = parsePolicyYaml(`
+autonomy:
+  default: low-stakes-autonomous
+  tools:
+    read: confirm-each
+  actions:
+    bash:install-deps: full-autonomous
+`);
+
+    expect(parsed.autonomy).toEqual({
+      defaultLevel: 'low-stakes-autonomous',
+      tools: { read: 'confirm-each' },
+      actions: { 'bash:install-deps': 'full-autonomous' },
+    });
+  });
+
   test('yellow actions promote to green after successful repeat', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -95,8 +837,146 @@ network:
     expect(second.tier).toBe('green');
   });
 
+  test('autonomy metadata is emitted for default low-stakes read actions', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.autonomyLevel).toBe('full-autonomous');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.escalationRoute).toBe('none');
+  });
+
+  test('confirm-each autonomy override escalates an otherwise read-only tool', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  tools:
+    read: confirm-each
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.autonomyLevel).toBe('confirm-each');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.stakesScore.level).toBe('low');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.requestId).toBeTruthy();
+  });
+
+  test('low-stakes autonomy keeps low-stakes reads autonomous', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'read',
+      argsJson: JSON.stringify({ path: 'README.md' }),
+      latestUserPrompt: 'Read the README',
+    });
+
+    expect(evaluation.baseTier).toBe('green');
+    expect(evaluation.stakes).toBe('low');
+    expect(evaluation.decision).toBe('auto');
+  });
+
+  test('low-stakes autonomy escalates high-stakes customer-facing sends', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({
+        action: 'send',
+        channel: 'customer-success',
+        text: 'Tell the customer their invoice was refunded.',
+      }),
+      latestUserPrompt: 'Send a refund update to the customer',
+    });
+
+    expect(evaluation.stakes).toBe('high');
+    expect(evaluation.stakesScore.reasons).toContain(
+      'target appears customer-facing or externally visible',
+    );
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+  });
+
+  test('low-stakes autonomy pauses medium-stakes actions for escalation', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'write',
+      argsJson: JSON.stringify({
+        path: 'docs/project-note.md',
+        content: 'Project note',
+      }),
+      latestUserPrompt: 'Create a project note',
+    });
+
+    expect(evaluation.stakes).toBe('medium');
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.escalationRoute).not.toBe('implicit_notice');
+  });
+
+  test('out-of-bound escalation carries target and classifier reasoning', () => {
+    const policyPath = writeTempPolicy(`
+autonomy:
+  default: low-stakes-autonomous
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'message',
+      argsJson: JSON.stringify({
+        action: 'send',
+        channel: 'customer-success',
+        text: 'Tell the customer their invoice was refunded.',
+      }),
+      latestUserPrompt: 'Send a refund update to the customer',
+      escalationTarget: {
+        channel: 'slack:COPS',
+        recipient: 'ops-lead',
+      },
+    });
+    const prompt = runtime.formatApprovalRequest(evaluation);
+
+    expect(evaluation.escalationRoute).toBe('approval_request');
+    expect(evaluation.escalationTarget).toEqual({
+      channel: 'slack:COPS',
+      recipient: 'ops-lead',
+    });
+    expect(prompt).toContain('Proposed action:');
+    expect(prompt).toContain('Classifier reasoning: high stakes via');
+    expect(prompt).toContain('Escalation target: slack:COPS / ops-lead');
+  });
+
   test('pip install is classified as dependency installation', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -112,7 +992,7 @@ network:
   });
 
   test('message read-only actions are green', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -138,7 +1018,7 @@ network:
   });
 
   test('vision analysis tools are green and do not wait for interruption', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -167,8 +1047,28 @@ network:
     expect(imageAlias.implicitDelayMs).toBeUndefined();
   });
 
+  test('delegate tool is green by default', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'delegate',
+      argsJson: JSON.stringify({
+        mode: 'single',
+        prompt: 'Research one narrow topic.',
+      }),
+      latestUserPrompt: 'Delegate this research',
+    });
+
+    expect(evaluation.tier).toBe('green');
+    expect(evaluation.decision).toBe('auto');
+    expect(evaluation.actionKey).toBe('delegate');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
+  });
+
   test('non-input browser tools skip the implicit interruption delay', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -185,7 +1085,7 @@ network:
   });
 
   test('input-like browser tools keep the implicit interruption delay', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -204,7 +1104,7 @@ network:
   });
 
   test('voice channel skips the implicit interruption delay for yellow actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -222,7 +1122,7 @@ network:
   });
 
   test('read-like MCP tools are green', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -237,7 +1137,7 @@ network:
   });
 
   test('execute-like MCP tools are red', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -253,7 +1153,7 @@ network:
   });
 
   test('read-only bundled PDF extraction commands are green', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -271,7 +1171,7 @@ network:
   });
 
   test('sensitive paths stay pinned red and require explicit approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -287,8 +1187,27 @@ network:
     expect(evaluation.requestId).toBeTruthy();
   });
 
+  test('bash absolute path classification does not realpath path tokens', () => {
+    const realpathSpy = vi.spyOn(fs, 'realpathSync');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson: JSON.stringify({
+        command: 'ls /etc/hybridclaw-generated-policy-path',
+      }),
+      latestUserPrompt: 'Check generated policy path',
+    });
+
+    expect(realpathSpy).not.toHaveBeenCalled();
+    expect(evaluation.baseTier).toBe('red');
+    expect(evaluation.pinned).toBe(true);
+  });
+
   test('full-auto mode auto-approves red actions without creating a pending prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     runtime.setFullAutoOptions({ enabled: true });
@@ -306,7 +1225,7 @@ network:
   });
 
   test('full-auto mode auto-approves yellow mutating actions without interruption delay', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     runtime.setFullAutoOptions({ enabled: true });
@@ -323,7 +1242,7 @@ network:
   });
 
   test('full-auto mode still requires approval for tools on the never-approve list', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     runtime.setFullAutoOptions({
@@ -343,7 +1262,7 @@ network:
   });
 
   test('host app control commands require explicit approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -382,7 +1301,7 @@ network:
   });
 
   test('yes response approves once and replays original prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Delete dist and rebuild cleanly';
@@ -409,8 +1328,101 @@ network:
     expect(approved.implicitDelayMs).toBeUndefined();
   });
 
+  test('yes response can approve a pending request after runtime restart', () => {
+    const agentTrustStorePath = tempTrustStorePath('restart-agent-trust');
+    const allTrustStorePath = tempTrustStorePath('restart-all-trust');
+    const legacyTrustStorePath = tempTrustStorePath('restart-legacy-trust');
+    const pendingStorePath = tempTrustStorePath('restart-pending');
+    const policyPath = '/tmp/hybridclaw-missing-policy.yaml';
+    const originalPrompt = 'Delete dist and rebuild cleanly';
+    const argsJson = JSON.stringify({ command: 'rm -rf dist' });
+
+    const runtime = new TrustedAgentApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+      legacyTrustStorePath,
+      undefined,
+      pendingStorePath,
+    );
+    const pending = runtime.evaluateToolCall({
+      toolName: 'bash',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(pending.decision).toBe('required');
+    expect(pending.requestId).toBeTruthy();
+
+    const restarted = new TrustedAgentApprovalRuntime(
+      policyPath,
+      agentTrustStorePath,
+      allTrustStorePath,
+      legacyTrustStorePath,
+      undefined,
+      pendingStorePath,
+    );
+    const prelude = restarted.handleApprovalResponse([
+      userMessage(`yes ${pending.requestId}`),
+    ]);
+    expect(prelude?.replayPrompt).toContain('Approval already granted');
+    expect(prelude?.approvalMode).toBe('once');
+
+    const approved = restarted.evaluateToolCall({
+      toolName: 'bash',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(approved.decision).toBe('approved_once');
+  });
+
+  test('logs when expired pending approvals are dropped on restart', () => {
+    const pendingStorePath = tempTrustStorePath('expired-pending');
+    const now = Date.now();
+    fs.writeFileSync(
+      pendingStorePath,
+      JSON.stringify({
+        version: 1,
+        pending: [
+          {
+            id: 'expired-approval',
+            fingerprint: 'expired-fingerprint',
+            actionKey: 'bash:rm -rf dist',
+            toolName: 'bash',
+            intent: 'Delete dist',
+            consequenceIfDenied: 'dist remains',
+            reason: 'red action',
+            commandPreview: 'rm -rf dist',
+            createdAtMs: now - 10_000,
+            expiresAtMs: now - 1_000,
+            originalPrompt: 'Delete dist',
+            pinned: false,
+          },
+        ],
+        updatedAt: new Date(now - 10_000).toISOString(),
+      }),
+      'utf-8',
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+      tempTrustStorePath('expired-agent-trust'),
+      tempTrustStorePath('expired-all-trust'),
+      tempTrustStorePath('expired-legacy-trust'),
+      undefined,
+      pendingStorePath,
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[approval-policy] dropped 1 expired persisted pending approval(s) on load',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(pendingStorePath, 'utf-8')).pending,
+    ).toEqual([]);
+  });
+
   test('bare yes without a pending approval is treated as a normal prompt', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -420,7 +1432,7 @@ network:
   });
 
   test('yes for session persists trust for repeated action key', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Write the report to a host file';
@@ -450,7 +1462,7 @@ network:
   });
 
   test('"/approve always" is no longer treated as an approval alias', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const prelude = runtime.handleApprovalResponse([
@@ -460,7 +1472,7 @@ network:
   });
 
   test('unlisted network access is implicit yellow by default', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const evaluation = runtime.evaluateToolCall({
@@ -478,7 +1490,7 @@ network:
   });
 
   test('network approvals reuse site scope across subdomains after a successful run', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Open Google Images';
@@ -502,7 +1514,7 @@ network:
   });
 
   test('http_request uses the same host-scoped network approval classification', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -521,7 +1533,7 @@ network:
   });
 
   test('approval prompt lists text approval options in order for non-pinned actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -554,7 +1566,7 @@ network:
   });
 
   test('approval prompt marks session/agent/all trust unavailable for pinned actions', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -579,7 +1591,7 @@ network:
   });
 
   test('approval parser accepts wrapped Discord batch reply "Message 1: yes for agent"', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const originalPrompt = 'Write the output to a host file';
@@ -614,7 +1626,7 @@ network:
   });
 
   test('pinned red cannot be session-trusted across runs', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
     const prompt = 'Append token to .env';
@@ -648,7 +1660,7 @@ network:
   });
 
   test('scratch outputs under /tmp do not trigger workspace-fence approvals', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -666,7 +1678,7 @@ network:
   });
 
   test('node heredocs are not treated as workspace writes based on JS arrow functions or comments', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -702,7 +1714,7 @@ network:
   });
 
   test('outer-shell redirections in heredoc commands still trigger workspace-fence approvals', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 
@@ -731,10 +1743,7 @@ network:
       command: 'touch /Users/example/report.txt',
     });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
-      policyPath,
-      trustStorePath,
-    );
+    const runtime = new TrustedAgentApprovalRuntime(policyPath, trustStorePath);
     const first = runtime.evaluateToolCall({
       toolName: 'bash',
       argsJson,
@@ -754,7 +1763,7 @@ network:
     });
     expect(second.decision).toBe('approved_agent');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       trustStorePath,
     );
@@ -775,7 +1784,7 @@ network:
       command: 'touch /Users/example/report.txt',
     });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -799,7 +1808,7 @@ network:
     });
     expect(second.decision).toBe('approved_all');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -818,10 +1827,7 @@ network:
     const prompt = 'Write .env';
     const argsJson = JSON.stringify({ path: '.env', contents: 'TOKEN=abc' });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
-      policyPath,
-      trustStorePath,
-    );
+    const runtime = new TrustedAgentApprovalRuntime(policyPath, trustStorePath);
     const first = runtime.evaluateToolCall({
       toolName: 'write',
       argsJson,
@@ -842,7 +1848,7 @@ network:
     });
     expect(second.decision).toBe('approved_once');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       trustStorePath,
     );
@@ -861,7 +1867,7 @@ network:
     const prompt = 'Write .env';
     const argsJson = JSON.stringify({ path: '.env', contents: 'TOKEN=abc' });
 
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -886,7 +1892,7 @@ network:
     });
     expect(second.decision).toBe('approved_once');
 
-    const restarted = new TrustedCoworkerApprovalRuntime(
+    const restarted = new TrustedAgentApprovalRuntime(
       policyPath,
       agentTrustStorePath,
       allTrustStorePath,
@@ -914,7 +1920,7 @@ network:
     });
     const trustStorePath = path.join(workspaceRoot, 'approval-trust.json');
 
-    const { TrustedCoworkerApprovalRuntime: HostModeApprovalRuntime } =
+    const { TrustedAgentApprovalRuntime: HostModeApprovalRuntime } =
       await import('../container/src/approval-policy.js');
 
     const runtime = new HostModeApprovalRuntime();
@@ -953,7 +1959,7 @@ network:
     vi.stubEnv('HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT', '/app');
     vi.resetModules();
 
-    const { TrustedCoworkerApprovalRuntime: DisplayRootApprovalRuntime } =
+    const { TrustedAgentApprovalRuntime: DisplayRootApprovalRuntime } =
       await import('../container/src/approval-policy.js');
 
     const runtime = new DisplayRootApprovalRuntime();
@@ -981,7 +1987,7 @@ network:
       paths: ["/repos/**"]
       agent: "*"
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1009,7 +2015,7 @@ network:
       agent: "research"
 `);
     vi.stubEnv('HYBRIDCLAW_AGENT_ID', 'research');
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const allowed = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1054,7 +2060,7 @@ network:
     - action: allow
       host: "github.com"
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1077,7 +2083,7 @@ network:
 approval:
   trusted_network_hosts: ["api.github.com"]
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'web_fetch',
@@ -1102,7 +2108,7 @@ network:
     - action: allow
       host: "api.github.com"
 `);
-    const runtime = new TrustedCoworkerApprovalRuntime(policyPath);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
 
     const httpsEvaluation = runtime.evaluateToolCall({
       toolName: 'http_request',
@@ -1128,7 +2134,7 @@ network:
   });
 
   test('hybridclaw.io is allowlisted by default and does not require approval', () => {
-    const runtime = new TrustedCoworkerApprovalRuntime(
+    const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
     );
 

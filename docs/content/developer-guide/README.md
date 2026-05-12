@@ -19,3 +19,6 @@ These pages focus on how HybridClaw is built and operated under the hood.
   and compaction/consolidation lifecycle
 - [Session Routing](./session-routing.md) for canonical session keys and
   linked-identity boundaries
+- [Identity](./identity.md) for canonical user/agent IDs, authority boundaries,
+  and discovery records
+- [Workflows](./workflows.md) for declarative YAML workflow schema and validation rules

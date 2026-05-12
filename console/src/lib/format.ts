@@ -16,6 +16,10 @@ export function formatTokenBreakdown(params: {
   return `${formatCompactNumber(normalizeCount(params.inputTokens))} in / ${formatCompactNumber(normalizeCount(params.outputTokens))} out`;
 }
 
+export function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
 export function formatUsd(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',

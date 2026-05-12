@@ -1,0 +1,5 @@
+.content {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+}

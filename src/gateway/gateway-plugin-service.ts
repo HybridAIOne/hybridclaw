@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sendWebhookJson, WebhookHttpError } from '../channels/webhook-http.js';
+import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
@@ -466,7 +467,7 @@ export async function handlePluginGatewayCommand(params: {
   pluginInitError: unknown;
 }): Promise<GatewayCommandResult> {
   const { req, pluginManager, pluginInitError } = params;
-  const sub = (req.args[1] || 'list').toLowerCase();
+  const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
 
   if (sub === 'list') {
     if (!pluginManager) {
@@ -484,8 +485,8 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'config') {
-    const pluginId = String(req.args[2] || '').trim();
-    const key = String(req.args[3] || '').trim();
+    const pluginId = parseIdArg(req.args, 2);
+    const key = parseIdArg(req.args, 3);
     const rawValue = req.args.slice(4).join(' ').trim();
     if (!pluginId) {
       return badCommand(
@@ -591,7 +592,7 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'enable' || sub === 'disable') {
-    const pluginId = String(req.args[2] || '').trim();
+    const pluginId = parseIdArg(req.args, 2);
     if (!pluginId) {
       return badCommand('Usage', `Usage: \`plugin ${sub} <plugin-id>\``);
     }
@@ -648,8 +649,8 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'install') {
-    const source = String(req.args[2] || '').trim();
-    const yes = String(req.args[3] || '').trim();
+    const source = parseIdArg(req.args, 2);
+    const yes = parseIdArg(req.args, 3);
     if (!source) {
       return badCommand(
         'Usage',
@@ -761,8 +762,8 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'reinstall') {
-    const source = String(req.args[2] || '').trim();
-    const yes = String(req.args[3] || '').trim();
+    const source = parseIdArg(req.args, 2);
+    const yes = parseIdArg(req.args, 3);
     if (!source) {
       return badCommand(
         'Usage',
@@ -874,7 +875,7 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'check') {
-    const pluginId = String(req.args[2] || '').trim();
+    const pluginId = parseIdArg(req.args, 2);
     if (!pluginId) {
       return badCommand('Usage', 'Usage: `plugin check <plugin-id>`');
     }
@@ -899,7 +900,7 @@ export async function handlePluginGatewayCommand(params: {
   }
 
   if (sub === 'uninstall') {
-    const pluginId = String(req.args[2] || '').trim();
+    const pluginId = parseIdArg(req.args, 2);
     if (!pluginId) {
       return badCommand(
         'Usage',

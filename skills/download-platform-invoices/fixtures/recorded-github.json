@@ -1,0 +1,87 @@
+{
+  "provider": "github",
+  "invoices": [
+    {
+      "vendor": "github",
+      "invoice_no": "GH-2026-03-001",
+      "period": "2026-03",
+      "issue_date": "2026-04-01",
+      "due_date": "2026-04-15",
+      "net": 100,
+      "vat_rate": 0.19,
+      "vat": 19,
+      "gross": 119,
+      "currency": "EUR",
+      "source_url": "https://github.com/settings/billing/summary",
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgZ2l0aHViIGludm9pY2UgcmVwbGF5IGZpeHR1cmUKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKJSVFT0YK"
+    }
+  ],
+  "recorded_session": {
+    "recorded_at": "2026-05-01T00:00:00.000Z",
+    "sanitized": true,
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
+    "steps": [
+      {
+        "kind": "authenticate_or_list",
+        "url": "https://github.com/login",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "044bb6fdde53583e0bbde9f311aaa6a3fc1add37cc71b60903264f954f9fc041"
+        }
+      },
+      {
+        "kind": "list",
+        "url": "https://github.com/settings/billing/summary",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "8e0c1749491408c575d106bcbe92ffd1883f2cb3fbb32b8e809a4ecf74d357e4"
+        }
+      },
+      {
+        "kind": "download",
+        "url": "https://github.com/settings/billing/history/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "33b970cc55f82e7e68fc60f1250bb4dffc805981a029acc1f6777885b68ae49d"
+        }
+      }
+    ],
+    "evidence": {
+      "dom_snapshot": "<main data-hc-provider=\"github\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>GH-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://github.com/settings/billing/history/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "dbec1d3fc5ff2a5c74012c954bf1ec9737f80beda1c76eee1db7f83c30f48fad"
+    }
+  }
+}

@@ -3,8 +3,10 @@ export declare const MESSAGE_TOOL_CHANNEL_KINDS: readonly [
   'email',
   'imessage',
   'msteams',
+  'signal',
   'slack',
   'telegram',
+  'threema',
   'tui',
   'whatsapp',
 ];

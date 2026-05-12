@@ -1,4 +1,9 @@
 import type { ChatStreamApproval } from '../api/chat-types';
+import {
+  getActiveSessionId,
+  setActiveSessionId,
+  subscribeActiveSessionId,
+} from './chat-session-store';
 
 export const DEFAULT_AGENT_ID = 'main';
 
@@ -16,9 +21,13 @@ export function randomHex(bytes: number): string {
   return Array.from(arr, (v) => v.toString(16).padStart(2, '0')).join('');
 }
 
-export function generateWebSessionId(agentId = DEFAULT_AGENT_ID): string {
-  const normalized = agentId.trim().toLowerCase();
-  return `agent:${encodeURIComponent(normalized)}:channel:web:chat:dm:peer:${randomHex(8)}`;
+export function generateWebSessionId(): string {
+  const timestamp = new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[-:]/g, '')
+    .replace('T', '_');
+  return `sess_${timestamp}_${randomHex(4)}`;
 }
 
 export function readStoredUserId(): string {
@@ -31,11 +40,15 @@ export function readStoredUserId(): string {
 }
 
 export function readStoredSessionId(): string {
-  return localStorage.getItem('hybridclaw_session') ?? '';
+  return getActiveSessionId();
 }
 
 export function storeSessionId(id: string): void {
-  localStorage.setItem('hybridclaw_session', id);
+  setActiveSessionId(id);
+}
+
+export function subscribeToStoredSessionId(listener: () => void): () => void {
+  return subscribeActiveSessionId(listener);
 }
 
 let msgCounter = 0;

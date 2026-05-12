@@ -17,6 +17,7 @@ async function resolveMistralRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'mistral',
+    model: params.model,
     apiKey: readApiKeyForOpenAICompatProvider('mistral', { required: true }),
     baseUrl: normalizeBaseUrl(MISTRAL_BASE_URL),
     chatbotId: '',

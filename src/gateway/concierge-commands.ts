@@ -1,3 +1,4 @@
+import { parseIdArg, parseLowerArg } from '../command-parsing.js';
 import {
   getRuntimeConfig,
   updateRuntimeConfig,
@@ -45,7 +46,7 @@ function buildConciergeInfoText(): string {
 export async function handleConciergeCommand(
   context: ConciergeCommandContext,
 ): Promise<GatewayCommandResult> {
-  const sub = context.args[1]?.toLowerCase();
+  const sub = parseLowerArg(context.args, 1);
   const concierge = getRuntimeConfig().routing.concierge;
 
   if (!sub || sub === 'info') {
@@ -69,7 +70,7 @@ export async function handleConciergeCommand(
   }
 
   if (sub === 'model') {
-    const modelName = String(context.args[2] || '').trim();
+    const modelName = parseIdArg(context.args, 2);
     if (!modelName) {
       return context.infoCommand(
         'Concierge Model',
@@ -93,9 +94,7 @@ export async function handleConciergeCommand(
   }
 
   if (sub === 'profile') {
-    const profile = normalizeConciergeProfileName(
-      String(context.args[2] || ''),
-    );
+    const profile = normalizeConciergeProfileName(parseIdArg(context.args, 2));
     if (!profile) {
       return context.badCommand(
         'Usage',
@@ -106,7 +105,7 @@ export async function handleConciergeCommand(
       getRuntimeConfig(),
       profile,
     );
-    const modelName = String(context.args[3] || '').trim();
+    const modelName = parseIdArg(context.args, 3);
     if (!modelName) {
       return context.infoCommand(
         'Concierge Profile',

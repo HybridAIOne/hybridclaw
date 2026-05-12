@@ -1,6 +1,7 @@
 import type { StoredMessage } from '../types/session.js';
+import { SESSION_TITLE_MAX_CHARS } from './session-title-constants.js';
 
-export const RECENT_CHAT_SESSION_TITLE_MAX_LENGTH = 120;
+export const RECENT_CHAT_SESSION_TITLE_MAX_LENGTH = SESSION_TITLE_MAX_CHARS;
 export const SESSIONS_COMMAND_SNIPPET_MAX_LENGTH = 40;
 export const AGENT_CARD_PREVIEW_MAX_LENGTH = 180;
 

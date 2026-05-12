@@ -1,10 +1,12 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const AUTH_SECRET_FILE = '/run/secrets/hybridclaw_auth_secret';
 export const SESSION_COOKIE_NAME = 'hybridclaw_session';
 export const SESSION_TTL_SECONDS = 24 * 60 * 60;
+export const LOCAL_WEB_SESSION_COOKIE_NAME = 'hybridclaw_local_session';
+export const LOCAL_WEB_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 export interface VerifiedAuthTokenPayload extends Record<string, unknown> {
   exp: number;
@@ -153,6 +155,8 @@ function requireVerifiedToken(token: string): VerifiedAuthTokenPayload {
   return payload;
 }
 
+const localWebSessionSecret = randomBytes(32).toString('hex');
+
 function signPayload(payload: Record<string, unknown>, secret: string): string {
   const payloadSegment = Buffer.from(JSON.stringify(payload)).toString(
     'base64url',
@@ -200,6 +204,23 @@ function appendSetCookie(res: ServerResponse, cookie: string): void {
   res.setHeader('Set-Cookie', [String(existing), cookie]);
 }
 
+function buildSessionCookieValue(params: {
+  name: string;
+  token: string;
+  ttlSeconds: number;
+  expiresAtSeconds: number;
+  sameSite: 'Lax' | 'Strict';
+}): string {
+  return [
+    `${params.name}=${params.token}`,
+    'Path=/',
+    `Max-Age=${params.ttlSeconds}`,
+    `Expires=${new Date(params.expiresAtSeconds * 1000).toUTCString()}`,
+    'HttpOnly',
+    `SameSite=${params.sameSite}`,
+  ].join('; ');
+}
+
 export function verifyLaunchToken(token: string): VerifiedAuthTokenPayload {
   return requireVerifiedToken(token);
 }
@@ -220,6 +241,41 @@ export function getSessionAuthPayload(
 
 export function hasSessionAuth(req: IncomingMessage): boolean {
   return getSessionAuthPayload(req) !== null;
+}
+
+export function hasLocalWebSessionAuth(req: IncomingMessage): boolean {
+  const token = extractCookieValue(
+    req.headers.cookie,
+    LOCAL_WEB_SESSION_COOKIE_NAME,
+  );
+  if (!token) return false;
+
+  const payload = verifySignedToken(token, localWebSessionSecret);
+  return payload?.typ === 'local-web-session';
+}
+
+export function setLocalWebSessionCookie(res: ServerResponse): void {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const expiresAt = issuedAt + LOCAL_WEB_SESSION_TTL_SECONDS;
+  const token = signPayload(
+    {
+      exp: expiresAt,
+      iat: issuedAt,
+      typ: 'local-web-session',
+    },
+    localWebSessionSecret,
+  );
+
+  appendSetCookie(
+    res,
+    buildSessionCookieValue({
+      name: LOCAL_WEB_SESSION_COOKIE_NAME,
+      token,
+      ttlSeconds: LOCAL_WEB_SESSION_TTL_SECONDS,
+      expiresAtSeconds: expiresAt,
+      sameSite: 'Strict',
+    }),
+  );
 }
 
 export function setSessionCookie(
@@ -245,13 +301,12 @@ export function setSessionCookie(
 
   appendSetCookie(
     res,
-    [
-      `${SESSION_COOKIE_NAME}=${token}`,
-      'Path=/',
-      `Max-Age=${SESSION_TTL_SECONDS}`,
-      `Expires=${new Date(expiresAt * 1000).toUTCString()}`,
-      'HttpOnly',
-      'SameSite=Lax',
-    ].join('; '),
+    buildSessionCookieValue({
+      name: SESSION_COOKIE_NAME,
+      token,
+      ttlSeconds: SESSION_TTL_SECONDS,
+      expiresAtSeconds: expiresAt,
+      sameSite: 'Lax',
+    }),
   );
 }

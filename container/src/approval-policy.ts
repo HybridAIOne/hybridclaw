@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
+import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
+import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
 import type {
   NetworkPolicyAction,
   NetworkRule,
@@ -12,16 +14,36 @@ import {
   asRecord,
   DEFAULT_NETWORK_DEFAULT,
   DEFAULT_NETWORK_RULES,
-  doesNetworkHostPatternExpandToSubdomains,
-  normalizeNetworkAgent,
+  evaluateNetworkPolicyAccess,
   normalizeNetworkHostScope,
-  normalizeNetworkPathPattern,
   normalizeNetworkPort,
   readNetworkPolicyState,
 } from '../shared/network-policy.js';
+import {
+  type BehaviorAnomalyInput,
+  BehaviorAnomalyReranker,
+  type BehaviorAnomalyScore,
+  type BehaviorAnomalyTraceJudgeResult,
+} from './behavior-anomaly.js';
 import { classifyMcpTool } from './mcp/tool-classifier.js';
 import { WORKSPACE_ROOT, WORKSPACE_ROOT_DISPLAY } from './runtime-paths.js';
-import type { ChatMessage } from './types.js';
+import {
+  createStakesClassifier,
+  type StakesClassifier,
+  type StakesLevel,
+  type StakesScore,
+} from './stakes-classifier.js';
+import {
+  createStakesMiddlewareSkill,
+  type StakesMiddlewareContext,
+  type StakesMiddlewareResult,
+} from './stakes-middleware.js';
+import { normalizeText } from './text-normalization.js';
+import {
+  type ChatMessage,
+  type EscalationTarget,
+  normalizeEscalationTarget,
+} from './types.js';
 
 export type {
   NetworkPolicyAction,
@@ -32,8 +54,24 @@ export {
   DEFAULT_NETWORK_RULES,
   normalizeNetworkRule,
 } from '../shared/network-policy.js';
+export type {
+  StakesClassificationInput,
+  StakesClassifier,
+  StakesLevel,
+  StakesScore,
+  StakesSignal,
+} from './stakes-classifier.js';
 
 export type ApprovalTier = 'green' | 'yellow' | 'red';
+export type AutonomyLevel =
+  | 'full-autonomous'
+  | 'low-stakes-autonomous'
+  | 'confirm-each';
+export type EscalationRoute =
+  | 'none'
+  | 'implicit_notice'
+  | 'approval_request'
+  | 'policy_denial';
 
 export type ApprovalDecision =
   | 'auto'
@@ -47,6 +85,34 @@ export type ApprovalDecision =
   | 'required'
   | 'denied';
 
+export const DEFAULT_APPROVAL_RULE_ORDER = [
+  'policy_reload',
+  'classify_action',
+  'fingerprint',
+  'pinned_red',
+  'autonomy',
+  'safety_tier',
+  'stakes',
+  'anomaly_reranker',
+  'autonomy_override',
+  'red_hard_deny',
+  'red_one_shot',
+  'red_session_trust',
+  'red_agent_trust',
+  'red_workspace_trust',
+  'red_promotable',
+  'red_full_auto',
+  'red_queue',
+  'red_prompt',
+  'yellow_full_auto',
+  'yellow_execution_promotion',
+  'green_fallback',
+] as const;
+
+export type BuiltinApprovalRuleName =
+  (typeof DEFAULT_APPROVAL_RULE_ORDER)[number];
+export type ApprovalRuleName = BuiltinApprovalRuleName | (string & {});
+
 export interface ApprovalPolicyRule {
   pattern?: string;
   paths?: string[];
@@ -54,7 +120,13 @@ export interface ApprovalPolicyRule {
 }
 
 export interface ApprovalPolicyConfig {
+  approvalRuleOrder: ApprovalRuleName[];
   pinnedRed: ApprovalPolicyRule[];
+  autonomy: {
+    defaultLevel: AutonomyLevel;
+    tools: Record<string, AutonomyLevel>;
+    actions: Record<string, AutonomyLevel>;
+  };
   networkDefault: NetworkPolicyAction;
   networkRules: NetworkRule[];
   networkPresets: string[];
@@ -67,7 +139,7 @@ export interface ApprovalPolicyConfig {
   };
 }
 
-interface ClassifiedAction {
+export interface ClassifiedAction {
   tier: ApprovalTier;
   actionKey: string;
   intent: string;
@@ -82,7 +154,7 @@ interface ClassifiedAction {
   hardDeny?: boolean;
 }
 
-interface PendingApproval {
+export interface PendingApproval {
   id: string;
   fingerprint: string;
   actionKey: string;
@@ -107,6 +179,12 @@ export interface ApprovalPrelude {
 export interface ToolApprovalEvaluation {
   baseTier: ApprovalTier;
   tier: ApprovalTier;
+  autonomyLevel: AutonomyLevel;
+  stakes: StakesLevel;
+  stakesScore: StakesScore;
+  stakesMiddlewareDecision: StakesMiddlewareResult['decision'];
+  escalationRoute: EscalationRoute;
+  escalationTarget?: EscalationTarget;
   decision: ApprovalDecision;
   actionKey: string;
   fingerprint: string;
@@ -119,7 +197,103 @@ export interface ToolApprovalEvaluation {
   pinned: boolean;
   implicitDelayMs?: number;
   hostHints: string[];
+  anomaly?: BehaviorAnomalyScore;
 }
+
+export interface ToolCallContext {
+  params: {
+    toolName: string;
+    argsJson: string;
+    latestUserPrompt: string;
+    channelId?: string;
+    escalationTarget?: EscalationTarget;
+    now?: Date;
+  };
+  args: Record<string, unknown>;
+  policy: ApprovalPolicyConfig;
+  classified?: ClassifiedAction;
+  fingerprint?: string;
+  pinnedByPolicy?: boolean;
+  autonomyLevel?: AutonomyLevel;
+  safetyTier?: ApprovalTier;
+  baseTier?: ApprovalTier;
+  tier?: ApprovalTier;
+  decision?: ApprovalDecision;
+  stakes?: StakesLevel;
+  stakesScore?: StakesScore;
+  stakesMiddlewareDecision?: StakesMiddlewareResult['decision'];
+  anomaly?: BehaviorAnomalyScore;
+  outOfBoundByAutonomy: boolean;
+  escalationTarget?: EscalationTarget;
+  helpers: ToolCallContextHelpers;
+}
+
+export interface ToolCallContextHelpers {
+  reloadPolicyIfNeeded(): ApprovalPolicyConfig;
+  cleanupExpiredPending(): void;
+  classifyAction(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): ClassifiedAction;
+  isPinnedRed(input: {
+    toolName: string;
+    preview: string;
+    pathHints: string[];
+    args: Record<string, unknown>;
+  }): boolean;
+  resolveAutonomyLevel(input: {
+    toolName: string;
+    actionKey: string;
+  }): AutonomyLevel;
+  runStakesMiddleware(
+    context: Omit<StakesMiddlewareContext, 'recordStakesScore'>,
+  ): StakesMiddlewareResult;
+  scoreBehaviorAnomaly(input: BehaviorAnomalyInput): BehaviorAnomalyScore;
+  hasOneShotFingerprint(fingerprint: string): boolean;
+  consumeOneShotFingerprint(fingerprint: string): void;
+  hasSessionTrust(actionKey: string, fingerprint: string): boolean;
+  hasAgentTrust(actionKey: string, fingerprint: string): boolean;
+  hasWorkspaceTrust(actionKey: string, fingerprint: string): boolean;
+  getExplicitApprovalCount(actionKey: string): number;
+  isFullAutoEnabled(): boolean;
+  shouldNeverAutoApprove(toolName: string, actionKey: string): boolean;
+  getPendingCount(): number;
+  getOrCreatePending(
+    input: Omit<PendingApproval, 'id' | 'createdAtMs' | 'expiresAtMs'>,
+  ): PendingApproval;
+  getActionExecutionCount(actionKey: string): number;
+  shouldApplyImplicitDelay(
+    toolName: string,
+    channelId: string | undefined,
+  ): boolean;
+  emitHookEvent?(event: ApprovalRuleHookEvent): void;
+}
+
+export interface ApprovalRuleHookEvent {
+  hook: 'pre_tool_use' | 'post_tool_use';
+  kind: 'approval_rule';
+  ruleName: ApprovalRuleName;
+  toolName: string;
+  actionKey?: string;
+  decision?: ApprovalDecision;
+}
+
+export interface NextRule {
+  kind: 'next';
+}
+
+export interface Decision {
+  kind: 'decision';
+  evaluation: ToolApprovalEvaluation;
+}
+
+export type ApprovalRuleResult = Decision | NextRule;
+
+export type ApprovalRule = (context: ToolCallContext) => ApprovalRuleResult;
+
+export type ApprovalRuleHookEmitter = (
+  event: ApprovalRuleHookEvent,
+) => void | Promise<void>;
 
 const WORKSPACE_ROOT_ACTUAL = WORKSPACE_ROOT;
 const POLICY_PATH = path.join(
@@ -131,6 +305,11 @@ const AGENT_TRUST_STORE_PATH = path.join(
   WORKSPACE_ROOT_ACTUAL,
   '.hybridclaw',
   'approval-agent-trust.json',
+);
+const PENDING_APPROVAL_STORE_PATH = path.join(
+  WORKSPACE_ROOT_ACTUAL,
+  '.hybridclaw',
+  'pending-approvals.json',
 );
 const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
 type ApprovalMode = (typeof APPROVAL_MODES)[number];
@@ -152,6 +331,7 @@ const YELLOW_IMPLICIT_DELAY_SECS = Math.max(
 const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
   'browser_press',
   'browser_type',
+  'browser_secret_type',
   'browser_upload',
 ]);
 const MAX_PROMPT_CHARS = 1_200;
@@ -166,11 +346,17 @@ const SCRATCH_ROOTS = Array.from(
 );
 
 export const DEFAULT_POLICY: ApprovalPolicyConfig = {
+  approvalRuleOrder: [...DEFAULT_APPROVAL_RULE_ORDER],
   pinnedRed: [
     { pattern: 'rm\\s+-rf\\s+/' },
     { paths: ['~/.ssh/**', '/etc/**', '.env*'] },
     { tools: ['force_push'] },
   ],
+  autonomy: {
+    defaultLevel: 'full-autonomous',
+    tools: {},
+    actions: {},
+  },
   networkDefault: DEFAULT_NETWORK_DEFAULT,
   networkRules: DEFAULT_NETWORK_RULES,
   networkPresets: [],
@@ -207,18 +393,20 @@ const HOST_RE =
 const APPROVE_RE =
   /^(?:\/?(?:approve|yes|y))(?:\s+([a-f0-9-]{6,64}))?(?:\s+(for\s+session|session|for\s+all|all|for\s+agent|agent))?$/i;
 const DENY_RE = /^(?:\/?(?:deny|reject|skip|no|n))(?:\s+([a-f0-9-]{6,64}))?$/i;
+const registeredApprovalRuleNames = new Set<string>(
+  DEFAULT_APPROVAL_RULE_ORDER,
+);
+const NEXT_RULE: NextRule = { kind: 'next' };
+const unknownApprovalRuleNameWarnings = new Set<string>();
+const invalidApprovalRuleOrderWarnings = new Set<string>();
+const MAX_APPROVAL_RULE_WARNING_KEYS = 50;
+const APPROVAL_RULE_NAME_RE = /^[a-z][a-z0-9_:-]*$/;
 
 function isVoiceChannelId(value: string | undefined): boolean {
   return String(value || '')
     .trim()
     .toLowerCase()
     .startsWith('voice:');
-}
-
-function normalizeText(value: unknown): string {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function normalizePrompt(value: string): string {
@@ -235,6 +423,24 @@ function normalizePreview(value: string): string {
 
 function stableHash(input: string): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
+}
+
+function escalationRouteForDecision(
+  decision: ApprovalDecision,
+  tier: ApprovalTier,
+): EscalationRoute {
+  if (decision === 'denied') return 'policy_denial';
+  if (decision === 'required') return 'approval_request';
+  if (tier === 'yellow' && decision === 'implicit') return 'implicit_notice';
+  return 'none';
+}
+
+function formatStakesReasoning(score: StakesScore): string {
+  const reasons =
+    score.reasons.length > 0
+      ? score.reasons.join('; ')
+      : 'no classifier reasons reported';
+  return `${score.level} stakes via ${score.classifier} (score ${score.score}, confidence ${score.confidence}): ${reasons}`;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -278,6 +484,149 @@ function normalizeStringList(raw: unknown): string[] {
       .filter(Boolean);
   }
   return [];
+}
+
+function normalizeApprovalRuleOrder(raw: unknown): ApprovalRuleName[] {
+  const rawRules = normalizeStringList(raw);
+  const requested: ApprovalRuleName[] = [];
+  for (const ruleName of rawRules) {
+    if (registeredApprovalRuleNames.has(ruleName)) {
+      requested.push(ruleName);
+    } else {
+      warnUnknownApprovalRuleName(ruleName);
+    }
+  }
+  if (requested.length === 0) return [...DEFAULT_APPROVAL_RULE_ORDER];
+
+  const ordered = [...new Set(requested)];
+  if (!isApprovalRuleOrderDependencySafe(ordered)) {
+    warnInvalidApprovalRuleOrder(ordered);
+    return [...DEFAULT_APPROVAL_RULE_ORDER];
+  }
+  return mergeApprovalRuleOrder(ordered);
+}
+
+function isApprovalRuleOrderDependencySafe(
+  ruleOrder: ApprovalRuleName[],
+): boolean {
+  let lastDefaultIndex = -1;
+  for (const ruleName of ruleOrder) {
+    const defaultIndex = getBuiltinRuleIndex(ruleName);
+    if (defaultIndex === -1) continue;
+    if (defaultIndex < lastDefaultIndex) return false;
+    lastDefaultIndex = defaultIndex;
+  }
+  return true;
+}
+
+function mergeApprovalRuleOrder(
+  configuredOrder: ApprovalRuleName[],
+): ApprovalRuleName[] {
+  const merged: ApprovalRuleName[] = [];
+  let defaultIndex = 0;
+  let customRulesBeforeNextBuiltin: ApprovalRuleName[] = [];
+
+  for (const ruleName of configuredOrder) {
+    const builtinIndex = getBuiltinRuleIndex(ruleName);
+    if (builtinIndex === -1) {
+      customRulesBeforeNextBuiltin.push(ruleName);
+      continue;
+    }
+
+    while (defaultIndex < builtinIndex) {
+      merged.push(DEFAULT_APPROVAL_RULE_ORDER[defaultIndex]);
+      defaultIndex += 1;
+    }
+    merged.push(...customRulesBeforeNextBuiltin);
+    customRulesBeforeNextBuiltin = [];
+    merged.push(ruleName);
+    defaultIndex = builtinIndex + 1;
+  }
+
+  merged.push(...customRulesBeforeNextBuiltin);
+  while (defaultIndex < DEFAULT_APPROVAL_RULE_ORDER.length) {
+    merged.push(DEFAULT_APPROVAL_RULE_ORDER[defaultIndex]);
+    defaultIndex += 1;
+  }
+  return merged;
+}
+
+function getBuiltinRuleIndex(ruleName: ApprovalRuleName): number {
+  return DEFAULT_APPROVAL_RULE_ORDER.indexOf(
+    ruleName as BuiltinApprovalRuleName,
+  );
+}
+
+function warnInvalidApprovalRuleOrder(ruleOrder: ApprovalRuleName[]): void {
+  const key = ruleOrder.join(',');
+  if (!rememberApprovalRuleWarning(invalidApprovalRuleOrderWarnings, key))
+    return;
+  console.warn(
+    `[approval-policy] invalid approval.rule_order violates built-in rule dependencies; falling back to default order: ${key}`,
+  );
+}
+
+function warnUnknownApprovalRuleName(ruleName: string): void {
+  if (!rememberApprovalRuleWarning(unknownApprovalRuleNameWarnings, ruleName)) {
+    return;
+  }
+  console.warn(
+    `[approval-policy] unknown approval.rule_order entry ignored: ${ruleName}`,
+  );
+}
+
+function rememberApprovalRuleWarning(
+  warnings: Set<string>,
+  key: string,
+): boolean {
+  if (warnings.has(key)) return false;
+  if (warnings.size >= MAX_APPROVAL_RULE_WARNING_KEYS) warnings.clear();
+  warnings.add(key);
+  return true;
+}
+
+export function registerApprovalRule(
+  ruleName: string,
+  rule: ApprovalRule,
+): ApprovalRuleName {
+  const normalized = ruleName.trim();
+  if (!APPROVAL_RULE_NAME_RE.test(normalized)) {
+    throw new Error(
+      `Approval rule names must match ${APPROVAL_RULE_NAME_RE.source}: ${ruleName}`,
+    );
+  }
+  if (registeredApprovalRuleNames.has(normalized)) {
+    throw new Error(`Approval rule already registered: ${normalized}`);
+  }
+  registeredApprovalRuleNames.add(normalized);
+  approvalRules[normalized] = rule;
+  return normalized;
+}
+
+function normalizeAutonomyLevel(raw: unknown): AutonomyLevel | null {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (
+    value === 'full-autonomous' ||
+    value === 'low-stakes-autonomous' ||
+    value === 'confirm-each'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeAutonomyMap(raw: unknown): Record<string, AutonomyLevel> {
+  const record = asRecord(raw);
+  const out: Record<string, AutonomyLevel> = {};
+  for (const [rawKey, rawValue] of Object.entries(record)) {
+    const key = rawKey.trim().toLowerCase();
+    const level = normalizeAutonomyLevel(rawValue);
+    if (!key || !level) continue;
+    out[key] = level;
+  }
+  return out;
 }
 
 function normalizeApprovalRule(raw: unknown): ApprovalPolicyRule | null {
@@ -337,6 +686,7 @@ function matchesPathPattern(candidatePath: string, pattern: string): boolean {
 export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   const document = asRecord(YAML.parse(raw) as unknown);
   const approval = asRecord(document.approval);
+  const autonomy = asRecord(document.autonomy);
   const audit = asRecord(document.audit);
   const pinnedRed = Array.isArray(approval.pinned_red)
     ? approval.pinned_red
@@ -346,7 +696,15 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   const networkState = readNetworkPolicyState(document);
 
   return {
+    approvalRuleOrder: normalizeApprovalRuleOrder(approval.rule_order),
     ...(pinnedRed.length > 0 ? { pinnedRed } : {}),
+    autonomy: {
+      defaultLevel:
+        normalizeAutonomyLevel(autonomy.default) ||
+        DEFAULT_POLICY.autonomy.defaultLevel,
+      tools: normalizeAutonomyMap(autonomy.tools),
+      actions: normalizeAutonomyMap(autonomy.actions),
+    },
     networkDefault: networkState.defaultAction,
     networkRules: networkState.rules.map((rule) => ({
       ...rule,
@@ -401,10 +759,28 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
   }
 
   return {
+    approvalRuleOrder: Array.isArray(filePolicy.approvalRuleOrder)
+      ? [...filePolicy.approvalRuleOrder]
+      : [...DEFAULT_POLICY.approvalRuleOrder],
     pinnedRed:
       Array.isArray(filePolicy.pinnedRed) && filePolicy.pinnedRed.length > 0
         ? filePolicy.pinnedRed
         : DEFAULT_POLICY.pinnedRed,
+    autonomy: {
+      defaultLevel:
+        normalizeAutonomyLevel(filePolicy.autonomy?.defaultLevel) ||
+        DEFAULT_POLICY.autonomy.defaultLevel,
+      tools:
+        filePolicy.autonomy?.tools &&
+        typeof filePolicy.autonomy.tools === 'object'
+          ? { ...filePolicy.autonomy.tools }
+          : {},
+      actions:
+        filePolicy.autonomy?.actions &&
+        typeof filePolicy.autonomy.actions === 'object'
+          ? { ...filePolicy.autonomy.actions }
+          : {},
+    },
     networkDefault:
       filePolicy.networkDefault === 'allow' ||
       filePolicy.networkDefault === 'deny'
@@ -502,65 +878,6 @@ function defaultPortForProtocol(protocol: string): number {
   return 443;
 }
 
-function globHostPatternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
-  return new RegExp(`^${escaped}$`, 'i');
-}
-
-function matchesHostPattern(pattern: string, candidateHost: string): boolean {
-  const normalizedPattern = pattern.trim().toLowerCase().replace(/\.$/, '');
-  const normalizedCandidate = candidateHost
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, '');
-  if (!normalizedPattern || !normalizedCandidate) return false;
-  if (normalizedPattern === normalizedCandidate) return true;
-  if (normalizedPattern.includes('*')) {
-    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
-  }
-  if (
-    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedPattern) ||
-    normalizedPattern.includes(':')
-  ) {
-    return false;
-  }
-  if (doesNetworkHostPatternExpandToSubdomains(normalizedPattern)) {
-    return normalizeHostScope(normalizedCandidate) === normalizedPattern;
-  }
-  return false;
-}
-
-function matchesMethodPattern(
-  allowedMethods: string[],
-  candidateMethod: string,
-): boolean {
-  if (allowedMethods.includes('*')) return true;
-  const normalizedCandidate = candidateMethod.trim().toUpperCase() || 'GET';
-  return allowedMethods.includes(normalizedCandidate);
-}
-
-function matchesNetworkPathPattern(
-  allowedPaths: string[],
-  candidatePath: string,
-): boolean {
-  const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
-  return allowedPaths.some((pattern) =>
-    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
-      normalizedCandidate,
-    ),
-  );
-}
-
-function matchesAgentPattern(
-  ruleAgent: string,
-  candidateAgent: string,
-): boolean {
-  if (ruleAgent === '*') return true;
-  return ruleAgent === normalizeNetworkAgent(candidateAgent);
-}
-
 function parseUrlNetworkTarget(rawUrl: string): {
   host: string;
   port: number;
@@ -600,11 +917,7 @@ function extractAbsolutePaths(input: string): string[] {
   for (const match of input.matchAll(ABS_PATH_RE)) {
     const candidate = String(match[2] || '').trim();
     if (!candidate || candidate === '/' || candidate === '//') continue;
-    try {
-      paths.add(fs.realpathSync(candidate));
-    } catch {
-      paths.add(path.resolve(candidate));
-    }
+    paths.add(path.resolve(candidate));
   }
   return [...paths];
 }
@@ -933,6 +1246,12 @@ interface PersistedApprovalTrustStore {
   updatedAt: string;
 }
 
+interface PersistedPendingApprovalStore {
+  version: 1;
+  pending: PendingApproval[];
+  updatedAt: string;
+}
+
 function parsePersistedTrustStore(
   raw: string,
 ): PersistedApprovalTrustStore | null {
@@ -975,11 +1294,676 @@ function parsePersistedTrustStore(
   }
 }
 
-export class TrustedCoworkerApprovalRuntime {
+function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  const fingerprint =
+    typeof record.fingerprint === 'string' ? record.fingerprint.trim() : '';
+  const actionKey =
+    typeof record.actionKey === 'string' ? record.actionKey.trim() : '';
+  const toolName =
+    typeof record.toolName === 'string' ? record.toolName.trim() : '';
+  const intent = typeof record.intent === 'string' ? record.intent.trim() : '';
+  const consequenceIfDenied =
+    typeof record.consequenceIfDenied === 'string'
+      ? record.consequenceIfDenied.trim()
+      : '';
+  const reason = typeof record.reason === 'string' ? record.reason.trim() : '';
+  const commandPreview =
+    typeof record.commandPreview === 'string'
+      ? record.commandPreview.trim()
+      : '';
+  const originalPrompt =
+    typeof record.originalPrompt === 'string' ? record.originalPrompt : '';
+  const createdAtMs =
+    typeof record.createdAtMs === 'number' ? record.createdAtMs : NaN;
+  const expiresAtMs =
+    typeof record.expiresAtMs === 'number' ? record.expiresAtMs : NaN;
+
+  if (
+    !id ||
+    !fingerprint ||
+    !actionKey ||
+    !toolName ||
+    !intent ||
+    !consequenceIfDenied ||
+    !reason ||
+    !Number.isFinite(createdAtMs) ||
+    !Number.isFinite(expiresAtMs)
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    fingerprint,
+    actionKey,
+    toolName,
+    intent,
+    consequenceIfDenied,
+    reason,
+    commandPreview,
+    createdAtMs,
+    expiresAtMs,
+    originalPrompt,
+    pinned: record.pinned === true,
+  };
+}
+
+function parsePersistedPendingApprovalStore(
+  raw: string,
+): PersistedPendingApprovalStore | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const pending = Array.isArray(record.pending)
+      ? record.pending
+          .map((entry) => parsePersistedPendingApproval(entry))
+          .filter((entry): entry is PendingApproval => Boolean(entry))
+      : [];
+    return {
+      version: 1,
+      pending,
+      updatedAt:
+        typeof record.updatedAt === 'string'
+          ? record.updatedAt
+          : new Date(0).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function nextRule(): NextRule {
+  return NEXT_RULE;
+}
+
+function decision(evaluation: ToolApprovalEvaluation): Decision {
+  return { kind: 'decision', evaluation };
+}
+
+function requireClassified(context: ToolCallContext): ClassifiedAction {
+  if (!context.classified) {
+    throw new Error('Approval rule requires action classification first.');
+  }
+  return context.classified;
+}
+
+function requireFingerprint(context: ToolCallContext): string {
+  if (!context.fingerprint) {
+    throw new Error('Approval rule requires a fingerprint first.');
+  }
+  return context.fingerprint;
+}
+
+function requirePinned(context: ToolCallContext): boolean {
+  if (typeof context.pinnedByPolicy !== 'boolean') {
+    throw new Error('Approval rule requires pinned-red classification first.');
+  }
+  return context.pinnedByPolicy;
+}
+
+function requireAutonomyLevel(context: ToolCallContext): AutonomyLevel {
+  if (!context.autonomyLevel) {
+    throw new Error('Approval rule requires autonomy resolution first.');
+  }
+  return context.autonomyLevel;
+}
+
+function requireBaseTier(context: ToolCallContext): ApprovalTier {
+  if (!context.baseTier) {
+    throw new Error('Approval rule requires safety-tier resolution first.');
+  }
+  return context.baseTier;
+}
+
+function requireStakes(context: ToolCallContext): {
+  stakes: StakesLevel;
+  stakesScore: StakesScore;
+  stakesMiddlewareDecision: StakesMiddlewareResult['decision'];
+} {
+  if (
+    !context.stakes ||
+    !context.stakesScore ||
+    !context.stakesMiddlewareDecision
+  ) {
+    throw new Error('Approval rule requires stakes classification first.');
+  }
+  return {
+    stakes: context.stakes,
+    stakesScore: context.stakesScore,
+    stakesMiddlewareDecision: context.stakesMiddlewareDecision,
+  };
+}
+
+function buildEvaluation(
+  context: ToolCallContext,
+  overrides: Partial<
+    Pick<
+      ToolApprovalEvaluation,
+      | 'baseTier'
+      | 'tier'
+      | 'decision'
+      | 'escalationRoute'
+      | 'requestId'
+      | 'expiresAtMs'
+      | 'consequenceIfDenied'
+      | 'reason'
+    >
+  > = {},
+): ToolApprovalEvaluation {
+  const classified = requireClassified(context);
+  const fingerprint = requireFingerprint(context);
+  const pinnedByPolicy = requirePinned(context);
+  const autonomyLevel = requireAutonomyLevel(context);
+  const stakes = requireStakes(context);
+  const baseTier = overrides.baseTier || requireBaseTier(context);
+  const tier = overrides.tier || context.tier || baseTier;
+  const nextDecision = overrides.decision || context.decision || 'auto';
+  const escalationRoute =
+    overrides.escalationRoute || escalationRouteForDecision(nextDecision, tier);
+
+  return {
+    baseTier,
+    tier,
+    autonomyLevel,
+    stakes: stakes.stakes,
+    stakesScore: stakes.stakesScore,
+    stakesMiddlewareDecision: stakes.stakesMiddlewareDecision,
+    escalationRoute,
+    ...(context.escalationTarget
+      ? { escalationTarget: context.escalationTarget }
+      : {}),
+    decision: nextDecision,
+    actionKey: classified.actionKey,
+    fingerprint,
+    ...(overrides.requestId ? { requestId: overrides.requestId } : {}),
+    ...(typeof overrides.expiresAtMs === 'number'
+      ? { expiresAtMs: overrides.expiresAtMs }
+      : {}),
+    intent: classified.intent,
+    consequenceIfDenied:
+      overrides.consequenceIfDenied || classified.consequenceIfDenied,
+    reason: overrides.reason || classified.reason,
+    commandPreview: classified.commandPreview,
+    pinned: pinnedByPolicy,
+    ...(context.anomaly ? { anomaly: context.anomaly } : {}),
+    implicitDelayMs:
+      tier === 'yellow' &&
+      nextDecision === 'implicit' &&
+      context.helpers.shouldApplyImplicitDelay(
+        context.params.toolName,
+        context.params.channelId,
+      )
+        ? YELLOW_IMPLICIT_DELAY_MS
+        : undefined,
+    hostHints: classified.hostHints,
+  };
+}
+
+function buildPipelineFailureEvaluation(
+  context: ToolCallContext,
+  ruleName: ApprovalRuleName | 'pipeline_fallback',
+  error?: unknown,
+): ToolApprovalEvaluation {
+  const classified = context.classified ||
+    safeClassifyAction(context) || {
+      tier: 'red',
+      actionKey: `approval-pipeline:${ruleName}`,
+      intent: `evaluate approval rule ${ruleName}`,
+      consequenceIfDenied:
+        'I will skip this tool call until the approval policy is fixed.',
+      reason: 'approval policy rule evaluation failed',
+      commandPreview: normalizePreview(context.params.argsJson),
+      pathHints: [],
+      hostHints: [],
+      writeIntent: false,
+      promotableRed: false,
+      stickyYellow: true,
+    };
+  const fingerprint =
+    context.fingerprint ||
+    stableHash(
+      [
+        context.params.toolName,
+        classified.actionKey,
+        normalizePreview(classified.commandPreview),
+        normalizeText(JSON.stringify(context.args)),
+      ].join('|'),
+    );
+  const message =
+    error instanceof Error ? error.message : String(error || 'unknown error');
+  const stakesScore: StakesScore = context.stakesScore || {
+    level: 'high',
+    score: 1,
+    confidence: 1,
+    classifier: 'approval-policy',
+    signals: [],
+    reasons: [`approval rule ${ruleName} failed: ${message}`],
+  };
+
+  return {
+    baseTier: 'red',
+    tier: 'red',
+    autonomyLevel: context.autonomyLevel || 'confirm-each',
+    stakes: context.stakes || stakesScore.level,
+    stakesScore,
+    stakesMiddlewareDecision: context.stakesMiddlewareDecision || {
+      action: 'block',
+      reason: `approval rule ${ruleName} failed: ${message}`,
+    },
+    escalationRoute: 'policy_denial',
+    ...(context.escalationTarget
+      ? { escalationTarget: context.escalationTarget }
+      : {}),
+    decision: 'denied',
+    actionKey: classified.actionKey,
+    fingerprint,
+    intent: classified.intent,
+    consequenceIfDenied:
+      'I will skip this tool call until the approval policy is fixed.',
+    reason: `Approval policy rule ${ruleName} failed: ${message}`,
+    commandPreview: classified.commandPreview,
+    pinned: context.pinnedByPolicy === true,
+    ...(context.anomaly ? { anomaly: context.anomaly } : {}),
+    hostHints: classified.hostHints,
+  };
+}
+
+function safeClassifyAction(context: ToolCallContext): ClassifiedAction | null {
+  try {
+    return context.helpers.classifyAction(
+      context.params.toolName,
+      context.args,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function isRedRuleActive(context: ToolCallContext): boolean {
+  return requireBaseTier(context) === 'red' && context.decision === 'auto';
+}
+
+function elevateApprovalTier(tier: ApprovalTier): ApprovalTier {
+  if (tier === 'green') return 'yellow';
+  if (tier === 'yellow') return 'red';
+  return 'red';
+}
+
+export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
+  policy_reload(context) {
+    context.policy = context.helpers.reloadPolicyIfNeeded();
+    context.helpers.cleanupExpiredPending();
+    return nextRule();
+  },
+
+  classify_action(context) {
+    context.classified = context.helpers.classifyAction(
+      context.params.toolName,
+      context.args,
+    );
+    context.decision = 'auto';
+    return nextRule();
+  },
+
+  fingerprint(context) {
+    const classified = requireClassified(context);
+    context.fingerprint = stableHash(
+      [
+        context.params.toolName,
+        classified.actionKey,
+        normalizePreview(classified.commandPreview),
+        normalizeText(JSON.stringify(context.args)),
+      ].join('|'),
+    );
+    return nextRule();
+  },
+
+  pinned_red(context) {
+    const classified = requireClassified(context);
+    context.pinnedByPolicy = context.helpers.isPinnedRed({
+      toolName: context.params.toolName,
+      preview: classified.commandPreview,
+      pathHints: classified.pathHints,
+      args: context.args,
+    });
+    return nextRule();
+  },
+
+  autonomy(context) {
+    const classified = requireClassified(context);
+    context.autonomyLevel = context.helpers.resolveAutonomyLevel({
+      toolName: context.params.toolName,
+      actionKey: classified.actionKey,
+    });
+    return nextRule();
+  },
+
+  safety_tier(context) {
+    const classified = requireClassified(context);
+    const pinnedByPolicy = requirePinned(context);
+    context.safetyTier =
+      pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
+    context.baseTier = context.safetyTier;
+    context.tier = context.safetyTier;
+    return nextRule();
+  },
+
+  stakes(context) {
+    const classified = requireClassified(context);
+    const pinnedByPolicy = requirePinned(context);
+    const safetyTier = context.safetyTier || requireBaseTier(context);
+    const stakesMiddleware = context.helpers.runStakesMiddleware({
+      toolName: context.params.toolName,
+      args: context.args,
+      actionKey: classified.actionKey,
+      intent: classified.intent,
+      reason: classified.reason,
+      target: classified.commandPreview,
+      approvalTier: safetyTier,
+      pathHints: classified.pathHints,
+      hostHints: classified.hostHints,
+      writeIntent: classified.writeIntent,
+      pinned: pinnedByPolicy,
+    });
+    context.stakesScore = stakesMiddleware.stakesScore;
+    context.stakes = stakesMiddleware.stakesScore.level;
+    context.stakesMiddlewareDecision = stakesMiddleware.decision;
+    return nextRule();
+  },
+
+  anomaly_reranker(context) {
+    const classified = requireClassified(context);
+    const currentTier = context.tier || requireBaseTier(context);
+    const anomaly = context.helpers.scoreBehaviorAnomaly({
+      toolName: context.params.toolName,
+      args: context.args,
+      actionKey: classified.actionKey,
+      pathHints: classified.pathHints,
+      hostHints: classified.hostHints,
+      writeIntent: classified.writeIntent,
+      now: context.params.now,
+    });
+    context.anomaly = anomaly;
+    if (
+      anomaly.status === 'scored' &&
+      anomaly.threshold != null &&
+      anomaly.score > anomaly.threshold &&
+      currentTier !== 'red'
+    ) {
+      const elevatedTier = elevateApprovalTier(currentTier);
+      context.tier = elevatedTier;
+      context.decision = 'auto';
+    }
+    return nextRule();
+  },
+
+  autonomy_override(context) {
+    const autonomyLevel = requireAutonomyLevel(context);
+    const { stakes } = requireStakes(context);
+    context.outOfBoundByAutonomy = false;
+    if (autonomyLevel === 'confirm-each') {
+      context.outOfBoundByAutonomy = true;
+      context.baseTier = 'red';
+      context.tier = 'red';
+    } else if (autonomyLevel === 'low-stakes-autonomous' && stakes !== 'low') {
+      context.outOfBoundByAutonomy = true;
+      context.baseTier = 'red';
+      context.tier = 'red';
+    }
+    return nextRule();
+  },
+
+  red_hard_deny(context) {
+    const classified = requireClassified(context);
+    if (!isRedRuleActive(context) || !classified.hardDeny) return nextRule();
+    return decision(
+      buildEvaluation(context, {
+        tier: 'red',
+        decision: 'denied',
+        escalationRoute: 'policy_denial',
+      }),
+    );
+  },
+
+  red_one_shot(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const fingerprint = requireFingerprint(context);
+    if (!context.helpers.hasOneShotFingerprint(fingerprint)) return nextRule();
+    context.helpers.consumeOneShotFingerprint(fingerprint);
+    context.tier = requirePinned(context) ? 'red' : 'yellow';
+    context.decision = 'approved_once';
+    return nextRule();
+  },
+
+  red_session_trust(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const classified = requireClassified(context);
+    if (
+      requirePinned(context) ||
+      !context.helpers.hasSessionTrust(
+        classified.actionKey,
+        requireFingerprint(context),
+      )
+    ) {
+      return nextRule();
+    }
+    context.tier = 'yellow';
+    context.decision = 'approved_session';
+    return nextRule();
+  },
+
+  red_agent_trust(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const classified = requireClassified(context);
+    if (
+      requirePinned(context) ||
+      !context.helpers.hasAgentTrust(
+        classified.actionKey,
+        requireFingerprint(context),
+      )
+    ) {
+      return nextRule();
+    }
+    context.tier = 'yellow';
+    context.decision = 'approved_agent';
+    return nextRule();
+  },
+
+  red_workspace_trust(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const classified = requireClassified(context);
+    if (
+      requirePinned(context) ||
+      !context.helpers.hasWorkspaceTrust(
+        classified.actionKey,
+        requireFingerprint(context),
+      )
+    ) {
+      return nextRule();
+    }
+    context.tier = 'yellow';
+    context.decision = 'approved_all';
+    return nextRule();
+  },
+
+  red_promotable(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const classified = requireClassified(context);
+    const promotable =
+      !requirePinned(context) &&
+      classified.promotableRed &&
+      context.helpers.getExplicitApprovalCount(classified.actionKey) > 0;
+    if (!promotable) return nextRule();
+    context.tier = 'yellow';
+    context.decision = 'promoted';
+    return nextRule();
+  },
+
+  red_full_auto(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const classified = requireClassified(context);
+    if (
+      context.helpers.isFullAutoEnabled() &&
+      !context.outOfBoundByAutonomy &&
+      !context.helpers.shouldNeverAutoApprove(
+        context.params.toolName,
+        classified.actionKey,
+      )
+    ) {
+      context.tier = 'yellow';
+      context.decision = 'approved_fullauto';
+    }
+    return nextRule();
+  },
+
+  red_queue(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    if (
+      context.helpers.getPendingCount() < context.policy.maxPendingApprovals
+    ) {
+      return nextRule();
+    }
+    return decision(
+      buildEvaluation(context, {
+        tier: 'red',
+        decision: 'denied',
+        escalationRoute: 'policy_denial',
+        consequenceIfDenied:
+          'If this is denied, I will continue with non-destructive alternatives only.',
+        reason: `Approval queue is full (${context.policy.maxPendingApprovals} pending).`,
+      }),
+    );
+  },
+
+  red_prompt(context) {
+    if (!isRedRuleActive(context)) return nextRule();
+    const classified = requireClassified(context);
+    const request = context.helpers.getOrCreatePending({
+      fingerprint: requireFingerprint(context),
+      actionKey: classified.actionKey,
+      toolName: context.params.toolName,
+      intent: classified.intent,
+      consequenceIfDenied: classified.consequenceIfDenied,
+      reason: classified.reason,
+      commandPreview: classified.commandPreview,
+      originalPrompt: context.params.latestUserPrompt,
+      pinned: requirePinned(context),
+    });
+    return decision(
+      buildEvaluation(context, {
+        tier: 'red',
+        decision: 'required',
+        escalationRoute: 'approval_request',
+        requestId: request.id,
+        expiresAtMs: request.expiresAtMs,
+      }),
+    );
+  },
+
+  yellow_full_auto(context) {
+    const classified = requireClassified(context);
+    if (
+      context.tier === 'yellow' &&
+      context.decision === 'auto' &&
+      context.helpers.isFullAutoEnabled() &&
+      !context.outOfBoundByAutonomy &&
+      !context.helpers.shouldNeverAutoApprove(
+        context.params.toolName,
+        classified.actionKey,
+      )
+    ) {
+      context.decision = 'approved_fullauto';
+    }
+    return nextRule();
+  },
+
+  yellow_execution_promotion(context) {
+    const classified = requireClassified(context);
+    if (context.tier !== 'yellow') return nextRule();
+    const executions = context.helpers.getActionExecutionCount(
+      classified.actionKey,
+    );
+    if (!classified.stickyYellow && executions >= 1) {
+      context.tier = 'green';
+      if (context.decision === 'auto') context.decision = 'promoted';
+    } else if (context.decision === 'auto') {
+      context.decision = 'implicit';
+    }
+    return nextRule();
+  },
+
+  green_fallback(context) {
+    return decision(buildEvaluation(context));
+  },
+};
+
+export function runApprovalRulePipeline(context: ToolCallContext): Decision {
+  const emitHookEvent = context.helpers.emitHookEvent;
+  for (
+    let index = 0;
+    index < context.policy.approvalRuleOrder.length;
+    index += 1
+  ) {
+    const ruleName = context.policy.approvalRuleOrder[index];
+    const rule = approvalRules[ruleName];
+    if (emitHookEvent) {
+      emitHookEvent({
+        hook: 'pre_tool_use',
+        kind: 'approval_rule',
+        ruleName,
+        toolName: context.params.toolName,
+        actionKey: context.classified?.actionKey,
+        decision: context.decision,
+      });
+    }
+    let result: ApprovalRuleResult;
+    try {
+      if (!rule) {
+        throw new Error(`approval rule is not registered: ${ruleName}`);
+      }
+      result = rule(context);
+    } catch (error) {
+      console.error(
+        `[approval-policy] approval rule ${ruleName} failed; denying tool call:`,
+        error,
+      );
+      result = decision(
+        buildPipelineFailureEvaluation(context, ruleName, error),
+      );
+    }
+    if (emitHookEvent) {
+      emitHookEvent({
+        hook: 'post_tool_use',
+        kind: 'approval_rule',
+        ruleName,
+        toolName: context.params.toolName,
+        actionKey: context.classified?.actionKey,
+        decision:
+          result.kind === 'decision'
+            ? result.evaluation.decision
+            : context.decision,
+      });
+    }
+    if (result.kind === 'decision') return result;
+  }
+  console.error(
+    '[approval-policy] approval rule pipeline reached fallback without a terminal decision; denying tool call.',
+  );
+  return decision(buildPipelineFailureEvaluation(context, 'pipeline_fallback'));
+}
+
+export class TrustedAgentApprovalRuntime {
   private readonly policyPath: string;
   private readonly agentTrustStorePath: string;
   private readonly legacyAgentTrustStorePath: string;
   private readonly trustStorePath: string;
+  private readonly pendingStorePath: string;
   private loadedPolicy: ApprovalPolicyConfig = DEFAULT_POLICY;
   private policyMtimeMs = -1;
   private readonly pending = new Map<string, PendingApproval>();
@@ -992,19 +1976,30 @@ export class TrustedCoworkerApprovalRuntime {
   private readonly allowlistedActions = new Set<string>();
   private readonly allowlistedFingerprints = new Set<string>();
   private readonly seenNetworkHosts = new Set<string>();
+  private readonly invalidPinnedRedPatternWarnings = new Set<string>();
+  private readonly stakesClassifier: StakesClassifier;
+  private readonly stakesMiddleware: ClassifierMiddlewareSkill<StakesMiddlewareContext>;
+  private readonly behaviorAnomalyReranker: BehaviorAnomalyReranker;
   private fullAutoEnabled = false;
   private readonly fullAutoNeverApprove = new Set<string>();
+  private approvalRuleHookEmitter: ApprovalRuleHookEmitter | null = null;
 
   constructor(
     policyPath = POLICY_PATH,
     agentTrustStorePath = AGENT_TRUST_STORE_PATH,
     trustStorePath = TRUST_STORE_PATH,
     legacyAgentTrustStorePath = LEGACY_AGENT_TRUST_STORE_PATH,
+    stakesClassifier: StakesClassifier = createStakesClassifier(),
+    pendingStorePath = PENDING_APPROVAL_STORE_PATH,
   ) {
     this.policyPath = policyPath;
     this.agentTrustStorePath = agentTrustStorePath;
     this.trustStorePath = trustStorePath;
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
+    this.pendingStorePath = pendingStorePath;
+    this.stakesClassifier = stakesClassifier;
+    this.stakesMiddleware = createStakesMiddlewareSkill(this.stakesClassifier);
+    this.behaviorAnomalyReranker = new BehaviorAnomalyReranker();
     this.reloadPolicyIfNeeded(true);
     this.loadPersistedTrustStore({
       trustStorePath: this.agentTrustStorePath,
@@ -1017,6 +2012,36 @@ export class TrustedCoworkerApprovalRuntime {
       actionSet: this.allowlistedActions,
       fingerprintSet: this.allowlistedFingerprints,
     });
+    this.loadPersistedPendingApprovals();
+  }
+
+  setApprovalRuleHookEmitter(
+    emitter: ApprovalRuleHookEmitter | null | undefined,
+  ): void {
+    this.approvalRuleHookEmitter = emitter || null;
+  }
+
+  private runStakesMiddleware(
+    context: Omit<StakesMiddlewareContext, 'recordStakesScore'>,
+  ): StakesMiddlewareResult {
+    let stakesScore: StakesScore | null = null;
+    const outcome = applyClassifierMiddlewareSync(
+      'pre_send',
+      [this.stakesMiddleware],
+      {
+        ...context,
+        recordStakesScore(score) {
+          stakesScore = score;
+        },
+      },
+    );
+    if (!stakesScore) {
+      throw new Error('Stakes middleware did not record a stakes score.');
+    }
+    return {
+      decision: outcome.decision,
+      stakesScore,
+    };
   }
 
   setFullAutoOptions(params?: {
@@ -1034,6 +2059,13 @@ export class TrustedCoworkerApprovalRuntime {
     }
   }
 
+  recordAnomalyTraceJudgeResult(
+    tuple: string,
+    result: BehaviorAnomalyTraceJudgeResult,
+  ): void {
+    this.behaviorAnomalyReranker.recordTraceJudgeResult(tuple, result);
+  }
+
   private shouldNeverAutoApprove(toolName: string, actionKey: string): boolean {
     if (this.fullAutoNeverApprove.size === 0) return false;
     const normalizedTool = toolName.trim().toLowerCase();
@@ -1042,6 +2074,69 @@ export class TrustedCoworkerApprovalRuntime {
       this.fullAutoNeverApprove.has(normalizedTool) ||
       this.fullAutoNeverApprove.has(normalizedAction)
     );
+  }
+
+  private createToolCallContextHelpers(): ToolCallContextHelpers {
+    return {
+      reloadPolicyIfNeeded: () => this.reloadPolicyIfNeeded(),
+      cleanupExpiredPending: () => this.cleanupExpiredPending(),
+      classifyAction: (toolName, args) => this.classifyAction(toolName, args),
+      isPinnedRed: (input) => this.isPinnedRed(input),
+      resolveAutonomyLevel: (input) => this.resolveAutonomyLevel(input),
+      runStakesMiddleware: (context) => this.runStakesMiddleware(context),
+      scoreBehaviorAnomaly: (input) =>
+        this.behaviorAnomalyReranker.score(input),
+      hasOneShotFingerprint: (fingerprint) =>
+        this.oneShotFingerprints.has(fingerprint),
+      consumeOneShotFingerprint: (fingerprint) => {
+        this.oneShotFingerprints.delete(fingerprint);
+      },
+      hasSessionTrust: (actionKey, fingerprint) =>
+        this.sessionTrustedActions.has(actionKey) ||
+        this.sessionTrustedActions.has(fingerprint),
+      hasAgentTrust: (actionKey, fingerprint) =>
+        this.agentTrustedActions.has(actionKey) ||
+        this.agentTrustedFingerprints.has(fingerprint),
+      hasWorkspaceTrust: (actionKey, fingerprint) =>
+        this.allowlistedActions.has(actionKey) ||
+        this.allowlistedFingerprints.has(fingerprint),
+      getExplicitApprovalCount: (actionKey) =>
+        this.explicitApprovalCounts.get(actionKey) || 0,
+      isFullAutoEnabled: () => this.fullAutoEnabled,
+      shouldNeverAutoApprove: (toolName, actionKey) =>
+        this.shouldNeverAutoApprove(toolName, actionKey),
+      getPendingCount: () => this.pending.size,
+      getOrCreatePending: (input) => this.getOrCreatePending(input),
+      getActionExecutionCount: (actionKey) =>
+        this.actionExecutionCounts.get(actionKey) || 0,
+      shouldApplyImplicitDelay: (toolName, channelId) =>
+        this.shouldApplyImplicitDelay(toolName, channelId),
+      ...(this.approvalRuleHookEmitter
+        ? {
+            emitHookEvent: (event) => this.emitApprovalRuleHookEvent(event),
+          }
+        : {}),
+    };
+  }
+
+  private emitApprovalRuleHookEvent(event: ApprovalRuleHookEvent): void {
+    if (!this.approvalRuleHookEmitter) return;
+    try {
+      const result = this.approvalRuleHookEmitter(event);
+      if (result && typeof result === 'object' && 'catch' in result) {
+        void result.catch((error) => {
+          console.error(
+            '[approval-policy] approval rule hook emitter failed:',
+            error,
+          );
+        });
+      }
+    } catch (error) {
+      console.error(
+        '[approval-policy] approval rule hook emitter failed:',
+        error,
+      );
+    }
   }
 
   private getCurrentAgentId(): string {
@@ -1057,32 +2152,15 @@ export class TrustedCoworkerApprovalRuntime {
     path: string;
     agentId?: string;
   }): { decision: NetworkPolicyAction | 'prompt'; matchedRule?: NetworkRule } {
-    const normalizedHost = String(params.host || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\.$/, '');
-    const normalizedMethod =
-      String(params.method || '')
-        .trim()
-        .toUpperCase() || 'GET';
-    const normalizedPath = params.path || '/';
-    const normalizedAgent = normalizeNetworkAgent(
-      params.agentId || this.getCurrentAgentId(),
-    );
-
-    for (const rule of this.loadedPolicy.networkRules) {
-      if (!matchesHostPattern(rule.host, normalizedHost)) continue;
-      if (rule.port !== '*' && rule.port !== params.port) continue;
-      if (!matchesMethodPattern(rule.methods, normalizedMethod)) continue;
-      if (!matchesNetworkPathPattern(rule.paths, normalizedPath)) continue;
-      if (!matchesAgentPattern(rule.agent, normalizedAgent)) continue;
-      return { decision: rule.action, matchedRule: rule };
-    }
-
-    return {
-      decision:
-        this.loadedPolicy.networkDefault === 'allow' ? 'allow' : 'prompt',
-    };
+    return evaluateNetworkPolicyAccess({
+      rules: this.loadedPolicy.networkRules,
+      defaultAction: this.loadedPolicy.networkDefault,
+      host: params.host,
+      port: params.port,
+      method: params.method,
+      path: params.path,
+      agentId: params.agentId || this.getCurrentAgentId(),
+    });
   }
 
   reloadPolicyIfNeeded(force = false): ApprovalPolicyConfig {
@@ -1160,6 +2238,52 @@ export class TrustedCoworkerApprovalRuntime {
     }
   }
 
+  private loadPersistedPendingApprovals(): void {
+    try {
+      if (!fs.existsSync(this.pendingStorePath)) return;
+      const parsed = parsePersistedPendingApprovalStore(
+        fs.readFileSync(this.pendingStorePath, 'utf-8'),
+      );
+      if (!parsed) return;
+      const now = Date.now();
+      let droppedExpiredCount = 0;
+      for (const pending of parsed.pending) {
+        if (pending.expiresAtMs <= now) {
+          droppedExpiredCount += 1;
+          continue;
+        }
+        this.pending.set(pending.id, pending);
+      }
+      if (droppedExpiredCount > 0) {
+        console.warn(
+          `[approval-policy] dropped ${droppedExpiredCount} expired persisted pending approval(s) on load`,
+        );
+        this.persistPendingApprovals();
+      }
+    } catch {
+      // ignore persistence failures and continue with in-memory pending approvals
+    }
+  }
+
+  private persistPendingApprovals(): void {
+    const payload: PersistedPendingApprovalStore = {
+      version: 1,
+      pending: [...this.pending.values()].sort(
+        (left, right) => left.createdAtMs - right.createdAtMs,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const dir = path.dirname(this.pendingStorePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = `${this.pendingStorePath}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, this.pendingStorePath);
+    } catch {
+      // ignore persistence failures and continue with in-memory pending approvals
+    }
+  }
+
   handleApprovalResponse(messages: ChatMessage[]): ApprovalPrelude | null {
     this.reloadPolicyIfNeeded();
     this.cleanupExpiredPending();
@@ -1180,6 +2304,7 @@ export class TrustedCoworkerApprovalRuntime {
 
     if (parsedResponse.kind === 'deny') {
       this.pending.delete(target.id);
+      this.persistPendingApprovals();
       return {
         immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
       };
@@ -1188,6 +2313,7 @@ export class TrustedCoworkerApprovalRuntime {
     const requestedMode = parsedResponse.mode || 'once';
     let mode: ApprovalMode = requestedMode;
     this.pending.delete(target.id);
+    this.persistPendingApprovals();
     if (requestedMode === 'session') {
       if (target.pinned) {
         // Pinned-red actions are never session-trusted. Approve only this single run.
@@ -1262,179 +2388,18 @@ export class TrustedCoworkerApprovalRuntime {
     argsJson: string;
     latestUserPrompt: string;
     channelId?: string;
+    escalationTarget?: EscalationTarget;
+    now?: Date;
   }): ToolApprovalEvaluation {
-    this.reloadPolicyIfNeeded();
-    this.cleanupExpiredPending();
-    const args = parseJsonObject(params.argsJson);
-    const classified = this.classifyAction(params.toolName, args);
-
-    const fingerprint = stableHash(
-      [
-        params.toolName,
-        classified.actionKey,
-        normalizePreview(classified.commandPreview),
-        normalizeText(JSON.stringify(args)),
-      ].join('|'),
-    );
-
-    const pinnedByPolicy = this.isPinnedRed({
-      toolName: params.toolName,
-      preview: classified.commandPreview,
-      pathHints: classified.pathHints,
-      args,
-    });
-    const baseTier: ApprovalTier =
-      pinnedByPolicy || classified.tier === 'red' ? 'red' : classified.tier;
-
-    let tier: ApprovalTier = baseTier;
-    let decision: ApprovalDecision = 'auto';
-
-    if (baseTier === 'red') {
-      if (classified.hardDeny) {
-        return {
-          baseTier,
-          tier: 'red',
-          decision: 'denied',
-          actionKey: classified.actionKey,
-          fingerprint,
-          intent: classified.intent,
-          consequenceIfDenied: classified.consequenceIfDenied,
-          reason: classified.reason,
-          commandPreview: classified.commandPreview,
-          pinned: pinnedByPolicy,
-          hostHints: classified.hostHints,
-        };
-      }
-
-      const oneShotApproved = this.oneShotFingerprints.has(fingerprint);
-      const sessionApproved =
-        !pinnedByPolicy &&
-        (this.sessionTrustedActions.has(classified.actionKey) ||
-          this.sessionTrustedActions.has(fingerprint));
-      const agentApproved =
-        !pinnedByPolicy &&
-        (this.agentTrustedActions.has(classified.actionKey) ||
-          this.agentTrustedFingerprints.has(fingerprint));
-      const allowlisted =
-        !pinnedByPolicy &&
-        (this.allowlistedActions.has(classified.actionKey) ||
-          this.allowlistedFingerprints.has(fingerprint));
-      const promotable =
-        !pinnedByPolicy &&
-        classified.promotableRed &&
-        (this.explicitApprovalCounts.get(classified.actionKey) || 0) > 0;
-
-      if (oneShotApproved) {
-        this.oneShotFingerprints.delete(fingerprint);
-        tier = pinnedByPolicy ? 'red' : 'yellow';
-        decision = 'approved_once';
-      } else if (sessionApproved) {
-        tier = 'yellow';
-        decision = 'approved_session';
-      } else if (agentApproved) {
-        tier = 'yellow';
-        decision = 'approved_agent';
-      } else if (allowlisted) {
-        tier = 'yellow';
-        decision = 'approved_all';
-      } else if (promotable) {
-        tier = 'yellow';
-        decision = 'promoted';
-      } else if (
-        this.fullAutoEnabled &&
-        !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
-      ) {
-        tier = 'yellow';
-        decision = 'approved_fullauto';
-      } else {
-        if (this.pending.size >= this.loadedPolicy.maxPendingApprovals) {
-          return {
-            baseTier,
-            tier: 'red',
-            decision: 'denied',
-            actionKey: classified.actionKey,
-            fingerprint,
-            intent: classified.intent,
-            consequenceIfDenied:
-              'If this is denied, I will continue with non-destructive alternatives only.',
-            reason: `Approval queue is full (${this.loadedPolicy.maxPendingApprovals} pending).`,
-            commandPreview: classified.commandPreview,
-            pinned: pinnedByPolicy,
-            hostHints: classified.hostHints,
-          };
-        }
-        const request = this.getOrCreatePending({
-          fingerprint,
-          actionKey: classified.actionKey,
-          toolName: params.toolName,
-          intent: classified.intent,
-          consequenceIfDenied: classified.consequenceIfDenied,
-          reason: classified.reason,
-          commandPreview: classified.commandPreview,
-          originalPrompt: params.latestUserPrompt,
-          pinned: pinnedByPolicy,
-        });
-        return {
-          baseTier,
-          tier: 'red',
-          decision: 'required',
-          actionKey: classified.actionKey,
-          fingerprint,
-          requestId: request.id,
-          expiresAtMs: request.expiresAtMs,
-          intent: classified.intent,
-          consequenceIfDenied: classified.consequenceIfDenied,
-          reason: classified.reason,
-          commandPreview: classified.commandPreview,
-          pinned: pinnedByPolicy,
-          hostHints: classified.hostHints,
-        };
-      }
-    }
-
-    if (
-      tier === 'yellow' &&
-      decision === 'auto' &&
-      this.fullAutoEnabled &&
-      !this.shouldNeverAutoApprove(params.toolName, classified.actionKey)
-    ) {
-      decision = 'approved_fullauto';
-    }
-
-    if (tier === 'yellow') {
-      const executions =
-        this.actionExecutionCounts.get(classified.actionKey) || 0;
-      if (!classified.stickyYellow && executions >= 1) {
-        tier = 'green';
-        if (decision === 'auto') decision = 'promoted';
-      } else if (decision === 'auto') {
-        decision = 'implicit';
-      }
-    }
-
-    if (tier === 'green' && decision === 'auto') {
-      decision = 'auto';
-    }
-
-    return {
-      baseTier,
-      tier,
-      decision,
-      actionKey: classified.actionKey,
-      fingerprint,
-      intent: classified.intent,
-      consequenceIfDenied: classified.consequenceIfDenied,
-      reason: classified.reason,
-      commandPreview: classified.commandPreview,
-      pinned: pinnedByPolicy,
-      implicitDelayMs:
-        tier === 'yellow' &&
-        decision === 'implicit' &&
-        this.shouldApplyImplicitDelay(params.toolName, params.channelId)
-          ? YELLOW_IMPLICIT_DELAY_MS
-          : undefined,
-      hostHints: classified.hostHints,
+    const context: ToolCallContext = {
+      params,
+      args: parseJsonObject(params.argsJson),
+      policy: this.loadedPolicy,
+      outOfBoundByAutonomy: false,
+      escalationTarget: normalizeEscalationTarget(params.escalationTarget),
+      helpers: this.createToolCallContextHelpers(),
     };
+    return runApprovalRulePipeline(context).evaluation;
   }
 
   afterToolExecution(
@@ -1443,6 +2408,15 @@ export class TrustedCoworkerApprovalRuntime {
   ): void {
     if (!succeeded) return;
     this.bumpCount(this.actionExecutionCounts, evaluation.actionKey);
+    if (
+      evaluation.decision !== 'required' &&
+      evaluation.decision !== 'denied' &&
+      evaluation.anomaly
+    ) {
+      this.behaviorAnomalyReranker.recordApprovedTuple(
+        evaluation.anomaly.tuple,
+      );
+    }
     if (evaluation.hostHints.length > 0) {
       for (const host of evaluation.hostHints) {
         this.seenNetworkHosts.add(host.toLowerCase());
@@ -1489,6 +2463,13 @@ export class TrustedCoworkerApprovalRuntime {
         ];
     return [
       `I need your approval before I ${evaluation.intent.toLowerCase()}.`,
+      `Proposed action: ${evaluation.commandPreview || evaluation.intent}`,
+      `Classifier reasoning: ${formatStakesReasoning(evaluation.stakesScore)}`,
+      ...(evaluation.escalationTarget
+        ? [
+            `Escalation target: ${evaluation.escalationTarget.channel} / ${evaluation.escalationTarget.recipient}`,
+          ]
+        : []),
       `Why: ${evaluation.reason}`,
       `If you skip this, ${evaluation.consequenceIfDenied.charAt(0).toLowerCase()}${evaluation.consequenceIfDenied.slice(1)}`,
       requestLabel,
@@ -1513,6 +2494,7 @@ export class TrustedCoworkerApprovalRuntime {
       expiresAtMs: createdAtMs + this.loadedPolicy.approvalTimeoutSecs * 1_000,
     };
     this.pending.set(pending.id, pending);
+    this.persistPendingApprovals();
     return pending;
   }
 
@@ -1531,15 +2513,33 @@ export class TrustedCoworkerApprovalRuntime {
 
   private cleanupExpiredPending(): void {
     const now = Date.now();
+    let changed = false;
     for (const [id, pending] of this.pending.entries()) {
       if (pending.expiresAtMs <= now) {
         this.pending.delete(id);
+        changed = true;
       }
+    }
+    if (changed) {
+      this.persistPendingApprovals();
     }
   }
 
   private bumpCount(map: Map<string, number>, key: string): void {
     map.set(key, (map.get(key) || 0) + 1);
+  }
+
+  private resolveAutonomyLevel(params: {
+    toolName: string;
+    actionKey: string;
+  }): AutonomyLevel {
+    const toolName = params.toolName.trim().toLowerCase();
+    const actionKey = params.actionKey.trim().toLowerCase();
+    return (
+      this.loadedPolicy.autonomy.actions[actionKey] ||
+      this.loadedPolicy.autonomy.tools[toolName] ||
+      this.loadedPolicy.autonomy.defaultLevel
+    );
   }
 
   private classifyNetworkTargets(params: {
@@ -1866,6 +2866,23 @@ export class TrustedCoworkerApprovalRuntime {
         intent: `run ${toolName}`,
         consequenceIfDenied: 'I will continue without image analysis.',
         reason: 'this action is read-only analysis of the provided image',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'delegate') {
+      return {
+        tier: 'green',
+        actionKey: lowerTool,
+        intent: 'start delegated agent work',
+        consequenceIfDenied: 'I will do the work in the current agent.',
+        reason:
+          'delegation is internal orchestration; child tool calls are classified separately',
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
         hostHints: [],
@@ -2242,8 +3259,8 @@ export class TrustedCoworkerApprovalRuntime {
         try {
           const re = new RegExp(rule.pattern, 'i');
           if (re.test(fullText)) return true;
-        } catch {
-          // ignore invalid policy regex
+        } catch (error) {
+          this.warnInvalidPinnedRedPattern(rule.pattern, error);
         }
       }
       if (Array.isArray(rule.paths) && rule.paths.length > 0) {
@@ -2257,5 +3274,14 @@ export class TrustedCoworkerApprovalRuntime {
       }
     }
     return false;
+  }
+
+  private warnInvalidPinnedRedPattern(pattern: string, error: unknown): void {
+    if (this.invalidPinnedRedPatternWarnings.has(pattern)) return;
+    this.invalidPinnedRedPatternWarnings.add(pattern);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[approval-policy] invalid pinned_red regex in ${this.policyPath}; rule will not match: ${pattern} (${message})`,
+    );
   }
 }

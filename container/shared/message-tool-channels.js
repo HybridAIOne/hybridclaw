@@ -3,8 +3,10 @@ export const MESSAGE_TOOL_CHANNEL_KINDS = [
   'email',
   'imessage',
   'msteams',
+  'signal',
   'slack',
   'telegram',
+  'threema',
   'tui',
   'whatsapp',
 ];
@@ -14,8 +16,10 @@ export const MESSAGE_TOOL_CHANNEL_LABELS = Object.freeze({
   email: 'email',
   imessage: 'iMessage',
   msteams: 'Microsoft Teams',
+  signal: 'Signal',
   slack: 'Slack',
   telegram: 'Telegram',
+  threema: 'Threema',
   tui: 'local TUI',
   whatsapp: 'WhatsApp',
 });

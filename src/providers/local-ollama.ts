@@ -30,6 +30,7 @@ async function resolveOllamaRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'ollama',
+    model: `ollama/${modelName}`,
     apiKey: '',
     baseUrl: resolveOllamaApiBase(LOCAL_OLLAMA_BASE_URL),
     chatbotId: '',

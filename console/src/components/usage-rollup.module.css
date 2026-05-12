@@ -1,0 +1,201 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.empty {
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+  margin: 0;
+}
+
+.summary {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ribbon {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  padding: 16px 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.metricLabel {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
+.metricValue {
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chartCanvas {
+  position: relative;
+  width: 100%;
+}
+
+.chartSvg {
+  display: block;
+  width: 100%;
+  height: 72px;
+  overflow: visible;
+}
+
+.area {
+  fill: var(--primary);
+  fill-opacity: 0.1;
+}
+
+.line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-opacity: 0.72;
+  stroke-width: 2.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.pointTarget {
+  outline: none;
+}
+
+.point {
+  fill: transparent;
+  stroke: transparent;
+}
+
+.pointTarget:focus-visible .point {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.crosshair {
+  stroke: color-mix(in srgb, var(--primary) 48%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute;
+  top: -32px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--panel-muted);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.tooltip[data-align="start"] {
+  transform: translateX(0);
+}
+
+.tooltip[data-align="end"] {
+  transform: translateX(-100%);
+}
+
+.tooltipLabel {
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.tooltipValue {
+  color: var(--text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.topModels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content 5.25rem;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+
+.topModelRow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+
+.topModelName {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topModelDetail {
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.topModelCost {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .ribbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 20px;
+  }
+}

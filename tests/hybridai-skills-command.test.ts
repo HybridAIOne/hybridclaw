@@ -1,7 +1,35 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, test, vi } from 'vitest';
+
+const runtimeHome = vi.hoisted(() => {
+  const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
+  const originalHome = process.env.HOME;
+  const getBuiltinModule = (
+    process as typeof process & {
+      getBuiltinModule?: (id: string) => unknown;
+    }
+  ).getBuiltinModule;
+  const fsModule = getBuiltinModule?.('fs') as
+    | { mkdtempSync: (prefix: string) => string }
+    | undefined;
+  const osModule = getBuiltinModule?.('os') as
+    | { tmpdir: () => string }
+    | undefined;
+  const pathModule = getBuiltinModule?.('path') as
+    | { join: (...parts: string[]) => string }
+    | undefined;
+  if (!fsModule || !osModule || !pathModule) {
+    throw new Error('Unable to initialize temporary runtime home for tests.');
+  }
+  const homeDir = fsModule.mkdtempSync(
+    pathModule.join(osModule.tmpdir(), 'hybridclaw-hybridai-skills-module-'),
+  );
+  process.env.HYBRIDCLAW_DATA_DIR = homeDir;
+  process.env.HOME = homeDir;
+  return { homeDir, originalDataDir, originalHome };
+});
 
 import { buildDefaultEvalProfile } from '../src/evals/eval-profile.js';
 import {
@@ -9,12 +37,28 @@ import {
   handleHybridaiSkillsCommand,
   harvestHybridaiSkillsFixtures,
   readHybridaiSkillsFixtures,
+  resolveHybridaiSkillsDocsRoot,
   syncHybridaiSkillsFixturesWithDocs,
   writeHybridaiSkillsFixtures,
 } from '../src/evals/hybridai-skills-command.js';
+import { resolveInstallPath } from '../src/infra/install-root.js';
 import { useTempDir } from './test-utils.ts';
 
 const makeTempDir = useTempDir('hybridclaw-hybridai-skills-');
+
+afterAll(() => {
+  if (runtimeHome.originalDataDir === undefined) {
+    delete process.env.HYBRIDCLAW_DATA_DIR;
+  } else {
+    process.env.HYBRIDCLAW_DATA_DIR = runtimeHome.originalDataDir;
+  }
+  if (runtimeHome.originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = runtimeHome.originalHome;
+  }
+  fs.rmSync(runtimeHome.homeDir, { recursive: true, force: true });
+});
 
 function writeDoc(dir: string, filename: string, body: string): string {
   const target = path.join(dir, filename);
@@ -100,6 +144,14 @@ const SAMPLE_DOC = [
   'Body only. No Try it yourself block.',
   '',
 ].join('\n');
+
+describe('resolveHybridaiSkillsDocsRoot', () => {
+  test('uses the canonical docs content tree', () => {
+    expect(resolveHybridaiSkillsDocsRoot()).toBe(
+      resolveInstallPath('docs', 'content', 'guides', 'skills'),
+    );
+  });
+});
 
 describe('harvestHybridaiSkillsFixtures', () => {
   test('extracts try-it-yourself prompts and attaches them to the right skill', () => {

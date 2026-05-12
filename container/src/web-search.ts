@@ -1,3 +1,9 @@
+import type {
+  SearchProviderMode,
+  SearchProviderName,
+  WebSearchConfig,
+} from '../shared/web-search-config.js';
+
 const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
 const MAX_COUNT = 10;
@@ -58,14 +64,12 @@ const BRAVE_LANGUAGE_ALIASES: Record<string, string> = {
   'zh-tw': 'zh-hant',
 };
 
-export type SearchProviderName =
-  | 'brave'
-  | 'perplexity'
-  | 'tavily'
-  | 'duckduckgo'
-  | 'searxng';
+export type {
+  SearchProviderMode,
+  SearchProviderName,
+  WebSearchConfig,
+} from '../shared/web-search-config.js';
 
-export type SearchProviderMode = SearchProviderName | 'auto';
 export type SearchFreshness = 'day' | 'week' | 'month' | 'year';
 
 export interface SearchProvider {
@@ -84,26 +88,7 @@ export interface SearchResult {
   age?: string;
 }
 
-export interface WebSearchConfig {
-  provider: SearchProviderMode;
-  fallbackProviders: SearchProviderName[];
-  defaultCount: number;
-  cacheTtlMinutes: number;
-  searxngBaseUrl: string;
-  tavilySearchDepth: 'basic' | 'advanced';
-  braveApiKey?: string;
-  perplexityApiKey?: string;
-  tavilyApiKey?: string;
-}
-
-export interface WebSearchRuntimeConfig {
-  provider: SearchProviderMode;
-  fallbackProviders: SearchProviderName[];
-  defaultCount: number;
-  cacheTtlMinutes: number;
-  searxngBaseUrl: string;
-  tavilySearchDepth: 'basic' | 'advanced';
-}
+export type WebSearchRuntimeConfig = WebSearchConfig;
 
 export interface WebSearchParams {
   query: string;
@@ -404,6 +389,15 @@ export function getWebSearchConfigFromEnv(
               ? 'basic'
               : 'advanced',
         }
+      : {}),
+    ...(override?.braveApiKey != null
+      ? { braveApiKey: String(override.braveApiKey || '').trim() }
+      : {}),
+    ...(override?.perplexityApiKey != null
+      ? { perplexityApiKey: String(override.perplexityApiKey || '').trim() }
+      : {}),
+    ...(override?.tavilyApiKey != null
+      ? { tavilyApiKey: String(override.tavilyApiKey || '').trim() }
       : {}),
   };
 }

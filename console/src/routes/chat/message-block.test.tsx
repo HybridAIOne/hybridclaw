@@ -12,9 +12,13 @@ import { MessageBlock } from './message-block';
 
 const fetchArtifactBlobMock =
   vi.fn<(token: string, artifactPath: string) => Promise<Blob>>();
+const fetchAgentAvatarBlobMock =
+  vi.fn<(token: string, imageUrl: string) => Promise<Blob>>();
 const renderMarkdownMock = vi.fn<(content: string) => string>();
 
 vi.mock('../../api/chat', () => ({
+  fetchAgentAvatarBlob: (token: string, imageUrl: string) =>
+    fetchAgentAvatarBlobMock(token, imageUrl),
   fetchArtifactBlob: (token: string, artifactPath: string) =>
     fetchArtifactBlobMock(token, artifactPath),
 }));
@@ -40,6 +44,7 @@ function makeMessage(
 
 describe('MessageBlock artifacts', () => {
   beforeEach(() => {
+    fetchAgentAvatarBlobMock.mockReset();
     fetchArtifactBlobMock.mockReset();
     renderMarkdownMock.mockReset();
     renderMarkdownMock.mockImplementation((content) => `<p>${content}</p>`);
@@ -98,6 +103,83 @@ describe('MessageBlock artifacts', () => {
     ).toBeNull();
   });
 
+  it('renders PDF previews from authenticated blob URLs', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['pdf-bytes'], { type: 'application/pdf' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage([
+          {
+            path: '/tmp/report.pdf',
+            filename: 'report.pdf',
+            mimeType: 'application/pdf',
+          },
+        ])}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const preview = await screen.findByTitle('report.pdf preview');
+    expect(preview.getAttribute('src')).toBe('blob:artifact');
+    expect(preview.getAttribute('sandbox')).toBe('');
+    expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
+      'test-token',
+      '/tmp/report.pdf',
+    );
+    expect(
+      container.querySelector('[src*="token="], [href*="token="]'),
+    ).toBeNull();
+  });
+
+  it('renders assistant avatars through the authenticated blob helper', async () => {
+    fetchAgentAvatarBlobMock.mockResolvedValue(
+      new Blob(['avatar-bytes'], { type: 'image/jpeg' }),
+    );
+
+    const { container } = render(
+      <MessageBlock
+        message={makeMessage([], {
+          assistantPresentation: {
+            agentId: 'stephan',
+            displayName: 'Stephan',
+            imageUrl: '/api/agent-avatar?agentId=stephan',
+          },
+        })}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(fetchAgentAvatarBlobMock).toHaveBeenCalledWith(
+        'test-token',
+        '/api/agent-avatar?agentId=stephan',
+      ),
+    );
+    const avatar = container.querySelector('img');
+    expect(avatar?.getAttribute('src')).toBe('blob:artifact');
+    expect(
+      container.querySelector('img[src="/api/agent-avatar?agentId=stephan"]'),
+    ).toBeNull();
+  });
+
   it('renders a local thinking placeholder without invoking markdown rendering', () => {
     const thinkingMessage: ChatUiMessage = {
       id: 'thinking-1',
@@ -125,9 +207,11 @@ describe('MessageBlock artifacts', () => {
     expect(container.querySelectorAll('span')).toHaveLength(3);
   });
 
-  it('downloads non-image artifacts through the authenticated blob helper', async () => {
+  it('downloads non-preview artifacts through the authenticated blob helper', async () => {
     fetchArtifactBlobMock.mockResolvedValue(
-      new Blob(['pdf-bytes'], { type: 'application/pdf' }),
+      new Blob(['docx-bytes'], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
     );
     const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
@@ -137,9 +221,10 @@ describe('MessageBlock artifacts', () => {
       <MessageBlock
         message={makeMessage([
           {
-            path: '/tmp/report.pdf',
-            filename: 'report.pdf',
-            mimeType: 'application/pdf',
+            path: '/tmp/report.docx',
+            filename: 'report.docx',
+            mimeType:
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           },
         ])}
         token="test-token"
@@ -159,7 +244,7 @@ describe('MessageBlock artifacts', () => {
     await waitFor(() =>
       expect(fetchArtifactBlobMock).toHaveBeenCalledWith(
         'test-token',
-        '/tmp/report.pdf',
+        '/tmp/report.docx',
       ),
     );
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);

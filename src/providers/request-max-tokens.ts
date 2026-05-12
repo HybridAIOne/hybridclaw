@@ -1,10 +1,9 @@
+import { positiveIntegerOrNull } from '../utils/number-normalization.js';
+
 export const DEFAULT_ANTHROPIC_PROVIDER_MAX_TOKENS = 32_000;
 
 function normalizePositiveInteger(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return undefined;
-  }
-  return Math.floor(value);
+  return positiveIntegerOrNull(value) ?? undefined;
 }
 
 export function isAnthropicProviderModel(model: string): boolean {

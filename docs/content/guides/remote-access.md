@@ -24,8 +24,9 @@ The safest default is still the same as local operation:
 - expose the loopback service with SSH or a host-managed Tailscale proxy instead
   of binding the gateway directly to the public internet
 
-HybridClaw does not automate Tailscale Serve/Funnel or manage SSH tunnels for
-you. Those parts are configured at the host or client OS layer.
+HybridClaw can manage Tailscale Funnel when
+`deployment.tunnel.provider=tailscale`. Tailscale Serve and SSH tunnels remain
+host or client OS concerns.
 
 ## Recommended Baseline
 
@@ -47,6 +48,30 @@ bearer token than the browser surfaces.
 If you prefer env-backed or store-backed secrets for long-lived setups, use the
 SecretRef support described in [Configuration](../reference/configuration.md)
 instead of storing plaintext tokens in `config.json`.
+
+### Troubleshooting: Console unavailable on a public URL
+
+If `/admin`, `/chat`, or `/agents` shows `Console unavailable` with a message
+that the console is localhost-only unless `WEB_API_TOKEN` is configured, the
+gateway is reachable through a non-loopback URL without browser auth enabled.
+This is expected for ngrok, Cloudflare Tunnel, Tailscale Funnel, reverse
+proxies, and other remote origins.
+
+Set a token, restart the gateway, then paste the same token into the browser
+prompt:
+
+```bash
+hybridclaw gateway stop
+hybridclaw secret set WEB_API_TOKEN "$(openssl rand -base64 32)"
+hybridclaw tui
+```
+
+For a one-process development run, export the token on the gateway command
+instead:
+
+```bash
+WEB_API_TOKEN="replace-with-a-long-random-token" hybridclaw gateway
+```
 
 ## SSH Tunnel
 
@@ -114,6 +139,49 @@ Example client config for a tailnet URL:
 hybridclaw config set ops.gatewayBaseUrl https://gateway-host.tailnet.ts.net
 hybridclaw config set ops.gatewayApiToken "replace-with-the-remote-token"
 ```
+
+## Deployment Config And Managed Tunnels
+
+Runtime config can record the intended exposure mode and tunnel provider:
+
+```bash
+hybridclaw config set deployment.mode local
+hybridclaw config set deployment.tunnel.provider ngrok
+hybridclaw config set deployment.tunnel.health_check_interval_ms 30000
+hybridclaw secret set NGROK_AUTHTOKEN "replace-with-your-ngrok-token"
+```
+
+The deployment keys make local, cloud, and tunnel-backed setups explicit in
+operator state. Manual SSH setups can use `manual` or `ssh` as the provider
+value. The built-in ngrok provider reads `NGROK_AUTHTOKEN` from encrypted
+runtime secrets, checks active tunnels every 30 seconds by default, and
+reconnects failed tunnels with capped backoff.
+
+For managed Tailscale Funnel:
+
+```bash
+hybridclaw config set deployment.mode local
+hybridclaw config set deployment.tunnel.provider tailscale
+hybridclaw secret set TS_AUTHKEY "replace-with-your-tailscale-authkey"
+```
+
+If the host is already logged in with `tailscale login`, `TS_AUTHKEY` is
+optional. See [Tailscale Funnel](./tailscale-funnel.md) for install, login,
+Funnel grant, and verification steps.
+
+For managed Cloudflare Tunnel:
+
+```bash
+hybridclaw config set deployment.mode local
+hybridclaw config set deployment.tunnel.provider cloudflare
+hybridclaw config set deployment.public_url https://hybridclaw.example.com
+hybridclaw secret set CLOUDFLARE_TUNNEL_TOKEN "replace-with-your-cloudflare-tunnel-token"
+```
+
+The Cloudflare route should bind the same public hostname to the local gateway
+service URL, for example `http://localhost:9090`. See
+[Cloudflare Tunnel](./cloudflare-tunnel.md) for `cloudflared` install, tunnel
+creation, locally managed credential, and hostname binding steps.
 
 ## macOS: Persistent SSH Tunnel Via LaunchAgent
 

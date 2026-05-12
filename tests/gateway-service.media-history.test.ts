@@ -128,6 +128,77 @@ test('getGatewayHistory omits silent message-send placeholders', async () => {
   ]);
 });
 
+test('getGatewayHistory returns assistant presentation per stored message agent', async () => {
+  setupHome();
+
+  const { initDatabase, upsertAgent } = await import('../src/memory/db.ts');
+  const { getGatewayHistory } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { agentWorkspaceDir } = await import('../src/infra/ipc.ts');
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+  const mainAvatarPath = path.join(
+    agentWorkspaceDir('main'),
+    'assets',
+    'main.png',
+  );
+  fs.mkdirSync(path.dirname(mainAvatarPath), { recursive: true });
+  fs.writeFileSync(mainAvatarPath, Buffer.from('89504e470d0a1a0a', 'hex'));
+  upsertAgent({
+    id: 'main',
+    name: 'Main Agent',
+    imageAsset: 'assets/main.png',
+  });
+
+  const sessionId = 'web:agent-history';
+  memoryService.getOrCreateSession(sessionId, null, 'web');
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: 'Main answer',
+    agentId: 'main',
+  });
+  memoryService.storeMessage({
+    sessionId,
+    userId: 'assistant',
+    username: null,
+    role: 'assistant',
+    content: 'Charly answer',
+    agentId: 'charly',
+  });
+
+  const history = getGatewayHistory(sessionId, 10).history;
+
+  const mainAnswer = history.find(
+    (message) => message.content === 'Main answer',
+  );
+  const charlyAnswer = history.find(
+    (message) => message.content === 'Charly answer',
+  );
+
+  expect(mainAnswer).toMatchObject({
+    role: 'assistant',
+    agent_id: 'main',
+    assistantPresentation: {
+      agentId: 'main',
+      displayName: 'Main Agent',
+      imageUrl: '/api/agent-avatar?agentId=main',
+    },
+  });
+  expect(charlyAnswer).toMatchObject({
+    role: 'assistant',
+    agent_id: 'charly',
+    assistantPresentation: {
+      agentId: 'charly',
+      displayName: 'charly',
+    },
+  });
+});
+
 test('getGatewayHistory omits stored approval request messages', async () => {
   setupHome();
 
@@ -324,6 +395,45 @@ test('getGatewayHistory tolerates databases without session_branches', async () 
   expect(getGatewayHistory('web:no-branches-table', 10).branchFamilies).toEqual(
     [],
   );
+});
+
+test('history and context usage resolve session keys to the current session', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { getGatewayHistory, getGatewaySessionContextUsage } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const session = memoryService.getOrCreateSession(
+    'web:session-key-context',
+    null,
+    'web',
+    'main',
+  );
+  memoryService.storeMessage({
+    sessionId: session.id,
+    userId: 'user-1',
+    username: 'web',
+    role: 'user',
+    content: 'hello',
+  });
+
+  const history = getGatewayHistory(session.session_key, 10);
+  const context = getGatewaySessionContextUsage(session.session_key);
+
+  expect(history.sessionId).toBe(session.id);
+  expect(context).toMatchObject({
+    status: 'ok',
+    sessionId: session.id,
+    snapshot: expect.objectContaining({
+      sessionId: session.id,
+      messageCount: 1,
+    }),
+  });
 });
 
 test('forkSessionBranch recreates session_branches when missing', async () => {

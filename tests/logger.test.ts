@@ -42,16 +42,14 @@ async function importFreshLogger() {
     onRuntimeConfigChange: vi.fn(),
   }));
   const module = await importLoggerModule();
-  return {
-    ...module,
-    uncaughtExceptionHandler: module.handleUncaughtExceptionForTests,
-  };
+  return module;
 }
 
 describe('logger forced level override', () => {
   let tempDir: string | null = null;
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.resetModules();
     vi.doUnmock('../src/config/runtime-config.ts');
@@ -175,8 +173,9 @@ describe('logger forced level override', () => {
     expect(logText).toContain('late forced debug mirror test');
   });
 
-  it('still exits on uncaught transport exceptions', async () => {
-    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+  it('keeps running on uncaught transport exceptions', async () => {
+    const { logger, handleUncaughtExceptionForTests } =
+      await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
@@ -187,18 +186,75 @@ describe('logger forced level override', () => {
       .spyOn(logger, 'fatal')
       .mockImplementation(() => undefined);
 
-    uncaughtExceptionHandler(new Error('Opening handshake has timed out'));
-
-    expect(warnSpy).not.toHaveBeenCalled();
-    expect(fatalSpy).toHaveBeenCalledWith(
-      { err: expect.any(Error) },
-      'Uncaught exception',
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
     );
-    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Uncaught transport exception escaped local handler; keeping process alive',
+    );
+    expect(fatalSpy).not.toHaveBeenCalled();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('logs transport rejections as recoverable warnings', async () => {
+    const { logger, handleUnhandledRejectionForTests } =
+      await importFreshLogger();
+    const errorSpy = vi
+      .spyOn(logger, 'error')
+      .mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    handleUnhandledRejectionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Unhandled transport rejection escaped local handler; keeping process alive',
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('rate-limits repeated recoverable transport warnings', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-07T08:00:00Z'));
+
+    const {
+      logger,
+      handleUncaughtExceptionForTests,
+      handleUnhandledRejectionForTests,
+    } = await importFreshLogger();
+    const warnSpy = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+    handleUnhandledRejectionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date('2026-05-07T08:01:01Z'));
+    handleUncaughtExceptionForTests(
+      new Error('Opening handshake has timed out'),
+    );
+
+    expect(warnSpy).toHaveBeenCalledTimes(3);
   });
 
   it('still exits on unexpected uncaught exceptions', async () => {
-    const { logger, uncaughtExceptionHandler } = await importFreshLogger();
+    const { logger, handleUncaughtExceptionForTests } =
+      await importFreshLogger();
     const exitSpy = vi
       .spyOn(process, 'exit')
       .mockImplementation((() => undefined) as never);
@@ -209,7 +265,7 @@ describe('logger forced level override', () => {
       .spyOn(logger, 'fatal')
       .mockImplementation(() => undefined);
 
-    uncaughtExceptionHandler(new Error('Invariant violation'));
+    handleUncaughtExceptionForTests(new Error('Invariant violation'));
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(fatalSpy).toHaveBeenCalledWith(

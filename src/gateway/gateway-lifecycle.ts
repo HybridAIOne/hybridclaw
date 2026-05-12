@@ -12,8 +12,17 @@ export interface GatewayPidState {
 export const GATEWAY_RUN_DIR = path.join(DATA_DIR, 'gateway');
 export const GATEWAY_PID_PATH = path.join(GATEWAY_RUN_DIR, 'gateway.pid.json');
 export const GATEWAY_LOG_PATH = path.join(GATEWAY_RUN_DIR, 'gateway.log');
+export const GATEWAY_MODEL_RESPONSE_DEBUG_PATH = path.join(
+  GATEWAY_RUN_DIR,
+  'model-responses.log',
+);
 export const GATEWAY_LOG_FILE_ENV = 'HYBRIDCLAW_GATEWAY_LOG_FILE';
 export const GATEWAY_LOG_REQUESTS_ENV = 'HYBRIDCLAW_LOG_REQUESTS';
+export const GATEWAY_DEBUG_MODEL_RESPONSES_ENV =
+  'HYBRIDCLAW_DEBUG_MODEL_RESPONSES';
+export const GATEWAY_SYSTEM_PROMPT_MODE_ENV = 'HYBRIDCLAW_SYSTEM_PROMPT_MODE';
+export const GATEWAY_SYSTEM_PROMPT_PARTS_ENV = 'HYBRIDCLAW_SYSTEM_PROMPT_PARTS';
+export const GATEWAY_TOOLS_MODE_ENV = 'HYBRIDCLAW_TOOLS_MODE';
 export const GATEWAY_STDIO_TO_LOG_ENV = 'HYBRIDCLAW_GATEWAY_STDIO_TO_LOG';
 
 export function ensureGatewayRunDir(): void {

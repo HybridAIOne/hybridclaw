@@ -1,4 +1,4 @@
 interface:
   display_name: "Salesforce"
-  short_description: "Inspect Salesforce schema and SOQL data"
-  default_prompt: "Use $salesforce to inspect Salesforce schema, relationships, and SOQL rows safely."
+  short_description: "Read CRM records, update opportunities, and log activities"
+  default_prompt: "Use $salesforce to read Salesforce leads, contacts, and opportunities; plan supported CRM writes first; then update opportunity stage/probability or log calls, emails, and meetings through the gateway-proxied helper."

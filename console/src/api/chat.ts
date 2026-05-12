@@ -1,9 +1,10 @@
 import type {
   BranchResponse,
   ChatCommandsResponse,
+  ChatContextResponse,
   ChatHistoryResponse,
+  ChatMobileQrResponse,
   ChatRecentResponse,
-  CommandResponse,
   MediaUploadResponse,
 } from './chat-types';
 import {
@@ -11,7 +12,11 @@ import {
   dispatchAuthRequired,
   requestHeaders,
   requestJson,
+  validateToken,
 } from './client';
+import type { AdminCommandResult } from './types';
+
+export { validateToken as fetchAppStatus };
 
 export function fetchChatRecent(
   token: string,
@@ -19,6 +24,7 @@ export function fetchChatRecent(
   channelId = 'web',
   limit = 10,
   query?: string,
+  scope?: 'user' | 'all',
 ): Promise<ChatRecentResponse> {
   const params = new URLSearchParams({
     userId,
@@ -26,6 +32,7 @@ export function fetchChatRecent(
     limit: String(limit),
   });
   if (query) params.set('q', query);
+  if (scope) params.set('scope', scope);
   return requestJson<ChatRecentResponse>(
     `/api/chat/recent?${params.toString()}`,
     { token },
@@ -46,6 +53,17 @@ export function fetchChatHistory(
   });
 }
 
+export function fetchChatContext(
+  token: string,
+  sessionId: string,
+): Promise<ChatContextResponse> {
+  const params = new URLSearchParams({ sessionId });
+  return requestJson<ChatContextResponse>(
+    `/api/chat/context?${params.toString()}`,
+    { token },
+  );
+}
+
 export function fetchChatCommands(
   token: string,
   query?: string,
@@ -54,6 +72,17 @@ export function fetchChatCommands(
     ? `/api/chat/commands?q=${encodeURIComponent(query)}`
     : '/api/chat/commands';
   return requestJson<ChatCommandsResponse>(url, { token });
+}
+
+export function createChatMobileQr(
+  token: string,
+  payload: { userId: string; sessionId: string; baseUrl?: string },
+): Promise<ChatMobileQrResponse> {
+  return requestJson<ChatMobileQrResponse>('/api/chat/mobile-qr', {
+    token,
+    method: 'POST',
+    body: payload,
+  });
 }
 
 export function createChatBranch(
@@ -73,8 +102,8 @@ export function executeCommand(
   sessionId: string,
   userId: string,
   args: string[],
-): Promise<CommandResponse> {
-  return requestJson<CommandResponse>('/api/command', {
+): Promise<AdminCommandResult> {
+  return requestJson<AdminCommandResult>('/api/command', {
     token,
     method: 'POST',
     body: buildWebCommandRequestBody({
@@ -106,11 +135,15 @@ export function artifactUrl(path: string): string {
   return `/api/artifact?${params.toString()}`;
 }
 
-export async function fetchArtifactBlob(
+export function agentAvatarUrl(imageUrl: string): string {
+  return imageUrl;
+}
+
+async function fetchAuthenticatedBlob(
   token: string,
-  artifactPath: string,
+  url: string,
 ): Promise<Blob> {
-  const response = await fetch(artifactUrl(artifactPath), {
+  const response = await fetch(url, {
     headers: requestHeaders(token),
     cache: 'no-store',
   });
@@ -139,4 +172,18 @@ export async function fetchArtifactBlob(
   }
 
   return response.blob();
+}
+
+export async function fetchArtifactBlob(
+  token: string,
+  artifactPath: string,
+): Promise<Blob> {
+  return fetchAuthenticatedBlob(token, artifactUrl(artifactPath));
+}
+
+export function fetchAgentAvatarBlob(
+  token: string,
+  imageUrl: string,
+): Promise<Blob> {
+  return fetchAuthenticatedBlob(token, agentAvatarUrl(imageUrl));
 }

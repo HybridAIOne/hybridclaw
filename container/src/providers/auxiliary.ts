@@ -62,6 +62,13 @@ function resolveTaskOverride(
   return taskModels?.[task];
 }
 
+function normalizeMaxTokens(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
 function getAuxiliaryContextError(params: {
   context: AuxiliaryTaskContext;
   toolName: string;
@@ -106,6 +113,7 @@ export function resolveAuxiliaryTaskContext(params: {
     isLocal: taskOverride.isLocal,
     contextWindow: taskOverride.contextWindow,
     thinkingFormat: taskOverride.thinkingFormat,
+    debugModelResponses: params.fallbackContext.debugModelResponses,
     maxTokens: taskOverride.maxTokens,
   };
 }
@@ -154,10 +162,14 @@ export async function callAuxiliaryModel(
   if (contextError) throw new Error(contextError);
 
   if (params.task !== 'vision') {
-    const maxTokens = resolveProviderRequestMaxTokens({
+    const providerMaxTokens = resolveProviderRequestMaxTokens({
       model: context.model,
       discoveredMaxTokens: context.maxTokens,
     });
+    const maxTokens =
+      providerMaxTokens == null
+        ? undefined
+        : (normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens);
     const response = await callRoutedModel({
       provider: context.provider,
       providerMethod: context.providerMethod,
@@ -170,6 +182,7 @@ export async function callAuxiliaryModel(
       isLocal: context.isLocal,
       contextWindow: context.contextWindow,
       thinkingFormat: context.thinkingFormat,
+      debugModelResponses: context.debugModelResponses,
       messages: params.messages,
       tools: Array.isArray(params.tools) ? params.tools : [],
       maxTokens,
@@ -203,6 +216,7 @@ export async function callAuxiliaryModel(
       isLocal: context.isLocal,
       contextWindow: context.contextWindow,
       thinkingFormat: context.thinkingFormat,
+      debugModelResponses: context.debugModelResponses,
       question: params.question,
       imageDataUrl: params.imageDataUrl,
       maxTokens,

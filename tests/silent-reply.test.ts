@@ -6,6 +6,7 @@ import {
   stripSilentToken,
 } from '../src/agent/silent-reply.js';
 import { createSilentReplyStreamFilter } from '../src/agent/silent-reply-stream.js';
+import { normalizeSilentMessageSendReply } from '../src/gateway/chat-result.js';
 
 describe('isSilentReply', () => {
   test('returns true for exact token', () => {
@@ -138,5 +139,39 @@ describe('createSilentReplyStreamFilter', () => {
     );
     expect(filter.flush()).toBe('');
     expect(filter.isSilent()).toBe(false);
+  });
+});
+
+describe('normalizeSilentMessageSendReply', () => {
+  test('strips trailing silent token from visible message send text', () => {
+    const result = normalizeSilentMessageSendReply({
+      status: 'success',
+      result: `Sent.\n\n${SILENT_REPLY_TOKEN}`,
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: JSON.stringify({ action: 'send' }),
+          result: JSON.stringify({ ok: true, action: 'send' }),
+        },
+      ],
+    });
+
+    expect(result.result).toBe('Sent.');
+  });
+
+  test('replaces exact silent token after message send', () => {
+    const result = normalizeSilentMessageSendReply({
+      status: 'success',
+      result: SILENT_REPLY_TOKEN,
+      toolExecutions: [
+        {
+          name: 'message',
+          arguments: JSON.stringify({ action: 'send' }),
+          result: JSON.stringify({ ok: true, action: 'send' }),
+        },
+      ],
+    });
+
+    expect(result.result).toBe('Message sent.');
   });
 });

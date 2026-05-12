@@ -10,6 +10,18 @@ export interface TokenUsageStats {
   estimatedPromptTokens: number;
   estimatedCompletionTokens: number;
   estimatedTotalTokens: number;
+  performanceSamples?: ModelCallPerformanceSample[];
+}
+
+export interface ModelCallTiming {
+  durationMs: number;
+  firstTextDeltaMs?: number;
+}
+
+export interface ModelCallPerformanceSample extends ModelCallTiming {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export type UsageWindow = 'daily' | 'monthly' | 'all';
@@ -19,6 +31,7 @@ export interface UsageTotals {
   total_output_tokens: number;
   total_tokens: number;
   total_cost_usd: number;
+  cost_per_call_usd: number;
   call_count: number;
   total_tool_calls: number;
 }
@@ -41,6 +54,10 @@ export interface UsageAgentAggregate {
   total_cost_usd: number;
   call_count: number;
   total_tool_calls: number;
+}
+
+export interface UsageAgentRollup extends UsageAgentAggregate {
+  monthly_cost_usd: number;
 }
 
 export interface UsageSessionAggregate {

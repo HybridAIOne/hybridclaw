@@ -1,8 +1,8 @@
 import path from 'node:path';
-
+import { resolveBorderlineAnomalyWithTraceJudge } from './anomaly-trace-judge.js';
 import {
   type ToolApprovalEvaluation,
-  TrustedCoworkerApprovalRuntime,
+  TrustedAgentApprovalRuntime,
 } from './approval-policy.js';
 import { discoverArtifactsSince, inferArtifactMimeType } from './artifacts.js';
 import { cleanupAllBrowserSessions } from './browser-tools.js';
@@ -13,7 +13,7 @@ import {
   runBeforeToolHooks,
 } from './extensions.js';
 import { compactInLoop } from './in-loop-compaction.js';
-import { waitForInput, writeOutput } from './ipc.js';
+import { waitForInput, writeHealthOutput, writeOutput } from './ipc.js';
 import { McpClientManager } from './mcp/client-manager.js';
 import { McpConfigWatcher } from './mcp/config-watcher.js';
 import {
@@ -48,6 +48,7 @@ import {
 import {
   advanceStalledTurnCount,
   MAX_STALLED_MODEL_TURNS,
+  shouldRetryEmptyFinalResponse,
 } from './stalled-turns.js';
 import {
   collapseSystemMessages,
@@ -60,7 +61,10 @@ import {
   estimateMessageTokens,
   estimateTextTokens,
   finalizeTokenUsage,
+  readChatCompletionUsageTokens,
+  recordPerformanceSample,
 } from './token-usage.js';
+import { parseToolArgsJson } from './tool-args.js';
 import { validateStructuredToolCalls } from './tool-call-validation.js';
 import type { ToolCallHistoryEntry } from './tool-loop-detection.js';
 import {
@@ -98,6 +102,7 @@ import {
   type ChatMessage,
   type ContainerInput,
   type ContainerOutput,
+  type EscalationTarget,
   type PendingApproval,
   TASK_MODEL_KEYS,
   type ToolCall,
@@ -143,7 +148,17 @@ function applyRuntimeEnv(runtimeEnv: ContainerInput['runtimeEnv']): void {
   }
 }
 
-const approvalRuntime = new TrustedCoworkerApprovalRuntime();
+const approvalRuntime = new TrustedAgentApprovalRuntime();
+approvalRuntime.setApprovalRuleHookEmitter((event) =>
+  emitRuntimeEvent({
+    event: event.hook,
+    kind: event.kind,
+    approvalRule: event.ruleName,
+    toolName: event.toolName,
+    ...(event.actionKey ? { actionKey: event.actionKey } : {}),
+    ...(event.decision ? { decision: event.decision } : {}),
+  }),
+);
 let cachedSelectedSkillPath: string | null = null;
 
 /** Auth material received once via stdin, held in memory for the agent lifetime. */
@@ -277,21 +292,9 @@ function normalizePathSlashes(raw: string): string {
   return raw.replace(/\\/g, '/');
 }
 
-function parseToolArgs(argsJson: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(argsJson) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function captureSkillSelection(toolName: string, argsJson: string): void {
   if (toolName !== 'read') return;
-  const args = parseToolArgs(argsJson);
+  const args = parseToolArgsJson(argsJson);
   const rawPath = String(args?.path || '').trim();
   if (!rawPath) return;
   const normalized = rawPath.replace(/\\/g, '/');
@@ -361,6 +364,12 @@ function emitStreamDelta(delta: string): void {
   if (!delta) return;
   const payload = Buffer.from(delta, 'utf-8').toString('base64');
   console.error(`[stream] ${payload}`);
+}
+
+function emitStreamThinkingDelta(delta: string): void {
+  if (!delta) return;
+  const payload = Buffer.from(delta, 'utf-8').toString('base64');
+  console.error(`[thinking] ${payload}`);
 }
 
 function emitStreamActivity(): void {
@@ -556,10 +565,15 @@ function logToolCallStart(
   argsJson: string,
   approval: ToolApprovalEvaluation,
 ): void {
+  const yellowNarration = approvalRuntime.formatYellowNarration(approval);
   const toolPreview =
     approval.tier === 'yellow'
-      ? approvalRuntime.formatYellowNarration(approval)
-      : argsJson.slice(0, 100);
+      ? toolName === 'web_search'
+        ? approval.commandPreview
+        : yellowNarration
+      : argsJson.length > 100
+        ? `${argsJson.slice(0, 99)}…`
+        : argsJson;
   console.error(`[tool] ${toolName}: ${toolPreview}`);
 }
 
@@ -660,6 +674,12 @@ async function executePreparedToolCall(
   const isError = runtimeResult.isError;
   const executionBlockedReason =
     blockedReason || (loopGuard.stuck ? loopGuard.message : null);
+  const approvalDecision = executionBlockedReason
+    ? 'denied'
+    : approval.decision;
+  const escalationRoute = executionBlockedReason
+    ? 'policy_denial'
+    : approval.escalationRoute;
   const succeeded = !isError;
 
   if (succeeded) {
@@ -690,7 +710,13 @@ async function executePreparedToolCall(
       blockedReason: executionBlockedReason || undefined,
       approvalTier: approval.tier,
       approvalBaseTier: approval.baseTier,
-      approvalDecision: executionBlockedReason ? 'denied' : approval.decision,
+      autonomyLevel: approval.autonomyLevel,
+      stakes: approval.stakes,
+      stakesScore: approval.stakesScore,
+      anomaly: approval.anomaly,
+      escalationRoute,
+      escalationTarget: approval.escalationTarget,
+      approvalDecision,
       approvalActionKey: approval.actionKey,
       approvalReason: approval.reason,
       approvalRequestId: approval.requestId,
@@ -702,6 +728,7 @@ async function executePreparedToolCall(
 }
 
 async function callHybridAIWithRetry(params: {
+  sessionId?: string;
   provider?:
     | 'hybridai'
     | 'openai-codex'
@@ -723,13 +750,16 @@ async function callHybridAIWithRetry(params: {
   history: ChatMessage[];
   tools: ToolDefinition[];
   onTextDelta?: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
   maxTokens?: number;
+  debugModelResponses?: boolean;
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
 }): Promise<ChatCompletionResponse> {
   const {
+    sessionId,
     provider,
     providerMethod,
     baseUrl,
@@ -741,8 +771,10 @@ async function callHybridAIWithRetry(params: {
     history,
     tools,
     onTextDelta,
+    onThinkingDelta,
     onActivity,
     maxTokens,
+    debugModelResponses,
     isLocal,
     contextWindow,
     thinkingFormat,
@@ -753,6 +785,15 @@ async function callHybridAIWithRetry(params: {
   while (true) {
     attempt += 1;
     const attemptStartedAt = Date.now();
+    let firstTextDeltaMs: number | null = null;
+    const wrappedOnTextDelta = onTextDelta
+      ? (delta: string) => {
+          if (delta && firstTextDeltaMs == null) {
+            firstTextDeltaMs = Date.now() - attemptStartedAt;
+          }
+          onTextDelta(delta);
+        }
+      : undefined;
     console.error(
       `[model] call start provider=${provider || 'hybridai'} model=${model} attempt=${attempt} streaming=${Boolean(onTextDelta)} messages=${history.length} tools=${tools.length}`,
     );
@@ -764,6 +805,7 @@ async function callHybridAIWithRetry(params: {
           response = await callRoutedModelStream({
             provider,
             providerMethod,
+            sessionId,
             baseUrl,
             apiKey,
             model,
@@ -772,9 +814,11 @@ async function callHybridAIWithRetry(params: {
             requestHeaders,
             messages: history,
             tools,
-            onTextDelta,
+            onTextDelta: wrappedOnTextDelta ?? (() => undefined),
+            onThinkingDelta,
             onActivity,
             maxTokens,
+            debugModelResponses,
             isLocal,
             contextWindow,
             thinkingFormat,
@@ -788,6 +832,7 @@ async function callHybridAIWithRetry(params: {
           response = await callRoutedModel({
             provider,
             providerMethod,
+            sessionId,
             baseUrl,
             apiKey,
             model,
@@ -797,6 +842,7 @@ async function callHybridAIWithRetry(params: {
             messages: history,
             tools,
             maxTokens,
+            debugModelResponses,
             isLocal,
             contextWindow,
             thinkingFormat,
@@ -805,6 +851,8 @@ async function callHybridAIWithRetry(params: {
       } else {
         response = await callRoutedModel({
           provider,
+          providerMethod,
+          sessionId,
           baseUrl,
           apiKey,
           model,
@@ -814,11 +862,16 @@ async function callHybridAIWithRetry(params: {
           messages: history,
           tools,
           maxTokens,
+          debugModelResponses,
           isLocal,
           contextWindow,
           thinkingFormat,
         });
       }
+      response.timing = {
+        durationMs: Date.now() - attemptStartedAt,
+        ...(firstTextDeltaMs != null ? { firstTextDeltaMs } : {}),
+      };
       console.error(
         `[model] call success provider=${provider || 'hybridai'} model=${model} attempt=${attempt} durationMs=${Date.now() - attemptStartedAt} toolCalls=${response.choices[0]?.message?.tool_calls?.length || 0}`,
       );
@@ -853,41 +906,64 @@ async function callHybridAIWithRetry(params: {
 /**
  * Process a single request: call API, run tool loop, write output.
  */
+interface ProcessRequestParams {
+  sessionId: string;
+  messages: ChatMessage[];
+  apiKey: string;
+  baseUrl: string;
+  provider: ContainerInput['provider'];
+  providerMethod?: string;
+  isLocal?: boolean;
+  contextWindow?: number;
+  thinkingFormat?: 'qwen';
+  model: string;
+  chatbotId: string;
+  enableRag: boolean;
+  requestHeaders?: Record<string, string>;
+  tools: ToolDefinition[];
+  taskModels?: ContainerInput['taskModels'];
+  contextGuard?: ContainerInput['contextGuard'];
+  channelId: string;
+  skipContainerSystemPrompt?: boolean;
+  streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
+  maxTokens?: number;
+  effectiveUserPromptOverride?: string;
+  ralphMaxIterationsOverride?: number | null;
+  escalationTarget?: EscalationTarget;
+}
+
 async function processRequest(
-  messages: ChatMessage[],
-  apiKey: string,
-  baseUrl: string,
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | undefined,
-  providerMethod: string | undefined,
-  isLocal: boolean | undefined,
-  contextWindow: number | undefined,
-  thinkingFormat: 'qwen' | undefined,
-  model: string,
-  chatbotId: string,
-  enableRag: boolean,
-  requestHeaders: Record<string, string> | undefined,
-  tools: ToolDefinition[],
-  taskModels: ContainerInput['taskModels'] | undefined,
-  contextGuard: ContainerInput['contextGuard'] | undefined,
-  channelId: string,
-  skipContainerSystemPrompt = false,
-  streamTextDeltas = false,
-  maxTokens?: number,
-  effectiveUserPromptOverride?: string,
-  ralphMaxIterationsOverride?: number | null,
+  params: ProcessRequestParams,
 ): Promise<ContainerOutput> {
+  const {
+    sessionId,
+    messages,
+    apiKey,
+    baseUrl,
+    provider,
+    providerMethod,
+    isLocal,
+    contextWindow,
+    thinkingFormat,
+    model,
+    chatbotId,
+    enableRag,
+    requestHeaders,
+    tools,
+    taskModels,
+    contextGuard,
+    channelId,
+    skipContainerSystemPrompt = false,
+    streamTextDeltas = false,
+    debugModelResponses = false,
+    maxTokens,
+    effectiveUserPromptOverride,
+    ralphMaxIterationsOverride,
+    escalationTarget,
+  } = params;
   const processStartedAt = Date.now();
+  console.error('[hybridclaw-agent] agent request start');
   await emitRuntimeEvent({
     event: 'before_agent_start',
     messageCount: messages.length,
@@ -917,6 +993,60 @@ async function processRequest(
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+  const resolveToolApproval = async (input: {
+    toolName: string;
+    argsJson: string;
+  }): Promise<ToolApprovalEvaluation> => {
+    const approvalEvaluatedAt = new Date();
+    let evaluation = approvalRuntime.evaluateToolCall({
+      toolName: input.toolName,
+      argsJson: input.argsJson,
+      latestUserPrompt: effectiveUserPrompt,
+      channelId,
+      escalationTarget,
+      now: approvalEvaluatedAt,
+    });
+    const resolved = await resolveBorderlineAnomalyWithTraceJudge({
+      evaluation,
+      toolName: input.toolName,
+      argsJson: input.argsJson,
+      latestUserPrompt: effectiveUserPrompt,
+      taskModels,
+      fallbackContext: {
+        provider,
+        providerMethod,
+        baseUrl,
+        apiKey,
+        model,
+        chatbotId,
+        requestHeaders,
+        isLocal,
+        contextWindow,
+        thinkingFormat,
+        debugModelResponses,
+      },
+    });
+    if (resolved.response) {
+      tokenUsage.modelCalls += 1;
+      accumulateApiUsage(tokenUsage, resolved.response);
+    }
+    const traceJudge = resolved.evaluation.anomaly?.traceJudge;
+    if (evaluation.anomaly?.tuple && traceJudge) {
+      approvalRuntime.recordAnomalyTraceJudgeResult(
+        evaluation.anomaly.tuple,
+        traceJudge,
+      );
+      evaluation = approvalRuntime.evaluateToolCall({
+        toolName: input.toolName,
+        argsJson: input.argsJson,
+        latestUserPrompt: effectiveUserPrompt,
+        channelId,
+        escalationTarget,
+        now: approvalEvaluatedAt,
+      });
+    }
+    return evaluation;
+  };
 
   while (stalledTurns < maxStalledTurns) {
     const guardResult = applyContextGuard({
@@ -1007,15 +1137,18 @@ async function processRequest(
       continue;
     }
 
-    tokenUsage.modelCalls += 1;
-    tokenUsage.estimatedPromptTokens += estimateMessageTokens(
+    const estimatedPromptTokensForCall = estimateMessageTokens(
       history,
       tokenEstimateCache,
     );
+    tokenUsage.modelCalls += 1;
+    tokenUsage.estimatedPromptTokens += estimatedPromptTokensForCall;
 
     let response: Awaited<ReturnType<typeof callHybridAIWithRetry>>;
+    const modelCallTextDeltas: string[] = [];
     try {
       response = await callHybridAIWithRetry({
+        sessionId,
         provider,
         providerMethod,
         baseUrl,
@@ -1026,9 +1159,17 @@ async function processRequest(
         requestHeaders,
         history,
         tools,
-        onTextDelta: streamTextDeltas ? emitStreamDelta : undefined,
+        onTextDelta: streamTextDeltas
+          ? (delta) => {
+              if (delta) modelCallTextDeltas.push(delta);
+            }
+          : undefined,
+        onThinkingDelta: streamTextDeltas
+          ? (delta) => emitStreamThinkingDelta(delta)
+          : undefined,
         onActivity: streamTextDeltas ? emitStreamActivity : undefined,
         maxTokens,
+        debugModelResponses,
         isLocal,
         contextWindow,
         thinkingFormat,
@@ -1075,14 +1216,31 @@ async function processRequest(
       return failed;
     }
 
-    tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+    let estimatedCompletionTokensForCall = estimateTextTokens(
       choice.message.content,
     );
     if (choice.message.tool_calls?.length) {
-      tokenUsage.estimatedCompletionTokens += estimateTextTokens(
+      estimatedCompletionTokensForCall += estimateTextTokens(
         JSON.stringify(choice.message.tool_calls),
       );
     }
+    tokenUsage.estimatedCompletionTokens += estimatedCompletionTokensForCall;
+    const apiUsageTokens = readChatCompletionUsageTokens(response);
+    const promptTokensForSample =
+      apiUsageTokens?.promptTokens ?? estimatedPromptTokensForCall;
+    const completionTokensForSample =
+      apiUsageTokens?.completionTokens ?? estimatedCompletionTokensForCall;
+    recordPerformanceSample(tokenUsage, {
+      promptTokens: promptTokensForSample,
+      completionTokens: completionTokensForSample,
+      totalTokens:
+        apiUsageTokens?.totalTokens ??
+        promptTokensForSample + completionTokensForSample,
+      durationMs: response.timing?.durationMs ?? 0,
+      ...(response.timing?.firstTextDeltaMs != null
+        ? { firstTextDeltaMs: response.timing.firstTextDeltaMs }
+        : {}),
+    });
 
     const toolCalls = choice.message.tool_calls || [];
     const invalidToolCallError = validateStructuredToolCalls(toolCalls);
@@ -1106,6 +1264,11 @@ async function processRequest(
         toolsUsed,
       });
       return failed;
+    }
+    if (toolCalls.length === 0) {
+      for (const delta of modelCallTextDeltas) {
+        emitStreamDelta(delta);
+      }
     }
 
     const assistantMessage: ChatMessage = {
@@ -1203,6 +1366,27 @@ async function processRequest(
         artifactPaths,
         startedAtMs: processStartedAt,
       });
+      if (
+        shouldRetryEmptyFinalResponse({
+          visibleAssistantText: latestVisibleAssistantText,
+          toolExecutionCount: toolExecutions.length,
+          artifactCount: artifacts.length,
+        })
+      ) {
+        stalledTurns = advanceStalledTurnCount({
+          current: stalledTurns,
+          toolCalls: 0,
+          successfulToolCalls: 0,
+        });
+        history.push({
+          role: 'user',
+          content:
+            'Your last response had no visible answer and did not produce an artifact. Continue from the tool result and either finish the requested task or explain what blocked it.',
+        });
+        console.error('[model] retrying empty final response after tool use');
+        continue;
+      }
+
       const completed: ContainerOutput = {
         status: 'success',
         result: latestVisibleAssistantText,
@@ -1260,11 +1444,9 @@ async function processRequest(
 
         const preparedBatch: PreparedToolCallExecution[] = [];
         for (const candidate of candidateCalls) {
-          const candidateApproval = approvalRuntime.evaluateToolCall({
+          const candidateApproval = await resolveToolApproval({
             toolName: candidate.function.name,
             argsJson: candidate.function.arguments,
-            latestUserPrompt: effectiveUserPrompt,
-            channelId,
           });
           if (
             candidateApproval.decision === 'required' ||
@@ -1348,12 +1530,10 @@ async function processRequest(
 
       const approval =
         cachedApproval ||
-        approvalRuntime.evaluateToolCall({
+        (await resolveToolApproval({
           toolName,
           argsJson: call.function.arguments,
-          latestUserPrompt: effectiveUserPrompt,
-          channelId,
-        });
+        }));
       logToolCallStart(toolName, call.function.arguments, approval);
 
       if (approval.decision === 'required') {
@@ -1377,6 +1557,9 @@ async function processRequest(
             Number.isFinite(approval.expiresAtMs)
               ? approval.expiresAtMs
               : null,
+          ...(approval.escalationTarget
+            ? { escalationTarget: approval.escalationTarget }
+            : {}),
         };
         emitApprovalProgress(pendingApproval);
         toolExecutions.push({
@@ -1389,6 +1572,12 @@ async function processRequest(
           blockedReason: approval.reason,
           approvalTier: approval.tier,
           approvalBaseTier: approval.baseTier,
+          autonomyLevel: approval.autonomyLevel,
+          stakes: approval.stakes,
+          stakesScore: approval.stakesScore,
+          anomaly: approval.anomaly,
+          escalationRoute: approval.escalationRoute,
+          escalationTarget: approval.escalationTarget,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
@@ -1430,6 +1619,12 @@ async function processRequest(
           blockedReason: approval.reason,
           approvalTier: approval.tier,
           approvalBaseTier: approval.baseTier,
+          autonomyLevel: approval.autonomyLevel,
+          stakes: approval.stakes,
+          stakesScore: approval.stakesScore,
+          anomaly: approval.anomaly,
+          escalationRoute: approval.escalationRoute,
+          escalationTarget: approval.escalationTarget,
           approvalDecision: approval.decision,
           approvalActionKey: approval.actionKey,
           approvalIntent: approval.intent,
@@ -1549,6 +1744,9 @@ async function main(): Promise<void> {
   console.error(
     `[hybridclaw-agent] started, idle timeout ${IDLE_TIMEOUT_MS}ms`,
   );
+  // This marks runtime process readiness only. Request-specific MCP, plugin,
+  // media, and model setup still runs after input and before agent start.
+  console.error('[hybridclaw-agent] ready for input');
   process.once('SIGINT', () => {
     void shutdownAgentProcess(0, 'SIGINT');
   });
@@ -1590,6 +1788,7 @@ async function main(): Promise<void> {
     firstInput.chatbotId,
     storedRequestHeaders,
     firstInput.maxTokens,
+    firstInput.debugModelResponses === true,
   );
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
@@ -1626,29 +1825,32 @@ async function main(): Promise<void> {
     };
     console.error('[approval] resolved user response without model run');
   } else {
-    firstOutput = await processRequest(
-      firstMessagesForRequest,
-      storedApiKey,
-      firstInput.baseUrl,
-      firstInput.provider,
-      firstInput.providerMethod,
-      firstInput.isLocal,
-      firstInput.contextWindow,
-      firstInput.thinkingFormat,
-      firstInput.model,
-      firstInput.chatbotId,
-      firstInput.enableRag,
-      storedRequestHeaders,
-      resolveTools(firstInput),
-      firstTaskModels,
-      firstInput.contextGuard,
-      firstInput.channelId,
-      firstInput.skipContainerSystemPrompt === true,
-      firstInput.streamTextDeltas === true,
-      firstInput.maxTokens,
-      firstPromptOverride,
-      firstInput.ralphMaxIterations,
-    );
+    firstOutput = await processRequest({
+      sessionId: firstInput.sessionId,
+      messages: firstMessagesForRequest,
+      apiKey: storedApiKey,
+      baseUrl: firstInput.baseUrl,
+      provider: firstInput.provider,
+      providerMethod: firstInput.providerMethod,
+      isLocal: firstInput.isLocal,
+      contextWindow: firstInput.contextWindow,
+      thinkingFormat: firstInput.thinkingFormat,
+      model: firstInput.model,
+      chatbotId: firstInput.chatbotId,
+      enableRag: firstInput.enableRag,
+      requestHeaders: storedRequestHeaders,
+      tools: resolveTools(firstInput),
+      taskModels: firstTaskModels,
+      contextGuard: firstInput.contextGuard,
+      channelId: firstInput.channelId,
+      skipContainerSystemPrompt: firstInput.skipContainerSystemPrompt === true,
+      streamTextDeltas: firstInput.streamTextDeltas === true,
+      debugModelResponses: firstInput.debugModelResponses === true,
+      maxTokens: firstInput.maxTokens,
+      effectiveUserPromptOverride: firstPromptOverride,
+      ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
+      escalationTarget: firstInput.escalationTarget,
+    });
     if (
       firstMessagesForRequest !== firstInput.messages &&
       firstOutput.status === 'error' &&
@@ -1662,29 +1864,33 @@ async function main(): Promise<void> {
         : firstInput.messages;
       const firstRetryMessagesWithSkillCache =
         injectSkillCacheHint(firstRetryMessages);
-      firstOutput = await processRequest(
-        firstRetryMessagesWithSkillCache,
-        storedApiKey,
-        firstInput.baseUrl,
-        firstInput.provider,
-        firstInput.providerMethod,
-        firstInput.isLocal,
-        firstInput.contextWindow,
-        firstInput.thinkingFormat,
-        firstInput.model,
-        firstInput.chatbotId,
-        firstInput.enableRag,
-        firstInput.requestHeaders,
-        resolveTools(firstInput),
-        firstTaskModels,
-        firstInput.contextGuard,
-        firstInput.channelId,
-        firstInput.skipContainerSystemPrompt === true,
-        firstInput.streamTextDeltas === true,
-        firstInput.maxTokens,
-        firstPromptOverride,
-        firstInput.ralphMaxIterations,
-      );
+      firstOutput = await processRequest({
+        sessionId: firstInput.sessionId,
+        messages: firstRetryMessagesWithSkillCache,
+        apiKey: storedApiKey,
+        baseUrl: firstInput.baseUrl,
+        provider: firstInput.provider,
+        providerMethod: firstInput.providerMethod,
+        isLocal: firstInput.isLocal,
+        contextWindow: firstInput.contextWindow,
+        thinkingFormat: firstInput.thinkingFormat,
+        model: firstInput.model,
+        chatbotId: firstInput.chatbotId,
+        enableRag: firstInput.enableRag,
+        requestHeaders: firstInput.requestHeaders,
+        tools: resolveTools(firstInput),
+        taskModels: firstTaskModels,
+        contextGuard: firstInput.contextGuard,
+        channelId: firstInput.channelId,
+        skipContainerSystemPrompt:
+          firstInput.skipContainerSystemPrompt === true,
+        streamTextDeltas: firstInput.streamTextDeltas === true,
+        debugModelResponses: firstInput.debugModelResponses === true,
+        maxTokens: firstInput.maxTokens,
+        effectiveUserPromptOverride: firstPromptOverride,
+        ralphMaxIterationsOverride: firstInput.ralphMaxIterations,
+        escalationTarget: firstInput.escalationTarget,
+      });
     }
   }
 
@@ -1702,6 +1908,15 @@ async function main(): Promise<void> {
       console.error('[hybridclaw-agent] idle timeout, exiting');
       await shutdownAgentProcess(0, 'idle timeout');
       return;
+    }
+    if (input.healthCheck?.nonce) {
+      writeHealthOutput({
+        status: 'success',
+        result: `HEALTH_OK:${input.healthCheck.nonce}`,
+        toolsUsed: [],
+        toolExecutions: [],
+      });
+      continue;
     }
 
     applyRuntimeEnv(input.runtimeEnv);
@@ -1744,6 +1959,7 @@ async function main(): Promise<void> {
       input.chatbotId,
       requestHeaders,
       input.maxTokens,
+      input.debugModelResponses === true,
     );
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
@@ -1784,29 +2000,32 @@ async function main(): Promise<void> {
       continue;
     }
 
-    let output = await processRequest(
-      messagesForRequestWithSkillCache,
+    let output = await processRequest({
+      sessionId: input.sessionId,
+      messages: messagesForRequestWithSkillCache,
       apiKey,
-      input.baseUrl,
-      input.provider,
-      input.providerMethod,
-      input.isLocal,
-      input.contextWindow,
-      input.thinkingFormat,
-      input.model,
-      input.chatbotId,
-      input.enableRag,
+      baseUrl: input.baseUrl,
+      provider: input.provider,
+      providerMethod: input.providerMethod,
+      isLocal: input.isLocal,
+      contextWindow: input.contextWindow,
+      thinkingFormat: input.thinkingFormat,
+      model: input.model,
+      chatbotId: input.chatbotId,
+      enableRag: input.enableRag,
       requestHeaders,
-      resolveTools(input),
+      tools: resolveTools(input),
       taskModels,
-      input.contextGuard,
-      input.channelId,
-      input.skipContainerSystemPrompt === true,
-      input.streamTextDeltas === true,
-      input.maxTokens,
-      promptOverride,
-      input.ralphMaxIterations,
-    );
+      contextGuard: input.contextGuard,
+      channelId: input.channelId,
+      skipContainerSystemPrompt: input.skipContainerSystemPrompt === true,
+      streamTextDeltas: input.streamTextDeltas === true,
+      debugModelResponses: input.debugModelResponses === true,
+      maxTokens: input.maxTokens,
+      effectiveUserPromptOverride: promptOverride,
+      ralphMaxIterationsOverride: input.ralphMaxIterations,
+      escalationTarget: input.escalationTarget,
+    });
     if (
       messagesForRequestWithSkillCache !== input.messages &&
       output.status === 'error' &&
@@ -1819,29 +2038,32 @@ async function main(): Promise<void> {
         ? replaceLatestUserPrompt(input.messages, promptOverride)
         : input.messages;
       const retryMessagesWithSkillCache = injectSkillCacheHint(retryMessages);
-      output = await processRequest(
-        retryMessagesWithSkillCache,
+      output = await processRequest({
+        sessionId: input.sessionId,
+        messages: retryMessagesWithSkillCache,
         apiKey,
-        input.baseUrl,
-        input.provider,
-        input.providerMethod,
-        input.isLocal,
-        input.contextWindow,
-        input.thinkingFormat,
-        input.model,
-        input.chatbotId,
-        input.enableRag,
+        baseUrl: input.baseUrl,
+        provider: input.provider,
+        providerMethod: input.providerMethod,
+        isLocal: input.isLocal,
+        contextWindow: input.contextWindow,
+        thinkingFormat: input.thinkingFormat,
+        model: input.model,
+        chatbotId: input.chatbotId,
+        enableRag: input.enableRag,
         requestHeaders,
-        resolveTools(input),
+        tools: resolveTools(input),
         taskModels,
-        input.contextGuard,
-        input.channelId,
-        input.skipContainerSystemPrompt === true,
-        input.streamTextDeltas === true,
-        input.maxTokens,
-        promptOverride,
-        input.ralphMaxIterations,
-      );
+        contextGuard: input.contextGuard,
+        channelId: input.channelId,
+        skipContainerSystemPrompt: input.skipContainerSystemPrompt === true,
+        streamTextDeltas: input.streamTextDeltas === true,
+        debugModelResponses: input.debugModelResponses === true,
+        maxTokens: input.maxTokens,
+        effectiveUserPromptOverride: promptOverride,
+        ralphMaxIterationsOverride: input.ralphMaxIterations,
+        escalationTarget: input.escalationTarget,
+      });
     }
 
     output.sideEffects = getPendingSideEffects();

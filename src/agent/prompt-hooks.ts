@@ -36,54 +36,23 @@ import {
   type SkillInvocation,
 } from '../skills/skills.js';
 import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import type {
+  ExtendedPromptHookName,
+  PromptPartName,
+  WorkspacePromptPartName,
+} from './prompt-parts.js';
 import { SILENT_REPLY_TOKEN } from './silent-reply.js';
 import { buildToolsSummary } from './tool-summary.js';
 
-export type PromptHookName =
-  | 'bootstrap'
-  | 'memory'
-  | 'retrieval'
-  | 'safety'
-  | 'runtime'
-  | 'session-context';
-export type ExtendedPromptHookName = PromptHookName | 'proactivity';
-export type WorkspacePromptPartName =
-  | 'agents'
-  | 'soul'
-  | 'identity'
-  | 'user'
-  | 'tools'
-  | 'memory-file'
-  | 'heartbeat'
-  | 'bootstrap-file'
-  | 'opening'
-  | 'boot';
-export type PromptPartName =
-  | ExtendedPromptHookName
-  | WorkspacePromptPartName
-  | 'skills';
+export type {
+  ExtendedPromptHookName,
+  PromptHookName,
+  PromptPartName,
+  WorkspacePromptPartName,
+} from './prompt-parts.js';
 export type PromptMode = 'full' | 'minimal' | 'none';
 export const MESSAGE_SEND_SILENT_REPLY_TOKEN = SILENT_REPLY_TOKEN;
-export const PROMPT_PART_NAMES: PromptPartName[] = [
-  'bootstrap',
-  'memory',
-  'retrieval',
-  'safety',
-  'runtime',
-  'session-context',
-  'proactivity',
-  'skills',
-  'agents',
-  'soul',
-  'identity',
-  'user',
-  'tools',
-  'memory-file',
-  'heartbeat',
-  'bootstrap-file',
-  'opening',
-  'boot',
-];
+export { PROMPT_PART_NAMES } from './prompt-parts.js';
 
 export interface PromptRuntimeInfo {
   chatbotId?: string;
@@ -332,6 +301,16 @@ function buildMessageToolPromptLines(
       'Example: "Send this to Telegram" -> `message` {"action":"send","to":"telegram:<chatId>","content":"message text"}',
     );
   }
+  if (activeChannels.includes('signal')) {
+    examples.push(
+      'Example: "Send this on Signal" -> `message` {"action":"send","to":"signal:+15551234567","content":"message text"}',
+    );
+  }
+  if (activeChannels.includes('threema')) {
+    examples.push(
+      'Example: "Send this on Threema" -> `message` {"action":"send","to":"threema:ABCDEFGH","content":"message text"}',
+    );
+  }
   if (activeChannels.includes('whatsapp')) {
     examples.push(
       'Example: "Send this to WhatsApp" -> `message` {"action":"send","to":"whatsapp:<phone-or-jid>","content":"message text"}',
@@ -453,7 +432,7 @@ function buildSafetyHook(context: PromptHookContext): string {
     '## Web Retrieval Routing (web_search/web_fetch vs browser_*)',
     'Decision rule: use `web_search` to discover relevant URLs when the target page is not already known, then use `web_fetch` for read-only content retrieval.',
     'Use `http_request` for direct API calls that need a specific method, headers, JSON body, or secret-backed auth injection. Prefer it over `bash` + `curl` for HTTP APIs.',
-    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. Never emit the real token in prose or tool arguments.',
+    'When a request needs a stored secret, use `http_request` with `bearerSecretName`, `secretHeaders`, configured URL auth routes, or strict `<secret:NAME>` placeholders. For browser credential fields, use `browser_secret_type` with a stored secret name. Never emit the real token in prose or tool arguments.',
     'For HybridClaw product, setup, configuration, command, runtime behavior, or release-note questions: call `web_fetch` on the public docs at `https://www.hybridclaw.io/docs/` or the most specific `https://www.hybridclaw.io/docs/...` page before answering. Do not answer from memory if no fetch was attempted.',
     'Use `web_extract` when you want the fetched page condensed into a model-processed markdown summary; it is higher cost than `web_fetch` because it runs an auxiliary model after extraction.',
     'Use browser tools only when at least one of these is true: (1) known app-like/auth-gated URL, (2) interaction is required (click/type/login/scroll), (3) `web_fetch` returned escalation hints, (4) user explicitly requested browser use.',
@@ -461,8 +440,11 @@ function buildSafetyHook(context: PromptHookContext): string {
     'Prefer web_fetch for: docs/wikis/READMEs/articles/reference pages, direct JSON/XML/text/CSV/PDF endpoints, and simple read-only extraction.',
     'Escalation signals from web_fetch: `escalationHint` present, JavaScript-required pages, empty extraction, SPA shell-only pages, boilerplate-only extraction, or bot-blocked responses (403/429/challenge pages).',
     'Cost note: browser calls are typically ~10-100x slower/more expensive than web_fetch.',
+    'If the user explicitly asks for a visible, headed, or headful browser, call `browser_navigate` with `headed:true` on the first navigation for that browser task. Continue using the normal browser tools afterward; the visible/headful mode persists for the session.',
     'Browser extraction flow (for read/summarize requests): after `browser_navigate`, call `browser_snapshot` with `mode="full"` before deciding content is unavailable.',
+    'For embedded pages, call `browser_snapshot` with a `frame` selector when the main snapshot lists relevant iframes; use `frame:"main"` to return to the main document.',
     'If snapshot content is incomplete, run `browser_scroll` and then `browser_snapshot` again (repeat a few times for long/lazy-loaded pages).',
+    'For browser downloads, call `browser_click` with `waitForDownload:true` and `downloadPath`; if no `download_path` is returned, call `browser_downloads` with a relevant `filter` or short `waitMs` before claiming success.',
     'Do not use `browser_pdf` as a text-reading step; it is an export artifact, not a text extraction tool.',
     '',
     '## Browser Auth Handling',
@@ -547,8 +529,9 @@ function buildProactivityHook(context: PromptHookContext): string {
     '- Keep delegated tasks narrow enough to complete autonomously.',
     '',
     '### Post-spawn behavior',
-    '- Delegation completion is push-based and may auto-announce.',
+    '- Delegation completion is push-based: the gateway collects delegated results and uses them for the final user-facing synthesis.',
     '- Continue useful work; do not busy-wait.',
+    '- After spawning delegates, acknowledge that they started; do not present final findings until delegated results arrive.',
     '- When sharing delegated outcomes, synthesize concise user-facing takeaways instead of dumping raw transcripts.',
     '',
     '<example>',
@@ -656,8 +639,10 @@ function isChannelInstructionKind(
   return (
     kind === 'discord' ||
     kind === 'msteams' ||
+    kind === 'signal' ||
     kind === 'slack' ||
     kind === 'telegram' ||
+    kind === 'threema' ||
     kind === 'voice' ||
     kind === 'whatsapp' ||
     kind === 'email' ||

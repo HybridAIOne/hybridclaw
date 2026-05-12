@@ -2,8 +2,362 @@
 
 ## Unreleased
 
+### Changed
+
+- **A2A delegation bearer auth**: Outbound A2A uses signed delegation JWTs as
+  the HTTP bearer credential. `bearerTokenRef` remains a required explicit
+  opt-in gate for non-loopback peer URLs, but its secret value is not sent on
+  the wire.
+
+### Fixed
+
+- **A2A delegation revocation cleanup**: Expired delegation-token revocation
+  records are pruned when new revocations are written, preventing stale
+  short-lived token revocations from accumulating indefinitely.
+
+## [0.16.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.16.0) - 2026-05-07
+
 ### Added
 
+- **macOS desktop wrapper**: Source builds can run `npm run desktop` for a
+  native Electron shell around the existing `/chat` experience, with menu
+  access to `/admin`, automatic local-gateway startup, packaged runtime
+  preparation, and DMG build scripts.
+- **Browser provider substrate**: Browser automation can run through a local
+  persistent Playwright profile or Browser Use Cloud CDP sessions. Browser Use
+  Cloud reads `BROWSER_USE_API_KEY` from the encrypted secret store, records
+  usage/audit events, rejects unsafe local profile hints, and reports setup
+  problems through `hybridclaw doctor browser-use`.
+- **Cloudflare Tunnel provider**: Local gateways can use
+  `deployment.tunnel.provider=cloudflare` with `CLOUDFLARE_TUNNEL_TOKEN` or
+  certificate credentials from encrypted runtime secrets, plus a dedicated
+  setup guide and admin tunnel status.
+- **A2A outbound delivery**: Agent-to-agent envelopes can be delivered through
+  JSON-RPC Agent Card peers or signed webhook peers with an outbox processor,
+  retry/backoff, audit events, secret-backed bearer tokens, and operator
+  escalation when delivery cannot continue safely.
+- **A2A webhook inbound endpoint**: Gateways accept signed envelopes from
+  trusted non-A2A peers at `POST /a2a/webhook/:peerId` with HMAC-SHA256
+  verification, replay-window enforcement, per-peer SecretRef-backed shared
+  secrets, sender/recipient validation against local agents, configurable
+  per-peer rate limiting (default 60/min → 429), and structured audit events
+  for every inbound POST.
+- **Monthly invoice harvester skill**: The bundled
+  `download-platform-invoices` skill collects official SaaS invoice PDFs and
+  normalized records across Stripe, Google Ads, AWS, Azure, GCP, browser-driven
+  SaaS portals, and DATEV Unternehmen Online handoff flows.
+- **Warehouse SQL skill**: The bundled `warehouse-sql` skill reviews and runs
+  read-only natural-language SQL against cached warehouse schemas, with a
+  deterministic SQLite eval fixture and optional connector-backed execution for
+  production warehouses.
+- **Google OAuth secret routes**: `hybridclaw secret route ...` and
+  `/secret route ...` can map URL prefixes to stored secrets or short-lived
+  Google OAuth access tokens for direct `http_request` calls such as Google Ads
+  API access.
+- **Interactive escalation handoff**: Runtime middleware can pause for
+  operator-facing escalation, collect resumable interaction context, and expose
+  browser controls for continuing or resolving pending approvals.
+- **AI-generated session titles**: `auxiliaryModels.session_title` can use an
+  auxiliary model to title recent sessions from the first user message while
+  preserving the local preview fallback when disabled.
+- **Canonical identity discovery**: User and agent identities now have shared
+  parsers, local instance-id allocation, and DNS-style TXT discovery records
+  that map canonical identities to peer URLs and public keys for federation.
+- **Per-agent liveness surface**: Gateway status now includes agent liveness
+  metadata for admin and health surfaces.
+- **Workflow definition schema**: YAML workflow definitions can declare
+  agent-owned steps, transitions, and `stakes_threshold` escalation hints with
+  validation coverage.
+- **Classifier middleware contract**: Agent middleware can classify, warn,
+  transform, block, or escalate pre-send and post-receive content, giving
+  plugins such as `brand-voice` and confidential leak checks a shared runtime
+  surface.
+- **Console skill ZIP overwrite control**: The admin Skills page can upload a
+  skill ZIP with an explicit `--force` overwrite option while preserving the
+  existing skill if the replacement copy fails.
+
+### Changed
+
+- **Approval policy rule pipeline**: Container approval evaluation now runs
+  through a hook-fed, policy-orderable rule pipeline, preserving the existing
+  trust-store layout while giving plugins pre/post tool-use visibility.
+- **Provider fallback chains**: `HYBRIDAI_FALLBACK_CHAIN` can route model calls
+  to alternate providers on auth and rate-limit failures, with primary-provider
+  cooldowns and streaming-safe retry gates.
+- **A2A retry classification is shared**: Outbound A2A delivery and transport
+  error handling use common retry classifications so transient failures,
+  permanent failures, and escalation paths stay consistent.
+- **Web chat sessions are easier to resume**: Recent-session history has clearer
+  titles/snippets, agent switching is more stable, and active-session routing is
+  less prone to stale agent state after UI changes.
+- **Browser tooling is stricter and more capable**: Browser tools share
+  navigation/profile guards, support reusable browser login state across host
+  and container runtimes, and handle download-heavy invoice flows more
+  predictably.
+- **TUI activity rendering is calmer**: Tool activity rows stack and de-dupe
+  more cleanly, repeated activity lines are suppressed, and `Esc` stops the
+  active run instead of leaving the session running in the background.
+- **Secret-bearing tool calls are narrower**: Gateway-side secret injection
+  resolves non-LLM credentials and Google OAuth tokens at request time instead
+  of exposing long-lived credentials to agent context.
+- **Provider discovery errors are clearer**: Shared discovery-error helpers and
+  normalized OpenRouter fallback hints keep model selection output less noisy.
+- **IMAP polling failures stay local**: Email transport timeouts are contained
+  to the IMAP connection path instead of leaking into broader gateway state.
+- **Release automation is stricter**: Release workflows validate promoted image
+  tags, pin newer checkout/setup actions, tolerate build-cache export failures,
+  and enforce the Node engine during npm installs.
+
+### Fixed
+
+- **Gateway transport timeout resilience**: Host/container transport timeouts no
+  longer bring down the gateway; affected runs fail locally while the gateway
+  stays available for subsequent work.
+- **Google Ads invoice harvesting**: Google Ads invoice discovery and PDF
+  downloads use the correct InvoiceService and GoogleAdsService paths,
+  including accessible-customer, manager-client, and billing-setup discovery.
+- **TUI stop behavior**: Pressing `Esc` reliably stops the in-flight TUI
+  session run.
+- **TUI tool activity duplication**: Repeated and stacked tool rows no longer
+  produce noisy duplicate output.
+- **OpenRouter fallback hints**: HybridAI-prefixed model hints are stripped
+  before OpenRouter fallback resolution.
+
+## [0.15.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.15.0) - 2026-04-29
+
+### Added
+
+- **Backup and restore CLI**: `hybridclaw backup` creates WAL-safe runtime-home
+  archives and `hybridclaw backup restore` validates manifests before
+  rehydrating `~/.hybridclaw` on a fresh or recovered host.
+- **Brand-voice output guard**: A repo-shipped `brand-voice` plugin can flag,
+  rewrite, or block off-brand final responses using configured voice rules,
+  banned phrases or patterns, required phrases, and optional classifier/rewriter
+  models. The bundled `brand-voice` skill helps agents draft within those rules
+  before the output guard fires.
+- **Production Salesforce skill**: The bundled Salesforce skill now ships a
+  fuller read-only helper, metadata/query references, eval scenarios, and
+  server-side secret placeholder handling for inspecting org schema and SOQL
+  records without writing credentials to disk.
+- **Tailscale Funnel tunnel provider and admin status**: Local deployments can
+  use `deployment.tunnel.provider=tailscale`, with `TS_AUTHKEY` resolved from
+  encrypted runtime secrets when needed and kept out of process arguments. The
+  admin console surfaces public URL and tunnel status alongside the existing
+  gateway controls.
+- **Web chat model switcher**: The chat composer can switch models from the
+  browser using discovered provider catalogs, provider icons, model capability
+  metadata, and the same active-session routing used by local slash commands.
+- **Agent org chart, team revisions, and chronological CVs**: Agent metadata
+  can model role, reporting, delegation, and peer relationships; admin agent
+  pages keep restorable team-structure revisions; observed skill history can
+  refresh per-agent CV output.
+- **Warm process pool**: Host and container runners can keep a bounded adaptive
+  pool of idle runtime processes for recently active agents, reducing cold-start
+  latency while respecting max-idle, startup-claim, config-change, and
+  memory-pressure limits.
+- **Trace judge and trace preparation**: Local eval workflows can prepare
+  redacted traces and dispatch them through an auxiliary judge model for skill,
+  leak, and output-quality evaluation foundations.
+- **Config value inspection**: `hybridclaw config get <key>` and `/config get
+  <key>` return one resolved runtime config value without dumping the full
+  config file.
+- **GPT-5.5 model support**: Static and Codex-discovered model catalogs include
+  `gpt-5.5`, `gpt-5.5-pro`, and `openai-codex/gpt-5.5`.
+
+### Changed
+
+- **Gateway health is less fragile**: Gateway status and health endpoints rely
+  on cached provider checks instead of blocking on live model-provider probes,
+  so transient provider failures no longer make the local gateway look down.
+- **Token usage recording is buffered**: Usage events are normalized,
+  size-capped, and batch-flushed asynchronously to reduce hot-path overhead
+  while preserving audit records.
+- **Runtime secrets are scrubbed more consistently**: Host/container agent
+  runtimes share sensitive environment filtering and web-search credential
+  injection so Brave, Perplexity, and Tavily keys are passed only through the
+  intended secret channels.
+- **Trajectory capture is stricter**: Stored skill trajectories run through
+  PII, secret, and confidential-info redaction, and retention can be capped
+  globally or per tenant.
+- **Docs are consolidated under `docs/content`**: The duplicate legacy
+  `docs/development` tree was removed after the content moved into the current
+  docs hierarchy.
+
+### Fixed
+
+- **Loopback API auth is no longer bypassed**: Local OpenAI-compatible API
+  requests require `WEB_API_TOKEN` or `GATEWAY_API_TOKEN`; loopback address
+  alone is not treated as authentication.
+- **Local TUI and gateway token handling is safer**: Generated gateway tokens
+  are persisted once with serialized creation, shared with local TUI/eval
+  clients, and no longer rewritten during later config reloads.
+- **Ngrok tunnel reconnects are quieter**: Reconnect errors are deduplicated by
+  normalized cause, audit run ids are correlated, and tunnel health checks stay
+  enabled by default.
+- **HybridAI-prefixed model names resolve cleanly**: Provider prefix handling
+  recognizes `hybridai/...` model ids without noisy warnings.
+- **Context ring popovers render correctly**: The web chat context usage ring
+  once again shows its detail popover.
+
+## [0.14.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.14.0) - 2026-04-28
+
+### Added
+
+- **Signal channel**: HybridClaw can connect to Signal through a
+  `signal-cli` compatible daemon, with private-by-default DM and group
+  policies, outbound chunk pacing, reconnect handling, admin QR linking, and a
+  full setup guide.
+- **Confidential-info filter and audit leak scanner**: Operators can define
+  NDA-class client, project, person, keyword, and regex rules in
+  `.confidential.yml`; prompts are redacted before model calls, responses are
+  rehydrated for the user, and `hybridclaw audit scan-leaks` can inspect
+  historic audit logs with severity and type filters.
+- **Admin statistics and agent scoreboard**: The admin console adds
+  `/admin/statistics` for session, message, token, cost, and channel trends,
+  plus `/admin/agent-scoreboard` for per-agent skill scores, best skills,
+  reliability, timing, and CV links.
+- **Live context usage controls**: Web chat shows a live context-usage ring,
+  local sessions support `/context`, and compaction headroom is visible before
+  long-running chats hit the model window.
+- **Packaged skill lifecycle**: Production skills can declare manifests with
+  package id, version, capabilities, required credentials, and supported
+  channels. Operators can install, upgrade, uninstall, list revisions, and roll
+  back managed skills with audited snapshots.
+- **Skill autonomy and stakes policy foundations**: `skills.autonomy` records
+  per-agent skill autonomy levels, the container approval policy can classify
+  high-stakes actions, and conditional skill availability can be routed through
+  the generalized policy engine.
+- **Deployment config and ngrok tunnel provider**: Runtime config now declares
+  local or cloud deployment mode, public URLs, tunnel provider intent, and a
+  built-in ngrok tunnel provider backed by the encrypted `NGROK_AUTHTOKEN`
+  secret.
+- **Nix and Homebrew packaging groundwork**: The repo ships a multi-arch Nix
+  flake, NixOS service module, contributor dev shell, packaging notes, and a
+  preview Homebrew formula for future tap publication.
+- **Model metadata, pricing, and monthly usage rollups**: `/model info`,
+  `/usage`, and the admin Models page surface discovered context windows,
+  output limits, capabilities, pricing, and monthly per-model spend when
+  providers expose that metadata.
+- **Headful browser control**: Browser tools can run a visible Chrome session
+  when a user explicitly asks for headed/headful control, while shared browser
+  login profiles stay reusable for automation.
+- **Agent-to-agent and trajectory persistence foundations**: The runtime can
+  persist A2A envelopes and opt-in redacted skill-run trajectories, creating
+  the data trail needed for multi-agent handoffs, skill evaluation, and future
+  workflow tuning.
+
+### Changed
+
+- **Browser chat is more operational**: Chat navigation is session-id driven,
+  recent sessions keep richer snippets, the composer can switch agents, slash
+  result streams render correctly, and context-ring data is shared with the
+  `/context` command.
+- **Agent terminology and profile data are consistent**: The UI and internal
+  persistence moved from coworker compatibility naming to agent naming, while
+  agent configs gained owner, role, and CV fields.
+- **Model and provider status is discovery-led**: Provider catalogs cache
+  runtime discovery, merge pinned entries with discovered models, remove stale
+  static pricing assumptions, and keep status/model-info output focused on the
+  active model.
+- **Approval and policy evaluation is more explicit**: Approval tiers can be
+  influenced by autonomy level and stakes classification, invalid policy
+  regexes and thresholds warn early, and unsafe realpath inspection during
+  approval classification is avoided.
+- **Local diagnostics are more precise**: Gateway debug startup flags can
+  capture raw model responses and last prompts for local troubleshooting, and
+  `doctor` resource hygiene can reclaim stale gateway artifacts more safely.
+- **TUI and status reporting are quieter and more useful**: Proactive polling
+  runs less often, streamed TUI responses preserve visible text, transient tool
+  lines truncate cleanly, and status output includes tokens-per-second and
+  time-to-first-token aware metrics.
+
+### Fixed
+
+- **Web fetch is guarded against SSRF**: Plain HTTP retrieval now enforces
+  private-network protections more consistently before escalating to browser
+  tools.
+- **Headful browser launches require system Chrome**: Visible browser control
+  refuses unstable headed macOS fallback launches and reports the required
+  Chrome executable setup instead.
+- **Voice turns survive relay reconnects**: Twilio voice relay reconnects no
+  longer lose the active turn state while the gateway is handling a call.
+- **Chat history and streaming edge cases are closed**: Result-only slash
+  streams render, tool-call sentinels are stripped before storage, regenerated
+  replies include tools used, context rings stay visible, and `/chat.html`
+  redirects preserve query strings.
+- **Skill lifecycle and manifest handling are stricter**: Managed skill
+  installs require installed status records, validate snapshot entries, cap
+  restored file modes, preserve unknown deployment tunnel providers, and reject
+  upgrades for uninstalled packages.
+- **Channel runtimes shut down more predictably**: WhatsApp and voice shutdown
+  paths cancel stale work, Signal delivery validates daemon/account state, and
+  channel send tools remain scoped to active transports.
+
+## [0.13.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.1) - 2026-04-24
+
+### Added
+
+- **Delegation runtime reporting**: Delegated agent runs now persist their own
+  request logs, audit tool events, model usage, token counts, and artifacts.
+  `/status` rolls first-level delegate usage into the session summary when a
+  dedicated delegate model is configured.
+- **Dedicated proactive delegate model**: Added
+  `proactive.delegation.model`, allowing operators to run delegated tasks on a
+  different model from the parent orchestration turn.
+- **Live delegate progress in the TUI**: Delegate batches now stream status
+  blocks, child tool progress, token totals, and synthesized final-answer
+  deltas into local TUI sessions without interrupting the active prompt.
+- **Shared gateway command parsing helpers**: Added common parsing utilities
+  for command ids, lower-case subcommands, and integer arguments across
+  policy, concierge, skill, session, usage, export, audit, and schedule
+  commands.
+
+### Changed
+
+- **Delegation prompts and approvals are clearer**: Delegation metadata moves
+  into the child user prompt, subagents get more explicit tool-use guidance,
+  duplicate delegate task titles are tracked independently, and `delegate` is
+  classified as green because child tool calls are approved separately.
+- **TUI activity rendering is more stable**: Running tools pulse in place,
+  completed tools switch to a green checkmark, streamed text row counts are
+  tracked incrementally, and delegate tool calls suppress partial parent text
+  until delegate output is ready.
+- **Console chat navigation is easier to reach**: The chat sidebar collapses
+  to an icon rail on desktop, exposes a mobile topbar trigger, and respects
+  reduced-motion preferences.
+- **Encrypted web-search credentials feed runtimes consistently**: Brave,
+  Perplexity, and Tavily API keys are resolved through the runtime secret store
+  and injected into host/container agent runtimes from the active encrypted
+  credentials, with environment variables used as fallback.
+- **Liquid/LFM local model tool prompts are more compatible**: Local
+  OpenAI-compatible Liquid/LFM requests include a compact tool list in the
+  system prompt while preserving normal tool-choice request fields.
+
+### Fixed
+
+- **WhatsApp shutdown no longer waits on stale inbound batches**: Runtime
+  shutdown cancels debounced WhatsApp batches, aborts in-flight handlers,
+  stops typing indicators, and avoids starting new typing state after shutdown
+  begins.
+- **Console audit inspection stays visible while browsing events**: The audit
+  detail panel remains sticky as the event list scrolls.
+- **Whitespace-padded command arguments normalize consistently**: Gateway
+  command handlers now trim ids and lower-case subcommands through shared
+  helpers before dispatching.
+
+## [0.13.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.13.0) - 2026-04-22
+
+### Added
+
+- **Direct Anthropic provider**: Added first-class `anthropic/...` model
+  routing with `hybridclaw auth login anthropic`, direct Messages API support,
+  optional official `claude -p` transport in host sandbox mode, runtime model
+  discovery, doctor/onboarding coverage, and container-side Anthropic provider
+  execution.
+- **JSON agent configuration command**: Added `hybridclaw agent config` for
+  platform-generated agent JSON payloads. The command can upsert agent
+  metadata, write bootstrap markdown files, optionally activate the agent, and
+  import `imageAsset` URLs or local files into the agent workspace.
 - **Bundled `gog` Google Workspace skill**: Added API-backed Gmail, Google
   Calendar, Drive, Contacts, Sheets, and Docs workflows through the `gog` CLI,
   including the Homebrew install helper and Google OAuth setup via
@@ -11,16 +365,76 @@
   and refresh token in encrypted runtime secrets, mints short-lived access
   tokens on the host, and injects only `GOG_ACCESS_TOKEN` plus `GOG_ACCOUNT`
   into the agent runtime.
+- **Bundled `gws` Google Workspace skill**: Added a Google Workspace CLI skill
+  with progressive disclosure, auth preflight, and focused reference material
+  for Calendar, Gmail, Drive, Docs, Sheets, and common workflows.
+- **Bundled `gh-issues` skill**: Added a HybridClaw-native GitHub issue queue
+  workflow that can fetch live issue lists, filter batches, confirm selected
+  issues, deduplicate issue-fix branches, delegate focused PRs, watch queues,
+  and revisit review feedback on open issue-fix PRs.
+- **Bundled `excalidraw` skill**: Added editable `.excalidraw` diagram
+  creation and revision guidance with reference material for colors, dark
+  mode, examples, and an upload helper.
+- **Small-business workflow tutorials**: Added a top-level Tutorials section
+  covering practical owner, GTM, marketing, sales, DevRel, content, webinar,
+  invoicing, and release-launch workflows.
+- **Roman personality option**: Added a bundled Roman personality profile.
+- **Console view switch and chat route refresh**: Added a shared view switch,
+  larger admin brand treatment, collapsible desktop navigation, and a refreshed
+  top-level `/chat` SPA route.
+- **Release image promotion action**: Added a dedicated GitHub Action for
+  release image promotion and tightened release-image workflow caching.
 
 ### Changed
 
+- **Anthropic provider handling is production-routed**: Anthropic auth status,
+  provider probing, model discovery, task routing, stream parsing, timeout
+  behavior, Claude CLI credential lookup, and credential environment handling
+  now use provider-specific code paths instead of OpenAI-compatible fallbacks.
 - **Google Workspace skill routing prefers `gog` for API access**: The
   browser-oriented `google-workspace` skill now defers to the bundled `gog`
   skill when API-backed Gmail, Calendar, Drive, Contacts, Sheets, or Docs
   access is available.
+- **Browser chat is the primary local web surface**: The gateway root routes to
+  chat, `/chat` is mounted as a top-level console SPA route, the standalone
+  chat view owns its viewport, and server-rendered pages use document
+  navigation where appropriate.
+- **Chat composer and message actions were refined**: Assistant message actions
+  are always visible, regenerate precedes copy, the composer uses a two-row
+  layout and the full main-column width, active sessions use accent text, and
+  the new-conversation/send controls use lighter chrome.
+- **Channel runtime lifecycle code is shared**: Built-in channel transports now
+  use a shared runtime factory for common lifecycle handling, with explicit
+  opt-outs where a transport needs custom behavior.
+- **Provider discovery is more consistent**: Discovery caches and lookup
+  aliases are shared across providers, HybridAI model alias lookup is indexed,
+  provider integer parsing is centralized, and discovery refresh failures are
+  logged consistently.
+- **Prompt and tool summaries are cleaner**: Message-tool advertising is scoped
+  to active channels, and prompt hook output avoids redundant comment noise.
 
 ### Fixed
 
+- **Gateway restarts no longer hang during shutdown**: The gateway shutdown
+  path now drains pending credential-save work in order, avoiding a restart
+  hang during WhatsApp shutdown.
+- **Honcho memory prefetch races are closed**: Prompt-context assembly waits
+  for in-flight Honcho prefetch work before reading memory context.
+- **Inactive channel send tools no longer leak into prompts**: The runtime only
+  advertises message-send tools for channels that are active in the current
+  configuration.
+- **OpenRouter free-model lookups normalize correctly**: OpenRouter discovery
+  handles free model lookup aliases consistently.
+- **Slack runtime sends are guarded more tightly**: Slack send handling now
+  validates runtime state before attempting delivery.
+- **Agent avatars load behind web auth**: Chat agent avatars are fetched with
+  authenticated requests and eagerly loaded when chat state initializes.
+- **Chat replay restores request context from history**: Regenerating from a
+  historic assistant message hydrates the stored replay request before
+  resubmitting.
+- **Collapsed sidebars keep the expected width**: The collapsed console rail
+  shrinks to icon width and exposes nav tooltips instead of leaving excess
+  sidebar space.
 - **Google Workspace replies preserve user-visible addresses**: Assistant
   replies and streamed chat text no longer redact ordinary email addresses
   before they reach the user. Redaction still applies to audit, logging,

@@ -1102,6 +1102,33 @@ const THREAT_RULES: ThreatRule[] = [
     category: 'credential-exposure',
     description: 'AWS access key ID in skill content',
   },
+  {
+    regex: r(
+      String.raw`\bString\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*\s*\)`,
+    ),
+    patternId: 'secret_ref_string_coercion',
+    severity: 'critical',
+    category: 'credential-exposure',
+    description: 'string coercion of a SecretRef or credential ref',
+  },
+  {
+    regex: r(
+      String.raw`JSON\.stringify\s*\(\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*`,
+    ),
+    patternId: 'secret_ref_json_stringify',
+    severity: 'critical',
+    category: 'credential-exposure',
+    description: 'JSON.stringify() of a SecretRef or credential ref',
+  },
+  {
+    regex: r(
+      String.raw`\$\{\s*(?:[A-Za-z_$][\w$]*\.)?[A-Za-z_$][\w$]*(?:secretRef|credentialRef|secret|credential|creds?|password|token)[\w$]*\s*\}`,
+    ),
+    patternId: 'secret_ref_template_interpolation',
+    severity: 'critical',
+    category: 'credential-exposure',
+    description: 'template interpolation of a SecretRef or credential ref',
+  },
 ];
 
 function pathWithin(root: string, target: string): boolean {
@@ -1137,10 +1164,6 @@ function isLikelyBinary(filePath: string): boolean {
   } catch {
     return false;
   }
-}
-
-function createFinding(finding: SkillGuardFinding): SkillGuardFinding {
-  return finding;
 }
 
 function collectStructure(skillPath: string): StructureScanState {
@@ -1189,32 +1212,28 @@ function collectStructure(skillPath: string): StructureScanState {
         );
 
         if (!resolved) {
-          state.findings.push(
-            createFinding({
-              patternId: 'broken_symlink',
-              severity: 'medium',
-              category: 'structural',
-              file: relativePath,
-              line: 0,
-              match: 'broken symlink',
-              description: 'broken or circular symlink',
-            }),
-          );
+          state.findings.push({
+            patternId: 'broken_symlink',
+            severity: 'medium',
+            category: 'structural',
+            file: relativePath,
+            line: 0,
+            match: 'broken symlink',
+            description: 'broken or circular symlink',
+          });
           continue;
         }
 
         if (!pathWithin(rootReal, resolved)) {
-          state.findings.push(
-            createFinding({
-              patternId: 'symlink_escape',
-              severity: 'critical',
-              category: 'structural',
-              file: relativePath,
-              line: 0,
-              match: `symlink -> ${resolved}`,
-              description: 'symlink points outside the skill directory',
-            }),
-          );
+          state.findings.push({
+            patternId: 'symlink_escape',
+            severity: 'critical',
+            category: 'structural',
+            file: relativePath,
+            line: 0,
+            match: `symlink -> ${resolved}`,
+            description: 'symlink points outside the skill directory',
+          });
         }
         continue;
       }
@@ -1253,78 +1272,68 @@ function collectStructure(skillPath: string): StructureScanState {
       });
 
       if (stat.size > MAX_SINGLE_FILE_BYTES) {
-        state.findings.push(
-          createFinding({
-            patternId: 'oversized_file',
-            severity: 'medium',
-            category: 'structural',
-            file: relativePath,
-            line: 0,
-            match: `${Math.trunc(stat.size / 1024)}KB`,
-            description: `file is ${Math.trunc(stat.size / 1024)}KB (limit: ${Math.trunc(MAX_SINGLE_FILE_BYTES / 1024)}KB)`,
-          }),
-        );
+        state.findings.push({
+          patternId: 'oversized_file',
+          severity: 'medium',
+          category: 'structural',
+          file: relativePath,
+          line: 0,
+          match: `${Math.trunc(stat.size / 1024)}KB`,
+          description: `file is ${Math.trunc(stat.size / 1024)}KB (limit: ${Math.trunc(MAX_SINGLE_FILE_BYTES / 1024)}KB)`,
+        });
       }
 
       if (SUSPICIOUS_BINARY_EXTENSIONS.has(ext) || isBinary) {
-        state.findings.push(
-          createFinding({
-            patternId: 'binary_file',
-            severity: 'critical',
-            category: 'structural',
-            file: relativePath,
-            line: 0,
-            match: isBinary
-              ? `binary content${ext ? ` (${ext})` : ''}`
-              : `binary extension: ${ext}`,
-            description: 'binary/executable content should not be in a skill',
-          }),
-        );
+        state.findings.push({
+          patternId: 'binary_file',
+          severity: 'critical',
+          category: 'structural',
+          file: relativePath,
+          line: 0,
+          match: isBinary
+            ? `binary content${ext ? ` (${ext})` : ''}`
+            : `binary extension: ${ext}`,
+          description: 'binary/executable content should not be in a skill',
+        });
       }
 
       if (!SCRIPT_EXEC_EXTENSIONS.has(ext) && (stat.mode & 0o111) !== 0) {
-        state.findings.push(
-          createFinding({
-            patternId: 'unexpected_executable',
-            severity: 'medium',
-            category: 'structural',
-            file: relativePath,
-            line: 0,
-            match: 'executable bit set',
-            description:
-              'file has executable permission but is not a recognized script type',
-          }),
-        );
+        state.findings.push({
+          patternId: 'unexpected_executable',
+          severity: 'medium',
+          category: 'structural',
+          file: relativePath,
+          line: 0,
+          match: 'executable bit set',
+          description:
+            'file has executable permission but is not a recognized script type',
+        });
       }
     }
   }
 
   if (state.fileCount > MAX_FILE_COUNT) {
-    state.findings.push(
-      createFinding({
-        patternId: 'too_many_files',
-        severity: 'medium',
-        category: 'structural',
-        file: '(directory)',
-        line: 0,
-        match: `${state.fileCount} files`,
-        description: `skill has ${state.fileCount} files (limit: ${MAX_FILE_COUNT})`,
-      }),
-    );
+    state.findings.push({
+      patternId: 'too_many_files',
+      severity: 'medium',
+      category: 'structural',
+      file: '(directory)',
+      line: 0,
+      match: `${state.fileCount} files`,
+      description: `skill has ${state.fileCount} files (limit: ${MAX_FILE_COUNT})`,
+    });
   }
 
   if (state.totalSize > MAX_TOTAL_SIZE_BYTES) {
-    state.findings.push(
-      createFinding({
-        patternId: 'oversized_skill',
-        severity: 'high',
-        category: 'structural',
-        file: '(directory)',
-        line: 0,
-        match: `${Math.trunc(state.totalSize / 1024)}KB total`,
-        description: `skill is ${Math.trunc(state.totalSize / 1024)}KB total (limit: ${Math.trunc(MAX_TOTAL_SIZE_BYTES / 1024)}KB)`,
-      }),
-    );
+    state.findings.push({
+      patternId: 'oversized_skill',
+      severity: 'high',
+      category: 'structural',
+      file: '(directory)',
+      line: 0,
+      match: `${Math.trunc(state.totalSize / 1024)}KB total`,
+      description: `skill is ${Math.trunc(state.totalSize / 1024)}KB total (limit: ${Math.trunc(MAX_TOTAL_SIZE_BYTES / 1024)}KB)`,
+    });
   }
 
   return state;
@@ -1369,17 +1378,15 @@ function scanTextContent(
       if (!rule.regex.test(line)) continue;
       seen.add(dedupeKey);
       const matched = line.trim();
-      findings.push(
-        createFinding({
-          patternId: rule.patternId,
-          severity: rule.severity,
-          category: rule.category,
-          file: normalizedPath,
-          line: lineNo,
-          match: matched.length > 120 ? `${matched.slice(0, 117)}...` : matched,
-          description: rule.description,
-        }),
-      );
+      findings.push({
+        patternId: rule.patternId,
+        severity: rule.severity,
+        category: rule.category,
+        file: normalizedPath,
+        line: lineNo,
+        match: matched.length > 120 ? `${matched.slice(0, 117)}...` : matched,
+        description: rule.description,
+      });
     }
   }
 
@@ -1391,17 +1398,15 @@ function scanTextContent(
       const charName =
         INVISIBLE_CHAR_NAMES[char] ||
         `U+${char.codePointAt(0)?.toString(16).toUpperCase()}`;
-      findings.push(
-        createFinding({
-          patternId: 'invisible_unicode',
-          severity: 'high',
-          category: 'prompt-injection',
-          file: normalizedPath,
-          line: lineNo,
-          match: `U+${(char.codePointAt(0) || 0).toString(16).toUpperCase().padStart(4, '0')} (${charName})`,
-          description: `invisible unicode character ${charName} (possible text hiding/injection)`,
-        }),
-      );
+      findings.push({
+        patternId: 'invisible_unicode',
+        severity: 'high',
+        category: 'prompt-injection',
+        file: normalizedPath,
+        line: lineNo,
+        match: `U+${(char.codePointAt(0) || 0).toString(16).toUpperCase().padStart(4, '0')} (${charName})`,
+        description: `invisible unicode character ${charName} (possible text hiding/injection)`,
+      });
       break;
     }
   }

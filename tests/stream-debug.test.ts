@@ -4,7 +4,9 @@ import {
   consumeCollapsedStreamDebugLine,
   createStreamDebugState,
   decodeStreamDelta,
+  decodeThinkingDelta,
   flushCollapsedStreamDebugSummary,
+  isThinkingDeltaLine,
 } from '../src/infra/stream-debug.ts';
 
 function encode(text: string): string {
@@ -15,6 +17,14 @@ describe('stream debug logging', () => {
   it('decodes stream transport lines', () => {
     expect(decodeStreamDelta(`[stream] ${encode('Hey')}`)).toBe('Hey');
     expect(decodeStreamDelta('[codex] stream complete')).toBeNull();
+  });
+
+  it('identifies out-of-band thinking transport lines', () => {
+    const line = `[thinking] ${encode('checking')}`;
+
+    expect(decodeThinkingDelta(line)).toBe('checking');
+    expect(isThinkingDeltaLine(line)).toBe(true);
+    expect(isThinkingDeltaLine(`[stream] ${encode('visible')}`)).toBe(false);
   });
 
   it('logs the first token and a final summary only', () => {

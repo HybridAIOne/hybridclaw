@@ -96,6 +96,117 @@ keys as environment variables.
 
 ---
 
+## download-platform-invoices
+
+Harvest monthly SaaS billing invoices into normalized records and official PDF
+files for bookkeeping or DATEV handoff.
+
+**Prerequisites** — provider credentials in the encrypted HybridClaw secret
+store. API-backed providers use their own service credentials; browser-backed
+providers need a reusable billing-portal login profile.
+
+> 💡 **Tips & Tricks**
+>
+> Keep provider credentials as SecretRefs such as `{ "source": "store", "id": "STRIPE_INVOICE_API_KEY" }` instead of plaintext config.
+>
+> The skill writes one normalized JSON record per invoice plus the official PDF, then deduplicates reruns by vendor, invoice number, and checksum.
+>
+> Google Ads uses `hybridclaw auth login google --scopes "https://www.googleapis.com/auth/adwords"` plus `/secret route` entries for OAuth and the developer token.
+>
+> DATEV handoff runs after invoice harvesting and prefers an injected DATEV API/MCP client before browser upload.
+
+> 🎯 **Try it yourself**
+>
+> `Collect last month's SaaS invoices for Stripe and Google Ads, save the official PDFs, and produce a manifest for bookkeeping`
+>
+> `Run the monthly invoice workflow fixture with recorded providers and summarize which invoices were fetched`
+>
+> `Prepare a DATEV handoff from the harvested invoice manifest`
+
+**Troubleshooting**
+
+- **Provider asks for MFA or captcha** — stop and route to an operator; the
+  skill must not solve captchas silently.
+- **Google Ads returns auth errors** — verify the Google OAuth login, the
+  `https://googleads.googleapis.com/` secret routes, and the
+  `GOOGLEADS_DEVELOPER_TOKEN` stored secret.
+- **Duplicate invoices** — reruns reuse the manifest and should skip already
+  fetched vendor/invoice/checksum combinations.
+
+---
+
+## google-ads
+
+Use the Google Ads skill for GAQL performance reporting, MCC account
+inspection, recommendation review/apply/dismiss, guarded campaign, ad group,
+ad, keyword, budget, audience, conversion operations, and ad-copy preflight.
+
+**Prerequisites** — a Google OAuth desktop client authorized with
+`https://www.googleapis.com/auth/adwords`, Google Ads API enabled in the Google
+Cloud project, and a Google Ads developer token stored in HybridClaw encrypted
+runtime secrets.
+
+**Install and authorize**
+
+```bash
+hybridclaw auth login google \
+  --client-id "<client-id>" \
+  --client-secret "<client-secret>" \
+  --account you@example.com \
+  --scopes "https://www.googleapis.com/auth/adwords"
+
+hybridclaw secret set GOOGLEADS_DEVELOPER_TOKEN "<developer-token>"
+hybridclaw secret route add https://googleads.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://googleads.googleapis.com/ GOOGLEADS_DEVELOPER_TOKEN developer-token none
+```
+
+Store customer defaults when useful:
+
+```bash
+hybridclaw secret set GOOGLEADS_CUSTOMER_ID "<client-customer-id-without-hyphens>"
+hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-hyphens>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with `report-plan` or `review-gaql`; run live `gaql` only after the
+> query is scoped to an account and date range.
+>
+> The helper sends live API calls through the gateway proxy with OAuth and
+> developer-token handles, so the model never sees cleartext credentials.
+>
+> Budget, campaign create/remove/state, bid strategy, ad creative submission,
+> conversion-action create/edit, and customer-match uploads are red-tier
+> operations and require explicit operator approval.
+>
+> Generated ad-copy fields must pass the `brand-voice` gate before submission.
+>
+> Mutation commands support `--validate-only` for Google Ads API validation
+> without execution. Live mutations require exact `--grant` strings emitted by
+> the `plan` command.
+
+> 🎯 **Try it yourself**
+>
+> `Show campaign performance for the last 7 days`
+>
+> `Show the worst-performing ad groups in the German campaigns this week below 1% CTR`
+>
+> `Draft three RSA headlines for the new product line`
+>
+> `Plan a 20% budget increase for the capped-out campaign without executing it`
+
+**Troubleshooting**
+
+- **401 or insufficient scopes** — rerun `hybridclaw auth login google` with the Ads scope and restart the agent runtime.
+- **developer-token missing** — store `GOOGLEADS_DEVELOPER_TOKEN` and confirm the `developer-token` route exists.
+- **manager-account access errors** — pass `--login-customer-id` or store `GOOGLEADS_LOGIN_CUSTOMER_ID` without hyphens.
+- **customer-match request contains raw PII** — stop at a plan; the executable
+  flow only accepts pre-hashed SHA-256 email, phone, and address-info values
+  from a controlled source and splits list creation, offline job creation, hash
+  add, and job run into separately approved commands.
+
+---
+
 ## sokosumi
 
 Use Sokosumi for API-key auth, direct agent hires, coworker tasks, job
@@ -176,6 +287,11 @@ hybridclaw auth status google
 
 Use **OAuth client ID**, not **API key** or **Service account**, for normal
 personal Gmail, Calendar, Drive, Docs, and Sheets access.
+
+For Google APIs that are not exposed by `gog` commands, such as Google
+Analytics Admin, Google Analytics Data, or Google Ads, configure direct
+`http_request` auth routes with the same OAuth login. See
+[Google OAuth For Direct Google APIs](../../getting-started/authentication.md#google-oauth-for-direct-google-apis).
 
 HybridClaw stores the OAuth client secret and refresh token in encrypted
 runtime secrets. At run time it mints a short-lived access token on the host

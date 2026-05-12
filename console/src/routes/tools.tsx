@@ -3,10 +3,10 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchTools } from '../api/client';
 import type { AdminToolCatalogEntry } from '../api/types';
 import { useAuth } from '../auth';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import {
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -171,136 +171,150 @@ export function ToolsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Catalog tools"
-          value={String(toolsQuery.data?.totals.totalTools || 0)}
-          detail={`${toolsQuery.data?.totals.builtinTools || 0} built-in`}
+          value={String(toolsQuery.data?.totals.totalTools ?? 0)}
+          detail={`${toolsQuery.data?.totals.builtinTools ?? 0} built-in`}
+          loading={!toolsQuery.data}
         />
         <MetricCard
           label="MCP tools seen"
-          value={String(toolsQuery.data?.totals.mcpTools || 0)}
+          value={String(toolsQuery.data?.totals.mcpTools ?? 0)}
           detail="from recent audit traffic"
+          loading={!toolsQuery.data}
         />
         <MetricCard
           label="Recent executions"
-          value={String(toolsQuery.data?.totals.recentExecutions || 0)}
+          value={String(toolsQuery.data?.totals.recentExecutions ?? 0)}
           detail="last 200 tool results"
+          loading={!toolsQuery.data}
         />
         <MetricCard
           label="Recent errors"
-          value={String(toolsQuery.data?.totals.recentErrors || 0)}
+          value={String(toolsQuery.data?.totals.recentErrors ?? 0)}
           detail="tool.result failures"
+          loading={!toolsQuery.data}
         />
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Catalog">
-          {toolsQuery.isLoading ? (
-            <div className="empty-state">Loading tool catalog...</div>
-          ) : sortedTools.length === 0 ? (
-            <div className="empty-state">No tools match this filter.</div>
-          ) : (
-            <div className="table-shell">
-              <table>
-                <thead>
-                  <tr>
-                    <SortableHeader
-                      label="Tool"
-                      sortKey="tool"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Group"
-                      sortKey="group"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Type"
-                      sortKey="type"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Invocations"
-                      sortKey="invocations"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                    <SortableHeader
-                      label="Last used"
-                      sortKey="lastUsed"
-                      sortState={sortState}
-                      onToggle={toggleSort}
-                    />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedTools.map((tool) => (
-                    <tr key={tool.name}>
-                      <td>
-                        <strong>{tool.name}</strong>
-                        <ToolErrorPreview
-                          recentErrors={tool.recentErrors}
-                          samples={tool.recentErrorSamples}
-                        />
-                      </td>
-                      <td>{tool.groupLabel}</td>
-                      <td>{tool.kind}</td>
-                      <td>{tool.recentCalls}</td>
-                      <td>{formatDateTime(tool.lastUsedAt)}</td>
+        <Card>
+          <CardHeader>
+            <CardTitle>Catalog</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {toolsQuery.isLoading ? (
+              <div className="empty-state">Loading tool catalog...</div>
+            ) : sortedTools.length === 0 ? (
+              <div className="empty-state">No tools match this filter.</div>
+            ) : (
+              <div className="table-shell">
+                <table>
+                  <thead>
+                    <tr>
+                      <SortableHeader
+                        label="Tool"
+                        sortKey="tool"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Group"
+                        sortKey="group"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Type"
+                        sortKey="type"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Invocations"
+                        sortKey="invocations"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
+                      <SortableHeader
+                        label="Last used"
+                        sortKey="lastUsed"
+                        sortState={sortState}
+                        onToggle={toggleSort}
+                      />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
+                  </thead>
+                  <tbody>
+                    {sortedTools.map((tool) => (
+                      <tr key={tool.name}>
+                        <td>
+                          <strong>{tool.name}</strong>
+                          <ToolErrorPreview
+                            recentErrors={tool.recentErrors}
+                            samples={tool.recentErrorSamples}
+                          />
+                        </td>
+                        <td>{tool.groupLabel}</td>
+                        <td>{tool.kind}</td>
+                        <td>{tool.recentCalls}</td>
+                        <td>{formatDateTime(tool.lastUsedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-        <Panel title="Recent executions" accent="warm">
-          {toolsQuery.isLoading ? (
-            <div className="empty-state">Loading recent executions...</div>
-          ) : toolsQuery.data?.recentExecutions.length ? (
-            <div className="list-stack selectable-list">
-              {toolsQuery.data.recentExecutions.map((execution) => (
-                <div className="list-row" key={execution.id}>
-                  <div>
-                    <strong>{execution.toolName}</strong>
-                    <small>
-                      {execution.sessionId} ·{' '}
-                      {formatRelativeTime(execution.timestamp)}
-                      {execution.durationMs == null
-                        ? ''
-                        : ` · ${execution.durationMs}ms`}
-                    </small>
-                    {execution.isError && execution.summary ? (
-                      <small>{execution.summary}</small>
-                    ) : null}
-                  </div>
-                  <span
-                    className={
-                      execution.isError
-                        ? 'list-status list-status-danger'
-                        : 'list-status list-status-success'
-                    }
-                  >
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Recent executions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {toolsQuery.isLoading ? (
+              <div className="empty-state">Loading recent executions...</div>
+            ) : toolsQuery.data?.recentExecutions.length ? (
+              <div className="list-stack selectable-list">
+                {toolsQuery.data.recentExecutions.map((execution) => (
+                  <div className="list-row" key={execution.id}>
+                    <div>
+                      <strong>{execution.toolName}</strong>
+                      <small>
+                        {execution.sessionId} ·{' '}
+                        {formatRelativeTime(execution.timestamp)}
+                        {execution.durationMs == null
+                          ? ''
+                          : ` · ${execution.durationMs}ms`}
+                      </small>
+                      {execution.isError && execution.summary ? (
+                        <small>{execution.summary}</small>
+                      ) : null}
+                    </div>
                     <span
                       className={
                         execution.isError
-                          ? 'status-dot status-dot-danger'
-                          : 'status-dot status-dot-success'
+                          ? 'list-status list-status-danger'
+                          : 'list-status list-status-success'
                       }
-                    />
-                    {execution.isError ? 'error' : 'ok'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              No recent tool executions were found in structured audit events.
-            </div>
-          )}
-        </Panel>
+                    >
+                      <span
+                        className={
+                          execution.isError
+                            ? 'status-dot status-dot-danger'
+                            : 'status-dot status-dot-success'
+                        }
+                      />
+                      {execution.isError ? 'error' : 'ok'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                No recent tool executions were found in structured audit events.
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

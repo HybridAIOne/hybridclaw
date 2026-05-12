@@ -173,6 +173,20 @@ test('prefers auxiliary env overrides for provider and model selection', async (
   expect(policy?.maxTokens).toBeUndefined();
 });
 
+test('omits disabled auxiliary task policy', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.auxiliaryModels.session_title.provider = 'disabled';
+  });
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  expect(taskRouting.isAuxiliaryTaskDisabled('session_title')).toBe(true);
+  await expect(
+    taskRouting.resolveTaskModelPolicy('session_title'),
+  ).resolves.toBeUndefined();
+});
+
 test('captures env overrides at module load', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
@@ -536,8 +550,8 @@ test('warns when no vision fallback is available after OpenRouter discovery refr
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = true;
     config.openrouter.models = ['openrouter/acme/text-only'];
-    config.hybridai.defaultModel = 'gpt-5-nano';
-    config.hybridai.models = ['gpt-5-nano'];
+    config.hybridai.defaultModel = 'text-only-test-model';
+    config.hybridai.models = ['text-only-test-model'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -599,8 +613,8 @@ test('returns a deferred policy error when no discovered vision fallback is avai
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = false;
-    config.hybridai.defaultModel = 'gpt-5-nano';
-    config.hybridai.models = ['gpt-5-nano'];
+    config.hybridai.defaultModel = 'text-only-test-model';
+    config.hybridai.models = ['text-only-test-model'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -619,19 +633,19 @@ test('returns a deferred policy error when no discovered vision fallback is avai
   const taskRouting = await importFreshTaskRouting(homeDir);
   const policy = await taskRouting.resolveTaskModelPolicy('vision', {
     agentId: 'main',
-    sessionModel: 'gpt-5-nano',
+    sessionModel: 'text-only-test-model',
   });
 
   expect(policy).toMatchObject({
     provider: undefined,
-    model: 'gpt-5-nano',
+    model: 'text-only-test-model',
     error:
-      'Session model "gpt-5-nano" does not support vision/image inputs, and no vision-capable fallback model is available.',
+      'Session model "text-only-test-model" does not support vision/image inputs, and no vision-capable fallback model is available.',
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'vision',
-      sessionModel: 'gpt-5-nano',
+      sessionModel: 'text-only-test-model',
       openrouterDiscoveredModels: 0,
     }),
     'Session model lacks vision support and no capable fallback model is available',

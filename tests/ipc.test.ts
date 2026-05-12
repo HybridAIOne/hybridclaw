@@ -64,6 +64,17 @@ test('writeInput omits auth material from IPC files when requested', async () =>
         maxTokens: 123,
       },
     },
+    webSearch: {
+      provider: 'auto' as const,
+      fallbackProviders: ['brave' as const],
+      defaultCount: 5,
+      cacheTtlMinutes: 5,
+      searxngBaseUrl: '',
+      tavilySearchDepth: 'advanced' as const,
+      braveApiKey: 'brave-secret',
+      perplexityApiKey: 'perplexity-secret',
+      tavilyApiKey: 'tavily-secret',
+    },
   };
 
   ensureSessionDirs('session-1');
@@ -91,9 +102,18 @@ test('writeInput omits auth material from IPC files when requested', async () =>
       maxTokens: 123,
     },
   });
+  expect(written.webSearch).toEqual({
+    provider: 'auto',
+    fallbackProviders: ['brave'],
+    defaultCount: 5,
+    cacheTtlMinutes: 5,
+    searxngBaseUrl: '',
+    tavilySearchDepth: 'advanced',
+  });
   expect(input.apiKey).toBe('token_secret');
   expect(input.requestHeaders.Authorization).toBe('Bearer token_secret');
   expect(input.taskModels.compression.apiKey).toBe('or-secret');
+  expect(input.webSearch.braveApiKey).toBe('brave-secret');
 });
 
 test('readOutput enforces a hard deadline despite repeated activity', async () => {

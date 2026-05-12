@@ -6,6 +6,8 @@ import {
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/app-shell';
+import { A2ATrustPage } from './routes/a2a-trust';
+import { AgentsPage } from './routes/agent-scoreboard';
 import { AgentFilesPage } from './routes/agents';
 import { ApprovalsPage } from './routes/approvals';
 import { AuditPage } from './routes/audit';
@@ -21,6 +23,7 @@ import { PluginsPage } from './routes/plugins';
 import { SchedulerPage } from './routes/scheduler';
 import { SessionsPage } from './routes/sessions';
 import { SkillsPage } from './routes/skills';
+import { StatisticsPage } from './routes/statistics';
 import { ToolsPage } from './routes/tools';
 
 const LazyTerminalPage = lazy(async () => {
@@ -69,16 +72,34 @@ const dashboardRoute = createRoute({
   component: DashboardPage,
 });
 
+const statisticsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/statistics',
+  component: StatisticsPage,
+});
+
 const approvalsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/approvals',
   component: ApprovalsPage,
 });
 
+const a2aTrustRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/a2a-trust',
+  component: A2ATrustPage,
+});
+
 const agentFilesRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/admin/agents',
   component: AgentFilesPage,
+});
+
+const agentScoreboardRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/admin/agent-scoreboard',
+  component: AgentsPage,
 });
 
 const terminalRoute = createRoute({
@@ -171,11 +192,19 @@ const chatRoute = createRoute({
   component: ChatRouteComponent,
 });
 
+const chatSessionRoute = createRoute({
+  getParentRoute: () => chatRoute,
+  path: '$sessionId',
+});
+
 const routeTree = rootRoute.addChildren([
   adminLayoutRoute.addChildren([
     dashboardRoute,
+    statisticsRoute,
     approvalsRoute,
+    a2aTrustRoute,
     agentFilesRoute,
+    agentScoreboardRoute,
     terminalRoute,
     gatewayRoute,
     sessionsRoute,
@@ -191,7 +220,7 @@ const routeTree = rootRoute.addChildren([
     pluginsRoute,
     toolsRoute,
   ]),
-  chatRoute,
+  chatRoute.addChildren([chatSessionRoute]),
 ]);
 
 export const router = createRouter({

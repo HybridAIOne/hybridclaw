@@ -5,7 +5,6 @@ import {
   ensureRuntimeConfigFile,
   getRuntimeConfig,
   runtimeConfigPath,
-  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { normalizeArgs, parseValueFlag } from './common.js';
 import { isHelpRequest, printAgentUsage } from './help.js';
@@ -95,6 +94,68 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
             ? agent.model
             : agent.model?.primary || '',
         ].join('\t'),
+      );
+    }
+    return;
+  }
+
+  if (sub === 'config') {
+    let rawJson = '';
+    let activate = false;
+
+    for (let index = 1; index < normalized.length; index += 1) {
+      const arg = normalized[index];
+      if (arg === '--activate') {
+        activate = true;
+        continue;
+      }
+      const jsonFlag = parseValueFlag({
+        arg,
+        args: normalized,
+        index,
+        name: '--json',
+        placeholder: '<json>',
+      });
+      if (jsonFlag) {
+        if (rawJson) {
+          printAgentUsage();
+          throw new Error(
+            'Provide agent config JSON only once for `hybridclaw agent config`.',
+          );
+        }
+        rawJson = jsonFlag.value;
+        index = jsonFlag.nextIndex;
+        continue;
+      }
+      if (!rawJson && !arg.startsWith('--')) {
+        rawJson = arg;
+        continue;
+      }
+      printAgentUsage();
+      throw new Error(
+        `Unexpected argument for \`hybridclaw agent config\`: ${arg}`,
+      );
+    }
+
+    if (!rawJson) {
+      printAgentUsage();
+      throw new Error(
+        'Missing JSON payload for `hybridclaw agent config <json>`.',
+      );
+    }
+
+    const { applyAgentConfigJson } = await import(
+      '../agents/agent-config-command.js'
+    );
+    const result = await applyAgentConfigJson(rawJson, { activate });
+    console.log(`Configured agent ${result.agent.id}.`);
+    console.log(`Workspace: ${result.workspacePath}`);
+    if (result.markdownFiles.length > 0) {
+      console.log(`Markdown files written: ${result.markdownFiles.join(', ')}`);
+    }
+    if (result.runtimeConfigChanged) {
+      console.log(
+        `Activated agent ${result.agent.id} as the default at ${runtimeConfigPath()}.`,
       );
     }
     return;
@@ -594,22 +655,10 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
       throw new Error(`Unknown agent: ${targetAgentId}`);
     }
 
-    updateRuntimeConfig((draft) => {
-      draft.agents ??= {};
-      const nextAgents = Array.isArray(draft.agents.list)
-        ? [...draft.agents.list]
-        : [];
-      const existingIndex = nextAgents.findIndex(
-        (entry) => entry?.id?.trim() === agent.id,
-      );
-      if (existingIndex >= 0) {
-        nextAgents[existingIndex] = agent;
-      } else {
-        nextAgents.push(agent);
-      }
-      draft.agents.list = nextAgents;
-      draft.agents.defaultAgentId = agent.id;
-    });
+    const { activateAgentInRuntimeConfig } = await import(
+      '../agents/agent-runtime-config.js'
+    );
+    activateAgentInRuntimeConfig(agent);
     console.log(
       `🎯 Activated agent ${agent.id} as the default at ${runtimeConfigPath()}.`,
     );
@@ -688,6 +737,6 @@ export async function handleAgentPackageCommand(args: string[]): Promise<void> {
 
   printAgentUsage();
   throw new Error(
-    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
+    `Unknown agent subcommand: ${rawSub}. Use \`hybridclaw agent list\`, \`hybridclaw agent config\`, \`hybridclaw agent export\`, \`hybridclaw agent inspect\`, \`hybridclaw agent install\`, \`hybridclaw agent activate\`, or \`hybridclaw agent uninstall\`.`,
   );
 }

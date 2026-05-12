@@ -158,7 +158,9 @@ test('checkConfig warns on unused tools and MCP servers and disables them with f
       'image',
     ],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => structuredClone(runtimeConfigState),
@@ -262,7 +264,9 @@ test('checkConfig does not flag a single unused browser subtool when other brows
       'web_extract',
     ],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
@@ -314,7 +318,9 @@ test('checkConfig describes a grouped browser warning as a toolset when singular
   vi.doMock('../src/agent/tool-summary.js', () => ({
     listKnownToolNames: () => ['read', 'browser_close', 'browser_navigate'],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
@@ -361,7 +367,9 @@ test('checkConfigFile ignores unused tool and MCP hygiene warnings', async () =>
   vi.doMock('../src/agent/tool-summary.js', () => ({
     listKnownToolNames: () => ['read', 'browser_navigate'],
   }));
+  const actualRuntimeConfig = await import('../src/config/runtime-config.js');
   vi.doMock('../src/config/runtime-config.js', () => ({
+    ...actualRuntimeConfig,
     CONFIG_VERSION: 17,
     ensureRuntimeConfigFile: vi.fn(),
     getRuntimeConfig: () => ({
@@ -1441,6 +1449,8 @@ test('normalizeComponent keeps the minimal doctor aliases', async () => {
 
   expect(normalizeComponent('local-backends')).toBe('local-backends');
   expect(normalizeComponent('backends')).toBe('local-backends');
+  expect(normalizeComponent('browser-use')).toBe('browser-use');
+  expect(normalizeComponent('browser')).toBe('browser-use');
   expect(normalizeComponent('db')).toBe('database');
   expect(normalizeComponent('creds')).toBe('credentials');
   expect(normalizeComponent('container')).toBe('docker');

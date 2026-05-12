@@ -5,6 +5,8 @@ async function importFreshMessageToolActions() {
 
   const sendEmailAttachmentTo = vi.fn(async () => {});
   const sendToEmail = vi.fn(async () => {});
+  const sendToSignalChat = vi.fn(async () => {});
+  const sendToThreemaChat = vi.fn(async () => {});
   const sendTelegramMediaToChat = vi.fn(async () => {});
   const sendToTelegramChat = vi.fn(async () => {});
   const hasActiveMSTeamsSession = vi.fn(
@@ -151,6 +153,12 @@ async function importFreshMessageToolActions() {
     sendEmailAttachmentTo,
     sendToEmail,
   }));
+  vi.doMock('../src/channels/signal/runtime.js', () => ({
+    sendToSignalChat,
+  }));
+  vi.doMock('../src/channels/threema/runtime.js', () => ({
+    sendToThreemaChat,
+  }));
   vi.doMock('../src/channels/telegram/runtime.js', () => ({
     sendTelegramMediaToChat,
     sendToTelegramChat,
@@ -189,6 +197,8 @@ async function importFreshMessageToolActions() {
     ...module,
     sendEmailAttachmentTo,
     sendToEmail,
+    sendToSignalChat,
+    sendToThreemaChat,
     sendTelegramMediaToChat,
     sendToTelegramChat,
     getRecentMessages,
@@ -360,6 +370,146 @@ test('send action routes WhatsApp uploads through WhatsApp media delivery', asyn
   });
 });
 
+test('send action routes Signal targets through Signal transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'signal:+491703330161',
+    content: 'hello signal',
+  });
+
+  expect(state.sendToSignalChat).toHaveBeenCalledWith(
+    'signal:+491703330161',
+    'hello signal',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'signal:+491703330161',
+    transport: 'signal',
+  });
+});
+
+test('send action rejects invalid Signal targets before Discord lookup', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'signal:not-a-recipient',
+      content: 'hello signal',
+    }),
+  ).rejects.toThrow(
+    'Signal send targets must use `signal:<phone>`, `signal:<uuid>`, or `signal:group:<groupId>`.',
+  );
+  expect(state.sendToSignalChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action rejects Signal attachments explicitly', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'signal:+491703330161',
+      content: 'see attached',
+      filePath: '/discord-media-cache/example.png',
+    }),
+  ).rejects.toThrow('filePath is not supported for Signal sends.');
+  expect(state.sendToSignalChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action routes Threema targets through Threema transport', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'threema:ABCDEFGH',
+    content: 'hello threema',
+  });
+
+  expect(state.sendToThreemaChat).toHaveBeenCalledWith(
+    'threema:ABCDEFGH',
+    'hello threema',
+  );
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'threema:ABCDEFGH',
+    transport: 'threema',
+  });
+});
+
+test('send action normalizes Threema phone targets before delivery', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: 'threema:phone:+41 79 123 45 67',
+    content: 'hello threema phone',
+  });
+
+  expect(state.sendToThreemaChat).toHaveBeenCalledWith(
+    'threema:phone:41791234567',
+    'hello threema phone',
+  );
+  expect(result).toMatchObject({
+    ok: true,
+    action: 'send',
+    channelId: 'threema:phone:41791234567',
+    transport: 'threema',
+  });
+});
+
+test('send action rejects invalid Threema targets before Discord lookup', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'threema:not-a-recipient',
+      content: 'hello threema',
+    }),
+  ).rejects.toThrow(
+    'Threema send targets must use `threema:<id>`, `threema:phone:<number>`, or `threema:email:<address>`.',
+  );
+  expect(state.sendToThreemaChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action rejects Threema attachments explicitly', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'threema:ABCDEFGH',
+      content: 'see attached',
+      filePath: '/discord-media-cache/example.png',
+    }),
+  ).rejects.toThrow('filePath is not supported for Threema sends.');
+  expect(state.sendToThreemaChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action requires text content for Threema targets', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'threema:ABCDEFGH',
+    }),
+  ).rejects.toThrow('content is required for Threema sends.');
+  expect(state.sendToThreemaChat).not.toHaveBeenCalled();
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
 test('send action queues local targets like tui', async () => {
   const state = await importFreshMessageToolActions();
 
@@ -382,6 +532,54 @@ test('send action queues local targets like tui', async () => {
     channelId: 'tui',
     transport: 'local',
     note: 'Queued local delivery.',
+  });
+});
+
+test('send action rejects unknown targets instead of defaulting to Discord', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: 'signal +491703330161',
+      content: 'hello unclear target',
+    }),
+  ).rejects.toThrow('No message channel matched the request');
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action requires Discord channel names to include guild context', async () => {
+  const state = await importFreshMessageToolActions();
+
+  await expect(
+    state.runMessageToolAction({
+      action: 'send',
+      channelId: '#dev',
+      content: 'hello discord',
+    }),
+  ).rejects.toThrow('No message channel matched the request');
+  expect(state.runDiscordToolAction).not.toHaveBeenCalled();
+});
+
+test('send action delegates explicit Discord channel names with guild context', async () => {
+  const state = await importFreshMessageToolActions();
+
+  const result = await state.runMessageToolAction({
+    action: 'send',
+    channelId: '#dev',
+    guildId: '1412305846125203539',
+    content: 'hello discord',
+  });
+
+  expect(state.runDiscordToolAction).toHaveBeenCalledWith({
+    action: 'send',
+    channelId: '#dev',
+    guildId: '1412305846125203539',
+    content: 'hello discord',
+  });
+  expect(result).toMatchObject({
+    ok: true,
+    transport: 'discord',
   });
 });
 

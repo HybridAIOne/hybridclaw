@@ -107,6 +107,9 @@ describe('provider chain', () => {
       cacheTtlMinutes: 9,
       searxngBaseUrl: 'https://search.example.com',
       tavilySearchDepth: 'basic',
+      braveApiKey: 'brave-override',
+      perplexityApiKey: 'perplexity-override',
+      tavilyApiKey: 'tavily-override',
     });
 
     expect(config.provider).toBe('auto');
@@ -115,6 +118,9 @@ describe('provider chain', () => {
     expect(config.cacheTtlMinutes).toBe(9);
     expect(config.searxngBaseUrl).toBe('https://search.example.com');
     expect(config.tavilySearchDepth).toBe('basic');
+    expect(config.braveApiKey).toBe('brave-override');
+    expect(config.perplexityApiKey).toBe('perplexity-override');
+    expect(config.tavilyApiKey).toBe('tavily-override');
   });
 });
 

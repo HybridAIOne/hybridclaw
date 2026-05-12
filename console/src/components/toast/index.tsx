@@ -24,6 +24,13 @@ export interface ToastOptions {
   duration?: number;
   /** Optional action button. */
   action?: { label: string; onClick: () => void };
+  /**
+   * Exempt this toast from the visible-count eviction. Use sparingly — only
+   * for sticky status indicators (e.g. live-transport "paused") that must
+   * not disappear while their underlying condition still holds. The caller
+   * is responsible for dismissing the toast when the condition clears.
+   */
+  pinned?: boolean;
 }
 
 interface ToastEntry extends Required<Pick<ToastOptions, 'title' | 'type'>> {
@@ -31,6 +38,7 @@ interface ToastEntry extends Required<Pick<ToastOptions, 'title' | 'type'>> {
   description?: string;
   duration: number;
   action?: { label: string; onClick: () => void };
+  pinned: boolean;
   /** Set to true when the dismiss animation starts. */
   exiting: boolean;
 }
@@ -104,16 +112,23 @@ export function ToastProvider(props: {
         type: options.type ?? 'default',
         duration: clampDuration(options.duration ?? 5000),
         action: options.action,
+        pinned: options.pinned ?? false,
         exiting: false,
       };
       setToasts((prev) => {
         const next = [...prev, entry];
-        // If over limit, mark oldest for exit.
         if (next.length > limit) {
-          const overflow = next.length - limit;
-          return next.map((t, i) =>
-            i < overflow && !t.exiting ? { ...t, exiting: true } : t,
-          );
+          // Evict the oldest non-pinned, non-exiting toasts. Pinned toasts
+          // (sticky status indicators) are exempt, so the visible count can
+          // temporarily exceed `limit` if everything in flight is pinned.
+          let overflow = next.length - limit;
+          return next.map((t) => {
+            if (overflow > 0 && !t.exiting && !t.pinned) {
+              overflow -= 1;
+              return { ...t, exiting: true };
+            }
+            return t;
+          });
         }
         return next;
       });

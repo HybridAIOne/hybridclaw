@@ -6,6 +6,7 @@ export type { AIProviderId, RuntimeProviderId } from './provider-ids.js';
 export interface ResolvedModelRuntimeCredentials {
   provider: RuntimeProviderId;
   providerMethod?: string;
+  model?: string;
   apiKey: string;
   baseUrl: string;
   chatbotId: string;

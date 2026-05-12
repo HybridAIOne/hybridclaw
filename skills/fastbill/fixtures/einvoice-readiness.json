@@ -1,0 +1,34 @@
+{
+  "name": "fastbill-einvoice-readiness",
+  "formats": ["XRechnung", "ZUGFeRD"],
+  "requiredSellerChecks": [
+    "organization_or_name",
+    "address",
+    "country",
+    "vat_id",
+    "iban",
+    "bic"
+  ],
+  "requiredBuyerChecks": [
+    "organization_or_name",
+    "address",
+    "country",
+    "vat_id",
+    "email",
+    "phone",
+    "buyer_reference_or_leitweg_id"
+  ],
+  "sampleInvoice": {
+    "INVOICE_ID": "fixture-2026-042",
+    "INVOICE_NUMBER": "2026-042",
+    "CUSTOMER_ID": "fixture-customer-123",
+    "STATE": "unpaid",
+    "DOCUMENT_URL": "https://example.com/fastbill/fixture-2026-042.pdf",
+    "DETAILS_URL": "https://example.com/fastbill/fixture-2026-042"
+  },
+  "handoff": {
+    "sourceService": "invoice.get",
+    "downstreamValidation": "xrechnung-zugferd-validator",
+    "notes": "This fixture verifies FastBill readiness metadata only; formal EN 16931 conformance belongs to the downstream e-invoice validation workflow."
+  }
+}

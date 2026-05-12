@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 
 const originalHome = process.env.HOME;
+const originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
 const originalDisableWatcher = process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const tempHomes: string[] = [];
 
@@ -18,6 +19,11 @@ afterEach(() => {
   } else {
     process.env.HOME = originalHome;
   }
+  if (originalDataDir === undefined) {
+    delete process.env.HYBRIDCLAW_DATA_DIR;
+  } else {
+    process.env.HYBRIDCLAW_DATA_DIR = originalDataDir;
+  }
   if (originalDisableWatcher === undefined) {
     delete process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
   } else {
@@ -28,6 +34,50 @@ afterEach(() => {
     if (!tempHome) continue;
     fs.rmSync(tempHome, { recursive: true, force: true });
   }
+});
+
+test('warns when warm pool min idle is clamped by max idle', async () => {
+  const logger = {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+  vi.doMock('../src/logger.js', () => ({ logger }));
+
+  const tempHome = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-config-warm-pool-'),
+  );
+  tempHomes.push(tempHome);
+  vi.stubEnv('HOME', tempHome);
+  vi.stubEnv('HYBRIDCLAW_DATA_DIR', tempHome);
+  vi.stubEnv('HYBRIDCLAW_DISABLE_CONFIG_WATCHER', '1');
+  fs.writeFileSync(
+    path.join(tempHome, 'config.json'),
+    JSON.stringify({
+      container: {
+        warmPool: {
+          enabled: true,
+          minIdlePerActiveAgent: 5,
+          maxIdlePerAgent: 2,
+        },
+      },
+    }),
+    'utf-8',
+  );
+
+  const { CONTAINER_WARM_POOL } = await import('../src/config/config.ts');
+
+  expect(CONTAINER_WARM_POOL.minIdlePerActiveAgent).toBe(5);
+  expect(CONTAINER_WARM_POOL.maxIdlePerAgent).toBe(2);
+  expect(logger.warn).toHaveBeenCalledWith(
+    {
+      requestedMinIdlePerActiveAgent: 5,
+      maxIdlePerAgent: 2,
+      effectiveMinIdlePerActiveAgent: 2,
+    },
+    'Warm process pool minIdlePerActiveAgent exceeds maxIdlePerAgent; clamping effective minimum idle workers',
+  );
 });
 
 test('warns once when all app-version package probes fail', async () => {

@@ -39,6 +39,9 @@ Skill roots include:
   `install` feed operator-facing summaries, related-skill hints, and install
   helpers
 - installer metadata lives under `metadata.hybridclaw.install:`
+- production package metadata lives under `manifest:` or
+  `metadata.hybridclaw.manifest:` and declares `id`, `version`,
+  `capabilities`, `required_credentials`, and `supported_channels`
 
 ## Invocation Paths
 
@@ -114,10 +117,9 @@ because they change the host dependency state.
 HybridClaw separates skill discovery from runtime availability.
 
 - `skills.disabled` is the global disabled list
-- `skills.channelDisabled.discord`
-- `skills.channelDisabled.msteams`
-- `skills.channelDisabled.whatsapp`
-- `skills.channelDisabled.email`
+- `skills.channelDisabled.<channel>` blocks a skill in one channel. Current
+  channel keys include `discord`, `msteams`, `signal`, `slack`, `telegram`,
+  `voice`, `whatsapp`, `email`, and `imessage`.
 
 Operator surfaces:
 
@@ -126,7 +128,7 @@ Operator surfaces:
 - `hybridclaw skill toggle [--channel <kind>]` for the interactive checklist
 - TUI `/skill config` for the same checklist over the gateway
 - admin `Skills` page for the current disabled list, local skill authoring,
-  ZIP upload, and adaptive-skill review
+  ZIP upload, explicit overwrite with `--force`, and adaptive-skill review
 
 `--channel teams` is normalized to `msteams`.
 
@@ -166,6 +168,83 @@ Guard behavior:
 - `--force` only overrides a `caution` scanner verdict
 - `--skip-skill-scan` bypasses the scanner entirely for trusted operators
 - `dangerous` verdicts stay blocked
+
+### Troubleshooting: Skill exists but does not appear in `skill list`
+
+If importing or uploading a skill reports that it already exists under
+`~/.hybridclaw/skills/<skill-name>`, but `hybridclaw skill list` or
+`/skill list` does not show it, the directory exists but the scanner did not
+load it as a catalog entry.
+
+Check the installed layout first. A community skill must have an uppercase
+manifest file at `<skill-name>/SKILL.md`:
+
+```bash
+ls -la ~/.hybridclaw/skills/<skill-name>
+find ~/.hybridclaw/skills/<skill-name> -maxdepth 2 -type f
+```
+
+Common fixes:
+
+```bash
+# Fix a lowercase manifest filename.
+mv ~/.hybridclaw/skills/<skill-name>/skill.md \
+  ~/.hybridclaw/skills/<skill-name>/SKILL.md
+
+# Fix a zip that unpacked one directory too deep.
+mv ~/.hybridclaw/skills/<skill-name>/<skill-name>/SKILL.md \
+  ~/.hybridclaw/skills/<skill-name>/SKILL.md
+```
+
+The manifest frontmatter must include at least `name` and `description`:
+
+```markdown
+---
+name: <skill-name>
+description: Describe what this skill helps with.
+---
+```
+
+Restart the gateway after fixing the files:
+
+```bash
+hybridclaw gateway stop
+hybridclaw tui
+```
+
+If the skill still does not appear, inspect the gateway log for parse or guard
+scanner messages:
+
+```bash
+rg "<skill-name>|Failed to parse skill|Blocked skill" \
+  ~/.hybridclaw/data/gateway/gateway.log
+```
+
+When the installed directory is incomplete, move it aside and import the skill
+again:
+
+```bash
+mv ~/.hybridclaw/skills/<skill-name> ~/.hybridclaw/skills/<skill-name>.bak
+hybridclaw skill import ./<skill-name>.zip
+```
+
+## Package Lifecycle
+
+Packaged business skills use audited lifecycle commands:
+
+- `hybridclaw skill install <source>`
+- `hybridclaw skill upgrade <source>`
+- `hybridclaw skill uninstall <skill-name>`
+- `hybridclaw skill revisions <skill-name>`
+- `hybridclaw skill rollback <skill-name> <revision-id>`
+
+Lifecycle commands update `skills.installed`, write audit events, and store
+package snapshots in the existing runtime config revision database as `skill`
+assets. `manifest.supported_channels` is enforced during skill loading so a
+skill is not advertised in unsupported channel contexts.
+
+See [How to Ship a Business Skill](../guides/skills/business-skills.md) for the
+operator-facing packaging contract.
 
 ## Adaptive Skills
 

@@ -20,6 +20,20 @@ export function normalizeTrimmedStringArray(
     .filter(Boolean);
 }
 
+export function dedupeStrings(
+  values: readonly unknown[] | undefined,
+): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const rawValue of values ?? []) {
+    const value = String(rawValue || '').trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    deduped.push(value);
+  }
+  return deduped;
+}
+
 export function normalizeTrimmedUniqueStringArray(
   values: readonly unknown[] | undefined,
 ): string[] {

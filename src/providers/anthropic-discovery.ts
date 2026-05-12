@@ -15,6 +15,10 @@ import {
   normalizeAnthropicModelName,
 } from './anthropic-utils.js';
 import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
+import {
   createDiscoveryStore,
   isRecord,
   readPositiveInteger,
@@ -25,6 +29,9 @@ export interface AnthropicDiscoveryStore {
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => DiscoveredModelPricingUsdPerToken | null;
   isModelVisionCapable: (model: string) => boolean;
 }
 
@@ -32,6 +39,7 @@ interface AnthropicDiscoveryState {
   discoveredModelNames: string[];
   contextWindowByModel: Map<string, number>;
   maxTokensByModel: Map<string, number>;
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
   visionCapableModels: Set<string>;
 }
 
@@ -39,6 +47,7 @@ const buildEmptyAnthropicDiscoveryState = (): AnthropicDiscoveryState => ({
   discoveredModelNames: [],
   contextWindowByModel: new Map(),
   maxTokensByModel: new Map(),
+  pricingByModel: new Map(),
   visionCapableModels: new Set(),
 });
 
@@ -106,6 +115,7 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
     const maxTokens = new Map<string, number>();
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     const visionCapable = new Set<string>();
     let afterId: string | null = null;
 
@@ -138,6 +148,10 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
         if (outputMaxTokens != null) {
           maxTokens.set(normalized, outputMaxTokens);
         }
+        const pricing = readDiscoveredModelPricingUsdPerToken(entry);
+        if (pricing) {
+          pricingByModel.set(normalized, pricing);
+        }
         if (isVisionCapableAnthropicModel(entry)) {
           visionCapable.add(normalized);
         }
@@ -149,6 +163,7 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
       discoveredModelNames: [...discovered],
       contextWindowByModel: contextWindows,
       maxTokensByModel: maxTokens,
+      pricingByModel,
       visionCapableModels: visionCapable,
     };
   }
@@ -195,6 +210,11 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
       const normalized = normalizeAnthropicModelName(model);
       return state.maxTokensByModel.get(normalized) ?? null;
     },
+    getModelPricingUsdPerToken: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeAnthropicModelName(model);
+      return state.pricingByModel.get(normalized) ?? null;
+    },
     isModelVisionCapable: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = normalizeAnthropicModelName(model);
@@ -225,6 +245,12 @@ export function getDiscoveredAnthropicModelMaxTokens(
   model: string,
 ): number | null {
   return defaultAnthropicDiscoveryStore.getModelMaxTokens(model);
+}
+
+export function getDiscoveredAnthropicModelPricingUsdPerToken(
+  model: string,
+): DiscoveredModelPricingUsdPerToken | null {
+  return defaultAnthropicDiscoveryStore.getModelPricingUsdPerToken(model);
 }
 
 export function isDiscoveredAnthropicModelVisionCapable(

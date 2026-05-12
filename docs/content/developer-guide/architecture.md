@@ -71,6 +71,9 @@ layers as thin as possible.
 - `tui` is a thin terminal client that talks to the running gateway over HTTP.
 - `container/` holds the sandboxed runtime that executes tools and model calls.
 - `plugins/` holds composable extensions that bridge skills and core tooling.
+- `src/a2a/` holds the agent-to-agent envelope model, peer descriptors,
+  transport registry, JSON-RPC Agent Card adapter, webhook adapter, and retrying
+  outbound outbox.
 - Communication between host and sandbox uses file-based IPC.
 
 ## Repository Structure

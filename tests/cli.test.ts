@@ -247,6 +247,7 @@ async function importFreshCli(options?: {
   };
   gatewayReachable?: boolean;
   gatewayStatusReachable?: boolean;
+  gatewayHealthSandboxMode?: 'host' | 'container' | null;
   gatewayStatusSandboxMode?: 'host' | 'container' | null;
   sandboxMode?: 'host' | 'container';
   sandboxModeExplicit?: boolean;
@@ -1062,6 +1063,24 @@ async function importFreshCli(options?: {
     }
     return {
       status: 'ok',
+      sandbox: options?.gatewayHealthSandboxMode
+        ? {
+            mode: options.gatewayHealthSandboxMode,
+            modeExplicit: true,
+            runningInsideContainer: false,
+            image: null,
+            network: null,
+            memory: null,
+            memorySwap: null,
+            cpus: null,
+            securityFlags: [],
+            mountAllowlistPath: '/tmp/mount-allowlist.json',
+            additionalMountsConfigured: 0,
+            activeSessions: 0,
+            activeSessionIds: [],
+            warning: null,
+          }
+        : undefined,
     };
   });
   const gatewayStatus = vi.fn(async () => {
@@ -1173,6 +1192,7 @@ async function importFreshCli(options?: {
       DATA_DIR: '/tmp/hybridclaw-data',
       GATEWAY_BASE_URL: 'http://127.0.0.1:9090',
       MissingRequiredEnvVarError,
+      ensureGatewayApiTokenPersisted: vi.fn(() => 'gateway-token'),
       getResolvedSandboxMode: vi.fn(() => options?.sandboxMode || 'host'),
       setSandboxModeOverride: vi.fn(),
     };
@@ -3531,6 +3551,25 @@ describe('CLI hybridai commands', () => {
     expect(process.exitCode).toBe(0);
   });
 
+  it('prints a single runtime config value from the top-level config command', async () => {
+    const { cli, runtimeConfigPath } = await importFreshCli();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await cli.main(['config', 'get', 'hybridai.maxTokens']);
+
+    expect(logSpy).toHaveBeenCalledWith(`Active config: ${runtimeConfigPath()}`);
+    expect(logSpy).toHaveBeenCalledWith('Key: hybridai.maxTokens');
+    expect(logSpy).toHaveBeenCalledWith('4096');
+  });
+
+  it('rejects extra arguments for config get', async () => {
+    const { cli } = await importFreshCli();
+
+    await expect(
+      cli.main(['config', 'get', 'hybridai.maxTokens', 'typo']),
+    ).rejects.toThrow('Usage: `hybridclaw config get <key>`');
+  });
+
   it('reloads runtime config from disk through the top-level config command', async () => {
     const { cli, reloadRuntimeConfig, runDoctorCli } = await importFreshCli();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -4787,6 +4826,44 @@ describe('CLI hybridai commands', () => {
 
     expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
     expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses unauthenticated gateway health sandbox mode for tui preflight when status auth fails', async () => {
+    const { cli, ensureContainerImageReady, ensureHostRuntimeReady, runTui } =
+      await importFreshCli({
+        gatewayReachable: true,
+        gatewayStatusReachable: false,
+        sandboxMode: 'container',
+        gatewayHealthSandboxMode: 'host',
+      });
+
+    await cli.main(['tui']);
+
+    expect(ensureHostRuntimeReady).toHaveBeenCalledTimes(1);
+    expect(ensureContainerImageReady).not.toHaveBeenCalled();
+    expect(runTui).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses container preflight when gateway health reports container mode without fetching authenticated status', async () => {
+    const {
+      cli,
+      ensureContainerImageReady,
+      ensureHostRuntimeReady,
+      gatewayStatus,
+      runTui,
+    } = await importFreshCli({
+      gatewayReachable: true,
+      sandboxMode: 'container',
+      gatewayHealthSandboxMode: 'container',
+      gatewayStatusSandboxMode: 'host',
+    });
+
+    await cli.main(['tui']);
+
+    expect(gatewayStatus).not.toHaveBeenCalled();
+    expect(ensureContainerImageReady).toHaveBeenCalledTimes(1);
+    expect(ensureHostRuntimeReady).not.toHaveBeenCalled();
     expect(runTui).toHaveBeenCalledTimes(1);
   });
 

@@ -124,6 +124,7 @@ describe('mapLogicalAgentCard', () => {
         total_cost_usd: 1.25,
         total_tool_calls: 7,
       },
+      monthlySpendUsd: 0.42,
     });
 
     expect(card).toMatchObject({
@@ -140,6 +141,7 @@ describe('mapLogicalAgentCard', () => {
       inputTokens: 200,
       outputTokens: 50,
       costUsd: 1.25,
+      monthlySpendUsd: 0.42,
       messageCount: 10,
       toolCalls: 7,
       recentSessionId: 'dm:1',

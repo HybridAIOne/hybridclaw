@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,6 +17,7 @@ import type {
   ChatMessageContent,
 } from '../types/api.js';
 import type { MediaContextItem } from '../types/container.js';
+import { expandHomePath } from '../utils/path.js';
 import {
   resolveUploadedMediaCacheHostDir,
   UPLOADED_MEDIA_CACHE_ROOT_DISPLAY,
@@ -132,15 +132,6 @@ function cleanCandidate(value: string): string {
 
 function looksLikePdfReference(value: string): boolean {
   return /\.pdf$/i.test(cleanCandidate(value));
-}
-
-function expandUserPath(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed === '~') return os.homedir();
-  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
-    return path.join(os.homedir(), trimmed.slice(2));
-  }
-  return trimmed;
 }
 
 function escapeXmlAttr(value: string): string {
@@ -325,7 +316,7 @@ async function resolveAllowedHostPdfPath(params: {
   if (displayResolved) {
     resolved = displayResolved;
   } else {
-    const expanded = expandUserPath(candidate);
+    const expanded = expandHomePath(candidate);
     if (!expanded) return null;
 
     const hasPathPrefix =

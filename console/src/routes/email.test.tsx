@@ -84,10 +84,7 @@ function makeMailboxResponse(): AdminEmailMailboxResponse {
   };
 }
 
-function renderEmailPage(options?: {
-  configReady?: boolean;
-  emailEnabled?: boolean;
-}): void {
+function renderEmailPage(options?: { emailEnabled?: boolean }): void {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -95,7 +92,6 @@ function renderEmailPage(options?: {
     },
   });
   useAppShellConfigMock.mockReturnValue({
-    configReady: options?.configReady ?? true,
     emailEnabled: options?.emailEnabled ?? true,
   });
 

@@ -7,7 +7,6 @@ import {
 } from '../audit/audit-events.js';
 import { getChannel } from '../channels/channel-registry.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
-import { recordUsageEvent } from '../memory/db.js';
 import { memoryService } from '../memory/memory-service.js';
 import { resolveModelProvider } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
@@ -17,6 +16,8 @@ import {
   migrateLegacySessionKey,
 } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
+import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import {
   buildModelUsageAuditStats,
   recordModelUsageAuditEvent,
@@ -152,7 +153,7 @@ export async function runIsolatedScheduledTask(params: {
       startedAt,
       usage,
     });
-    recordUsageEvent({
+    enqueueTokenUsage({
       sessionId: activeSessionId,
       agentId,
       model,
@@ -160,6 +161,12 @@ export async function runIsolatedScheduledTask(params: {
       outputTokens: usage.completionTokens,
       totalTokens: usage.totalTokens,
       toolCalls: usage.toolCallCount,
+      costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
+        model,
+        tokenUsage: output.tokenUsage,
+        usage,
+      }),
+      auditRunId: runId,
     });
 
     if (output.status === 'success' && output.result) {
@@ -173,6 +180,7 @@ export async function runIsolatedScheduledTask(params: {
         assistant: {
           userId: 'assistant',
           username: null,
+          agentId,
           content: output.result,
         },
       });

@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "in_123",
+      "number": "ST-2026-03-001",
+      "created": 1772582400,
+      "due_date": 1773792000,
+      "period_start": 1772323200,
+      "amount_subtotal": 10000,
+      "tax": 1900,
+      "amount_paid": 11900,
+      "currency": "eur",
+      "invoice_pdf": "https://pay.stripe.com/invoice/ST-2026-03-001/pdf"
+    }
+  ]
+}

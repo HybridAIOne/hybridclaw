@@ -30,6 +30,7 @@ async function resolveAnthropicRuntimeCredentials(
     return {
       provider: 'anthropic',
       providerMethod: 'claude-cli',
+      model: params.model,
       apiKey: '',
       baseUrl: normalizeAnthropicBaseUrl(ANTHROPIC_BASE_URL),
       chatbotId: '',
@@ -50,6 +51,7 @@ async function resolveAnthropicRuntimeCredentials(
   return {
     provider: 'anthropic',
     providerMethod: 'api-key',
+    model: params.model,
     apiKey: auth.apiKey,
     baseUrl: normalizeAnthropicBaseUrl(ANTHROPIC_BASE_URL),
     chatbotId: '',

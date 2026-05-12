@@ -41,6 +41,11 @@ runs:
       run: |
         set -euo pipefail
 
+        if [[ -z "${SOURCE}" || "${SOURCE}" == *"//"* || "${SOURCE}" != *":"* ]]; then
+          echo "Invalid source image '${SOURCE}'." >&2
+          exit 1
+        fi
+
         MAX_ATTEMPTS="${MAX_ATTEMPTS_OTHER}"
         if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
           MAX_ATTEMPTS="${MAX_ATTEMPTS_PUSH}"
@@ -74,6 +79,10 @@ runs:
 
         while IFS= read -r tag; do
           [[ -n "${tag}" ]] || continue
+          if [[ "${tag}" == *"//"* || "${tag}" != *":"* ]]; then
+            echo "Invalid target image tag '${tag}'." >&2
+            exit 1
+          fi
           docker buildx imagetools create --tag "${tag}" "${SOURCE}"
         done <<< "${TARGET_TAGS}"
 

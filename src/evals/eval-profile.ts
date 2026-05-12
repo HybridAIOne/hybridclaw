@@ -1,7 +1,8 @@
 import {
+  isPromptPartName,
   PROMPT_PART_NAMES,
   type PromptPartName,
-} from '../agent/prompt-hooks.js';
+} from '../agent/prompt-parts.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 
@@ -58,7 +59,7 @@ function normalizePromptPartList(parts: PromptPartName[]): PromptPartName[] {
 }
 
 export function isKnownEvalPromptPart(value: string): value is PromptPartName {
-  return KNOWN_PROMPT_PARTS.has(value as PromptPartName);
+  return isPromptPartName(value);
 }
 
 function encodePromptPartList(parts: PromptPartName[]): string {

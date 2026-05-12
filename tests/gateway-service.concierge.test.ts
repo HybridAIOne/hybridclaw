@@ -98,7 +98,11 @@ test('asks the urgency question before a long-running request', async () => {
 
   expect(result.status).toBe('success');
   expect(result.result).toContain('When do you need the result?');
-  expect(callAuxiliaryModelMock).toHaveBeenCalledTimes(1);
+  expect(
+    callAuxiliaryModelMock.mock.calls.filter(
+      ([params]) => params?.task !== 'session_title',
+    ),
+  ).toHaveLength(1);
   expect(runAgentMock).not.toHaveBeenCalled();
   const history = fixture.memoryService.getConversationHistory(
     'session-concierge-ask',
@@ -447,7 +451,11 @@ test('explicit session model pins bypass the concierge', async () => {
     chatbotId: 'bot_123',
   });
 
-  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+  expect(
+    callAuxiliaryModelMock.mock.calls.filter(
+      ([params]) => params?.task !== 'session_title',
+    ),
+  ).toEqual([]);
   expect(runAgentMock).toHaveBeenCalledTimes(2);
   const latest = runAgentMock.mock.calls.at(-1)?.[0] as
     | { model?: string }
@@ -482,7 +490,11 @@ test('explicit agent model pins bypass the concierge', async () => {
     chatbotId: 'bot_123',
   });
 
-  expect(callAuxiliaryModelMock).not.toHaveBeenCalled();
+  expect(
+    callAuxiliaryModelMock.mock.calls.filter(
+      ([params]) => params?.task !== 'session_title',
+    ),
+  ).toEqual([]);
   expect(runAgentMock).toHaveBeenCalledTimes(1);
   const request = runAgentMock.mock.calls[0]?.[0] as
     | { model?: string }

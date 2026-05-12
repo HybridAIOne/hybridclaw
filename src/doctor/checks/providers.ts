@@ -5,6 +5,7 @@ import {
 import { getCodexAuthStatus } from '../../auth/codex-auth.js';
 import { getRuntimeConfig } from '../../config/runtime-config.js';
 import { resolveModelProvider } from '../../providers/factory.js';
+import { dedupeStrings } from '../../utils/normalized-strings.js';
 import {
   type ProviderProbeResult,
   probeAnthropic,
@@ -33,18 +34,6 @@ interface ProviderPlan {
   configuredModelCount: number;
   probe: (() => Promise<ProviderProbeResult>) | null;
   inactiveMessage?: string;
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const rawValue of values) {
-    const value = String(rawValue || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push(value);
-  }
-  return deduped;
 }
 
 async function readDiscoveredModelNamesSafely(): Promise<{

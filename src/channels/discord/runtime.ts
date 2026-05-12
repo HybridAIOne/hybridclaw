@@ -11,6 +11,7 @@ import {
 } from 'discord.js';
 import { resolveAgentForRequest } from '../../agents/agent-registry.js';
 import { DEFAULT_AGENT_ID } from '../../agents/agent-types.js';
+import { parseLowerArg } from '../../command-parsing.js';
 import {
   DISCORD_ACK_REACTION,
   DISCORD_ACK_REACTION_SCOPE,
@@ -689,7 +690,7 @@ function isAuthorizedCommandUserId(userId: string): boolean {
 }
 
 function requiresCompactPermission(args: string[]): boolean {
-  return (args[0] || '').trim().toLowerCase() === 'compact';
+  return parseLowerArg(args, 0) === 'compact';
 }
 
 const COMPACT_PERMISSION_DENIED_MESSAGE =

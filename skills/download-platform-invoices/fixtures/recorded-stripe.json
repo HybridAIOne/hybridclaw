@@ -1,0 +1,68 @@
+{
+  "provider": "stripe",
+  "invoices": [
+    {
+      "vendor": "stripe",
+      "invoice_no": "ST-2026-03-001",
+      "period": "2026-03",
+      "issue_date": "2026-04-01",
+      "due_date": "2026-04-15",
+      "net": 100,
+      "vat_rate": 0.19,
+      "vat": 19,
+      "gross": 119,
+      "currency": "EUR",
+      "source_url": "https://pay.stripe.com/invoice/ST-2026-03-001/pdf",
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgc3RyaXBlIGludm9pY2UgcmVwbGF5IGZpeHR1cmUKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKJSVFT0YK"
+    }
+  ],
+  "recorded_session": {
+    "recorded_at": "2026-05-01T00:00:00.000Z",
+    "sanitized": true,
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
+    "steps": [
+      {
+        "kind": "authenticate_or_list",
+        "url": "https://api.stripe.com/v1/invoices?limit=100&status=paid",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "de956100655b504e5bbb7e5a44a4c655f35d7ad6c710f042c952f98f0e9adc1a"
+        }
+      },
+      {
+        "kind": "download",
+        "url": "https://pay.stripe.com/invoice/redacted/pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "455142f35b7edfe1435bcf89fea7f0263825eea9d14747c463ff9811f0bdbe4f"
+        }
+      }
+    ],
+    "evidence": {
+      "dom_snapshot": "<main data-hc-provider=\"stripe\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>ST-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://pay.stripe.com/invoice/redacted/pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "6dd79e5684e22d46efe84fb132b10b6a1e6bfac2830002ec56c755196f2af0bc"
+    }
+  }
+}

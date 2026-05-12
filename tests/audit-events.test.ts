@@ -60,9 +60,63 @@ test('does not emit approval events for auto-approved read-only tools', async ()
   const events = getRecentStructuredAuditForSession('session-auto-read', 10);
   expect(events.map((event) => event.event_type)).toEqual([
     'tool.result',
+    'autonomy.decision',
     'authorization.check',
     'tool.call',
   ]);
+  expect(JSON.parse(events[1].payload)).toEqual(
+    expect.objectContaining({
+      type: 'autonomy.decision',
+      autonomyLevel: 'full-autonomous',
+      stakes: 'low',
+      escalationRoute: 'none',
+      approvalDecision: 'auto',
+    }),
+  );
+});
+
+test('reads recent structured audit rows for multiple sessions with a per-session cap', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    getRecentStructuredAuditForSessions,
+    initDatabase,
+    logStructuredAuditEvent,
+  } = await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  for (const sessionId of ['session-a', 'session-b']) {
+    for (let seq = 1; seq <= 3; seq += 1) {
+      logStructuredAuditEvent({
+        version: '2.0',
+        seq,
+        timestamp: `2026-04-29T12:0${seq}:00.000Z`,
+        runId: `${sessionId}-run-${seq}`,
+        sessionId,
+        event: {
+          type: seq === 3 ? 'error' : 'tool.result',
+        },
+        _prevHash: `prev-${sessionId}-${seq}`,
+        _hash: `hash-${sessionId}-${seq}`,
+      });
+    }
+  }
+
+  const events = getRecentStructuredAuditForSessions(
+    ['session-a', 'session-b'],
+    2,
+  );
+
+  expect(events).toHaveLength(4);
+  expect(
+    events.filter((event) => event.session_id === 'session-a'),
+  ).toHaveLength(2);
+  expect(
+    events.filter((event) => event.session_id === 'session-b'),
+  ).toHaveLength(2);
+  expect(events.map((event) => event.seq)).toEqual([3, 2, 3, 2]);
 });
 
 test('emits approval request and response events for pending red actions', async () => {
@@ -93,8 +147,16 @@ test('emits approval request and response events for pending red actions', async
         blockedReason: 'this command may change local state',
         approvalTier: 'red',
         approvalBaseTier: 'red',
+        autonomyLevel: 'full-autonomous',
+        stakes: 'high',
+        escalationRoute: 'approval_request',
+        escalationTarget: {
+          channel: 'slack:COPS',
+          recipient: 'ops-lead',
+        },
         approvalDecision: 'required',
         approvalActionKey: 'bash:other',
+        approvalIntent: 'run shell command `open -a Music`',
         approvalReason: 'this command may change local state',
         approvalRequestId: 'approve123',
       },
@@ -106,7 +168,201 @@ test('emits approval request and response events for pending red actions', async
     'tool.result',
     'approval.response',
     'approval.request',
+    'escalation.decision',
+    'autonomy.decision',
     'authorization.check',
     'tool.call',
   ]);
+  const escalationEvent = events.find(
+    (event) => event.event_type === 'escalation.decision',
+  );
+  expect(JSON.parse(escalationEvent?.payload || '{}')).toEqual(
+    expect.objectContaining({
+      type: 'escalation.decision',
+      proposedAction: 'run shell command `open -a Music`',
+      escalationRoute: 'approval_request',
+      target: {
+        channel: 'slack:COPS',
+        recipient: 'ops-lead',
+      },
+      classifier: null,
+      classifierReasoning: [],
+    }),
+  );
+});
+
+test('autonomy audit falls back to internally consistent approval metadata', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getRecentStructuredAuditForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-autonomy-fallback',
+    runId: 'run-autonomy-fallback',
+    toolExecutions: [
+      {
+        name: 'bash',
+        arguments: '{"command":"touch out.txt"}',
+        result: 'blocked',
+        durationMs: 4,
+        blocked: true,
+        blockedReason: 'blocked by security hook',
+        approvalTier: 'yellow',
+        approvalDecision: 'denied',
+      },
+    ],
+  });
+
+  const events = getRecentStructuredAuditForSession(
+    'session-autonomy-fallback',
+    10,
+  );
+  const autonomyEvent = events.find(
+    (event) => event.event_type === 'autonomy.decision',
+  );
+  expect(autonomyEvent).toBeDefined();
+  const autonomy = JSON.parse(autonomyEvent?.payload || '{}');
+  expect(autonomy).toEqual(
+    expect.objectContaining({
+      type: 'autonomy.decision',
+      escalationRoute: 'policy_denial',
+      approvalTier: 'yellow',
+      approvalBaseTier: 'yellow',
+      approvalDecision: 'denied',
+      reason: 'blocked by security hook',
+    }),
+  );
+});
+
+test('weekly agent anomaly rollups count flagged and confirmed-normal tool checks', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    getOrCreateSession,
+    getRecentStructuredAuditForSession,
+    getWeeklyAgentAnomalyRollups,
+    initDatabase,
+  } = await import('../src/memory/db.ts');
+  const { emitToolExecutionAuditEvents } = await import(
+    '../src/audit/audit-events.ts'
+  );
+
+  initDatabase({ quiet: true });
+  getOrCreateSession('session-anomaly-rollup', null, 'channel-a', 'lena');
+  emitToolExecutionAuditEvents({
+    sessionId: 'session-anomaly-rollup',
+    runId: 'run-anomaly-rollup',
+    toolExecutions: [
+      {
+        name: 'read',
+        arguments: '{"path":"README.md"}',
+        result: 'ok',
+        durationMs: 3,
+        approvalTier: 'yellow',
+        approvalBaseTier: 'yellow',
+        approvalDecision: 'implicit',
+        approvalActionKey: 'read',
+        anomaly: {
+          score: 0.96,
+          threshold: 0.9,
+          reason:
+            'behavior anomaly score 0.960 exceeds adaptive threshold 0.900',
+          status: 'scored',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 80,
+          tuple: 'read',
+        },
+      },
+    ],
+  });
+
+  expect(
+    getWeeklyAgentAnomalyRollups(new Date()).find(
+      (rollup) => rollup.agent_id === 'lena',
+    ),
+  ).toEqual({
+    agent_id: 'lena',
+    flagged: 1,
+    confirmed_normal: 1,
+  });
+
+  const autonomyEvent = getRecentStructuredAuditForSession(
+    'session-anomaly-rollup',
+    10,
+  ).find((event) => event.event_type === 'autonomy.decision');
+  expect(JSON.parse(autonomyEvent?.payload || '{}').anomaly).toEqual(
+    expect.objectContaining({
+      tuple: 'read',
+    }),
+  );
+});
+
+test('weekly agent anomaly rollups scan the full UTC week without row cap', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const {
+    getOrCreateSession,
+    getWeeklyAgentAnomalyRollups,
+    initDatabase,
+    logStructuredAuditEvent,
+  } = await import('../src/memory/db.ts');
+
+  initDatabase({ quiet: true });
+  getOrCreateSession('session-anomaly-cap', null, 'channel-a', 'lena');
+
+  logStructuredAuditEvent({
+    version: '2.0',
+    seq: 1,
+    timestamp: '2026-05-04T00:00:00.000Z',
+    runId: 'run-anomaly-cap-flagged',
+    sessionId: 'session-anomaly-cap',
+    event: {
+      type: 'autonomy.decision',
+      approvalDecision: 'implicit',
+      anomaly: {
+        score: 0.96,
+        threshold: 0.9,
+      },
+    },
+    _prevHash: 'prev-flagged',
+    _hash: 'hash-flagged',
+  });
+
+  for (let index = 0; index < 10_000; index += 1) {
+    logStructuredAuditEvent({
+      version: '2.0',
+      seq: index + 2,
+      timestamp: '2026-05-08T12:00:00.000Z',
+      runId: `run-anomaly-cap-benign-${index}`,
+      sessionId: 'session-anomaly-cap',
+      event: {
+        type: 'autonomy.decision',
+        approvalDecision: 'auto',
+      },
+      _prevHash: `prev-benign-${index}`,
+      _hash: `hash-benign-${index}`,
+    });
+  }
+
+  expect(
+    getWeeklyAgentAnomalyRollups(new Date('2026-05-09T12:00:00.000Z')).find(
+      (rollup) => rollup.agent_id === 'lena',
+    ),
+  ).toEqual({
+    agent_id: 'lena',
+    flagged: 1,
+    confirmed_normal: 1,
+  });
 });

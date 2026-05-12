@@ -9,25 +9,47 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
 import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
 import { DATA_DIR } from '../config/config.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
+  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { withSpanSync } from '../observability/otel.js';
+import {
+  evaluateSkillPolicyAccess,
+  readWorkspaceSkillPolicyState,
+  type SkillPolicyState,
+} from '../policy/skill-policy.js';
 import type { ToolExecution } from '../types/execution.js';
 import { hasExecutableCommand } from '../utils/executables.js';
 import { normalizeTrimmedUniqueStringArray } from '../utils/normalized-strings.js';
+import { expandHomePath } from '../utils/path.js';
 import { isRecord } from '../utils/type-guards.js';
-import { guardSkillDirectory } from './skills-guard.js';
+import {
+  DEFAULT_SKILL_SUPPORTED_CHANNELS,
+  isSkillSupportedOnChannel,
+  parseSkillManifestFromFrontmatterBlock,
+  SKILL_MANIFEST_CREDENTIAL_KINDS,
+  type SkillManifest,
+} from './skill-manifest.js';
+import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
 
-type SkillSource =
+export type {
+  SkillManifestCredentialKind,
+  SkillManifestDeclaredCredential,
+  SkillManifestSecretRef,
+} from './skill-manifest.js';
+export { SKILL_MANIFEST_CREDENTIAL_KINDS };
+
+export type SkillSource =
   | 'extra'
   | 'bundled'
   | 'codex'
@@ -62,6 +84,7 @@ interface SkillCandidate {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -86,6 +109,7 @@ export interface Skill {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -134,6 +158,16 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'skill',
 ]);
 const warnedBlockedSkills = new Set<string>();
+export const THIRD_PARTY_SKILL_SOURCES = new Set<SkillSource>([
+  'codex',
+  'claude',
+  'agents-personal',
+  'agents-project',
+]);
+
+export function isThirdPartySkillSource(source: string): boolean {
+  return THIRD_PARTY_SKILL_SOURCES.has(source as SkillSource);
+}
 
 type FrontmatterParseResult = {
   meta: Record<string, string>;
@@ -190,11 +224,7 @@ function parseFrontmatter(raw: string): FrontmatterParseResult {
 }
 
 function parseBool(raw: string | undefined, fallback: boolean): boolean {
-  if (!raw) return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
-  if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
-  return fallback;
+  return parseBooleanWithDefault(raw, fallback);
 }
 
 function normalizeSkillCategory(raw: string | undefined): string {
@@ -826,13 +856,8 @@ function asPromptLocation(
 }
 
 function resolveUserPath(raw: string): string {
-  const value = raw.trim();
-  if (!value) return '';
-  if (value === '~') return os.homedir();
-  if (value.startsWith('~/') || value.startsWith('~\\')) {
-    return path.join(os.homedir(), value.slice(2));
-  }
-  return path.resolve(value);
+  const expanded = expandHomePath(raw);
+  return expanded ? path.resolve(expanded) : '';
 }
 
 function resolveBundledSkillsDir(): string | null {
@@ -909,6 +934,41 @@ function resolveCodexSkillsDirs(): string[] {
 
 const IMPORT_SOURCE_MARKER = '.import-source.json';
 
+function createDefaultSkillManifest(name: string): SkillManifest {
+  return {
+    id: sanitizeSkillDirName(name),
+    name,
+    version: '0.0.0',
+    capabilities: [],
+    middleware: {
+      preSend: false,
+      postReceive: false,
+    },
+    requiredCredentials: [],
+    credentials: [],
+    supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+  };
+}
+
+function parseSkillManifestForDiscovery(
+  block: string,
+  name: string,
+  skillFile: string,
+): SkillManifest {
+  try {
+    return parseSkillManifestFromFrontmatterBlock(block, { name });
+  } catch (err) {
+    logger.warn(
+      {
+        path: skillFile,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      'Ignoring invalid skill manifest frontmatter',
+    );
+    return createDefaultSkillManifest(name);
+  }
+}
+
 function resolveImportSourceOverride(
   baseDir: string,
   defaultSource: SkillSource,
@@ -946,12 +1006,18 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
+        const manifest = parseSkillManifestForDiscovery(
+          frontmatter.block,
+          name,
+          skillFile,
+        );
         const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
         skills.push({
           name,
           description: (meta.description || '').trim(),
           category: parseSkillCategory(frontmatter),
+          manifest,
           userInvocable: parseBool(meta['user-invocable'], true),
           disableModelInvocation: parseBool(
             meta['disable-model-invocation'],
@@ -1636,10 +1702,15 @@ export function expandResolvedSkillInvocation(
   return lines.join('\n');
 }
 
+function resolveSkillManifest(skill: Skill): SkillManifest {
+  return skill.manifest || createDefaultSkillManifest(skill.name);
+}
+
 export interface SkillCatalogEntry {
   name: string;
   description: string;
   category: string;
+  manifest: SkillManifest;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   always: boolean;
@@ -1663,10 +1734,59 @@ export interface SkillCatalogEntry {
   missing: string[];
 }
 
+export interface BlockedSkillCatalogEntry extends SkillCandidate {
+  blocked: true;
+  blockedReason: string;
+  guardFindings: SkillGuardFinding[];
+}
+
 function getDisabledSkillNames(
   channelKind?: SkillConfigChannelKind,
 ): Set<string> {
   return getRuntimeDisabledSkillNames(getRuntimeConfig(), channelKind);
+}
+
+function readSkillPolicyStateForWorkspace(
+  workspaceDir: string,
+): SkillPolicyState {
+  try {
+    return readWorkspaceSkillPolicyState(workspaceDir);
+  } catch (err) {
+    logger.warn(
+      { err, workspaceDir },
+      'Failed to read workspace skill policy; continuing with default skill policy',
+    );
+    return { rules: [] };
+  }
+}
+
+function isAllowedBySkillPolicy(params: {
+  policy: SkillPolicyState;
+  skill: SkillCandidate;
+  agentId: string;
+  channelKind?: SkillConfigChannelKind;
+}): boolean {
+  const evaluation = evaluateSkillPolicyAccess({
+    rules: params.policy.rules,
+    agentId: params.agentId,
+    skillName: params.skill.name,
+    skillId: params.skill.manifest.id,
+    source: params.skill.source,
+    category: params.skill.category,
+    channel: params.channelKind,
+    capabilities: params.skill.manifest.capabilities,
+  });
+  if (evaluation.decision !== 'deny') return true;
+  logger.info(
+    {
+      agentId: params.agentId,
+      skill: params.skill.name,
+      ruleId: evaluation.matchedRule?.id,
+      reason: evaluation.action.reason,
+    },
+    'Skill blocked by workspace policy',
+  );
+  return false;
 }
 
 export function resolveManagedCommunitySkillsDir(
@@ -1833,15 +1953,31 @@ function wasGuardSkippedAtImport(baseDir: string): boolean {
 function filterGuardedSkillCandidates(
   skills: SkillCandidate[],
 ): SkillCandidate[] {
-  return skills.filter((skill) => {
-    if (wasGuardSkippedAtImport(skill.baseDir)) return true;
+  return partitionGuardedSkillCandidates(skills).allowed;
+}
+
+function partitionGuardedSkillCandidates(skills: SkillCandidate[]): {
+  allowed: SkillCandidate[];
+  blocked: BlockedSkillCatalogEntry[];
+} {
+  const allowed: SkillCandidate[] = [];
+  const blocked: BlockedSkillCatalogEntry[] = [];
+
+  for (const skill of skills) {
+    if (wasGuardSkippedAtImport(skill.baseDir)) {
+      allowed.push(skill);
+      continue;
+    }
 
     const decision = guardSkillDirectory({
       skillName: skill.name,
       skillPath: skill.baseDir,
       sourceTag: skill.source,
     });
-    if (decision.allowed) return true;
+    if (decision.allowed) {
+      allowed.push(skill);
+      continue;
+    }
 
     const fingerprint = `${path.resolve(skill.baseDir)}:${decision.result.verdict}:${decision.result.findings.length}`;
     if (!warnedBlockedSkills.has(fingerprint)) {
@@ -1858,16 +1994,66 @@ function filterGuardedSkillCandidates(
         'Blocked skill by security scanner',
       );
     }
-    return false;
-  });
+    blocked.push({
+      ...skill,
+      blocked: true,
+      blockedReason: decision.reason,
+      guardFindings: decision.result.findings,
+    });
+  }
+
+  return { allowed, blocked };
 }
 
-export function loadSkillCatalog(): SkillCatalogEntry[] {
-  const candidates = filterGuardedSkillCandidates(
+export function loadBlockedSkillCatalog(): BlockedSkillCatalogEntry[] {
+  const { blocked } = partitionGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   );
-  const disabled = getDisabledSkillNames();
-  return candidates
+  return blocked.sort(compareSkillsByCategoryAndName);
+}
+
+function thirdPartySkillDiscoveryKey(skill: SkillCandidate): string {
+  return `${skill.source}:${skill.name}`;
+}
+
+function applyThirdPartySkillDisabledDefaults(
+  skills: SkillCandidate[],
+): Set<string> {
+  const newThirdPartySkills = skills.filter((skill) =>
+    THIRD_PARTY_SKILL_SOURCES.has(skill.source),
+  );
+  const config = getRuntimeConfig();
+  const disabled = new Set(config.skills.disabled ?? []);
+  if (newThirdPartySkills.length === 0) return disabled;
+
+  const discovered = new Set(config.skills.externalDiscovered ?? []);
+  const bootstrapExistingThirdPartySkills = discovered.size === 0;
+
+  for (const skill of newThirdPartySkills) {
+    const discoveryKey = thirdPartySkillDiscoveryKey(skill);
+    if (discovered.has(discoveryKey)) continue;
+    discovered.add(discoveryKey);
+    if (!bootstrapExistingThirdPartySkills) {
+      disabled.add(skill.name);
+    }
+  }
+
+  return disabled;
+}
+
+function applyThirdPartySkillDefaultsAndGetDisabled(
+  skills: SkillCandidate[],
+  channelKind?: SkillConfigChannelKind,
+): Set<string> {
+  const defaults = applyThirdPartySkillDisabledDefaults(skills);
+  return new Set([...getDisabledSkillNames(channelKind), ...defaults]);
+}
+
+function mapSkillCatalogEntries(
+  skills: SkillCandidate[],
+  disabled: Set<string>,
+): SkillCatalogEntry[] {
+  return skills
     .map((skill) => {
       const eligibility = checkEligibility(skill);
       return {
@@ -1878,6 +2064,68 @@ export function loadSkillCatalog(): SkillCatalogEntry[] {
       };
     })
     .sort(compareSkillsByCategoryAndName);
+}
+
+export function persistThirdPartySkillDiscoveryDefaults(): void {
+  const thirdPartySkills = collectResolvedSkillCandidates().filter((skill) =>
+    THIRD_PARTY_SKILL_SOURCES.has(skill.source),
+  );
+  if (thirdPartySkills.length === 0) return;
+
+  const config = getRuntimeConfig();
+  const discovered = new Set(config.skills.externalDiscovered ?? []);
+  const disabled = new Set(config.skills.disabled ?? []);
+  const bootstrapExistingThirdPartySkills = discovered.size === 0;
+  let changed = false;
+
+  for (const skill of thirdPartySkills) {
+    const discoveryKey = thirdPartySkillDiscoveryKey(skill);
+    if (discovered.has(discoveryKey)) continue;
+    discovered.add(discoveryKey);
+    if (!bootstrapExistingThirdPartySkills) {
+      disabled.add(skill.name);
+    }
+    changed = true;
+  }
+
+  if (!changed) return;
+
+  updateRuntimeConfig(
+    (draft) => {
+      draft.skills.externalDiscovered = [...discovered].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      draft.skills.disabled = [...disabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    {
+      actor: 'skills-discovery',
+      source: 'external-skill-defaults',
+    },
+  );
+}
+
+export function loadSkillCatalog(): SkillCatalogEntry[] {
+  const candidates = filterGuardedSkillCandidates(
+    collectResolvedSkillCandidates(),
+  );
+  const disabled = applyThirdPartySkillDefaultsAndGetDisabled(candidates);
+  return mapSkillCatalogEntries(candidates, disabled);
+}
+
+export function loadSkillCatalogs(): {
+  available: SkillCatalogEntry[];
+  blocked: BlockedSkillCatalogEntry[];
+} {
+  const { allowed, blocked } = partitionGuardedSkillCandidates(
+    collectResolvedSkillCandidates(),
+  );
+  const disabled = applyThirdPartySkillDefaultsAndGetDisabled(allowed);
+  return {
+    available: mapSkillCatalogEntries(allowed, disabled),
+    blocked: blocked.sort(compareSkillsByCategoryAndName),
+  };
 }
 
 /**
@@ -1903,7 +2151,7 @@ function loadSkillsInner(
 ): Skill[] {
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
-  const disabled = getDisabledSkillNames(channelKind);
+  const skillPolicy = readSkillPolicyStateForWorkspace(workspaceDir);
   const configuredSkills = resolveAgentConfig(agentId).skills;
   const allowedSkills =
     configuredSkills === undefined
@@ -1911,17 +2159,29 @@ function loadSkillsInner(
       : new Set(normalizeTrimmedUniqueStringArray(configuredSkills));
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
-  ).filter(
+  );
+  const disabledAfterDefaults = applyThirdPartySkillDefaultsAndGetDisabled(
+    guarded,
+    channelKind,
+  );
+  const eligible = guarded.filter(
     (skill) =>
       checkEligibility(skill).available &&
-      !disabled.has(skill.name) &&
+      !disabledAfterDefaults.has(skill.name) &&
+      isSkillSupportedOnChannel(skill.manifest, channelKind) &&
+      isAllowedBySkillPolicy({
+        policy: skillPolicy,
+        skill,
+        agentId,
+        channelKind,
+      }) &&
       (allowedSkills === null || allowedSkills.has(skill.name)),
   );
-  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
-  pruneStaleSyncedSkills(guarded, workspaceDir);
+  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(eligible);
+  pruneStaleSyncedSkills(eligible, workspaceDir);
 
   const resolved: Skill[] = [];
-  for (const skill of guarded) {
+  for (const skill of eligible) {
     try {
       let promptSkillPath = asPromptLocation(
         workspaceDir,
@@ -2014,11 +2274,17 @@ export function buildSkillsPrompt(skills: Skill[]): string {
 
     let chars = 0;
     for (const skill of summaryCandidates) {
+      const manifest = resolveSkillManifest(skill);
       const block = [
         '  <skill>',
+        `    <id>${escapeXml(manifest.id)}</id>`,
         `    <name>${escapeXml(skill.name)}</name>`,
+        `    <version>${escapeXml(manifest.version)}</version>`,
         `    <category>${escapeXml(skill.category)}</category>`,
         `    <description>${escapeXml(skill.description || skill.name)}</description>`,
+        `    <capabilities>${escapeXml(manifest.capabilities.join(', '))}</capabilities>`,
+        `    <required_credentials>${escapeXml(manifest.requiredCredentials.map((credential) => credential.id).join(', '))}</required_credentials>`,
+        `    <supported_channels>${escapeXml(manifest.supportedChannels.join(', '))}</supported_channels>`,
         `    <location>${escapeXml(skill.location)}</location>`,
         '  </skill>',
       ];

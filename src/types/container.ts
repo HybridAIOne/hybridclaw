@@ -1,6 +1,8 @@
+import type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 import type { ChatMessage } from './api.js';
 import type {
   ArtifactMetadata,
+  EscalationTarget,
   PendingApproval,
   PluginRuntimeToolDefinition,
   ToolExecution,
@@ -28,28 +30,12 @@ export interface MediaContextItem {
   filename: string;
 }
 
-export interface WebSearchConfig {
-  provider:
-    | 'auto'
-    | 'brave'
-    | 'perplexity'
-    | 'tavily'
-    | 'duckduckgo'
-    | 'searxng';
-  fallbackProviders: (
-    | 'brave'
-    | 'perplexity'
-    | 'tavily'
-    | 'duckduckgo'
-    | 'searxng'
-  )[];
-  defaultCount: number;
-  cacheTtlMinutes: number;
-  searxngBaseUrl: string;
-  tavilySearchDepth: 'basic' | 'advanced';
-}
+export type { WebSearchConfig } from '../../container/shared/web-search-config.js';
 
 export interface ContainerInput {
+  healthCheck?: {
+    nonce: string;
+  };
   sessionId: string;
   messages: ChatMessage[];
   chatbotId: string;
@@ -70,6 +56,7 @@ export interface ContainerInput {
   fullAutoNeverApproveTools?: string[];
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
+  debugModelResponses?: boolean;
   maxTokens?: number;
   channelId: string;
   configuredDiscordChannels?: string[];
@@ -86,6 +73,7 @@ export interface ContainerInput {
   webSearch?: WebSearchConfig;
   persistBashState?: boolean;
   runtimeEnv?: Record<string, string>;
+  escalationTarget?: EscalationTarget;
 }
 
 export interface ContainerOutput {
