@@ -7189,9 +7189,11 @@ function loadRuntimeConfigFromSources(
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   } catch (err) {
-    console.warn(
-      `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (process.env.HYBRIDCLAW_DEBUG_CONFIG_REVISION_SYNC === '1') {
+      console.warn(
+        `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigSource = cloneConfig(diskSource);

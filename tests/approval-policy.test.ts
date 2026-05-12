@@ -1556,6 +1556,145 @@ autonomy:
     expect(evaluation.actionKey).toBe('network:hybridai.one');
   });
 
+  test('stealth browser activation is denied unless host policy allows it', () => {
+    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({
+        url: 'https://login.example.com/',
+      }),
+      latestUserPrompt: 'Open the login page with stealth mode',
+    });
+
+    expect(evaluation.actionKey).toBe('browser_stealth:example.com');
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('denied');
+    expect(evaluation.reason).toBe(
+      'browser stealth mode is not allowlisted for this host',
+    );
+  });
+
+  test('configured Camofox provider gates normal browser navigation as stealth activation', () => {
+    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
+    const policyPath = writeTempPolicy(`
+browser:
+  stealth:
+    rules:
+      - action: allow
+        when:
+          predicate: browser_stealth_allowed
+          host: example.com
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({ url: 'https://login.example.com/' }),
+      latestUserPrompt: 'Open the login page',
+    });
+
+    expect(evaluation.actionKey).toBe('browser_stealth:example.com');
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.reason).toBe(
+      'stealth browser mode requires explicit operator opt-in for this host',
+    );
+  });
+
+  test('configured Camofox provider allows hostless browser navigation without stealth gate', () => {
+    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({ url: 'about:blank' }),
+      latestUserPrompt: 'Open a blank browser page',
+    });
+
+    expect(evaluation.actionKey).toBe('browser_navigate');
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.reason).toBe(
+      'this action interacts with external runtime state',
+    );
+  });
+
+  test('stealth browser activation requires explicit per-host approval even in full-auto', () => {
+    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
+    const policyPath = writeTempPolicy(`
+browser:
+  stealth:
+    rules:
+      - action: allow
+        when:
+          predicate: browser_stealth_allowed
+          host: example.com
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+    runtime.setFullAutoOptions({ enabled: true });
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({
+        url: 'https://login.example.com/',
+      }),
+      latestUserPrompt: 'Open the login page with stealth mode',
+    });
+
+    expect(evaluation.actionKey).toBe('browser_stealth:example.com');
+    expect(evaluation.tier).toBe('red');
+    expect(evaluation.decision).toBe('required');
+    expect(evaluation.reason).toBe(
+      'stealth browser mode requires explicit operator opt-in for this host',
+    );
+  });
+
+  test('stealth browser approval can be trusted per host for the session', () => {
+    vi.stubEnv('HYBRIDCLAW_BROWSER_PROVIDER', 'camofox');
+    const policyPath = writeTempPolicy(`
+browser:
+  stealth:
+    rules:
+      - action: allow
+        when:
+          predicate: browser_stealth_allowed
+          host: example.com
+`);
+    const runtime = new TrustedAgentApprovalRuntime(policyPath);
+    const originalPrompt = 'Use stealth mode for the login page';
+    const argsJson = JSON.stringify({
+      url: 'https://login.example.com/',
+    });
+
+    const first = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson,
+      latestUserPrompt: originalPrompt,
+    });
+    expect(first.decision).toBe('required');
+
+    const prelude = runtime.handleApprovalResponse([
+      userMessage(`yes ${first.requestId} for session`),
+    ]);
+    expect(prelude?.approvalMode).toBe('session');
+
+    const second = runtime.evaluateToolCall({
+      toolName: 'browser_navigate',
+      argsJson: JSON.stringify({
+        url: 'https://www.example.com/',
+      }),
+      latestUserPrompt: originalPrompt,
+    });
+    expect(second.actionKey).toBe('browser_stealth:example.com');
+    expect(second.decision).toBe('approved_session');
+  });
+
   test('approval prompt lists text approval options in order for non-pinned actions', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
@@ -2164,7 +2303,9 @@ network:
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://hybridaione.github.io/hybridclaw/docs/' }),
+      argsJson: JSON.stringify({
+        url: 'https://hybridaione.github.io/hybridclaw/docs/',
+      }),
       latestUserPrompt: 'Open the HybridClaw docs',
     });
 
