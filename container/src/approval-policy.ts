@@ -2756,6 +2756,40 @@ export class TrustedAgentApprovalRuntime {
       };
     }
 
+    if (lowerTool === 'video_generate') {
+      const action = normalizeText(args.action).toLowerCase();
+      if (action === 'list') {
+        return {
+          tier: 'green',
+          actionKey: lowerTool,
+          intent: 'list video generation providers',
+          consequenceIfDenied:
+            'I will continue without checking video generation provider readiness.',
+          reason: 'this action only reports local provider readiness',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
+      return {
+        tier: 'yellow',
+        actionKey: lowerTool,
+        intent: 'generate video media',
+        consequenceIfDenied: 'I will continue without generating a video.',
+        reason:
+          'video generation may call a configured external provider and writes generated media into the workspace',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
     if (lowerTool === 'delegate') {
       return {
         tier: 'green',

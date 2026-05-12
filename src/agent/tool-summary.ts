@@ -68,6 +68,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['image_generate'],
   },
   {
+    label: 'Video Generation',
+    tools: ['video_generate'],
+  },
+  {
     label: 'MCP',
     tools: [],
   },

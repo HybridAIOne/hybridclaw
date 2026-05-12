@@ -747,6 +747,7 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_vision',
   'vision_analyze',
   'image_generate',
+  'video_generate',
   'browser_get_images',
   'browser_console',
   'browser_network',

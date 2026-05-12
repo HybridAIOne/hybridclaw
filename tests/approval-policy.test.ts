@@ -1036,6 +1036,33 @@ autonomy:
     expect(visionAnalyze.implicitDelayMs).toBeUndefined();
   });
 
+  test('media generation tools classify list as green and generation as yellow', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const imageList = runtime.evaluateToolCall({
+      toolName: 'image_generate',
+      argsJson: JSON.stringify({ action: 'list' }),
+      latestUserPrompt: 'Which image providers are configured?',
+    });
+    const videoList = runtime.evaluateToolCall({
+      toolName: 'video_generate',
+      argsJson: JSON.stringify({ action: 'list' }),
+      latestUserPrompt: 'Which video providers are configured?',
+    });
+    const videoGenerate = runtime.evaluateToolCall({
+      toolName: 'video_generate',
+      argsJson: JSON.stringify({ prompt: 'A cinematic product shot' }),
+      latestUserPrompt: 'Generate a video',
+    });
+
+    expect(imageList.tier).toBe('green');
+    expect(videoList.tier).toBe('green');
+    expect(videoGenerate.tier).toBe('yellow');
+    expect(videoGenerate.reason).toContain('video generation may call');
+  });
+
   test('delegate tool is green by default', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',

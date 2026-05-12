@@ -7,6 +7,7 @@ const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
 const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
 const ORIGINAL_XAI_API_KEY = process.env.XAI_API_KEY;
+const ORIGINAL_BFL_API_KEY = process.env.BFL_API_KEY;
 
 let workspaceRoot = '';
 
@@ -22,6 +23,7 @@ beforeEach(() => {
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT = workspaceRoot;
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT = '/workspace';
   delete process.env.XAI_API_KEY;
+  delete process.env.BFL_API_KEY;
   vi.unstubAllGlobals();
 });
 
@@ -41,6 +43,11 @@ afterEach(() => {
     delete process.env.XAI_API_KEY;
   } else {
     process.env.XAI_API_KEY = ORIGINAL_XAI_API_KEY;
+  }
+  if (ORIGINAL_BFL_API_KEY == null) {
+    delete process.env.BFL_API_KEY;
+  } else {
+    process.env.BFL_API_KEY = ORIGINAL_BFL_API_KEY;
   }
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -64,6 +71,7 @@ describe('image_generate tool', () => {
       'openai',
       'gemini',
       'xai',
+      'bfl',
     ]);
   });
 
@@ -101,7 +109,7 @@ describe('image_generate tool', () => {
       undefined,
       'https://api.openai.test/v1',
       'test-key',
-      'openai-codex/gpt-image-1',
+      'openai-codex/gpt-image-2',
       '',
       {},
     );
@@ -162,7 +170,7 @@ describe('image_generate tool', () => {
       undefined,
       'https://api.openai.test/v1',
       'test-key',
-      'openai-codex/gpt-image-1',
+      'openai-codex/gpt-image-2',
       '',
       {},
     );
@@ -223,7 +231,7 @@ describe('image_generate tool', () => {
       undefined,
       'https://generativelanguage.googleapis.com/v1beta/openai',
       'gemini-test-key',
-      'gemini/gemini-2.5-flash-image-preview',
+      'gemini/gemini-3.1-flash-image-preview',
       '',
       {},
     );
@@ -249,6 +257,67 @@ describe('image_generate tool', () => {
     );
   });
 
+  test('persists BFL FLUX.2 image output from async polling', async () => {
+    process.env.BFL_API_KEY = 'bfl-test-key';
+    const imageBytes = Buffer.from('flux-png');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'flux-request',
+            polling_url: 'https://api.bfl.ai/v1/get_result?id=flux-request',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'Ready',
+            result: { sample: 'https://93.184.216.34/flux.png' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(imageBytes, {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'image_generate',
+      JSON.stringify({ prompt: 'a clean product icon' }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      provider: string;
+      model: string;
+      images: Array<{ filename: string }>;
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.provider).toBe('bfl');
+    expect(parsed.model).toBe('flux-2-pro-preview');
+    expect(
+      fs.readFileSync(
+        path.join(
+          workspaceRoot,
+          '.generated-images',
+          parsed.images[0]?.filename || '',
+        ),
+      ),
+    ).toEqual(imageBytes);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.bfl.ai/v1/flux-2-pro-preview',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
   test('rejects unsafe remote reference image URLs', async () => {
     const { executeToolWithMetadata, setModelContext } = await loadTools();
     setModelContext(
@@ -256,7 +325,7 @@ describe('image_generate tool', () => {
       undefined,
       'https://api.openai.test/v1',
       'test-key',
-      'openai-codex/gpt-image-1',
+      'openai-codex/gpt-image-2',
       '',
       {},
     );
@@ -289,7 +358,7 @@ describe('image_generate tool', () => {
       undefined,
       'https://api.openai.test/v1',
       'test-key',
-      'openai-codex/gpt-image-1',
+      'openai-codex/gpt-image-2',
       '',
       {},
     );
@@ -333,7 +402,7 @@ describe('image_generate tool', () => {
       undefined,
       'https://api.openai.test/v1',
       'test-key',
-      'openai-codex/gpt-image-1',
+      'openai-codex/gpt-image-2',
       '',
       {},
     );
@@ -345,8 +414,8 @@ describe('image_generate tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('generated image exceeds max size');
-    expect(
-      fs.existsSync(path.join(workspaceRoot, '.generated-images')),
-    ).toBe(false);
+    expect(fs.existsSync(path.join(workspaceRoot, '.generated-images'))).toBe(
+      false,
+    );
   });
 });

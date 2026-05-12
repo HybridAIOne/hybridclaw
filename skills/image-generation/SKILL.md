@@ -20,7 +20,8 @@ Do not use `image_generate` to inspect or describe an existing image. Use
 1. Call `image_generate` with `action: "list"` if you need to check whether an
    image provider is configured or explain missing auth/model setup.
 2. For generation, pass a clear `prompt` and optional `aspectRatio`, `size`,
-   `quality`, and `count`.
+   `quality`, and `count`. The native provider layer supports GPT Image 2,
+   Nano Banana 2, Grok Imagine, and FLUX.2 when those providers are configured.
 3. For image-to-image edits, pass reference media paths in the
    `image_generate` `image` or `images` arguments. Paths may come from
    `/workspace`, `/discord-media-cache`, `/uploaded-media-cache`, or safe

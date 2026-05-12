@@ -16,7 +16,7 @@ import {
 } from './runtime-paths.js';
 import type { MediaContextItem } from './types.js';
 
-type ImageGenerationProviderId = 'openai' | 'gemini' | 'xai';
+type ImageGenerationProviderId = 'openai' | 'gemini' | 'xai' | 'bfl';
 
 export interface ImageGenerationRuntimeContext {
   provider: RuntimeProvider;
@@ -69,9 +69,13 @@ const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta';
 const DEFAULT_XAI_BASE_URL = 'https://api.x.ai/v1';
-const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1';
-const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-2.5-flash-image-preview';
-const DEFAULT_XAI_IMAGE_MODEL = 'grok-2-image-1212';
+const DEFAULT_BFL_BASE_URL = 'https://api.bfl.ai/v1';
+const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const DEFAULT_XAI_IMAGE_MODEL = 'grok-imagine-image-quality';
+const DEFAULT_BFL_IMAGE_MODEL = 'flux-2-pro-preview';
+const BFL_POLL_INTERVAL_MS = 1_000;
+const BFL_POLL_TIMEOUT_MS = 180_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -276,7 +280,9 @@ async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
     host.endsWith('.localhost') ||
     host.endsWith('.local')
   ) {
-    throw new Error(`provider image URL blocked: private or loopback host (${host})`);
+    throw new Error(
+      `provider image URL blocked: private or loopback host (${host})`,
+    );
   }
   if (net.isIP(host) > 0) {
     if (isPrivateIp(host)) {
@@ -290,7 +296,9 @@ async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
   try {
     const resolved = await lookup(host, { all: true, verbatim: true });
     if (resolved.length === 0) {
-      throw new Error(`provider image URL blocked: DNS lookup failed (${host})`);
+      throw new Error(
+        `provider image URL blocked: DNS lookup failed (${host})`,
+      );
     }
     if (resolved.some((entry) => isPrivateIp(entry.address))) {
       throw new Error(
@@ -298,7 +306,10 @@ async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
       );
     }
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('provider image URL blocked:')) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('provider image URL blocked:')
+    ) {
       throw error;
     }
     throw new Error(`provider image URL blocked: DNS lookup failed (${host})`);
@@ -455,7 +466,7 @@ function stripProviderPrefix(model: string, provider: string): string {
 }
 
 function hasImageModelHint(model: string): boolean {
-  return /image|gpt-image|nano-banana/i.test(model);
+  return /image|gpt-image|nano-banana|flux/i.test(model);
 }
 
 function envValue(...names: string[]): string {
@@ -552,6 +563,17 @@ function buildProviderCandidates(
     });
   }
 
+  const bflKey = envValue('BFL_API_KEY', 'BLACK_FOREST_LABS_API_KEY');
+  if (bflKey && !candidates.some((entry) => entry.id === 'bfl')) {
+    candidates.push({
+      id: 'bfl',
+      label: 'Black Forest Labs',
+      apiKey: bflKey,
+      baseUrl: normalizeBaseUrl(envValue('BFL_BASE_URL'), DEFAULT_BFL_BASE_URL),
+      model: envValue('BFL_IMAGE_MODEL') || DEFAULT_BFL_IMAGE_MODEL,
+    });
+  }
+
   return candidates;
 }
 
@@ -588,6 +610,16 @@ export function listImageGenerationProviders(
       missing: ready.has('xai')
         ? null
         : 'Set XAI_API_KEY or use a configured xai model.',
+    },
+    {
+      id: 'bfl',
+      label: 'Black Forest Labs',
+      ready: ready.has('bfl'),
+      active: active === 'bfl',
+      missing: ready.has('bfl')
+        ? null
+        : 'Set BFL_API_KEY/BLACK_FOREST_LABS_API_KEY.',
+      default_model: DEFAULT_BFL_IMAGE_MODEL,
     },
   ];
   return {
@@ -696,7 +728,9 @@ async function fetchProviderImageUrl(rawUrl: string): Promise<Buffer> {
   }
 }
 
-async function readLimitedImageResponseBuffer(response: Response): Promise<Buffer> {
+async function readLimitedImageResponseBuffer(
+  response: Response,
+): Promise<Buffer> {
   const contentType = response.headers.get('content-type')?.toLowerCase() || '';
   if (contentType && !contentType.startsWith('image/')) {
     throw new Error(`provider image URL is not an image (${contentType})`);
@@ -852,6 +886,25 @@ async function generateWithOpenAIImages(
   return parseOpenAIStyleImageResponse(payload);
 }
 
+async function generateWithXai(
+  candidate: ProviderCandidate,
+  request: NormalizedImageGenerationRequest,
+): Promise<GeneratedImageBuffer[]> {
+  const body: Record<string, unknown> = {
+    model: candidate.model,
+    prompt: request.prompt,
+    n: request.count,
+  };
+  if (request.aspectRatio) body.aspect_ratio = request.aspectRatio;
+  if (request.size) body.resolution = request.size.toLowerCase();
+  const payload = await fetchJson(`${candidate.baseUrl}/images/generations`, {
+    method: 'POST',
+    headers: authJsonHeaders(candidate),
+    body: JSON.stringify(body),
+  });
+  return parseOpenAIStyleImageResponse(payload);
+}
+
 async function generateWithGemini(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
@@ -900,11 +953,105 @@ async function generateWithGemini(
   throw new Error('Gemini response did not include generated image data');
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sizeToBflDimensions(size: string | null): {
+  width?: number;
+  height?: number;
+} {
+  const match = String(size || '').match(/^(\d+)x(\d+)$/i);
+  if (!match) return {};
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return {};
+  return { width, height };
+}
+
+async function fetchBflJson(
+  url: string,
+  apiKey: string,
+  init: RequestInit = {},
+): Promise<Record<string, unknown>> {
+  return fetchJson(url, {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'x-key': apiKey,
+      ...((init.headers as Record<string, string> | undefined) || {}),
+    },
+  });
+}
+
+async function pollBflImageResult(
+  pollingUrl: string,
+  apiKey: string,
+): Promise<string> {
+  const deadline = Date.now() + BFL_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const payload = await fetchBflJson(pollingUrl, apiKey, { method: 'GET' });
+    const status = readStringValue(payload.status)?.toLowerCase() || '';
+    if (status === 'ready') {
+      const result = isRecord(payload.result) ? payload.result : null;
+      const sampleUrl = result ? readStringValue(result.sample) : null;
+      if (!sampleUrl)
+        throw new Error('BFL response did not include a sample URL');
+      return sampleUrl;
+    }
+    if (status === 'error' || status === 'failed') {
+      throw new Error(`BFL generation failed: ${JSON.stringify(payload)}`);
+    }
+    await sleep(BFL_POLL_INTERVAL_MS);
+  }
+  throw new Error(`BFL generation timed out after ${BFL_POLL_TIMEOUT_MS}ms`);
+}
+
+async function generateWithBfl(
+  candidate: ProviderCandidate,
+  request: NormalizedImageGenerationRequest,
+): Promise<GeneratedImageBuffer[]> {
+  const body: Record<string, unknown> = {
+    prompt: request.prompt,
+    output_format: 'png',
+    ...sizeToBflDimensions(request.size),
+  };
+  request.references.slice(0, 8).forEach((ref, index) => {
+    const key = index === 0 ? 'input_image' : `input_image_${index + 1}`;
+    body[key] = `data:${ref.mimeType};base64,${ref.buffer.toString('base64')}`;
+  });
+  const start = await fetchBflJson(
+    `${candidate.baseUrl}/${candidate.model}`,
+    candidate.apiKey,
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+  );
+  const pollingUrl = readStringValue(start.polling_url);
+  if (!pollingUrl)
+    throw new Error('BFL response did not include a polling URL');
+  const sampleUrl = await pollBflImageResult(pollingUrl, candidate.apiKey);
+  return [
+    {
+      buffer: await fetchProviderImageUrl(sampleUrl),
+      mimeType: 'image/png',
+      metadata: {
+        request_id: readStringValue(start.id) || undefined,
+        source_url: sampleUrl,
+      },
+    },
+  ];
+}
+
 async function generateWithCandidate(
   candidate: ProviderCandidate,
   request: NormalizedImageGenerationRequest,
 ): Promise<GeneratedImageBuffer[]> {
+  if (candidate.id === 'bfl') return generateWithBfl(candidate, request);
   if (candidate.id === 'gemini') return generateWithGemini(candidate, request);
+  if (candidate.id === 'xai') return generateWithXai(candidate, request);
   if (candidate.id === 'openai' && request.references.length > 0) {
     return generateWithOpenAIResponses(candidate, request);
   }
@@ -968,7 +1115,7 @@ export async function runImageGenerate(
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
     throw new Error(
-      'image_generate is not configured: set OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, XAI_API_KEY, or use a configured openai-codex/gemini/xai model.',
+      'image_generate is not configured: set OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, XAI_API_KEY, BFL_API_KEY/BLACK_FOREST_LABS_API_KEY, or use a configured openai-codex/gemini/xai model.',
     );
   }
 
@@ -995,6 +1142,18 @@ export async function runImageGenerate(
         if (request.count > 1) {
           providerWarnings.push(
             'Gemini returns provider-defined image counts; count was not enforced.',
+          );
+        }
+      }
+      if (candidate.id === 'bfl') {
+        if (request.quality) {
+          providerWarnings.push(
+            'BFL does not support quality; quality was ignored.',
+          );
+        }
+        if (request.count > 1) {
+          providerWarnings.push(
+            'BFL returns one image per request; count was not enforced.',
           );
         }
       }

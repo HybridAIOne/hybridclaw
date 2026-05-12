@@ -51,6 +51,7 @@ import {
   type ToolDefinition,
   type ToolRunResult,
 } from './types.js';
+import { runVideoGenerate } from './video-generation.js';
 import type { WebSearchRuntimeConfig } from './web-search.js';
 
 const DENY_PATTERNS: RegExp[] = [
@@ -3313,6 +3314,22 @@ async function executeToolInternal(
       }
     }
 
+    case 'video_generate': {
+      try {
+        return await runVideoGenerate(args, {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          requestHeaders: currentModelHeaders,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'browser_navigate':
     case 'browser_await_two_factor':
     case 'browser_resume_interaction':
@@ -4232,6 +4249,52 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           count: {
             type: 'number',
             description: 'Number of images to generate, capped at 4.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'video_generate',
+      description:
+        'Generate deliverable videos with a configured video provider. Supports OpenAI Sora and Google Veo. Use action="list" to inspect provider readiness.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list'],
+            description:
+              'Use "list" to show configured video generation providers instead of generating.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Video generation prompt.',
+          },
+          aspectRatio: {
+            type: 'string',
+            description:
+              'Optional aspect ratio such as 16:9, 9:16, landscape, or portrait.',
+          },
+          resolution: {
+            type: 'string',
+            description:
+              'Optional provider resolution or size, such as 720x1280, 1280x720, 720p, 1080p, or 4k.',
+          },
+          size: {
+            type: 'string',
+            description: 'Alias for resolution.',
+          },
+          durationSeconds: {
+            type: 'number',
+            description: 'Optional duration in seconds when supported.',
+          },
+          duration: {
+            type: 'number',
+            description: 'Alias for durationSeconds.',
           },
         },
         required: [],
