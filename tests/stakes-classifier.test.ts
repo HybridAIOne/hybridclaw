@@ -64,7 +64,6 @@ const lowTools = [
   'grep',
   'session_search',
   'vision_analyze',
-  'image',
   'delegate',
   'tavily__search',
 ];

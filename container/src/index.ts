@@ -90,6 +90,7 @@ import {
   setModelContext,
   setPersistentBashStateEnabled,
   setPluginTools,
+  setProviderCredentials,
   setScheduledTasks,
   setSessionContext,
   setTaskModelPolicies,
@@ -729,17 +730,7 @@ async function executePreparedToolCall(
 
 async function callHybridAIWithRetry(params: {
   sessionId?: string;
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
+  provider?: ContainerInput['provider'];
   providerMethod?: string;
   baseUrl: string;
   apiKey: string;
@@ -1790,6 +1781,7 @@ async function main(): Promise<void> {
     firstInput.maxTokens,
     firstInput.debugModelResponses === true,
   );
+  setProviderCredentials(firstInput.providerCredentials);
   setTaskModelPolicies(firstTaskModels);
   setMediaContext(firstInput.media);
   const firstVisionMessages = await injectNativeVisionContent({
@@ -1961,6 +1953,7 @@ async function main(): Promise<void> {
       input.maxTokens,
       input.debugModelResponses === true,
     );
+    setProviderCredentials(input.providerCredentials);
     setTaskModelPolicies(taskModels);
     setMediaContext(input.media);
     const visionPreparedMessages = await injectNativeVisionContent({

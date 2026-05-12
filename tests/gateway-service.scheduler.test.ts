@@ -438,7 +438,7 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
 
   await runIsolatedScheduledTask({
     taskId: 249,
-    prompt: 'summarize the hybridclaw.io webpage',
+    prompt: 'summarize the HybridClaw docs page',
     channelId: 'tui',
     chatbotId: 'test-chatbot',
     model: 'gpt-4o-mini',
@@ -463,7 +463,7 @@ test('scheduled agent turns persist outputs for admin jobs detail', async () => 
   ).toEqual([
     {
       role: 'user',
-      content: 'summarize the hybridclaw.io webpage',
+      content: 'summarize the HybridClaw docs page',
     },
     {
       role: 'assistant',

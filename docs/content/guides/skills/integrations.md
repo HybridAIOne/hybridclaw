@@ -429,7 +429,7 @@ commands, runtime behavior, and release notes.
 
 > 💡 **Tips & Tricks**
 >
-> The skill consults public docs at `hybridclaw.io/docs` first, then falls back to GitHub source files.
+> The skill consults public docs at `hybridaione.github.io/hybridclaw/docs` first, then falls back to GitHub source files.
 >
 > It checks the CHANGELOG for recent changes when relevant.
 >
