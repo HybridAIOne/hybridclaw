@@ -71,6 +71,7 @@ import {
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
+import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
@@ -1296,6 +1297,14 @@ async function handleGatewayMessageInner(
       costUsd,
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: req.sessionId,
+      agentId,
+      auditRunId: runId,
+      toolExecutions,
+    })) {
+      enqueueTokenUsage(event);
+    }
     if (observedSkillName) {
       try {
         recordSkillExecution({

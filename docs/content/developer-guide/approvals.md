@@ -18,7 +18,7 @@ user explicitly approves or denies it.
 | Pending red approvals | `3` | New blocked actions are denied once the queue is full |
 | Approval timeout | `120s` | Expired requests are removed from the pending queue |
 | Network default | `deny` | Unmatched HTTP/network access falls back to prompt unless changed to `allow` |
-| Seeded network rule | `allow hybridclaw.io:443 * /** agent=*` | New workspaces start with one explicit allow rule |
+| Seeded network rule | `allow hybridaione.github.io:443 * /hybridclaw/** agent=*` | New workspaces start with one explicit allow rule |
 | Workspace fence | `on` | Writes outside the workspace are blocked by default |
 | Agent trust file | `.hybridclaw/approval-agent-trust.json` | Durable `yes for agent` trust |
 | Workspace allowlist file | `approval-trust.json` | Durable `yes for all` trust |
@@ -101,13 +101,14 @@ Two important transitions:
 | --- | --- | --- | --- |
 | Read-only file and session tools | Green | `read`, `glob`, `grep`, `session_search` | No side effects |
 | Read-only channel actions | Green | `message read`, `message member-info`, `message channel-info` | Channel lookup only |
-| Image analysis | Green | `vision_analyze`, `image` | Read-only image inspection |
+| Image analysis | Green | `vision_analyze` | Read-only image inspection |
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |
 | Read-only shell commands | Green | `ls`, `cat`, `rg`, `git status`, `git diff`, `npm test` | Includes bundled read-only PDF scripts |
 | File edits and durable memory writes | Yellow | `write`, `edit`, `memory` | Modifies workspace or memory state |
 | Channel mutations | Yellow | `message send` | May change channel state |
+| Media generation | Yellow | `image_generate`, `video_generate` | External provider call plus generated media written to workspace |
 | Mutating bash and git | Yellow | `mkdir`, `touch`, `cp`, `mv`, `sed -i`, `git add`, `git commit`, `git branch`, `git merge`, `git tag` | Write side effects inside the workspace |
 | Dependency installs | Yellow | `npm install`, `pnpm add`, `pip install` | Local dependency state changes |
 | Browser interactions | Yellow | `browser_click`, `browser_type`, `browser_press`, `browser_upload` | External runtime state interaction |

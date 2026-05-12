@@ -205,6 +205,16 @@ function syncRuntimeSecretExports(): void {
     'HYBRIDAI_API_KEY',
     storedSecrets,
   );
+  OPENAI_API_KEY = readRuntimeSecretValue(
+    ['OPENAI_API_KEY'],
+    'OPENAI_API_KEY',
+    storedSecrets,
+  );
+  BFL_API_KEY = readRuntimeSecretValue(
+    ['BFL_API_KEY', 'BLACK_FOREST_LABS_API_KEY'],
+    'BFL_API_KEY',
+    storedSecrets,
+  );
   OPENROUTER_API_KEY = readRuntimeSecretValue(
     ['OPENROUTER_API_KEY'],
     'OPENROUTER_API_KEY',
@@ -297,6 +307,8 @@ export let MSTEAMS_APP_PASSWORD = '';
 export let SLACK_BOT_TOKEN = '';
 export let SLACK_APP_TOKEN = '';
 export let HYBRIDAI_API_KEY = '';
+export let OPENAI_API_KEY = '';
+export let BFL_API_KEY = '';
 export let OPENROUTER_API_KEY = '';
 export let MISTRAL_API_KEY = '';
 export let ANTHROPIC_API_KEY = '';

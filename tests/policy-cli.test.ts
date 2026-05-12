@@ -63,7 +63,7 @@ test('policy command supports status, allow, list, default, and delete flows', (
   expect(JSON.parse(listJson.text)).toMatchObject({
     default: 'deny',
     rules: expect.arrayContaining([
-      expect.objectContaining({ host: 'hybridclaw.io', agent: '*' }),
+      expect.objectContaining({ host: 'hybridaione.github.io', agent: '*' }),
       expect.objectContaining({ host: 'api.github.com', agent: 'main' }),
     ]),
   });
@@ -165,7 +165,7 @@ test('policy preset commands support list, dry-run, apply, and remove', () => {
   state = readPolicyState(workspacePath);
   expect(state.presets).toEqual([]);
   expect(state.rules).toEqual([
-    expect.objectContaining({ host: 'hybridclaw.io' }),
+    expect.objectContaining({ host: 'hybridaione.github.io' }),
   ]);
 });
 
