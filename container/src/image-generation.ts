@@ -66,6 +66,10 @@ interface MediaGenerationUsage {
   total_tokens?: number;
   output_image_tokens?: number;
   generated_images?: number;
+  cost_usd?: number;
+  cost_credits?: number;
+  input_megapixels?: number;
+  output_megapixels?: number;
   estimated?: boolean;
 }
 
@@ -853,6 +857,17 @@ function readUsageNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+function readUsageCostUsd(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return undefined;
+}
+
 function parseProviderUsage(
   payload: Record<string, unknown>,
 ): MediaGenerationUsage | undefined {
@@ -871,11 +886,23 @@ function parseProviderUsage(
   const outputImageTokens = outputTokenDetails
     ? readUsageNumber(outputTokenDetails.image_tokens)
     : undefined;
+  const costUsd =
+    readUsageCostUsd(
+      usage.cost_usd ??
+        usage.costUsd ??
+        usage.estimated_cost_usd ??
+        usage.estimatedCostUsd,
+    ) ??
+    (() => {
+      const ticks = readUsageNumber(usage.cost_in_usd_ticks);
+      return ticks == null ? undefined : ticks / 10_000_000_000;
+    })();
   if (
     inputTokens == null &&
     outputTokens == null &&
     totalTokens == null &&
-    outputImageTokens == null
+    outputImageTokens == null &&
+    costUsd == null
   ) {
     return undefined;
   }
@@ -886,6 +913,31 @@ function parseProviderUsage(
     ...(outputImageTokens != null
       ? { output_image_tokens: outputImageTokens }
       : {}),
+    ...(costUsd != null ? { cost_usd: costUsd } : {}),
+  };
+}
+
+function parseGeminiUsage(
+  payload: Record<string, unknown>,
+): MediaGenerationUsage | undefined {
+  const usage = isRecord(payload.usageMetadata) ? payload.usageMetadata : null;
+  if (!usage) return undefined;
+  const inputTokens = readUsageNumber(
+    usage.promptTokenCount ?? usage.prompt_token_count,
+  );
+  const outputTokens = readUsageNumber(
+    usage.candidatesTokenCount ?? usage.candidates_token_count,
+  );
+  const totalTokens = readUsageNumber(
+    usage.totalTokenCount ?? usage.total_token_count,
+  );
+  if (inputTokens == null && outputTokens == null && totalTokens == null) {
+    return undefined;
+  }
+  return {
+    ...(inputTokens != null ? { input_tokens: inputTokens } : {}),
+    ...(outputTokens != null ? { output_tokens: outputTokens } : {}),
+    ...(totalTokens != null ? { total_tokens: totalTokens } : {}),
   };
 }
 
@@ -1040,18 +1092,22 @@ async function generateWithGemini(
     }
   }
   if (images.length > 0) {
+    const apiUsage = parseGeminiUsage(payload);
     const outputTokens = candidate.model.includes('3.1-flash-image')
       ? images.length * 1120
       : undefined;
     return {
       images,
       usage: {
+        ...(apiUsage || {}),
         generated_images: images.length,
-        estimated: true,
+        estimated: !apiUsage,
         ...(outputTokens != null
           ? {
-              output_tokens: outputTokens,
-              total_tokens: outputTokens,
+              output_tokens: apiUsage?.output_tokens ?? outputTokens,
+              total_tokens:
+                apiUsage?.total_tokens ??
+                (apiUsage?.input_tokens || 0) + outputTokens,
               output_image_tokens: outputTokens,
             }
           : {}),
@@ -1140,6 +1196,9 @@ async function generateWithBfl(
   const pollingUrl = readStringValue(start.polling_url);
   if (!pollingUrl)
     throw new Error('BFL response did not include a polling URL');
+  const costCredits = readUsageCostUsd(start.cost);
+  const inputMegapixels = readUsageCostUsd(start.input_mp);
+  const outputMegapixels = readUsageCostUsd(start.output_mp);
   const sampleUrl = await pollBflImageResult(pollingUrl, candidate.apiKey);
   return {
     images: [
@@ -1152,7 +1211,17 @@ async function generateWithBfl(
         },
       },
     ],
-    usage: { generated_images: 1, estimated: true },
+    usage: {
+      generated_images: 1,
+      ...(costCredits != null
+        ? { cost_credits: costCredits, cost_usd: costCredits * 0.01 }
+        : {}),
+      ...(inputMegapixels != null ? { input_megapixels: inputMegapixels } : {}),
+      ...(outputMegapixels != null
+        ? { output_megapixels: outputMegapixels }
+        : {}),
+      estimated: costCredits == null,
+    },
   };
 }
 

@@ -228,6 +228,7 @@ describe('image_generate tool', () => {
         new Response(
           JSON.stringify({
             data: [{ b64_json: imageBytes.toString('base64') }],
+            usage: { cost_in_usd_ticks: 400000000 },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         ),
@@ -257,6 +258,7 @@ describe('image_generate tool', () => {
       provider: string;
       attempts: Array<{ provider: string; success: boolean }>;
       warnings: string[];
+      usage: { cost_usd: number };
     };
 
     expect(result.isError).toBe(false);
@@ -268,6 +270,7 @@ describe('image_generate tool', () => {
     expect(parsed.warnings).toContain(
       'xAI does not support quality; quality was ignored.',
     );
+    expect(parsed.usage.cost_usd).toBe(0.04);
   });
 
   test('warns when Gemini ignores unsupported options', async () => {
@@ -337,6 +340,9 @@ describe('image_generate tool', () => {
           JSON.stringify({
             id: 'flux-request',
             polling_url: 'https://api.bfl.ai/v1/get_result?id=flux-request',
+            cost: 3,
+            input_mp: 0,
+            output_mp: 1.2,
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         ),
@@ -369,11 +375,26 @@ describe('image_generate tool', () => {
       provider: string;
       model: string;
       images: Array<{ filename: string }>;
+      usage: {
+        cost_credits: number;
+        cost_usd: number;
+        input_megapixels: number;
+        output_megapixels: number;
+        estimated: boolean;
+      };
     };
 
     expect(result.isError).toBe(false);
     expect(parsed.provider).toBe('bfl');
     expect(parsed.model).toBe('flux-2-pro-preview');
+    expect(parsed.usage).toEqual({
+      generated_images: 1,
+      cost_credits: 3,
+      cost_usd: 0.03,
+      input_megapixels: 0,
+      output_megapixels: 1.2,
+      estimated: false,
+    });
     expect(
       fs.readFileSync(
         path.join(

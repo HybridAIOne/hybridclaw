@@ -21,6 +21,7 @@ describe('media generation usage accounting', () => {
               input_tokens: 12,
               output_tokens: 1120,
               total_tokens: 1132,
+              cost_usd: 0.1234,
               generated_images: 1,
             },
           }),
@@ -38,6 +39,7 @@ describe('media generation usage accounting', () => {
         inputTokens: 12,
         outputTokens: 1120,
         totalTokens: 1132,
+        costUsd: 0.1234,
         toolCalls: 0,
       }),
     ]);
@@ -81,7 +83,7 @@ describe('media generation usage accounting', () => {
     );
   });
 
-  test('records flat-price image providers as separate zero-token usage rows', () => {
+  test('uses exact xAI image request cost when returned by the API', () => {
     const events = buildMediaGenerationUsageEvents({
       sessionId: 'session-1',
       agentId: 'agent-1',
@@ -95,7 +97,7 @@ describe('media generation usage accounting', () => {
             provider: 'xai',
             model: 'grok-imagine-image-quality',
             images: [{ path: '/workspace/.generated-images/image.png' }],
-            usage: { generated_images: 1 },
+            usage: { generated_images: 1, cost_usd: 0.0397 },
           }),
           durationMs: 100,
         },
@@ -108,7 +110,39 @@ describe('media generation usage accounting', () => {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: 0,
-        costUsd: 0.04,
+        costUsd: 0.0397,
+      }),
+    );
+  });
+
+  test('uses exact BFL request credits when returned by the API', () => {
+    const events = buildMediaGenerationUsageEvents({
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      auditRunId: 'run-1',
+      toolExecutions: [
+        {
+          name: 'image_generate',
+          arguments: '{}',
+          result: JSON.stringify({
+            success: true,
+            provider: 'bfl',
+            model: 'flux-2-pro-preview',
+            images: [{ path: '/workspace/.generated-images/image.png' }],
+            usage: { generated_images: 1, cost_credits: 4.5, cost_usd: 0.045 },
+          }),
+          durationMs: 100,
+        },
+      ],
+    });
+
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        model: 'bfl/flux-2-pro-preview',
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        costUsd: 0.045,
       }),
     );
   });
