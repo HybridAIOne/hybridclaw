@@ -1,5 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { BaseMessageOptions } from 'discord.js';
+import type { A2AEnvelope } from '../a2a/envelope.js';
 import type { A2ATrustedPublicKeyPeer } from '../a2a/trust-ledger.js';
 import type { PromptMode, PromptPartName } from '../agent/prompt-hooks.js';
 import type {
@@ -933,6 +934,30 @@ export interface GatewayAdminA2ATrustUpsertRequest {
   publicKeyFingerprint?: unknown;
   publicKeyJwk?: unknown;
   reason?: unknown;
+}
+
+export interface GatewayAdminA2AThreadMessage {
+  id: string;
+  threadId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  parentMessageId: string | null;
+  intent: A2AEnvelope['intent'];
+  content: string;
+  createdAt: string;
+}
+
+export interface GatewayAdminA2AThreadSummary {
+  id: string;
+  messageCount: number;
+  participants: string[];
+  latestMessage: GatewayAdminA2AThreadMessage | null;
+}
+
+export interface GatewayAdminA2AInboxResponse {
+  threads: GatewayAdminA2AThreadSummary[];
+  selectedThreadId: string | null;
+  messages: GatewayAdminA2AThreadMessage[];
 }
 
 export interface GatewayAdminAgentMarkdownFile {

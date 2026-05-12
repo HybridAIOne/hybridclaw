@@ -1,4 +1,5 @@
 import type {
+  AdminA2AInboxResponse,
   AdminA2ATrustResponse,
   AdminA2ATrustUpsertRequest,
   AdminAdaptiveSkillAmendmentsResponse,
@@ -237,6 +238,18 @@ export function fetchStatistics(
 
 export function fetchA2ATrust(token: string): Promise<AdminA2ATrustResponse> {
   return requestJson<AdminA2ATrustResponse>('/api/admin/a2a/trust', { token });
+}
+
+export function fetchA2AInbox(
+  token: string,
+  threadId?: string | null,
+): Promise<AdminA2AInboxResponse> {
+  const search = threadId?.trim()
+    ? `?${new URLSearchParams({ threadId: threadId.trim() }).toString()}`
+    : '';
+  return requestJson<AdminA2AInboxResponse>(`/api/admin/a2a/inbox${search}`, {
+    token,
+  });
 }
 
 export function revokeA2ATrustPeer(

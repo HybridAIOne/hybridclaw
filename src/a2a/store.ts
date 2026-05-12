@@ -24,6 +24,19 @@ interface A2AThreadState {
   envelopes: A2AEnvelope[];
 }
 
+export interface A2AThreadSummary {
+  thread_id: string;
+  message_count: number;
+  participants: string[];
+  latest_message_id: string | null;
+  latest_parent_message_id: string | null;
+  latest_sender_agent_id: string | null;
+  latest_recipient_agent_id: string | null;
+  latest_intent: A2AEnvelope['intent'] | null;
+  latest_content: string | null;
+  latest_created_at: string | null;
+}
+
 function normalizeOpaqueId(value: string, field: string): string {
   const normalized = value.trim();
   if (!isA2AOpaqueId(normalized)) {
@@ -156,6 +169,35 @@ export function listA2AThreadEnvelopes(threadId: string): A2AEnvelope[] {
   return readThreadState(threadId).envelopes;
 }
 
+function compareA2AEnvelopes(left: A2AEnvelope, right: A2AEnvelope): number {
+  const createdAtOrder = left.created_at.localeCompare(right.created_at);
+  if (createdAtOrder !== 0) return createdAtOrder;
+  return left.id.localeCompare(right.id);
+}
+
+function summarizeThreadState(state: A2AThreadState): A2AThreadSummary {
+  const orderedEnvelopes = [...state.envelopes].sort(compareA2AEnvelopes);
+  const latest = orderedEnvelopes.at(-1) ?? null;
+  const participants = new Set<string>();
+  for (const envelope of orderedEnvelopes) {
+    participants.add(envelope.sender_agent_id);
+    participants.add(envelope.recipient_agent_id);
+  }
+
+  return {
+    thread_id: state.thread_id,
+    message_count: state.envelopes.length,
+    participants: [...participants].sort(),
+    latest_message_id: latest?.id ?? null,
+    latest_parent_message_id: latest?.parent_message_id ?? null,
+    latest_sender_agent_id: latest?.sender_agent_id ?? null,
+    latest_recipient_agent_id: latest?.recipient_agent_id ?? null,
+    latest_intent: latest?.intent ?? null,
+    latest_content: latest?.content ?? null,
+    latest_created_at: latest?.created_at ?? null,
+  };
+}
+
 function threadIdFromAssetPath(assetPath: string): string | null {
   const threadsDir = path.join(DEFAULT_RUNTIME_HOME_DIR, 'a2a', 'threads');
   const relativePath = path.relative(threadsDir, assetPath);
@@ -182,6 +224,25 @@ function threadIdFromAssetPath(assetPath: string): string | null {
   }
 }
 
+export function listA2AThreads(): A2AThreadSummary[] {
+  const threads: A2AThreadSummary[] = [];
+  for (const state of listRuntimeAssetRevisionStates('a2a')) {
+    const threadId = threadIdFromAssetPath(state.assetPath);
+    if (!threadId) continue;
+    threads.push(
+      summarizeThreadState(parsePersistedThreadState(state.content, threadId)),
+    );
+  }
+
+  return threads.sort((left, right) => {
+    const recencyOrder = (right.latest_created_at ?? '').localeCompare(
+      left.latest_created_at ?? '',
+    );
+    if (recencyOrder !== 0) return recencyOrder;
+    return left.thread_id.localeCompare(right.thread_id);
+  });
+}
+
 export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
   const recipientAgentId = resolveA2AAgentId(agentId);
   const envelopes: A2AEnvelope[] = [];
@@ -197,9 +258,7 @@ export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
   }
 
   return envelopes.sort((left, right) => {
-    const createdAtOrder = left.created_at.localeCompare(right.created_at);
-    if (createdAtOrder !== 0) return createdAtOrder;
-    return left.id.localeCompare(right.id);
+    return compareA2AEnvelopes(left, right);
   });
 }
 
