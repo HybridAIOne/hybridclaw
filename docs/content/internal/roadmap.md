@@ -163,7 +163,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.49 | Skill | Deutsche Bahn business-travel skill (schedule lookup, ticket booking, BahnCard expense reconciliation) | ⬜ To be filed |
 | R21.50 | Skill | Lufthansa business-travel skill (NDC booking, status/frequent-flyer lookup, irregular-ops rebooking) | ⬜ #805 |
 | R21.51 | Skill | Workday HR-workflow skill (onboarding, time-off, expense, review prep — consumes R21.34 connector) | ⬜ To be filed |
-| R21.52 | Skill | Airtable skill (bases/tables search, record CRUD with field-type validation, attachments, formula-field reads) | ⬜ To be filed |
+| R21.52 | Skill | Airtable skill (bases/tables search, record CRUD with field-type validation, attachments, formula-field reads) | 🟡 #908 |
 | R21.53 | Skill | Pipedrive skill (deals/persons/orgs read, stage and probability updates, activity logging) | ⬜ To be filed |
 | R21.54 | Skill | Zoho CRM skill (lead/contact/deal CRUD, blueprint transitions, custom-module support) | ⬜ To be filed |
 | R21.55 | Skill | Asana skill (project/task CRUD, custom fields, sections, my-tasks lookup) | ⬜ To be filed |
@@ -179,7 +179,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.65 | Skill | Xero skill (contacts, invoices, bills, bank transactions, tracking categories, OAuth) | ⬜ To be filed |
 | R21.66 | Skill | PayPal skill (transactions search, refunds, invoices, payouts — pairs with the stripe skill) | ⬜ To be filed |
 | R21.67 | Skill | Mailchimp skill (audiences, campaigns, transactional via Mandrill — peer to brevo-email plugin) | ⬜ To be filed |
-| R21.68 | Skill | Image-generation skill (provider-agnostic surface — DALL-E/gpt-image, FLUX, Imagen, Stable Diffusion — with provider plugins for auth and quirks) | ⬜ To be filed |
+| R21.68 | Skill + Tool | Native `image_generate` tool plus image-generation skill. Keep the UX simple like Hermes (`prompt`, reference images, aspect ratio, list/readiness) but use OpenClaw-style runtime boundaries: provider contract, managed media output, fallback/warnings, and SSRF-safe reference-image loading. Initial providers: OpenAI/GPT Image, Google Gemini/Nano Banana, xAI/Grok; FAL can follow as a catalog provider. | ⬜ #936 |
 | R21.69 | Skill | Speech-to-text skill (provider-agnostic — Whisper, Deepgram, AssemblyAI — diarization, timestamps, language detection) | ⬜ To be filed |
 | R21.70 | Skill | Text-to-speech skill (provider-agnostic — ElevenLabs, OpenAI TTS, Cartesia — voice selection, SSML, streaming) | ⬜ To be filed |
 | R21.71 | Skill | Calendly skill (event types, scheduled events, invitee lookup, no-show flagging, reschedule links) | ⬜ To be filed |

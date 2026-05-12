@@ -70,7 +70,6 @@ code {
 }
 
 .topbar h2,
-.panel h4,
 .login-card h1 {
   margin: 0;
   font-weight: 600;
@@ -81,8 +80,21 @@ code {
   font-size: clamp(1.9rem, 2.4vw, 2.35rem);
 }
 
-.panel h4 {
-  font-size: 1rem;
+.panel h4,
+.panel-title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.panel-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
 }
 
 .eyebrow {
@@ -332,7 +344,7 @@ code {
 }
 
 .panel {
-  padding: 8px;
+  padding: 20px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: var(--panel-bg);
@@ -453,19 +465,17 @@ code {
 .config-section,
 .empty-state,
 .summary-block,
-.key-value-grid div,
-.usage-stack {
+.key-value-grid div {
   background: var(--panel-muted);
 }
 
 .panel-header {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .metric-grid,
 .two-column-grid,
 .field-grid,
-.usage-grid,
 .config-grid,
 .key-value-grid {
   display: grid;
@@ -497,7 +507,6 @@ code {
   }
 }
 
-.usage-grid,
 .field-grid,
 .config-grid,
 .key-value-grid {
@@ -532,6 +541,17 @@ code {
 .metric-card span,
 .metric-card small {
   line-height: 1.25;
+}
+
+.metric-card-value-skeleton {
+  height: 1.65rem;
+  width: 60%;
+  margin: 2px 0;
+}
+
+.metric-card-detail-skeleton {
+  height: 0.85rem;
+  width: 80%;
 }
 
 .list-row,
@@ -603,7 +623,7 @@ code {
   color: var(--muted-foreground);
 }
 
-.row-status-stack .row-status-note-danger {
+.row-status-note-danger {
   color: var(--danger);
 }
 
@@ -1880,17 +1900,12 @@ th {
   font-size: 0.95rem;
 }
 
-.key-value-grid div,
-.usage-stack {
+.key-value-grid div {
   display: grid;
   gap: 4px;
   padding: 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--line);
-}
-
-.usage-stack strong {
-  font-size: 1.3rem;
 }
 
 .table-shell td strong,
@@ -2274,7 +2289,6 @@ th {
 @media (max-width: 1080px) {
   .metric-grid,
   .two-column-grid,
-  .usage-grid,
   .field-grid,
   .config-grid,
   .key-value-grid {

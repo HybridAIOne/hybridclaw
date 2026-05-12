@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
-import { handleA2AJsonRpcInbound } from '../a2a/a2a-inbound.js';
+import {
+  extractA2AMtlsPublicKeyPem,
+  handleA2AJsonRpcInbound,
+  resolveA2AAgentCardPeerTrust,
+} from '../a2a/a2a-inbound.js';
 import {
   handleA2AWebhookInbound,
   parseA2AWebhookInboundPath,
@@ -4448,7 +4452,20 @@ export function startGatewayHttpServer(): GatewayHttpServer {
       getRuntimeConfig().voice.webhookPath,
     );
     if (pathname === '/.well-known/agent.json' && method === 'GET') {
-      sendJson(res, 200, getGatewayA2AAgentCard(resolveRequestOrigin(req)));
+      const origin = resolveRequestOrigin(req);
+      const trust = resolveA2AAgentCardPeerTrust({
+        authorization: req.headers.authorization || '',
+        audience: new URL('/.well-known/agent.json', origin).toString(),
+        mtlsPublicKeyPem: extractA2AMtlsPublicKeyPem(req),
+      });
+      sendJson(
+        res,
+        200,
+        getGatewayA2AAgentCard(origin, {
+          peerTrustLevel: trust.trustLevel,
+          peerId: trust.peerId,
+        }),
+      );
       return;
     }
     if (

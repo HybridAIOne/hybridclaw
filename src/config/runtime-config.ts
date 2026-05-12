@@ -11,9 +11,11 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentA2AConfig,
   cloneAgentCv,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
+  normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   resolveSnakeCamelAlias,
@@ -73,6 +75,11 @@ import {
   type SessionDmScope,
 } from '../session/session-routing.js';
 import type { AdaptiveSkillsConfig } from '../skills/adaptive-skills-types.js';
+import {
+  SKILL_MANIFEST_CREDENTIAL_KINDS,
+  type SkillManifestCredentialKind,
+  type SkillManifestDeclaredCredential,
+} from '../skills/skill-manifest.js';
 import { DEFAULT_TUNNEL_HEALTH_CHECK_INTERVAL_MS } from '../tunnel/tunnel-provider.js';
 import type { AnthropicMethod, McpServerConfig } from '../types/models.js';
 import {
@@ -108,7 +115,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 27;
+export const CONFIG_VERSION = 28;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -733,6 +740,7 @@ export interface RuntimeInstalledSkillManifest {
   capabilities: string[];
   middleware: RuntimeSkillMiddlewareManifest;
   requiredCredentials: RuntimeSkillCredentialManifest[];
+  credentials: SkillManifestDeclaredCredential[];
   supportedChannels: ChannelKind[];
   installedAt: string;
   updatedAt: string;
@@ -757,6 +765,7 @@ export interface RuntimeConfig {
     extraDirs: string[];
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+    externalDiscovered: string[];
     autonomy: RuntimeSkillAutonomyConfig;
     installed: RuntimeInstalledSkillManifest[];
   };
@@ -1153,6 +1162,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+    externalDiscovered: [],
     autonomy: {
       defaultLevel: 'confirm-each',
       rules: [],
@@ -2129,6 +2139,69 @@ function normalizeRuntimeSkillCredentialManifests(
   return credentials;
 }
 
+function normalizeRuntimeSkillDeclaredCredentialKind(
+  value: unknown,
+): SkillManifestCredentialKind | null {
+  const normalized = normalizeString(value, '', { allowEmpty: false });
+  return SKILL_MANIFEST_CREDENTIAL_KINDS.includes(
+    normalized as SkillManifestCredentialKind,
+  )
+    ? (normalized as SkillManifestCredentialKind)
+    : null;
+}
+
+function normalizeRuntimeSkillDeclaredCredentialManifests(
+  value: unknown,
+): SkillManifestDeclaredCredential[] {
+  if (!Array.isArray(value)) return [];
+
+  const credentials: SkillManifestDeclaredCredential[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = normalizeString(item.id, '', { allowEmpty: false });
+    if (!id || seen.has(id)) continue;
+    const kind = normalizeRuntimeSkillDeclaredCredentialKind(item.kind);
+    const secretRef = isRecord(item.secretRef) ? item.secretRef : null;
+    const secretRefSource = normalizeString(secretRef?.source, '', {
+      allowEmpty: false,
+    });
+    const secretRefId = normalizeString(secretRef?.id, '', {
+      allowEmpty: false,
+    });
+    const scope = normalizeString(item.scope, '', { allowEmpty: false });
+    const howToObtain = normalizeString(item.howToObtain, '', {
+      allowEmpty: false,
+    });
+    if (
+      !kind ||
+      (secretRefSource !== 'env' && secretRefSource !== 'store') ||
+      !secretRefId ||
+      !scope ||
+      !howToObtain ||
+      typeof item.required !== 'boolean'
+    ) {
+      console.warn(
+        '[runtime-config] skipping malformed declared skill credential in installed skill manifest',
+      );
+      continue;
+    }
+    seen.add(id);
+    credentials.push({
+      id,
+      kind,
+      required: item.required,
+      secretRef: {
+        source: secretRefSource,
+        id: secretRefId,
+      },
+      scope,
+      howToObtain,
+    });
+  }
+  return credentials;
+}
+
 function normalizeRuntimeSkillMiddlewareManifest(
   value: unknown,
 ): RuntimeSkillMiddlewareManifest {
@@ -2203,6 +2276,9 @@ function normalizeRuntimeInstalledSkillManifests(
       middleware: normalizeRuntimeSkillMiddlewareManifest(item.middleware),
       requiredCredentials: normalizeRuntimeSkillCredentialManifests(
         item.requiredCredentials,
+      ),
+      credentials: normalizeRuntimeSkillDeclaredCredentialManifests(
+        item.credentials,
       ),
       supportedChannels: normalizeRuntimeSkillSupportedChannels(
         item.supportedChannels,
@@ -2424,6 +2500,9 @@ function normalizeAgentConfig(
     : fallback?.escalationTarget
       ? { ...fallback.escalationTarget }
       : undefined;
+  const a2a = Object.hasOwn(value, 'a2a')
+    ? normalizeAgentA2AConfig(value.a2a)
+    : cloneAgentA2AConfig(fallback?.a2a);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2440,6 +2519,7 @@ function normalizeAgentConfig(
     ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
+    ...(a2a ? { a2a } : {}),
   };
 }
 
@@ -5170,6 +5250,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
+      externalDiscovered: normalizeStringArray(
+        rawSkills.externalDiscovered,
+        DEFAULT_RUNTIME_CONFIG.skills.externalDiscovered,
+      ),
       autonomy: normalizeSkillAutonomyConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,

@@ -11,6 +11,7 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  type BuildLocalA2AAgentCardOptions,
   buildLocalA2AAgentCard,
   deleteA2ATrustedPublicKeyPeer,
   ensureA2AInstanceKeypair,
@@ -324,10 +325,16 @@ import {
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
 import {
+  type BlockedSkillCatalogEntry,
   loadSkillCatalog,
+  loadSkillCatalogs,
   resolveManagedCommunitySkillsDir,
+  type SkillCatalogEntry,
 } from '../skills/skills.js';
-import { guardSkillDirectory } from '../skills/skills-guard.js';
+import {
+  guardSkillDirectory,
+  type SkillGuardFinding,
+} from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -348,6 +355,10 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import {
+  extractExplicitUsageCostUsd,
+  resolveUsageCostUsdAfterMetadataRefresh,
+} from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { isApprovalHistoryMessage } from '../utils/approval-text.js';
 import {
@@ -457,6 +468,7 @@ import {
   type GatewayAdminPolicyRule,
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
+  type GatewayAdminSkill,
   type GatewayAdminSkillsResponse,
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
@@ -836,7 +848,7 @@ interface DelegationTaskRunInput {
   onToolProgress?: (event: ToolProgressEvent) => void;
 }
 
-function persistDelegationAttempt(params: {
+async function persistDelegationAttempt(params: {
   sessionId: string;
   model: string;
   chatbotId: string;
@@ -844,7 +856,7 @@ function persistDelegationAttempt(params: {
   durationMs: number;
   output?: Awaited<ReturnType<typeof runAgent>>;
   error?: string;
-}): void {
+}): Promise<void> {
   const runId = makeAuditRunId('delegate');
   const toolExecutions = params.output?.toolExecutions || [];
   const toolCallCount = toolExecutions.length;
@@ -879,7 +891,11 @@ function persistDelegationAttempt(params: {
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: toolCallCount,
-      costUsd: extractUsageCostUsd(params.output.tokenUsage),
+      costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
+        model: params.model,
+        tokenUsage: params.output.tokenUsage,
+        usage: usagePayload,
+      }),
       auditRunId: runId,
     });
   }
@@ -2701,17 +2717,7 @@ export function getGatewayAssistantPresentationForMessageAgent(
 }
 
 export function extractUsageCostUsd(tokenUsage?: TokenUsageStats): number {
-  if (!tokenUsage) return 0;
-  const costCarrier = tokenUsage as unknown as Record<string, unknown>;
-  const value = firstNumber([
-    costCarrier.costUsd,
-    costCarrier.costUSD,
-    costCarrier.cost_usd,
-    costCarrier.estimatedCostUsd,
-    costCarrier.estimated_cost_usd,
-  ]);
-  if (value == null) return 0;
-  return Math.max(0, value);
+  return extractExplicitUsageCostUsd(tokenUsage) ?? 0;
 }
 
 function buildHybridAIAuthStatusLines(): string[] {
@@ -4979,8 +4985,11 @@ export function deleteGatewayAdminA2ATrustPeer(params: {
   return getGatewayAdminA2ATrust();
 }
 
-export function getGatewayA2AAgentCard(baseUrl: string): A2AAgentCard {
-  return buildLocalA2AAgentCard(baseUrl);
+export function getGatewayA2AAgentCard(
+  baseUrl: string,
+  options?: BuildLocalA2AAgentCardOptions,
+): A2AAgentCard {
+  return buildLocalA2AAgentCard(baseUrl, options);
 }
 
 function mapAdminAuditEntry(
@@ -5635,8 +5644,56 @@ export function applyGatewayAdminPolicyPreset(input: {
   }
 }
 
+function mapGatewayAdminSkillBase(
+  skill: SkillCatalogEntry | BlockedSkillCatalogEntry,
+): Omit<
+  GatewayAdminSkill,
+  | 'available'
+  | 'enabled'
+  | 'missing'
+  | 'blocked'
+  | 'blockedReason'
+  | 'guardFindings'
+> {
+  return {
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    shortDescription: skill.metadata.hybridclaw.shortDescription,
+    source: String(skill.source),
+    userInvocable: skill.userInvocable,
+    disableModelInvocation: skill.disableModelInvocation,
+    always: skill.always,
+    tags: skill.metadata.hybridclaw.tags,
+    relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    credentials: skill.manifest.credentials,
+  };
+}
+
+function sanitizeGatewayAdminSkillGuardFindings(
+  findings: SkillGuardFinding[],
+): NonNullable<GatewayAdminSkill['guardFindings']> {
+  return findings.map(({ match: _match, ...finding }) => finding);
+}
+
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   const runtimeConfig = getRuntimeConfig();
+  const catalog = loadSkillCatalogs();
+  const availableSkills = catalog.available.map((skill) => ({
+    ...mapGatewayAdminSkillBase(skill),
+    available: skill.available,
+    enabled: skill.enabled,
+    missing: skill.missing,
+  }));
+  const blockedSkills = catalog.blocked.map((skill) => ({
+    ...mapGatewayAdminSkillBase(skill),
+    available: false,
+    enabled: false,
+    blocked: true,
+    blockedReason: skill.blockedReason,
+    guardFindings: sanitizeGatewayAdminSkillGuardFindings(skill.guardFindings),
+    missing: [skill.blockedReason],
+  }));
   return {
     extraDirs: runtimeConfig.skills.extraDirs,
     disabled: dedupeStrings(runtimeConfig.skills.disabled).sort((a, b) =>
@@ -5645,21 +5702,10 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     channelDisabled: getAdminChannelDisabledSkills(
       runtimeConfig.skills.channelDisabled,
     ),
-    skills: loadSkillCatalog().map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      category: skill.category,
-      shortDescription: skill.metadata.hybridclaw.shortDescription,
-      source: String(skill.source),
-      available: skill.available,
-      enabled: skill.enabled,
-      missing: skill.missing,
-      userInvocable: skill.userInvocable,
-      disableModelInvocation: skill.disableModelInvocation,
-      always: skill.always,
-      tags: skill.metadata.hybridclaw.tags,
-      relatedSkills: skill.metadata.hybridclaw.relatedSkills,
-    })),
+    skills: [...availableSkills, ...blockedSkills].sort((left, right) => {
+      const categoryCompare = left.category.localeCompare(right.category);
+      return categoryCompare || left.name.localeCompare(right.name);
+    }),
   };
 }
 
@@ -6441,7 +6487,11 @@ export async function ensureGatewayBootstrapAutostart(params: {
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: (output.toolExecutions || []).length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
+      costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
+        model: resolved.model,
+        tokenUsage: output.tokenUsage,
+        usage: usagePayload,
+      }),
       auditRunId: runId,
     });
 
@@ -7125,7 +7175,7 @@ async function runDelegationTaskWithRetry(
       lastToolExecutions = output.toolExecutions || [];
       lastArtifacts = output.artifacts;
       lastTokenCount = extractDelegationTokenCount(output.tokenUsage);
-      persistDelegationAttempt({
+      await persistDelegationAttempt({
         sessionId,
         model: task.model,
         chatbotId,
@@ -7176,7 +7226,7 @@ async function runDelegationTaskWithRetry(
       const errorText = err instanceof Error ? err.message : String(err);
       lastError = errorText;
       lastStatus = inferDelegationStatus(errorText);
-      persistDelegationAttempt({
+      await persistDelegationAttempt({
         sessionId,
         model: task.model,
         chatbotId,

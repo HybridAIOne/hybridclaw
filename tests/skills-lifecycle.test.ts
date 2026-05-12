@@ -9,9 +9,27 @@ function writeSkillSource(params: {
   name: string;
   version: string;
   scriptText?: string;
+  credential?: {
+    id: string;
+    secretId: string;
+    scope: string;
+  };
 }): string {
   const skillDir = path.join(params.rootDir, params.name);
   fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
+  const credentialLines = params.credential
+    ? [
+        'credentials:',
+        `  - id: ${params.credential.id}`,
+        '    kind: api_key',
+        '    required: true',
+        '    secret_ref:',
+        '      source: store',
+        `      id: ${params.credential.secretId}`,
+        `    scope: "${params.credential.scope}"`,
+        '    how_to_obtain: Ask the service admin for an API key.',
+      ]
+    : [];
   fs.writeFileSync(
     path.join(skillDir, 'SKILL.md'),
     [
@@ -31,6 +49,7 @@ function writeSkillSource(params: {
       '    supported_channels:',
       '      - slack',
       '      - email',
+      ...credentialLines,
       '---',
       '',
       `# ${params.name}`,
@@ -125,6 +144,7 @@ describe('skill package lifecycle', () => {
           required: true,
         },
       ],
+      credentials: [],
       supportedChannels: ['slack', 'email', 'tui'],
     });
   });
@@ -231,6 +251,84 @@ describe('skill package lifecycle', () => {
       version: '2.0.0',
       source: upgradedSource,
     });
+  });
+
+  test('credential declarations round-trip through skill package revisions', async () => {
+    const sourceRoot = path.join(tempHome, 'credential-sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'credentialed-skill',
+      version: '1.0.0',
+      credential: {
+        id: 'crm_api',
+        secretId: 'CRM_API_KEY',
+        scope: '*.crm.example.com',
+      },
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    expect(config.getRuntimeConfig().skills.installed[0].credentials).toEqual([
+      {
+        id: 'crm-api',
+        kind: 'api_key',
+        required: true,
+        secretRef: {
+          source: 'store',
+          id: 'CRM_API_KEY',
+        },
+        scope: '*.crm.example.com',
+        howToObtain: 'Ask the service admin for an API key.',
+      },
+    ]);
+
+    const skillV2 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'credentialed-skill',
+      version: '2.0.0',
+      credential: {
+        id: 'erp_api',
+        secretId: 'ERP_API_KEY',
+        scope: '*.erp.example.com',
+      },
+    });
+    await lifecycle.upgradeSkillPackage(skillV2, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    expect(
+      config.getRuntimeConfig().skills.installed[0].credentials[0],
+    ).toEqual(
+      expect.objectContaining({
+        id: 'erp-api',
+        secretRef: { source: 'store', id: 'ERP_API_KEY' },
+      }),
+    );
+
+    lifecycle.uninstallSkillPackage('credentialed-skill', {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    const revision =
+      lifecycle.listSkillPackageRevisions('credentialed-skill')[0];
+    lifecycle.rollbackSkillPackage({
+      skillName: 'credentialed-skill',
+      revisionId: revision.id,
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    expect(
+      config.getRuntimeConfig().skills.installed[0].credentials[0],
+    ).toEqual(
+      expect.objectContaining({
+        id: 'erp-api',
+        secretRef: { source: 'store', id: 'ERP_API_KEY' },
+      }),
+    );
   });
 
   test('upgrade rejects skills that are not currently installed', async () => {
@@ -521,6 +619,96 @@ describe('skill package lifecycle', () => {
     }
   });
 
+  test('rollback normalizes legacy snapshots without declared credentials', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillV1 = writeSkillSource({
+      rootDir: sourceRoot,
+      name: 'legacy-credential-snapshot',
+      version: '1.0.0',
+      credential: {
+        id: 'crm_api',
+        secretId: 'CRM_API_KEY',
+        scope: '*.crm.example.com',
+      },
+    });
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    const config = await import('../src/config/runtime-config.ts');
+    const installed = await lifecycle.installSkillPackage(skillV1, {
+      actor: 'test',
+      homeDir: tempHome,
+    });
+    const revisionAssetPath = path.join(
+      installed.skillDir,
+      '.hybridclaw-skill-snapshot.json',
+    );
+    const legacyManifest = { ...installed.manifest } as Record<string, unknown>;
+    delete legacyManifest.credentials;
+
+    const snapshot = (manifest: Record<string, unknown>) =>
+      JSON.stringify({
+        schemaVersion: 1,
+        manifest,
+        files: [
+          {
+            path: 'SKILL.md',
+            mode: 0o644,
+            contentBase64: fs
+              .readFileSync(path.join(installed.skillDir, 'SKILL.md'))
+              .toString('base64'),
+          },
+        ],
+      });
+
+    config.syncRuntimeAssetRevisionState(
+      'skill',
+      revisionAssetPath,
+      {
+        actor: 'test',
+        route: 'test.skill.legacy-snapshot',
+        source: 'test',
+      },
+      {
+        exists: true,
+        content: snapshot(legacyManifest),
+      },
+    );
+    config.syncRuntimeAssetRevisionState(
+      'skill',
+      revisionAssetPath,
+      {
+        actor: 'test',
+        route: 'test.skill.after-legacy-snapshot',
+        source: 'test',
+      },
+      {
+        exists: true,
+        content: snapshot(
+          installed.manifest as unknown as Record<string, unknown>,
+        ),
+      },
+    );
+
+    const revision = lifecycle.listSkillPackageRevisions(
+      'legacy-credential-snapshot',
+    )[0];
+    expect(revision).toMatchObject({
+      route: 'test.skill.after-legacy-snapshot',
+    });
+
+    const rolledBack = lifecycle.rollbackSkillPackage({
+      skillName: 'legacy-credential-snapshot',
+      revisionId: revision.id,
+      actor: 'test',
+      homeDir: tempHome,
+    });
+
+    expect(rolledBack.manifest.credentials).toEqual([]);
+    expect(config.getRuntimeConfig().skills.installed[0].credentials).toEqual(
+      [],
+    );
+  });
+
   test('rollback caps restored file permissions from snapshot data', async () => {
     const sourceRoot = path.join(tempHome, 'sources');
     const skillV1 = writeSkillSource({
@@ -646,6 +834,47 @@ describe('skill package lifecycle', () => {
     expect(fs.existsSync(path.join(tempHome, 'skills', 'versionless'))).toBe(
       false,
     );
+  });
+
+  test('install rejects packaged skills with invalid credential frontmatter', async () => {
+    const sourceRoot = path.join(tempHome, 'sources');
+    const skillDir = path.join(sourceRoot, 'invalid-credentials');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: invalid-credentials',
+        'manifest:',
+        '  id: invalid-credentials',
+        '  version: 1.0.0',
+        'credentials:',
+        '  - id: crm',
+        '    kind: api_key',
+        '    required: true',
+        '    secret_ref: plaintext-token',
+        '    scope: "*.crm.example.com"',
+        '    how_to_obtain: Ask an admin.',
+        '---',
+        '',
+        '# Invalid Credentials',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const lifecycle = await import('../src/skills/skills-lifecycle.ts');
+    await expect(
+      lifecycle.installSkillPackage(skillDir, {
+        actor: 'test',
+        homeDir: tempHome,
+        skipGuard: true,
+      }),
+    ).rejects.toThrow(
+      'Invalid skill credentials frontmatter: credentials[0].secret_ref must be a SecretRef binding.',
+    );
+    expect(
+      fs.existsSync(path.join(tempHome, 'skills', 'invalid-credentials')),
+    ).toBe(false);
   });
 
   test('uninstall refuses skills outside the managed package directory', async () => {

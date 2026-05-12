@@ -7,6 +7,11 @@ import type {
   SkillExecutionOutcome,
 } from './adaptive-skills-types.js';
 
+export interface RuntimeEventPayload {
+  type: string;
+  [key: string]: unknown;
+}
+
 export interface SkillRunTokenEnvelope {
   prompt: number;
   completion: number;
@@ -52,7 +57,7 @@ export interface SkillRunToolExecutionFull
   result: SkillRunFullPayload;
 }
 
-export interface SkillRunEvent {
+export interface SkillRunEvent extends RuntimeEventPayload {
   type: 'skill_run';
   skill_id: string;
   agent_id: string | null;
@@ -75,18 +80,28 @@ export interface SkillRunEvent {
   tool_executions_full: SkillRunToolExecutionFull[];
 }
 
+export type RuntimeEventSubscriber = (event: RuntimeEventPayload) => unknown;
 export type SkillRunSubscriber = (event: SkillRunEvent) => unknown;
 
-const subscribers = new Set<SkillRunSubscriber>();
+const runtimeSubscribers = new Set<RuntimeEventSubscriber>();
 const MAX_SKILL_RUN_PAYLOAD_CHARS = 4096;
+
+export function subscribeRuntimeEvents(
+  subscriber: RuntimeEventSubscriber,
+): () => void {
+  runtimeSubscribers.add(subscriber);
+  return () => {
+    runtimeSubscribers.delete(subscriber);
+  };
+}
 
 export function subscribeSkillRunEvents(
   subscriber: SkillRunSubscriber,
 ): () => void {
-  subscribers.add(subscriber);
-  return () => {
-    subscribers.delete(subscriber);
-  };
+  return subscribeRuntimeEvents((event) => {
+    if (event.type !== 'skill_run') return;
+    subscriber(event as SkillRunEvent);
+  });
 }
 
 function summarizeSkillRunToolExecution(
@@ -177,25 +192,27 @@ export function buildSkillRunFullPayload(
   return buildSkillRunPayloads(value).full;
 }
 
-export function emitSkillRunEvent(event: SkillRunEvent): void {
+export function emitRuntimeEvent(event: RuntimeEventPayload): void {
   let subscriberIndex = 0;
-  for (const subscriber of subscribers) {
+  for (const subscriber of runtimeSubscribers) {
     subscriberIndex += 1;
     try {
       subscriber(event);
     } catch (error) {
       logger.warn(
         {
-          sessionId: event.session_id,
-          runId: event.run_id,
-          skillId: event.skill_id,
+          eventType: event.type,
           subscriberIndex,
           error,
         },
-        'Skill run subscriber failed',
+        'Runtime event subscriber failed',
       );
     }
   }
+}
+
+export function emitSkillRunEvent(event: SkillRunEvent): void {
+  emitRuntimeEvent(event);
 }
 
 function normalizeSkillRunModelCalls(tokenUsage?: TokenUsageStats): number {
