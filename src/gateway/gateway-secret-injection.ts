@@ -44,7 +44,7 @@ export function assertSecretResolveAllowed(params: {
   sessionId?: string;
   agentId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -83,7 +83,7 @@ export function recordSecretResolved(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store' | 'google-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -111,7 +111,7 @@ export function recordSecretUnsafeEscaped(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store' | 'google-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;

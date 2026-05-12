@@ -154,7 +154,7 @@ interface ActiveCloudSession {
 
 const DEFAULT_BASE_URL = 'https://api.browser-use.com/api/v3';
 const DEFAULT_API_KEY_REF: SecretRef = {
-  source: 'env',
+  source: 'store',
   id: 'BROWSER_USE_API_KEY',
 };
 const DEFAULT_BROWSER_USE_CLOUD_PRICING: BrowserUseCloudPricing = {

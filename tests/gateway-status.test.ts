@@ -1589,24 +1589,6 @@ test('secret route add accepts Google OAuth runtime provider routes', async () =
       },
     },
   ]);
-  expect(readMainAgentPolicy(homeDir)).toMatchObject({
-    secret: {
-      rules: [
-        {
-          when: {
-            predicate: 'secret_resolve_allowed',
-            id: 'GOOGLE_WORKSPACE_CLI_TOKEN',
-            source: 'env',
-            sink: 'http',
-            host: 'analyticsadmin.googleapis.com',
-            selector: 'Authorization',
-            agent: 'main',
-          },
-          action: 'allow',
-        },
-      ],
-    },
-  });
 });
 
 test('secret route add rejects Google OAuth runtime provider routes outside googleapis', async () => {

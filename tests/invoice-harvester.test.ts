@@ -120,24 +120,26 @@ describe('invoice schema', () => {
 });
 
 describe('invoice credentials', () => {
-  test('resolves vault-compatible secret refs without stringifying handles', () => {
-    process.env.HYBRIDCLAW_INVOICE_TEST_SECRET = 'stripe-test-key';
+  test('resolves store-compatible secret refs without stringifying handles', () => {
+    const credentialStore = {
+      get: vi.fn(() => ({ value: 'stripe-test-key' })),
+    };
     const audit = vi.fn();
 
     const credentials = resolveInvoiceCredentials(
       'stripe',
       {
         apiKey: {
-          source: 'env',
-          id: 'HYBRIDCLAW_INVOICE_TEST_SECRET',
+          source: 'store',
+          id: 'STRIPE_INVOICE_API_KEY',
         },
       },
-      { required: ['apiKey'], audit },
+      { required: ['apiKey'], audit, credentialStore },
     );
 
     expect(credentials).toEqual({ apiKey: 'stripe-test-key' });
     expect(audit).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'HYBRIDCLAW_INVOICE_TEST_SECRET' }),
+      expect.objectContaining({ id: 'STRIPE_INVOICE_API_KEY' }),
       'resolve stripe invoice credential apiKey',
     );
   });

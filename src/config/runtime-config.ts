@@ -1241,7 +1241,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     browserUseCloud: {
       apiKeyRef: {
-        source: 'env',
+        source: 'store',
         id: 'BROWSER_USE_API_KEY',
       },
       baseUrl: '',
@@ -2271,7 +2271,7 @@ function normalizeRuntimeSkillDeclaredCredentialManifests(
     });
     if (
       !kind ||
-      (secretRefSource !== 'env' && secretRefSource !== 'store') ||
+      secretRefSource !== 'store' ||
       !secretRefId ||
       !scope ||
       !howToObtain ||
@@ -4589,7 +4589,7 @@ function normalizeHttpRequestAuthRuleSecret(
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`\${ENV_VAR}\`, or \`{ "source": "google-oauth" }\``,
+      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`{ "source": "google-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);
@@ -4758,10 +4758,14 @@ function normalizeBrowserUseCloudApiKeyRef(
   if (value === undefined || value === null || value === '') {
     return cloneConfig(fallback);
   }
-  const parsed = parseSecretInput(value);
+  const parsed = parseSecretInput(
+    isRecord(value) && value.source === 'env'
+      ? { source: 'store', id: value.id }
+      : value,
+  );
   if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
   throw new Error(
-    'browser.browserUseCloud.apiKeyRef must use an env/store secret reference such as `{ "source": "env", "id": "BROWSER_USE_API_KEY" }`.',
+    'browser.browserUseCloud.apiKeyRef must use a stored secret reference such as `{ "source": "store", "id": "BROWSER_USE_API_KEY" }`.',
   );
 }
 

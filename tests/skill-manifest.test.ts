@@ -81,7 +81,9 @@ credentials:
   - id: browser_session
     kind: browser_login
     required: false
-    secret_ref: \${BROWSER_SESSION_TOKEN}
+    secret_ref:
+      source: store
+      id: BROWSER_SESSION_TOKEN
     scope: "#login-form"
     how_to_obtain: Sign in with the shared test account.
 ---
@@ -107,7 +109,7 @@ Use the skill.
       kind: 'browser_login',
       required: false,
       secretRef: {
-        source: 'env',
+        source: 'store',
         id: 'BROWSER_SESSION_TOKEN',
       },
       scope: '#login-form',

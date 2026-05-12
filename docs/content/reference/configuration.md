@@ -319,9 +319,7 @@ credential checks run.
 ## Security Notes
 
 - selected secret-bearing config fields support SecretRefs such as
-  `{ "source": "store", "id": "SECRET_NAME" }`,
-  `{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand instead of
-  plaintext values
+  `{ "source": "store", "id": "SECRET_NAME" }` instead of plaintext values
 - current built-in SecretRef surfaces include `ops.webApiToken`,
   `ops.gatewayApiToken`, `email.password`, `imessage.password`,
   `voice.twilio.authToken`, and `local.backends.vllm.apiKey`
