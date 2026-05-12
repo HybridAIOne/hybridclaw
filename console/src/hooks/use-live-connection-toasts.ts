@@ -28,6 +28,10 @@ export function useLiveConnectionToasts(connection: LiveConnection): void {
         description: 'Showing snapshot — retrying.',
         type: 'info',
         duration: 0,
+        // Pin so the indicator can't be evicted by the toast limit if other
+        // toasts fire during the outage — the operator otherwise loses the
+        // signal that the page is showing snapshot data.
+        pinned: true,
       });
       return;
     }
