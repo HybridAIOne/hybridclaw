@@ -1191,6 +1191,18 @@ export interface AdminSkill {
   source: string;
   available: boolean;
   enabled: boolean;
+  blocked?: boolean;
+  blockedReason?: string;
+  guardVerdict?: string;
+  guardFindings?: Array<{
+    patternId: string;
+    severity: string;
+    category: string;
+    file: string;
+    line: number;
+    match: string;
+    description: string;
+  }>;
   missing: string[];
   userInvocable: boolean;
   disableModelInvocation: boolean;

@@ -603,7 +603,7 @@ code {
   color: var(--muted-foreground);
 }
 
-.row-status-stack .row-status-note-danger {
+.row-status-note-danger {
   color: var(--danger);
 }
 

@@ -17,8 +17,7 @@ import { resolveSkillInstallMode } from '../skills/skill-install-mode.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
-const SKILL_LIST_LINE_MAX_CHARS = 113;
+  'Usage: `skill list [blocked]|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 
 interface SkillCommandContext {
   args: string[];
@@ -56,20 +55,27 @@ function formatSkillCategoryLabel(category: string): string {
     .join(' ');
 }
 
-function truncateSkillListDescription(
-  prefix: string,
-  description: string,
-  maxChars = SKILL_LIST_LINE_MAX_CHARS,
-): string {
-  const normalized = String(description || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!normalized) return '';
-  const available = maxChars - prefix.length - 3;
-  if (available <= 0) return '';
-  if (normalized.length <= available) return normalized;
-  if (available <= 3) return '.'.repeat(available);
-  return `${normalized.slice(0, available - 3).trimEnd()}...`;
+type BlockedSkillListEntry = {
+  blocked: true;
+  blockedReason: string;
+  guardFindings: Array<{
+    severity: string;
+    category: string;
+    description: string;
+    file: string;
+    line: number;
+  }>;
+};
+
+function isBlockedSkillListEntry(
+  skill: unknown,
+): skill is BlockedSkillListEntry {
+  return (
+    typeof skill === 'object' &&
+    skill !== null &&
+    'blocked' in skill &&
+    (skill as { blocked?: unknown }).blocked === true
+  );
 }
 
 export async function handleSkillCommand(
@@ -81,12 +87,19 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'list') {
-    const { listSkillCatalogEntries } = await import(
-      '../skills/skills-management.js'
-    );
-    const catalog = listSkillCatalogEntries();
+    const listMode = parseLowerArg(context.args, 2);
+    const { listBlockedSkillCatalogEntries, listSkillCatalogEntries } =
+      await import('../skills/skills-management.js');
+    const catalog =
+      listMode === 'blocked'
+        ? listBlockedSkillCatalogEntries()
+        : listSkillCatalogEntries();
     if (catalog.length === 0) {
-      return context.plainCommand('No skills are available.');
+      return context.plainCommand(
+        listMode === 'blocked'
+          ? 'No blocked skills found.'
+          : 'No skills are available.',
+      );
     }
     const lines: string[] = [];
     let hasExternalSourceLabels = false;
@@ -107,11 +120,21 @@ export async function handleSkillCommand(
           ? 'available'
           : 'disabled'
         : skill.missing.join(', ');
+      const isBlocked = isBlockedSkillListEntry(skill);
+      const status = isBlocked
+        ? `blocked: ${skill.blockedReason}`
+        : availability;
       const prefix = `  ${skill.name}${externalSourceMarker} [${availability}]`;
-      const listDescription =
-        skill.metadata.hybridclaw.shortDescription || skill.description;
-      const description = truncateSkillListDescription(prefix, listDescription);
-      lines.push(`${prefix}${description ? ` — ${description}` : ''}`);
+      const line = isBlocked
+        ? `  ${skill.name}${externalSourceMarker} [${status}]`
+        : prefix;
+      lines.push(line);
+      if (isBlocked && skill.guardFindings.length) {
+        const finding = skill.guardFindings[0];
+        lines.push(
+          `    ${finding.severity}/${finding.category}: ${finding.description} (${finding.file}:${finding.line})`,
+        );
+      }
       if (skill.installs.length > 0) {
         const installs = skill.installs
           .map((install) => {
@@ -125,7 +148,10 @@ export async function handleSkillCommand(
     if (hasExternalSourceLabels) {
       lines.push('', '* external source label, not verified provenance');
     }
-    return context.infoCommand('Skills', lines.join('\n'));
+    return context.infoCommand(
+      listMode === 'blocked' ? 'Blocked Skills' : 'Skills',
+      lines.join('\n'),
+    );
   }
 
   if (sub === 'enable' || sub === 'disable') {

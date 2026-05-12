@@ -325,6 +325,7 @@ import {
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
 import {
+  loadBlockedSkillCatalog,
   loadSkillCatalog,
   resolveManagedCommunitySkillsDir,
 } from '../skills/skills.js';
@@ -5628,6 +5629,42 @@ export function applyGatewayAdminPolicyPreset(input: {
 
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   const runtimeConfig = getRuntimeConfig();
+  const availableSkills = loadSkillCatalog().map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    shortDescription: skill.metadata.hybridclaw.shortDescription,
+    source: String(skill.source),
+    available: skill.available,
+    enabled: skill.enabled,
+    missing: skill.missing,
+    userInvocable: skill.userInvocable,
+    disableModelInvocation: skill.disableModelInvocation,
+    always: skill.always,
+    tags: skill.metadata.hybridclaw.tags,
+    relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    credentials: skill.manifest.credentials,
+  }));
+  const blockedSkills = loadBlockedSkillCatalog().map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    shortDescription: skill.metadata.hybridclaw.shortDescription,
+    source: String(skill.source),
+    available: false,
+    enabled: false,
+    blocked: true,
+    blockedReason: skill.blockedReason,
+    guardVerdict: skill.guardVerdict,
+    guardFindings: skill.guardFindings,
+    missing: [skill.blockedReason],
+    userInvocable: skill.userInvocable,
+    disableModelInvocation: skill.disableModelInvocation,
+    always: skill.always,
+    tags: skill.metadata.hybridclaw.tags,
+    relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    credentials: skill.manifest.credentials,
+  }));
   return {
     extraDirs: runtimeConfig.skills.extraDirs,
     disabled: dedupeStrings(runtimeConfig.skills.disabled).sort((a, b) =>
@@ -5636,22 +5673,10 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     channelDisabled: getAdminChannelDisabledSkills(
       runtimeConfig.skills.channelDisabled,
     ),
-    skills: loadSkillCatalog().map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      category: skill.category,
-      shortDescription: skill.metadata.hybridclaw.shortDescription,
-      source: String(skill.source),
-      available: skill.available,
-      enabled: skill.enabled,
-      missing: skill.missing,
-      userInvocable: skill.userInvocable,
-      disableModelInvocation: skill.disableModelInvocation,
-      always: skill.always,
-      tags: skill.metadata.hybridclaw.tags,
-      relatedSkills: skill.metadata.hybridclaw.relatedSkills,
-      credentials: skill.manifest.credentials,
-    })),
+    skills: [...availableSkills, ...blockedSkills].sort((left, right) => {
+      const categoryCompare = left.category.localeCompare(right.category);
+      return categoryCompare || left.name.localeCompare(right.name);
+    }),
   };
 }
 

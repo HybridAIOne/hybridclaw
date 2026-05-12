@@ -16,6 +16,7 @@ import { DATA_DIR } from '../config/config.js';
 import {
   getRuntimeConfig,
   getRuntimeDisabledSkillNames,
+  updateRuntimeConfig,
 } from '../config/runtime-config.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
 import { resolveInstallPath } from '../infra/install-root.js';
@@ -39,7 +40,7 @@ import {
   SKILL_MANIFEST_CREDENTIAL_KINDS,
   type SkillManifest,
 } from './skill-manifest.js';
-import { guardSkillDirectory } from './skills-guard.js';
+import { guardSkillDirectory, type SkillGuardFinding } from './skills-guard.js';
 
 export type {
   SkillManifestCredentialKind,
@@ -157,6 +158,12 @@ const RESERVED_SKILL_COMMAND_NAMES = new Set<string>([
   'skill',
 ]);
 const warnedBlockedSkills = new Set<string>();
+const THIRD_PARTY_SKILL_SOURCES = new Set<SkillSource>([
+  'codex',
+  'claude',
+  'agents-personal',
+  'agents-project',
+]);
 
 type FrontmatterParseResult = {
   meta: Record<string, string>;
@@ -923,6 +930,41 @@ function resolveCodexSkillsDirs(): string[] {
 
 const IMPORT_SOURCE_MARKER = '.import-source.json';
 
+function createDefaultSkillManifest(name: string): SkillManifest {
+  return {
+    id: sanitizeSkillDirName(name),
+    name,
+    version: '0.0.0',
+    capabilities: [],
+    middleware: {
+      preSend: false,
+      postReceive: false,
+    },
+    requiredCredentials: [],
+    credentials: [],
+    supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
+  };
+}
+
+function parseSkillManifestForDiscovery(
+  block: string,
+  name: string,
+  skillFile: string,
+): SkillManifest {
+  try {
+    return parseSkillManifestFromFrontmatterBlock(block, { name });
+  } catch (err) {
+    logger.warn(
+      {
+        path: skillFile,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      'Ignoring invalid skill manifest frontmatter',
+    );
+    return createDefaultSkillManifest(name);
+  }
+}
+
 function resolveImportSourceOverride(
   baseDir: string,
   defaultSource: SkillSource,
@@ -960,9 +1002,10 @@ function scanSkillsDir(dir: string, source: SkillSource): SkillCandidate[] {
         const always = parseBool(meta.always, false);
         const requires = parseRequiresFromFrontmatter(frontmatter, skillFile);
         const metadataHybridClaw = parseHybridClawMetadata(frontmatter);
-        const manifest = parseSkillManifestFromFrontmatterBlock(
+        const manifest = parseSkillManifestForDiscovery(
           frontmatter.block,
-          { name },
+          name,
+          skillFile,
         );
         const effectiveSource = resolveImportSourceOverride(baseDir, source);
 
@@ -1656,17 +1699,7 @@ export function expandResolvedSkillInvocation(
 }
 
 function resolveSkillManifest(skill: Skill): SkillManifest {
-  return (
-    skill.manifest || {
-      id: sanitizeSkillDirName(skill.name),
-      name: skill.name,
-      version: '0.0.0',
-      capabilities: [],
-      requiredCredentials: [],
-      credentials: [],
-      supportedChannels: [...DEFAULT_SKILL_SUPPORTED_CHANNELS],
-    }
-  );
+  return skill.manifest || createDefaultSkillManifest(skill.name);
 }
 
 export interface SkillCatalogEntry {
@@ -1695,6 +1728,13 @@ export interface SkillCatalogEntry {
   available: boolean;
   enabled: boolean;
   missing: string[];
+}
+
+export interface BlockedSkillCatalogEntry extends SkillCandidate {
+  blocked: true;
+  blockedReason: string;
+  guardVerdict: string;
+  guardFindings: SkillGuardFinding[];
 }
 
 function getDisabledSkillNames(
@@ -1939,10 +1979,74 @@ function filterGuardedSkillCandidates(
   });
 }
 
+export function loadBlockedSkillCatalog(): BlockedSkillCatalogEntry[] {
+  const blocked: BlockedSkillCatalogEntry[] = [];
+  for (const skill of collectResolvedSkillCandidates()) {
+    if (wasGuardSkippedAtImport(skill.baseDir)) continue;
+
+    const decision = guardSkillDirectory({
+      skillName: skill.name,
+      skillPath: skill.baseDir,
+      sourceTag: skill.source,
+    });
+    if (decision.allowed) continue;
+    blocked.push({
+      ...skill,
+      blocked: true,
+      blockedReason: decision.reason,
+      guardVerdict: decision.result.verdict,
+      guardFindings: decision.result.findings,
+    });
+  }
+  return blocked.sort(compareSkillsByCategoryAndName);
+}
+
+function thirdPartySkillDiscoveryKey(skill: SkillCandidate): string {
+  return `${skill.source}:${skill.name}`;
+}
+
+function applyThirdPartySkillDisabledDefaults(skills: SkillCandidate[]): void {
+  const newThirdPartySkills = skills.filter((skill) =>
+    THIRD_PARTY_SKILL_SOURCES.has(skill.source),
+  );
+  if (newThirdPartySkills.length === 0) return;
+
+  const config = getRuntimeConfig();
+  const discovered = new Set(config.skills.externalDiscovered ?? []);
+  const disabled = new Set(config.skills.disabled ?? []);
+  let changed = false;
+
+  for (const skill of newThirdPartySkills) {
+    const discoveryKey = thirdPartySkillDiscoveryKey(skill);
+    if (discovered.has(discoveryKey)) continue;
+    discovered.add(discoveryKey);
+    disabled.add(skill.name);
+    changed = true;
+  }
+
+  if (!changed) return;
+
+  updateRuntimeConfig(
+    (draft) => {
+      draft.skills.externalDiscovered = [...discovered].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      draft.skills.disabled = [...disabled].sort((left, right) =>
+        left.localeCompare(right),
+      );
+    },
+    {
+      actor: 'skills-discovery',
+      source: 'external-skill-defaults',
+    },
+  );
+}
+
 export function loadSkillCatalog(): SkillCatalogEntry[] {
   const candidates = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
   );
+  applyThirdPartySkillDisabledDefaults(candidates);
   const disabled = getDisabledSkillNames();
   return candidates
     .map((skill) => {
@@ -1980,7 +2084,6 @@ function loadSkillsInner(
 ): Skill[] {
   const workspaceDir = path.resolve(agentWorkspaceDir(agentId));
   fs.mkdirSync(workspaceDir, { recursive: true });
-  const disabled = getDisabledSkillNames(channelKind);
   const skillPolicy = readSkillPolicyStateForWorkspace(workspaceDir);
   const configuredSkills = resolveAgentConfig(agentId).skills;
   const allowedSkills =
@@ -1989,10 +2092,13 @@ function loadSkillsInner(
       : new Set(normalizeTrimmedUniqueStringArray(configuredSkills));
   const guarded = filterGuardedSkillCandidates(
     collectResolvedSkillCandidates(),
-  ).filter(
+  );
+  applyThirdPartySkillDisabledDefaults(guarded);
+  const disabledAfterDefaults = getDisabledSkillNames(channelKind);
+  const eligible = guarded.filter(
     (skill) =>
       checkEligibility(skill).available &&
-      !disabled.has(skill.name) &&
+      !disabledAfterDefaults.has(skill.name) &&
       isSkillSupportedOnChannel(skill.manifest, channelKind) &&
       isAllowedBySkillPolicy({
         policy: skillPolicy,
@@ -2002,11 +2108,11 @@ function loadSkillsInner(
       }) &&
       (allowedSkills === null || allowedSkills.has(skill.name)),
   );
-  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(guarded);
-  pruneStaleSyncedSkills(guarded, workspaceDir);
+  const sharedSkillsRootDirNames = buildSharedSkillsRootDirNames(eligible);
+  pruneStaleSyncedSkills(eligible, workspaceDir);
 
   const resolved: Skill[] = [];
-  for (const skill of guarded) {
+  for (const skill of eligible) {
     try {
       let promptSkillPath = asPromptLocation(
         workspaceDir,
