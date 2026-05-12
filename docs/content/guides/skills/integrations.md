@@ -207,6 +207,165 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
 
 ---
 
+## airtable
+
+Search Airtable bases and tables, read records and computed fields, and prepare
+guarded record CRUD requests with schema-based field validation.
+
+**Prerequisites** — an Airtable personal access token or OAuth bearer token
+stored in HybridClaw encrypted runtime secrets.
+
+```bash
+hybridclaw secret set AIRTABLE_PAT "<pat-or-oauth-access-token>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with base and table discovery before reading or writing records.
+>
+> Read the schema before writes so field ids, field types, select choices, and
+> computed fields are known.
+>
+> Creates, updates, attachments, and deletes require explicit operator grant;
+> computed fields are read-only.
+
+> 🎯 **Try it yourself**
+>
+> `List my accessible Airtable bases and show the tables in the CRM base`
+>
+> `Find overdue records in the Projects table and summarize them by owner`
+>
+> `Plan an Airtable update that sets Status to "In Review" for record rec123, but do not execute it yet`
+
+---
+
+## fastbill
+
+Work with FastBill invoices, customers, payment state, reminders, and
+e-invoice handoff data through the FastBill XML API.
+
+**Prerequisites** — FastBill account email and API key stored as encrypted
+runtime secrets, plus a Basic-auth secret route for the FastBill API.
+
+```bash
+hybridclaw secret set FASTBILL_EMAIL you@example.com
+hybridclaw secret set FASTBILL_API_KEY "<fastbill-api-key>"
+hybridclaw secret set FASTBILL_BASIC_AUTH "<base64-email-colon-api-key>"
+hybridclaw secret route add https://my.fastbill.com/api/1.0/ FASTBILL_BASIC_AUTH Authorization Basic
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with read-only invoice and customer inspection.
+>
+> Use dry runs before creating customers or invoices from natural-language
+> source data.
+>
+> Complete, cancel, lock, delete, send, or mark-paid operations require exact
+> operator approval.
+
+> 🎯 **Try it yourself**
+>
+> `Show unpaid FastBill invoices due before the end of this month`
+>
+> `Draft a customer-create request for Acme GmbH without executing it`
+>
+> `Prepare the XRechnung/ZUGFeRD handoff information for invoice 12345`
+
+---
+
+## firecrawl
+
+Scrape pages, crawl public sites, map URLs, and run JSON-schema extraction
+through the managed Firecrawl API.
+
+**Prerequisites** — a managed Firecrawl API key stored in HybridClaw encrypted
+runtime secrets.
+
+```bash
+hybridclaw secret set FIRECRAWL_API_KEY "<fc-api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Use Firecrawl for public unauthenticated web ingestion.
+>
+> Use browser automation instead when a task needs login, interaction, form
+> filling, visual inspection, or client-side state.
+>
+> Crawls and maps use explicit bounded limits and do not ignore robots.txt.
+
+> 🎯 **Try it yourself**
+>
+> `Scrape https://example.com/docs and return markdown`
+>
+> `Map the public URLs under https://example.com/docs with a limit of 100`
+>
+> `Extract product names and prices from a public pricing page into JSON`
+
+---
+
+## search.web, search.news, and search.images
+
+Search through the configured self-hosted SearXNG instance for current
+information, source discovery, news, or image result discovery.
+
+**Prerequisites** — a reachable SearXNG instance configured with
+`web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`.
+
+> 💡 **Tips & Tricks**
+>
+> Use these skills when sovereignty-sensitive research should avoid hosted
+> search APIs.
+>
+> Search result snippets are not page evidence. Fetch the best result before
+> relying on page-level facts.
+>
+> Use hosted search providers only when the user explicitly asks to leave the
+> self-hosted SearXNG path.
+
+> 🎯 **Try it yourself**
+>
+> `Search the web for current HybridClaw documentation links`
+>
+> `Find recent news about European AI regulation and list the source URLs`
+>
+> `Search images for product-dashboard UI references`
+
+---
+
+## heygen
+
+Prepare guarded HeyGen Direct API requests for avatar video generation, video
+translation, asset discovery, and status polling.
+
+**Prerequisites** — a HeyGen API key stored in HybridClaw encrypted runtime
+secrets.
+
+```bash
+hybridclaw secret set HEYGEN_API_KEY "<api-key>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with avatar, voice, or translation-language discovery.
+>
+> Run marketing, sales, training, and public scripts through the brand-voice
+> gate before spending credits.
+>
+> Video generation and translation require explicit operator grant; public
+> publishing is a red-tier action.
+
+> 🎯 **Try it yourself**
+>
+> `List available HeyGen avatars and voices for an English onboarding video`
+>
+> `Plan an avatar video from this approved script without generating it yet`
+>
+> `Check the status of HeyGen video id abc123`
+
+---
+
 ## sokosumi
 
 Use Sokosumi for API-key auth, direct agent hires, coworker tasks, job

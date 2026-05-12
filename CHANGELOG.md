@@ -2,18 +2,75 @@
 
 ## Unreleased
 
+### Added
+
+- **Native media generation tools**: The container runtime now exposes
+  `image_generate` and `video_generate` with provider adapters, managed output
+  persistence, reference-media validation, usage metering, and bundled
+  `image-generation` / `video-generation` skills. Image generation supports GPT
+  Image, Gemini/Nano Banana, Grok, and FLUX families where configured; video
+  generation supports OpenAI Sora and Google Veo families where configured.
+- **New business and research skills**: Bundled skills now cover Airtable base
+  and record work, FastBill invoicing, Firecrawl scrape/crawl/map/extract
+  workflows, HeyGen avatar video generation and translation, Google Ads
+  campaign operations, and SearXNG-backed `search.web`, `search.news`, and
+  `search.images` workflows.
+- **Threema Gateway channel**: HybridClaw can send outbound Threema Basic-mode
+  text messages with setup docs, CLI configuration, doctor/status visibility,
+  prompt hints, target validation, and delivery tests.
+- **Camofox browser provider**: Browser automation can use a Camofox-backed
+  provider with persistent profile support and the same provider factory path
+  as local Playwright and Browser Use Cloud.
+- **A2A inbound and trust surfaces**: JSON-RPC Agent Card inbound delivery,
+  additional delegation envelope fields, a public-key trust ledger, and an
+  admin A2A trust route extend the federation substrate.
+- **Remote policy authority**: Signed remote policy updates can flow over the
+  federation path with validation, audit records, and targeted tests.
+- **Board card store**: The gateway now has a persisted card-store substrate
+  for future admin work-board and agent-team coordination surfaces.
+- **Trace-judge and anomaly evaluation path**: Skill trace judging gained a
+  subscriber pattern, an offline eval gate, and a behavioral anomaly reranker
+  for tool-call sequences.
+
 ### Changed
 
+- **Admin console polish and performance**: Admin pages moved toward a shared
+  `Card` primitive, the Usage rollup gained skeleton and metric loading states,
+  live channel transport status is shown through toasts, the `/` command panel
+  was rebuilt for better keyboard/a11y behavior, and expensive all-session
+  scans/config fetches were removed from hot paths.
+- **Vitest configuration is project-based**: Unit, integration, e2e, and live
+  test configuration now share one project-aware Vitest setup instead of
+  separate config files.
+- **Browser credential handling is narrower**: Browser form fills now route
+  through SecretRef injection gates rather than exposing credential material to
+  the model or broad browser action context.
 - **A2A delegation bearer auth**: Outbound A2A uses signed delegation JWTs as
   the HTTP bearer credential. `bearerTokenRef` remains a required explicit
   opt-in gate for non-loopback peer URLs, but its secret value is not sent on
   the wire.
+- **NPM supply-chain controls are stricter**: Workspace install and release
+  flows now enforce newer npm behavior, harden CI setup, and keep package-lock
+  metadata aligned with the release pipeline.
 
 ### Fixed
 
 - **A2A delegation revocation cleanup**: Expired delegation-token revocation
   records are pruned when new revocations are written, preventing stale
   short-lived token revocations from accumulating indefinitely.
+- **Skill blocking is visible**: Blocked skills are surfaced instead of being
+  hidden behind silent resolution failures.
+- **Media path display-prefix handling**: Host paths that merely share a
+  display prefix are no longer remapped as if they were inside the sandboxed
+  media root.
+- **Context ring source accuracy**: The web chat context ring reads usage from
+  the correct source after session and UI routing changes.
+- **Auxiliary model token limits**: Auxiliary provider calls honor configured
+  max-token limits.
+- **Console IME composition safety**: Chat composer key handling ignores IME
+  composition events so slash/submit shortcuts do not interrupt text entry.
+- **Release publish compatibility**: Release workflows invoke npm 11 on Node
+  22 so npm package promotion uses the expected toolchain.
 
 ## [0.16.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.16.0) - 2026-05-07
 
