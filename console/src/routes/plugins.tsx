@@ -125,23 +125,27 @@ export function PluginsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Plugins"
-          value={String(pluginsQuery.data?.totals.totalPlugins || 0)}
-          detail={`${pluginsQuery.data?.totals.enabledPlugins || 0} enabled`}
+          value={String(pluginsQuery.data?.totals.totalPlugins ?? 0)}
+          detail={`${pluginsQuery.data?.totals.enabledPlugins ?? 0} enabled`}
+          loading={!pluginsQuery.data}
         />
         <MetricCard
           label="Load failures"
-          value={String(pluginsQuery.data?.totals.failedPlugins || 0)}
+          value={String(pluginsQuery.data?.totals.failedPlugins ?? 0)}
           detail="runtime initialization errors"
+          loading={!pluginsQuery.data}
         />
         <MetricCard
           label="Commands"
-          value={String(pluginsQuery.data?.totals.commands || 0)}
+          value={String(pluginsQuery.data?.totals.commands ?? 0)}
           detail="plugin-defined commands"
+          loading={!pluginsQuery.data}
         />
         <MetricCard
           label="Tools / Hooks"
-          value={`${pluginsQuery.data?.totals.tools || 0} / ${pluginsQuery.data?.totals.hooks || 0}`}
+          value={`${pluginsQuery.data?.totals.tools ?? 0} / ${pluginsQuery.data?.totals.hooks ?? 0}`}
           detail="registered runtime surfaces"
+          loading={!pluginsQuery.data}
         />
       </div>
 

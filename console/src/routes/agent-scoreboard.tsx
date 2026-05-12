@@ -106,16 +106,19 @@ export function AgentsPage() {
           label="Observed agents"
           value={String(agents.length)}
           detail="with recorded skill runs"
+          loading={!scoreboardQuery.data}
         />
         <MetricCard
           label="Observed skills"
           value={String(observedSkillCount)}
           detail="across agent runs"
+          loading={!scoreboardQuery.data}
         />
         <MetricCard
           label="Best average score"
           value={topAgent ? `${topAgent.avg_score}/100` : '0/100'}
           detail={topAgent?.display_name || 'No runs yet'}
+          loading={!scoreboardQuery.data}
         />
         <MetricCard
           label="Total runs"
@@ -123,6 +126,7 @@ export function AgentsPage() {
             agents.reduce((total, agent) => total + agent.total_executions, 0),
           )}
           detail="skill executions"
+          loading={!scoreboardQuery.data}
         />
       </div>
 
