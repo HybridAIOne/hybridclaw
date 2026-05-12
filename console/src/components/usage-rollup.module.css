@@ -87,6 +87,21 @@
   stroke-linecap: round;
 }
 
+.pointTarget {
+  outline: none;
+}
+
+.point {
+  fill: transparent;
+  stroke: transparent;
+}
+
+.pointTarget:focus-visible .point {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
 .crosshair {
   stroke: color-mix(in srgb, var(--primary) 48%, transparent);
   stroke-width: 1;

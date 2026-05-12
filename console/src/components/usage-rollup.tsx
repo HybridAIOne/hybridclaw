@@ -53,8 +53,7 @@ export function UsageRollup(props: UsageRollupProps) {
     <div className={css.root}>
       <p className={css.summary}>
         <strong>{formatCompactNumber(summary.totalTokens)}</strong> tokens this
-        month
-        {hasDaily ? ` · ${formatCompactNumber(daily.totalTokens)} today` : null}
+        month · {formatCompactNumber(daily.totalTokens)} today
       </p>
 
       <div className={css.ribbon}>
@@ -194,6 +193,20 @@ function UsageChart(props: {
             className={css.line}
             vectorEffect="non-scaling-stroke"
           />
+          {points.map((point) => {
+            const pointLabel = `${point.label}: ${formatCompactNumber(point.value)} tokens`;
+            return (
+              <g
+                key={point.index}
+                className={css.pointTarget}
+                tabIndex={0}
+                aria-label={pointLabel}
+              >
+                <title>{pointLabel}</title>
+                <circle cx={point.x} cy={point.y} r={5} className={css.point} />
+              </g>
+            );
+          })}
           {hover ? (
             <line
               x1={hover.point.x}
