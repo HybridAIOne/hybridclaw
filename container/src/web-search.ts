@@ -4,6 +4,14 @@ import type {
   WebSearchConfig,
 } from '../shared/web-search-config.js';
 import {
+  decodeEntities,
+  dedupeResults,
+  isRecord,
+  normalizeResultUrl,
+  normalizeWhitespace,
+  stripTags,
+} from './search-utils.js';
+import {
   buildSearxngSearchUrl,
   normalizeSearxngListParam,
   parseSearxngSearchResponse,
@@ -174,39 +182,6 @@ function writeCache(
 
 export function clearWebSearchCache(): void {
   cache.clear();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) =>
-      String.fromCharCode(Number.parseInt(dec, 10)),
-    );
-}
-
-function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
-}
-
-function normalizeWhitespace(value: string): string {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
 }
 
 function readEnv(name: string): string {
@@ -419,36 +394,6 @@ export function getWebSearchConfigFromEnv(
   };
 }
 
-function validateHttpUrl(value: string): string | null {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeResultUrl(value: unknown): string | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  return validateHttpUrl(normalized);
-}
-
-function dedupeResults(results: SearchResult[]): SearchResult[] {
-  const seen = new Set<string>();
-  const deduped: SearchResult[] = [];
-  for (const result of results) {
-    const urlKey = result.url.toLowerCase();
-    if (seen.has(urlKey)) continue;
-    seen.add(urlKey);
-    deduped.push(result);
-  }
-  return deduped;
-}
-
 function normalizeSearchResults(
   results: Array<{
     title?: unknown;
@@ -643,28 +588,28 @@ function buildProviderRequestContext(
   tavilyDays?: number;
   searxngTimeRange?: SearxngTimeRange;
 } {
+  const braveFreshness = mapFreshnessForProvider('brave', context.freshness);
+  const perplexityFreshness = mapFreshnessForProvider(
+    'perplexity',
+    context.freshness,
+  );
+  const tavilyDays = mapFreshnessForProvider('tavily', context.freshness);
+  const searxngTimeRange = mapFreshnessForProvider(
+    'searxng',
+    context.freshness,
+  );
+
   return {
     ...context,
     braveFreshness:
-      typeof mapFreshnessForProvider('brave', context.freshness) === 'string'
-        ? (mapFreshnessForProvider('brave', context.freshness) as string)
-        : undefined,
+      typeof braveFreshness === 'string' ? braveFreshness : undefined,
     braveLanguage: mapLanguageForBrave(context.language),
     perplexityFreshness:
-      typeof mapFreshnessForProvider('perplexity', context.freshness) ===
-      'string'
-        ? (mapFreshnessForProvider('perplexity', context.freshness) as string)
-        : undefined,
-    tavilyDays:
-      typeof mapFreshnessForProvider('tavily', context.freshness) === 'number'
-        ? (mapFreshnessForProvider('tavily', context.freshness) as number)
-        : undefined,
+      typeof perplexityFreshness === 'string' ? perplexityFreshness : undefined,
+    tavilyDays: typeof tavilyDays === 'number' ? tavilyDays : undefined,
     searxngTimeRange:
-      typeof mapFreshnessForProvider('searxng', context.freshness) === 'string'
-        ? (mapFreshnessForProvider(
-            'searxng',
-            context.freshness,
-          ) as SearxngTimeRange)
+      typeof searxngTimeRange === 'string'
+        ? (searxngTimeRange as SearxngTimeRange)
         : undefined,
   };
 }
@@ -972,7 +917,7 @@ function createSearxngProvider(
   const requestContext = buildProviderRequestContext(context);
   return {
     name: 'searxng',
-    async search(query: string, _count: number, signal: AbortSignal) {
+    async search(query: string, count: number, signal: AbortSignal) {
       if (!config.searxngBaseUrl) throw new Error('SearXNG is not configured');
 
       const timeout = createTimeoutSignal(signal, DEFAULT_PROVIDER_TIMEOUT_MS);
@@ -982,6 +927,7 @@ function createSearxngProvider(
             baseUrl: config.searxngBaseUrl,
             query,
             language: requestContext.language,
+            count,
             categories: requestContext.categories,
             engines: requestContext.engines,
             timeRange: requestContext.searxngTimeRange,

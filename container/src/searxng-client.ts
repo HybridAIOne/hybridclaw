@@ -1,5 +1,14 @@
+import {
+  dedupeResults,
+  isRecord,
+  normalizeResultUrl,
+  normalizeWhitespace,
+  stripTags,
+  validateHttpUrl,
+} from './search-utils.js';
+
 const DEFAULT_SEARXNG_PAGE = 1;
-const DEFAULT_SEARXNG_SAFE_SEARCH = 0;
+const DEFAULT_SEARXNG_SAFE_SEARCH = 1;
 
 export type SearxngTimeRange = 'day' | 'month' | 'year';
 export type SearxngSafeSearch = 0 | 1 | 2;
@@ -11,6 +20,7 @@ export interface SearxngSearchOptions {
   engines?: string[] | string;
   language?: string;
   page?: number;
+  count?: number;
   safeSearch?: SearxngSafeSearch;
   timeRange?: SearxngTimeRange;
 }
@@ -25,59 +35,8 @@ export interface SearxngSearchResult {
   thumbnail?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) =>
-      String.fromCharCode(Number.parseInt(dec, 10)),
-    );
-}
-
-function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
-}
-
-function normalizeWhitespace(value: string): string {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
 function normalizeText(value: unknown): string {
   return normalizeWhitespace(stripTags(String(value || '')));
-}
-
-function validateHttpUrl(value: string): string | null {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeResultUrl(value: unknown): string | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  return validateHttpUrl(normalized);
 }
 
 function normalizeSearxngPath(pathname: string): string {
@@ -98,7 +57,9 @@ function normalizePositiveInteger(value: unknown, fallback: number): number {
 }
 
 function normalizeSafeSearch(value: unknown): SearxngSafeSearch {
-  return value === 1 || value === 2 ? value : DEFAULT_SEARXNG_SAFE_SEARCH;
+  return value === 0 || value === 1 || value === 2
+    ? value
+    : DEFAULT_SEARXNG_SAFE_SEARCH;
 }
 
 export function normalizeSearxngListParam(
@@ -120,23 +81,6 @@ export function normalizeSearxngListParam(
   return normalized.join(',');
 }
 
-function readOptionalText(value: unknown): string | undefined {
-  const normalized = normalizeText(value);
-  return normalized || undefined;
-}
-
-function dedupeResults(results: SearxngSearchResult[]): SearxngSearchResult[] {
-  const seen = new Set<string>();
-  const deduped: SearxngSearchResult[] = [];
-  for (const result of results) {
-    const urlKey = result.url.toLowerCase();
-    if (seen.has(urlKey)) continue;
-    seen.add(urlKey);
-    deduped.push(result);
-  }
-  return deduped;
-}
-
 export function buildSearxngSearchUrl(options: SearxngSearchOptions): string {
   const normalizedBase = validateHttpUrl(options.baseUrl);
   if (!normalizedBase) throw new Error('SearXNG base URL is invalid');
@@ -151,6 +95,10 @@ export function buildSearxngSearchUrl(options: SearxngSearchOptions): string {
     'pageno',
     String(normalizePositiveInteger(options.page, DEFAULT_SEARXNG_PAGE)),
   );
+  if (options.count != null) {
+    const count = normalizePositiveInteger(options.count, 0);
+    if (count > 0) url.searchParams.set('num_results', String(count));
+  }
   url.searchParams.set('language', options.language || 'all');
   url.searchParams.set(
     'safesearch',
@@ -187,11 +135,11 @@ export function parseSearxngSearchResponse(
     const snippet = normalizeText(
       entry.content ?? entry.snippet ?? entry.description,
     );
-    const age = readOptionalText(
-      entry.publishedDate ?? entry.published_date ?? entry.age,
-    );
-    const category = readOptionalText(entry.category);
-    const engine = readOptionalText(entry.engine);
+    const age =
+      normalizeText(entry.publishedDate ?? entry.published_date ?? entry.age) ||
+      undefined;
+    const category = normalizeText(entry.category) || undefined;
+    const engine = normalizeText(entry.engine) || undefined;
     const thumbnail = normalizeResultUrl(entry.thumbnail ?? entry.img_src);
 
     results.push({

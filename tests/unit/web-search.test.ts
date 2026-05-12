@@ -194,6 +194,7 @@ describe('provider parsers', () => {
         engines: 'brave, duckduckgo, brave',
         language: 'de',
         page: 2,
+        count: 4,
         safeSearch: 1,
         timeRange: 'month',
       }),
@@ -207,8 +208,28 @@ describe('provider parsers', () => {
     expect(url.searchParams.get('engines')).toBe('brave,duckduckgo');
     expect(url.searchParams.get('language')).toBe('de');
     expect(url.searchParams.get('pageno')).toBe('2');
+    expect(url.searchParams.get('num_results')).toBe('4');
     expect(url.searchParams.get('safesearch')).toBe('1');
     expect(url.searchParams.get('time_range')).toBe('month');
+  });
+
+  it('defaults SearXNG safe search to moderate while allowing explicit opt-out', () => {
+    const defaultUrl = new URL(
+      buildSearxngSearchUrl({
+        baseUrl: 'https://search.example.com',
+        query: 'safe default',
+      }),
+    );
+    const optOutUrl = new URL(
+      buildSearxngSearchUrl({
+        baseUrl: 'https://search.example.com',
+        query: 'explicit opt out',
+        safeSearch: 0,
+      }),
+    );
+
+    expect(defaultUrl.searchParams.get('safesearch')).toBe('1');
+    expect(optOutUrl.searchParams.get('safesearch')).toBe('0');
   });
 
   it('rejects SearXNG URLs without a query', () => {
@@ -313,6 +334,7 @@ describe('SearXNG provider', () => {
     expect(requestUrl.pathname).toBe('/search');
     expect(requestUrl.searchParams.get('format')).toBe('json');
     expect(requestUrl.searchParams.get('q')).toBe('searxng adapter');
+    expect(requestUrl.searchParams.get('num_results')).toBe('3');
     expect(requestUrl.searchParams.get('categories')).toBe('images');
     expect(requestUrl.searchParams.get('engines')).toBe('brave,duckduckgo');
     expect(requestUrl.searchParams.get('language')).toBe('en');
