@@ -534,11 +534,11 @@ function extractBindingDomainFromResponse(
  * capture mapping. The original response body is never forwarded to the
  * caller when a capture succeeds.
  *
- * Captured secrets are bound by default so that `bearerSecretName` only works
- * against the resource host. OAuth APIs such as Salesforce issue tokens from a
- * login host but return an `instance_url` resource host; bind to that resource
- * host when present and fall back to the request hostname otherwise. Non-token
- * metadata captures must be explicitly exempted.
+ * Captured values are domain-bound by default so future `bearerSecretName`
+ * injection only works against the resource host. If the response includes an
+ * `instance_url` string, bind captured values to that host; otherwise bind to
+ * the request host. Non-credential metadata captures must be explicitly
+ * exempted.
  */
 function captureSecretResponseFields(
   responseJson: unknown,
@@ -887,7 +887,7 @@ export async function handleApiHttpRequest(
     responseJson = undefined;
   }
 
-  // Capture selected token fields into the secret store and return only a
+  // Capture selected response fields into the secret store and return only a
   // confirmation. The original response body is never forwarded on capture.
   const captured = captureSecretResponseFields(
     responseJson,
