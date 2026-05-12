@@ -1,57 +1,34 @@
-import { act, render } from '@testing-library/react';
-import { useCallback, useRef } from 'react';
+import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { useStickToBottom } from './use-stick-to-bottom';
 
-type Callback = (entries: ResizeObserverEntry[]) => void;
+type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
 
-interface FakeObserver {
-  callback: Callback;
-  targets: Element[];
-}
-
-let fakeObservers: FakeObserver[] = [];
+let resizeObserverCallbacks: ResizeObserverCallback[] = [];
 
 // Capture ResizeObserver instances so tests can drive content-growth events
 // manually — jsdom's no-op polyfill from vitest.setup.ts never fires them.
 class CapturingResizeObserver {
-  private targets: Element[] = [];
-  private record: FakeObserver;
-
-  constructor(callback: Callback) {
-    this.record = { callback, targets: this.targets };
-    fakeObservers.push(this.record);
+  constructor(private readonly callback: ResizeObserverCallback) {
+    resizeObserverCallbacks.push(callback);
   }
-
-  observe(target: Element) {
-    this.targets.push(target);
-  }
-
-  unobserve(target: Element) {
-    const idx = this.targets.indexOf(target);
-    if (idx >= 0) this.targets.splice(idx, 1);
-  }
-
+  observe() {}
+  unobserve() {}
   disconnect() {
-    this.targets.length = 0;
-    const idx = fakeObservers.indexOf(this.record);
-    if (idx >= 0) fakeObservers.splice(idx, 1);
+    const idx = resizeObserverCallbacks.indexOf(this.callback);
+    if (idx >= 0) resizeObserverCallbacks.splice(idx, 1);
   }
 }
 
 function fireResize() {
-  for (const observer of fakeObservers) {
-    observer.callback([]);
-  }
+  for (const cb of resizeObserverCallbacks) cb([]);
 }
 
-interface ScrollMetrics {
-  scrollHeight: number;
-  clientHeight: number;
-}
-
-function configureScroller(el: HTMLElement, metrics: ScrollMetrics) {
+function configureScroller(
+  el: HTMLElement,
+  metrics: { scrollHeight: number; clientHeight: number },
+) {
   Object.defineProperty(el, 'scrollHeight', {
     configurable: true,
     get: () => metrics.scrollHeight,
@@ -62,57 +39,43 @@ function configureScroller(el: HTMLElement, metrics: ScrollMetrics) {
   });
 }
 
-interface HarnessResult {
-  isPinned: boolean;
-  jumpToBottom: () => void;
-  resetToBottom: () => void;
-  scrollEl: HTMLDivElement | null;
+// Single mutable handle to the hook's latest return value, populated on every
+// render. Lets tests read state and invoke imperatives without manual plumbing.
+const hookRef: { current: ReturnType<typeof useStickToBottom> | null } = {
+  current: null,
+};
+
+function Harness() {
+  const stick = useStickToBottom();
+  hookRef.current = stick;
+  return (
+    <div
+      ref={stick.scrollRef}
+      data-testid="scroller"
+      style={{ height: 100, overflow: 'auto' }}
+    >
+      <div ref={stick.contentRef}>content</div>
+    </div>
+  );
 }
 
-function renderHarness(): HarnessResult {
-  const result: HarnessResult = {
-    isPinned: true,
-    jumpToBottom: () => {},
-    resetToBottom: () => {},
-    scrollEl: null,
-  };
-
-  function Harness() {
-    const stick = useStickToBottom();
-    result.isPinned = stick.isPinned;
-    result.jumpToBottom = stick.jumpToBottom;
-    result.resetToBottom = stick.resetToBottom;
-    const localScrollRef = useRef<HTMLDivElement | null>(null);
-    const setScrollRef = useCallback(
-      (el: HTMLDivElement | null) => {
-        localScrollRef.current = el;
-        result.scrollEl = el;
-        stick.scrollRef(el);
-      },
-      [stick.scrollRef],
-    );
-    return (
-      <div
-        ref={setScrollRef}
-        data-testid="scroller"
-        style={{ height: 100, overflow: 'auto' }}
-      >
-        <div ref={stick.contentRef} data-testid="content">
-          content
-        </div>
-      </div>
-    );
-  }
-
+function renderHarness() {
   render(<Harness />);
-  return result;
+  const scroller = screen.getByTestId('scroller') as HTMLDivElement;
+  // Non-null assertion is safe: Harness sets hookRef during initial render.
+  const getHook = () => {
+    if (!hookRef.current) throw new Error('hook not initialized');
+    return hookRef.current;
+  };
+  return { scroller, getHook };
 }
 
 describe('useStickToBottom', () => {
   let originalRO: typeof ResizeObserver;
 
   beforeEach(() => {
-    fakeObservers = [];
+    resizeObserverCallbacks = [];
+    hookRef.current = null;
     originalRO = globalThis.ResizeObserver;
     globalThis.ResizeObserver =
       CapturingResizeObserver as unknown as typeof ResizeObserver;
@@ -123,25 +86,21 @@ describe('useStickToBottom', () => {
   });
 
   it('stays pinned and snaps scrollTop to scrollHeight when content grows', () => {
-    const harness = renderHarness();
-    const scroller = harness.scrollEl;
-    if (!scroller) throw new Error('scroll element not attached');
+    const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
 
-    expect(harness.isPinned).toBe(true);
+    expect(getHook().isPinned).toBe(true);
 
     act(() => {
       fireResize();
     });
 
     expect(scroller.scrollTop).toBe(800);
-    expect(harness.isPinned).toBe(true);
+    expect(getHook().isPinned).toBe(true);
   });
 
   it('unpins when the user scrolls beyond the threshold and stays unpinned on growth', () => {
-    const harness = renderHarness();
-    const scroller = harness.scrollEl;
-    if (!scroller) throw new Error('scroll element not attached');
+    const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
 
     act(() => {
@@ -150,7 +109,7 @@ describe('useStickToBottom', () => {
       scroller.dispatchEvent(new Event('scroll'));
     });
 
-    expect(harness.isPinned).toBe(false);
+    expect(getHook().isPinned).toBe(false);
 
     act(() => {
       configureScroller(scroller, { scrollHeight: 1600, clientHeight: 100 });
@@ -159,67 +118,61 @@ describe('useStickToBottom', () => {
 
     // scrollTop must NOT have been forced to the bottom while unpinned.
     expect(scroller.scrollTop).toBe(200);
-    expect(harness.isPinned).toBe(false);
+    expect(getHook().isPinned).toBe(false);
   });
 
   it('re-pins when the user scrolls back near the bottom', () => {
-    const harness = renderHarness();
-    const scroller = harness.scrollEl;
-    if (!scroller) throw new Error('scroll element not attached');
+    const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
 
     act(() => {
       scroller.scrollTop = 200;
       scroller.dispatchEvent(new Event('scroll'));
     });
-    expect(harness.isPinned).toBe(false);
+    expect(getHook().isPinned).toBe(false);
 
     act(() => {
       // 800 - 700 - 100 = 0px from bottom — re-pin.
       scroller.scrollTop = 700;
       scroller.dispatchEvent(new Event('scroll'));
     });
-    expect(harness.isPinned).toBe(true);
+    expect(getHook().isPinned).toBe(true);
   });
 
   it('resetToBottom snaps scrollTop instantly and re-pins, even when previously unpinned', () => {
-    const harness = renderHarness();
-    const scroller = harness.scrollEl;
-    if (!scroller) throw new Error('scroll element not attached');
+    const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
 
     act(() => {
       scroller.scrollTop = 0;
       scroller.dispatchEvent(new Event('scroll'));
     });
-    expect(harness.isPinned).toBe(false);
+    expect(getHook().isPinned).toBe(false);
 
     act(() => {
-      harness.resetToBottom();
+      getHook().resetToBottom();
     });
 
     expect(scroller.scrollTop).toBe(800);
-    expect(harness.isPinned).toBe(true);
+    expect(getHook().isPinned).toBe(true);
   });
 
   it('jumpToBottom re-pins immediately and animates scrollTop toward the bottom', async () => {
-    const harness = renderHarness();
-    const scroller = harness.scrollEl;
-    if (!scroller) throw new Error('scroll element not attached');
+    const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
 
     act(() => {
       scroller.scrollTop = 0;
       scroller.dispatchEvent(new Event('scroll'));
     });
-    expect(harness.isPinned).toBe(false);
+    expect(getHook().isPinned).toBe(false);
 
     act(() => {
-      harness.jumpToBottom();
+      getHook().jumpToBottom();
     });
     // Pin flips back synchronously so the chip hides without waiting for the
     // ease-out to finish.
-    expect(harness.isPinned).toBe(true);
+    expect(getHook().isPinned).toBe(true);
 
     // Let the rAF easing run; it should land at scrollHeight - clientHeight.
     await new Promise((resolve) => setTimeout(resolve, 350));
