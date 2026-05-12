@@ -3,6 +3,20 @@ import type {
   SearchProviderName,
   WebSearchConfig,
 } from '../shared/web-search-config.js';
+import {
+  decodeEntities,
+  dedupeResults,
+  isRecord,
+  normalizeResultUrl,
+  normalizeWhitespace,
+  stripTags,
+} from './search-utils.js';
+import {
+  buildSearxngSearchUrl,
+  normalizeSearxngListParam,
+  parseSearxngSearchResponse,
+  type SearxngTimeRange,
+} from './searxng-client.js';
 
 const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
@@ -86,6 +100,9 @@ export interface SearchResult {
   url: string;
   snippet: string;
   age?: string;
+  category?: string;
+  engine?: string;
+  thumbnail?: string;
 }
 
 export type WebSearchRuntimeConfig = WebSearchConfig;
@@ -96,6 +113,8 @@ export interface WebSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string[] | string;
+  engines?: string[] | string;
   provider?: SearchProviderMode;
 }
 
@@ -105,6 +124,8 @@ interface NormalizedSearchParams {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string;
+  engines?: string;
   provider?: SearchProviderMode;
 }
 
@@ -112,6 +133,8 @@ interface SearchExecutionContext {
   freshness?: SearchFreshness;
   country?: string;
   language?: string;
+  categories?: string;
+  engines?: string;
 }
 
 export interface WebSearchExecutionResult {
@@ -159,39 +182,6 @@ function writeCache(
 
 export function clearWebSearchCache(): void {
   cache.clear();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function decodeEntities(value: string): string {
-  return value
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/gi, (_, dec) =>
-      String.fromCharCode(Number.parseInt(dec, 10)),
-    );
-}
-
-function stripTags(value: string): string {
-  return decodeEntities(value.replace(/<[^>]+>/g, ''));
-}
-
-function normalizeWhitespace(value: string): string {
-  return String(value || '')
-    .replace(/\r/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
 }
 
 function readEnv(name: string): string {
@@ -317,6 +307,8 @@ export function normalizeSearchParams(
     freshness: normalizeFreshness(params.freshness),
     country: normalizeCountry(params.country),
     language: normalizeLanguage(params.language),
+    categories: normalizeSearxngListParam(params.categories) || undefined,
+    engines: normalizeSearxngListParam(params.engines) || undefined,
     provider: params.provider
       ? normalizeProviderMode(params.provider)
       : undefined,
@@ -400,36 +392,6 @@ export function getWebSearchConfigFromEnv(
       ? { tavilyApiKey: String(override.tavilyApiKey || '').trim() }
       : {}),
   };
-}
-
-function validateHttpUrl(value: string): string | null {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
-
-function normalizeResultUrl(value: unknown): string | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  return validateHttpUrl(normalized);
-}
-
-function dedupeResults(results: SearchResult[]): SearchResult[] {
-  const seen = new Set<string>();
-  const deduped: SearchResult[] = [];
-  for (const result of results) {
-    const urlKey = result.url.toLowerCase();
-    if (seen.has(urlKey)) continue;
-    seen.add(urlKey);
-    deduped.push(result);
-  }
-  return deduped;
 }
 
 function normalizeSearchResults(
@@ -588,7 +550,9 @@ function buildCacheKey(
   const suffix = [params.country || '', params.language || '']
     .filter(Boolean)
     .join(':');
-  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+  const categories = params.categories || '';
+  const engines = params.engines || '';
+  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}${suffix ? `:${suffix}` : ''}`.toLowerCase();
 }
 
 export function mapFreshnessForProvider(
@@ -622,27 +586,30 @@ function buildProviderRequestContext(
   braveLanguage?: string;
   perplexityFreshness?: string;
   tavilyDays?: number;
-  searxngTimeRange?: string;
+  searxngTimeRange?: SearxngTimeRange;
 } {
+  const braveFreshness = mapFreshnessForProvider('brave', context.freshness);
+  const perplexityFreshness = mapFreshnessForProvider(
+    'perplexity',
+    context.freshness,
+  );
+  const tavilyDays = mapFreshnessForProvider('tavily', context.freshness);
+  const searxngTimeRange = mapFreshnessForProvider(
+    'searxng',
+    context.freshness,
+  );
+
   return {
     ...context,
     braveFreshness:
-      typeof mapFreshnessForProvider('brave', context.freshness) === 'string'
-        ? (mapFreshnessForProvider('brave', context.freshness) as string)
-        : undefined,
+      typeof braveFreshness === 'string' ? braveFreshness : undefined,
     braveLanguage: mapLanguageForBrave(context.language),
     perplexityFreshness:
-      typeof mapFreshnessForProvider('perplexity', context.freshness) ===
-      'string'
-        ? (mapFreshnessForProvider('perplexity', context.freshness) as string)
-        : undefined,
-    tavilyDays:
-      typeof mapFreshnessForProvider('tavily', context.freshness) === 'number'
-        ? (mapFreshnessForProvider('tavily', context.freshness) as number)
-        : undefined,
+      typeof perplexityFreshness === 'string' ? perplexityFreshness : undefined,
+    tavilyDays: typeof tavilyDays === 'number' ? tavilyDays : undefined,
     searxngTimeRange:
-      typeof mapFreshnessForProvider('searxng', context.freshness) === 'string'
-        ? (mapFreshnessForProvider('searxng', context.freshness) as string)
+      typeof searxngTimeRange === 'string'
+        ? (searxngTimeRange as SearxngTimeRange)
         : undefined,
   };
 }
@@ -702,21 +669,6 @@ function parseTavilySearchResponse(payload: unknown): SearchResult[] {
         url: entry.url,
         snippet: entry.content ?? entry.snippet ?? entry.description,
         age: entry.published_date,
-      })),
-  );
-}
-
-function parseSearxngSearchResponse(payload: unknown): SearchResult[] {
-  if (!isRecord(payload)) throw new Error('Invalid SearXNG search response');
-  const rawResults = extractArray(payload.results);
-  return normalizeSearchResults(
-    rawResults
-      .filter((entry): entry is Record<string, unknown> => isRecord(entry))
-      .map((entry) => ({
-        title: entry.title,
-        url: entry.url,
-        snippet: entry.content ?? entry.snippet ?? entry.description,
-        age: entry.publishedDate ?? entry.published_date ?? entry.age,
       })),
   );
 }
@@ -958,30 +910,6 @@ function createDuckDuckGoProvider(): SearchProvider {
   };
 }
 
-function buildSearxngSearchUrl(
-  baseUrl: string,
-  query: string,
-  count: number,
-  context: ReturnType<typeof buildProviderRequestContext>,
-): string {
-  const normalizedBase = validateHttpUrl(baseUrl);
-  if (!normalizedBase) throw new Error('SearXNG base URL is invalid');
-  const url = new URL(normalizedBase);
-  if (!url.pathname.endsWith('/search')) {
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/search`;
-  }
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('q', query);
-  url.searchParams.set('pageno', '1');
-  url.searchParams.set('language', context.language || 'all');
-  url.searchParams.set('safesearch', '0');
-  url.searchParams.set('results', String(count));
-  if (context.searxngTimeRange) {
-    url.searchParams.set('time_range', context.searxngTimeRange);
-  }
-  return url.toString();
-}
-
 function createSearxngProvider(
   config: WebSearchConfig,
   context: SearchExecutionContext,
@@ -995,12 +923,15 @@ function createSearxngProvider(
       const timeout = createTimeoutSignal(signal, DEFAULT_PROVIDER_TIMEOUT_MS);
       try {
         const res = await fetch(
-          buildSearxngSearchUrl(
-            config.searxngBaseUrl,
+          buildSearxngSearchUrl({
+            baseUrl: config.searxngBaseUrl,
             query,
+            language: requestContext.language,
             count,
-            requestContext,
-          ),
+            categories: requestContext.categories,
+            engines: requestContext.engines,
+            timeRange: requestContext.searxngTimeRange,
+          }),
           {
             headers: {
               Accept: 'application/json',
@@ -1157,6 +1088,9 @@ function formatSearchResults(result: WebSearchExecutionResult): string {
     lines.push(`${index + 1}. ${entry.title}`);
     lines.push(entry.url);
     if (entry.age) lines.push(`Age: ${entry.age}`);
+    if (entry.category) lines.push(`Category: ${entry.category}`);
+    if (entry.engine) lines.push(`Engine: ${entry.engine}`);
+    if (entry.thumbnail) lines.push(`Thumbnail: ${entry.thumbnail}`);
     if (entry.snippet) lines.push(entry.snippet);
   }
   return lines.join('\n');

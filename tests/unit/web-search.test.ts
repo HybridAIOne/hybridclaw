@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
+import {
+  buildSearxngSearchUrl,
+  parseSearxngSearchResponse,
+} from '../../container/src/searxng-client.js';
 import {
   buildProviderChain,
   clearWebSearchCache,
@@ -180,6 +183,206 @@ describe('provider parsers', () => {
     expect(parseDuckDuckGoHtml('<html><body>No hits</body></html>')).toEqual(
       [],
     );
+  });
+
+  it('builds SearXNG JSON search URLs with query options', () => {
+    const url = new URL(
+      buildSearxngSearchUrl({
+        baseUrl: 'https://search.example.com/searxng/',
+        query: 'sovereign search',
+        categories: ['general', 'news', 'general'],
+        engines: 'brave, duckduckgo, brave',
+        language: 'de',
+        page: 2,
+        count: 4,
+        safeSearch: 1,
+        timeRange: 'month',
+      }),
+    );
+
+    expect(url.origin).toBe('https://search.example.com');
+    expect(url.pathname).toBe('/searxng/search');
+    expect(url.searchParams.get('format')).toBe('json');
+    expect(url.searchParams.get('q')).toBe('sovereign search');
+    expect(url.searchParams.get('categories')).toBe('general,news');
+    expect(url.searchParams.get('engines')).toBe('brave,duckduckgo');
+    expect(url.searchParams.get('language')).toBe('de');
+    expect(url.searchParams.get('pageno')).toBe('2');
+    expect(url.searchParams.get('num_results')).toBe('4');
+    expect(url.searchParams.get('safesearch')).toBe('1');
+    expect(url.searchParams.get('time_range')).toBe('month');
+  });
+
+  it('defaults SearXNG safe search to moderate while allowing explicit opt-out', () => {
+    const defaultUrl = new URL(
+      buildSearxngSearchUrl({
+        baseUrl: 'https://search.example.com',
+        query: 'safe default',
+      }),
+    );
+    const optOutUrl = new URL(
+      buildSearxngSearchUrl({
+        baseUrl: 'https://search.example.com',
+        query: 'explicit opt out',
+        safeSearch: 0,
+      }),
+    );
+
+    expect(defaultUrl.searchParams.get('safesearch')).toBe('1');
+    expect(optOutUrl.searchParams.get('safesearch')).toBe('0');
+  });
+
+  it('rejects SearXNG URLs without a query', () => {
+    expect(() =>
+      buildSearxngSearchUrl({
+        baseUrl: 'https://search.example.com',
+        query: '   ',
+      }),
+    ).toThrow('SearXNG query is required');
+  });
+
+  it('parses and normalizes SearXNG JSON results', () => {
+    const results = parseSearxngSearchResponse({
+      results: [
+        {
+          title: '<b>SearXNG Result</b>',
+          url: 'https://example.com/search',
+          content: 'Sovereign &amp; private',
+          publishedDate: '2026-05-01',
+          category: 'general',
+          engine: 'brave',
+          thumbnail: 'https://example.com/thumb.jpg',
+        },
+        {
+          title: 'Duplicate Result',
+          url: 'https://example.com/search',
+          content: 'Duplicate URL should be dropped',
+        },
+        {
+          title: 'Missing URL',
+          content: 'ignored',
+        },
+      ],
+    });
+
+    expect(results).toEqual([
+      {
+        title: 'SearXNG Result',
+        url: 'https://example.com/search',
+        snippet: 'Sovereign & private',
+        age: '2026-05-01',
+        category: 'general',
+        engine: 'brave',
+        thumbnail: 'https://example.com/thumb.jpg',
+      },
+    ]);
+  });
+
+  it('rejects malformed SearXNG responses', () => {
+    expect(() => parseSearxngSearchResponse('bad-payload')).toThrow(
+      'Invalid SearXNG search response',
+    );
+  });
+});
+
+describe('SearXNG provider', () => {
+  it('queries SearXNG JSON output with normalized options', async () => {
+    process.env.HYBRIDCLAW_WEB_SEARCH_PROVIDER = 'searxng';
+    process.env.SEARXNG_BASE_URL = 'https://search.example.com';
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'SearXNG Result',
+              url: 'https://example.com/searxng',
+              content: 'SearXNG snippet',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await searchWeb({
+      query: 'searxng adapter',
+      count: 3,
+      categories: 'images',
+      engines: ['brave', 'duckduckgo'],
+      freshness: 'year',
+      language: 'en',
+      provider: 'searxng',
+    });
+
+    expect(result.provider).toBe('searxng');
+    expect(result.results).toEqual([
+      {
+        title: 'SearXNG Result',
+        url: 'https://example.com/searxng',
+        snippet: 'SearXNG snippet',
+      },
+    ]);
+
+    const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestUrl.pathname).toBe('/search');
+    expect(requestUrl.searchParams.get('format')).toBe('json');
+    expect(requestUrl.searchParams.get('q')).toBe('searxng adapter');
+    expect(requestUrl.searchParams.get('num_results')).toBe('3');
+    expect(requestUrl.searchParams.get('categories')).toBe('images');
+    expect(requestUrl.searchParams.get('engines')).toBe('brave,duckduckgo');
+    expect(requestUrl.searchParams.get('language')).toBe('en');
+    expect(requestUrl.searchParams.get('time_range')).toBe('year');
+    expect(requestUrl.searchParams.has('results')).toBe(false);
+  });
+
+  it('uses canonical SearXNG category and engine lists for cache keys', async () => {
+    process.env.HYBRIDCLAW_WEB_SEARCH_PROVIDER = 'searxng';
+    process.env.SEARXNG_BASE_URL = 'https://search.example.com';
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: 'Cached Result',
+              url: 'https://example.com/cached',
+              content: 'Cached snippet',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await searchWeb({
+      query: 'searxng cache',
+      categories: ['general', 'news', 'general'],
+      engines: 'brave, duckduckgo',
+      provider: 'searxng',
+    });
+    const second = await searchWeb({
+      query: 'searxng cache',
+      categories: 'general,news',
+      engines: ['brave', 'duckduckgo'],
+      provider: 'searxng',
+    });
+
+    expect(first.cached).toBeUndefined();
+    expect(second.cached).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
