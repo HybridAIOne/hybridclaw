@@ -90,7 +90,7 @@ describe('runtime config migration logging', () => {
 
     await importFreshRuntimeConfig(homeDir);
     vi.restoreAllMocks();
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await importFreshRuntimeConfig(homeDir);
 
@@ -107,7 +107,7 @@ describe('runtime config migration logging', () => {
       config.version = 10;
       config.ops.dbPath = '~/.hybridclaw/data/hybridclaw.db';
     });
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await importFreshRuntimeConfig(homeDir);
     const stored = JSON.parse(

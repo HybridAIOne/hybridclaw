@@ -39,25 +39,25 @@ function restoreEnvVar(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-async function importFreshRuntimeSecrets(homeDir: string) {
+function importFreshRuntimeSecrets(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
   return import('../src/security/runtime-secrets.ts');
 }
 
-async function importFreshRuntimeSecretsBootstrap(homeDir: string) {
+function importFreshRuntimeSecretsBootstrap(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
   return import('../src/security/runtime-secrets-bootstrap.ts');
 }
 
-async function importFreshRuntimeConfig(homeDir: string) {
+function importFreshRuntimeConfig(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
   return import('../src/config/runtime-config.ts');
 }
 
-async function importFreshConfigGlobals(homeDir: string) {
+function importFreshConfigGlobals(homeDir: string) {
   process.env.HOME = homeDir;
   vi.resetModules();
   return import('../src/config/config.ts');
@@ -367,7 +367,7 @@ describe('runtime secrets', () => {
       '.hybridclaw',
       'credentials.json',
     );
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     fs.writeFileSync(
       envPath,
@@ -495,7 +495,7 @@ describe('runtime secrets', () => {
     process.chdir(cwdDir);
     process.env.HYBRIDCLAW_MASTER_KEY = 'wrong-master-key';
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const reloaded = await importFreshRuntimeSecrets(homeDir);
 
     reloaded.loadRuntimeSecrets();

@@ -22,7 +22,13 @@
         "noNonNullAssertion": "off"
       },
       "suspicious": {
-        "useAwait": "error"
+        "useAwait": "error",
+        "noConsole": {
+          "level": "error",
+          "options": {
+            "allow": ["log", "error", "warn"]
+          }
+        }
       }
     }
   },

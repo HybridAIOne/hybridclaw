@@ -6750,11 +6750,11 @@ function migrateConfigSchemaOnStartup(): void {
     if (!changed) return;
     const from = previousVersion == null ? 'unknown' : String(previousVersion);
     if (previousVersion !== CONFIG_VERSION) {
-      console.info(
+      console.log(
         `[runtime-config] migrated config schema from v${from} to v${CONFIG_VERSION}`,
       );
     } else {
-      console.info(
+      console.log(
         `[runtime-config] normalized config schema v${CONFIG_VERSION} (filled defaults/canonicalized values)`,
       );
     }

@@ -817,7 +817,7 @@ function resolveSandboxMode(
   const signature = `${configuredMode}:${runningInsideContainer}`;
   if (sandboxAutoDetectLogged !== signature) {
     sandboxAutoDetectLogged = signature;
-    console.info(
+    console.log(
       'Running in container mode — sandbox disabled (container-in-container not needed)',
     );
   }

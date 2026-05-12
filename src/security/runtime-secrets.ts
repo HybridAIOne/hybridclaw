@@ -723,7 +723,7 @@ export function migrateLegacyRuntimeSecretsFile(): boolean {
       return false;
     }
 
-    console.info(`Migrating plaintext runtime secrets to ${filePath}`);
+    console.log(`Migrating plaintext runtime secrets to ${filePath}`);
     store.migrateLegacyPlaintextFile(plaintextSecrets);
     return true;
   } catch (err) {
@@ -756,7 +756,7 @@ export function loadRuntimeSecrets(cwd: string = process.cwd()): void {
 
   if (Object.keys(migratedSecrets).length > 0) {
     const destination = runtimeSecretsPath();
-    console.info(`Migrating .env to ${destination}`);
+    console.log(`Migrating .env to ${destination}`);
     try {
       store.writeAll({ ...secrets, ...migratedSecrets });
     } catch (err) {
