@@ -2706,7 +2706,7 @@ export class TrustedAgentApprovalRuntime {
       });
     }
 
-    if (lowerTool === 'vision_analyze' || lowerTool === 'image') {
+    if (lowerTool === 'vision_analyze') {
       return {
         tier: 'green',
         actionKey: lowerTool,
@@ -2719,6 +2719,40 @@ export class TrustedAgentApprovalRuntime {
         writeIntent: false,
         promotableRed: false,
         stickyYellow: false,
+      };
+    }
+
+    if (lowerTool === 'image_generate') {
+      const action = normalizeText(args.action).toLowerCase();
+      if (action === 'list') {
+        return {
+          tier: 'green',
+          actionKey: lowerTool,
+          intent: 'list image generation providers',
+          consequenceIfDenied:
+            'I will continue without checking image generation provider readiness.',
+          reason: 'this action only reports local provider readiness',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
+      return {
+        tier: 'yellow',
+        actionKey: lowerTool,
+        intent: 'generate image media',
+        consequenceIfDenied: 'I will continue without generating an image.',
+        reason:
+          'image generation may call a configured external provider and writes generated media into the workspace',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: [],
+        hostHints: [],
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
       };
     }
 

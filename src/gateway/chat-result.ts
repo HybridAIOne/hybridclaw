@@ -193,7 +193,7 @@ export function normalizePlaceholderToolReply(
     const toolName = String(execution.name || '')
       .trim()
       .toLowerCase();
-    if (toolName !== 'vision_analyze' && toolName !== 'image') continue;
+    if (toolName !== 'vision_analyze') continue;
     const analysis = extractVisionAnalysisFromToolResult(execution.result);
     if (!analysis) continue;
     return {

@@ -729,17 +729,7 @@ async function executePreparedToolCall(
 
 async function callHybridAIWithRetry(params: {
   sessionId?: string;
-  provider?:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
+  provider?: ContainerInput['provider'];
   providerMethod?: string;
   baseUrl: string;
   apiKey: string;

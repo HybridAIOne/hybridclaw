@@ -20,8 +20,10 @@ import {
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
+import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import type { RuntimeProvider } from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT,
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
@@ -101,17 +103,7 @@ let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
 let gatewayChannelId = '';
-let currentModelProvider:
-  | 'hybridai'
-  | 'openai-codex'
-  | 'anthropic'
-  | 'openrouter'
-  | 'mistral'
-  | 'huggingface'
-  | 'ollama'
-  | 'lmstudio'
-  | 'llamacpp'
-  | 'vllm' = 'hybridai';
+let currentModelProvider: RuntimeProvider = 'hybridai';
 let currentModelBaseUrl = '';
 let currentModelApiKey = '';
 let currentModelName = '';
@@ -779,18 +771,7 @@ export function setGatewayContext(
 }
 
 export function setModelContext(
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | undefined,
+  provider: RuntimeProvider | undefined,
   providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,
@@ -1693,6 +1674,7 @@ async function callVisionModel(
   runtimeContext: AuxiliaryRuntimeContext,
   question: string,
   imageDataUrl: string,
+  toolName: string,
 ): Promise<{ model: string; analysis: string }> {
   const vision = await callAuxiliaryModel({
     task: 'vision',
@@ -1700,7 +1682,7 @@ async function callVisionModel(
     fallbackContext: runtimeContext.fallbackContext,
     question,
     imageDataUrl,
-    toolName: 'vision_analyze',
+    toolName,
   });
   return {
     model: vision.model,
@@ -1711,6 +1693,7 @@ async function callVisionModel(
 async function runVisionAnalyze(
   args: Record<string, unknown>,
   runtimeContext: AuxiliaryRuntimeContext,
+  toolName = 'vision_analyze',
 ): Promise<string> {
   const question = readStringValue(args.question);
   if (!question) return failTool('Error: question is required');
@@ -1736,7 +1719,12 @@ async function runVisionAnalyze(
         ? await readVisionImageFromUrl(candidate)
         : await readVisionImageFromLocalPath(candidate);
       const dataUrl = `data:${image.mimeType};base64,${image.buffer.toString('base64')}`;
-      const vision = await callVisionModel(runtimeContext, question, dataUrl);
+      const vision = await callVisionModel(
+        runtimeContext,
+        question,
+        dataUrl,
+        toolName,
+      );
       return JSON.stringify(
         {
           success: true,
@@ -1756,7 +1744,7 @@ async function runVisionAnalyze(
   }
 
   return failTool(
-    `Error: vision_analyze failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`,
+    `Error: ${toolName} failed. ${errors.join(' | ') || 'No candidate image sources succeeded.'}`,
   );
 }
 
@@ -3304,9 +3292,25 @@ async function executeToolInternal(
       );
     }
 
-    case 'vision_analyze':
-    case 'image': {
-      return await runVisionAnalyze(args, auxiliaryRuntimeContext);
+    case 'vision_analyze': {
+      return await runVisionAnalyze(args, auxiliaryRuntimeContext, name);
+    }
+
+    case 'image_generate': {
+      try {
+        return await runImageGenerate(args, {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          requestHeaders: currentModelHeaders,
+          media: currentMediaContext,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     case 'browser_navigate':
@@ -4178,30 +4182,59 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
-      name: 'image',
-      description: 'Alias of vision_analyze for image analysis.',
+      name: 'image_generate',
+      description:
+        'Generate or edit deliverable images with a configured image provider. Use action="list" to inspect provider readiness. Do not use for image analysis; use vision_analyze for that.',
       parameters: {
         type: 'object',
         properties: {
-          image_url: {
+          action: {
             type: 'string',
-            description: `Local image path (preferred) from ${WORKSPACE_ROOT_DISPLAY}, /discord-media-cache, or /uploaded-media-cache, or a Discord CDN HTTPS URL.`,
+            enum: ['list'],
+            description:
+              'Use "list" to show configured image generation providers instead of generating.',
           },
-          question: {
+          prompt: {
             type: 'string',
-            description: 'Question to ask about the image.',
+            description: 'Image generation or editing prompt.',
           },
-          fallback_url: {
+          image: {
+            type: ['string', 'array'],
+            description:
+              'Optional reference image path or list of paths from /workspace, /discord-media-cache, /uploaded-media-cache, or a Discord CDN HTTPS URL.',
+            items: { type: 'string' },
+          },
+          images: {
+            type: 'array',
+            description:
+              'Optional reference image paths from /workspace, /discord-media-cache, /uploaded-media-cache, or Discord CDN HTTPS URLs.',
+            items: { type: 'string' },
+          },
+          aspectRatio: {
             type: 'string',
             description:
-              'Optional fallback Discord CDN URL if image_url cannot be read.',
+              'Optional aspect ratio such as 1:1, 3:2, 2:3, landscape, portrait, or square.',
           },
-          original_url: {
+          quality: {
             type: 'string',
-            description: 'Optional original URL alias for fallback_url.',
+            description:
+              'Optional quality hint. Unsupported provider values are reported as warnings.',
+          },
+          size: {
+            type: 'string',
+            description:
+              'Optional provider size or resolution such as 1024x1024.',
+          },
+          resolution: {
+            type: 'string',
+            description: 'Alias for size.',
+          },
+          count: {
+            type: 'number',
+            description: 'Number of images to generate, capped at 4.',
           },
         },
-        required: ['image_url', 'question'],
+        required: [],
       },
     },
   },

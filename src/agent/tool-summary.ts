@@ -61,7 +61,11 @@ const TOOL_GROUPS: ToolGroup[] = [
   },
   {
     label: 'Vision',
-    tools: ['vision_analyze', 'image'],
+    tools: ['vision_analyze'],
+  },
+  {
+    label: 'Image Generation',
+    tools: ['image_generate'],
   },
   {
     label: 'MCP',
@@ -73,11 +77,11 @@ const KNOWN_TOOL_NAMES = new Set(
   TOOL_GROUPS.flatMap((group) => group.tools.map((tool) => tool.trim())),
 );
 
-const TOOL_GROUP_BY_NAME = new Map(
-  TOOL_GROUPS.flatMap((group) =>
+const TOOL_GROUP_BY_NAME = new Map([
+  ...TOOL_GROUPS.flatMap((group) =>
     group.tools.map((tool) => [tool.trim(), group.label] as const),
   ),
-);
+]);
 
 function normalizeToolList(
   tools: readonly string[] | null | undefined,

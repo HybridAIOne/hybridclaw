@@ -76,7 +76,7 @@ const HEARTBEAT_ALLOWED_TOOLS = [
   'browser_pdf',
   'browser_vision',
   'vision_analyze',
-  'image',
+  'image_generate',
   'browser_get_images',
   'browser_console',
   'browser_network',
