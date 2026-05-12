@@ -72,7 +72,7 @@ function isRetryableThreemaError(error: unknown): boolean {
   return classifyGatewayError(text) === 'transient';
 }
 
-async function withThreemaTransportRetry<T>(
+function withThreemaTransportRetry<T>(
   label: string,
   run: () => Promise<T>,
 ): Promise<T> {

@@ -11,7 +11,7 @@ import {
   toErrorMessage,
 } from '../utils.js';
 
-export async function checkCredentials(): Promise<DiagResult[]> {
+export function checkCredentials(): Promise<DiagResult[]> {
   const filePath = runtimeSecretsPath();
   const displayPath = shortenHomePath(filePath);
 
@@ -25,7 +25,7 @@ export async function checkCredentials(): Promise<DiagResult[]> {
       process.env.EMAIL_PASSWORD,
       process.env.MSTEAMS_APP_PASSWORD,
     ].filter((value) => String(value || '').trim()).length;
-    return [
+    return Promise.resolve([
       makeResult(
         'credentials',
         'Credentials',
@@ -34,7 +34,7 @@ export async function checkCredentials(): Promise<DiagResult[]> {
           ? `${displayPath} not present; using environment-backed secrets`
           : `${displayPath} not present`,
       ),
-    ];
+    ]);
   }
 
   let parsed: Record<string, unknown>;
@@ -44,14 +44,14 @@ export async function checkCredentials(): Promise<DiagResult[]> {
       unknown
     >;
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'credentials',
         'Credentials',
         'error',
         `${displayPath} is not valid JSON (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const mode = readUnixMode(filePath);
@@ -82,7 +82,7 @@ export async function checkCredentials(): Promise<DiagResult[]> {
   if (insecurePermissions) details.push(`permissions ${formatMode(mode)}`);
   if (legacyPlaintextKeys.length > 0) details.push('legacy plaintext format');
 
-  return [
+  return Promise.resolve([
     makeResult(
       'credentials',
       'Credentials',
@@ -96,5 +96,5 @@ export async function checkCredentials(): Promise<DiagResult[]> {
           )
         : undefined,
     ),
-  ];
+  ]);
 }

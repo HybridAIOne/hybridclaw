@@ -2641,9 +2641,7 @@ type TraceExportResult = Awaited<
   ReturnType<typeof exportSessionTraceAtifJsonl>
 >;
 
-async function exportTraceForSession(
-  session: Session,
-): Promise<TraceExportResult> {
+function exportTraceForSession(session: Session): Promise<TraceExportResult> {
   return exportSessionTraceAtifJsonl({
     agentId: resolveSessionAgentId(session),
     session,
@@ -4714,7 +4712,7 @@ export async function getGatewayAdminEmailMailbox(): Promise<GatewayAdminEmailMa
   };
 }
 
-export async function getGatewayAdminEmailFolder(params: {
+export function getGatewayAdminEmailFolder(params: {
   folder: string;
   limit?: number;
   offset?: number;
@@ -4725,7 +4723,7 @@ export async function getGatewayAdminEmailFolder(params: {
   return fetchLiveAdminEmailFolder(config, password, params);
 }
 
-export async function getGatewayAdminEmailMessage(params: {
+export function getGatewayAdminEmailMessage(params: {
   folder: string;
   uid: number;
 }): Promise<GatewayAdminEmailMessageResponse> {
@@ -4735,7 +4733,7 @@ export async function getGatewayAdminEmailMessage(params: {
   return fetchLiveAdminEmailMessage(config, password, params);
 }
 
-export async function deleteGatewayAdminEmailMessage(params: {
+export function deleteGatewayAdminEmailMessage(params: {
   folder: string;
   uid: number;
 }): Promise<GatewayAdminEmailDeleteResponse> {
@@ -5342,6 +5340,7 @@ export async function getGatewayAdminModels(): Promise<GatewayAdminModelsRespons
   };
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function saveGatewayAdminModels(input: {
   defaultModel?: unknown;
 }): Promise<GatewayAdminModelsResponse> {

@@ -21,14 +21,14 @@ function normalizeOllamaModelName(model: string): string {
   return stripProviderPrefix(model, 'ollama');
 }
 
-async function resolveOllamaRuntimeCredentials(
+function resolveOllamaRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const modelName = normalizeOllamaModelName(params.model);
   const modelInfo =
     getLocalModelInfo(params.model) || getLocalModelInfo(modelName);
   const agentId = normalizeAgentId(params.agentId);
-  return {
+  return Promise.resolve({
     provider: 'ollama',
     model: `ollama/${modelName}`,
     apiKey: '',
@@ -44,7 +44,7 @@ async function resolveOllamaRuntimeCredentials(
       resolveLocalModelThinkingFormat(params.model) ||
       resolveLocalModelThinkingFormat(modelName) ||
       undefined,
-  };
+  });
 }
 
 export const ollamaProvider: AIProvider = {

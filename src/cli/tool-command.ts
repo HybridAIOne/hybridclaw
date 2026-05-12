@@ -8,11 +8,11 @@ import {
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printToolUsage } from './help.js';
 
-export async function handleToolCommand(args: string[]): Promise<void> {
+export function handleToolCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printToolUsage();
-    return;
+    return Promise.resolve();
   }
 
   const sub = normalized[0]!.toLowerCase();
@@ -23,7 +23,7 @@ export async function handleToolCommand(args: string[]): Promise<void> {
         `${toolName} [${disabled.has(toolName) ? 'disabled' : 'enabled'}]`,
       );
     }
-    return;
+    return Promise.resolve();
   }
 
   if (sub === 'enable' || sub === 'disable') {
@@ -45,7 +45,7 @@ export async function handleToolCommand(args: string[]): Promise<void> {
       setRuntimeToolEnabled(draft, toolName, enabled);
     });
     console.log(`${enabled ? 'Enabled' : 'Disabled'} ${toolName}.`);
-    return;
+    return Promise.resolve();
   }
 
   printToolUsage();

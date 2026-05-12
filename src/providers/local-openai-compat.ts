@@ -42,7 +42,7 @@ function createLocalOpenAICompatProvider(params: {
       return getLocalModelInfo(normalized)?.backend === backend;
     },
     requiresChatbotId: () => false,
-    async resolveRuntimeCredentials(
+    resolveRuntimeCredentials(
       runtimeParams: ResolveProviderRuntimeParams,
     ): Promise<ResolvedModelRuntimeCredentials> {
       const normalizedModel = normalizePrefixedModelName(
@@ -54,7 +54,7 @@ function createLocalOpenAICompatProvider(params: {
         getLocalModelInfo(normalizedModel);
       const agentId =
         String(runtimeParams.agentId || '').trim() || DEFAULT_AGENT_ID;
-      return {
+      return Promise.resolve({
         provider: backend,
         model: `${backend}/${normalizedModel}`,
         apiKey: apiKey?.() || '',
@@ -70,7 +70,7 @@ function createLocalOpenAICompatProvider(params: {
           resolveLocalModelThinkingFormat(runtimeParams.model) ||
           resolveLocalModelThinkingFormat(normalizedModel) ||
           undefined,
-      };
+      });
     },
   };
 }

@@ -265,7 +265,7 @@ export function createOpenRouterDiscoveryStore(): OpenRouterDiscoveryStore {
 
 const defaultOpenRouterDiscoveryStore = createOpenRouterDiscoveryStore();
 
-export async function discoverOpenRouterModels(opts?: {
+export function discoverOpenRouterModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
   return defaultOpenRouterDiscoveryStore.discoverModels(opts);

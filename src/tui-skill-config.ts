@@ -426,7 +426,7 @@ export function renderTuiSkillConfigLines(params: {
   };
 }
 
-export async function promptTuiSkillConfig(params: {
+export function promptTuiSkillConfig(params: {
   rl: readline.Interface;
   response: GatewayAdminSkillsResponse;
   saveMutation: (mutation: TuiSkillConfigMutation) => Promise<unknown>;
@@ -443,11 +443,11 @@ export async function promptTuiSkillConfig(params: {
   const skills = response.skills;
 
   if (!output.isTTY || input.isTTY === false) {
-    return {
+    return Promise.resolve({
       cancelled: false,
       savedCount: 0,
       changedScopeCount: 0,
-    };
+    });
   }
 
   const savedLine = internal.line;

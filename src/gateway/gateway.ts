@@ -1394,7 +1394,7 @@ async function startDiscordIntegration(): Promise<boolean> {
   return true;
 }
 
-async function startMSTeamsIntegration(): Promise<boolean> {
+function startMSTeamsIntegration(): Promise<boolean> {
   const teamsConfig = getConfigSnapshot().msteams;
   const hasCredentials =
     Boolean(String(MSTEAMS_APP_ID || '').trim()) &&
@@ -1402,13 +1402,13 @@ async function startMSTeamsIntegration(): Promise<boolean> {
 
   if (!teamsConfig.enabled) {
     logger.info('Microsoft Teams integration disabled');
-    return false;
+    return Promise.resolve(false);
   }
   if (!hasCredentials) {
     logger.info(
       'Microsoft Teams integration disabled: MSTEAMS_APP_ID or MSTEAMS_APP_PASSWORD is missing',
     );
-    return false;
+    return Promise.resolve(false);
   }
   if (teamsConfig.webhook.port !== getConfigSnapshot().ops.healthPort) {
     logger.info(
@@ -1600,7 +1600,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     },
     'Microsoft Teams integration started inside gateway',
   );
-  return true;
+  return Promise.resolve(true);
 }
 
 async function startWhatsAppIntegration(): Promise<boolean> {
@@ -2593,7 +2593,7 @@ async function startVoiceIntegration(): Promise<boolean> {
                 });
               }
             },
-            onProactiveMessage: async (message) => {
+            onProactiveMessage: (message) => {
               logger.debug(
                 {
                   callSid: context.callSid,
@@ -2601,6 +2601,7 @@ async function startVoiceIntegration(): Promise<boolean> {
                 },
                 'Skipping proactive voice follow-up',
               );
+              return Promise.resolve();
             },
             resultTransform: (result) => normalizePendingApprovalReply(result),
           });

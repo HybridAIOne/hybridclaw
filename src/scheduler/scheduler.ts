@@ -799,10 +799,10 @@ function markConfigJobFailure(job: RuntimeSchedulerJob): {
   };
 }
 
-async function tick(): Promise<void> {
+function tick(): Promise<void> {
   if (ticking) {
     arm();
-    return;
+    return Promise.resolve();
   }
   ticking = true;
 
@@ -1185,6 +1185,7 @@ async function tick(): Promise<void> {
     ticking = false;
     arm();
   }
+  return Promise.resolve();
 }
 
 function toRuntimeState(meta: ConfigJobMeta): ConfigJobRuntimeState {

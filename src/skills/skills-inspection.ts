@@ -266,7 +266,7 @@ export function inspectAllSkills(
     });
 }
 
-export async function runPeriodicSkillInspection(input?: {
+export function runPeriodicSkillInspection(input?: {
   agentId?: string;
   config?: AdaptiveSkillsConfig;
 }): Promise<SkillHealthMetrics[]> {
@@ -293,7 +293,7 @@ export async function runPeriodicSkillInspection(input?: {
     );
   }
 
-  if (!config.enabled) return [];
+  if (!config.enabled) return Promise.resolve([]);
 
   if (
     !shouldRunScheduledWork(
@@ -303,7 +303,7 @@ export async function runPeriodicSkillInspection(input?: {
       now,
     )
   ) {
-    return [];
+    return Promise.resolve([]);
   }
   const metricsList = inspectAllSkills(config);
   const sessionId = adaptiveSkillsSessionId(agentId);
@@ -340,5 +340,5 @@ export async function runPeriodicSkillInspection(input?: {
     });
   }
 
-  return metricsList;
+  return Promise.resolve(metricsList);
 }

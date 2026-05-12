@@ -752,6 +752,7 @@ function installPreparedPlugin(
   }
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function installPlugin(
   source: string,
   options: InstallPluginOptions = {},
@@ -774,17 +775,19 @@ export async function installPlugin(
   const preparedSource = preparePluginSource(sourceRef, runCommand);
 
   try {
-    return installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
-      homeDir,
-      cwd,
-      runCommand,
-      runCheckCommand,
-      approveDependencyInstall: options.approveDependencyInstall === true,
-      onDependenciesAlreadySatisfied: options.onDependenciesAlreadySatisfied,
-      getRuntimeConfig: getConfig,
-      updateRuntimeConfig: updateConfig,
-      replaceExisting: false,
-    });
+    return Promise.resolve(
+      installPreparedPlugin(preparedSource.sourceDir, trimmedSource, {
+        homeDir,
+        cwd,
+        runCommand,
+        runCheckCommand,
+        approveDependencyInstall: options.approveDependencyInstall === true,
+        onDependenciesAlreadySatisfied: options.onDependenciesAlreadySatisfied,
+        getRuntimeConfig: getConfig,
+        updateRuntimeConfig: updateConfig,
+        replaceExisting: false,
+      }),
+    );
   } finally {
     for (const dir of preparedSource.cleanupDirs.reverse()) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -792,6 +795,7 @@ export async function installPlugin(
   }
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function reinstallPlugin(
   source: string,
   options: InstallPluginOptions = {},
@@ -835,11 +839,11 @@ export async function reinstallPlugin(
         replaceExisting: true,
       },
     );
-    return {
+    return Promise.resolve({
       ...result,
       replacedExistingInstall,
       alreadyInstalled: false,
-    };
+    });
   } finally {
     for (const dir of preparedSource.cleanupDirs.reverse()) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -925,6 +929,7 @@ export async function checkPlugin(
   };
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function uninstallPlugin(
   pluginIdInput: string,
   options: UninstallPluginOptions = {},
@@ -959,10 +964,10 @@ export async function uninstallPlugin(
     );
   }
 
-  return {
+  return Promise.resolve({
     pluginId,
     pluginDir,
     removedPluginDir,
     removedConfigOverrides,
-  };
+  });
 }

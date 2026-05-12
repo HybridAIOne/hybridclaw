@@ -223,7 +223,7 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
 
 const defaultCodexDiscoveryStore = createCodexDiscoveryStore();
 
-export async function discoverCodexModels(opts?: {
+export function discoverCodexModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
   return defaultCodexDiscoveryStore.discoverModels(opts);

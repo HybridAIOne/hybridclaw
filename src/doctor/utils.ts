@@ -272,14 +272,16 @@ export function buildChmodFix(
   const previousMode = readUnixMode(filePath);
   return {
     summary,
-    apply: async () => {
+    apply: () => {
       fs.chmodSync(filePath, mode);
+      return Promise.resolve();
     },
     rollback:
       previousMode == null
         ? undefined
-        : async () => {
+        : () => {
             fs.chmodSync(filePath, previousMode & 0o777);
+            return Promise.resolve();
           },
   };
 }

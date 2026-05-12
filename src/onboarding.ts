@@ -278,9 +278,9 @@ function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
   return null;
 }
 
-async function tryOpenUrl(url: string): Promise<boolean> {
+function tryOpenUrl(url: string): Promise<boolean> {
   const openCommand = getOpenCommand(url);
-  if (!openCommand) return false;
+  if (!openCommand) return Promise.resolve(false);
 
   return new Promise((resolve) => {
     const child = spawn(openCommand.cmd, openCommand.args, {

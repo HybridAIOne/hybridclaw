@@ -10,12 +10,12 @@ import {
   toErrorMessage,
 } from '../utils.js';
 
-export async function checkDatabase(): Promise<DiagResult[]> {
+export function checkDatabase(): Promise<DiagResult[]> {
   const dbPath = DB_PATH;
   const displayPath = shortenHomePath(dbPath);
 
   if (!fs.existsSync(dbPath)) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Database',
@@ -23,12 +23,13 @@ export async function checkDatabase(): Promise<DiagResult[]> {
         `Database missing at ${displayPath}`,
         {
           summary: `Initialize ${displayPath}`,
-          apply: async () => {
+          apply: () => {
             initDatabase({ quiet: true, dbPath });
+            return Promise.resolve();
           },
         },
       ),
-    ];
+    ]);
   }
 
   const stat = fs.statSync(dbPath);
@@ -59,14 +60,14 @@ export async function checkDatabase(): Promise<DiagResult[]> {
       database.close();
     }
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Database',
         'error',
         `Failed to open ${displayPath} (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const newerSchema = schemaVersion > DATABASE_SCHEMA_VERSION;
@@ -76,14 +77,14 @@ export async function checkDatabase(): Promise<DiagResult[]> {
 
   if (severity === 'ok') {
     const extras = journalMode ? [`${journalMode.toUpperCase()}`] : [];
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Database',
         'ok',
         `Schema v${schemaVersion}, ${formatBytes(stat.size)}${extras.length > 0 ? ` (${extras.join(', ')})` : ''}`,
       ),
-    ];
+    ]);
   }
 
   const details = [`Schema v${schemaVersion} at ${displayPath}`];
@@ -98,13 +99,14 @@ export async function checkDatabase(): Promise<DiagResult[]> {
     staleSchema && writable && !newerSchema
       ? {
           summary: `Migrate ${displayPath} to schema v${DATABASE_SCHEMA_VERSION}`,
-          apply: async () => {
+          apply: () => {
             initDatabase({ quiet: true, dbPath });
+            return Promise.resolve();
           },
         }
       : undefined;
 
-  return [
+  return Promise.resolve([
     makeResult('database', 'Database', severity, details.join(', '), fix),
-  ];
+  ]);
 }

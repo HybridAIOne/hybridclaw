@@ -12,11 +12,11 @@ import { normalizeBaseUrl } from './utils.js';
 
 export const isHuggingFaceModel = createModelMatcher(HUGGINGFACE_MODEL_PREFIX);
 
-async function resolveHuggingFaceRuntimeCredentials(
+function resolveHuggingFaceRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const agentId = normalizeAgentId(params.agentId);
-  return {
+  return Promise.resolve({
     provider: 'huggingface',
     model: params.model,
     apiKey: readApiKeyForOpenAICompatProvider('huggingface', {
@@ -30,7 +30,7 @@ async function resolveHuggingFaceRuntimeCredentials(
     isLocal: false,
     contextWindow:
       getDiscoveredHuggingFaceModelContextWindow(params.model) ?? undefined,
-  };
+  });
 }
 
 export const huggingfaceProvider: AIProvider = {

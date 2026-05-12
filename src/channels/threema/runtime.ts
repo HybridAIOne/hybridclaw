@@ -21,8 +21,8 @@ export function hasThreemaGatewaySecret(): boolean {
   );
 }
 
-export async function initThreema(): Promise<void> {
-  if (runtimeInitialized) return;
+export function initThreema(): Promise<void> {
+  if (runtimeInitialized) return Promise.resolve();
 
   const config = resolveThreemaConfig();
   if (!config.enabled) {
@@ -42,6 +42,7 @@ export async function initThreema(): Promise<void> {
   });
   shutdownController = new AbortController();
   runtimeInitialized = true;
+  return Promise.resolve();
 }
 
 export async function sendToThreemaChat(
@@ -55,9 +56,10 @@ export async function sendToThreemaChat(
   });
 }
 
-export async function shutdownThreema(): Promise<void> {
+export function shutdownThreema(): Promise<void> {
   shutdownController?.abort();
   shutdownController = null;
   unregisterChannel('threema');
   runtimeInitialized = false;
+  return Promise.resolve();
 }

@@ -238,10 +238,11 @@ async function runEventLoop(
   }
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function initSignal(
   messageHandler: SignalMessageHandler,
 ): Promise<void> {
-  if (runtimeInitialized) return;
+  if (runtimeInitialized) return Promise.resolve();
 
   const signalConfig = resolveSignalConfig();
   const daemonUrl = String(signalConfig.daemonUrl || '').trim();
@@ -270,6 +271,7 @@ export async function initSignal(
       logger.warn({ error }, 'Signal runtime stopped unexpectedly');
     }
   });
+  return Promise.resolve();
 }
 
 export async function sendToSignalChat(
@@ -285,7 +287,7 @@ export async function sendToSignalChat(
   await sendChunkedSignalText({ daemonUrl, account, target, text });
 }
 
-export async function shutdownSignal(): Promise<void> {
+export function shutdownSignal(): Promise<void> {
   shutdownController?.abort();
   abortInFlightHandlers();
   activeSubscription?.abort();
@@ -295,4 +297,5 @@ export async function shutdownSignal(): Promise<void> {
   activeSignalConfig = null;
   shutdownController = null;
   runtimeInitialized = false;
+  return Promise.resolve();
 }

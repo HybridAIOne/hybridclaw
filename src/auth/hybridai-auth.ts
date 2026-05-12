@@ -177,9 +177,9 @@ function getOpenCommand(url: string): { cmd: string; args: string[] } | null {
   return null;
 }
 
-async function tryOpenUrl(url: string): Promise<boolean> {
+function tryOpenUrl(url: string): Promise<boolean> {
   const openCommand = getOpenCommand(url);
-  if (!openCommand) return false;
+  if (!openCommand) return Promise.resolve(false);
 
   return new Promise((resolve) => {
     const child = spawn(openCommand.cmd, openCommand.args, {
@@ -342,7 +342,7 @@ export function selectDefaultHybridAILoginMethod(): 'device-code' | 'browser' {
   return 'browser';
 }
 
-export async function loginHybridAIInteractive(options?: {
+export function loginHybridAIInteractive(options?: {
   method?: 'auto' | 'device-code' | 'browser' | 'import';
   baseUrl?: string;
 }): Promise<HybridAILoginResult> {
@@ -350,7 +350,7 @@ export async function loginHybridAIInteractive(options?: {
   const baseUrl = options?.baseUrl;
 
   if (method === 'import') {
-    return importHybridAIEnvCredentials();
+    return Promise.resolve(importHybridAIEnvCredentials());
   }
 
   const selectedMethod =

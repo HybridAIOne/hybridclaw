@@ -254,7 +254,7 @@ function validateInstallSpec(spec: SkillInstallSpec): string | null {
   }
 }
 
-async function runCommand(
+function runCommand(
   argv: string[],
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{

@@ -234,7 +234,7 @@ export function createMistralDiscoveryStore(): MistralDiscoveryStore {
 
 const defaultMistralDiscoveryStore = createMistralDiscoveryStore();
 
-export async function discoverMistralModels(opts?: {
+export function discoverMistralModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
   return defaultMistralDiscoveryStore.discoverModels(opts);

@@ -88,11 +88,11 @@ export class AudioTranscriptionBackendResolver {
   private readonly binaryCache = new Map<string, Promise<string | null>>();
   private readonly geminiProbeCache = new Map<string, Promise<boolean>>();
 
-  private async findBinary(name: string): Promise<string | null> {
+  private findBinary(name: string): Promise<string | null> {
     const cached = this.binaryCache.get(name);
     if (cached) return cached;
 
-    const resolved = (async () => {
+    const resolved = Promise.resolve().then(() => {
       const lookup = spawnSync(resolveLookupCommand(), [name], {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -110,7 +110,7 @@ export class AudioTranscriptionBackendResolver {
       });
       if (!direct.error) return name;
       return null;
-    })();
+    });
 
     this.binaryCache.set(name, resolved);
     return resolved;
@@ -203,7 +203,7 @@ export class AudioTranscriptionBackendResolver {
     };
   }
 
-  private async probeGeminiCli(): Promise<boolean> {
+  private probeGeminiCli(): Promise<boolean> {
     const cached = this.geminiProbeCache.get('gemini');
     if (cached) return cached;
 

@@ -20,6 +20,9 @@
       "style": {
         "noParameterAssign": "error",
         "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "useAwait": "error"
       }
     }
   },

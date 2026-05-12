@@ -11,11 +11,11 @@ import { normalizeBaseUrl } from './utils.js';
 
 export const isMistralModel = createModelMatcher(MISTRAL_MODEL_PREFIX);
 
-async function resolveMistralRuntimeCredentials(
+function resolveMistralRuntimeCredentials(
   params: ResolveProviderRuntimeParams,
 ): Promise<ResolvedModelRuntimeCredentials> {
   const agentId = normalizeAgentId(params.agentId);
-  return {
+  return Promise.resolve({
     provider: 'mistral',
     model: params.model,
     apiKey: readApiKeyForOpenAICompatProvider('mistral', { required: true }),
@@ -25,7 +25,7 @@ async function resolveMistralRuntimeCredentials(
     requestHeaders: {},
     agentId,
     isLocal: false,
-  };
+  });
 }
 
 export const mistralProvider: AIProvider = {

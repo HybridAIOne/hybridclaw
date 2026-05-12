@@ -947,6 +947,7 @@ export class PluginManager {
     }
   }
 
+  // biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
   async discoverPlugins(
     config: RuntimeConfig = this.getConfig(),
   ): Promise<PluginCandidate[]> {
@@ -1014,8 +1015,10 @@ export class PluginManager {
         );
       }
     }
-    return [...selected.values()].sort((left, right) =>
-      comparePluginCandidates(left, right, configuredOrder),
+    return Promise.resolve(
+      [...selected.values()].sort((left, right) =>
+        comparePluginCandidates(left, right, configuredOrder),
+      ),
     );
   }
 

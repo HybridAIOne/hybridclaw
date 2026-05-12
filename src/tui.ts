@@ -1937,7 +1937,7 @@ async function fetchTuiInputHistory(
   }
 }
 
-async function fetchTuiExitSummary(): Promise<{
+function fetchTuiExitSummary(): Promise<{
   summary: {
     inputTokenCount: number;
     outputTokenCount: number;
@@ -2626,7 +2626,7 @@ async function processMessage(
   }
 }
 
-async function processFullAutoSteeringMessage(
+function processFullAutoSteeringMessage(
   content: string,
   rl: readline.Interface,
 ): Promise<void> {
@@ -2634,7 +2634,7 @@ async function processFullAutoSteeringMessage(
     printInfo(
       'Full-auto is already handling a steering note. Wait for the reply or use /stop to interrupt it.',
     );
-    return;
+    return Promise.resolve();
   }
 
   const abortController = new AbortController();
@@ -2695,6 +2695,7 @@ async function processFullAutoSteeringMessage(
       promptTuiInput(rl);
     }
   })();
+  return Promise.resolve();
 }
 
 function isDelegateStatusMessage(text: string): boolean {

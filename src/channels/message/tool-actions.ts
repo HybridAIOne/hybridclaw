@@ -528,6 +528,7 @@ async function runThreemaMessageSendAction(
   };
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 async function runEmailReadAction(
   request: DiscordToolActionRequest,
   params: {
@@ -572,7 +573,7 @@ async function runEmailReadAction(
     };
   });
 
-  return {
+  return Promise.resolve({
     ok: true,
     action: 'read',
     channelId: params.channelId,
@@ -580,9 +581,10 @@ async function runEmailReadAction(
     transport: 'email',
     count: messages.length,
     messages,
-  };
+  });
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 async function runLocalMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -604,7 +606,7 @@ async function runLocalMessageSendAction(
     MESSAGE_TOOL_LOCAL_SOURCE,
     LOCAL_MESSAGE_QUEUE_LIMIT,
   );
-  return {
+  return Promise.resolve({
     ok: true,
     action: 'send',
     channelId,
@@ -613,7 +615,7 @@ async function runLocalMessageSendAction(
     dropped,
     note: 'Queued local delivery.',
     contentLength: content.length,
-  };
+  });
 }
 
 export async function runMessageToolAction(

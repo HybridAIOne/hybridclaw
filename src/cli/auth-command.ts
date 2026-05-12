@@ -74,7 +74,7 @@ const anthropicAuthApiState = makeLazyApi<AnthropicAuthApi>(
 );
 const CONFIGURED_SECRET_STATUS = 'configured';
 
-async function ensureHybridAIAuthApi(): Promise<HybridAIAuthApi> {
+function ensureHybridAIAuthApi(): Promise<HybridAIAuthApi> {
   return hybridAIAuthApiState.ensure();
 }
 
@@ -82,7 +82,7 @@ function getHybridAIAuthApi(): HybridAIAuthApi {
   return hybridAIAuthApiState.get();
 }
 
-async function ensureCodexAuthApi(): Promise<CodexAuthApi> {
+function ensureCodexAuthApi(): Promise<CodexAuthApi> {
   return codexAuthApiState.ensure();
 }
 
@@ -90,7 +90,7 @@ function getCodexAuthApi(): CodexAuthApi {
   return codexAuthApiState.get();
 }
 
-async function ensureAnthropicAuthApi(): Promise<AnthropicAuthApi> {
+function ensureAnthropicAuthApi(): Promise<AnthropicAuthApi> {
   return anthropicAuthApiState.ensure();
 }
 
@@ -1877,21 +1877,21 @@ function configureLocalBackend(args: string[]): void {
   }
 }
 
-export async function handleLocalCommand(args: string[]): Promise<void> {
+export function handleLocalCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {
     printLocalUsage();
-    return;
+    return Promise.resolve();
   }
 
   const sub = normalized[0]!.toLowerCase();
   if (sub === 'status') {
     printLocalStatus();
-    return;
+    return Promise.resolve();
   }
   if (sub === 'configure') {
     configureLocalBackend(normalized.slice(1));
-    return;
+    return Promise.resolve();
   }
 
   throw new Error(`Unknown local subcommand: ${sub}`);

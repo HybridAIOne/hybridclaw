@@ -165,7 +165,7 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
 
 const defaultHuggingFaceDiscoveryStore = createHuggingFaceDiscoveryStore();
 
-export async function discoverHuggingFaceModels(opts?: {
+export function discoverHuggingFaceModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
   return defaultHuggingFaceDiscoveryStore.discoverModels(opts);

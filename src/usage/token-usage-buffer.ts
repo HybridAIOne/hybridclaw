@@ -333,6 +333,7 @@ function getInvalidUsageNumericFields(event: TokenUsageEvent): string[] {
  * `usage.batch_flushed` audit event per affected session, anchoring the
  * batch into the hash chain.
  */
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function flushTokenUsageBuffer(): Promise<void> {
   if (state.queue.length === 0) return;
 

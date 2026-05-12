@@ -83,7 +83,7 @@ export function evaluateAmendment(input: {
   };
 }
 
-export async function rollbackAmendment(input: {
+export function rollbackAmendment(input: {
   amendmentId: number;
   reason: string;
 }): Promise<{ ok: boolean; reason?: string }> {
@@ -93,15 +93,15 @@ export async function rollbackAmendment(input: {
     failureReason: 'Only applied amendments can be rolled back.',
   });
   if (!required.ok) {
-    return required;
+    return Promise.resolve(required);
   }
   const { amendment } = required;
   const currentContent = fs.readFileSync(amendment.skill_file_path, 'utf-8');
   if (sha256(currentContent) !== amendment.proposed_content_hash) {
-    return {
+    return Promise.resolve({
       ok: false,
       reason: 'Skill file changed since the amendment was applied.',
-    };
+    });
   }
 
   fs.writeFileSync(
@@ -125,5 +125,5 @@ export async function rollbackAmendment(input: {
       reason: input.reason,
     },
   });
-  return { ok: true };
+  return Promise.resolve({ ok: true });
 }

@@ -89,14 +89,15 @@ function buildUnusedSkillsResult(
       .join(', ')}. Re-enable with \`hybridclaw skill enable <name>\`.`,
     {
       summary: `Disable unused skills: ${skillNames.join(', ')}`,
-      apply: async () => {
+      apply: () => {
         updateRuntimeConfig((draft) => {
           for (const skillName of skillNames) {
             setRuntimeSkillScopeEnabled(draft, skillName, false);
           }
         });
+        return Promise.resolve();
       },
-      rollback: async () => {
+      rollback: () => {
         updateRuntimeConfig((draft) => {
           for (const skillName of skillNames) {
             setRuntimeSkillScopeEnabled(
@@ -106,17 +107,18 @@ function buildUnusedSkillsResult(
             );
           }
         });
+        return Promise.resolve();
       },
     },
   );
 }
 
-export async function checkSkills(): Promise<DiagResult[]> {
+export function checkSkills(): Promise<DiagResult[]> {
   const catalog = loadSkillCatalog();
   if (catalog.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult('skills', 'Skills', 'ok', 'No loadable skills discovered'),
-    ];
+    ]);
   }
 
   const flagged = catalog
@@ -147,14 +149,15 @@ export async function checkSkills(): Promise<DiagResult[]> {
         `${enabledFlagged.length} enabled skill${enabledFlagged.length === 1 ? '' : 's'} flagged by the security scanner: ${summarySkills}${disabledSuffix}`,
         {
           summary: `Disable flagged skills: ${skillNames.join(', ')}`,
-          apply: async () => {
+          apply: () => {
             updateRuntimeConfig((draft) => {
               for (const skillName of skillNames) {
                 setRuntimeSkillScopeEnabled(draft, skillName, false);
               }
             });
+            return Promise.resolve();
           },
-          rollback: async () => {
+          rollback: () => {
             updateRuntimeConfig((draft) => {
               for (const skillName of skillNames) {
                 setRuntimeSkillScopeEnabled(
@@ -164,13 +167,14 @@ export async function checkSkills(): Promise<DiagResult[]> {
                 );
               }
             });
+            return Promise.resolve();
           },
         },
       ),
     ];
     const unusedSkills = buildUnusedSkillsResult(catalog);
     if (unusedSkills) results.push(unusedSkills);
-    return results;
+    return Promise.resolve(results);
   }
 
   if (disabledFlagged.length > 0) {
@@ -184,7 +188,7 @@ export async function checkSkills(): Promise<DiagResult[]> {
     ];
     const unusedSkills = buildUnusedSkillsResult(catalog);
     if (unusedSkills) results.push(unusedSkills);
-    return results;
+    return Promise.resolve(results);
   }
 
   const results = [
@@ -197,5 +201,5 @@ export async function checkSkills(): Promise<DiagResult[]> {
   ];
   const unusedSkills = buildUnusedSkillsResult(catalog);
   if (unusedSkills) results.push(unusedSkills);
-  return results;
+  return Promise.resolve(results);
 }

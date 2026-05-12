@@ -353,14 +353,14 @@ async function discoverLmStudioModels(
   }
 }
 
-async function discoverVllmModels(
+function discoverVllmModels(
   baseUrl = LOCAL_VLLM_BASE_URL,
   apiKey = LOCAL_VLLM_API_KEY,
 ): Promise<LocalModelInfo[]> {
   return fetchOpenAICompatModels('vllm', baseUrl, apiKey);
 }
 
-async function discoverLlamacppModels(
+function discoverLlamacppModels(
   baseUrl = LOCAL_LLAMACPP_BASE_URL,
 ): Promise<LocalModelInfo[]> {
   return fetchOpenAICompatModels('llamacpp', baseUrl);
@@ -436,13 +436,13 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
     return discoveredById.get(normalized) || null;
   }
 
-  async function discoverAllModels(opts?: {
+  function discoverAllModels(opts?: {
     force?: boolean;
   }): Promise<LocalModelInfo[]> {
     if (!hasEnabledLocalBackend() || !LOCAL_DISCOVERY_ENABLED) {
       lastDiscoveryAtMs = 0;
       replaceDiscoveryCache([]);
-      return [];
+      return Promise.resolve([]);
     }
 
     const cacheTtlMs = Math.max(10_000, LOCAL_DISCOVERY_INTERVAL_MS);
@@ -451,7 +451,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
       lastDiscoveryAtMs > 0 &&
       Date.now() - lastDiscoveryAtMs < cacheTtlMs
     ) {
-      return getDiscoveredModels();
+      return Promise.resolve(getDiscoveredModels());
     }
 
     if (discoveryInFlight) return discoveryInFlight;
@@ -544,7 +544,7 @@ export function createLocalDiscoveryStore(): LocalDiscoveryStore {
 
 const defaultLocalDiscoveryStore = createLocalDiscoveryStore();
 
-export async function discoverAllLocalModels(opts?: {
+export function discoverAllLocalModels(opts?: {
   force?: boolean;
 }): Promise<LocalModelInfo[]> {
   return defaultLocalDiscoveryStore.discoverAllModels(opts);

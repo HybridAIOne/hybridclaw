@@ -192,7 +192,7 @@ function normalizePositiveTimeoutMs(
   return Math.floor(value);
 }
 
-export async function readOutput(
+export function readOutput(
   sessionId: string,
   timeoutMs: number | null | undefined,
   opts?: {

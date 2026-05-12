@@ -33,10 +33,11 @@ export async function checkDocker(): Promise<DiagResult[]> {
         dockerAccess.kind === 'permission-denied')
         ? {
             summary: 'Switch runtime sandbox mode to host',
-            apply: async () => {
+            apply: () => {
               updateRuntimeConfig((draft) => {
                 draft.container.sandboxMode = 'host';
               });
+              return Promise.resolve();
             },
           }
         : undefined;

@@ -92,7 +92,7 @@ function getTracer() {
  * Run an async function inside a new span. The span is automatically ended
  * and its status set based on whether the function throws.
  */
-export async function withSpan<T>(
+export function withSpan<T>(
   name: string,
   attributes: Record<string, string | number | boolean | undefined>,
   fn: () => Promise<T>,

@@ -329,7 +329,7 @@ function buildGatewayChatRequest(params: {
   };
 }
 
-async function buildToolAwareMessages(params: {
+function buildToolAwareMessages(params: {
   input: Awaited<ReturnType<typeof readOpenAICompatibleChatRequest>>;
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>;
 }): Promise<ChatMessage[]> {
@@ -369,9 +369,11 @@ async function buildToolAwareMessages(params: {
     },
   });
   const systemPrompt = readSystemPromptMessage(messages);
-  return systemPrompt
-    ? [{ role: 'system', content: systemPrompt }, ...input.messages]
-    : input.messages;
+  return Promise.resolve(
+    systemPrompt
+      ? [{ role: 'system', content: systemPrompt }, ...input.messages]
+      : input.messages,
+  );
 }
 
 async function resolveToolAwareRuntime(params: {

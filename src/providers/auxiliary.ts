@@ -276,16 +276,18 @@ async function resolveContextFromModel(params: {
   });
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 async function resolveExplicitTextCallContext(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext | null> {
   if (typeof params.provider !== 'string' && !params.model?.trim()) {
-    return null;
+    return Promise.resolve(null);
   }
 
   const providerSelection = params.provider || 'auto';
   const explicitModel = params.model?.trim() ?? '';
-  if (providerSelection === 'auto' && !explicitModel) return null;
+  if (providerSelection === 'auto' && !explicitModel)
+    return Promise.resolve(null);
 
   const model =
     providerSelection === 'auto'
@@ -339,14 +341,14 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
   });
 }
 
-async function resolveOpenRouterFallbackContext(params: {
+function resolveOpenRouterFallbackContext(params: {
   task: AuxiliaryTextTask;
   agentId?: string | undefined;
   maxTokens?: number | undefined;
   modelHint?: string | undefined;
 }): Promise<AuxiliaryTextCallContext | null> {
   const fallbackModel = buildOpenRouterFallbackModel(params.modelHint);
-  if (!fallbackModel) return null;
+  if (!fallbackModel) return Promise.resolve(null);
 
   return resolveContextFromModel({
     task: params.task,
@@ -1002,7 +1004,7 @@ async function callOllamaTextModel(
   };
 }
 
-async function callAuxiliaryTextProvider(
+function callAuxiliaryTextProvider(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,

@@ -455,7 +455,7 @@ export async function expandUrlReference(
   }
 }
 
-export async function expandReference(
+export function expandReference(
   ref: ContextReference,
   cwd: string,
   options: ExpandReferenceOptions = {},
@@ -472,6 +472,9 @@ export async function expandReference(
     case 'url':
       return expandUrlReference(ref, options);
     default:
-      return [formatWarning(ref, 'unsupported reference type'), null];
+      return Promise.resolve([
+        formatWarning(ref, 'unsupported reference type'),
+        null,
+      ]);
   }
 }

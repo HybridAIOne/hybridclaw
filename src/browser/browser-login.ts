@@ -105,7 +105,7 @@ function resolveChromeBinary(): string {
   );
 }
 
-export async function launchBrowserLogin(
+export function launchBrowserLogin(
   profileDir: string,
   options: BrowserLoginOptions = {},
 ): Promise<ChildProcess> {
@@ -126,7 +126,7 @@ export async function launchBrowserLogin(
     env,
   });
 
-  return child;
+  return Promise.resolve(child);
 }
 
 export function getBrowserProfileDir(dataDir: string): string {

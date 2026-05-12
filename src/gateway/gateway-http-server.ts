@@ -1983,15 +1983,15 @@ async function handleApiPluginTool(
   }
 }
 
-async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
+function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
   const sessionId = url.searchParams.get('sessionId')?.trim();
   if (!sessionId) {
     sendJson(res, 400, { error: 'Missing `sessionId` query parameter.' });
-    return;
+    return Promise.resolve();
   }
   if (isMalformedCanonicalSessionId(sessionId)) {
     sendJson(res, 400, { error: 'Malformed canonical `sessionId`.' });
-    return;
+    return Promise.resolve();
   }
   const parsedLimit = parseInt(url.searchParams.get('limit') || '40', 10);
   const parsedSummarySinceMs = parseInt(
@@ -2025,6 +2025,7 @@ async function handleApiHistory(res: ServerResponse, url: URL): Promise<void> {
       : {}),
     summary,
   });
+  return Promise.resolve();
 }
 
 function handleApiAgentAvatar(
@@ -2728,7 +2729,7 @@ async function handleApiAdminAgentFileResource(
   sendMethodNotAllowed(res);
 }
 
-async function handleApiAdminAgentRevisionResource(
+function handleApiAdminAgentRevisionResource(
   res: ServerResponse,
   method: string,
   params: {
@@ -2751,12 +2752,13 @@ async function handleApiAdminAgentRevisionResource(
     } catch (error) {
       sendApiAdminAgentError(res, error);
     }
-    return;
+    return Promise.resolve();
   }
   sendMethodNotAllowed(res);
+  return Promise.resolve();
 }
 
-async function handleApiAdminAgentRevisionRestoreResource(
+function handleApiAdminAgentRevisionRestoreResource(
   res: ServerResponse,
   method: string,
   params: {
@@ -2779,9 +2781,10 @@ async function handleApiAdminAgentRevisionRestoreResource(
     } catch (error) {
       sendApiAdminAgentError(res, error);
     }
-    return;
+    return Promise.resolve();
   }
   sendMethodNotAllowed(res);
+  return Promise.resolve();
 }
 
 async function handleApiAdminAgents(
@@ -2827,7 +2830,7 @@ async function handleApiAdminAgents(
   }
 }
 
-async function handleApiAdminTeamStructure(
+function handleApiAdminTeamStructure(
   res: ServerResponse,
   method: string,
   url: URL,
@@ -2836,10 +2839,10 @@ async function handleApiAdminTeamStructure(
   if (segments.length === 3) {
     if (method === 'GET') {
       sendJson(res, 200, getGatewayAdminTeamStructure());
-      return;
+      return Promise.resolve();
     }
     sendMethodNotAllowed(res);
-    return;
+    return Promise.resolve();
   }
 
   const revisionId =
@@ -2848,13 +2851,13 @@ async function handleApiAdminTeamStructure(
       : null;
   if (!revisionId) {
     sendJson(res, 404, { error: 'Not Found' });
-    return;
+    return Promise.resolve();
   }
 
   try {
     if (segments.length === 5 && method === 'GET') {
       sendJson(res, 200, getGatewayAdminTeamStructureRevision(revisionId));
-      return;
+      return Promise.resolve();
     }
     if (
       segments.length === 6 &&
@@ -2862,12 +2865,13 @@ async function handleApiAdminTeamStructure(
       method === 'POST'
     ) {
       sendJson(res, 200, restoreGatewayAdminTeamStructureRevision(revisionId));
-      return;
+      return Promise.resolve();
     }
     sendMethodNotAllowed(res);
   } catch (error) {
     sendApiAdminAgentError(res, error);
   }
+  return Promise.resolve();
 }
 
 function handleApiAdminSessions(res: ServerResponse): void {

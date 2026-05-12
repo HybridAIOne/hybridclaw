@@ -526,7 +526,7 @@ function assertManagedSkillPackage(skillDir: string, homeDir: string): void {
   }
 }
 
-export async function installSkillPackage(
+export function installSkillPackage(
   source: string,
   options: SkillPackageLifecycleOptions = {},
 ): Promise<SkillPackageInstallResult> {
@@ -613,7 +613,7 @@ async function installSkillPackageForCommand(
   };
 }
 
-export async function upgradeSkillPackage(
+export function upgradeSkillPackage(
   source: string,
   options: SkillPackageLifecycleOptions = {},
 ): Promise<SkillPackageInstallResult> {

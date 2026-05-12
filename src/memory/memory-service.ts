@@ -583,7 +583,7 @@ export class MemoryService {
     return this.consolidationEngine.consolidate();
   }
 
-  async consolidateMemoriesWithCleanup(): Promise<MemoryConsolidationReport> {
+  consolidateMemoriesWithCleanup(): Promise<MemoryConsolidationReport> {
     return this.consolidationEngine.consolidateWithCleanup();
   }
 
@@ -595,51 +595,53 @@ export class MemoryService {
     this.consolidationEngine.setLanguage(language);
   }
 
-  async compactSession(sessionId: string): Promise<CompactionResult> {
+  compactSession(sessionId: string): Promise<CompactionResult> {
     const existing = this.compactionLocks.get(sessionId);
     if (existing) return existing;
 
-    const promise = (async () => {
-      const session = this.backend.getSessionById(sessionId);
-      if (!session) {
-        throw new Error(`Session ${sessionId} was not found.`);
-      }
+    const promise = Promise.resolve()
+      .then(() => {
+        const session = this.backend.getSessionById(sessionId);
+        if (!session) {
+          throw new Error(`Session ${sessionId} was not found.`);
+        }
 
-      const messages = this.backend.getRecentMessages(sessionId);
-      return compactConversation({
-        session,
-        messages,
-        backend: {
-          deleteMessagesByIds: this.backend.deleteMessagesByIds,
-          storeSemanticMemory: this.backend.storeSemanticMemory,
-          updateSessionSummary: this.backend.updateSessionSummary,
-        },
-        promptRunner: {
-          run: ({
-            session: targetSession,
-            systemPrompt,
-            userPrompt,
-            stageKind,
-            stageIndex,
-            stageTotal,
-          }) =>
-            this.runCompactionPrompt({
+        const messages = this.backend.getRecentMessages(sessionId);
+        return compactConversation({
+          session,
+          messages,
+          backend: {
+            deleteMessagesByIds: this.backend.deleteMessagesByIds,
+            storeSemanticMemory: this.backend.storeSemanticMemory,
+            updateSessionSummary: this.backend.updateSessionSummary,
+          },
+          promptRunner: {
+            run: ({
               session: targetSession,
               systemPrompt,
               userPrompt,
               stageKind,
               stageIndex,
               stageTotal,
-            }),
-        },
-        embed: (text) => this.embedDocument(text),
-        config: {
-          maxSummaryChars: SESSION_COMPACTION_SUMMARY_MAX_CHARS,
-        },
+            }) =>
+              this.runCompactionPrompt({
+                session: targetSession,
+                systemPrompt,
+                userPrompt,
+                stageKind,
+                stageIndex,
+                stageTotal,
+              }),
+          },
+          embed: (text) => this.embedDocument(text),
+          config: {
+            maxSummaryChars: SESSION_COMPACTION_SUMMARY_MAX_CHARS,
+          },
+        });
+      })
+      .finally(() => {
+        this.compactionLocks.delete(sessionId);
       });
-    })().finally(() => {
-      this.compactionLocks.delete(sessionId);
-    });
 
     this.compactionLocks.set(sessionId, promise);
     return promise;

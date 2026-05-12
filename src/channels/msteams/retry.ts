@@ -118,10 +118,7 @@ function extractRetryDelayMs(error: unknown, fallbackMs: number): number {
   return fallbackMs;
 }
 
-async function withMSTeamsRetry<T>(
-  label: string,
-  run: () => Promise<T>,
-): Promise<T> {
+function withMSTeamsRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
   return withTransportRetry(label, run, {
     maxAttempts: MSTEAMS_RETRY_MAX_ATTEMPTS,
     baseDelayMs: MSTEAMS_RETRY_BASE_DELAY_MS,

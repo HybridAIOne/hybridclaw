@@ -609,11 +609,12 @@ function resolveDiscordToolSessionWorkspaceRoot(
   return path.resolve(agentWorkspaceDir(agentId));
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 async function resolveDiscordToolSendAttachments(
   request: DiscordToolActionRequest,
 ): Promise<AttachmentBuilder[]> {
   const rawPath = String(request.filePath || '').trim();
-  if (!rawPath) return [];
+  if (!rawPath) return Promise.resolve([]);
 
   const workspaceRoot = resolveDiscordToolSessionWorkspaceRoot(
     request.sessionId,
@@ -645,9 +646,9 @@ async function resolveDiscordToolSendAttachments(
   }
 
   const content = fs.readFileSync(resolvedPath);
-  return [
+  return Promise.resolve([
     new AttachmentBuilder(content, { name: path.basename(resolvedPath) }),
-  ];
+  ]);
 }
 
 const runDiscordToolActionInternal = createDiscordToolActionRunner({

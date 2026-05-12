@@ -308,7 +308,7 @@ function printSummaryFooter(reports: LeakScanReport[]): void {
   console.log(SUMMARY_RULE);
 }
 
-export async function runLeakScanCli(args: string[]): Promise<void> {
+export function runLeakScanCli(args: string[]): Promise<void> {
   const useJson = args.includes('--json');
   const verbosity: OutputVerbosity = parseOutputVerbosity(args);
   const afterVerbosity = stripVerbosityFlags(args);
@@ -316,7 +316,7 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
   if (flags.error) {
     console.error(flags.error);
     process.exitCode = 1;
-    return;
+    return Promise.resolve();
   }
   const positional = flags.remaining.filter((arg) => !arg.startsWith('--'));
   const sessionId = positional[0];
@@ -337,7 +337,7 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
       console.log(message);
     }
     process.exitCode = 1;
-    return;
+    return Promise.resolve();
   }
 
   const rawReports = sessionId
@@ -378,7 +378,7 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
     if (reports.some((report) => report.totalMatches > 0)) {
       process.exitCode = 2;
     }
-    return;
+    return Promise.resolve();
   }
 
   const filterParts: string[] = [];
@@ -397,7 +397,7 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
 
   if (reports.length === 0) {
     console.log('No audit sessions found.');
-    return;
+    return Promise.resolve();
   }
 
   const leaksFound = reports.some((report) => report.totalMatches > 0);
@@ -433,4 +433,5 @@ export async function runLeakScanCli(args: string[]): Promise<void> {
   if (leaksFound) {
     process.exitCode = 2;
   }
+  return Promise.resolve();
 }

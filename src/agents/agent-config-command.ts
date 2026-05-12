@@ -445,15 +445,16 @@ function copyLocalImageAsset(
   });
 }
 
-async function importImageAssetIfNeeded(
+function importImageAssetIfNeeded(
   workspacePath: string,
   imageAsset: string,
 ): Promise<string> {
   const url = parseImageAssetUrl(imageAsset);
   if (url) return downloadImageAsset(workspacePath, url);
   const localPath = resolveLocalImageAssetPath(imageAsset);
-  if (localPath) return copyLocalImageAsset(workspacePath, localPath);
-  return imageAsset;
+  if (localPath)
+    return Promise.resolve(copyLocalImageAsset(workspacePath, localPath));
+  return Promise.resolve(imageAsset);
 }
 
 function writeWorkspaceMarkdownFile(

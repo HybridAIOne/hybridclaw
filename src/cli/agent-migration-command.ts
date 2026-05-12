@@ -434,7 +434,7 @@ function parseMigrationArgs(args: string[]): ParsedMigrationArgs {
   };
 }
 
-async function confirmMigration(
+function confirmMigration(
   sourceKind: AgentMigrationSource,
   sourceRoot: string,
   agentId: string | undefined,
@@ -445,7 +445,7 @@ async function confirmMigration(
   );
 }
 
-async function confirmMigrationItem(
+function confirmMigrationItem(
   item: AgentMigrationResult['items'][number],
 ): Promise<PromptDecision> {
   return promptDecision(

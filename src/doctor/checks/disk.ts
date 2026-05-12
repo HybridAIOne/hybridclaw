@@ -9,12 +9,12 @@ import {
   readDiskFreeBytes,
 } from '../utils.js';
 
-export async function checkDisk(): Promise<DiagResult[]> {
+export function checkDisk(): Promise<DiagResult[]> {
   const freeBytes = readDiskFreeBytes(DATA_DIR);
   const dbSize = fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH).size : 0;
   const auditSize = readDirSize(path.join(DATA_DIR, 'audit'));
   const freeSpaceKnown = freeBytes != null;
-  return [
+  return Promise.resolve([
     makeResult(
       'disk',
       'Disk',
@@ -25,5 +25,5 @@ export async function checkDisk(): Promise<DiagResult[]> {
           : 'error',
       `${freeSpaceKnown ? `${formatBytes(freeBytes)} free` : 'free space unavailable'}, DB ${formatBytes(dbSize)}, audit ${formatBytes(auditSize)}`,
     ),
-  ];
+  ]);
 }

@@ -16,8 +16,9 @@ export async function checkGateway(): Promise<DiagResult[]> {
   let apiError = '';
   const removeStalePidFix: NonNullable<DiagResult['fix']> = {
     summary: 'Remove the stale gateway PID file',
-    apply: async () => {
+    apply: () => {
       removeGatewayPidFile();
+      return Promise.resolve();
     },
   };
 

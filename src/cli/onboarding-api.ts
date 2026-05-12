@@ -7,6 +7,6 @@ const onboardingApiState = makeLazyApi<OnboardingApi>(
   'Onboarding API accessed before it was initialized. Call ensureOnboardingApi() first.',
 );
 
-export async function ensureOnboardingApi(): Promise<OnboardingApi> {
+export function ensureOnboardingApi(): Promise<OnboardingApi> {
   return onboardingApiState.ensure();
 }

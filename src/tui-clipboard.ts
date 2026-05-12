@@ -473,7 +473,7 @@ async function readLinuxBackendClipboardPayload(
   return null;
 }
 
-async function readWaylandClipboardPayload(): Promise<ClipboardPayload | null> {
+function readWaylandClipboardPayload(): Promise<ClipboardPayload | null> {
   return readLinuxBackendClipboardPayload({
     readText: (mimeType) =>
       maybeReadClipboardText('wl-paste', ['--type', mimeType]),
@@ -482,7 +482,7 @@ async function readWaylandClipboardPayload(): Promise<ClipboardPayload | null> {
   });
 }
 
-async function readXclipClipboardPayload(): Promise<ClipboardPayload | null> {
+function readXclipClipboardPayload(): Promise<ClipboardPayload | null> {
   return readLinuxBackendClipboardPayload({
     readText: (mimeType) =>
       maybeReadClipboardText('xclip', [

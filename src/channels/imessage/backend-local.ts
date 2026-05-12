@@ -336,7 +336,7 @@ export function createLocalIMessageBackend(
         text: caption || null,
       };
     },
-    async shutdown(): Promise<void> {
+    shutdown(): Promise<void> {
       if (pollTimer) {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -345,6 +345,7 @@ export function createLocalIMessageBackend(
       db?.close();
       db = null;
       lastRowId = 0;
+      return Promise.resolve();
     },
   };
 }

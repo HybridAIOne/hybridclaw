@@ -141,7 +141,7 @@ function resolveCliVersion(): string {
   return cachedAppVersion;
 }
 
-async function ensureConfigApi(): Promise<ConfigApi> {
+function ensureConfigApi(): Promise<ConfigApi> {
   return configApiState.ensure();
 }
 

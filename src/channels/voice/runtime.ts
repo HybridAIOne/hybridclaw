@@ -586,14 +586,12 @@ function handleWebSocketConnection(ws: WebSocket, remoteIp: string): void {
     logger.debug({ error, callSid, remoteIp }, 'Voice relay websocket error');
   });
 }
-export async function initVoice(
-  messageHandler: VoiceMessageHandler,
-): Promise<void> {
+export function initVoice(messageHandler: VoiceMessageHandler): Promise<void> {
   voiceMessageHandler = messageHandler;
   draining = false;
   sessionStore.updateLimits(getConfigSnapshot().voice.maxConcurrentCalls);
   if (runtimeInitialized) {
-    return;
+    return Promise.resolve();
   }
   runtimeInitialized = true;
   websocketServer.removeAllListeners();
@@ -606,6 +604,7 @@ export async function initVoice(
   websocketServer.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     handleWebSocketConnection(ws, resolveRemoteIp(req));
   });
+  return Promise.resolve();
 }
 
 export async function handleVoiceWebhook(

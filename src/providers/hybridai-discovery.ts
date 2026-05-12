@@ -389,7 +389,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
 
 const defaultHybridAIDiscoveryStore = createHybridAIDiscoveryStore();
 
-export async function discoverHybridAIModels(opts?: {
+export function discoverHybridAIModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
   return defaultHybridAIDiscoveryStore.discoverModels(opts);

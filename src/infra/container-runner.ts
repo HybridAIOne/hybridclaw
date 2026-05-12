@@ -994,7 +994,7 @@ function getOrSpawnContainer(
 /**
  * Send a request to a persistent container and wait for the response.
  */
-export async function runContainer(
+export function runContainer(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
   return withSpan(

@@ -92,7 +92,7 @@ function parseProposalOutput(text: string): {
   };
 }
 
-async function resolveCogneeRuntime(agentId: string, skillName: string) {
+function resolveCogneeRuntime(agentId: string, skillName: string) {
   const sessionId = adaptiveSkillsSessionId(skillName);
   const session = memoryService.getOrCreateSession(
     sessionId,
@@ -248,7 +248,7 @@ export function requireAmendmentInStatus(input: {
   return { ok: true, amendment };
 }
 
-export async function applyAmendment(input: {
+export function applyAmendment(input: {
   amendmentId: number;
   reviewedBy: string;
 }): Promise<{ ok: boolean; reason?: string }> {
@@ -258,16 +258,16 @@ export async function applyAmendment(input: {
     failureReason: 'Only staged amendments can be applied.',
   });
   if (!required.ok) {
-    return required;
+    return Promise.resolve(required);
   }
   const { amendment } = required;
 
   const currentContent = fs.readFileSync(amendment.skill_file_path, 'utf-8');
   if (sha256(currentContent) !== amendment.original_content_hash) {
-    return {
+    return Promise.resolve({
       ok: false,
       reason: 'Skill file changed since the amendment was proposed.',
-    };
+    });
   }
 
   fs.writeFileSync(
@@ -292,7 +292,7 @@ export async function applyAmendment(input: {
       reviewedBy: input.reviewedBy,
     },
   });
-  return { ok: true };
+  return Promise.resolve({ ok: true });
 }
 
 export function rejectAmendment(input: {

@@ -51,7 +51,7 @@ function isRetryableSignalError(error: unknown): boolean {
   return classifyGatewayError(text) === 'transient';
 }
 
-async function withSignalTransportRetry<T>(
+function withSignalTransportRetry<T>(
   label: string,
   run: () => Promise<T>,
   options?: {

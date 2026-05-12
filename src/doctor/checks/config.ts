@@ -133,14 +133,15 @@ function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
     `${unused.length} enabled ${unused.length === 1 ? 'tool or toolset' : 'tools or toolsets'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable individual tools with \`hybridclaw tool enable <name>\`.`,
     {
       summary: `Disable unused tools: ${displayNames.join(', ')}`,
-      apply: async () => {
+      apply: () => {
         updateRuntimeConfig((draft) => {
           for (const toolName of toolNames) {
             setRuntimeToolEnabled(draft, toolName, false);
           }
         });
+        return Promise.resolve();
       },
-      rollback: async () => {
+      rollback: () => {
         updateRuntimeConfig((draft) => {
           for (const toolName of toolNames) {
             setRuntimeToolEnabled(
@@ -150,6 +151,7 @@ function buildUnusedToolsResult(usage: ToolUsageSummary[]): DiagResult | null {
             );
           }
         });
+        return Promise.resolve();
       },
     },
   );
@@ -215,15 +217,16 @@ function buildUnusedMcpServersResult(
     `${unused.length} enabled MCP server${unused.length === 1 ? '' : 's'} unused in the last ${DEFAULT_UNUSED_WINDOW_DAYS} days: ${formatUnusedEntries(unused)}. Re-enable with \`hybridclaw gateway mcp toggle <name>\`.`,
     {
       summary: `Disable unused MCP servers: ${serverNames.join(', ')}`,
-      apply: async () => {
+      apply: () => {
         updateRuntimeConfig((draft) => {
           for (const serverName of serverNames) {
             const entry = draft.mcpServers[serverName];
             if (entry) entry.enabled = false;
           }
         });
+        return Promise.resolve();
       },
-      rollback: async () => {
+      rollback: () => {
         updateRuntimeConfig((draft) => {
           for (const serverName of serverNames) {
             const entry = draft.mcpServers[serverName];
@@ -231,6 +234,7 @@ function buildUnusedMcpServersResult(
             entry.enabled = previousEnabled.get(serverName) !== false;
           }
         });
+        return Promise.resolve();
       },
     },
   );
@@ -332,44 +336,45 @@ function getDeploymentConfigIssues(rawConfig: Record<string, unknown>): {
   return { missingFields, invalidFields };
 }
 
-export async function checkConfigFile(): Promise<DiagResult[]> {
+export function checkConfigFile(): Promise<DiagResult[]> {
   const filePath = runtimeConfigPath();
   const displayPath = shortenHomePath(filePath);
 
   if (!fs.existsSync(filePath)) {
-    return [
+    return Promise.resolve([
       makeResult('config', 'Config', 'error', `${displayPath} is missing`, {
         summary: `Create ${displayPath}`,
-        apply: async () => {
+        apply: () => {
           ensureRuntimeConfigFile();
+          return Promise.resolve();
         },
       }),
-    ];
+    ]);
   }
 
   let raw: unknown;
   try {
     raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'config',
         'Config',
         'error',
         `${displayPath} is not valid JSON (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return [
+    return Promise.resolve([
       makeResult(
         'config',
         'Config',
         'error',
         `${displayPath} must contain a top-level object`,
       ),
-    ];
+    ]);
   }
 
   const rawConfig = raw as Record<string, unknown>;
@@ -393,9 +398,9 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     ]
       .filter(Boolean)
       .join('; ');
-    return [
+    return Promise.resolve([
       makeResult('config', 'Config', 'error', `${displayPath} ${detail}`),
-    ];
+    ]);
   }
 
   const version =
@@ -418,7 +423,7 @@ export async function checkConfigFile(): Promise<DiagResult[]> {
     ),
   ];
 
-  return results;
+  return Promise.resolve(results);
 }
 
 export async function checkConfig(): Promise<DiagResult[]> {

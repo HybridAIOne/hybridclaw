@@ -28,7 +28,7 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
     discoveredAtMs = opts?.skipCache ? 0 : Date.now();
   };
 
-  const discover = async (
+  const discover = (
     fetchFreshState: () => Promise<T>,
     opts?: {
       force?: boolean | undefined;
@@ -40,7 +40,7 @@ export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
       discoveredAtMs > 0 &&
       Date.now() - discoveredAtMs < ttlMs
     ) {
-      return state;
+      return Promise.resolve(state);
     }
     if (discoveryInFlight) return discoveryInFlight;
     const staleState = state;

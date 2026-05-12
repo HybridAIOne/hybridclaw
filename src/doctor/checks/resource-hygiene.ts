@@ -154,10 +154,11 @@ function buildCleanupFix(params: {
   return {
     summary: params.summary,
     requiresApproval: params.requiresApproval === true,
-    apply: async () => {
+    apply: () => {
       for (const candidate of params.candidates) {
         removeCleanupPath(candidate.path);
       }
+      return Promise.resolve();
     },
   };
 }
@@ -591,7 +592,7 @@ function formatCleanupMessage(params: {
   return parts.join(', ');
 }
 
-export async function checkStaleWorkspaces(
+export function checkStaleWorkspaces(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   const configuredWorkspaceIds = new Set(
@@ -604,28 +605,28 @@ export async function checkStaleWorkspaces(
   );
 
   if (potentialCandidates.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Stale workspaces',
         'ok',
         `No orphaned workspace directories older than ${formatAge(STALE_WORKSPACE_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   let snapshot: SessionDatabaseSnapshot;
   try {
     snapshot = ctx.getSnapshot();
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Stale workspaces',
         'error',
         `Cannot verify orphaned workspaces without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const activeWorkspaceIds = new Set(
@@ -638,14 +639,14 @@ export async function checkStaleWorkspaces(
   );
 
   if (staleCandidates.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Stale workspaces',
         'ok',
         'No orphaned workspace directories outside configured agents and active sessions',
       ),
-    ];
+    ]);
   }
 
   const { freeBytes, critical } = ctx.getDiskState();
@@ -701,26 +702,26 @@ export async function checkStaleWorkspaces(
     );
   }
 
-  return results;
+  return Promise.resolve(results);
 }
 
-export async function checkOldTempMedia(
+export function checkOldTempMedia(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   const candidates = listManagedTempMediaCandidates();
   if (candidates.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Old temp media',
         'ok',
         `No managed temp media older than ${formatAge(TEMP_MEDIA_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   const { freeBytes, critical } = ctx.getDiskState();
-  return [
+  return Promise.resolve([
     makeResult(
       'disk',
       'Old temp media',
@@ -738,26 +739,26 @@ export async function checkOldTempMedia(
         requiresApproval: critical,
       }),
     ),
-  ];
+  ]);
 }
 
-export async function checkOldRunLogs(
+export function checkOldRunLogs(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   const candidates = listFinishedEvalRunCandidates();
   if (candidates.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Old run logs',
         'ok',
         `No finished run logs older than ${formatAge(RUN_LOG_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   const { freeBytes, critical } = ctx.getDiskState();
-  return [
+  return Promise.resolve([
     makeResult(
       'disk',
       'Old run logs',
@@ -775,48 +776,48 @@ export async function checkOldRunLogs(
         requiresApproval: critical,
       }),
     ),
-  ];
+  ]);
 }
 
-export async function checkSessionCompactionBacklog(
+export function checkSessionCompactionBacklog(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   if (!SESSION_COMPACTION_ENABLED) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Session compaction backlog',
         'ok',
         'Automatic session compaction is disabled in runtime config',
       ),
-    ];
+    ]);
   }
 
   let snapshot: SessionDatabaseSnapshot;
   try {
     snapshot = ctx.getSnapshot();
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Session compaction backlog',
         'error',
         `Cannot inspect session backlog without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const nowMs = Date.now();
 
   if (SESSION_COMPACTION_THRESHOLD < 20) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Session compaction backlog',
         'warn',
         `SESSION_COMPACTION_THRESHOLD is ${SESSION_COMPACTION_THRESHOLD} (minimum is 20) — skipping compaction backlog check`,
       ),
-    ];
+    ]);
   }
 
   const threshold = SESSION_COMPACTION_THRESHOLD;
@@ -830,14 +831,14 @@ export async function checkSessionCompactionBacklog(
     .sort((left, right) => right.messageCount - left.messageCount);
 
   if (backlog.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Session compaction backlog',
         'ok',
         `No idle sessions exceed the ${threshold}-message compaction threshold`,
       ),
-    ];
+    ]);
   }
 
   const oldestBacklogSession = backlog.reduce<SessionSnapshot | null>(
@@ -856,7 +857,7 @@ export async function checkSessionCompactionBacklog(
   );
 
   const { freeBytes, critical } = ctx.getDiskState();
-  return [
+  return Promise.resolve([
     makeResult(
       'database',
       'Session compaction backlog',
@@ -893,37 +894,37 @@ export async function checkSessionCompactionBacklog(
         },
       },
     ),
-  ];
+  ]);
 }
 
-export async function checkOrphanedExports(
+export function checkOrphanedExports(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   const exportCandidates = listPotentialOrphanedExportCandidates();
 
   if (exportCandidates.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Orphaned exports',
         'ok',
         `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   let snapshot: SessionDatabaseSnapshot;
   try {
     snapshot = ctx.getSnapshot();
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Orphaned exports',
         'error',
         `Cannot verify export ownership without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const orphanedShells = exportCandidates.filter((candidate) => {
@@ -932,19 +933,19 @@ export async function checkOrphanedExports(
   });
 
   if (orphanedShells.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Orphaned exports',
         'ok',
         `No orphaned session exports older than ${formatAge(ORPHANED_EXPORT_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   const orphanedExports = resolveExportCandidateSizes(orphanedShells);
   const { freeBytes, critical } = ctx.getDiskState();
-  return [
+  return Promise.resolve([
     makeResult(
       'disk',
       'Orphaned exports',
@@ -962,27 +963,27 @@ export async function checkOrphanedExports(
         requiresApproval: critical,
       }),
     ),
-  ];
+  ]);
 }
 
-export async function checkStalePromptDump(
+export function checkStalePromptDump(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   const promptDumpCandidate = readPromptDumpCandidate();
 
   if (!promptDumpCandidate) {
-    return [
+    return Promise.resolve([
       makeResult(
         'disk',
         'Prompt dump',
         'ok',
         `No prompt dump older than ${formatAge(PROMPT_DUMP_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   const { freeBytes, critical } = ctx.getDiskState();
-  return [
+  return Promise.resolve([
     makeResult(
       'disk',
       'Prompt dump',
@@ -1000,24 +1001,24 @@ export async function checkStalePromptDump(
         requiresApproval: critical,
       }),
     ),
-  ];
+  ]);
 }
 
-export async function checkEmptySessions(
+export function checkEmptySessions(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   let snapshot: SessionDatabaseSnapshot;
   try {
     snapshot = ctx.getSnapshot();
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Empty sessions',
         'error',
         `Cannot inspect sessions without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const nowMs = Date.now();
@@ -1028,14 +1029,14 @@ export async function checkEmptySessions(
   );
 
   if (stale.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Empty sessions',
         'ok',
         `No empty sessions older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   const oldestSession = stale.reduce<EmptySessionSnapshot | null>(
@@ -1053,7 +1054,7 @@ export async function checkEmptySessions(
     null,
   );
 
-  return [
+  return Promise.resolve([
     makeResult(
       'database',
       'Empty sessions',
@@ -1069,31 +1070,32 @@ export async function checkEmptySessions(
       {
         summary: `Delete ${stale.length} empty ${pluralize(stale.length, 'session', 'sessions')}`,
         requiresApproval: false,
-        apply: async () => {
+        apply: () => {
           for (const session of stale) {
             deleteSessionData(session.id);
           }
+          return Promise.resolve();
         },
       },
     ),
-  ];
+  ]);
 }
 
-export async function checkEphemeralEvalArtifacts(
+export function checkEphemeralEvalArtifacts(
   ctx: HygieneRunContext = new HygieneRunContext(),
 ): Promise<DiagResult[]> {
   let snapshot: SessionDatabaseSnapshot;
   try {
     snapshot = ctx.getSnapshot();
   } catch (error) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Ephemeral eval artifacts',
         'error',
         `Cannot inspect eval sessions without ${shortenHomePath(DB_PATH)} (${toErrorMessage(error)})`,
       ),
-    ];
+    ]);
   }
 
   const nowMs = Date.now();
@@ -1105,14 +1107,14 @@ export async function checkEphemeralEvalArtifacts(
   const directoryCandidates = listEphemeralEvalDirectoryCandidates(nowMs);
 
   if (staleSessions.length === 0 && directoryCandidates.length === 0) {
-    return [
+    return Promise.resolve([
       makeResult(
         'database',
         'Ephemeral eval artifacts',
         'ok',
         `No eval/locomo sessions or directories older than ${formatAge(EMPTY_SESSION_MAX_AGE_MS)}`,
       ),
-    ];
+    ]);
   }
 
   const oldestSession =
@@ -1139,7 +1141,7 @@ export async function checkEphemeralEvalArtifacts(
     oldestDirectoryAgeMs,
   );
 
-  return [
+  return Promise.resolve([
     makeResult(
       'database',
       'Ephemeral eval artifacts',
@@ -1154,15 +1156,16 @@ export async function checkEphemeralEvalArtifacts(
       {
         summary: `Delete ${staleSessions.length} eval/locomo ${pluralize(staleSessions.length, 'session', 'sessions')} and ${directoryCandidates.length} matching ${pluralize(directoryCandidates.length, 'directory', 'directories')}`,
         requiresApproval: false,
-        apply: async () => {
+        apply: () => {
           deleteEphemeralEvalSessionData(staleSessions);
           for (const candidate of directoryCandidates) {
             removeCleanupPath(candidate.path);
           }
+          return Promise.resolve();
         },
       },
     ),
-  ];
+  ]);
 }
 
 export function resourceHygieneDoctorChecks(): DoctorCheck[] {

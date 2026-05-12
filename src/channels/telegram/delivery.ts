@@ -82,7 +82,7 @@ function isRetryableTelegramError(error: unknown): boolean {
   return classifyGatewayError(text) === 'transient';
 }
 
-async function withTelegramTransportRetry<T>(
+function withTelegramTransportRetry<T>(
   label: string,
   run: () => Promise<T>,
   options?: {

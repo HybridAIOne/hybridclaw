@@ -1458,7 +1458,7 @@ async function fetchHeaderLinkedMessagesAcrossFolders(
   return collected;
 }
 
-export async function fetchLiveAdminEmailMailbox(
+export function fetchLiveAdminEmailMailbox(
   config: RuntimeEmailConfig,
   password: string,
 ): Promise<LiveAdminEmailMailboxSnapshot> {
@@ -1493,7 +1493,7 @@ export async function fetchLiveAdminEmailMailbox(
   });
 }
 
-export async function fetchLiveAdminEmailFolder(
+export function fetchLiveAdminEmailFolder(
   config: RuntimeEmailConfig,
   password: string,
   params: {
@@ -1576,7 +1576,7 @@ export async function fetchLiveAdminEmailFolder(
   });
 }
 
-export async function fetchLiveAdminEmailMessage(
+export function fetchLiveAdminEmailMessage(
   config: RuntimeEmailConfig,
   password: string,
   params: {
@@ -1691,7 +1691,7 @@ export async function fetchLiveAdminEmailMessage(
   });
 }
 
-export async function deleteLiveAdminEmailMessage(
+export function deleteLiveAdminEmailMessage(
   config: RuntimeEmailConfig,
   password: string,
   params: {

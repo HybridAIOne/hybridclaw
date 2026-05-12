@@ -1,7 +1,7 @@
 import type { DiagResult } from '../types.js';
 import { makeResult, runVersionCommand } from '../utils.js';
 
-export async function checkRuntime(): Promise<DiagResult[]> {
+export function checkRuntime(): Promise<DiagResult[]> {
   const nodeMajor = Number.parseInt(
     process.versions.node.split('.')[0] || '0',
     10,
@@ -13,5 +13,7 @@ export async function checkRuntime(): Promise<DiagResult[]> {
   const messageParts = [`Node.js v${process.versions.node}`];
   messageParts.push(npmVersion ? `npm ${npmVersion}` : 'npm missing');
   messageParts.push(pnpmVersion ? `pnpm ${pnpmVersion}` : 'pnpm missing');
-  return [makeResult('runtime', 'Runtime', severity, messageParts.join(', '))];
+  return Promise.resolve([
+    makeResult('runtime', 'Runtime', severity, messageParts.join(', ')),
+  ]);
 }

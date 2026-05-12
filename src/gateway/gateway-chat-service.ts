@@ -317,7 +317,7 @@ function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
   };
 }
 
-export async function handleGatewayMessage(
+export function handleGatewayMessage(
   req: GatewayChatRequest,
 ): Promise<GatewayChatResult> {
   return withSpan(

@@ -304,6 +304,7 @@ export function renderTuiApprovalPromptLines(params: {
   return lines;
 }
 
+// biome-ignore lint/suspicious/useAwait: callers rely on Promise rejection semantics for thrown errors.
 export async function promptTuiApprovalSelection(params: {
   rl: readline.Interface;
   approval: Pick<TuiApprovalDetails, 'approvalId' | 'intent' | 'reason'>;
@@ -322,7 +323,7 @@ export async function promptTuiApprovalSelection(params: {
   }
 
   if (!output.isTTY || !originalTtyWrite) {
-    return undefined;
+    return Promise.resolve(undefined);
   }
 
   const savedLine = internal.line;

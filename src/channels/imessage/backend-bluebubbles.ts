@@ -388,8 +388,9 @@ export function createBlueBubblesIMessageBackend(
       sendWebhookJson(res, 200, { ok: true });
       return true;
     },
-    async shutdown(): Promise<void> {
+    shutdown(): Promise<void> {
       validatedBaseUrl = null;
+      return Promise.resolve();
     },
   };
 }

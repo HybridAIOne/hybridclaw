@@ -2344,7 +2344,7 @@ async function evaluateSample(params: {
   };
 }
 
-async function evaluateRetrievalSample(params: {
+function evaluateRetrievalSample(params: {
   sample: LocomoSample;
   budgetTokens: number;
   categories: Map<number, LocomoCategoryRunningAggregate>;
@@ -2435,7 +2435,7 @@ async function evaluateRetrievalSample(params: {
   }
 
   const questionCount = qaPredictions.length;
-  return {
+  return Promise.resolve({
     sampleId: params.sample.sample_id,
     questionCount,
     meanScore: roundMetric(
@@ -2449,7 +2449,7 @@ async function evaluateRetrievalSample(params: {
       ) / Math.max(questionCount, 1),
     ),
     qa: qaPredictions,
-  };
+  });
 }
 
 function recallLocomoRetrievalMemories(params: {

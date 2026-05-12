@@ -225,7 +225,7 @@ export function createAnthropicDiscoveryStore(): AnthropicDiscoveryStore {
 
 const defaultAnthropicDiscoveryStore = createAnthropicDiscoveryStore();
 
-export async function discoverAnthropicModels(opts?: {
+export function discoverAnthropicModels(opts?: {
   force?: boolean;
 }): Promise<string[]> {
   return defaultAnthropicDiscoveryStore.discoverModels(opts);

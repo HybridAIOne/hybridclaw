@@ -120,9 +120,7 @@ function buildMiddlewareToolExecution(params: {
   };
 }
 
-export async function runAgent(
-  params: ExecutorRequest,
-): Promise<ContainerOutput> {
+export function runAgent(params: ExecutorRequest): Promise<ContainerOutput> {
   return withSpan(
     'hybridclaw.agent.run',
     {

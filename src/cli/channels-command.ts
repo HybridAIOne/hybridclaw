@@ -1849,7 +1849,7 @@ async function configureTelegramChannel(args: string[]): Promise<void> {
   }
 }
 
-async function configureSignalChannel(args: string[]): Promise<void> {
+function configureSignalChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseSignalSetupArgs(args);
   const currentConfig = getRuntimeConfig().signal;
@@ -1927,9 +1927,10 @@ async function configureSignalChannel(args: string[]): Promise<void> {
       '  Rerun with --allow-from <+E164|uuid> or --dm-policy open to allow inbound DMs',
     );
   }
+  return Promise.resolve();
 }
 
-async function configureThreemaChannel(args: string[]): Promise<void> {
+function configureThreemaChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseThreemaSetupArgs(args);
   const currentConfig = getRuntimeConfig().threema;
@@ -2011,6 +2012,7 @@ async function configureThreemaChannel(args: string[]): Promise<void> {
   console.log(
     '  Send with: message {"action":"send","to":"threema:<id>","content":"message text"}',
   );
+  return Promise.resolve();
 }
 
 async function configureIMessageChannel(args: string[]): Promise<void> {

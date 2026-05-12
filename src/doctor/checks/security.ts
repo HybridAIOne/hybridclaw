@@ -22,7 +22,7 @@ function checkWritablePath(targetPath: string): boolean {
   }
 }
 
-export async function checkSecurity(): Promise<DiagResult[]> {
+export function checkSecurity(): Promise<DiagResult[]> {
   const config = getRuntimeConfig();
   const trustAccepted = isSecurityTrustAccepted(config);
   const instructionIntegrity = verifyInstructionIntegrity();
@@ -68,13 +68,14 @@ export async function checkSecurity(): Promise<DiagResult[]> {
     integrityHasMissing && !integrityHasModified && !integrityHasSourceGap
       ? {
           summary: 'Restore missing runtime instruction copies',
-          apply: async () => {
+          apply: () => {
             syncRuntimeInstructionCopies();
+            return Promise.resolve();
           },
         }
       : undefined;
 
-  return [
+  return Promise.resolve([
     makeResult(
       'security',
       'Security',
@@ -82,5 +83,5 @@ export async function checkSecurity(): Promise<DiagResult[]> {
       messageParts.join(', '),
       safeSyncFix,
     ),
-  ];
+  ]);
 }

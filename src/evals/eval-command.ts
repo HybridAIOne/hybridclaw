@@ -2943,11 +2943,12 @@ function writeRunMeta(metaPath: string, meta: EvalRunMeta): void {
   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
 }
 
-async function waitForImmediateExit(
+function waitForImmediateExit(
   child: ReturnType<typeof spawn>,
   timeoutMs: number,
 ): Promise<{ code: number | null; signal: NodeJS.Signals | null } | null> {
-  if (timeoutMs <= 0 || typeof child.on !== 'function') return null;
+  if (timeoutMs <= 0 || typeof child.on !== 'function')
+    return Promise.resolve(null);
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -3357,7 +3358,7 @@ function renderTau2Results(dataDir: string): GatewayCommandResult {
   );
 }
 
-async function handleTau2Setup(params: {
+function handleTau2Setup(params: {
   dataDir: string;
   env: EvalEnvironment;
   channelId?: string | undefined;
@@ -3367,15 +3368,17 @@ async function handleTau2Setup(params: {
     (meta) => isTau2RunMeta(meta, 'setup') && isRunMetaActive(meta),
   );
   if (activeSetup) {
-    return infoResult(
-      'tau2 Setup Running',
-      [
-        `Run ID: ${activeSetup.runId}`,
-        `PID: ${activeSetup.pid ?? 'unknown'}`,
-        'A detached tau2 setup is already running.',
-        'Use `/eval tau2 status` to check state.',
-        'Use `/eval tau2 results` to inspect setup logs.',
-      ].join('\n'),
+    return Promise.resolve(
+      infoResult(
+        'tau2 Setup Running',
+        [
+          `Run ID: ${activeSetup.runId}`,
+          `PID: ${activeSetup.pid ?? 'unknown'}`,
+          'A detached tau2 setup is already running.',
+          'Use `/eval tau2 status` to check state.',
+          'Use `/eval tau2 results` to inspect setup logs.',
+        ].join('\n'),
+      ),
     );
   }
   const setupSpec = getTau2SetupSpec(params.dataDir);
@@ -3400,7 +3403,7 @@ async function handleTau2Setup(params: {
   });
 }
 
-async function handleTau2Run(params: {
+function handleTau2Run(params: {
   dataDir: string;
   env: EvalEnvironment;
   channelId?: string | undefined;
@@ -3411,20 +3414,24 @@ async function handleTau2Run(params: {
       isTau2RunMeta(meta, 'setup'),
     );
     if (latestSetup && isRunMetaActive(latestSetup)) {
-      return errorResult(
-        'tau2 Setup Running',
-        [
-          'tau2 setup is still running.',
-          'Wait for `/eval tau2 status` to show setup finished, then run tau2 again.',
-          'Use `/eval tau2 results` to inspect the setup logs.',
-        ].join('\n'),
+      return Promise.resolve(
+        errorResult(
+          'tau2 Setup Running',
+          [
+            'tau2 setup is still running.',
+            'Wait for `/eval tau2 status` to show setup finished, then run tau2 again.',
+            'Use `/eval tau2 results` to inspect the setup logs.',
+          ].join('\n'),
+        ),
       );
     }
-    return errorResult(
-      'tau2 Setup Required',
-      latestSetup
-        ? 'tau2 is not installed. The last setup job did not complete successfully. Check `/eval tau2 results`, then rerun `/eval tau2 setup`.'
-        : 'tau2 is not installed yet. Run `/eval tau2 setup` first.',
+    return Promise.resolve(
+      errorResult(
+        'tau2 Setup Required',
+        latestSetup
+          ? 'tau2 is not installed. The last setup job did not complete successfully. Check `/eval tau2 results`, then rerun `/eval tau2 setup`.'
+          : 'tau2 is not installed yet. Run `/eval tau2 setup` first.',
+      ),
     );
   }
   const prepared = prepareEvalRun(['tau2', 'run', ...params.args]);
@@ -4238,26 +4245,30 @@ function renderManagedSuiteLogs(
   );
 }
 
-async function handleManagedSuiteSetup(params: {
+function handleManagedSuiteSetup(params: {
   suite: EvalSuiteDefinition;
   dataDir: string;
   env: EvalEnvironment;
   channelId?: string | undefined;
 }): Promise<GatewayCommandResult> {
   if (params.suite.id === 'trace-judge') {
-    return infoResult(
-      `${params.suite.title} Setup`,
-      [
-        'No setup is required for the packaged trace-judge dataset.',
-        'Run `/eval trace-judge run` for the deterministic gate or `/eval trace-judge run --live --model <judge-model>` for a live judge measurement.',
-      ].join('\n'),
+    return Promise.resolve(
+      infoResult(
+        `${params.suite.title} Setup`,
+        [
+          'No setup is required for the packaged trace-judge dataset.',
+          'Run `/eval trace-judge run` for the deterministic gate or `/eval trace-judge run --live --model <judge-model>` for a live judge measurement.',
+        ].join('\n'),
+      ),
     );
   }
   const managed = getManagedSuiteSetup(params.suite);
   if (!managed) {
-    return errorResult(
-      `${params.suite.title} Setup`,
-      `Managed setup is not available for ${params.suite.title}.`,
+    return Promise.resolve(
+      errorResult(
+        `${params.suite.title} Setup`,
+        `Managed setup is not available for ${params.suite.title}.`,
+      ),
     );
   }
   const activeSetup = findLatestEvalRun(
@@ -4268,15 +4279,17 @@ async function handleManagedSuiteSetup(params: {
       isRunMetaActive(meta),
   );
   if (activeSetup) {
-    return infoResult(
-      `${params.suite.title} Setup Running`,
-      [
-        `Run ID: ${activeSetup.runId}`,
-        `PID: ${activeSetup.pid ?? 'unknown'}`,
-        'A detached setup job is already running.',
-        `Use \`/eval ${params.suite.id} status\` to check state.`,
-        `Use \`/eval ${params.suite.id} results\` to inspect setup logs.`,
-      ].join('\n'),
+    return Promise.resolve(
+      infoResult(
+        `${params.suite.title} Setup Running`,
+        [
+          `Run ID: ${activeSetup.runId}`,
+          `PID: ${activeSetup.pid ?? 'unknown'}`,
+          'A detached setup job is already running.',
+          `Use \`/eval ${params.suite.id} status\` to check state.`,
+          `Use \`/eval ${params.suite.id} results\` to inspect setup logs.`,
+        ].join('\n'),
+      ),
     );
   }
   if (params.suite.id === 'terminal-bench-2.0') {

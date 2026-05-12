@@ -93,6 +93,7 @@ function assertSecretName(secretName: string): void {
   }
 }
 
+// biome-ignore lint/suspicious/useAwait: exported CLI handler whose Promise<void> contract is consumed by async-aware dispatcher; many early returns make rewriting impractical.
 export async function handleSecretCommand(args: string[]): Promise<void> {
   const normalized = normalizeArgs(args);
   if (normalized.length === 0 || isHelpRequest(normalized)) {

@@ -60,7 +60,7 @@ export interface NgrokTunnelProviderOptions {
   loadNgrok?: () => Promise<NgrokClient>;
 }
 
-async function loadDefaultNgrok(): Promise<NgrokClient> {
+function loadDefaultNgrok(): Promise<NgrokClient> {
   return import('@ngrok/ngrok');
 }
 

@@ -72,7 +72,7 @@ async function requestJson<T>(pathname: string, init: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export async function gatewayCommand(
+export function gatewayCommand(
   params: GatewayCommandRequest,
 ): Promise<GatewayCommandResult> {
   return requestJson<GatewayCommandResult>('/api/command', {
@@ -85,7 +85,7 @@ export async function gatewayCommand(
   });
 }
 
-export async function gatewayChat(
+export function gatewayChat(
   params: GatewayChatRequest,
   signal?: AbortSignal,
 ): Promise<GatewayChatResult> {
@@ -100,7 +100,7 @@ export async function gatewayChat(
   });
 }
 
-export async function gatewayUploadMedia(params: {
+export function gatewayUploadMedia(params: {
   filename: string;
   body: ArrayBuffer | Blob | Buffer;
   mimeType?: string | null;
@@ -276,25 +276,25 @@ function createResponseParser(
   };
 }
 
-export async function gatewayStatus(): Promise<GatewayStatus> {
+export function gatewayStatus(): Promise<GatewayStatus> {
   return requestJson<GatewayStatus>('/api/status', {
     method: 'GET',
     headers: authHeaders(),
   });
 }
 
-export async function gatewayHealth(): Promise<GatewayStatus> {
+export function gatewayHealth(): Promise<GatewayStatus> {
   return requestJson<GatewayStatus>('/health', { method: 'GET' });
 }
 
-export async function fetchGatewayAdminSkills(): Promise<GatewayAdminSkillsResponse> {
+export function fetchGatewayAdminSkills(): Promise<GatewayAdminSkillsResponse> {
   return requestJson<GatewayAdminSkillsResponse>('/api/admin/skills', {
     method: 'GET',
     headers: authHeaders(),
   });
 }
 
-export async function saveGatewayAdminSkillEnabled(params: {
+export function saveGatewayAdminSkillEnabled(params: {
   name: string;
   enabled: boolean;
   channel?: SkillConfigChannelKind | undefined;
@@ -309,7 +309,7 @@ export async function saveGatewayAdminSkillEnabled(params: {
   });
 }
 
-export async function gatewayPullProactive(
+export function gatewayPullProactive(
   channelId: string,
   limit = 20,
 ): Promise<GatewayProactivePullResponse> {
@@ -326,7 +326,7 @@ export async function gatewayPullProactive(
   );
 }
 
-export async function gatewayHistory(
+export function gatewayHistory(
   sessionId: string,
   limit = 100,
   options?: {
@@ -353,7 +353,7 @@ export async function gatewayHistory(
   );
 }
 
-export async function gatewayShutdown(): Promise<{
+export function gatewayShutdown(): Promise<{
   status: string;
   message?: string;
 }> {

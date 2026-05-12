@@ -60,11 +60,11 @@ export function createOpenAICompatRemoteProvider(
 ): AIProvider {
   const matchesModel = createModelMatcher(def.prefix);
 
-  async function resolveRuntimeCredentials(
+  function resolveRuntimeCredentials(
     params: ResolveProviderRuntimeParams,
   ): Promise<ResolvedModelRuntimeCredentials> {
     const agentId = normalizeAgentId(params.agentId);
-    return {
+    return Promise.resolve({
       provider: def.id,
       model: params.model,
       apiKey: def.readApiKey({ required: true }),
@@ -74,7 +74,7 @@ export function createOpenAICompatRemoteProvider(
       requestHeaders: {},
       agentId,
       isLocal: false,
-    };
+    });
   }
 
   return {

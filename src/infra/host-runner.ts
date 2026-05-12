@@ -855,7 +855,7 @@ export function stopSessionHostProcess(sessionId: string): boolean {
   return true;
 }
 
-export async function runHostProcess(
+export function runHostProcess(
   params: ExecutorRequest,
 ): Promise<ContainerOutput> {
   return withSpan(
