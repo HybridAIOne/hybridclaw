@@ -13,18 +13,21 @@ const MAX_MAP_LIMIT = 100_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 4_000_000;
 
+const COMMAND_ALIASES = new Map([
+  ['scrape', 'scrape.url'],
+  ['crawl', 'crawl.site'],
+  ['map', 'map.site'],
+  ['extract', 'extract.structured'],
+]);
+
 const COMMANDS = new Set([
   'scrape.url',
-  'scrape',
   'crawl.site',
-  'crawl',
   'crawl.status',
   'crawl.cancel',
   'crawl.active',
   'map.site',
-  'map',
   'extract.structured',
-  'extract',
   'extract.status',
 ]);
 
@@ -159,7 +162,7 @@ function parseArgs(argv) {
         opts.zeroDataRetention = true;
         break;
       case '--limit':
-        opts.limit = readValue();
+        opts.limit = parseInteger(readValue(), '--limit', 1, MAX_MAP_LIMIT);
         break;
       case '--include-path':
         opts.includePaths.push(readValue());
@@ -242,33 +245,22 @@ function parseInteger(value, label, min, max) {
   return parsed;
 }
 
-function normalizeTargetUrl(value) {
-  if (!value) fail('--url is required.');
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    fail('--url must be a valid http(s) URL.');
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    fail('--url must use http or https.');
-  }
-  if (parsed.username || parsed.password) {
-    fail('--url must not contain embedded credentials.');
-  }
-  return parsed.toString();
-}
-
-function normalizeTargetUrlPattern(value) {
+function normalizeTargetUrl(value, { allowGlob = false } = {}) {
   if (!value) fail('--url is required.');
   const normalized = String(value).trim();
   if (!normalized) fail('--url is required.');
+  const urlToParse = allowGlob
+    ? normalized.replace(/[*{].*$/u, '') || normalized
+    : normalized;
   let parsed;
   try {
-    const withoutGlob = normalized.replace(/[*{].*$/u, '');
-    parsed = new URL(withoutGlob || normalized);
+    parsed = new URL(urlToParse);
   } catch {
-    fail('--url must be a valid http(s) URL or URL glob.');
+    fail(
+      allowGlob
+        ? '--url must be a valid http(s) URL or URL glob.'
+        : '--url must be a valid http(s) URL.',
+    );
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     fail('--url must use http or https.');
@@ -276,7 +268,7 @@ function normalizeTargetUrlPattern(value) {
   if (parsed.username || parsed.password) {
     fail('--url must not contain embedded credentials.');
   }
-  return normalized;
+  return allowGlob ? normalized : parsed.toString();
 }
 
 function normalizeJobId(value, label = '--id') {
@@ -328,16 +320,14 @@ function normalizeFormatNames(opts, defaultFormats) {
   return normalized;
 }
 
-function extractionFormat(opts, schema) {
-  const format = { type: 'json', schema };
-  if (opts.prompt) format.prompt = opts.prompt;
-  if (opts.systemPrompt) format.systemPrompt = opts.systemPrompt;
-  return format;
-}
-
 function scrapeOptions(opts, schema, defaults = ['markdown']) {
   const formats = normalizeFormatNames(opts, defaults);
-  if (schema) formats.push(extractionFormat(opts, schema));
+  if (schema) {
+    const format = { type: 'json', schema };
+    if (opts.prompt) format.prompt = opts.prompt;
+    if (opts.systemPrompt) format.systemPrompt = opts.systemPrompt;
+    formats.push(format);
+  }
   const body = {
     formats,
     onlyMainContent: opts.onlyMainContent !== false,
@@ -365,7 +355,7 @@ function buildRequest(command, opts) {
     if (!schema) {
       fail('extract.structured requires --schema-json or --schema-file.');
     }
-    const targetUrl = normalizeTargetUrlPattern(opts.url);
+    const targetUrl = normalizeTargetUrl(opts.url, { allowGlob: true });
     path = '/extract';
     json = {
       urls: [targetUrl],
@@ -448,9 +438,6 @@ function buildRequest(command, opts) {
     command: 'http-request',
     adapter: 'firecrawl-managed',
     operation,
-    credential: {
-      bearerSecretName: SECRET_NAME,
-    },
     httpRequest: {
       url: `${baseUrl}${path}`,
       method,
@@ -459,23 +446,19 @@ function buildRequest(command, opts) {
       timeoutMs: opts.timeoutMs,
       maxResponseBytes: opts.maxResponseBytes,
     },
-    costMeasurement: {
-      system: 'UsageTotals',
-      subLimitKey: 'firecrawl',
-    },
   };
   if (json !== undefined) {
     result.httpRequest.json = json;
+    result.costMeasurement = {
+      system: 'UsageTotals',
+      subLimitKey: 'firecrawl',
+    };
   }
   return result;
 }
 
 function normalizeCommand(command) {
-  if (command === 'scrape') return 'scrape.url';
-  if (command === 'crawl') return 'crawl.site';
-  if (command === 'map') return 'map.site';
-  if (command === 'extract') return 'extract.structured';
-  return command;
+  return COMMAND_ALIASES.get(command) || command;
 }
 
 function main(argv = process.argv.slice(2)) {
@@ -488,7 +471,7 @@ function main(argv = process.argv.slice(2)) {
     fail('--format must be json or pretty.');
   }
   const mode = positional[0];
-  const command = positional[1];
+  const command = normalizeCommand(positional[1]);
   if (mode !== 'http-request') {
     fail('Expected command mode: http-request.');
   }

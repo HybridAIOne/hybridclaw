@@ -93,7 +93,28 @@ test('Firecrawl helper emits gateway-proxied scrape requests without secrets', (
       },
     },
   });
+  expect(payload).not.toHaveProperty('credential');
+  expect(payload.costMeasurement).toEqual({
+    system: 'UsageTotals',
+    subLimitKey: 'firecrawl',
+  });
   expect(result.stdout).not.toContain('fc-');
+});
+
+test('Firecrawl helper normalizes short operation aliases', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'map',
+    '--url',
+    'https://example.com',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.operation).toBe('map.site');
+  expect(payload.httpRequest.url).toBe('https://api.firecrawl.dev/v2/map');
 });
 
 test('Firecrawl helper emits conservative crawl requests and respects robots.txt', () => {
@@ -229,27 +250,35 @@ test('Firecrawl helper emits crawl and extract lifecycle requests', () => {
   ]);
 
   expect(crawlStatus.status).toBe(0);
-  expect(JSON.parse(crawlStatus.stdout).httpRequest).toMatchObject({
+  const crawlStatusPayload = JSON.parse(crawlStatus.stdout);
+  expect(crawlStatusPayload.httpRequest).toMatchObject({
     url: 'https://api.firecrawl.dev/v2/crawl/crawl_123',
     method: 'GET',
     bearerSecretName: 'FIRECRAWL_API_KEY',
   });
-  expect(JSON.parse(crawlStatus.stdout).httpRequest).not.toHaveProperty('json');
+  expect(crawlStatusPayload.httpRequest).not.toHaveProperty('json');
+  expect(crawlStatusPayload).not.toHaveProperty('costMeasurement');
   expect(crawlCancel.status).toBe(0);
-  expect(JSON.parse(crawlCancel.stdout).httpRequest).toMatchObject({
+  const crawlCancelPayload = JSON.parse(crawlCancel.stdout);
+  expect(crawlCancelPayload.httpRequest).toMatchObject({
     url: 'https://api.firecrawl.dev/v2/crawl/crawl_123',
     method: 'DELETE',
   });
+  expect(crawlCancelPayload).not.toHaveProperty('costMeasurement');
   expect(activeCrawls.status).toBe(0);
-  expect(JSON.parse(activeCrawls.stdout).httpRequest).toMatchObject({
+  const activeCrawlsPayload = JSON.parse(activeCrawls.stdout);
+  expect(activeCrawlsPayload.httpRequest).toMatchObject({
     url: 'https://api.firecrawl.dev/v2/crawl/active',
     method: 'GET',
   });
+  expect(activeCrawlsPayload).not.toHaveProperty('costMeasurement');
   expect(extractStatus.status).toBe(0);
-  expect(JSON.parse(extractStatus.stdout).httpRequest).toMatchObject({
+  const extractStatusPayload = JSON.parse(extractStatus.stdout);
+  expect(extractStatusPayload.httpRequest).toMatchObject({
     url: 'https://api.firecrawl.dev/v2/extract/extract_123',
     method: 'GET',
   });
+  expect(extractStatusPayload).not.toHaveProperty('costMeasurement');
 });
 
 test('Firecrawl helper rejects unsafe or oversized crawl requests', () => {
@@ -267,6 +296,14 @@ test('Firecrawl helper rejects unsafe or oversized crawl requests', () => {
     'https://example.com',
     '--limit',
     '10001',
+  ]);
+  const oversizedMapLimit = runHelper([
+    'http-request',
+    'map.site',
+    '--url',
+    'https://example.com',
+    '--limit',
+    '100001',
   ]);
   const credentialUrl = runHelper([
     'http-request',
@@ -287,6 +324,10 @@ test('Firecrawl helper rejects unsafe or oversized crawl requests', () => {
   expect(ignoreRobots.stderr).toContain('--ignore-robots-txt');
   expect(tooManyPages.status).not.toBe(0);
   expect(tooManyPages.stderr).toContain('--limit must be between 1 and 10000.');
+  expect(oversizedMapLimit.status).not.toBe(0);
+  expect(oversizedMapLimit.stderr).toContain(
+    '--limit must be between 1 and 100000.',
+  );
   expect(credentialUrl.status).not.toBe(0);
   expect(credentialUrl.stderr).toContain(
     '--url must not contain embedded credentials.',
