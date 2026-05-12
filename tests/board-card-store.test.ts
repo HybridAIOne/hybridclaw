@@ -251,11 +251,22 @@ describe.sequential('board card store', () => {
     });
   });
 
-  test('emits F2-shaped board events to subscribers and structured audit', async () => {
+  test('emits board mutations through F2 runtime events and structured audit', async () => {
     const { boardModule, dbModule } = await loadBoardStore();
-    const received: unknown[] = [];
-    const unsubscribe = boardModule.subscribeBoardCardEvents((event) => {
-      received.push(event);
+    const { subscribeRuntimeEvents, subscribeSkillRunEvents } = await import(
+      '../src/skills/skill-run-events.js'
+    );
+    const runtimeEvents: unknown[] = [];
+    const boardEvents: unknown[] = [];
+    const skillRunEvents: unknown[] = [];
+    const unsubscribeRuntime = subscribeRuntimeEvents((event) => {
+      runtimeEvents.push(event);
+    });
+    const unsubscribeBoard = boardModule.subscribeBoardCardEvents((event) => {
+      boardEvents.push(event);
+    });
+    const unsubscribeSkillRun = subscribeSkillRunEvents((event) => {
+      skillRunEvents.push(event);
     });
 
     boardModule.createCard(
@@ -271,10 +282,12 @@ describe.sequential('board card store', () => {
         runId: 'board-event-run',
       },
     );
-    unsubscribe();
+    unsubscribeRuntime();
+    unsubscribeBoard();
+    unsubscribeSkillRun();
 
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
+    expect(runtimeEvents).toHaveLength(1);
+    expect(runtimeEvents[0]).toMatchObject({
       type: 'board.card_created',
       actor: { userId: 'user_a' },
       cardId: 'card-event',
@@ -283,6 +296,8 @@ describe.sequential('board card store', () => {
         source: { before: null, after: 'a2a/envelope-1' },
       },
     });
+    expect(boardEvents).toEqual(runtimeEvents);
+    expect(skillRunEvents).toHaveLength(0);
 
     const audit = dbModule.getRecentStructuredAuditForSession(
       'board-event-session',

@@ -14,6 +14,11 @@ import {
   withMemoryDatabase,
   withMemoryDatabaseRuntimeRevisionStore,
 } from '../memory/db.js';
+import {
+  emitRuntimeEvent,
+  subscribeRuntimeEvents,
+  type RuntimeEventPayload,
+} from '../skills/skill-run-events.js';
 
 export const BOARD_CARD_COLUMNS = [
   'triage',
@@ -128,15 +133,23 @@ interface PersistedBoardCardState {
 
 export type BoardCardSubscriber = (event: BoardCardMutationEvent) => unknown;
 
-const subscribers = new Set<BoardCardSubscriber>();
+function isBoardCardMutationEvent(
+  event: RuntimeEventPayload,
+): event is BoardCardMutationEvent {
+  return (
+    event.type === 'board.card_created' ||
+    event.type === 'board.card_updated' ||
+    event.type === 'board.card_deleted'
+  );
+}
 
 export function subscribeBoardCardEvents(
   subscriber: BoardCardSubscriber,
 ): () => void {
-  subscribers.add(subscriber);
-  return () => {
-    subscribers.delete(subscriber);
-  };
+  return subscribeRuntimeEvents((event) => {
+    if (!isBoardCardMutationEvent(event)) return;
+    subscriber(event);
+  });
 }
 
 function boardCardAssetPath(id: string): string {
@@ -349,13 +362,7 @@ function emitBoardCardEvent(
   event: BoardCardMutationEvent,
   context?: BoardCardMutationContext,
 ): void {
-  for (const subscriber of subscribers) {
-    try {
-      subscriber(event);
-    } catch {
-      // Subscribers are best-effort; structured audit is the durable stream.
-    }
-  }
+  emitRuntimeEvent(event);
   recordAuditEvent({
     sessionId: context?.sessionId?.trim() || 'board',
     runId: context?.runId?.trim() || makeAuditRunId('board-card'),
