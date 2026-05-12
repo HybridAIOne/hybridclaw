@@ -212,6 +212,16 @@ test('delegation batch queues status updates and a synthesized final answer for 
       ),
     ).toBe(true);
   });
+  await vi.waitFor(() => {
+    const messages = listQueuedProactiveMessages(100).filter(
+      (message) => message.channel_id === 'tui',
+    );
+    expect(
+      messages.some((message) =>
+        message.text.includes('2 delegate jobs finished'),
+      ),
+    ).toBe(true);
+  });
 
   const messages = claimQueuedProactiveMessages('tui', 100);
   expect(messages.length).toBeGreaterThanOrEqual(3);
