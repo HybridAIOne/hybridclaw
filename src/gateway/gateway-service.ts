@@ -11,6 +11,11 @@ import {
 } from '../../container/shared/workspace-time.js';
 import type { A2AAgentCard } from '../a2a/a2a-json-rpc.js';
 import {
+  type A2AThreadSummary,
+  listA2AThreadEnvelopes,
+  listA2AThreads,
+} from '../a2a/store.js';
+import {
   type BuildLocalA2AAgentCardOptions,
   buildLocalA2AAgentCard,
   deleteA2ATrustedPublicKeyPeer,
@@ -438,6 +443,9 @@ import {
   reconnectGatewayAdminTunnel,
 } from './gateway-tunnel-service.js';
 import {
+  type GatewayAdminA2AInboxResponse,
+  type GatewayAdminA2AThreadMessage,
+  type GatewayAdminA2AThreadSummary,
   type GatewayAdminA2ATrustPeer,
   type GatewayAdminA2ATrustResponse,
   type GatewayAdminA2ATrustUpsertRequest,
@@ -4993,6 +5001,85 @@ export function deleteGatewayAdminA2ATrustPeer(params: {
 }): GatewayAdminA2ATrustResponse {
   deleteA2ATrustedPublicKeyPeer(params.peerId);
   return getGatewayAdminA2ATrust();
+}
+
+function mapA2AThreadMessage(
+  envelope: ReturnType<typeof listA2AThreadEnvelopes>[number],
+): GatewayAdminA2AThreadMessage {
+  return {
+    id: envelope.id,
+    threadId: envelope.thread_id,
+    senderAgentId: envelope.sender_agent_id,
+    recipientAgentId: envelope.recipient_agent_id,
+    parentMessageId: envelope.parent_message_id ?? null,
+    intent: envelope.intent,
+    content: envelope.content,
+    createdAt: envelope.created_at,
+  };
+}
+
+function compareA2AThreadEnvelopes(
+  left: ReturnType<typeof listA2AThreadEnvelopes>[number],
+  right: ReturnType<typeof listA2AThreadEnvelopes>[number],
+): number {
+  const createdAtOrder = left.created_at.localeCompare(right.created_at);
+  if (createdAtOrder !== 0) return createdAtOrder;
+  return left.id.localeCompare(right.id);
+}
+
+function mapA2AThreadSummary(
+  thread: A2AThreadSummary,
+): GatewayAdminA2AThreadSummary {
+  return {
+    id: thread.thread_id,
+    messageCount: thread.message_count,
+    participants: thread.participants,
+    latestMessage:
+      thread.latest_message_id &&
+      thread.latest_sender_agent_id &&
+      thread.latest_recipient_agent_id &&
+      thread.latest_intent &&
+      thread.latest_created_at
+        ? {
+            id: thread.latest_message_id,
+            threadId: thread.thread_id,
+            senderAgentId: thread.latest_sender_agent_id,
+            recipientAgentId: thread.latest_recipient_agent_id,
+            parentMessageId: thread.latest_parent_message_id,
+            intent: thread.latest_intent,
+            content: thread.latest_content ?? '',
+            createdAt: thread.latest_created_at,
+          }
+        : null,
+  };
+}
+
+export function getGatewayAdminA2AInbox(params?: {
+  threadId?: string | null;
+}): GatewayAdminA2AInboxResponse {
+  const threadSummaries = listA2AThreads();
+  const threads = threadSummaries.map(mapA2AThreadSummary);
+  const requestedThreadId = params?.threadId?.trim() || null;
+  const selectedThreadId = requestedThreadId || threads[0]?.id || null;
+
+  if (
+    requestedThreadId &&
+    !threads.some((thread) => thread.id === requestedThreadId)
+  ) {
+    throw new GatewayRequestError(404, 'A2A thread not found.');
+  }
+
+  const messages = selectedThreadId
+    ? listA2AThreadEnvelopes(selectedThreadId)
+        .sort(compareA2AThreadEnvelopes)
+        .map(mapA2AThreadMessage)
+    : [];
+
+  return {
+    threads,
+    selectedThreadId,
+    messages,
+  };
 }
 
 export function getGatewayA2AAgentCard(

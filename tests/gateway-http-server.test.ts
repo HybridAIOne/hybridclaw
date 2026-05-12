@@ -880,6 +880,40 @@ async function importFreshHealth(options?: {
     targetFolder: 'Trash',
     permanent: false,
   }));
+  const getGatewayAdminA2AInbox = vi.fn(
+    (params?: { threadId?: string | null }) => ({
+      threads: [
+        {
+          id: 'thread-b',
+          messageCount: 1,
+          participants: ['writer@team@local-dev', 'main@team@local-dev'],
+          latestMessage: {
+            id: 'msg-b',
+            threadId: 'thread-b',
+            senderAgentId: 'writer@team@local-dev',
+            recipientAgentId: 'main@team@local-dev',
+            parentMessageId: null,
+            intent: 'handoff' as const,
+            content: 'Newest handoff.',
+            createdAt: '2026-05-01T10:00:00.000Z',
+          },
+        },
+      ],
+      selectedThreadId: params?.threadId || 'thread-b',
+      messages: [
+        {
+          id: 'msg-b',
+          threadId: params?.threadId || 'thread-b',
+          senderAgentId: 'writer@team@local-dev',
+          recipientAgentId: 'main@team@local-dev',
+          parentMessageId: null,
+          intent: 'handoff' as const,
+          content: 'Newest handoff.',
+          createdAt: '2026-05-01T10:00:00.000Z',
+        },
+      ],
+    }),
+  );
   const getGatewayAdminPlugins = vi.fn(async () => ({
     totals: {
       totalPlugins: 2,
@@ -1643,6 +1677,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminAgentMarkdownFile,
     getGatewayAdminAgentMarkdownRevision,
     getGatewayAdminApprovals,
+    getGatewayAdminA2AInbox,
     getGatewayAdminAudit,
     getGatewayAdminChannels,
     getGatewayAdminConfig,
@@ -1782,6 +1817,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminTeamStructure,
     getGatewayAdminTeamStructureRevision,
     getGatewayAdminApprovals,
+    getGatewayAdminA2AInbox,
     saveGatewayAdminPolicyDefault,
     applyGatewayAdminPolicyPreset,
     saveGatewayAdminPolicyRule,
@@ -4574,6 +4610,27 @@ describe('gateway HTTP server', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).rangeDays).toBe(90);
+  });
+
+  test('returns read-only admin A2A inbox threads and selected messages', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/a2a/inbox?threadId=thread-b',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminA2AInbox).toHaveBeenCalledWith({
+      threadId: 'thread-b',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      selectedThreadId: 'thread-b',
+      threads: [{ id: 'thread-b', messageCount: 1 }],
+      messages: [{ id: 'msg-b', threadId: 'thread-b' }],
+    });
   });
 
   test('returns live admin email mailbox metadata for authorized API requests', async () => {

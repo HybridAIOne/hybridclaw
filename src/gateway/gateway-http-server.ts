@@ -154,6 +154,7 @@ import {
   deleteGatewayAdminSession,
   ensureGatewayBootstrapAutostart,
   getGatewayA2AAgentCard,
+  getGatewayAdminA2AInbox,
   getGatewayAdminA2ATrust,
   getGatewayAdminAgentMarkdownFile,
   getGatewayAdminAgentMarkdownRevision,
@@ -3050,6 +3051,21 @@ async function handleApiAdminA2ATrust(
   }
 }
 
+function handleApiAdminA2AInbox(res: ServerResponse, url: URL): void {
+  const threadId = (url.searchParams.get('threadId') || '').trim() || null;
+  try {
+    sendJson(res, 200, getGatewayAdminA2AInbox({ threadId }));
+  } catch (error) {
+    sendJson(
+      res,
+      error instanceof GatewayRequestError ? error.statusCode : 400,
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
+}
+
 async function handleApiAdminSignalLink(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4656,6 +4672,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'DELETE')
           ) {
             await handleApiAdminA2ATrust(req, res, url);
+            return;
+          }
+          if (pathname === '/api/admin/a2a/inbox' && method === 'GET') {
+            handleApiAdminA2AInbox(res, url);
             return;
           }
           if (
