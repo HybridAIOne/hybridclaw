@@ -26,6 +26,7 @@ export const RUNTIME_REVISION_ASSET_TYPES = [
   'team',
   'pending_approval',
   'suspended_session',
+  'board_card',
 ] as const;
 
 export type RuntimeRevisionAssetType =
