@@ -1,0 +1,91 @@
+[
+  {
+    "id": "list-bases",
+    "category": "schema-read",
+    "request": "Show the Airtable bases I can access",
+    "expected": {
+      "operation": "schema-read",
+      "stakesTier": "green",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "inspect-table-schema",
+    "category": "schema-read",
+    "request": "Inspect the CRM base table schema before creating records",
+    "expected": {
+      "operation": "schema-read",
+      "stakesTier": "green",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "search-records",
+    "category": "record-read",
+    "request": "Find active customer records in the pipeline table",
+    "expected": {
+      "operation": "record-read",
+      "stakesTier": "green",
+      "requiresEscalation": false,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "read-formula-field",
+    "category": "computed-read",
+    "request": "Read the formula field for total contract value",
+    "expected": {
+      "operation": "record-read",
+      "stakesTier": "green",
+      "requiresEscalation": false,
+      "computedFieldRead": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "create-record",
+    "category": "record-write",
+    "request": "Create a new lead record in Airtable",
+    "expected": {
+      "operation": "record-create",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "update-status",
+    "category": "record-write",
+    "request": "Update the status field on this Airtable task",
+    "expected": {
+      "operation": "record-update",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "attach-file",
+    "category": "record-write",
+    "request": "Attach the signed PDF to this Airtable record",
+    "expected": {
+      "operation": "attachment-update",
+      "stakesTier": "amber",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  },
+  {
+    "id": "delete-record",
+    "category": "destructive-write",
+    "request": "Delete the stale Airtable record",
+    "expected": {
+      "operation": "record-delete",
+      "stakesTier": "red",
+      "requiresEscalation": true,
+      "costSystem": "UsageTotals"
+    }
+  }
+]

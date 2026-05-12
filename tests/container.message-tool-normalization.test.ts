@@ -6,6 +6,7 @@ import {
   getMessageToolDescription,
   setGatewayContext,
   setSessionContext,
+  TOOL_DEFINITIONS,
 } from '../container/src/tools.js';
 
 const CHANNEL_ID = '1475079601968648386';
@@ -320,18 +321,32 @@ describe.sequential('container message tool normalization', () => {
     expect(payload.filePath).toBe('package.json');
   });
 
-  test('message tool description does not treat WhatsApp chat as a Discord channel', () => {
+  test('message tool description does not advertise inactive WhatsApp', () => {
     setGatewayContext(
       'http://gateway.local',
       'token',
       '491234567890@s.whatsapp.net',
     );
 
-    const description = getMessageToolDescription();
+    const description = getMessageToolDescription(undefined, []);
     expect(description).not.toContain('491234567890@s.whatsapp.net');
-    expect(description).toContain('Supports actions:');
-    expect(description).toContain('WhatsApp');
-    expect(description).toContain('ingested email thread history');
+    expect(description).toContain('Active channels: none.');
+    expect(description).not.toContain('WhatsApp');
+    expect(description).not.toContain('ingested email thread history');
+  });
+
+  test('message tool schema keeps channel descriptions generic', () => {
+    const messageTool = TOOL_DEFINITIONS.find(
+      (tool) => tool.function.name === 'message',
+    );
+    const schemaText = JSON.stringify(messageTool?.function ?? {});
+
+    expect(schemaText).toContain(
+      'Message target or channel selector for send/read actions.',
+    );
+    expect(schemaText).not.toContain('WhatsApp JIDs');
+    expect(schemaText).not.toContain('email addresses');
+    expect(schemaText).not.toContain('Discord-only');
   });
 
   test('message tool description advertises current Teams send support', () => {
@@ -342,10 +357,11 @@ describe.sequential('container message tool normalization', () => {
     );
     setSessionContext('teams:dm:user-aad-id');
 
-    const description = getMessageToolDescription();
+    const description = getMessageToolDescription(undefined, ['msteams']);
     expect(description).toContain(
       'Current Teams conversation (a:teams-current-conversation) supports: send.',
     );
+    expect(description).toContain('Active channels: Microsoft Teams.');
     expect(description).toContain('current Teams conversation for send');
   });
 
@@ -356,8 +372,9 @@ describe.sequential('container message tool normalization', () => {
       otherChannelId,
     ]);
 
-    const description = getMessageToolDescription(CHANNEL_ID);
+    const description = getMessageToolDescription(CHANNEL_ID, ['discord']);
     expect(description).toContain(`Current Discord channel (${CHANNEL_ID})`);
+    expect(description).toContain('Active channels: Discord.');
     expect(description).toContain(
       `Other configured channels: ${otherChannelId} (`,
     );

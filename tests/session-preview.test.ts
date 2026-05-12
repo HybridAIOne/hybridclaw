@@ -3,6 +3,8 @@ import { expect, test } from 'vitest';
 import {
   buildSessionBoundaryPreview,
   buildSessionConversationPreview,
+  buildSessionSearchSnippet,
+  shouldIncludeSessionSearchSnippet,
   trimSessionPreviewText,
 } from '../src/session/session-preview.ts';
 
@@ -32,6 +34,26 @@ test('buildSessionBoundaryPreview collapses identical first and last snippets', 
       lastMessage: 'Same boundary message',
     }),
   ).toBe('"Same boundary message"');
+});
+
+test('shouldIncludeSessionSearchSnippet ignores edge ellipses when the title already shows the text', () => {
+  expect(
+    shouldIncludeSessionSearchSnippet(
+      '"Review deployment rollback planning notes"',
+      '...deployment rollback planning notes...',
+    ),
+  ).toBe(false);
+});
+
+test('buildSessionSearchSnippet clamps the final decorated snippet to maxLength', () => {
+  const snippet = buildSessionSearchSnippet(
+    'Intro words before deployment rollback guidance with extra trailing context that pushes the decorated snippet over the requested limit.',
+    'deployment rollback guidance',
+    28,
+  );
+
+  expect(snippet).not.toBeNull();
+  expect(snippet?.length).toBeLessThanOrEqual(28);
 });
 
 test('buildSessionConversationPreview returns the latest user and assistant snippets', () => {

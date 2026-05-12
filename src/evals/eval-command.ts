@@ -16,10 +16,15 @@ import { normalizeMemoryRecallBackend } from '../memory/semantic-recall.js';
 import {
   buildDefaultEvalProfile,
   describeEvalProfile,
+  EVAL_MODEL_PROFILE_MARKER,
   type EvalProfile,
   encodeEvalProfileModel,
   isKnownEvalPromptPart,
 } from './eval-profile.js';
+import {
+  handleHybridaiSkillsCommand,
+  isHybridaiSkillsAlias,
+} from './hybridai-skills-command.js';
 import type {
   LocomoAgentMode,
   LocomoCategoryAggregate as LocomoNativeCategoryAggregate,
@@ -39,10 +44,12 @@ import {
   LOCOMO_DATASET_FILENAME,
   LOCOMO_SETUP_MARKER,
 } from './locomo-types.js';
+import type { TraceJudgeCriterionMetrics } from './trace-judge-native.js';
 
 type EvalSuiteId =
   | 'swebench-verified'
   | 'locomo'
+  | 'trace-judge'
   | 'terminal-bench-2.0'
   | 'agentbench'
   | 'gaia';
@@ -69,12 +76,12 @@ interface ManagedSuiteRunPreparation {
   cwd: string;
 }
 
-interface EvalEnvironment {
+export interface EvalEnvironment {
   baseUrl: string;
   apiKey: string;
   model: string;
   baseModel: string;
-  authMode: 'web-token' | 'loopback';
+  authMode: 'web-token' | 'gateway-token';
   profile: EvalProfile;
 }
 
@@ -83,6 +90,7 @@ export interface HandleEvalCommandParams {
   dataDir: string;
   gatewayBaseUrl: string;
   webApiToken: string;
+  gatewayApiToken: string;
   effectiveModel: string;
   effectiveAgentId?: string;
   channelId?: string;
@@ -114,7 +122,7 @@ interface EvalSetupCommand {
   strategy: 'native' | 'uv' | 'system-python';
 }
 
-interface EvalRunMeta {
+export interface EvalRunMeta {
   runId: string;
   suiteId?: string;
   operation?: string;
@@ -270,6 +278,28 @@ interface LocomoNativeProgress {
   variants: LocomoNativeRetrievalVariantSummary[];
 }
 
+type TraceJudgeNativeMetric = Omit<
+  TraceJudgeCriterionMetrics,
+  'criterionType'
+> & { criterionType: string };
+
+interface TraceJudgeNativeSummary {
+  jobDir: string;
+  resultPath: string;
+  predictionsPath: string | null;
+  mode: 'offline' | 'live';
+  model: string | null;
+  datasetExamples: number;
+  minExamples: number;
+  minPrecision: number;
+  minRecall: number;
+  minF1: number;
+  passed: boolean;
+  overall: TraceJudgeNativeMetric;
+  criteria: TraceJudgeNativeMetric[];
+  failureCount: number;
+}
+
 const MAX_QUEUED_EVAL_MESSAGES = 200;
 const EVAL_PROGRESS_BAR_WIDTH = 20;
 const EVAL_PROGRESS_POLL_INTERVAL_MS = 1000;
@@ -362,6 +392,24 @@ const EVAL_SUITES: EvalSuiteDefinition[] = [
     ],
   },
   {
+    id: 'trace-judge',
+    title: 'Trace Judge',
+    summary:
+      'Native eval-the-judge suite over labeled trace, criteria, and expected-verdict examples.',
+    aliases: ['judge', 'judge-eval', 'tracejudge'],
+    prereqs: ['Node.js 22', 'configured judge model when running `--live`'],
+    starter: [
+      '/eval trace-judge run',
+      '/eval trace-judge run --live --model <judge-model>',
+      '/eval trace-judge run --criterion risk',
+    ],
+    notes: [
+      'The default offline mode is deterministic and suitable for CI gating of the judge prompt, parser, metrics, and dataset integrity.',
+      '`--live` calls the configured trace judge through the same `judgeTrace` path used by runtime features.',
+      'The suite reports macro precision, recall, and F1 for each criterion type and fails when any criterion falls below the requested thresholds.',
+    ],
+  },
+  {
     id: 'agentbench',
     title: 'AgentBench',
     summary: 'Broad multi-environment benchmark driven by YAML config.',
@@ -412,17 +460,28 @@ function buildOpenAIBaseUrl(gatewayBaseUrl: string): string {
 function buildEvalEnvironment(params: {
   gatewayBaseUrl: string;
   webApiToken: string;
+  gatewayApiToken: string;
   effectiveModel: string;
   profile: EvalProfile;
 }): EvalEnvironment {
-  const token = params.webApiToken.trim();
+  const webToken = params.webApiToken.trim();
+  const gatewayToken = params.gatewayApiToken.trim();
+  const token = webToken || gatewayToken;
+  if (!token) {
+    throw new Error(
+      'Eval requires WEB_API_TOKEN or GATEWAY_API_TOKEN for the local OpenAI-compatible gateway.',
+    );
+  }
   const baseModel = params.effectiveModel.trim() || 'hybridai/gpt-4.1-mini';
+  const profiledModel = encodeEvalProfileModel(baseModel, params.profile);
   return {
     baseUrl: buildOpenAIBaseUrl(params.gatewayBaseUrl),
-    apiKey: token || 'hybridclaw-local',
-    model: encodeEvalProfileModel(baseModel, params.profile),
+    apiKey: token,
+    model: profiledModel.includes(EVAL_MODEL_PROFILE_MARKER)
+      ? profiledModel
+      : `${profiledModel}${EVAL_MODEL_PROFILE_MARKER}current-agent`,
     baseModel,
-    authMode: token ? 'web-token' : 'loopback',
+    authMode: webToken ? 'web-token' : 'gateway-token',
     profile: params.profile,
   };
 }
@@ -430,7 +489,7 @@ function buildEvalEnvironment(params: {
 function describeAuthMode(env: EvalEnvironment): string {
   return env.authMode === 'web-token'
     ? 'WEB_API_TOKEN injected automatically'
-    : 'loopback auth with a dummy API key injected automatically';
+    : 'GATEWAY_API_TOKEN injected automatically';
 }
 
 function normalizeSuiteId(value: string): string {
@@ -468,7 +527,11 @@ function renderSuiteList(): string[] {
 }
 
 function isImplementedManagedSuite(suite: EvalSuiteDefinition): boolean {
-  return suite.id === 'terminal-bench-2.0' || suite.id === 'locomo';
+  return (
+    suite.id === 'terminal-bench-2.0' ||
+    suite.id === 'locomo' ||
+    suite.id === 'trace-judge'
+  );
 }
 
 function renderUnimplementedSuite(
@@ -490,6 +553,7 @@ function renderUnimplementedSuite(
     '',
     'Implemented suites today:',
     '- `/eval locomo ...`',
+    '- `/eval trace-judge ...`',
     '- `/eval terminal-bench-2.0 ...`',
     '- `/eval tau2 ...`',
   ].join('\n');
@@ -503,8 +567,10 @@ function renderUsage(env: EvalEnvironment): string {
     '- `/eval list`',
     '- `/eval env [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval locomo [setup|run|status|stop|results|logs]`',
+    '- `/eval trace-judge [run|status|stop|results|logs]`',
     '- `/eval terminal-bench-2.0 [setup|run|status|stop|results|logs]`',
     '- `/eval tau2 [setup|run|status|stop|results]`',
+    '- `/eval hybridai-skills [setup|list|run|results]`',
     '- `/eval <suite> [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>]`',
     '- `/eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <shell command...>`',
     '',
@@ -519,11 +585,11 @@ function renderUsage(env: EvalEnvironment): string {
     'Suites:',
     ...renderSuiteList(),
     '',
-    'Only `locomo`, `terminal-bench-2.0`, and `tau2` are implemented today.',
+    'Only `locomo`, `trace-judge`, `terminal-bench-2.0`, `tau2`, and `hybridai-skills` are implemented today.',
   ].join('\n');
 }
 
-function renderKeyValueSection(
+export function renderKeyValueSection(
   title: string,
   entries: Array<readonly [string, string | number | null | undefined]>,
 ): string {
@@ -570,7 +636,7 @@ const ANSI_RESET = '\x1b[0m';
 const ANSI_METRIC_VALUE = '\x1b[93m';
 const ANSI_BEST_VALUE = '\x1b[30;103m';
 
-function stripAnsi(value: string): string {
+export function stripAnsi(value: string): string {
   let output = '';
   for (let index = 0; index < value.length; ) {
     if (value.charCodeAt(index) === 27 && value[index + 1] === '[') {
@@ -652,7 +718,9 @@ function renderSectionCard(title: string, lines: string[]): string {
   return [topBorder, ...middle, bottomBorder].join('\n');
 }
 
-function joinSections(sections: Array<string | null | undefined>): string {
+export function joinSections(
+  sections: Array<string | null | undefined>,
+): string {
   return sections
     .map((section) => String(section || '').trim())
     .filter(Boolean)
@@ -672,7 +740,7 @@ function readVersionFromPackageJson(packageJsonPath: string): string | null {
   return null;
 }
 
-function resolveHarnessVersion(): string {
+export function resolveHarnessVersion(): string {
   if (cachedHarnessVersion) return cachedHarnessVersion;
   const envVersion = process.env.npm_package_version;
   if (envVersion?.trim()) {
@@ -747,6 +815,8 @@ function getManagedSuiteRunExample(suite: EvalSuiteDefinition): string {
   switch (suite.id) {
     case 'locomo':
       return '/eval locomo run --budget 4000 --max-questions 20';
+    case 'trace-judge':
+      return '/eval trace-judge run';
     case 'terminal-bench-2.0':
       return '/eval terminal-bench-2.0 run --num-tasks 10';
     default:
@@ -894,6 +964,7 @@ function isManagedSuiteInstalled(
   suite: EvalSuiteDefinition,
   dataDir: string,
 ): boolean {
+  if (suite.id === 'trace-judge') return true;
   if (suite.id === 'locomo') {
     return (
       fs.existsSync(getManagedSuiteMarkerPath(suite, dataDir)) &&
@@ -1021,6 +1092,9 @@ function getManagedSuiteNextStep(
     case 'locomo': {
       return '/eval locomo run --budget 4000 --max-questions 20';
     }
+    case 'trace-judge': {
+      return '/eval trace-judge run';
+    }
     case 'terminal-bench-2.0': {
       return `/eval terminal-bench-2.0 run --num-tasks 10`;
     }
@@ -1029,7 +1103,10 @@ function getManagedSuiteNextStep(
   }
 }
 
-function buildInternalEvalCommand(commandName: string, args: string[]): string {
+export function buildInternalEvalCommand(
+  commandName: string,
+  args: string[],
+): string {
   const commandArgs =
     resolveInternalEvalLauncherCommandArgs().map(quoteShellArg);
 
@@ -1147,6 +1224,14 @@ function prepareManagedSuiteRun(
       cwd: dataDir,
     };
   }
+  if (suite.id === 'trace-judge') {
+    return {
+      commandArgs: ['trace-judge', 'run', ...args],
+      command: buildInternalEvalCommand('__eval-trace-judge-native', args),
+      displayCommand: buildCommandString([suite.id, 'run', ...args]),
+      cwd: getEvalBaseDir(dataDir),
+    };
+  }
   if (suite.id !== 'terminal-bench-2.0') return null;
   ensureTerminalBenchDatasetHelper(dataDir);
 
@@ -1228,7 +1313,7 @@ function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function tailLines(text: string, maxLines: number): string {
+export function tailLines(text: string, maxLines: number): string {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -1290,7 +1375,7 @@ function formatTerminalBenchTokenUsage(
   return null;
 }
 
-function listEvalRunMetas(dataDir: string): EvalRunMeta[] {
+export function listEvalRunMetas(dataDir: string): EvalRunMeta[] {
   const baseDir = getEvalBaseDir(dataDir);
   if (!fs.existsSync(baseDir)) return [];
   const metas: EvalRunMeta[] = [];
@@ -1324,7 +1409,7 @@ function findEvalRunMetaPath(dataDir: string, runId: string): string | null {
   return null;
 }
 
-function isRunMetaActive(meta: EvalRunMeta): boolean {
+export function isRunMetaActive(meta: EvalRunMeta): boolean {
   if (meta.finishedAt) return false;
   return isProcessRunning(meta.pid);
 }
@@ -1333,7 +1418,7 @@ function readRunMetaStatus(meta: EvalRunMeta): 'running' | 'exited' {
   return isRunMetaActive(meta) ? 'running' : 'exited';
 }
 
-function findLatestEvalRun(
+export function findLatestEvalRun(
   dataDir: string,
   predicate: (meta: EvalRunMeta) => boolean,
 ): EvalRunMeta | null {
@@ -2022,6 +2107,71 @@ function readLocomoNativeSummary(
   }
 }
 
+function readTraceJudgeJobDir(meta: EvalRunMeta): string | null {
+  if (meta.suiteId !== 'trace-judge' || meta.operation !== 'run') {
+    return null;
+  }
+  return path.join(path.dirname(meta.stdoutPath), 'trace-judge');
+}
+
+function readTraceJudgeNativeSummary(
+  meta: EvalRunMeta,
+): TraceJudgeNativeSummary | null {
+  const jobDir = readTraceJudgeJobDir(meta);
+  if (!jobDir) return null;
+  const resultPath = path.join(jobDir, 'result.json');
+  try {
+    const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    const readMetric = (value: unknown): TraceJudgeNativeMetric | null => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+      }
+      const metric = value as Record<string, unknown>;
+      return {
+        criterionType: readStringValue(metric.criterionType) || 'unknown',
+        examples: readFiniteNumber(metric.examples) ?? 0,
+        correct: readFiniteNumber(metric.correct) ?? 0,
+        accuracy: readFiniteNumber(metric.accuracy) ?? 0,
+        precision: readFiniteNumber(metric.precision) ?? 0,
+        recall: readFiniteNumber(metric.recall) ?? 0,
+        f1: readFiniteNumber(metric.f1) ?? 0,
+      };
+    };
+    const criteria = Array.isArray(parsed.criteria)
+      ? parsed.criteria.map(readMetric).filter((metric) => metric !== null)
+      : [];
+    return {
+      jobDir,
+      resultPath,
+      predictionsPath: readStringValue(parsed.predictionsPath),
+      mode: parsed.mode === 'live' ? 'live' : 'offline',
+      model: readStringValue(parsed.model),
+      datasetExamples: readFiniteNumber(parsed.datasetExamples) ?? 0,
+      minExamples: readFiniteNumber(parsed.minExamples) ?? 0,
+      minPrecision: readFiniteNumber(parsed.minPrecision) ?? 0,
+      minRecall: readFiniteNumber(parsed.minRecall) ?? 0,
+      minF1: readFiniteNumber(parsed.minF1) ?? 0,
+      passed: parsed.passed === true,
+      overall: readMetric(parsed.overall) || {
+        criterionType: 'overall',
+        examples: 0,
+        correct: 0,
+        accuracy: 0,
+        precision: 0,
+        recall: 0,
+        f1: 0,
+      },
+      criteria,
+      failureCount: Array.isArray(parsed.failures) ? parsed.failures.length : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function readLocomoNativeProgress(
   meta: EvalRunMeta,
 ): LocomoNativeProgress | null {
@@ -2523,7 +2673,7 @@ function prepareEvalRun(commandArgs: string[]): EvalRunPreparation {
   };
 }
 
-function readLogFileText(filePath: string): string {
+export function readLogFileText(filePath: string): string {
   try {
     return fs.readFileSync(filePath, 'utf-8');
   } catch {
@@ -2914,7 +3064,7 @@ function startEvalProgressTracker(params: {
   interval.unref();
 }
 
-async function startDetachedEvalRun(params: {
+export async function startDetachedEvalRun(params: {
   command: string;
   commandArgs: string[];
   dataDir: string;
@@ -2930,9 +3080,14 @@ async function startDetachedEvalRun(params: {
   dataDirForNotifications?: string;
 }): Promise<GatewayCommandResult> {
   const prepared = prepareEvalRun(params.commandArgs);
-  const shellCommand = String(params.command || '').trim() || prepared.command;
   const { runId, runDir, stdoutPath, stderrPath, metaPath } =
     createRunDirectory(params.dataDir);
+  let shellCommand = String(params.command || '').trim() || prepared.command;
+  if (params.suiteId === 'trace-judge' && params.operation === 'run') {
+    shellCommand = `${shellCommand} --job-dir ${quoteShellArg(
+      path.join(runDir, 'trace-judge'),
+    )}`;
+  }
   const stdoutFd = fs.openSync(stdoutPath, 'a');
   const stderrFd = fs.openSync(stderrPath, 'a');
   const shell = resolveEvalShell();
@@ -3369,6 +3524,10 @@ function renderManagedSuiteStatus(
     suite.id === 'locomo' && latestRun
       ? readLocomoNativeProgress(latestRun)
       : null;
+  const latestTraceJudgeSummary =
+    suite.id === 'trace-judge' && latestRun
+      ? readTraceJudgeNativeSummary(latestRun)
+      : null;
   const setupFailure =
     !installed && latestSetup ? describeRunFailureReason(latestSetup) : null;
 
@@ -3400,6 +3559,17 @@ function renderManagedSuiteStatus(
           `Command: ${latestRun.displayCommand || latestRun.command}`,
           `Stdout: ${latestRun.stdoutPath}`,
           `Stderr: ${latestRun.stderrPath}`,
+          ...(latestTraceJudgeSummary
+            ? [
+                `Mode: ${latestTraceJudgeSummary.mode}`,
+                `Dataset examples: ${latestTraceJudgeSummary.datasetExamples}`,
+                `Passed gate: ${latestTraceJudgeSummary.passed ? 'yes' : 'no'}`,
+                `Overall: P ${latestTraceJudgeSummary.overall.precision.toFixed(3)} R ${latestTraceJudgeSummary.overall.recall.toFixed(3)} F1 ${latestTraceJudgeSummary.overall.f1.toFixed(3)}`,
+                `Failures: ${latestTraceJudgeSummary.failureCount}`,
+                `Predictions: ${latestTraceJudgeSummary.predictionsPath ?? 'missing'}`,
+                `Result: ${latestTraceJudgeSummary.resultPath}`,
+              ]
+            : []),
           ...(latestLocomoSummary
             ? [
                 `Mode: ${latestLocomoSummary.mode}`,
@@ -3652,6 +3822,10 @@ function renderManagedSuiteResults(
     suite.id === 'locomo' && latestJob.operation === 'run'
       ? readLocomoNativeProgress(latestJob)
       : null;
+  const traceJudgeSummary =
+    suite.id === 'trace-judge' && latestJob.operation === 'run'
+      ? readTraceJudgeNativeSummary(latestJob)
+      : null;
   if (suite.id === 'terminal-bench-2.0') {
     const overviewSection = renderKeyValueSection('Overview', [
       ['Evaluated model', latestJob.baseModel || latestJob.model],
@@ -3711,6 +3885,64 @@ function renderManagedSuiteResults(
     return infoResult(
       `${suite.title} Results`,
       joinSections([overviewSection, outcomeSection, runSection, pathsSection]),
+    );
+  }
+  if (suite.id === 'trace-judge') {
+    const overviewSection = renderKeyValueSection('Overview', [
+      ['Evaluated model', traceJudgeSummary?.model || latestJob.baseModel],
+      ['Harness', `HybridClaw v${resolveHarnessVersion()}`],
+      ['Status', describeManagedSuiteRunLifecycle(latestJob)],
+      ['Mode', traceJudgeSummary?.mode],
+      ['Dataset examples', traceJudgeSummary?.datasetExamples],
+      [
+        'Gate',
+        traceJudgeSummary
+          ? traceJudgeSummary.passed
+            ? 'passed'
+            : 'failed'
+          : null,
+      ],
+    ]);
+    const outcomeSection = renderKeyValueSection('Results', [
+      ['Precision', traceJudgeSummary?.overall.precision],
+      ['Recall', traceJudgeSummary?.overall.recall],
+      ['F1', traceJudgeSummary?.overall.f1],
+      ['Accuracy', traceJudgeSummary?.overall.accuracy],
+      [
+        'Correct',
+        traceJudgeSummary
+          ? `${traceJudgeSummary.overall.correct}/${traceJudgeSummary.overall.examples}`
+          : null,
+      ],
+      ['Failures', traceJudgeSummary?.failureCount],
+    ]);
+    const criterionSection = renderKeyValueSection(
+      'Criteria',
+      (traceJudgeSummary?.criteria || []).map((metric) => [
+        metric.criterionType,
+        `P ${metric.precision.toFixed(3)} R ${metric.recall.toFixed(3)} F1 ${metric.f1.toFixed(3)}`,
+      ]),
+    );
+    const runSection = renderKeyValueSection('Run', [
+      ['Run ID', latestJob.runId],
+      ['Command', latestJob.displayCommand || latestJob.command],
+    ]);
+    const pathsSection = renderKeyValueSection('Paths', [
+      ['Job dir', traceJudgeSummary?.jobDir],
+      ['Predictions JSON', traceJudgeSummary?.predictionsPath],
+      ['Result JSON', traceJudgeSummary?.resultPath],
+      ['Stdout', latestJob.stdoutPath],
+      ['Stderr', latestJob.stderrPath],
+    ]);
+    return infoResult(
+      `${suite.title} Results`,
+      joinSections([
+        overviewSection,
+        outcomeSection,
+        criterionSection,
+        runSection,
+        pathsSection,
+      ]),
     );
   }
   if (suite.id === 'locomo') {
@@ -4012,6 +4244,15 @@ async function handleManagedSuiteSetup(params: {
   env: EvalEnvironment;
   channelId?: string;
 }): Promise<GatewayCommandResult> {
+  if (params.suite.id === 'trace-judge') {
+    return infoResult(
+      `${params.suite.title} Setup`,
+      [
+        'No setup is required for the packaged trace-judge dataset.',
+        'Run `/eval trace-judge run` for the deterministic gate or `/eval trace-judge run --live --model <judge-model>` for a live judge measurement.',
+      ].join('\n'),
+    );
+  }
   const managed = getManagedSuiteSetup(params.suite);
   if (!managed) {
     return errorResult(
@@ -4212,6 +4453,7 @@ async function handleManagedSuiteCommand(params: {
         '',
         'Implemented suites today:',
         '- `/eval locomo ...`',
+        '- `/eval trace-judge ...`',
         '- `/eval terminal-bench-2.0 ...`',
         '- `/eval tau2 ...`',
       ].join('\n'),
@@ -4488,6 +4730,7 @@ export async function handleEvalCommand(
   const env = buildEvalEnvironment({
     gatewayBaseUrl: params.gatewayBaseUrl,
     webApiToken: params.webApiToken,
+    gatewayApiToken: params.gatewayApiToken,
     effectiveModel: params.effectiveModel,
     profile: parsed.profile,
   });
@@ -4521,6 +4764,15 @@ export async function handleEvalCommand(
         dataDir: params.dataDir,
         env,
         channelId: params.channelId,
+        subcommand: parsed.commandArgs[1],
+        args: parsed.commandArgs.slice(2),
+      });
+    }
+    if (isHybridaiSkillsAlias(parsed.commandArgs[0] || '')) {
+      return await handleHybridaiSkillsCommand({
+        dataDir: params.dataDir,
+        env,
+        workspaceModeExplicit: parsed.workspaceModeExplicit,
         subcommand: parsed.commandArgs[1],
         args: parsed.commandArgs.slice(2),
       });

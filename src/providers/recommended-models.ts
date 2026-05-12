@@ -3,7 +3,6 @@ import { resolveDiscoveredMistralModelCanonicalName } from './mistral-discovery.
 import { MISTRAL_MODEL_PREFIX } from './mistral-utils.js';
 import { OPENROUTER_MODEL_PREFIX } from './openrouter-utils.js';
 
-// User-curated shortlist for model list emphasis in the TUI.
 const HUGGINGFACE_RECOMMENDED_MODEL_IDS = [
   'Qwen/Qwen3.5-397B-A17B',
   'Qwen/Qwen3.5-35B-A3B',

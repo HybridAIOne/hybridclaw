@@ -1,0 +1,72 @@
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  outline: none;
+}
+
+.viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.scrollbar {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  right: 2px;
+  width: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: transparent;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  touch-action: none;
+  user-select: none;
+}
+
+.scrollbar[data-state="visible"] {
+  opacity: 0.6;
+}
+
+.root:hover .scrollbar[data-state="visible"],
+.scrollbar[data-state="visible"]:hover,
+.scrollbar[data-state="visible"]:focus-within {
+  opacity: 1;
+}
+
+.thumb {
+  width: 100%;
+  min-height: 20px;
+  background: color-mix(in srgb, var(--text) 26%, transparent);
+  border-radius: 999px;
+  cursor: grab;
+  transition: background 0.12s ease;
+  will-change: transform;
+}
+
+.thumb:hover {
+  background: color-mix(in srgb, var(--text) 38%, transparent);
+}
+
+.thumb:active {
+  background: color-mix(in srgb, var(--text) 48%, transparent);
+  cursor: grabbing;
+}

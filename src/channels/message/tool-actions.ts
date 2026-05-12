@@ -19,6 +19,8 @@ import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
 import { maybeRunMSTeamsToolAction } from '../msteams/tool-actions.js';
+import { sendToSignalChat } from '../signal/runtime.js';
+import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
 import {
   sendTelegramMediaToChat,
@@ -28,6 +30,8 @@ import {
   isTelegramChannelId,
   normalizeTelegramSendTargetId,
 } from '../telegram/target.js';
+import { sendToThreemaChat } from '../threema/runtime.js';
+import { normalizeThreemaChannelId } from '../threema/target.js';
 import { getWhatsAppAuthStatus } from '../whatsapp/auth.js';
 import {
   canonicalizeWhatsAppUserJid,
@@ -45,9 +49,16 @@ const MESSAGE_TOOL_READ_DEFAULT_LIMIT = 20;
 const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
 const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
+const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
 const MESSAGE_TOOL_TELEGRAM_PREFIX_RE = /^(telegram|tg):/i;
+const MESSAGE_TOOL_THREEMA_PREFIX_RE = /^threema:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
+const MESSAGE_TOOL_DISCORD_CHANNEL_MENTION_RE = /^<#\d{16,22}>$/;
+const MESSAGE_TOOL_DISCORD_PREFIXED_ID_RE =
+  /^(?:channel:|discord:|user:)\d{16,22}$/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
+const MESSAGE_TOOL_CHANNEL_INSTRUCTIONS =
+  'No message channel matched the request. Specify the channel explicitly: Signal `signal:+15551234567`, Telegram `telegram:<chatId>`, Threema `threema:<id>`/`threema:phone:<number>`/`threema:email:<address>`, WhatsApp `whatsapp:+15551234567` or a WhatsApp JID, Slack `slack:<channelId>`, email `user@example.com` or `email:user@example.com`, local `tui`, or Discord with a channel snowflake/`discord:<id>`/`<#id>`/`#name` plus `guildId`.';
 
 function resolveMessageToolSessionWorkspaceRoot(
   sessionId: string | undefined,
@@ -124,6 +135,18 @@ function normalizeTelegramMessageTarget(rawTarget: string): string | null {
   return normalizeTelegramSendTargetId(trimmed) ?? null;
 }
 
+function normalizeSignalMessageTarget(rawTarget: string): string | null {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return null;
+  return normalizeSignalChannelId(trimmed) ?? null;
+}
+
+function normalizeThreemaMessageTarget(rawTarget: string): string | null {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return null;
+  return normalizeThreemaChannelId(trimmed) ?? null;
+}
+
 function normalizeEmailMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
   if (!trimmed) return null;
@@ -131,6 +154,47 @@ function normalizeEmailMessageTarget(rawTarget: string): string | null {
     .replace(MESSAGE_TOOL_EMAIL_PREFIX_RE, '')
     .trim();
   return normalizeEmailAddress(withoutPrefix);
+}
+
+function isDiscordSessionId(value: string | undefined): boolean {
+  const trimmed = String(value || '').trim();
+  return (
+    trimmed.startsWith('discord:') || trimmed.includes(':channel:discord:')
+  );
+}
+
+function hasDiscordContext(request: DiscordToolActionRequest): boolean {
+  return Boolean(
+    String(request.guildId || '').trim() ||
+      String(request.contextChannelId || '').trim() ||
+      isDiscordSessionId(request.sessionId),
+  );
+}
+
+function isDiscordTargetSelector(
+  request: DiscordToolActionRequest,
+  rawTarget: string,
+): boolean {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return hasDiscordContext(request);
+  if (isDiscordChannelId(trimmed)) return true;
+  if (MESSAGE_TOOL_DISCORD_CHANNEL_MENTION_RE.test(trimmed)) return true;
+  if (MESSAGE_TOOL_DISCORD_PREFIXED_ID_RE.test(trimmed)) return true;
+  if (trimmed.startsWith('#')) return hasDiscordContext(request);
+  return false;
+}
+
+function shouldDelegateToDiscordToolAction(
+  request: DiscordToolActionRequest,
+): boolean {
+  const rawChannelId = String(request.channelId || '').trim();
+  if (isDiscordTargetSelector(request, rawChannelId)) return true;
+  return Boolean(
+    String(request.user || '').trim() ||
+      String(request.username || '').trim() ||
+      String(request.memberId || '').trim() ||
+      String(request.messageId || '').trim(),
+  );
 }
 
 function resolveMessageToolReadLimit(limit: number | undefined): number {
@@ -408,6 +472,62 @@ async function runTelegramMessageSendAction(
   };
 }
 
+async function runSignalMessageSendAction(
+  request: DiscordToolActionRequest,
+  channelId: string,
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  const hasFilePath = Boolean(String(request.filePath || '').trim());
+  const hasComponents = hasMessageComponents(request);
+  if (!content && !hasFilePath) {
+    throw new Error(
+      'content is required for Signal send unless filePath is provided.',
+    );
+  }
+  if (hasFilePath) {
+    throw new Error('filePath is not supported for Signal sends.');
+  }
+  if (hasComponents) {
+    throw new Error('components are not supported for Signal sends.');
+  }
+
+  await sendToSignalChat(channelId, content);
+  return {
+    ok: true,
+    action: 'send',
+    channelId,
+    transport: 'signal',
+    contentLength: content.length,
+  };
+}
+
+async function runThreemaMessageSendAction(
+  request: DiscordToolActionRequest,
+  channelId: string,
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  const hasFilePath = Boolean(String(request.filePath || '').trim());
+  const hasComponents = hasMessageComponents(request);
+  if (hasFilePath) {
+    throw new Error('filePath is not supported for Threema sends.');
+  }
+  if (!content) {
+    throw new Error('content is required for Threema sends.');
+  }
+  if (hasComponents) {
+    throw new Error('components are not supported for Threema sends.');
+  }
+
+  await sendToThreemaChat(channelId, content);
+  return {
+    ok: true,
+    action: 'send',
+    channelId,
+    transport: 'threema',
+    contentLength: content.length,
+  };
+}
+
 async function runEmailReadAction(
   request: DiscordToolActionRequest,
   params: {
@@ -518,14 +638,30 @@ export async function runMessageToolAction(
     if (emailReadTarget) {
       return await runEmailReadAction(request, emailReadTarget);
     }
-    return await runDiscordToolAction(request);
+    if (shouldDelegateToDiscordToolAction(request)) {
+      return await runDiscordToolAction(request);
+    }
+    throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
   }
 
   if (request.action !== 'send') {
-    return await runDiscordToolAction(request);
+    if (shouldDelegateToDiscordToolAction(request)) {
+      return await runDiscordToolAction(request);
+    }
+    throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
   }
 
   const rawChannelId = String(request.channelId || '').trim();
+  if (
+    rawChannelId &&
+    MESSAGE_TOOL_SIGNAL_PREFIX_RE.test(rawChannelId) &&
+    !normalizeSignalMessageTarget(rawChannelId)
+  ) {
+    throw new Error(
+      'Signal send targets must use `signal:<phone>`, `signal:<uuid>`, or `signal:group:<groupId>`.',
+    );
+  }
+
   if (
     rawChannelId &&
     MESSAGE_TOOL_TELEGRAM_PREFIX_RE.test(rawChannelId) &&
@@ -533,6 +669,16 @@ export async function runMessageToolAction(
   ) {
     throw new Error(
       'Telegram send targets must use `telegram:<numericChatId>` or `telegram:<numericChatId>:topic:<topicId>`. The `tg:` alias is also accepted and will be normalized to `telegram:`.',
+    );
+  }
+
+  if (
+    rawChannelId &&
+    MESSAGE_TOOL_THREEMA_PREFIX_RE.test(rawChannelId) &&
+    !normalizeThreemaMessageTarget(rawChannelId)
+  ) {
+    throw new Error(
+      'Threema send targets must use `threema:<id>`, `threema:phone:<number>`, or `threema:email:<address>`.',
     );
   }
 
@@ -546,6 +692,16 @@ export async function runMessageToolAction(
     return await runTelegramMessageSendAction(request, telegramChannelId);
   }
 
+  const signalChannelId = normalizeSignalMessageTarget(rawChannelId);
+  if (signalChannelId) {
+    return await runSignalMessageSendAction(request, signalChannelId);
+  }
+
+  const threemaChannelId = normalizeThreemaMessageTarget(rawChannelId);
+  if (threemaChannelId) {
+    return await runThreemaMessageSendAction(request, threemaChannelId);
+  }
+
   const emailChannelId = normalizeEmailMessageTarget(rawChannelId);
   if (emailChannelId) {
     return await runEmailMessageSendAction(request, emailChannelId);
@@ -556,5 +712,9 @@ export async function runMessageToolAction(
     return await runLocalMessageSendAction(request, localChannelId);
   }
 
-  return await runDiscordToolAction(request);
+  if (shouldDelegateToDiscordToolAction(request)) {
+    return await runDiscordToolAction(request);
+  }
+
+  throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
 }

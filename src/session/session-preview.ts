@@ -1,6 +1,7 @@
 import type { StoredMessage } from '../types/session.js';
+import { SESSION_TITLE_MAX_CHARS } from './session-title-constants.js';
 
-export const RECENT_CHAT_SESSION_TITLE_MAX_LENGTH = 120;
+export const RECENT_CHAT_SESSION_TITLE_MAX_LENGTH = SESSION_TITLE_MAX_CHARS;
 export const SESSIONS_COMMAND_SNIPPET_MAX_LENGTH = 40;
 export const AGENT_CARD_PREVIEW_MAX_LENGTH = 180;
 
@@ -37,6 +38,70 @@ export function buildSessionBoundaryPreview(params: {
 
   const single = firstMessage || lastMessage;
   return single ? `"${single}"` : null;
+}
+
+export function buildSessionSearchSnippet(
+  raw: string | null | undefined,
+  query: string | null | undefined,
+  maxLength = 120,
+): string | null {
+  const compact = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!compact) return null;
+
+  const normalizedQuery = String(query || '')
+    .trim()
+    .toLowerCase();
+  if (!normalizedQuery) {
+    return trimSessionPreviewText(compact, maxLength);
+  }
+
+  const matchIndex = compact.toLowerCase().indexOf(normalizedQuery);
+  if (matchIndex < 0) {
+    return trimSessionPreviewText(compact, maxLength);
+  }
+
+  const surroundingChars = Math.max(
+    18,
+    Math.floor((maxLength - normalizedQuery.length) / 2),
+  );
+  const start = Math.max(0, matchIndex - surroundingChars);
+  const end = Math.min(
+    compact.length,
+    matchIndex + normalizedQuery.length + surroundingChars,
+  );
+
+  let snippet = compact.slice(start, end).trim();
+  if (!snippet) return null;
+  if (start > 0) snippet = `...${snippet}`;
+  if (end < compact.length) snippet = `${snippet}...`;
+  return trimSessionPreviewText(snippet, maxLength);
+}
+
+function normalizeSessionPreviewComparisonText(
+  raw: string | null | undefined,
+): string {
+  return String(raw || '')
+    .replace(/^\.\.\./, '')
+    .replace(/\.\.\.$/, '')
+    .replace(/"/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function shouldIncludeSessionSearchSnippet(
+  title: string | null | undefined,
+  snippet: string | null | undefined,
+): boolean {
+  const normalizedSnippet = normalizeSessionPreviewComparisonText(snippet);
+  if (!normalizedSnippet) return false;
+
+  const normalizedTitle = normalizeSessionPreviewComparisonText(title);
+  if (!normalizedTitle) return true;
+
+  return !normalizedTitle.includes(normalizedSnippet);
 }
 
 export function buildSessionConversationPreview(

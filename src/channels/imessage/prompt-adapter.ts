@@ -1,9 +1,6 @@
+import { normalizeTrimmedString as trimValue } from '../../utils/normalized-strings.js';
 import type { ChannelAgentPromptAdapter } from '../prompt-adapters.js';
 import { isIMessageGroupHandle, parseIMessageChannelId } from './handle.js';
-
-function trimValue(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
 
 export const imessageAgentPromptAdapter: ChannelAgentPromptAdapter = {
   messageToolHints: ({ runtimeInfo }) => {

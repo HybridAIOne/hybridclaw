@@ -591,7 +591,7 @@ test('interactive onboarding lets users skip remote auth for local models', asyn
     configurable: true,
   });
 
-  const answers = ['6'];
+  const answers = ['7'];
   vi.doMock('node:readline/promises', () => ({
     default: {
       createInterface: () => ({

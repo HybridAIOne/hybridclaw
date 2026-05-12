@@ -10,12 +10,15 @@ sidebar_position: 5
 
 ```bash
 hybridclaw --version
-hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
-hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--sandbox=container|host]
+hybridclaw gateway start [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
+hybridclaw gateway restart [--foreground] [--debug] [--log-requests] [--debug-model-responses] [--system-prompt=<parts|none>] [--tools=full|none] [--no-tools] [--sandbox=container|host]
 hybridclaw gateway stop
 hybridclaw gateway status
+hybridclaw gateway sessions [active|clear-active]
+hybridclaw gateway bot info
 hybridclaw gateway voice info
 hybridclaw gateway voice call <number>
+hybridclaw gateway show [all|thinking|tools|none]
 hybridclaw gateway <command...>
 hybridclaw gateway compact
 hybridclaw gateway memory inspect [sessionId]
@@ -24,15 +27,18 @@ hybridclaw eval [list|env|<suite>] [--current-agent|--fresh-agent] [--ablate-sys
 hybridclaw eval locomo [setup|run|status|stop|results|logs]
 hybridclaw eval terminal-bench-2.0 [setup|run|status|stop|results|logs]
 hybridclaw eval tau2 [setup|run|status|stop|results]
+hybridclaw eval hybridai-skills [setup|list|run|results]
 hybridclaw eval [--current-agent|--fresh-agent] [--ablate-system] [--include-prompt=<parts>] [--omit-prompt=<parts>] <command...>
 hybridclaw tui
 hybridclaw tui --resume <sessionId>
 hybridclaw --resume <sessionId>
 hybridclaw onboarding
 hybridclaw doctor [--fix|--json|<component>]
+hybridclaw help <topic>
 hybridclaw config
 hybridclaw config check
 hybridclaw config reload
+hybridclaw config get <key>
 hybridclaw config set <key> <value>
 hybridclaw config revisions [list|rollback <id>|delete <id>|clear]
 hybridclaw browser login [--url <url>]
@@ -60,6 +66,13 @@ reopen an earlier TUI session by canonical session id.
 `gateway voice info` reports the current local Twilio voice setup, and
 `gateway voice call <number>` places an outbound call through the configured
 Twilio account.
+Use `--debug-model-responses` only for local troubleshooting; it writes raw
+provider response diagnostics and the last prompt under the HybridClaw data
+directory. Use `--system-prompt=<parts|none>` and `--tools=full|none` for
+local eval and prompt-surface experiments.
+`hybridclaw config get <key>` prints one resolved dotted runtime config value,
+which is useful when checking active settings without dumping the whole config
+file.
 
 ## Local Eval Workflows
 
@@ -84,16 +97,43 @@ hybridclaw eval locomo run --mode retrieval --matrix backend --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix rerank --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix tokenizer --budget 4000
 hybridclaw eval locomo run --mode retrieval --matrix embedding --budget 4000
+hybridclaw eval trace-judge run
+hybridclaw eval trace-judge run --live --model "$HYBRIDCLAW_EVAL_MODEL"
+hybridclaw eval trace-judge run --criterion risk
 hybridclaw eval tau2 setup
 hybridclaw eval tau2 run --domain telecom --num-trials 1 --num-tasks 10
 hybridclaw eval terminal-bench-2.0 setup
 hybridclaw eval terminal-bench-2.0 run --num-tasks 10
+hybridclaw eval hybridai-skills setup
+hybridclaw eval hybridai-skills list --skill code-review
+hybridclaw eval hybridai-skills run --dry-run
+hybridclaw eval hybridai-skills run --max 3
+hybridclaw eval hybridai-skills run --live --skill apple-music --max 1
 hybridclaw eval --fresh-agent --omit-prompt=bootstrap inspect eval inspect_evals/gaia --model "$HYBRIDCLAW_EVAL_MODEL" --log-dir ./logs
 ```
 
-- local-only surface from CLI, TUI, or embedded web chat; it is not intended
-  for Discord, Teams, WhatsApp, email, or other remote chat channels
-- managed suites today: `locomo`, `tau2`, and `terminal-bench-2.0`
+- local-only surface from CLI, TUI, or embedded web chat; it is not intended for Discord, Teams, WhatsApp, email, or other remote chat channels
+- managed suites today: `locomo`, `trace-judge`, `tau2`, `terminal-bench-2.0`, and `hybridai-skills`
+- `trace-judge` evaluates the judge against a packaged 150-example labeled dataset of `(trace, criteria, expected verdict)` records across `risk`, `leak`, `brand-voice`, `tool-use`, and `task-completion` criteria. Results include macro precision, recall, and F1 per criterion type plus the overall gate status. The default `run` uses a deterministic offline judge fixture that parses the prepared judge prompt and returns JSON through the same judge result parser used by live mode; `run --live --model <judge-model>` measures the actual configured judge model.
+- CI runs `npm run eval:trace-judge:gate` after build to block prompt-preparation, parser, metric, and dataset regressions without live secrets. PR runs execute `npm run eval:trace-judge:gate:live` when both `HYBRIDAI_API_KEY` and `HYBRIDAI_CHATBOT_ID` are available; otherwise they are explicitly harness-only. Pushes to `main` require both live credentials and fail before promotion when either secret is missing. With those secrets present, CI runs `npm run eval:trace-judge:gate:live` against the configured judge model (`HYBRIDCLAW_TRACE_JUDGE_EVAL_MODEL`, or `hybridai/gpt-4.1-mini` by default) and blocks promotion when judge precision, recall, or F1 regresses below the configured threshold.
+- add a new judge criterion by adding examples to `src/evals/trace-judge-eval-dataset.ts` with a stable `criterionType`, clear criteria text, representative traces for `pass`, `partial`, and `fail`, and then running `npm run eval:trace-judge:gate` after `npm run build`. Keep each criterion balanced enough that precision, recall, and F1 are meaningful.
+- `hybridai-skills` harvests the 🎯 *Try it yourself* prompts from
+  `docs/content/guides/skills/*.md` into a fixture set, then grades
+  whether each prompt activates its documented skill. `setup` writes the
+  fixture JSONL, `list` inspects it, `run --dry-run` validates fixtures
+  without calling the model, and `run` (default `--live`, `--max 3`) posts
+  each prompt to the local OpenAI endpoint and grades the tool trace with
+  the same `resolveObservedSkillName` oracle the gateway uses
+- filter `hybridai-skills` runs with `--skill <name>`, `--kind
+  try-it|conversation`, and `--max N`; results land at
+  `~/.hybridclaw/data/evals/hybridai-skills/latest-run.json` and are also
+  shown via `/eval hybridai-skills results`
+- `hybridai-skills run --explicit` rewrites each prompt to start with
+  `/<skill>` to force invocation, and live summaries show the observed skill,
+  whether artifacts were produced, and counted tool-call totals per fixture
+- eval-profiled loopback requests auto-approve tools and return
+  execution-session plus artifact-count headers so detached and profiled eval
+  runs can finish unattended while still being easy to correlate later
 - `locomo --mode qa` runs a native HybridClaw QA harness against the official
   LoCoMo conversations, generates answers through the local OpenAI-compatible
   gateway, and scores those answers with LoCoMo-style question metrics
@@ -137,8 +177,9 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 
 - `/v1/models` and `/v1/chat/completions` use the same local gateway process;
   they are not a separate service
-- if `WEB_API_TOKEN` is unset, loopback requests from the same host can omit
-  the `Authorization` header; otherwise send `Bearer <WEB_API_TOKEN>`
+- requests must include `Authorization: Bearer <WEB_API_TOKEN>` or
+  `Authorization: Bearer <GATEWAY_API_TOKEN>`; loopback address alone does not
+  authenticate API requests
 - these endpoints are intended for local tooling and eval harnesses rather than
   public exposure
 
@@ -148,9 +189,11 @@ curl http://127.0.0.1:9090/v1/chat/completions \
 hybridclaw auth login
 hybridclaw auth login hybridai [--device-code|--browser|--import] [--base-url <url>]
 hybridclaw auth login codex [--device-code|--browser|--import]
+hybridclaw auth login anthropic [model-id] [--method <api-key|claude-cli>] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login openrouter [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login mistral [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login huggingface [model-id] [--api-key <token>] [--base-url <url>] [--no-default]
+hybridclaw auth login google [--client-id <id>] [--client-secret <secret>] [--account <email>] [--scopes <scopes>] [--refresh-token <token>] [--redirect-port <port>]
 hybridclaw auth login gemini [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login deepseek [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
 hybridclaw auth login xai [model-id] [--api-key <key>] [--base-url <url>] [--no-default]
@@ -170,9 +213,11 @@ hybridclaw local status
 hybridclaw local configure <backend> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
 hybridclaw help hybridai
 hybridclaw help codex
+hybridclaw help anthropic
 hybridclaw help openrouter
 hybridclaw help mistral
 hybridclaw help huggingface
+hybridclaw help auth
 hybridclaw help gemini
 hybridclaw help deepseek
 hybridclaw help xai
@@ -185,18 +230,25 @@ hybridclaw help kilo
 hybridclaw help msteams
 hybridclaw help slack
 hybridclaw help local
-hybridclaw help auth
 ```
 
-`auth status` supports `hybridai`, `codex`, `openrouter`, `mistral`,
-`huggingface`, `gemini`, `deepseek`, `xai`, `zai`, `kimi`, `minimax`,
-`dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and `slack`.
+`auth status` supports `hybridai`, `codex`, `anthropic`, `openrouter`,
+`mistral`, `huggingface`, `google`, `gemini`, `deepseek`, `xai`, `zai`,
+`kimi`, `minimax`, `dashscope`, `xiaomi`, `kilo`, `local`, `msteams`, and
+`slack`.
 Legacy aliases such as `hybridclaw hybridai ...`, `hybridclaw codex ...`, and
 `hybridclaw local ...` still work, but `auth` is the primary surface.
 `auth login` without a provider runs the same interactive onboarding flow as
 `hybridclaw onboarding`.
 `auth status` prints local credential-source and config state while redacting
 the secret values themselves.
+Anthropic supports `--method api-key` for direct Messages API calls and
+`--method claude-cli` for the official Claude CLI transport in host sandbox
+mode.
+Google OAuth credentials for Workspace skills are managed with
+`hybridclaw auth login google`; the refresh token and client secret are stored
+in encrypted runtime secrets, and agent runtimes receive short-lived access
+tokens instead of long-lived refresh tokens.
 
 ## Secrets And Routes
 
@@ -209,7 +261,7 @@ hybridclaw secret set <name> <value>
 hybridclaw secret show <name>
 hybridclaw secret unset <name>
 hybridclaw secret route list
-hybridclaw secret route add <url-prefix> <secret-name> [header] [prefix|none]
+hybridclaw secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 hybridclaw secret route remove <url-prefix> [header]
 ```
 
@@ -219,7 +271,7 @@ hybridclaw secret route remove <url-prefix> [header]
 /secret show <name>
 /secret unset <name>
 /secret route list
-/secret route add <url-prefix> <secret-name> [header] [prefix|none]
+/secret route add <url-prefix> <secret-name|google-oauth> [header] [prefix|none]
 /secret route remove <url-prefix> [header]
 ```
 
@@ -234,6 +286,9 @@ hybridclaw secret route remove <url-prefix> [header]
 - `/secret route add` manages `tools.httpRequest.authRules[]`, which lets the
   gateway inject the real auth header for matching `http_request` tool calls
 - use `prefix` for `Bearer <secret>` or `none` for raw header injection
+- use `google-oauth` as the secret name for direct Google API routes after
+  `hybridclaw auth login google`; see
+  [Google OAuth For Direct Google APIs](../getting-started/authentication.md#google-oauth-for-direct-google-apis)
 
 ## Channels
 
@@ -242,6 +297,7 @@ hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>
 hybridclaw channels slack manifest [--format <yaml|json>]
 hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
+hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
@@ -268,9 +324,11 @@ WhatsApp pairing.
 
 ```bash
 hybridclaw agent list
+hybridclaw agent config <json|--json <json>> [--activate]
 hybridclaw agent export [agent-id] [-o <path>]
 hybridclaw agent inspect <file.claw>
 hybridclaw agent install <file.claw|https://.../*.claw|official:<agent-dir>|github:owner/repo[/<ref>]/<agent-dir>> [--id <id>] [--force] [--skip-skill-scan] [--skip-externals] [--skip-import-errors] [--yes]
+hybridclaw agent activate <agent-id>
 hybridclaw agent uninstall <agent-id> [--yes]
 hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 ```
@@ -279,6 +337,21 @@ hybridclaw gateway agent [list|switch <id>|create <id>|model [name]]
 aliases remain accepted: `agent pack` maps to `export`, and `agent unpack`
 maps to `install`. Local TUI/web sessions also expose `/agent install <source>`
 for the same archive flows against a running gateway.
+`agent activate <agent-id>` sets the default agent for new requests that do not
+pin an agent explicitly.
+
+`agent config` is the JSON provisioning path for generated agents. It upserts
+agent metadata directly, can overwrite top-level workspace markdown files, and
+imports `imageAsset` URLs or local file paths into the agent workspace:
+
+```bash
+hybridclaw agent config '{"id":"felix","model":"gpt-5.4-mini","imageAsset":"https://example.com/felix.jpg","markdown":{"IDENTITY.md":"# Felix\n"}}' --activate
+```
+
+Use `agent config` for metadata plus bootstrap markdown. Use `agent install`
+when you need a portable `.claw` archive with arbitrary workspace files,
+bundled skills, bundled plugins, or install-time imports.
+
 For archive flags such as `--description`, `--author`, skill/plugin bundling,
 and GitHub install sources, see
 [Agent Packages](../extensibility/agent-packages.md).
@@ -294,6 +367,23 @@ Use these commands to import compatible state from `~/.openclaw` or
 `~/.hermes` into a HybridClaw agent workspace. `--dry-run` previews the
 workspace, config, model, and secret changes before writing anything.
 
+## Backup And Restore
+
+```bash
+hybridclaw backup [--output <path>]
+hybridclaw backup restore <archive.zip> [--force]
+```
+
+`backup` creates a timestamped zip archive of the HybridClaw runtime home
+(`~/.hybridclaw` by default, or `$HYBRIDCLAW_DATA_DIR` when set). SQLite
+databases are copied through the SQLite backup API so WAL-mode databases
+produce consistent snapshots. Ephemeral state — WAL/SHM sidecars, cache
+directories, container image state, evals, migration backups, and PID
+files — is excluded. `backup restore` validates the archive manifest and
+marker files (`config.json`, `credentials.json`) before replacing any data
+and prompts when the target runtime home already exists; pass `--force` to
+skip the prompt for scripted disaster-recovery restores.
+
 ## Skills, Tools, Plugins, Audit
 
 ```bash
@@ -304,9 +394,16 @@ hybridclaw skill toggle [--channel <kind>]
 hybridclaw skill inspect <skill-name>
 hybridclaw skill inspect --all
 hybridclaw skill runs <skill-name>
+hybridclaw skill install <source>
 hybridclaw skill install <skill-name> <dependency>
+hybridclaw skill upgrade <source>
+hybridclaw skill uninstall <skill-name>
+hybridclaw skill revisions <skill-name>
+hybridclaw skill rollback <skill-name> <revision-id>
+hybridclaw skill setup <skill-name>
 hybridclaw skill learn <skill-name> [--apply|--reject|--rollback]
 hybridclaw skill history <skill-name>
+hybridclaw skill sync [--skip-skill-scan] <source>
 hybridclaw skill import [--force] [--skip-skill-scan] <source>
 hybridclaw tool list
 hybridclaw tool enable <tool-name>
@@ -317,13 +414,17 @@ hybridclaw plugin enable <plugin-id>
 hybridclaw plugin disable <plugin-id>
 hybridclaw plugin install <path|plugin-id|npm-spec>
 hybridclaw plugin reinstall <path|plugin-id|npm-spec>
+hybridclaw plugin check <plugin-id>
 hybridclaw plugin uninstall <plugin-id>
 hybridclaw update [status|--check] [--yes]
 hybridclaw audit recent
+hybridclaw audit recent session <sessionId> [n]
 hybridclaw audit approvals [n] [--denied]
 hybridclaw audit search <query>
-hybridclaw audit verify [sessionId]
-hybridclaw audit instructions [--sync]
+hybridclaw audit verify <sessionId>
+hybridclaw audit verify-usage-batch <batchId>
+hybridclaw audit scan-leaks [sessionId] [--quiet|--all] [--level <critical|high|medium|low>] [--type <in,out,tool,url>] [--json]
+hybridclaw audit instructions [--sync] [--approve]
 ```
 
 `skill import [--force] [--skip-skill-scan]` supports packaged `official/<skill-name>` sources plus
@@ -331,14 +432,72 @@ community imports from `skills-sh`, `clawhub`, `lobehub`,
 `claude-marketplace`, `well-known`, explicit GitHub repo/path refs, local
 directories, and `.zip` archives. Locally-imported skills receive personal
 trust and persist their import-source marker across restarts.
+`skill install <source>` and `skill upgrade <source>` manage packaged skills
+with manifest records, audit events, and rollback snapshots. `skill uninstall
+<skill-name>` removes a managed package, `skill revisions <skill-name>` lists
+recorded snapshots, and `skill rollback <skill-name> <revision-id>` restores
+one snapshot.
 `skill install <skill-name> <dependency>` runs one declared dependency from the
-named skill. Use `skill list` first to discover the dependency ids exposed by a
-skill.
+named skill. `skill setup <skill-name>` runs every declared dependency for that
+skill in order. Use `skill list` first to discover the dependency ids exposed by
+a skill.
+`skill sync [--skip-skill-scan] <source>` is a convenience alias for
+`skill import --force <source>` when refreshing an installed skill from the same
+source syntax.
+`plugin check <plugin-id>` reports dependency, environment, and binary status
+for one discovered plugin before or after installation.
+`audit scan-leaks` loads rules from `./.confidential.yml` or
+`~/.hybridclaw/.confidential.yml`, scans prompt-bearing audit records, prints a
+severity summary, and exits with code `2` when matches are found. Use
+`--level` to set a minimum severity, `--type` to narrow to inbound prompts,
+outbound responses, tool I/O, or URL records, and `--json` for automation.
+`audit verify-usage-batch <batchId>` verifies the token-usage batch hash for
+buffered usage events. `audit instructions --sync` restores runtime instruction
+copies from installed sources; add `--approve` when the instruction audit
+workflow requires an explicit approval record.
 `update` checks for a newer installed release and can upgrade a global npm
 install. When `--yes` completes successfully and a local gateway is already
 running with a replayable launch command, HybridClaw restarts it automatically
 with the original parameters; otherwise it falls back to manual restart
 instructions. Source checkouts receive git-based update instructions instead.
+
+## Network Policy
+
+```bash
+hybridclaw policy status
+hybridclaw policy list [--agent <id>] [--json]
+hybridclaw policy allow <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+hybridclaw policy deny <host> [--agent <id>] [--methods <list>] [--paths <list>] [--port <number|*>] [--comment <text>]
+hybridclaw policy delete <number|host>
+hybridclaw policy reset
+hybridclaw policy default <allow|deny>
+hybridclaw policy preset list
+hybridclaw policy preset add <name> [--dry-run]
+hybridclaw policy preset remove <name>
+```
+
+Policy commands edit the current workspace HTTP/network access policy. Rules
+are evaluated in order, first match wins, and bare site-scope hosts such as
+`github.com` also match subdomains such as `api.github.com`. Use
+`policy list --agent <id>` to show both global rules and rules scoped to a
+specific agent.
+
+## Deprecated Provider Aliases
+
+```bash
+hybridclaw local status
+hybridclaw local configure <ollama|lmstudio|llamacpp|vllm> [model-id] [--base-url <url>] [--api-key <key>] [--no-default]
+hybridclaw hybridai base-url [url]
+hybridclaw hybridai login [--device-code|--browser|--import] [--base-url <url>]
+hybridclaw hybridai logout
+hybridclaw hybridai status
+hybridclaw codex login [--device-code|--browser|--import]
+hybridclaw codex logout
+hybridclaw codex status
+```
+
+These aliases remain accepted for compatibility, but the `auth` namespace is
+the primary surface for provider setup, status, and logout.
 
 ## Discord And Session Commands
 
@@ -348,6 +507,7 @@ actions. Common examples:
 ```text
 !claw <message>
 /agent
+/btw <question>
 /agent list
 /agent switch <id>
 /agent create <id> [--model <model>]
@@ -374,23 +534,82 @@ actions. Common examples:
 !claw schedule add every <ms> <prompt>
 ```
 
-`/agent`, `/model`, `/reset`, `/mcp`, and related slash commands route through
-the same gateway command surface used by TUI and web chat.
+`/agent`, `/model`, `/reset`, `/mcp`, `/btw`, and related slash commands route
+through the same gateway command surface used by TUI and web chat. `/context`
+is local-only because it exposes session context-window accounting.
 
 ## In Session
 
 - `/help` shows the same canonical slash-command list in TUI and embedded web
   chat, filtered per surface and kept in a consistent alphabetical order
+
+### Slash Command Inventory
+
+These are the built-in slash commands exposed by local sessions and, where
+supported by the channel, by Discord/Slack slash or slash-text routing. Loaded
+plugins and explicit skill invocations can add dynamic slash commands; use
+`/help` or the TUI slash menu for the live session-specific list.
+
+| Command | Main surface | Purpose |
+|---|---|---|
+| `/agent [info|list|switch|create|install|model]` | local and chat channels | Inspect, create, switch, install, or set models for agents |
+| `/approve [view|yes|session|agent|all|no] [approval_id]` | local and chat channels | View or answer pending tool approval requests |
+| `/audit [sessionId]` | local and chat channels | Show recent structured audit events |
+| `/auth status <provider>` | local TUI/web | Show local auth and provider config state |
+| `/bot [info|list|set <id|name>|clear]` | local and chat channels | Inspect or select the active chatbot |
+| `/btw <question>` | local and chat channels | Ask an ephemeral side question without tools or persistence |
+| `/channel-mode <off|mention|free>` | chat channels | Set the current channel response mode |
+| `/channel-policy <open|allowlist|disabled>` | chat channels | Set the guild/workspace channel policy |
+| `/clear` | local and chat channels | Clear the visible session transcript |
+| `/compact` | local and chat channels | Compact older session history into memory |
+| `/concierge [info|on|off|model|profile]` | local and chat channels | Inspect or configure concierge routing |
+| `/config [check|reload|get|set]` | local TUI/web | Inspect, reload, or edit runtime config |
+| `/context` | local TUI/web | Show context-window usage and compaction headroom |
+| `/dream [status|on|off|now]` | local TUI/web | Configure or run memory consolidation |
+| `/eval [list|env|<suite>|<command...>]` | local TUI/web | Run local eval helpers or detached benchmark commands |
+| `/export session [sessionId]` | local and chat channels | Export a session snapshot |
+| `/export trace [sessionId|all]` | local and chat channels | Export trace JSONL |
+| `/fullauto [status|off|on [prompt]|prompt]` | local and chat channels | Inspect or control full-auto mode for the session |
+| `/help` or `/h` | local and chat channels | Show slash-command help |
+| `/info` | TUI | Show bot, model, and runtime status together |
+| `/mcp [list|add|toggle|remove|reconnect]` | local and chat channels | Manage runtime MCP servers |
+| `/memory inspect [sessionId]` | local TUI/web | Inspect built-in memory layers |
+| `/memory query <query>` | local TUI/web | Preview prompt-time memory attachment |
+| `/model [info|list|set|clear|default|select]` | local and chat channels | Inspect or set session/default models |
+| `/paste` | TUI | Attach a copied local file or clipboard image |
+| `/policy [status|list|allow|deny|delete|preset|default|reset]` | local TUI/web | Inspect or update workspace network policy |
+| `/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]` | local TUI/web | Manage runtime plugins |
+| `/rag [on|off]` | local and chat channels | Toggle prompt-time retrieval augmentation |
+| `/ralph [info|on|off|set n]` | local and chat channels | Configure the Ralph loop |
+| `/reset [yes|no]` | local and chat channels | Run the confirmed workspace reset flow |
+| `/schedule add|list|remove|toggle ...` | local and chat channels | Manage scheduled tasks for the session |
+| `/secret [list|set|show|unset|route]` | local TUI/web | Manage encrypted secrets and HTTP auth routes |
+| `/sessions [active|clear-active]` | local and chat channels | Inspect or clear active session tracking |
+| `/show [all|thinking|tools|none]` | local and chat channels | Control thinking/tool activity visibility |
+| `/skill ...` or `/<skill>` | local TUI/web | Manage skills or explicitly invoke one skill |
+| `/status` | local and chat channels | Show runtime, session, and agent status |
+| `/stop` or `/abort` | TUI and active local runs | Stop the current foreground request and full-auto mode |
+| `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
+| `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
+| `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
+
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id
+- local TUI/web sessions support `/btw <question>` for ephemeral side
+  questions that use recent conversation context, return a tool-less answer,
+  and do not persist the side exchange to session history
+- in built-in web chat, `/btw` is the only slash command accepted while the
+  current run is active
 - local TUI/web sessions support `/memory query <query>` to preview the exact
   prompt-memory block the current session would attach for that query
+- local TUI/web sessions support `/context` to inspect context-window usage,
+  remaining headroom, and compaction count for the active session
 - local TUI and web chat expose `/voice info` and `/voice call <e164-number>`
   for local Twilio diagnostics and outbound dialing
 - Local TUI and web chat sessions expose `/config`, `/config check`,
-  `/config reload`, `/config set <key> <value>`, `/config revisions`,
-  `/concierge`, `/auth status <hybridai|codex|openrouter|mistral|huggingface|local|msteams>`,
-  and `/secret list|set|unset|show|route`
+  `/config reload`, `/config get <key>`, `/config set <key> <value>`,
+  `/concierge`, `/auth status <provider>`, and
+  `/secret list|set|unset|show|route`
   alongside the existing runtime commands
 - local TUI and web chat also expose `/dream [info|on|off|now]` for nightly
   memory-consolidation status, scheduler toggling, and manual runs
@@ -404,8 +623,9 @@ the same gateway command surface used by TUI and web chat.
   and related slash commands
 - TUI also supports `/paste` to queue a copied local file or clipboard image
 - TUI `/skill config` opens the interactive skill availability checklist
-- local TUI and web chat support `/skill list` to inspect dependency ids and
-  `/skill install <skill> <dependency>` to run one declared skill dependency
+- local TUI and web chat support `/skill list` to inspect dependency ids.
+- local TUI and web chat support `/skill install <source>`, `/skill upgrade <source>`, `/skill uninstall <skill>`, `/skill revisions <skill>`, and `/skill rollback <skill> <revision-id>` for package lifecycle work.
+- local TUI and web chat support `/skill install <skill> <dependency>` to run one declared skill dependency, and `/skill setup <skill>` to run every declared dependency for a skill.
 - an explicit `/<skill>` or `/skill <name>` turn keeps that skill active for
   the next plain-text follow-up in the same session; a new slash command
   cancels that carry-over
@@ -415,7 +635,8 @@ the same gateway command surface used by TUI and web chat.
 - `/plugin ...` manages runtime plugins, and `/mcp ...` manages runtime MCP
   servers
 - `/auth status <provider>` shows local auth and config state for the
-  supported local-session providers
+  supported local-session providers, including Anthropic and the
+  OpenAI-compatible remote providers
 - Typing `/` in the TUI opens the slash-command menu with inline filtering and
   help aliases
 - The TUI startup banner summarizes the active model, sandbox, gateway,
@@ -443,6 +664,7 @@ Example skill dependency flow:
 
 ```text
 /skill list
-/skill install manim-video uv-manim
-/skill install manim-video brew-ffmpeg
+/skill setup gws
+/skill install manim-video manim
+/skill install manim-video ffmpeg
 ```

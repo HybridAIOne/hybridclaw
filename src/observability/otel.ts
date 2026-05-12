@@ -171,7 +171,6 @@ export function getTraceContext(): { traceId: string; spanId: string } {
   return { traceId: ctx.traceId, spanId: ctx.spanId };
 }
 
-// Strip undefined values so OTel doesn't complain.
 function cleanAttributes(
   attrs: Record<string, string | number | boolean | undefined>,
 ): Record<string, string | number | boolean> {

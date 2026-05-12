@@ -12,6 +12,7 @@ const ORIGINAL_AUXILIARY_COMPRESSION_PROVIDER =
   process.env.AUXILIARY_COMPRESSION_PROVIDER;
 const ORIGINAL_AUXILIARY_COMPRESSION_MODEL =
   process.env.AUXILIARY_COMPRESSION_MODEL;
+const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 function makeTempHome(): string {
@@ -54,7 +55,9 @@ async function importFreshTaskRouting(homeDir: string) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.resetModules();
+  vi.doUnmock('../src/auth/anthropic-auth.js');
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/providers/factory.js');
   restoreEnvVar('HOME', ORIGINAL_HOME);
@@ -70,6 +73,7 @@ afterEach(() => {
     'AUXILIARY_COMPRESSION_MODEL',
     ORIGINAL_AUXILIARY_COMPRESSION_MODEL,
   );
+  restoreEnvVar('ANTHROPIC_API_KEY', ORIGINAL_ANTHROPIC_API_KEY);
   restoreEnvVar('OPENROUTER_API_KEY', ORIGINAL_OPENROUTER_API_KEY);
 });
 
@@ -169,6 +173,20 @@ test('prefers auxiliary env overrides for provider and model selection', async (
   expect(policy?.maxTokens).toBeUndefined();
 });
 
+test('omits disabled auxiliary task policy', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.auxiliaryModels.session_title.provider = 'disabled';
+  });
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+
+  expect(taskRouting.isAuxiliaryTaskDisabled('session_title')).toBe(true);
+  await expect(
+    taskRouting.resolveTaskModelPolicy('session_title'),
+  ).resolves.toBeUndefined();
+});
+
 test('captures env overrides at module load', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
@@ -200,14 +218,30 @@ test('captures env overrides at module load', async () => {
   expect(policy?.maxTokens).toBeUndefined();
 });
 
-test('captures unsupported vision task model config as a deferred policy error', async () => {
+test('resolves configured Anthropic task models on the host', async () => {
   const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'anthropic-task-routing-test';
   writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.baseUrl = 'https://api.anthropic.com/v1/';
     config.auxiliaryModels.vision.model = 'anthropic/claude-3-7-sonnet';
     config.auxiliaryModels.vision.maxTokens = 512;
     config.auxiliaryModels.compression.model = 'anthropic/claude-3-7-sonnet';
     config.auxiliaryModels.compression.maxTokens = 256;
   });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'claude-3-7-sonnet', max_tokens: 32_000 }],
+            has_more: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+    ),
+  );
   const taskRouting = await importFreshTaskRouting(homeDir);
 
   const taskModels = await taskRouting.resolveTaskModelPolicies({
@@ -217,25 +251,118 @@ test('captures unsupported vision task model config as a deferred policy error',
 
   expect(taskModels).toMatchObject({
     vision: {
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'anthropic-task-routing-test',
       model: 'anthropic/claude-3-7-sonnet',
-      maxTokens: 512,
-      error: expect.stringContaining(
-        'Anthropic provider is not implemented yet',
-      ),
+      chatbotId: '',
+      requestHeaders: {
+        'anthropic-version': '2023-06-01',
+      },
+      maxTokens: 32_000,
     },
     compression: {
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: 'anthropic-task-routing-test',
       model: 'anthropic/claude-3-7-sonnet',
-      maxTokens: 256,
-      error: expect.stringContaining(
-        'Anthropic provider is not implemented yet',
-      ),
+      chatbotId: '',
+      requestHeaders: {
+        'anthropic-version': '2023-06-01',
+      },
+      maxTokens: 32_000,
     },
+  });
+});
+
+test('uses Anthropic discovery vision capability when routing vision fallbacks', async () => {
+  const homeDir = makeTempHome();
+  process.env.ANTHROPIC_API_KEY = 'anthropic-task-routing-test';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
+    config.anthropic.models = [];
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+    config.auxiliaryModels.vision.provider = 'auto';
+    config.auxiliaryModels.vision.model = '';
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (
+        url.origin === 'https://api.anthropic.com' &&
+        url.pathname === '/v1/models'
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'claude-text-only-from-discovery-test',
+                max_input_tokens: 200_000,
+                max_tokens: 16_000,
+              },
+              {
+                id: 'claude-vision-from-discovery-test',
+                max_input_tokens: 200_000,
+                max_tokens: 32_000,
+                capabilities: { vision: true },
+              },
+            ],
+            has_more: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const taskRouting = await importFreshTaskRouting(homeDir);
+  const catalog = await import('../src/providers/model-catalog.ts');
+  await catalog.refreshAvailableModelCatalogs();
+
+  expect(
+    catalog.isModelVisionCapable('anthropic/claude-vision-from-discovery-test'),
+  ).toBe(true);
+  expect(
+    catalog.isModelVisionCapable(
+      'anthropic/claude-text-only-from-discovery-test',
+    ),
+  ).toBe(false);
+
+  const policy = await taskRouting.resolveTaskModelPolicy('vision', {
+    agentId: 'main',
+    sessionModel: 'anthropic/claude-text-only-from-discovery-test',
+  });
+
+  expect(policy).toMatchObject({
+    provider: 'anthropic',
+    apiKey: 'anthropic-task-routing-test',
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'anthropic/claude-vision-from-discovery-test',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 32_000,
   });
 });
 
 test('warns when task model policy resolution fails and returns a deferred error', async () => {
   const homeDir = makeTempHome();
+  vi.doMock('../src/auth/anthropic-auth.js', () => ({
+    requireAnthropicApiKey: vi.fn(() => {
+      throw new Error(
+        [
+          'ANTHROPIC_API_KEY is missing from your shell and /tmp/.hybridclaw/credentials.json.',
+          'Run `hybridclaw auth login anthropic --method api-key --set-default` to configure the direct Anthropic API provider.',
+        ].join('\n'),
+      );
+    }),
+  }));
   writeRuntimeConfig(homeDir, (config) => {
+    config.anthropic.enabled = true;
     config.auxiliaryModels.vision.model = 'anthropic/claude-3-7-sonnet';
     config.auxiliaryModels.vision.maxTokens = 512;
   });
@@ -255,7 +382,9 @@ test('warns when task model policy resolution fails and returns a deferred error
   expect(policy).toMatchObject({
     model: 'anthropic/claude-3-7-sonnet',
     maxTokens: 512,
-    error: expect.stringContaining('Anthropic provider is not implemented yet'),
+    error: expect.stringContaining(
+      'ANTHROPIC_API_KEY is missing from your shell',
+    ),
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -339,7 +468,8 @@ test('uses discovered OpenRouter Anthropic max tokens instead of configured task
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
     config.auxiliaryModels.compression.provider = 'openrouter';
-    config.auxiliaryModels.compression.model = 'anthropic/claude-sonnet-4';
+    config.auxiliaryModels.compression.model =
+      'openrouter/anthropic/claude-sonnet-4';
     config.auxiliaryModels.compression.maxTokens = 222;
   });
 
@@ -420,8 +550,8 @@ test('warns when no vision fallback is available after OpenRouter discovery refr
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = true;
     config.openrouter.models = ['openrouter/acme/text-only'];
-    config.hybridai.defaultModel = 'gpt-5-nano';
-    config.hybridai.models = ['gpt-5-nano'];
+    config.hybridai.defaultModel = 'text-only-test-model';
+    config.hybridai.models = ['text-only-test-model'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -479,12 +609,12 @@ test('warns when no vision fallback is available after OpenRouter discovery refr
   );
 });
 
-test('returns a deferred policy error when fallback credential resolution fails', async () => {
+test('returns a deferred policy error when no discovered vision fallback is available', async () => {
   const homeDir = makeTempHome();
   writeRuntimeConfig(homeDir, (config) => {
     config.openrouter.enabled = false;
-    config.hybridai.defaultModel = 'gpt-5-nano';
-    config.hybridai.models = ['gpt-5-nano'];
+    config.hybridai.defaultModel = 'text-only-test-model';
+    config.hybridai.models = ['text-only-test-model'];
     config.local.backends.ollama.enabled = false;
     config.local.backends.lmstudio.enabled = false;
     config.local.backends.vllm.enabled = false;
@@ -503,19 +633,19 @@ test('returns a deferred policy error when fallback credential resolution fails'
   const taskRouting = await importFreshTaskRouting(homeDir);
   const policy = await taskRouting.resolveTaskModelPolicy('vision', {
     agentId: 'main',
-    sessionModel: 'gpt-5-nano',
+    sessionModel: 'text-only-test-model',
   });
 
   expect(policy).toMatchObject({
     provider: undefined,
-    model: 'gpt-5-nano',
+    model: 'text-only-test-model',
     error:
-      'Session model "gpt-5-nano" does not support vision/image inputs, and no vision-capable fallback model is available.',
+      'Session model "text-only-test-model" does not support vision/image inputs, and no vision-capable fallback model is available.',
   });
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'vision',
-      sessionModel: 'gpt-5-nano',
+      sessionModel: 'text-only-test-model',
       openrouterDiscoveredModels: 0,
     }),
     'Session model lacks vision support and no capable fallback model is available',

@@ -27,7 +27,10 @@ export function cleanupStaleContainers(suitePrefix: string): void {
       });
     }
   } catch (err) {
-    console.warn(`[cleanup] Failed to remove stale ${suitePrefix} containers:`, err);
+    console.warn(
+      `[cleanup] Failed to remove stale ${suitePrefix} containers:`,
+      err,
+    );
   }
 }
 
@@ -72,7 +75,8 @@ export async function waitForHealth(
   timeoutMs: number,
   predicate?: (body: Record<string, unknown>) => boolean,
 ): Promise<void> {
-  const check = predicate ?? ((b: Record<string, unknown>) => b.status === 'ok');
+  const check =
+    predicate ?? ((b: Record<string, unknown>) => b.status === 'ok');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -86,7 +90,10 @@ export async function waitForHealth(
     } catch (err) {
       // Network errors (ECONNREFUSED, AbortError) are expected during startup.
       if (err instanceof TypeError || err instanceof SyntaxError) {
-        console.warn(`[health] Unexpected error polling ${url}:`, (err as Error).message);
+        console.warn(
+          `[health] Unexpected error polling ${url}:`,
+          (err as Error).message,
+        );
       }
     }
     await new Promise((r) => setTimeout(r, 500));

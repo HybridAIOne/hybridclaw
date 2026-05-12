@@ -2,6 +2,7 @@ import {
   formatHybridAIModelForCatalog,
   HYBRIDAI_MODEL_PREFIX,
   hasKnownNonHybridProviderPrefix,
+  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -11,6 +12,7 @@ import { pluralize } from '../utils/text-format.js';
 export {
   formatHybridAIModelForCatalog,
   HYBRIDAI_MODEL_PREFIX,
+  NON_HYBRID_PROVIDER_PREFIXES,
   normalizeHybridAIModelForRuntime,
   stripHybridAIModelPrefix,
   stripProviderPrefix,

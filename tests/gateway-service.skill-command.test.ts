@@ -12,6 +12,8 @@ vi.mock('../src/agent/agent.js', () => ({
 }));
 
 let context: AdaptiveSkillsTestContext | null = null;
+const isThirdPartySkillSourceMock = (source: string): boolean =>
+  ['codex', 'claude', 'agents-personal', 'agents-project'].includes(source);
 
 afterEach(() => {
   runAgentMock.mockReset();
@@ -23,10 +25,12 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test('skill list groups skills by category in the gateway command output', async () => {
+test('skill list groups skills by category in concise gateway command output', async () => {
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
+    loadBlockedSkillCatalog: () => [],
     loadSkillCatalog: () => [
       {
         name: 'apple-music',
@@ -98,6 +102,31 @@ test('skill list groups skills by category in the gateway command output', async
         enabled: true,
         missing: ['bin:node'],
       },
+      {
+        name: 'Agents',
+        description:
+          'Compose CUSTOM agents from Base Traits plus Voice plus Specialization for specialized perspectives.',
+        category: '',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription:
+              'Compose CUSTOM agents from Base Traits plus Voice plus Specialization.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        filePath: '/tmp/Agents/SKILL.md',
+        baseDir: '/tmp/Agents',
+        source: 'codex',
+        available: true,
+        enabled: false,
+        missing: [],
+      },
     ],
   }));
 
@@ -117,11 +146,112 @@ test('skill list groups skills by category in the gateway command output', async
   }
   expect(result.title).toBe('Skills');
   expect(result.text).toContain('Apple:\n  apple-music [available]');
-  expect(result.text).toContain('Play music on Apple Music.');
-  expect(result.text).not.toContain('deliberately long description');
   expect(result.text).toContain('Memory:\n  obsidian* [disabled]');
   expect(result.text).toContain('Office:\n  pdf [bin:node]');
-  expect(result.text).toContain('* foreign skill source');
+  expect(result.text).toContain('Uncategorized:\n  Agents* [disabled]');
+  expect(result.text).not.toContain('Play music on Apple Music.');
+  expect(result.text).not.toContain('deliberately long description');
+  expect(result.text).not.toContain('specialized perspectives');
+  expect(result.text).toContain(
+    '* external source label, not verified provenance',
+  );
+});
+
+test('skill list blocked reports blocked skills with guard findings', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
+    loadBlockedSkillCatalog: () => [
+      {
+        name: 'bad-skill',
+        description: 'Blocked test skill.',
+        category: 'security',
+        userInvocable: true,
+        disableModelInvocation: false,
+        always: false,
+        requires: { bins: [], env: [] },
+        metadata: {
+          hybridclaw: {
+            shortDescription: 'Blocked test skill.',
+            tags: [],
+            relatedSkills: [],
+            install: [],
+          },
+        },
+        manifest: { credentials: [] },
+        filePath: '/tmp/bad-skill/SKILL.md',
+        baseDir: '/tmp/bad-skill',
+        source: 'claude',
+        blocked: true,
+        blockedReason:
+          'blocked (personal source + dangerous verdict, 1 finding(s))',
+        guardFindings: [
+          {
+            patternId: 'prompt_injection_ignore',
+            severity: 'critical',
+            category: 'prompt-injection',
+            file: 'SKILL.md',
+            line: 6,
+            match: 'ignore previous instructions',
+            description: 'prompt injection: ignore previous instructions',
+          },
+        ],
+      },
+    ],
+    loadSkillCatalog: () => [],
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: context.sessionId,
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'list', 'blocked'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Blocked Skills');
+  expect(result.text).toContain(
+    'Security:\n  bad-skill* [blocked: blocked (personal source + dangerous verdict, 1 finding(s))]',
+  );
+  expect(result.text).toContain(
+    'critical/prompt-injection: prompt injection: ignore previous instructions (SKILL.md:6)',
+  );
+});
+
+test('skill list includes skills with recoverable invalid manifest frontmatter', async () => {
+  context = await createAdaptiveSkillsTestContext({
+    skillName: 'himalaya',
+    skillBody: `---
+name: himalaya
+description: Use this skill when the user wants to manage email with the Himalaya CLI: configure accounts, list folders, and read messages.
+---
+
+Use Himalaya for terminal-native email workflows.
+`,
+  });
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: context.sessionId,
+    guildId: null,
+    channelId: 'web',
+    args: ['skill', 'list'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('  himalaya [available]');
 });
 
 test('skill inspect command reports observed skill health', async () => {
@@ -205,7 +335,7 @@ test('skill install installs one declared dependency from a local TUI/web sessio
 
   const installSkillDependencyMock = vi.fn().mockResolvedValue({
     ok: true,
-    message: 'Installed 1password via brew',
+    message: 'Installed 1password via op',
     stdout: 'brew installed 1password-cli',
     stderr: '',
     code: 0,
@@ -221,19 +351,19 @@ test('skill install installs one declared dependency from a local TUI/web sessio
     sessionId: 'session-skill-install',
     guildId: null,
     channelId: 'tui',
-    args: ['skill', 'install', '1password', 'brew'],
+    args: ['skill', 'install', '1password', 'op'],
   });
 
   expect(installSkillDependencyMock).toHaveBeenCalledWith({
     skillName: '1password',
-    installId: 'brew',
+    installId: 'op',
   });
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Skill Installed');
-  expect(result.text).toContain('Installed 1password via brew');
+  expect(result.text).toContain('Installed 1password via op');
   expect(result.text).toContain('stdout:');
   expect(result.text).toContain('brew installed 1password-cli');
 });
@@ -257,6 +387,64 @@ test('skill install requires both a skill and dependency id', async () => {
   }
   expect(result.title).toBe('Usage');
   expect(result.text).toContain('skill install <skill> <dependency>');
+});
+
+test('skill setup installs every declared dependency from a local TUI/web session', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const setupSkillDependenciesMock = vi.fn().mockResolvedValue({
+    ok: true,
+    message: 'Set up gws: installed gws',
+    stdout: '[gws]\nnpm installed @googleworkspace/cli',
+    stderr: '',
+    code: 0,
+  });
+  vi.doMock('../src/skills/skills-install.js', () => ({
+    setupSkillDependencies: setupSkillDependenciesMock,
+  }));
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-setup',
+    guildId: null,
+    channelId: 'tui',
+    args: ['skill', 'setup', 'gws'],
+  });
+
+  expect(setupSkillDependenciesMock).toHaveBeenCalledWith({
+    skillName: 'gws',
+  });
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Setup Complete');
+  expect(result.text).toContain('Set up gws: installed gws');
+  expect(result.text).toContain('stdout:');
+  expect(result.text).toContain('npm installed @googleworkspace/cli');
+});
+
+test('skill setup is rejected outside local TUI/web sessions', async () => {
+  context = await createAdaptiveSkillsTestContext();
+
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+  const result = await handleGatewayCommand({
+    sessionId: 'session-skill-setup-remote',
+    guildId: 'guild-1',
+    channelId: 'discord-channel-1',
+    args: ['skill', 'setup', 'gws'],
+  });
+
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Skill Setup Restricted');
+  expect(result.text).toContain('only available from local TUI/web sessions');
 });
 
 test('skill install is rejected outside local TUI/web sessions', async () => {
@@ -288,6 +476,7 @@ test('skill enable enables a disabled skill', async () => {
   });
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -338,6 +527,7 @@ test('skill disable disables an enabled skill', async () => {
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -393,6 +583,7 @@ test('skill enable with --channel flag scopes to a channel kind', async () => {
   });
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -440,6 +631,7 @@ test('skill enable with unknown skill name returns error', async () => {
   context = await createAdaptiveSkillsTestContext();
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [],
   }));
 
@@ -488,6 +680,7 @@ test('skill enable treats --channel global as the global scope', async () => {
   });
 
   vi.doMock('../src/skills/skills.js', () => ({
+    isThirdPartySkillSource: isThirdPartySkillSourceMock,
     loadSkillCatalog: () => [
       {
         name: 'demo-skill',
@@ -689,7 +882,7 @@ test('skill amend is rejected after the rename to learn', async () => {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Usage');
-  expect(result.text).toContain('skill list|enable');
+  expect(result.text).toContain('skill list [blocked]|enable');
   expect(result.text).not.toContain('skill amend');
 });
 

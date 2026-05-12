@@ -1,3 +1,5 @@
+import { evaluatePolicyRules } from './policy-engine.js';
+
 export const DEFAULT_NETWORK_DEFAULT = 'deny';
 
 export const DEFAULT_NETWORK_RULES = [
@@ -128,6 +130,68 @@ export function doesNetworkHostPatternExpandToSubdomains(host) {
   return normalized === normalizeNetworkHostScope(normalized);
 }
 
+function globPatternToRegExp(pattern) {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '::DOUBLE_STAR::')
+    .replace(/\*/g, '[^/]*')
+    .replace(/::DOUBLE_STAR::/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+function globHostPatternToRegExp(pattern) {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+export function matchesNetworkHostPattern(pattern, candidateHost) {
+  const normalizedPattern = String(pattern || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '');
+  const normalizedCandidate = String(candidateHost || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '');
+  if (!normalizedPattern || !normalizedCandidate) return false;
+  if (normalizedPattern === normalizedCandidate) return true;
+  if (normalizedPattern.includes('*')) {
+    return globHostPatternToRegExp(normalizedPattern).test(normalizedCandidate);
+  }
+  if (IPV4_HOST_RE.test(normalizedPattern) || normalizedPattern.includes(':')) {
+    return false;
+  }
+  if (doesNetworkHostPatternExpandToSubdomains(normalizedPattern)) {
+    return normalizeNetworkHostScope(normalizedCandidate) === normalizedPattern;
+  }
+  return false;
+}
+
+export function matchesNetworkMethodPattern(allowedMethods, candidateMethod) {
+  if (allowedMethods.includes('*')) return true;
+  const normalizedCandidate =
+    String(candidateMethod || '')
+      .trim()
+      .toUpperCase() || 'GET';
+  return allowedMethods.includes(normalizedCandidate);
+}
+
+export function matchesNetworkPathPatterns(allowedPaths, candidatePath) {
+  const normalizedCandidate = normalizeNetworkPathPattern(candidatePath || '/');
+  return allowedPaths.some((pattern) =>
+    globPatternToRegExp(normalizeNetworkPathPattern(pattern)).test(
+      normalizedCandidate,
+    ),
+  );
+}
+
+export function matchesNetworkAgentPattern(ruleAgent, candidateAgent) {
+  if (ruleAgent === '*') return true;
+  return ruleAgent === normalizeNetworkAgent(candidateAgent);
+}
+
 export function normalizeNetworkRule(raw) {
   const host = String(raw?.host || '')
     .trim()
@@ -205,5 +269,62 @@ export function readNetworkPolicyState(document) {
               paths: [...rule.paths],
             })),
     presets: normalizePresetNames(network.presets),
+  };
+}
+
+const NETWORK_PREDICATES = {
+  'network.host': (context, params) =>
+    matchesNetworkHostPattern(params.host, context.host),
+  'network.port': (context, params) =>
+    params.port === '*' || params.port === context.port,
+  'network.method': (context, params) =>
+    matchesNetworkMethodPattern(params.methods || [], context.method),
+  'network.path': (context, params) =>
+    matchesNetworkPathPatterns(params.paths || [], context.path),
+  'network.agent': (context, params) =>
+    matchesNetworkAgentPattern(params.agent, context.agent),
+};
+
+function toPolicyEngineRule(rule) {
+  return {
+    id: `network:${rule.host}`,
+    when: {
+      all: [
+        { predicate: 'network.host', host: rule.host },
+        { predicate: 'network.port', port: rule.port },
+        { predicate: 'network.method', methods: rule.methods },
+        { predicate: 'network.path', paths: rule.paths },
+        { predicate: 'network.agent', agent: rule.agent },
+      ],
+    },
+    action: rule.action,
+    metadata: { networkRule: rule },
+  };
+}
+
+export function evaluateNetworkPolicyAccess(params) {
+  const context = {
+    host: String(params.host || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, ''),
+    port: params.port,
+    method:
+      String(params.method || '')
+        .trim()
+        .toUpperCase() || 'GET',
+    path: params.path || '/',
+    agent: normalizeNetworkAgent(params.agentId),
+  };
+  const defaultDecision = params.defaultAction === 'allow' ? 'allow' : 'prompt';
+  const evaluation = evaluatePolicyRules({
+    rules: params.rules.map((rule) => toPolicyEngineRule(rule)),
+    context,
+    predicates: NETWORK_PREDICATES,
+    defaultAction: defaultDecision,
+  });
+  return {
+    decision: evaluation.action,
+    matchedRule: evaluation.matchedRule?.metadata?.networkRule,
   };
 }

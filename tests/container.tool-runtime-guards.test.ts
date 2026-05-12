@@ -74,7 +74,7 @@ describe.sequential('container tool runtime guards', () => {
     fs.writeFileSync(tempImagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
 
     const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) =>
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             choices: [
@@ -98,6 +98,7 @@ describe.sequential('container tool runtime guards', () => {
     );
     setModelContext(
       'vllm',
+      undefined,
       'http://haigpu1:8000/v1',
       '',
       'vllm/Qwen/Qwen3.5-27B-FP8',
@@ -190,6 +191,7 @@ describe.sequential('container tool runtime guards', () => {
       await import('../container/src/tools.js');
     setModelContext(
       'openai-codex',
+      undefined,
       'https://chatgpt.com/backend-api/codex',
       'codex-test-key',
       'openai-codex/gpt-5.4',
@@ -243,6 +245,7 @@ describe.sequential('container tool runtime guards', () => {
     );
     setModelContext(
       'ollama',
+      undefined,
       'http://127.0.0.1:11434/v1',
       '',
       'ollama/llava:7b',
@@ -313,6 +316,7 @@ describe.sequential('container tool runtime guards', () => {
     );
     setModelContext(
       'lmstudio',
+      undefined,
       'http://127.0.0.1:1234',
       '',
       'lmstudio/qwen/qwen2.5-vl',
@@ -369,6 +373,7 @@ describe.sequential('container tool runtime guards', () => {
       await import('../container/src/tools.js');
     setModelContext(
       'hybridai',
+      undefined,
       'https://hybridai.one',
       'main-model-key',
       'gpt-5-nano',
@@ -450,6 +455,7 @@ describe.sequential('container tool runtime guards', () => {
     );
     setModelContext(
       'hybridai',
+      undefined,
       'https://hybridai.one',
       'hybridai-test-key',
       'gpt-5.4',

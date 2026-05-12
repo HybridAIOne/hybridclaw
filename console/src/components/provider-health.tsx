@@ -149,5 +149,4 @@ export function ProviderHealthPanel({
   );
 }
 
-// Named export kept for any direct row usage
 export { ProviderRow as ProviderHealthRow };

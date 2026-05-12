@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { logger } from '../logger.js';
+import { expandHomePath } from '../utils/path.js';
 import { resolveConfiguredAdditionalMounts } from './mount-config.js';
 import { validateAdditionalMounts } from './mount-security.js';
 
@@ -33,12 +34,7 @@ async function resolveCanonicalPath(filePath: string): Promise<string> {
 }
 
 function expandPathInput(input: string): string {
-  const trimmed = input.trim();
-  if (trimmed === '~') return os.homedir();
-  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
-    return path.join(os.homedir(), trimmed.slice(2));
-  }
-  return trimmed;
+  return expandHomePath(input);
 }
 
 async function isManagedTempMediaPath(
@@ -89,6 +85,31 @@ function resolveDisplayPathToHost(params: {
     mountAliases,
   } = params;
   const normalized = normalizePathSlashes(rawPath);
+
+  // If the input is already an absolute path that lives inside one of the
+  // known *host* roots, leave the display-to-host remap to the caller's
+  // host-absolute branch. Otherwise a host path that happens to share a
+  // leading segment with a display prefix (e.g. host path
+  // /workspace/.data/data/uploaded-media-cache/foo.ogg vs.
+  // workspaceRootDisplay='/workspace') would be falsely re-rooted under the
+  // workspace and stat would fail.
+  if (path.isAbsolute(normalized)) {
+    const hostRoots = [
+      workspaceRoot,
+      mediaCacheRoot,
+      uploadedMediaRoot,
+      ...mountAliases.map((alias) => alias.hostPath),
+    ];
+    for (const root of hostRoots) {
+      const normalizedRoot = normalizePathSlashes(path.resolve(root));
+      if (
+        normalized === normalizedRoot ||
+        normalized.startsWith(`${normalizedRoot}/`)
+      ) {
+        return null;
+      }
+    }
+  }
 
   for (const alias of mountAliases) {
     const resolved = resolveUnderPrefix(

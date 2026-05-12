@@ -16,12 +16,9 @@ import { resolveInstallPath } from '../src/infra/install-root.js';
 let server: http.Server;
 let baseUrl: string;
 
-// Dynamic import of serveDocs — resolved after server setup.
 let serveDocs: typeof import('../src/gateway/docs.js').serveDocs;
 
 beforeAll(async () => {
-  // Import docs module — it resolves install root from the package tree,
-  // and SITE_DIR/DEVELOPMENT_DOCS_DIR from the real docs/ directory.
   const docsModule = await import('../src/gateway/docs.js');
   serveDocs = docsModule.serveDocs;
 
@@ -117,6 +114,16 @@ describe('gateway docs HTTP integration', () => {
     expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
   });
 
+  it('GET /docs/guides/tutorials returns a marked legacy redirect to /docs/tutorials', async () => {
+    const res = await fetch(`${baseUrl}/docs/guides/tutorials`, {
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(308);
+    const location = res.headers.get('location') || '';
+    expect(location).toBe('/docs/tutorials');
+    expect(res.headers.get('x-hybridclaw-docs-redirect')).toBe('legacy');
+  });
+
   it('docs with missing file returns 404 (not a crash)', async () => {
     const res = await fetch(
       `${baseUrl}/docs/this-section-does-not-exist-at-all`,
@@ -125,8 +132,6 @@ describe('gateway docs HTTP integration', () => {
     expect(res.status).toBe(404);
     expect(res.ok).toBe(false);
   });
-
-  // --- All markdown files render ---
 
   it('every markdown file in docs/content/ renders as 200 HTML', async () => {
     const docsDir = resolveInstallPath('docs', 'content');
@@ -165,8 +170,6 @@ describe('gateway docs HTTP integration', () => {
     );
   });
 
-  // --- Sidebar contains all top-level sections ---
-
   it('sidebar contains links for all top-level sections', async () => {
     const res = await fetch(`${baseUrl}/docs`);
     expect(res.status).toBe(200);
@@ -176,6 +179,8 @@ describe('gateway docs HTTP integration', () => {
       'getting-started',
       'channels',
       'guides',
+      'guides/skills',
+      'tutorials',
       'reference',
       'extensibility',
       'developer-guide',
@@ -185,9 +190,12 @@ describe('gateway docs HTTP integration', () => {
         `/docs/${section}`,
       );
     }
+    expect(html).toContain('<summary>Tutorials</summary>');
+    expect(html).toContain('<summary>Skills</summary>');
+    expect(html.indexOf('<summary>Skills</summary>')).toBeLessThan(
+      html.indexOf('<summary>Tutorials</summary>'),
+    );
   });
-
-  // --- Internal doc links resolve ---
 
   it('all internal /docs/ links on the index page resolve to 200', async () => {
     const res = await fetch(`${baseUrl}/docs`);

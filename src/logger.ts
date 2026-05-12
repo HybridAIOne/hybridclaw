@@ -4,6 +4,7 @@ import { Writable } from 'node:stream';
 import pino from 'pino';
 import pretty from 'pino-pretty';
 
+import { SlidingWindowRateLimiter } from './channels/discord/rate-limiter.js';
 import {
   getRuntimeConfig,
   onRuntimeConfigChange,
@@ -14,6 +15,7 @@ import {
   LOGGER_SERIALIZERS,
 } from './logger-format.js';
 import { getTraceContext } from './observability/otel.js';
+import { isExpectedTransportError } from './utils/transport-errors.js';
 
 const VALID_LOG_LEVELS = new Set([
   'fatal',
@@ -24,6 +26,11 @@ const VALID_LOG_LEVELS = new Set([
   'trace',
   'silent',
 ]);
+const EXPECTED_TRANSPORT_PROCESS_WARN_WINDOW_MS = 60_000;
+const EXPECTED_TRANSPORT_PROCESS_WARN_LIMIT = 2;
+const expectedTransportProcessWarnLimiter = new SlidingWindowRateLimiter(
+  EXPECTED_TRANSPORT_PROCESS_WARN_WINDOW_MS,
+);
 
 function resolveForcedLogLevel():
   | ReturnType<typeof getRuntimeConfig>['ops']['logLevel']
@@ -149,46 +156,143 @@ onRuntimeConfigChange((next, prev) => {
   }
 });
 
-// Use a module-level symbol so the same named handler can be detected across
-// re-imports that occur in tests (vi.resetModules + dynamic import). Without
-// this guard, every reimport of this module appends a fresh listener to the
-// process, quickly exceeding the default MaxListeners limit of 10.
-const UNCAUGHT_EXCEPTION_TAG = '__hybridclaw_uncaughtException__';
-const UNHANDLED_REJECTION_TAG = '__hybridclaw_unhandledRejection__';
+const PROCESS_HANDLER_REGISTRATION_KEY = Symbol.for(
+  'hybridclaw.logger.process-handler-registration',
+);
+const UNCAUGHT_EXCEPTION_HANDLER_TAG = Symbol.for(
+  'hybridclaw.logger.uncaught-exception-handler',
+);
+const UNHANDLED_REJECTION_HANDLER_TAG = Symbol.for(
+  'hybridclaw.logger.unhandled-rejection-handler',
+);
+
+interface ProcessHandlerRegistrationState {
+  uncaughtException: boolean;
+  unhandledRejection: boolean;
+}
+
+function getProcessHandlerRegistrationState(): ProcessHandlerRegistrationState {
+  const target = process as NodeJS.Process & {
+    [PROCESS_HANDLER_REGISTRATION_KEY]?: ProcessHandlerRegistrationState;
+  };
+  if (target[PROCESS_HANDLER_REGISTRATION_KEY]) {
+    return target[PROCESS_HANDLER_REGISTRATION_KEY];
+  }
+  const state: ProcessHandlerRegistrationState = {
+    uncaughtException: false,
+    unhandledRejection: false,
+  };
+  target[PROCESS_HANDLER_REGISTRATION_KEY] = state;
+  return state;
+}
+
+function getExpectedTransportProcessWarningKey(error: unknown): string {
+  if (!error || typeof error !== 'object') {
+    return String(error);
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+  };
+  const code =
+    typeof candidate.code === 'string' ? candidate.code.toUpperCase() : '';
+  const message =
+    typeof candidate.message === 'string'
+      ? candidate.message.slice(0, 200)
+      : '';
+  return [code, message].filter(Boolean).join(':') || 'transport-error';
+}
+
+function shouldLogExpectedTransportProcessWarning(error: unknown): boolean {
+  return expectedTransportProcessWarnLimiter.check(
+    getExpectedTransportProcessWarningKey(error),
+    EXPECTED_TRANSPORT_PROCESS_WARN_LIMIT,
+  ).allowed;
+}
 
 function uncaughtExceptionHandler(err: Error) {
+  if (isExpectedTransportError(err)) {
+    if (shouldLogExpectedTransportProcessWarning(err)) {
+      logger.warn(
+        { err },
+        'Uncaught transport exception escaped local handler; keeping process alive',
+      );
+    }
+    return;
+  }
+
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
 }
+(
+  uncaughtExceptionHandler as typeof uncaughtExceptionHandler & {
+    [UNCAUGHT_EXCEPTION_HANDLER_TAG]?: true;
+  }
+)[UNCAUGHT_EXCEPTION_HANDLER_TAG] = true;
 
 function unhandledRejectionHandler(reason: unknown) {
+  if (isExpectedTransportError(reason)) {
+    if (shouldLogExpectedTransportProcessWarning(reason)) {
+      logger.warn(
+        { err: reason },
+        'Unhandled transport rejection escaped local handler; keeping process alive',
+      );
+    }
+    return;
+  }
+
   logger.error({ err: reason }, 'Unhandled rejection');
 }
+(
+  unhandledRejectionHandler as typeof unhandledRejectionHandler & {
+    [UNHANDLED_REJECTION_HANDLER_TAG]?: true;
+  }
+)[UNHANDLED_REJECTION_HANDLER_TAG] = true;
 
-// Tag the handlers so we can detect whether they are already registered.
-(uncaughtExceptionHandler as unknown as Record<string, boolean>)[
-  UNCAUGHT_EXCEPTION_TAG
-] = true;
-(unhandledRejectionHandler as unknown as Record<string, boolean>)[
-  UNHANDLED_REJECTION_TAG
-] = true;
+const processHandlerRegistrationState = getProcessHandlerRegistrationState();
 
-if (
-  !process
-    .listeners('uncaughtException')
-    .some(
-      (l) => (l as unknown as Record<string, boolean>)[UNCAUGHT_EXCEPTION_TAG],
-    )
-) {
+if (!processHandlerRegistrationState.uncaughtException) {
   process.on('uncaughtException', uncaughtExceptionHandler);
+  processHandlerRegistrationState.uncaughtException = true;
 }
 
-if (
-  !process
-    .listeners('unhandledRejection')
-    .some(
-      (l) => (l as unknown as Record<string, boolean>)[UNHANDLED_REJECTION_TAG],
-    )
-) {
+if (!processHandlerRegistrationState.unhandledRejection) {
   process.on('unhandledRejection', unhandledRejectionHandler);
+  processHandlerRegistrationState.unhandledRejection = true;
 }
+
+export function removeLoggerProcessHandlersForTests(): void {
+  for (const listener of process.listeners('uncaughtException')) {
+    if (
+      (listener as { [UNCAUGHT_EXCEPTION_HANDLER_TAG]?: true })[
+        UNCAUGHT_EXCEPTION_HANDLER_TAG
+      ]
+    ) {
+      process.removeListener(
+        'uncaughtException',
+        listener as (error: Error) => void,
+      );
+    }
+  }
+
+  for (const listener of process.listeners('unhandledRejection')) {
+    if (
+      (listener as { [UNHANDLED_REJECTION_HANDLER_TAG]?: true })[
+        UNHANDLED_REJECTION_HANDLER_TAG
+      ]
+    ) {
+      process.removeListener(
+        'unhandledRejection',
+        listener as (reason: unknown) => void,
+      );
+    }
+  }
+
+  const state = getProcessHandlerRegistrationState();
+  state.uncaughtException = false;
+  state.unhandledRejection = false;
+}
+
+export const handleUncaughtExceptionForTests = uncaughtExceptionHandler;
+export const handleUnhandledRejectionForTests = unhandledRejectionHandler;

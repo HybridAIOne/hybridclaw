@@ -7,8 +7,15 @@ import { logger } from '../logger.js';
 import { sleep } from '../utils/sleep.js';
 import { SkillImportError } from './skill-errors.js';
 import {
+  assertSafeRelativePath,
+  ensureText,
+  type ImportState,
+  normalizeRepoPath,
+  readResponseBytesWithinImportBudget,
+  writeImportedFile,
+} from './skill-import-commons.js';
+import {
   type GitHubSkillImportSource,
-  normalizeImportedSkillRelativePath,
   populateFromGitHubSource,
   resolveGitHubSkillPathByName,
 } from './skills-import-github.js';
@@ -20,8 +27,6 @@ const KNOWN_CLAUDE_MARKETPLACES = [
   'anthropics/skills',
   'aiskillstore/marketplace',
 ];
-const MAX_IMPORT_FILE_COUNT = 256;
-const MAX_IMPORT_TOTAL_BYTES = 5 * 1024 * 1024;
 
 const RETRY_MAX_RETRIES = 3;
 const RETRY_INITIAL_DELAY_MS = 1000;
@@ -52,11 +57,6 @@ function computeRetryBackoffMs(
   const jitterFactor = 1 + (Math.random() * 2 - 1) * RETRY_JITTER_RATIO;
   const jitteredBackoffMs = Math.round(cappedBackoffMs * jitterFactor);
   return Math.min(Math.max(jitteredBackoffMs, 0), RETRY_MAX_DELAY_MS);
-}
-
-interface ImportState {
-  fileCount: number;
-  totalBytes: number;
 }
 
 interface WellKnownSkillEntry {
@@ -130,18 +130,6 @@ export type HubSkillImportSource =
   | ClawHubSkillImportSource
   | LobeHubSkillImportSource
   | ClaudeMarketplaceSkillImportSource;
-
-function trimSlashes(value: string): string {
-  return value.replace(/^\/+|\/+$/g, '');
-}
-
-function normalizeRepoPath(value: string): string {
-  return trimSlashes(value).replace(/\/+/g, '/');
-}
-
-function ensureText(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
 
 function resolveRelativeUrl(baseUrl: string, relativePath: string): string {
   return new URL(relativePath, baseUrl).toString();
@@ -241,6 +229,7 @@ async function fetchText(
 async function downloadBytes(
   fetchImpl: typeof fetch,
   url: string,
+  state?: ImportState,
   init?: RequestInit,
 ): Promise<Uint8Array> {
   const response = await fetchResponse(fetchImpl, url, init);
@@ -250,53 +239,10 @@ async function downloadBytes(
       `Request failed for ${url}: HTTP ${response.status}${detail ? ` ${detail.trim()}` : ''}`,
     );
   }
+  if (state) {
+    return await readResponseBytesWithinImportBudget(response, state);
+  }
   return new Uint8Array(await response.arrayBuffer());
-}
-
-function assertSafeRelativePath(relativePath: string): void {
-  const normalized = relativePath.replace(/\\/g, '/');
-  if (!normalized || normalized.startsWith('/')) {
-    throw new SkillImportError(`Unsafe skill file path: ${relativePath}`);
-  }
-
-  const parts = normalized.split('/');
-  if (
-    parts.some(
-      (segment) => segment === '' || segment === '.' || segment === '..',
-    )
-  ) {
-    throw new SkillImportError(`Unsafe skill file path: ${relativePath}`);
-  }
-}
-
-function recordImportedFile(state: ImportState, bytes: number): void {
-  if (state.fileCount + 1 > MAX_IMPORT_FILE_COUNT) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_FILE_COUNT}-file import limit.`,
-    );
-  }
-  if (state.totalBytes + bytes > MAX_IMPORT_TOTAL_BYTES) {
-    throw new SkillImportError(
-      `Remote skill exceeds the ${MAX_IMPORT_TOTAL_BYTES} byte import limit.`,
-    );
-  }
-  state.fileCount += 1;
-  state.totalBytes += bytes;
-}
-
-function writeImportedFile(
-  rootDir: string,
-  relativePath: string,
-  bytes: Uint8Array,
-  state: ImportState,
-): void {
-  const normalizedRelativePath =
-    normalizeImportedSkillRelativePath(relativePath);
-  assertSafeRelativePath(normalizedRelativePath);
-  recordImportedFile(state, bytes.byteLength);
-  const targetPath = path.join(rootDir, normalizedRelativePath);
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, Buffer.from(bytes));
 }
 
 function yamlString(value: string): string {
@@ -361,7 +307,7 @@ async function populateFromWellKnownSource(
       source.baseUrl,
       `.well-known/skills/${encodeURIComponent(skillName)}/${file}`,
     );
-    const bytes = await downloadBytes(fetchImpl, fileUrl);
+    const bytes = await downloadBytes(fetchImpl, fileUrl, state);
     writeImportedFile(targetDir, file, bytes, state);
   }
 

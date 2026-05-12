@@ -204,3 +204,85 @@ test('session compaction backlog fix compacts oversized idle sessions and report
     }),
   );
 });
+
+test('ephemeral eval artifact check removes stale eval sessions and directories', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const { initDatabase, getOrCreateSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { DATA_DIR, DB_PATH } = await import('../src/config/config.ts');
+
+  initDatabase({ quiet: true });
+  const staleSession = getOrCreateSession(
+    'agent_eval-stale_channel_openai_chat_dm_peer_1',
+    null,
+    'openai_chat_dm_peer',
+    'eval-stale',
+  );
+  const recentSession = getOrCreateSession(
+    'agent_eval-recent_channel_openai_chat_dm_peer_1',
+    null,
+    'openai_chat_dm_peer',
+    'eval-recent',
+  );
+  const db = new Database(DB_PATH);
+  db.prepare(
+    'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+  ).run(2, '2026-04-01T00:00:00.000Z', staleSession.id);
+  db.prepare(
+    'UPDATE sessions SET message_count = ?, last_active = ? WHERE id = ?',
+  ).run(2, new Date().toISOString(), recentSession.id);
+  db.prepare(
+    'INSERT INTO messages (session_id, user_id, username, role, content, agent_id) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(staleSession.id, 'user', 'User', 'assistant', 'stale', 'eval-stale');
+  db.close();
+
+  const staleSessionDir = path.join(DATA_DIR, 'sessions', staleSession.id);
+  const staleAuditDir = path.join(DATA_DIR, 'audit', staleSession.id);
+  const recentSessionDir = path.join(DATA_DIR, 'sessions', recentSession.id);
+  fs.mkdirSync(staleSessionDir, { recursive: true });
+  fs.mkdirSync(staleAuditDir, { recursive: true });
+  fs.mkdirSync(recentSessionDir, { recursive: true });
+  fs.writeFileSync(path.join(staleSessionDir, 'turn.jsonl'), 'stale');
+  fs.writeFileSync(path.join(staleAuditDir, 'wire.jsonl'), 'stale');
+  fs.writeFileSync(path.join(recentSessionDir, 'turn.jsonl'), 'recent');
+  setOldMtime(staleSessionDir, 3 * 24 * 60 * 60 * 1000);
+  setOldMtime(staleAuditDir, 3 * 24 * 60 * 60 * 1000);
+
+  const { checkEphemeralEvalArtifacts } = await import(
+    '../src/doctor/checks/resource-hygiene.ts'
+  );
+
+  const [result] = await checkEphemeralEvalArtifacts();
+
+  expect(result).toMatchObject({
+    label: 'Ephemeral eval artifacts',
+    severity: 'warn',
+  });
+  expect(result.message).toContain('1 stale eval/locomo session');
+  expect(result.message).toContain('2 matching directories');
+
+  await result.fix?.apply();
+
+  const verifyDb = new Database(DB_PATH);
+  const staleRow = verifyDb
+    .prepare('SELECT id FROM sessions WHERE id = ?')
+    .get(staleSession.id);
+  const recentRow = verifyDb
+    .prepare('SELECT id FROM sessions WHERE id = ?')
+    .get(recentSession.id);
+  const staleMessage = verifyDb
+    .prepare('SELECT id FROM messages WHERE session_id = ?')
+    .get(staleSession.id);
+  verifyDb.close();
+
+  expect(staleRow).toBeUndefined();
+  expect(staleMessage).toBeUndefined();
+  expect(recentRow).toEqual({ id: recentSession.id });
+  expect(fs.existsSync(staleSessionDir)).toBe(false);
+  expect(fs.existsSync(staleAuditDir)).toBe(false);
+  expect(fs.existsSync(recentSessionDir)).toBe(true);
+});

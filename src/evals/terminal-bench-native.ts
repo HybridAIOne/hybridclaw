@@ -422,7 +422,6 @@ async function runTask(
       executionSessionId,
       executorModeOverride: 'host',
       autoApproveTools: true,
-      neverAutoApproveTools: [],
       workspacePathOverride: env.workspaceDir,
       workspaceDisplayRootOverride: '/app',
       bashProxy: {

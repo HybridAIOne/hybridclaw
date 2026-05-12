@@ -30,9 +30,17 @@ const LEGACY_DOCS_EXACT_REWRITES = new Map<string, string>([
   ['internals/README.md', 'developer-guide/README.md'],
   ['tools/web-search', 'reference/tools/web-search'],
   ['tools/web-search.md', 'reference/tools/web-search.md'],
+  ['guides/sme', 'tutorials/README.md'],
+  ['guides/sme.md', 'tutorials/README.md'],
+  ['guides/sme/README.md', 'tutorials/README.md'],
+  ['guides/tutorials', 'tutorials/README.md'],
+  ['guides/tutorials.md', 'tutorials/README.md'],
+  ['guides/tutorials/README.md', 'tutorials/README.md'],
 ]);
 const LEGACY_DOCS_PREFIX_REWRITES: Array<{ from: string; to: string }> = [
   { from: 'internals/', to: 'developer-guide/' },
+  { from: 'guides/sme/', to: 'tutorials/' },
+  { from: 'guides/tutorials/', to: 'tutorials/' },
 ];
 
 const DEVELOPMENT_DOCS_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
@@ -148,6 +156,12 @@ type DevelopmentDocsSnapshot = {
   sidebarTree: SidebarNode;
 };
 
+type PromotedSidebarGroup = {
+  label: string;
+  pathKey: string;
+  position: number;
+};
+
 let developmentDocsSnapshotCache: DevelopmentDocsSnapshot | null = null;
 
 function escapeHtml(value: string): string {
@@ -173,6 +187,29 @@ function normalizeDocPath(input: string): string {
     .replace(/^\/+/, '')
     .replace(/\\/g, '/')
     .replace(/\/+/g, '/');
+}
+
+const PROMOTED_SIDEBAR_GROUPS: PromotedSidebarGroup[] = [
+  {
+    label: 'Skills',
+    pathKey: 'guides/skills',
+    position: 3.1,
+  },
+];
+
+function getPromotedSidebarGroup(
+  relativePath: string,
+): PromotedSidebarGroup | null {
+  const normalized = normalizeDocPath(relativePath);
+  for (const group of PROMOTED_SIDEBAR_GROUPS) {
+    if (
+      normalized === group.pathKey ||
+      normalized.startsWith(`${group.pathKey}/`)
+    ) {
+      return group;
+    }
+  }
+  return null;
 }
 
 function parseDevelopmentDoc(
@@ -685,38 +722,65 @@ function buildSidebarTree(
     routePath: null,
   };
 
+  const ensureSidebarGroup = (
+    parent: SidebarNode,
+    pathKey: string,
+    label: string,
+    position: number | null,
+  ): SidebarNode => {
+    let group = parent.children.find(
+      (entry) => !entry.isPage && entry.pathKey === pathKey,
+    );
+    if (group) return group;
+    group = {
+      children: [],
+      description: '',
+      isPage: false,
+      label,
+      pathKey,
+      position,
+      routePath: null,
+    };
+    parent.children.push(group);
+    return group;
+  };
+
   for (const page of docs) {
     if (page.relativePath === 'README.md') continue;
 
     const parts = page.relativePath.split('/');
+    const promotedGroup = getPromotedSidebarGroup(page.relativePath);
     let cursor = root;
     let currentPath = '';
+    let directorySegments = parts.slice(0, -1);
 
-    for (const segment of parts.slice(0, -1)) {
-      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-      let group = cursor.children.find(
-        (entry) => !entry.isPage && entry.pathKey === currentPath,
+    if (promotedGroup) {
+      cursor = ensureSidebarGroup(
+        root,
+        promotedGroup.pathKey,
+        promotedGroup.label,
+        promotedGroup.position,
       );
-      if (!group) {
-        const categoryMeta = readCategoryMetadataCached(currentPath) || {};
-        group = {
-          children: [],
-          description: '',
-          isPage: false,
-          label:
-            typeof categoryMeta.label === 'string' && categoryMeta.label.trim()
-              ? categoryMeta.label.trim()
-              : humanizeSegment(segment),
-          pathKey: currentPath,
-          position:
-            typeof categoryMeta.position === 'number'
-              ? categoryMeta.position
-              : null,
-          routePath: null,
-        };
-        cursor.children.push(group);
-      }
-      cursor = group;
+      currentPath = promotedGroup.pathKey;
+      const promotedDepth = promotedGroup.pathKey.split('/').length;
+      directorySegments = directorySegments.slice(promotedDepth);
+    }
+
+    for (const segment of directorySegments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      const categoryMeta = readCategoryMetadataCached(currentPath) || {};
+      const label =
+        typeof categoryMeta.label === 'string' && categoryMeta.label.trim()
+          ? categoryMeta.label.trim()
+          : humanizeSegment(segment);
+      cursor = ensureSidebarGroup(
+        cursor,
+        currentPath,
+        label,
+        typeof categoryMeta.position === 'number'
+          ? categoryMeta.position
+          : null,
+      );
     }
 
     cursor.children.push({
@@ -757,18 +821,21 @@ function sidebarNodeContainsRoute(
 function renderSidebarNode(
   node: SidebarNode,
   currentRoutePath: string,
+  isRootLevel = false,
 ): string {
   if (node.isPage) {
     const isActive = node.routePath === currentRoutePath;
-    return `<a class="docs-sidebar-link${isActive ? ' is-active' : ''}" href="${escapeHtml(node.routePath || DOCS_ROUTE)}"${isActive ? ' aria-current="page"' : ''}><span>${escapeHtml(node.label)}</span></a>`;
+    const topClass = isRootLevel ? ' docs-sidebar-link-top' : '';
+    return `<a class="docs-sidebar-link${topClass}${isActive ? ' is-active' : ''}" href="${escapeHtml(node.routePath || DOCS_ROUTE)}"${isActive ? ' aria-current="page"' : ''}><span>${escapeHtml(node.label)}</span></a>`;
   }
 
   const hasActiveDescendant = sidebarNodeContainsRoute(node, currentRoutePath);
+  const isRoot = !node.pathKey;
   const childrenMarkup = node.children
-    .map((child) => renderSidebarNode(child, currentRoutePath))
+    .map((child) => renderSidebarNode(child, currentRoutePath, isRoot))
     .join('');
 
-  if (!node.pathKey) {
+  if (isRoot) {
     return childrenMarkup;
   }
 
@@ -819,9 +886,24 @@ function buildBreadcrumbs(
     { href: DOCS_ROUTE, label: rootLabel },
   ];
 
+  const promotedGroup = getPromotedSidebarGroup(page.relativePath);
   const parts = page.relativePath.split('/');
-  let currentPath = '';
-  for (const segment of parts.slice(0, -1)) {
+  let currentPath = promotedGroup?.pathKey || '';
+
+  if (promotedGroup) {
+    const indexDoc = docsByRelativePath.get(
+      `${promotedGroup.pathKey}/README.md`,
+    );
+    items.push({
+      href: indexDoc?.routePath || null,
+      label: promotedGroup.label,
+    });
+  }
+
+  const startIndex = promotedGroup
+    ? promotedGroup.pathKey.split('/').length
+    : 0;
+  for (const segment of parts.slice(startIndex, -1)) {
     currentPath = currentPath ? `${currentPath}/${segment}` : segment;
     const categoryMeta = readCategoryMetadataCached(currentPath) || {};
     const label =
@@ -1616,6 +1698,20 @@ function renderPage(
       font-weight: 600;
     }
 
+    .docs-sidebar-link-top {
+      font-weight: 600;
+      color: var(--muted);
+      padding: 8px 10px;
+      margin-top: 12px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.9);
+    }
+
+    .docs-sidebar-link-top:hover {
+      background: rgba(255, 255, 255, 0.5);
+      color: var(--muted);
+    }
+
     .docs-sidebar-group {
       margin: 6px 0 2px;
     }
@@ -2062,7 +2158,7 @@ function renderPage(
       <span class="docs-brand-accent">Docs</span>
     </a>
     <nav class="docs-topnav" aria-label="Top navigation">
-      <a href="/">Home</a>
+      <a href="/about">Home</a>
       <a href="${GITHUB_REPO_URL}" target="_blank" rel="noreferrer">GitHub ${renderExternalLinkIcon()}</a>
       <a href="${DISCORD_URL}" target="_blank" rel="noreferrer">Discord ${renderExternalLinkIcon()}</a>
     </nav>

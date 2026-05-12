@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  appendTerminalRowCount,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
   flushTuiStreamDelta,
@@ -163,6 +164,13 @@ test('returns one trailing newline when streamed output already ends on a newlin
   expect(getTuiStreamTrailingNewlines(createTuiStreamFormatState())).toBe('\n');
 });
 
+test('increments terminal row counts from appended streamed chunks without rescanning prior output', () => {
+  expect(appendTerminalRowCount(0, '  hello')).toBe(1);
+  expect(appendTerminalRowCount(1, ' world')).toBe(1);
+  expect(appendTerminalRowCount(1, '\n  again')).toBe(2);
+  expect(appendTerminalRowCount(2, '\nmore\nend')).toBe(4);
+});
+
 test('derives trailing newlines from the post-flush stream state', () => {
   expect(
     getTuiStreamTrailingNewlines(
@@ -197,6 +205,129 @@ test('keeps think blocks in the transient preview and streams visible text separ
     visibleDelta: ' world',
     thinkingPreview: 'plan',
     sawThinking: true,
+  });
+});
+
+test('strips Qwen tool markup from transient thinking previews', () => {
+  const state = createTuiThinkingStreamState();
+  const result = state.push(
+    [
+      '<think>#hybridclaw. Let me read from #t.',
+      '<tool_call>',
+      '<function=message>',
+      '<parameter=action>',
+      'channel-info',
+      '</parameter>',
+      '</function>',
+      '</tool_call>',
+      '</think>',
+    ].join('\n'),
+  );
+
+  expect(result).toEqual({
+    visibleDelta: '',
+    thinkingPreview: '#hybridclaw. Let me read from #t.',
+    sawThinking: true,
+  });
+});
+
+test('suppresses unmatched thinking close markers from visible stream text', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('s.\n</think>\n\nVisible answer')).toEqual({
+    visibleDelta: 's.\nVisible answer',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+});
+
+test('holds split thinking close markers out of the visible stream', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('<think>plan</think>')).toEqual({
+    visibleDelta: '',
+    thinkingPreview: 'plan',
+    sawThinking: true,
+  });
+  expect(state.push('s.\n')).toEqual({
+    visibleDelta: 's.',
+    thinkingPreview: 'plan',
+    sawThinking: true,
+  });
+  expect(state.push('</think>\n\nVisible answer')).toEqual({
+    visibleDelta: '\nVisible answer',
+    thinkingPreview: 'plan',
+    sawThinking: true,
+  });
+});
+
+test('preserves single-letter sentence fragments before visible text', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.pushThinking('checking')).toEqual({
+    thinkingPreview: 'checking',
+    sawThinking: true,
+  });
+  expect(state.push("g.\nHere's a digest")).toEqual({
+    visibleDelta: "g.\nHere's a digest",
+    thinkingPreview: null,
+    sawThinking: true,
+  });
+});
+
+test('does not drop single-letter sentence endings after visible text started', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.pushThinking('checking')).toEqual({
+    thinkingPreview: 'checking',
+    sawThinking: true,
+  });
+  expect(state.push('Not a long life, but a well-lived lif')).toEqual({
+    visibleDelta: 'Not a long life, but a well-lived lif',
+    thinkingPreview: null,
+    sawThinking: true,
+  });
+  expect(state.push('e.\n\nWhat of you, Ben?')).toEqual({
+    visibleDelta: 'e.\n\nWhat of you, Ben?',
+    thinkingPreview: null,
+    sawThinking: true,
+  });
+});
+
+test('trims leading whitespace before first visible streamed text', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('\n\nFinal answer')).toEqual({
+    visibleDelta: 'Final answer',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+  expect(state.push(' continues')).toEqual({
+    visibleDelta: ' continues',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+});
+
+test('gates visible output between split tool tags', () => {
+  const state = createTuiThinkingStreamState();
+
+  expect(state.push('Before <too')).toEqual({
+    visibleDelta: 'Before ',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+  expect(
+    state.push('l_call>{"name":"message","arguments":{"action":"read"}}'),
+  ).toEqual({
+    visibleDelta: '',
+    thinkingPreview: null,
+    sawThinking: false,
+  });
+  expect(state.push('</tool_call> After')).toEqual({
+    visibleDelta: ' After',
+    thinkingPreview: null,
+    sawThinking: false,
   });
 });
 

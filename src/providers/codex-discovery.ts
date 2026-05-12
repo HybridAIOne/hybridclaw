@@ -2,23 +2,21 @@ import {
   getCodexAuthStatus,
   resolveCodexCredentials,
 } from '../auth/codex-auth.js';
+import { logger } from '../logger.js';
 import { CODEX_CLIENT_VERSION } from './codex-constants.js';
-import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
+import {
+  createDiscoveryStore,
+  isRecord,
+  normalizeBaseUrl,
+  readPositiveInteger,
+} from './utils.js';
 
-const CODEX_DISCOVERY_TTL_MS = 3_600_000;
 const CODEX_MODEL_PREFIX = 'openai-codex/';
-// Models shown in the ChatGPT Codex UI that the `/models` HTTP endpoint does
-// not always advertise (the endpoint currently omits `-codex` variants for
-// 5.1/5.2 even when the account can call them via `/responses`). Merged into
-// the discovered set so `/model list codex` mirrors what users see in the UI.
 const CODEX_SUPPLEMENTAL_MODELS = [
   'openai-codex/gpt-5.1-codex-max',
   'openai-codex/gpt-5.1-codex-mini',
   'openai-codex/gpt-5.2-codex',
 ] as const;
-// Keep entries ordered so any model used as a template appears earlier in the
-// list than models derived from it. appendForwardCompatCodexModels augments the
-// seen set as it walks this table once from top to bottom.
 const CODEX_FORWARD_COMPAT_MODELS = [
   {
     model: 'openai-codex/gpt-5.3-codex',
@@ -43,6 +41,14 @@ const CODEX_FORWARD_COMPAT_MODELS = [
   {
     model: 'openai-codex/gpt-5.3-codex-spark',
     templateModels: [
+      'openai-codex/gpt-5.3-codex',
+      'openai-codex/gpt-5.2-codex',
+    ],
+  },
+  {
+    model: 'openai-codex/gpt-5.5',
+    templateModels: [
+      'openai-codex/gpt-5.4',
       'openai-codex/gpt-5.3-codex',
       'openai-codex/gpt-5.2-codex',
     ],
@@ -116,26 +122,22 @@ export interface CodexDiscoveryStore {
   getModelMaxTokens: (model: string) => number | null;
 }
 
+interface CodexDiscoveryState {
+  discoveredModelNames: string[];
+  contextWindowByModel: Map<string, number>;
+  maxTokensByModel: Map<string, number>;
+}
+
+const buildEmptyCodexDiscoveryState = (): CodexDiscoveryState => ({
+  discoveredModelNames: [],
+  contextWindowByModel: new Map(),
+  maxTokensByModel: new Map(),
+});
+
 export function createCodexDiscoveryStore(): CodexDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let contextWindowByModel = new Map<string, number>();
-  let maxTokensByModel = new Map<string, number>();
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(buildEmptyCodexDiscoveryState());
 
-  function replaceDiscoveryCache(
-    modelNames: string[],
-    nextContextWindows: Iterable<[string, number]> = [],
-    nextMaxTokens: Iterable<[string, number]> = [],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    contextWindowByModel = new Map(nextContextWindows);
-    maxTokensByModel = new Map(nextMaxTokens);
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
-
-  async function fetchCodexModels(): Promise<string[]> {
+  async function fetchCodexModels(): Promise<CodexDiscoveryState> {
     const credentials = await resolveCodexCredentials();
     const url = new URL(
       `${normalizeBaseUrl(process.env.HYBRIDCLAW_CODEX_BASE_URL || credentials.baseUrl)}/models`,
@@ -177,53 +179,44 @@ export function createCodexDiscoveryStore(): CodexDiscoveryStore {
     // Supplemental and forward-compat models are catalog-only additions.
     // Metadata maps stay limited to models returned directly by the API;
     // downstream static fallbacks fill known context-window defaults.
-    replaceDiscoveryCache(discoveredModelNames, contextWindows, maxTokens);
-    return discoveredModelNames;
+    return {
+      discoveredModelNames,
+      contextWindowByModel: contextWindows,
+      maxTokensByModel: maxTokens,
+    };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     const auth = getCodexAuthStatus();
     if (!auth.authenticated || auth.reloginRequired) {
-      replaceDiscoveryCache([], [], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyCodexDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < CODEX_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchCodexModels();
-        return [...discoveredModelNames];
-      } catch {
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+    const state = await discoveryStore.discover(fetchCodexModels, {
+      force: opts?.force,
+      onError: (err, staleState) => {
+        logger.warn({ err }, 'Codex model discovery failed');
+        return staleState;
+      },
+    });
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
     getModelContextWindow: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeCodexModelName(model);
-      return contextWindowByModel.get(normalized) ?? null;
+      return state.contextWindowByModel.get(normalized) ?? null;
     },
     getModelMaxTokens: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeCodexModelName(model);
-      return maxTokensByModel.get(normalized) ?? null;
+      return state.maxTokensByModel.get(normalized) ?? null;
     },
   };
 }
@@ -248,4 +241,10 @@ export function getDiscoveredCodexModelContextWindow(
 
 export function getDiscoveredCodexModelMaxTokens(model: string): number | null {
   return defaultCodexDiscoveryStore.getModelMaxTokens(model);
+}
+
+export function getDiscoveredCodexModelPricingUsdPerToken(
+  model: string,
+): { input: number | null; output: number | null } | null {
+  return normalizeCodexModelName(model) ? { input: 0, output: 0 } : null;
 }

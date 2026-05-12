@@ -127,7 +127,8 @@ Common advanced areas:
 - Session continuity and DM isolation: `sessionRouting.*`
 - Skill availability: `skills.disabled`, `skills.channelDisabled.*`
 - Adaptive skill observation/amendment loop: `adaptiveSkills.*`
-- Proactive runtime: `proactive.*`
+- Proactive runtime: `proactive.*`, including
+  `proactive.delegation.model` for a dedicated delegate model
 - MCP server registry: `mcpServers.*`
 - Plugin overrides: `plugins.list[]`
 - Observability export: `observability.*`
@@ -409,7 +410,8 @@ Operational surfaces:
 - `agent`, `agent list`, `agent switch <id>`, `agent create <id> [--model <model>]`
   are available through gateway commands, TUI, web chat slash-text, and
   Discord slash/text commands
-- `status` now includes the current session agent
+- `status` includes the current session agent and, when configured, delegate
+  model usage and local-token share
 - `/agents` shows both logical agents and per-session runtime cards
 
 ## Agent Tool And Runtime Internals
@@ -429,3 +431,5 @@ Prompt and runtime internals:
 - session compaction with pre-compaction memory flush
 - prompt hook pipeline: `bootstrap`, `memory`, `safety`, `proactivity`
 - hook config lives in `config.promptHooks`
+- delegated agent runs persist request logs, audit tool events, and model
+  usage under `delegate:d<depth>:<parentSessionId>:...` child session ids

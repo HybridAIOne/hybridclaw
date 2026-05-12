@@ -77,7 +77,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     'docs/content/getting-started/authentication.md',
     // SPA entry points
     'docs/index.html',
-    'docs/chat.html',
     'docs/agents.html',
     // Admin console
     'console/dist/index.html',
@@ -109,6 +108,22 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
       { encoding: 'utf-8', timeout: 10_000 },
     ).trim();
     expect(result).toBe('ok');
+  });
+
+  test('amd64 image includes signal-cli for admin Signal QR linking', () => {
+    const arch = execSync(`docker exec ${CONTAINER_NAME} uname -m`, {
+      encoding: 'utf-8',
+      timeout: 10_000,
+    }).trim();
+    if (arch !== 'x86_64') {
+      return;
+    }
+
+    const result = execSync(
+      `docker exec ${CONTAINER_NAME} signal-cli --version`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    expect(result).toContain('signal-cli');
   });
 
   // ── HTTP endpoint checks ─────────────────────────────────────────────
@@ -153,8 +168,17 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(md).toContain('# Getting Started');
   });
 
-  test('/ serves the landing page', async () => {
+  test('/ redirects to chat (auth enforced in container)', async () => {
     const res = await fetch(GATEWAY_URL, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/chat');
+  });
+
+  test('/about serves the landing page', async () => {
+    const res = await fetch(`${GATEWAY_URL}/about`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     expect(res.status).toBe(200);
@@ -182,14 +206,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(res.headers.get('location')).toMatch(/login/);
   });
 
-  test('image contains chat SPA with correct title', () => {
-    const result = execSync(
-      `docker exec ${CONTAINER_NAME} sh -c 'grep -m1 -o "<title>[^<]*</title>" docs/chat.html'`,
-      { encoding: 'utf-8', timeout: 10_000 },
-    ).trim();
-    expect(result).toBe('<title>HybridClaw Chat</title>');
-  });
-
   test('image contains agents SPA with correct title', () => {
     const result = execSync(
       `docker exec ${CONTAINER_NAME} sh -c 'grep -m1 -o "<title>[^<]*</title>" docs/agents.html'`,
@@ -206,8 +222,6 @@ describe.skipIf(!DOCKER_E2E)('gateway Docker image', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toMatch(/login/);
   });
-
-  // ── Legacy route redirects ──────────────────────────────────────────
 
   test('/development redirects to /docs', async () => {
     const res = await fetch(`${GATEWAY_URL}/development`, {

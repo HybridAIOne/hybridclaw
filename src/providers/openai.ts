@@ -18,6 +18,7 @@ async function resolveOpenAIRuntimeCredentials(
   const agentId = normalizeAgentId(params.agentId);
   return {
     provider: 'openai-codex',
+    model: params.model,
     apiKey: codex.apiKey,
     baseUrl: (
       process.env.HYBRIDCLAW_CODEX_BASE_URL ||

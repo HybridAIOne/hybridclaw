@@ -17,12 +17,12 @@ metadata:
       - python
       - math
     install:
-      - id: uv-manim
+      - id: manim
         kind: uv
         package: manim
         bins: ["manim"]
         label: Install Manim Community Edition with uv
-      - id: brew-ffmpeg
+      - id: ffmpeg
         kind: brew
         formula: ffmpeg
         bins: ["ffmpeg"]

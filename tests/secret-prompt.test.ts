@@ -255,7 +255,6 @@ test('promptForSecretInput prefers raw tty input over readline when available', 
   const originalPause = process.stdin.pause;
   const originalOn = process.stdin.on;
   const originalOff = process.stdin.off;
-  const originalIsPaused = process.stdin.isPaused;
   const originalIsRaw = process.stdin.isRaw;
   const originalReadableFlowing = process.stdin.readableFlowing;
 

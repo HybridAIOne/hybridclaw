@@ -1,8 +1,10 @@
 import {
+  isPromptPartName,
   PROMPT_PART_NAMES,
   type PromptPartName,
-} from '../agent/prompt-hooks.js';
+} from '../agent/prompt-parts.js';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { normalizeTrimmedString as normalizeString } from '../utils/normalized-strings.js';
 
 export type EvalWorkspaceMode = 'current-agent' | 'fresh-agent';
 
@@ -18,10 +20,6 @@ export const EVAL_MODEL_PROFILE_MARKER = '__hc_eval=';
 
 const KNOWN_FLAGS = new Set(['current-agent', 'fresh-agent', 'ablate-system']);
 const KNOWN_PROMPT_PARTS = new Set<PromptPartName>(PROMPT_PART_NAMES);
-
-function normalizeString(value: string | null | undefined): string {
-  return String(value || '').trim();
-}
 
 function normalizeAgentId(agentId: string | null | undefined): string {
   return normalizeString(agentId);
@@ -61,7 +59,7 @@ function normalizePromptPartList(parts: PromptPartName[]): PromptPartName[] {
 }
 
 export function isKnownEvalPromptPart(value: string): value is PromptPartName {
-  return KNOWN_PROMPT_PARTS.has(value as PromptPartName);
+  return isPromptPartName(value);
 }
 
 function encodePromptPartList(parts: PromptPartName[]): string {

@@ -28,6 +28,8 @@ If you are still working through first-run onboarding, start with
 - [Discord](./discord.md)
 - [Slack](./slack.md)
 - [Telegram](./telegram.md)
+- [Signal](./signal.md)
+- [Threema](./threema.md)
 - [Email](./email.md)
 - [WhatsApp](./whatsapp.md)
 - [Twilio Voice](../guides/twilio-voice.md)

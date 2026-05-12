@@ -22,6 +22,13 @@ Describe the change in 2-5 bullets:
 - Closes #
 - Related #
 
+## Manifesto Principle
+
+Which manifesto principle does this serve?
+
+- Principle:
+- Changelog tag added or updated: `Manifesto: Principle <Roman numeral> - <principle title>.`
+
 ## Validation
 
 List the checks you ran and the concrete scenarios you verified.

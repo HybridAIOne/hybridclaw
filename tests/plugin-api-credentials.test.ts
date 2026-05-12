@@ -21,6 +21,7 @@ function makePluginManagerStub() {
     registerChannel() {},
     registerTool() {},
     registerPromptHook() {},
+    registerMiddleware() {},
     registerCommand() {},
     registerService() {},
     registerInboundWebhook() {},

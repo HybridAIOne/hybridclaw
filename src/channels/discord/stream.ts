@@ -8,6 +8,7 @@ import { chunkMessage } from '../../memory/chunk.js';
 import { sleep } from '../../utils/sleep.js';
 import { getHumanDelayMs, type HumanDelayConfig } from './human-delay.js';
 import { withDiscordRetry } from './retry.js';
+import { logDiscordApiError } from './transport-errors.js';
 
 interface DiscordSendChannel {
   send: (payload: {
@@ -138,7 +139,11 @@ export class DiscordStreamManager {
 
   private enqueue(task: () => Promise<void>): Promise<void> {
     this.opQueue = this.opQueue.then(task).catch((error) => {
-      logger.warn({ error }, 'Discord stream operation failed');
+      logDiscordApiError({
+        error,
+        expectedAction: 'Response message was not delivered.',
+        unexpectedMessage: 'Discord stream operation failed',
+      });
     });
     return this.opQueue;
   }

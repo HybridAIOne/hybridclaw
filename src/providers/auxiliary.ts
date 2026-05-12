@@ -11,11 +11,15 @@ import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
 } from './model-names.js';
-import type { RuntimeProviderId } from './provider-ids.js';
+import {
+  isOpenAICompatProviderId,
+  type RuntimeProviderId,
+} from './provider-ids.js';
 import { resolveProviderRequestMaxTokens } from './request-max-tokens.js';
 import {
   type AuxiliaryTask,
   detectRuntimeProviderPrefix,
+  isAuxiliaryTaskDisabled,
   normalizeAuxiliaryProviderModel,
   normalizeMaxTokens,
   resolveDefaultAuxiliaryModelForProvider,
@@ -28,6 +32,7 @@ type RuntimeProvider = RuntimeProviderId;
 
 interface AuxiliaryTextCallContext {
   provider: RuntimeProvider;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -85,6 +90,18 @@ export interface AuxiliaryModelCallParams {
   extraBody?: Record<string, unknown>;
 }
 
+export interface AuxiliaryModelUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  costUsd?: number;
+}
+
+interface AuxiliaryTextResponse {
+  content: string;
+  usage?: AuxiliaryModelUsage;
+}
+
 function normalizeTemperature(value: number | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return undefined;
@@ -114,12 +131,63 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function readFiniteNumber(values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return undefined;
+}
+
+function readAuxiliaryModelUsage(
+  value: unknown,
+): AuxiliaryModelUsage | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const inputTokens = readFiniteNumber([
+    value.inputTokens,
+    value.input_tokens,
+    value.promptTokens,
+    value.prompt_tokens,
+  ]);
+  const outputTokens = readFiniteNumber([
+    value.outputTokens,
+    value.output_tokens,
+    value.completionTokens,
+    value.completion_tokens,
+  ]);
+  const totalTokens =
+    readFiniteNumber([value.totalTokens, value.total_tokens]) ??
+    (inputTokens !== undefined && outputTokens !== undefined
+      ? inputTokens + outputTokens
+      : undefined);
+  const costUsd = readFiniteNumber([value.costUsd, value.cost_usd]);
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    costUsd === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(costUsd !== undefined ? { costUsd } : {}),
+  };
+}
+
 function validateContext(
   task: AuxiliaryTextTask,
   context: Partial<AuxiliaryTextCallContext>,
 ): asserts context is AuxiliaryTextCallContext {
   const contextError = getProviderContextError({
     provider: context.provider,
+    providerMethod: context.providerMethod,
     baseUrl: context.baseUrl,
     apiKey: context.apiKey,
     model: context.model,
@@ -132,6 +200,7 @@ function validateContext(
 function buildResolvedContext(params: {
   task: AuxiliaryTextTask;
   provider: RuntimeProvider;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -142,18 +211,23 @@ function buildResolvedContext(params: {
   discoveredMaxTokens?: number;
   isLocal?: boolean;
 }): AuxiliaryTextCallContext {
+  const providerMaxTokens = resolveProviderRequestMaxTokens({
+    model: params.model,
+    discoveredMaxTokens: params.discoveredMaxTokens,
+  });
   const context: Partial<AuxiliaryTextCallContext> = {
     provider: params.provider,
+    providerMethod: params.providerMethod,
     baseUrl: params.baseUrl.trim(),
     apiKey: params.apiKey.trim(),
     model: params.model.trim(),
     chatbotId: params.chatbotId.trim(),
     enableRag: params.enableRag,
     requestHeaders: params.requestHeaders ? { ...params.requestHeaders } : {},
-    maxTokens: resolveProviderRequestMaxTokens({
-      model: params.model,
-      discoveredMaxTokens: params.discoveredMaxTokens,
-    }),
+    maxTokens:
+      providerMaxTokens == null
+        ? undefined
+        : (normalizeMaxTokens(params.maxTokens) ?? providerMaxTokens),
   };
   validateContext(params.task, context);
   return context;
@@ -189,6 +263,7 @@ async function resolveContextFromModel(params: {
   return buildResolvedContext({
     task: params.task,
     provider: resolved.provider,
+    providerMethod: resolved.providerMethod,
     baseUrl: resolved.baseUrl,
     apiKey: resolved.apiKey,
     model,
@@ -246,14 +321,21 @@ function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
     return resolveDefaultAuxiliaryModelForProvider('openrouter');
   }
 
-  const providerPrefix = detectRuntimeProviderPrefix(trimmed);
-  if (providerPrefix === 'openrouter') return trimmed;
+  const upstreamHint = stripHybridAIModelPrefix(trimmed);
+  const providerPrefix = detectRuntimeProviderPrefix(upstreamHint);
+  if (providerPrefix === 'openrouter') return upstreamHint;
+  if (providerPrefix === 'anthropic') {
+    return normalizeAuxiliaryProviderModel({
+      provider: 'openrouter',
+      model: upstreamHint,
+    });
+  }
   if (providerPrefix) {
     return resolveDefaultAuxiliaryModelForProvider('openrouter');
   }
   return normalizeAuxiliaryProviderModel({
     provider: 'openrouter',
-    model: trimmed,
+    model: upstreamHint,
   });
 }
 
@@ -395,6 +477,10 @@ async function resolveFallbackModelTextCallContext(
 async function resolveTextCallContext(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext> {
+  if (isAuxiliaryTaskDisabled(params.task)) {
+    throw new Error(`${params.task} auxiliary model is disabled.`);
+  }
+
   const requestedMaxTokens = normalizeMaxTokens(params.maxTokens);
 
   // 1. Respect explicit provider/model overrides first.
@@ -538,7 +624,7 @@ async function callHybridAITextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
-): Promise<string> {
+): Promise<AuxiliaryTextResponse> {
   const body = withCoreRequestBody(
     {
       model: stripHybridAIModelPrefix(context.model),
@@ -569,8 +655,12 @@ async function callHybridAITextModel(
         content?: unknown;
       };
     }>;
+    usage?: unknown;
   };
-  return extractResponseTextContent(payload.choices?.[0]?.message?.content);
+  return {
+    content: extractResponseTextContent(payload.choices?.[0]?.message?.content),
+    usage: readAuxiliaryModelUsage(payload.usage),
+  };
 }
 
 function shouldRetryWithMaxCompletionTokens(
@@ -590,7 +680,7 @@ async function callOpenAICompatTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
-): Promise<string> {
+): Promise<AuxiliaryTextResponse> {
   const body = withCoreRequestBody(
     {
       model: normalizeOpenAICompatModelName(context.provider, context.model),
@@ -642,8 +732,12 @@ async function callOpenAICompatTextModel(
         content?: unknown;
       };
     }>;
+    usage?: unknown;
   };
-  return extractResponseTextContent(payload.choices?.[0]?.message?.content);
+  return {
+    content: extractResponseTextContent(payload.choices?.[0]?.message?.content),
+    usage: readAuxiliaryModelUsage(payload.usage),
+  };
 }
 
 function convertMessageToCodexInput(
@@ -696,7 +790,7 @@ async function callCodexTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
-): Promise<string> {
+): Promise<AuxiliaryTextResponse> {
   const instructions = messages
     .filter((message) => message.role === 'system')
     .map((message) => contentToText(message.content).trim())
@@ -743,6 +837,7 @@ async function callCodexTextModel(
           output_text?: string;
         }>;
       }>;
+      usage?: unknown;
     };
     const chunks: string[] = [];
     for (const entry of payload.output || []) {
@@ -757,7 +852,10 @@ async function callCodexTextModel(
         if (text.trim()) chunks.push(text.trim());
       }
     }
-    return chunks.join('\n').trim();
+    return {
+      content: chunks.join('\n').trim(),
+      usage: readAuxiliaryModelUsage(payload.usage),
+    };
   }
 
   if (!response.body) {
@@ -768,6 +866,7 @@ async function callCodexTextModel(
   const decoder = new TextDecoder();
   let buffer = '';
   let text = '';
+  let usage: AuxiliaryModelUsage | undefined;
 
   const applyCodexEvent = (payload: Record<string, unknown>): void => {
     const type = typeof payload.type === 'string' ? payload.type : '';
@@ -795,13 +894,11 @@ async function callCodexTextModel(
     }
     if (type !== 'response.completed') return;
     const responsePayload = payload.response;
-    if (
-      typeof responsePayload !== 'object' ||
-      responsePayload === null ||
-      !Array.isArray((responsePayload as { output?: unknown }).output)
-    ) {
+    if (!isRecord(responsePayload)) {
       return;
     }
+    usage = readAuxiliaryModelUsage(responsePayload.usage) ?? usage;
+    if (!Array.isArray(responsePayload.output)) return;
     const completedText = extractResponseTextContent(
       (
         responsePayload as { output: Array<{ content?: unknown }> }
@@ -836,14 +933,17 @@ async function callCodexTextModel(
     }
   }
 
-  return text.trim();
+  return {
+    content: text.trim(),
+    usage,
+  };
 }
 
 async function callOllamaTextModel(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
-): Promise<string> {
+): Promise<AuxiliaryTextResponse> {
   const { options: extraBodyOptions, ...extraBody } = options.extraBody ?? {};
   const rawOptions = isRecord(extraBodyOptions)
     ? { ...extraBodyOptions }
@@ -890,28 +990,30 @@ async function callOllamaTextModel(
     message?: {
       content?: unknown;
     };
+    prompt_eval_count?: unknown;
+    eval_count?: unknown;
   };
-  return extractResponseTextContent(payload.message?.content);
+  return {
+    content: extractResponseTextContent(payload.message?.content),
+    usage: readAuxiliaryModelUsage({
+      inputTokens: payload.prompt_eval_count,
+      outputTokens: payload.eval_count,
+    }),
+  };
 }
 
 async function callAuxiliaryTextProvider(
   context: AuxiliaryTextCallContext,
   messages: ChatMessage[],
   options: AuxiliaryRequestOptions,
-): Promise<string> {
+): Promise<AuxiliaryTextResponse> {
   if (context.provider === 'openai-codex') {
     return callCodexTextModel(context, messages, options);
   }
   if (context.provider === 'ollama') {
     return callOllamaTextModel(context, messages, options);
   }
-  if (
-    context.provider === 'openrouter' ||
-    context.provider === 'huggingface' ||
-    context.provider === 'lmstudio' ||
-    context.provider === 'llamacpp' ||
-    context.provider === 'vllm'
-  ) {
+  if (isOpenAICompatProviderId(context.provider)) {
     return callOpenAICompatTextModel(context, messages, options);
   }
   return callHybridAITextModel(context, messages, options);
@@ -919,16 +1021,20 @@ async function callAuxiliaryTextProvider(
 
 export async function callAuxiliaryModel(
   params: AuxiliaryModelCallParams,
-): Promise<{ provider: RuntimeProvider; model: string; content: string }> {
+): Promise<{
+  provider: RuntimeProvider;
+  model: string;
+  content: string;
+  usage?: AuxiliaryModelUsage;
+}> {
   const options = buildRequestOptions(params);
   const context = await resolveTextCallContext(params);
-  const content = (
-    await callAuxiliaryTextProvider(
-      context,
-      Array.isArray(params.messages) ? params.messages : [],
-      options,
-    )
-  ).trim();
+  const response = await callAuxiliaryTextProvider(
+    context,
+    Array.isArray(params.messages) ? params.messages : [],
+    options,
+  );
+  const content = response.content.trim();
   if (!content) {
     throw new Error(`${params.task} returned an empty response.`);
   }
@@ -936,5 +1042,6 @@ export async function callAuxiliaryModel(
     provider: context.provider,
     model: context.model,
     content,
+    ...(response.usage ? { usage: response.usage } : {}),
   };
 }

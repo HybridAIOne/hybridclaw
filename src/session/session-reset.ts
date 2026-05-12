@@ -1,7 +1,9 @@
 import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
+import { isSignalChannelId } from '../channels/signal/target.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
+import { isThreemaChannelId } from '../channels/threema/target.js';
 import { isVoiceChannelId } from '../channels/voice/channel-id.js';
 import { isWhatsAppJid } from '../channels/whatsapp/phone.js';
 import type { RuntimeConfig } from '../config/runtime-config.js';
@@ -45,8 +47,10 @@ export function resolveSessionResetChannelKind(
   if (isWhatsAppJid(normalized)) return 'whatsapp';
   if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
+  if (isSignalChannelId(normalized)) return 'signal';
   if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';
+  if (isThreemaChannelId(normalized)) return 'threema';
   if (isEmailAddress(normalized)) return 'email';
   if (DISCORD_CHANNEL_ID_RE.test(normalized)) return 'discord';
   return undefined;

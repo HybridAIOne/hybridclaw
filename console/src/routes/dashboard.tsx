@@ -1,24 +1,24 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { fetchOverview } from '../api/client';
+import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
+import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { useAuth } from '../auth';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/card';
 import { ProviderHealthPanel } from '../components/provider-health';
 import {
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { UsageRollup } from '../components/usage-rollup';
+import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import {
-  formatCompactNumber,
+  formatDateTime,
   formatRelativeTime,
-  formatTokenBreakdown,
   formatUptime,
-  formatUsd,
-  pluralize,
 } from '../lib/format';
 import { compareDateTime, compareNumber, compareText } from '../lib/sort';
 
@@ -59,14 +59,139 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   lastActive: 'desc',
 } as const;
 
+const TREND_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  // Trend buckets come from the statistics API as UTC `YYYY-MM-DD`. Format
+  // them in UTC so a west-of-UTC user doesn't see the bucket shift one day
+  // earlier (midnight UTC is the previous local day).
+  timeZone: 'UTC',
+});
+
+function formatTrendDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  if (!year || !month || !day) return isoDate;
+  return TREND_DATE_FORMAT.format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function tunnelStatusClass(health: AdminTunnelStatus['health']): string {
+  if (health === 'healthy') return 'list-status list-status-success';
+  if (health === 'reconnecting') return 'list-status list-status-warning';
+  return 'list-status list-status-danger';
+}
+
+function tunnelStatusDotClass(health: AdminTunnelStatus['health']): string {
+  if (health === 'healthy') return 'status-dot status-dot-success';
+  if (health === 'reconnecting') return 'status-dot status-dot-warning';
+  return 'status-dot status-dot-danger';
+}
+
+function TunnelStatusPanel(props: {
+  tunnel: AdminTunnelStatus;
+  reconnectPending: boolean;
+  reconnectError: string | null;
+  onReconnect: () => void;
+}) {
+  const { tunnel } = props;
+  const publicUrl = tunnel.publicUrl || 'not configured';
+  const reconnectDisabled =
+    props.reconnectPending || !tunnel.reconnectSupported;
+  const normalizedTunnelError = tunnel.lastError?.trim() || null;
+  const normalizedReconnectError = props.reconnectError?.trim() || null;
+  const distinctReconnectError =
+    props.reconnectError && normalizedReconnectError !== normalizedTunnelError
+      ? props.reconnectError
+      : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Public tunnel</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="tunnel-panel-grid">
+          <div className="tunnel-url-stack">
+            <span>Public URL</span>
+            {tunnel.publicUrl ? (
+              <a href={tunnel.publicUrl} target="_blank" rel="noreferrer">
+                {publicUrl}
+              </a>
+            ) : (
+              <strong>{publicUrl}</strong>
+            )}
+          </div>
+          <div className="tunnel-action-stack">
+            <button
+              type="button"
+              className="primary-button button-with-spinner"
+              onClick={props.onReconnect}
+              disabled={reconnectDisabled}
+            >
+              {props.reconnectPending ? (
+                <span className="button-spinner" aria-hidden="true" />
+              ) : null}
+              {props.reconnectPending ? 'Reconnecting' : 'Reconnect'}
+            </button>
+          </div>
+        </div>
+        <div className="tunnel-detail-grid">
+          <div className="tunnel-detail">
+            <span>Provider</span>
+            <strong>{tunnel.provider || 'none'}</strong>
+          </div>
+          <div className="tunnel-detail">
+            <span>Status</span>
+            <strong className={tunnelStatusClass(tunnel.health)}>
+              <span className={tunnelStatusDotClass(tunnel.health)} />
+              {tunnel.health}
+            </strong>
+          </div>
+          <div className="tunnel-detail">
+            <span>Last checked</span>
+            <strong>{formatDateTime(tunnel.lastCheckedAt)}</strong>
+          </div>
+          <div className="tunnel-detail">
+            <span>Next reconnect</span>
+            <strong>{formatDateTime(tunnel.nextReconnectAt)}</strong>
+          </div>
+        </div>
+        {tunnel.lastError ? (
+          <p className="supporting-text tunnel-error">{tunnel.lastError}</p>
+        ) : null}
+        {distinctReconnectError ? (
+          <p className="supporting-text tunnel-error">
+            {distinctReconnectError}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function DashboardPage() {
   const auth = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const live = useLiveEvents(auth.token);
+  useLiveConnectionToasts(live.connection);
   const overviewQuery = useQuery({
     queryKey: ['overview', auth.token],
     queryFn: () => fetchOverview(auth.token),
     refetchInterval: 30_000,
+  });
+  const usageTrendQuery = useQuery({
+    queryKey: ['usage-trend', auth.token, 30],
+    queryFn: () => fetchStatistics(auth.token, 30),
+    staleTime: 60_000,
+  });
+  const reconnectMutation = useMutation({
+    mutationFn: () => reconnectTunnel(auth.token),
+    onSuccess: (tunnel) => {
+      queryClient.setQueryData<AdminOverview>(
+        ['overview', auth.token],
+        (current) => (current ? { ...current, tunnel } : current),
+      );
+    },
   });
 
   const overview = live.overview || overviewQuery.data;
@@ -121,19 +246,7 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Dashboard"
-        actions={
-          <div className="status-pill">
-            <span
-              className={
-                live.connection === 'open' ? 'status-dot live' : 'status-dot'
-              }
-            />
-            {live.connection === 'open' ? 'connected' : 'polling fallback'}
-          </div>
-        }
-      />
+      <PageHeader title="Dashboard" />
 
       <div className="metric-grid">
         <MetricCard
@@ -159,127 +272,96 @@ export function DashboardPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Usage rollup" accent="warm">
-          <div className="usage-grid">
-            <div className="usage-stack">
-              <span>Daily</span>
-              <strong>
-                {formatCompactNumber(overview.usage.daily.totalTokens)}
-              </strong>
-              <small>
-                {formatTokenBreakdown({
-                  inputTokens: overview.usage.daily.totalInputTokens ?? 0,
-                  outputTokens: overview.usage.daily.totalOutputTokens ?? 0,
-                })}
-              </small>
-              <small>
-                {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
-                {pluralize(overview.usage.daily.callCount, 'call')}
-              </small>
-            </div>
-            <div className="usage-stack">
-              <span>Monthly</span>
-              <strong>
-                {formatCompactNumber(overview.usage.monthly.totalTokens)}
-              </strong>
-              <small>
-                {formatTokenBreakdown({
-                  inputTokens: overview.usage.monthly.totalInputTokens ?? 0,
-                  outputTokens: overview.usage.monthly.totalOutputTokens ?? 0,
-                })}
-              </small>
-              <small>
-                {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
-                {pluralize(overview.usage.monthly.callCount, 'call')}
-              </small>
-            </div>
-          </div>
-          <div className="list-stack">
-            {overview.usage.topModels.length === 0 ? (
-              <p className="supporting-text">
-                No model usage has been recorded yet.
-              </p>
-            ) : (
-              overview.usage.topModels.map((row) => (
-                <div className="list-row" key={row.model}>
-                  <div>
-                    <strong>{row.model}</strong>
-                    <small>
-                      {formatTokenBreakdown({
-                        inputTokens: row.totalInputTokens ?? 0,
-                        outputTokens: row.totalOutputTokens ?? 0,
-                      })}{' '}
-                      · {pluralize(row.callCount, 'call')} this month
-                    </small>
-                  </div>
-                  <span>{formatUsd(row.totalCostUsd)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </Panel>
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Usage rollup</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <UsageRollup
+              usage={overview.usage}
+              trend={usageTrendQuery.data?.trend ?? null}
+              formatTrendDate={formatTrendDate}
+            />
+          </CardContent>
+        </Card>
 
         <ProviderHealthPanel
           title="Backend health"
           entries={backendEntries}
-          onLogin={() => void navigate({ to: '/config' })}
+          onLogin={() => void navigate({ to: '/admin/config' })}
         />
       </div>
 
-      <Panel title="Recent sessions">
-        <div className="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <SortableHeader
-                  label="Session"
-                  sortKey="session"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Model"
-                  sortKey="model"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Messages"
-                  sortKey="messages"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Tasks"
-                  sortKey="tasks"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-                <SortableHeader
-                  label="Last active"
-                  sortKey="lastActive"
-                  sortState={sortState}
-                  onToggle={toggleSort}
-                />
-              </tr>
-            </thead>
-            <tbody>
-              {recentSessions.map((session) => (
-                <tr key={session.id}>
-                  <td>
-                    <strong>{session.id}</strong>
-                    <small>{session.channelId}</small>
-                  </td>
-                  <td>{session.effectiveModel}</td>
-                  <td>{session.messageCount}</td>
-                  <td>{session.taskCount}</td>
-                  <td>{formatRelativeTime(session.lastActive)}</td>
+      <TunnelStatusPanel
+        tunnel={overview.tunnel}
+        reconnectPending={reconnectMutation.isPending}
+        reconnectError={
+          reconnectMutation.isError
+            ? getErrorMessage(reconnectMutation.error)
+            : null
+        }
+        onReconnect={() => reconnectMutation.mutate()}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent sessions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <SortableHeader
+                    label="Session"
+                    sortKey="session"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Model"
+                    sortKey="model"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Messages"
+                    sortKey="messages"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Tasks"
+                    sortKey="tasks"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
+                  <SortableHeader
+                    label="Last active"
+                    sortKey="lastActive"
+                    sortState={sortState}
+                    onToggle={toggleSort}
+                  />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+              </thead>
+              <tbody>
+                {recentSessions.map((session) => (
+                  <tr key={session.id}>
+                    <td>
+                      <strong>{session.id}</strong>
+                      <small>{session.channelId}</small>
+                    </td>
+                    <td>{session.effectiveModel}</td>
+                    <td>{session.messageCount}</td>
+                    <td>{session.taskCount}</td>
+                    <td>{formatRelativeTime(session.lastActive)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

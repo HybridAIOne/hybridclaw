@@ -1,6 +1,7 @@
 const API_KEY_REQUIRED_PROVIDERS = new Set([
   'hybridai',
   'openai-codex',
+  'anthropic',
   'openrouter',
   'mistral',
   'huggingface',
@@ -15,6 +16,9 @@ function buildMissingContextError(params) {
 
 export function getProviderContextError(params) {
   const provider = String(params.provider || 'hybridai').trim() || 'hybridai';
+  const anthropicUsesClaudeCli =
+    provider === 'anthropic' &&
+    String(params.providerMethod || '') === 'claude-cli';
   if (!String(params.baseUrl || '').trim()) {
     return buildMissingContextError({
       toolName: params.toolName,
@@ -31,7 +35,8 @@ export function getProviderContextError(params) {
   }
   if (
     API_KEY_REQUIRED_PROVIDERS.has(provider) &&
-    !String(params.apiKey || '').trim()
+    !String(params.apiKey || '').trim() &&
+    !anthropicUsesClaudeCli
   ) {
     return buildMissingContextError({
       toolName: params.toolName,

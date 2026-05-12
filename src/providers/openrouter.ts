@@ -26,6 +26,7 @@ async function resolveOpenRouterRuntimeCredentials(
   await discoverOpenRouterModels();
   return {
     provider: 'openrouter',
+    model: params.model,
     apiKey: readApiKeyForOpenAICompatProvider('openrouter', { required: true }),
     baseUrl: normalizeBaseUrl(OPENROUTER_BASE_URL),
     chatbotId: '',

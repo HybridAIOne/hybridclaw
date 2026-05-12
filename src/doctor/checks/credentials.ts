@@ -18,6 +18,7 @@ export async function checkCredentials(): Promise<DiagResult[]> {
   if (!fs.existsSync(filePath)) {
     const sharedEnvSecrets = [
       process.env.HYBRIDAI_API_KEY,
+      process.env.ANTHROPIC_API_KEY,
       process.env.OPENROUTER_API_KEY,
       process.env.MISTRAL_API_KEY,
       process.env.DISCORD_TOKEN,

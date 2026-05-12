@@ -29,7 +29,6 @@ let originalDataDir: string | undefined;
 let originalHome: string | undefined;
 let originalWatcher: string | undefined;
 
-// Dynamically imported after setting HYBRIDCLAW_DATA_DIR.
 type RuntimeConfigModule = typeof import('../src/config/runtime-config.js');
 let configMod: RuntimeConfigModule;
 
@@ -89,6 +88,63 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('reloadRuntimeConfig normalizes trajectory retention policy', () => {
+    writeConfig({
+      adaptiveSkills: {
+        cv: {
+          retentionDays: '45',
+          renderThrottleMs: -1,
+          batchDebounceMs: '1500',
+          narrationDailyBudgetUsd: '0.0025',
+        },
+        trajectoryCapture: {
+          retentionDays: 90,
+          retentionDaysByTenant: {
+            writer: '30',
+            reviewer: -5,
+            invalid: 'not-a-number',
+          },
+        },
+      },
+      auxiliaryModels: {
+        cv_narration: {
+          provider: 'openrouter',
+          model: 'openai/gpt-5-nano',
+          maxTokens: '500',
+        },
+        session_title: {
+          provider: 'disabled',
+          model: 'openrouter/openai/gpt-5-nano',
+          maxTokens: '80',
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.adaptiveSkills.cv).toEqual({
+      retentionDays: 45,
+      renderThrottleMs: 0,
+      batchDebounceMs: 1500,
+      narrationDailyBudgetUsd: 0.0025,
+    });
+    expect(cfg.auxiliaryModels.cv_narration).toEqual({
+      provider: 'openrouter',
+      model: 'openai/gpt-5-nano',
+      maxTokens: 500,
+    });
+    expect(cfg.auxiliaryModels.session_title).toEqual({
+      provider: 'disabled',
+      model: 'openrouter/openai/gpt-5-nano',
+      maxTokens: 80,
+    });
+    expect(cfg.adaptiveSkills.trajectoryCapture.retentionDays).toBe(90);
+    expect(cfg.adaptiveSkills.trajectoryCapture.retentionDaysByTenant).toEqual({
+      writer: 30,
+      reviewer: 0,
+      invalid: 90,
+    });
+  });
+
   it('missing config.json yields default config after ensureRuntimeConfigFile', () => {
     // Remove any config.json that ensureRuntimeConfigFile may have seeded.
     if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
@@ -101,6 +157,7 @@ describe('config reload integration', () => {
     const cfg = configMod.getRuntimeConfig();
     // Default healthPort should be the standard default (9090).
     expect(cfg.ops.healthPort).toBe(9090);
+    expect(cfg.container.persistBashState).toBe(true);
   });
 
   it('invalid JSON in config.json throws descriptive error', () => {
@@ -119,7 +176,9 @@ describe('config reload integration', () => {
     });
 
     // Verify the change persisted to disk.
-    const diskConfig = readConfigFromDisk() as { discord?: { prefix?: string } };
+    const diskConfig = readConfigFromDisk() as {
+      discord?: { prefix?: string };
+    };
     expect(diskConfig.discord?.prefix).toBe('!!updated');
 
     // And is reflected in the in-memory config.
@@ -145,6 +204,162 @@ describe('config reload integration', () => {
     const cfg = configMod.reloadRuntimeConfig('test');
     // Invalid port string should fall back to default (9090).
     expect(cfg.ops.healthPort).toBe(9090);
+  });
+
+  it('reloadRuntimeConfig accepts container.persistBashState=false', () => {
+    writeConfig({
+      container: { persistBashState: false },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.container.persistBashState).toBe(false);
+  });
+
+  it('normalizes per-agent escalation targets', () => {
+    writeConfig({
+      agents: {
+        defaultAgentId: 'writer',
+        list: [
+          {
+            id: 'writer',
+            escalationTarget: {
+              channel: ' slack:COPS ',
+              recipient: ' ops-lead ',
+            },
+          },
+          {
+            id: 'ignored-target',
+            escalationTarget: {
+              channel: 'slack:COPS',
+              recipient: '',
+            },
+          },
+        ],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    const writer = cfg.agents.list?.find((agent) => agent.id === 'writer');
+    const ignoredTarget = cfg.agents.list?.find(
+      (agent) => agent.id === 'ignored-target',
+    );
+    expect(writer?.escalationTarget).toEqual({
+      channel: 'slack:COPS',
+      recipient: 'ops-lead',
+    });
+    expect(ignoredTarget?.escalationTarget).toBeUndefined();
+  });
+
+  it('normalizes per-agent skill autonomy rules', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeConfig({
+      skills: {
+        autonomy: {
+          defaultLevel: 'low-stakes-autonomous',
+          rules: [
+            'not-a-rule',
+            {
+              agentId: ' writer ',
+              skillName: ' docs ',
+              level: 'full-autonomous',
+            },
+            {
+              agentId: 'writer',
+              skillName: 'email',
+              level: 'confirm-each',
+            },
+            {
+              agentId: '',
+              skillName: 'ignored',
+              level: 'full-autonomous',
+            },
+            {
+              agentId: 'writer',
+              skillName: 'bad-level',
+              level: 'unsupported',
+            },
+          ],
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(cfg.skills.autonomy).toEqual({
+      defaultLevel: 'low-stakes-autonomous',
+      rules: [
+        {
+          agentId: 'writer',
+          skillName: 'bad-level',
+          level: 'low-stakes-autonomous',
+        },
+        {
+          agentId: 'writer',
+          skillName: 'docs',
+          level: 'full-autonomous',
+        },
+        {
+          agentId: 'writer',
+          skillName: 'email',
+          level: 'confirm-each',
+        },
+      ],
+    });
+    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'docs')).toBe(
+      'full-autonomous',
+    );
+    expect(configMod.resolveSkillAutonomyLevel(cfg, 'writer', 'missing')).toBe(
+      'low-stakes-autonomous',
+    );
+    expect(() => configMod.resolveSkillAutonomyLevel(cfg, '', 'docs')).toThrow(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+    expect(() =>
+      configMod.resolveSkillAutonomyLevel(cfg, 'writer', ''),
+    ).toThrow(
+      'resolveSkillAutonomyLevel requires non-empty agentId and skillName.',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] skipping skills.autonomy rule: expected an object',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] skipping skills.autonomy rule with empty agentId or skillName',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[runtime-config] invalid skills.autonomy level "unsupported" for agentId "writer" and skillName "bad-level"; using default "low-stakes-autonomous"',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('keeps autonomy rules distinct when ids contain null bytes', () => {
+    writeConfig({
+      skills: {
+        autonomy: {
+          rules: [
+            {
+              agentId: 'team\u0000alpha',
+              skillName: 'docs',
+              level: 'full-autonomous',
+            },
+            {
+              agentId: 'team',
+              skillName: 'alpha\u0000docs',
+              level: 'low-stakes-autonomous',
+            },
+          ],
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+
+    expect(
+      configMod.resolveSkillAutonomyLevel(cfg, 'team\u0000alpha', 'docs'),
+    ).toBe('full-autonomous');
+    expect(
+      configMod.resolveSkillAutonomyLevel(cfg, 'team', 'alpha\u0000docs'),
+    ).toBe('low-stakes-autonomous');
   });
 
   it('nested config updates do not clobber sibling keys', () => {

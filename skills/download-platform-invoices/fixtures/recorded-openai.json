@@ -1,0 +1,87 @@
+{
+  "provider": "openai",
+  "invoices": [
+    {
+      "vendor": "openai",
+      "invoice_no": "OA-2026-03-001",
+      "period": "2026-03",
+      "issue_date": "2026-04-01",
+      "due_date": "2026-04-15",
+      "net": 100,
+      "vat_rate": 0.19,
+      "vat": 19,
+      "gross": 119,
+      "currency": "EUR",
+      "source_url": "https://platform.openai.com/account/billing",
+      "pdf_base64": "JVBERi0xLjcKJSBzYW5pdGl6ZWQgb3BlbmFpIGludm9pY2UgcmVwbGF5IGZpeHR1cmUKMSAwIG9iaiA8PCAvVHlwZSAvQ2F0YWxvZyA+PiBlbmRvYmoKJSVFT0YK"
+    }
+  ],
+  "recorded_session": {
+    "recorded_at": "2026-05-01T00:00:00.000Z",
+    "sanitized": true,
+    "recorder": "hybridclaw-invoice-fixture-recorder-v1",
+    "steps": [
+      {
+        "kind": "authenticate_or_list",
+        "url": "https://platform.openai.com/login",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "9f30b0b85ed7d331b75ea6f7d1a2b548ff130bc84d59ffc1fe766d6df0e30a46"
+        }
+      },
+      {
+        "kind": "list",
+        "url": "https://platform.openai.com/account/billing",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body_sha256": "0109517149162c562eedff24c040beafa4478be19204ae4a75288a0f431a2443"
+        }
+      },
+      {
+        "kind": "download",
+        "url": "https://platform.openai.com/account/billing/invoice/redacted.pdf",
+        "recorded_at": "2026-05-01T00:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "headers": {
+            "authorization": "<redacted>",
+            "user-agent": "HybridClaw invoice fixture recorder"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "content-type": "application/pdf"
+          },
+          "body_sha256": "a3565feaa27fb78c1d60c920206ec851740dda91d2364539614ce77962477398"
+        }
+      }
+    ],
+    "evidence": {
+      "dom_snapshot": "<main data-hc-provider=\"openai\"><table aria-label=\"Billing documents\"><thead><tr><th>Invoice number</th><th>Issue date</th><th>Due date</th><th>Billing period</th><th>Subtotal</th><th>Tax</th><th>Total</th><th>Currency</th></tr></thead><tbody><tr data-hc-invoice-row><td data-hc-invoice-no>OA-2026-03-001</td><td data-hc-issue-date>2026-04-01</td><td data-hc-due-date>2026-04-15</td><td data-hc-period>2026-03</td><td data-hc-net>100.00</td><td data-hc-vat>19.00</td><td data-hc-gross>119.00 EUR</td><td data-hc-currency>EUR</td><td><a href=\"https://platform.openai.com/account/billing/invoice/redacted.pdf\">PDF</a></td></tr></tbody></table></main>",
+      "http_trace_sha256": "f959360218a5e2f11ae776f5c797b60c4f970f6b87c5d0b3dd03ae2d22abc59a"
+    }
+  }
+}

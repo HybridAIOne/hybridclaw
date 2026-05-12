@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Extract text, render pages, inspect or fill forms, and overlay content on PDFs with bundled Node/JS tools.
+description: Create new PDFs and handle existing `.pdf` files safely with bundled Node/JS tools, including text extraction, page rendering, invoice/document parsing, form filling, and overlays.
 user-invocable: true
 disable-model-invocation: false
 requires:
@@ -113,6 +113,8 @@ node skills/pdf/scripts/create_pdf.mjs output.pdf --text "Line 1\nLine 2" --font
 For creation tasks ("make a PDF", "create a PDF with X"), always use this bundled
 script or the recipe from [reference.md](./reference.md). Never call `drawText()`
 without passing an embedded `font` — omitting it produces a blank/corrupt page.
+The bundled script wraps long lines, respects explicit `\n` line breaks, and
+adds pages automatically when content exceeds the first page.
 Use a workspace-relative `output.pdf` path for the final deliverable. Reserve
 `/tmp/...` paths for scratch files that do not need to persist after the run.
 

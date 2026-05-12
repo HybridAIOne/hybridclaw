@@ -11,10 +11,12 @@ const { runAgentMock } = vi.hoisted(() => ({
 const {
   stopSessionExecutionMock,
   getActiveExecutorSessionIdsMock,
+  getExecutorSessionHealthSnapshotsMock,
   getSandboxDiagnosticsMock,
 } = vi.hoisted(() => ({
   stopSessionExecutionMock: vi.fn(() => false),
   getActiveExecutorSessionIdsMock: vi.fn(() => []),
+  getExecutorSessionHealthSnapshotsMock: vi.fn(async () => []),
   getSandboxDiagnosticsMock: vi.fn(() => ({
     mode: 'host' as const,
     modeExplicit: true,
@@ -39,6 +41,7 @@ vi.mock('../src/agent/agent.js', () => ({
 
 vi.mock('../src/agent/executor.js', () => ({
   getActiveExecutorSessionIds: getActiveExecutorSessionIdsMock,
+  getExecutorSessionHealthSnapshots: getExecutorSessionHealthSnapshotsMock,
   getSandboxDiagnostics: getSandboxDiagnosticsMock,
   stopSessionExecution: stopSessionExecutionMock,
 }));

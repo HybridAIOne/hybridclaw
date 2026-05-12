@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, test, vi } from 'vitest';
+import YAML from 'yaml';
 
 import type { RuntimeConfig } from '../src/config/runtime-config.js';
 
@@ -54,6 +55,25 @@ function readRuntimeConfig(homeDir: string): RuntimeConfig {
   return JSON.parse(
     fs.readFileSync(path.join(homeDir, '.hybridclaw', 'config.json'), 'utf-8'),
   ) as RuntimeConfig;
+}
+
+function readMainAgentPolicy(homeDir: string): Record<string, unknown> {
+  return YAML.parse(
+    fs.readFileSync(mainAgentPolicyPath(homeDir), 'utf-8'),
+  ) as Record<string, unknown>;
+}
+
+function mainAgentPolicyPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    '.hybridclaw',
+    'data',
+    'agents',
+    'main',
+    'workspace',
+    '.hybridclaw',
+    'policy.yaml',
+  );
 }
 
 async function readRuntimeSecrets(
@@ -286,6 +306,24 @@ test('secret route add and remove update store-backed auth rules', async () => {
       secret: { source: 'store', id: 'SF_FULL_SECRET' },
     },
   ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'SF_FULL_SECRET',
+            source: 'store',
+            sink: 'http',
+            host: 'api.example.com',
+            selector: 'X-API-Key',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
 
   await cli.main([
     'secret',
@@ -297,6 +335,209 @@ test('secret route add and remove update store-backed auth rules', async () => {
 
   config = readRuntimeConfig(homeDir);
   expect(config.tools.httpRequest.authRules).toEqual([]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [],
+    },
+  });
+});
+
+test('secret route add preserves file-like URL prefixes', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://my.fastbill.com/api/1.0/api.php',
+    'FASTBILL_BASIC_AUTH',
+    'Authorization',
+    'Basic',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://my.fastbill.com/api/1.0/api.php',
+      header: 'Authorization',
+      prefix: 'Basic',
+      secret: { source: 'store', id: 'FASTBILL_BASIC_AUTH' },
+    },
+  ]);
+});
+
+test('secret route add replaces stale managed policy rules for the route', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_OTHER_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://api.example.com/v1/',
+      header: 'X-API-Key',
+      prefix: '',
+      secret: { source: 'store', id: 'SF_FULL_OTHER_SECRET' },
+    },
+  ]);
+  const policy = readMainAgentPolicy(homeDir);
+  expect(policy).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'SF_FULL_OTHER_SECRET',
+            source: 'store',
+            sink: 'http',
+            host: 'api.example.com',
+            selector: 'X-API-Key',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(policy)).not.toContain('SF_FULL_SECRET');
+});
+
+test('secret route add fails before runtime config changes when policy is invalid', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const policyPath = mainAgentPolicyPath(homeDir);
+  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+  fs.writeFileSync(policyPath, 'secret:\n  rules: [\n', 'utf-8');
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'SF_FULL_SECRET',
+      'X-API-Key',
+      'none',
+    ]),
+  ).rejects.toThrow();
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
+});
+
+test('secret route remove fails before runtime config changes when policy is invalid', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://api.example.com/v1',
+    'SF_FULL_SECRET',
+    'X-API-Key',
+    'none',
+  ]);
+  fs.writeFileSync(
+    mainAgentPolicyPath(homeDir),
+    'secret:\n  rules: [\n',
+    'utf-8',
+  );
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'remove',
+      'https://api.example.com/v1',
+      'X-API-Key',
+    ]),
+  ).rejects.toThrow();
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://api.example.com/v1/',
+      header: 'X-API-Key',
+      prefix: '',
+      secret: { source: 'store', id: 'SF_FULL_SECRET' },
+    },
+  ]);
+});
+
+test('secret route add supports Google OAuth runtime auth rules', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'secret',
+    'route',
+    'add',
+    'https://analyticsdata.googleapis.com/v1beta',
+    'google-oauth',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.tools.httpRequest.authRules).toEqual([
+    {
+      urlPrefix: 'https://analyticsdata.googleapis.com/v1beta/',
+      header: 'Authorization',
+      prefix: 'Bearer',
+      secret: { source: 'google-oauth' },
+    },
+  ]);
+  expect(readMainAgentPolicy(homeDir)).toMatchObject({
+    secret: {
+      rules: [
+        {
+          when: {
+            predicate: 'secret_resolve_allowed',
+            id: 'GOOGLE_WORKSPACE_CLI_TOKEN',
+            source: 'env',
+            sink: 'http',
+            host: 'analyticsdata.googleapis.com',
+            selector: 'Authorization',
+            agent: 'main',
+          },
+          action: 'allow',
+        },
+      ],
+    },
+  });
+});
+
+test('secret route add rejects Google OAuth routes for non-Google APIs', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await expect(
+    cli.main([
+      'secret',
+      'route',
+      'add',
+      'https://api.example.com/v1',
+      'google-oauth',
+    ]),
+  ).rejects.toThrow(/googleapis\.com/);
+
+  expect(readRuntimeConfig(homeDir).tools.httpRequest.authRules).toEqual([]);
 });
 
 test('top-level help hides deprecated alias commands', async () => {
@@ -704,6 +945,68 @@ test('channels whatsapp setup configures self-chat-only mode by default', async 
   expect(logSpy).toHaveBeenCalledWith('WhatsApp mode: self-chat only');
   expect(logSpy).toHaveBeenCalledWith('Ack reaction: 👀');
   expect(logSpy).not.toHaveBeenCalledWith('Next:');
+});
+
+test('channels signal setup configures allowlisted DMs', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'channels',
+    'signal',
+    'setup',
+    '--daemon-url',
+    '127.0.0.1:8080',
+    '--account',
+    '+14155550123',
+    '--allow-from',
+    '+14155551212',
+    '--group-policy',
+    'disabled',
+    '--text-chunk-limit',
+    '3500',
+    '--reconnect-interval-ms',
+    '2500',
+    '--outbound-delay-ms',
+    '125',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.signal.enabled).toBe(true);
+  expect(config.signal.daemonUrl).toBe('http://127.0.0.1:8080');
+  expect(config.signal.account).toBe('+14155550123');
+  expect(config.signal.dmPolicy).toBe('allowlist');
+  expect(config.signal.groupPolicy).toBe('disabled');
+  expect(config.signal.allowFrom).toEqual(['+14155551212']);
+  expect(config.signal.groupAllowFrom).toEqual([]);
+  expect(config.signal.textChunkLimit).toBe(3500);
+  expect(config.signal.reconnectIntervalMs).toBe(2500);
+  expect(config.signal.outboundDelayMs).toBe(125);
+  expect(logSpy).toHaveBeenCalledWith('Signal mode: enabled');
+});
+
+test('channels signal setup supports open DM policy with default daemon URL', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+
+  await cli.main([
+    'channels',
+    'signal',
+    'setup',
+    '--account',
+    '+14155550123',
+    '--dm-policy',
+    'open',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  expect(config.signal.enabled).toBe(true);
+  expect(config.signal.daemonUrl).toBe('http://127.0.0.1:8080');
+  expect(config.signal.account).toBe('+14155550123');
+  expect(config.signal.dmPolicy).toBe('open');
+  expect(config.signal.groupPolicy).toBe('disabled');
+  expect(config.signal.allowFrom).toEqual([]);
 });
 
 test('channels whatsapp setup normalizes allowlisted DM numbers', async () => {

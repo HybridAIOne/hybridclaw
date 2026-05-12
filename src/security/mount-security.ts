@@ -17,7 +17,6 @@ import type {
   MountAllowlist,
 } from '../types/security.js';
 
-// Cache the allowlist in memory — only reloads on process restart
 let cachedAllowlist: MountAllowlist | null = null;
 let allowlistLoadError: string | null = null;
 

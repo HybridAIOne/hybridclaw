@@ -112,6 +112,13 @@ function makeStatus(overrides: Partial<GatewayStatus> = {}): GatewayStatus {
 function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
   return {
     version: 1,
+    security: {
+      trustModelAccepted: false,
+      trustModelAcceptedAt: '',
+      trustModelVersion: '',
+      trustModelAcceptedBy: '',
+      confidentialRedactionEnabled: false,
+    },
     hybridai: {
       baseUrl: 'https://hybridai.one',
       defaultModel: 'gpt-5',
@@ -124,7 +131,9 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       discord: '',
       msteams: '',
       slack: '',
+      signal: '',
       telegram: '',
+      threema: '',
       voice:
         'This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.',
       whatsapp: '',
@@ -158,6 +167,28 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       requireMention: true,
       textChunkLimit: 4000,
       mediaMaxMb: 20,
+    },
+    signal: {
+      enabled: false,
+      daemonUrl: 'http://127.0.0.1:8080',
+      account: '',
+      dmPolicy: 'allowlist',
+      groupPolicy: 'disabled',
+      allowFrom: [],
+      groupAllowFrom: [],
+      textChunkLimit: 4000,
+      reconnectIntervalMs: 5000,
+      outboundDelayMs: 350,
+    },
+    threema: {
+      enabled: false,
+      apiBaseUrl: 'https://msgapi.threema.ch',
+      identity: '',
+      secret: '',
+      dmPolicy: 'allowlist',
+      allowFrom: [],
+      textChunkLimit: 3500,
+      outboundDelayMs: 350,
     },
     voice: {
       enabled: false,

@@ -15,6 +15,16 @@ test('suppresses reminder chrome for eval proactive messages', () => {
   expect(proactiveSourceSuffix('eval')).toBe('');
 });
 
+test('uses delegate badge for delegation proactive messages', () => {
+  expect(proactiveBadgeLabel('delegate')).toBe('delegate');
+  expect(proactiveSourceSuffix('delegate')).toBe('');
+});
+
+test('uses delegate badge for queued delegation proactive messages', () => {
+  expect(proactiveBadgeLabel('delegate:queued')).toBe('delegate');
+  expect(proactiveSourceSuffix('delegate:queued')).toBe('');
+});
+
 test('suppresses reminder chrome for scheduler config job outputs', () => {
   expect(proactiveBadgeLabel('schedule-job:release-brief')).toBeNull();
   expect(proactiveSourceSuffix('schedule-job:release-brief')).toBe('');

@@ -22,8 +22,7 @@ export function makeAuditRunId(prefix = 'run'): string {
 
 export function recordAuditEvent(input: RecordAuditEventInput): void {
   try {
-    const record = appendAuditEvent(input);
-    logStructuredAuditEvent(record);
+    recordAuditEventStrict(input);
   } catch (err) {
     logger.warn(
       {
@@ -37,8 +36,30 @@ export function recordAuditEvent(input: RecordAuditEventInput): void {
   }
 }
 
+export function recordAuditEventStrict(input: RecordAuditEventInput): void {
+  const record = appendAuditEvent(input);
+  logStructuredAuditEvent(record);
+}
+
 function summarizeToolResult(text: string): string {
   return truncateAuditText(text, 280);
+}
+
+type ApprovalTier = NonNullable<ToolExecution['approvalTier']>;
+type ApprovalDecision = NonNullable<ToolExecution['approvalDecision']>;
+type EscalationRoute = NonNullable<ToolExecution['escalationRoute']>;
+
+function resolveAutonomyEscalationRoute(params: {
+  decision: ApprovalDecision;
+  tier: ApprovalTier;
+  blocked: boolean;
+}): EscalationRoute {
+  if (params.blocked || params.decision === 'denied') return 'policy_denial';
+  if (params.decision === 'required') return 'approval_request';
+  if (params.tier === 'yellow' && params.decision === 'implicit') {
+    return 'implicit_notice';
+  }
+  return 'none';
 }
 
 const SENSITIVE_ARG_KEY_RE =
@@ -75,11 +96,48 @@ export function emitToolExecutionAuditEvents(input: {
   const { sessionId, runId, toolExecutions } = input;
   toolExecutions.forEach((execution, index) => {
     const toolCallId = `${runId}:tool:${index + 1}`;
+    const effectiveTier = execution.approvalTier || 'green';
+    const effectiveBaseTier =
+      execution.approvalBaseTier || execution.approvalTier || 'green';
+    const effectiveDecision = execution.approvalDecision || 'auto';
+    const effectiveEscalationRoute =
+      execution.escalationRoute ||
+      resolveAutonomyEscalationRoute({
+        decision: effectiveDecision,
+        tier: effectiveTier,
+        blocked: Boolean(execution.blocked),
+      });
+    const effectiveReason =
+      execution.approvalReason ||
+      execution.blockedReason ||
+      (effectiveDecision === 'auto'
+        ? 'allowed'
+        : `approval:${effectiveDecision}`);
     const argumentsObject = parseJsonObject(execution.arguments || '{}');
     const auditArguments = sanitizeAuditArguments(
       execution.name,
       argumentsObject,
     );
+    const anomaly = execution.anomaly
+      ? {
+          score: execution.anomaly.score,
+          reason: execution.anomaly.reason,
+          threshold: execution.anomaly.threshold,
+          status: execution.anomaly.status,
+          model: execution.anomaly.model,
+          trajectoryCount: execution.anomaly.trajectoryCount,
+          tuple: execution.anomaly.tuple,
+          traceJudge: execution.anomaly.traceJudge || null,
+        }
+      : {
+          score: 0,
+          reason: 'behavior anomaly reranker not evaluated',
+          threshold: null,
+          status: 'abstained',
+          model: 'order2_markov_frequency_v1',
+          trajectoryCount: 0,
+          tuple: null,
+        };
 
     recordAuditEvent({
       sessionId,
@@ -89,6 +147,7 @@ export function emitToolExecutionAuditEvents(input: {
         toolCallId,
         toolName: execution.name,
         arguments: auditArguments,
+        anomaly,
       },
     });
 
@@ -100,14 +159,52 @@ export function emitToolExecutionAuditEvents(input: {
         action: `tool:${execution.name}`,
         resource: 'container.sandbox',
         allowed: !execution.blocked,
-        reason:
-          execution.blockedReason ||
-          execution.approvalReason ||
-          (execution.approvalDecision
-            ? `approval:${execution.approvalDecision}`
-            : 'allowed'),
+        reason: effectiveReason,
+        anomaly,
       },
     });
+
+    recordAuditEvent({
+      sessionId,
+      runId,
+      event: {
+        type: 'autonomy.decision',
+        toolCallId,
+        action: execution.approvalActionKey || `tool:${execution.name}`,
+        autonomyLevel: execution.autonomyLevel || 'full-autonomous',
+        stakes: execution.stakes || 'low',
+        escalationRoute: effectiveEscalationRoute,
+        approvalTier: effectiveTier,
+        approvalBaseTier: effectiveBaseTier,
+        approvalDecision: effectiveDecision,
+        reason: effectiveReason,
+        anomaly,
+      },
+    });
+
+    if (effectiveEscalationRoute !== 'none') {
+      recordAuditEvent({
+        sessionId,
+        runId,
+        event: {
+          type: 'escalation.decision',
+          toolCallId,
+          action: execution.approvalActionKey || `tool:${execution.name}`,
+          proposedAction:
+            execution.approvalIntent ||
+            execution.approvalActionKey ||
+            `tool:${execution.name}`,
+          escalationRoute: effectiveEscalationRoute,
+          target: execution.escalationTarget || null,
+          stakes: execution.stakes || 'low',
+          classifier: execution.stakesScore?.classifier || null,
+          classifierReasoning: execution.stakesScore?.reasons || [],
+          approvalDecision: effectiveDecision,
+          reason: effectiveReason,
+          anomaly,
+        },
+      });
+    }
 
     const isRedApprovalAction =
       execution.approvalTier === 'red' || execution.approvalBaseTier === 'red';
@@ -134,7 +231,8 @@ export function emitToolExecutionAuditEvents(input: {
             toolCallId,
             action: execution.approvalActionKey || `tool:${execution.name}`,
             description,
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
+            anomaly,
           },
         });
       }
@@ -172,7 +270,8 @@ export function emitToolExecutionAuditEvents(input: {
                 : pending || approved
                   ? 'prompt'
                   : 'policy',
-            policyName: 'trusted-coworker',
+            policyName: 'trusted-agent',
+            anomaly,
           },
         });
       }
@@ -185,6 +284,7 @@ export function emitToolExecutionAuditEvents(input: {
           toolCallId,
           action: `tool:${execution.name}`,
           description: execution.blockedReason || 'Blocked by security policy',
+          anomaly,
         },
       });
       recordAuditEvent({
@@ -199,6 +299,7 @@ export function emitToolExecutionAuditEvents(input: {
           approvedBy: 'policy-engine',
           method: 'policy',
           policyName: 'security-hook',
+          anomaly,
         },
       });
     }
@@ -214,6 +315,7 @@ export function emitToolExecutionAuditEvents(input: {
         blocked: Boolean(execution.blocked),
         resultSummary: summarizeToolResult(execution.result || ''),
         durationMs: execution.durationMs,
+        anomaly,
       },
     });
   });

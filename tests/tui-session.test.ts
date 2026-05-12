@@ -8,7 +8,7 @@ import {
   resolveTuiRunOptions,
 } from '../src/tui-session.js';
 
-test('generateTuiSessionId uses a hermes-style timestamp and short hex suffix', () => {
+test('generateTuiSessionId uses timestamp and short hex suffix', () => {
   const sessionId = generateTuiSessionId(
     new Date(2026, 2, 16, 12, 22, 38),
     '532f05',

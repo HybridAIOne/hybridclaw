@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { proto, type WAMessageKey } from '@whiskeysockets/baileys';
 import { logger } from '../../logger.js';
+import { normalizeTrimmedString as normalizeString } from '../../utils/normalized-strings.js';
 import { WHATSAPP_AUTH_DIR } from './auth.js';
 
 const MESSAGE_STORE_FILE = 'message-store.json';
@@ -33,10 +34,6 @@ export interface WhatsAppMessageStore {
     message: proto.IWebMessageInfo | null | undefined,
   ) => Promise<void>;
   clear: () => Promise<void>;
-}
-
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
 }
 
 function buildLookupKey(params: {

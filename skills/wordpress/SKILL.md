@@ -12,7 +12,7 @@ metadata:
       - publishing
       - web
     install:
-      - id: brew
+      - id: wp
         kind: brew
         formula: wp-cli
         bins: ["wp"]

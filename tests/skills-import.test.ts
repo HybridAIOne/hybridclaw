@@ -44,6 +44,26 @@ function binaryResponse(
   });
 }
 
+function streamingBinaryResponse(
+  body: Uint8Array,
+  contentType = 'application/octet-stream',
+): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(body);
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'content-type': contentType,
+      },
+    },
+  );
+}
+
 function getAuthorizationHeader(init?: RequestInit): string | null {
   return new Headers(init?.headers).get('authorization');
 }
@@ -415,6 +435,31 @@ description: Kubernetes helper skill.
       }),
     ).rejects.toThrow('Remote skill exceeds the 5242880 byte import limit.');
     expect(arrayBufferSpy).not.toHaveBeenCalled();
+  });
+
+  test('fails when the streamed body exceeds the import budget without content-length', async () => {
+    const { readResponseBytesWithinImportBudget } = await import(
+      '../src/skills/skill-import-commons.ts'
+    );
+
+    await expect(
+      readResponseBytesWithinImportBudget(
+        streamingBinaryResponse(
+          new Uint8Array(5 * 1024 * 1024 + 1),
+          'text/markdown; charset=utf-8',
+        ),
+        { fileCount: 0, totalBytes: 0 },
+      ),
+    ).rejects.toThrow('Remote skill exceeds the 5242880 byte import limit.');
+  });
+
+  test('applies the shared file-count import budget', async () => {
+    const { assertImportBudget } = await import(
+      '../src/skills/skill-import-commons.ts'
+    );
+    expect(() =>
+      assertImportBudget({ fileCount: 256, totalBytes: 0 }, 1),
+    ).toThrow('Remote skill exceeds the 256-file import limit.');
   });
 
   test('shares one budget across GitHub candidate retries', async () => {

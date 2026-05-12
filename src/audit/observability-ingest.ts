@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
-
+import { parseBooleanWithDefault } from '../../container/shared/boolean-utils.js';
+import { SlidingWindowRateLimiter } from '../channels/discord/rate-limiter.js';
 import {
   APP_VERSION,
   HYBRIDAI_API_KEY,
@@ -26,11 +27,17 @@ import {
   setObservabilityOffset,
 } from '../memory/db.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
+import {
+  describeExpectedTransportError,
+  isExpectedTransportError,
+} from '../utils/transport-errors.js';
 
 const PLATFORM_MAX_EVENTS = 1_000;
 const PLATFORM_MAX_PAYLOAD_BYTES = 2_000_000;
 const FETCH_LIMIT_FACTOR = 4;
 const TOKEN_ADMIN_PATH = '/api/v1/agent-observability/ingest-token:ensure';
+const OBSERVABILITY_TRANSIENT_WARN_WINDOW_MS = 60_000;
+const OBSERVABILITY_TRANSIENT_WARN_LIMIT = 1;
 
 interface ResolvedIngestConfig {
   enabled: boolean;
@@ -123,6 +130,9 @@ const ingestState: ObservabilityIngestState = {
 let timer: ReturnType<typeof setInterval> | null = null;
 let flushInProgress = false;
 let flushGeneration = 0;
+const transientObservabilityWarnLimiter = new SlidingWindowRateLimiter(
+  OBSERVABILITY_TRANSIENT_WARN_WINDOW_MS,
+);
 
 function clampInteger(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -209,13 +219,7 @@ function buildTokenCacheKey(config: ResolvedIngestConfig): string {
 }
 
 function parseBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    return normalized === '1' || normalized === 'true' || normalized === 'yes';
-  }
-  return false;
+  return parseBooleanWithDefault(value, false);
 }
 
 function parseMessage(value: unknown): string | null {
@@ -700,6 +704,14 @@ async function postBatch(
   };
 }
 
+function resolveObservabilityHost(ingestUrl: string): string {
+  try {
+    return new URL(ingestUrl).hostname || '';
+  } catch {
+    return '';
+  }
+}
+
 function isPauseStatus(statusCode: number): boolean {
   return (
     statusCode === 400 ||
@@ -749,6 +761,7 @@ async function flushObservability(reason: string): Promise<void> {
     let activeToken = initialToken.token;
 
     const streamKey = buildStreamKey(config);
+    const observabilityHost = resolveObservabilityHost(config.ingestUrl);
     ingestState.streamKey = streamKey;
     let cursor = getObservabilityOffset(streamKey);
     ingestState.lastCursor = cursor;
@@ -816,17 +829,40 @@ async function flushObservability(reason: string): Promise<void> {
       if (!result.ok) {
         ingestState.lastFailureAt = new Date().toISOString();
         ingestState.lastError = result.errorText;
-        logger.warn(
-          {
-            reason,
-            streamKey,
-            statusCode: result.statusCode || undefined,
-            error: result.errorText,
-            cursor,
-            batchEvents: batch.eventCount,
-          },
-          'Observability ingest push failed',
-        );
+        if (
+          result.statusCode === 0 &&
+          isExpectedTransportError(result.errorText)
+        ) {
+          const transientMessage = `${describeExpectedTransportError(result.errorText, 'Observability ingest', observabilityHost)} Events will be retried automatically.`;
+          if (
+            transientObservabilityWarnLimiter.check(
+              `${streamKey}:${transientMessage}`,
+              OBSERVABILITY_TRANSIENT_WARN_LIMIT,
+            ).allowed
+          ) {
+            logger.warn(
+              {
+                reason,
+                streamKey,
+                cursor,
+                batchEvents: batch.eventCount,
+              },
+              transientMessage,
+            );
+          }
+        } else {
+          logger.warn(
+            {
+              reason,
+              streamKey,
+              statusCode: result.statusCode || undefined,
+              error: result.errorText,
+              cursor,
+              batchEvents: batch.eventCount,
+            },
+            'Observability ingest push failed',
+          );
+        }
         if (isPauseStatus(result.statusCode)) {
           ingestState.paused = true;
           ingestState.reason = `paused after status ${result.statusCode}`;

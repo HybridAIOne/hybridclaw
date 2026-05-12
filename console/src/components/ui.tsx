@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 
+import { Skeleton } from './skeleton';
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group';
 
 export { ToggleGroup, ToggleGroupItem };
@@ -117,44 +118,26 @@ export function PageHeader(props: {
   );
 }
 
-export function Panel(props: {
-  title?: string;
-  subtitle?: string;
-  children: ReactNode;
-  accent?: 'default' | 'warm';
-  id?: string;
-}) {
-  return (
-    <section
-      id={props.id}
-      className={props.accent === 'warm' ? 'panel warm' : 'panel'}
-    >
-      {props.title ? (
-        <div className="panel-header">
-          <div>
-            <h4>{props.title}</h4>
-            {props.subtitle ? (
-              <p className="supporting-text">{props.subtitle}</p>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-      {props.children}
-    </section>
-  );
-}
-
 export function MetricCard(props: {
   label: string;
   value: string;
   detail?: string;
+  loading?: boolean;
   href?: string;
 }) {
   const content = (
     <>
       <span>{props.label}</span>
-      <strong>{props.value}</strong>
-      {props.detail ? <small>{props.detail}</small> : null}
+      {props.loading ? (
+        <Skeleton className="metric-card-value-skeleton" />
+      ) : (
+        <strong>{props.value}</strong>
+      )}
+      {props.loading && props.detail !== undefined ? (
+        <Skeleton className="metric-card-detail-skeleton" />
+      ) : !props.loading && props.detail ? (
+        <small>{props.detail}</small>
+      ) : null}
     </>
   );
 

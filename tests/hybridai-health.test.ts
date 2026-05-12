@@ -69,9 +69,7 @@ describe('hybridai-health', () => {
   test('get() returns error result when probe throws', async () => {
     const mod = await importFreshModule();
 
-    probeHybridAIMock.mockRejectedValueOnce(
-      new Error('connect ECONNREFUSED'),
-    );
+    probeHybridAIMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
 
     const result = await mod.hybridAIProbe.get();
     expect(result).toMatchObject({

@@ -22,17 +22,17 @@ describe('getToolExecutionMode', () => {
     ['web_search', '{"query":"hybridclaw"}'],
     ['write', '{"path":"x.txt","contents":"hello"}'],
     ['edit', '{"path":"x.txt","old":"a","new":"b"}'],
-    ['bash', '{"command":"git status"}'],
     ['browser_navigate', '{"url":"https://example.com"}'],
     ['delegate', '{"prompt":"check the logs"}'],
   ])('defaults %s to the concurrent path when it is not explicitly never-parallel', (toolName, argsJson) => {
     expect(getToolExecutionMode(toolName, argsJson)).toBe('parallel');
   });
 
-  test('keeps clarify on the sequential path', () => {
-    expect(getToolExecutionMode('clarify', '{"question":"ok?"}')).toBe(
-      'sequential',
-    );
+  test.each([
+    ['bash', '{"command":"git status"}'],
+    ['clarify', '{"question":"ok?"}'],
+  ])('keeps %s on the sequential path', (toolName, argsJson) => {
+    expect(getToolExecutionMode(toolName, argsJson)).toBe('sequential');
   });
 });
 

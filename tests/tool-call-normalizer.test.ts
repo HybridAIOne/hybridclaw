@@ -7,6 +7,7 @@ import {
 
 const hermesOptions = { parser: 'hermes' as const };
 const mistralOptions = { parser: 'mistral' as const };
+const qwenOptions = { parser: 'qwen' as const };
 const liquidOptions = { parser: 'liquid' as const };
 
 describe('tool call normalizer', () => {
@@ -123,6 +124,36 @@ describe('tool call normalizer', () => {
     expect(result.toolCalls[0]?.function).toEqual({
       name: 'shell',
       arguments: '{"command":"ls"}',
+    });
+  });
+
+  test('extracts Qwen XML function tool calls from qwen-family content', () => {
+    const result = normalizeToolCalls(
+      undefined,
+      [
+        'Checking channels.',
+        '<tool_call>',
+        '<function=message>',
+        '<parameter=action>',
+        'read',
+        '</parameter>',
+        '<parameter=channelId>',
+        '1412305847249535139',
+        '</parameter>',
+        '<parameter=limit>',
+        '20',
+        '</parameter>',
+        '</function>',
+        '</tool_call>',
+      ].join('\n'),
+      qwenOptions,
+    );
+
+    expect(result.content).toBe('Checking channels.');
+    expect(result.toolCalls[0]?.function).toEqual({
+      name: 'message',
+      arguments:
+        '{"action":"read","channelId":"1412305847249535139","limit":20}',
     });
   });
 

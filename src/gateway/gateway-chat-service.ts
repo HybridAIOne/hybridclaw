@@ -1,10 +1,16 @@
 import path from 'node:path';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
+import type { PromptMode } from '../agent/prompt-hooks.js';
+import {
+  type PromptPartName,
+  parsePromptPartList,
+} from '../agent/prompt-parts.js';
 import { processSideEffects } from '../agent/side-effects.js';
 import { isSilentReply } from '../agent/silent-reply.js';
 import {
   resolveAgentConfig,
+  resolveAgentEscalationTarget,
   resolveAgentForRequest,
   resolveAgentModel,
 } from '../agents/agent-registry.js';
@@ -35,19 +41,20 @@ import {
   createFreshSessionInstance,
   getTasksForSession,
   logAudit,
-  recordUsageEvent,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
   memoryService,
 } from '../memory/memory-service.js';
 import { withSpan } from '../observability/otel.js';
+import { loadPolicyFullAutoNeverApprove } from '../policy/remote-policy-authority.js';
 import {
   modelRequiresChatbotId,
   resolveModelProvider,
 } from '../providers/factory.js';
 import { buildSessionContext } from '../session/session-context.js';
 import { resolveSessionResetChannelKind } from '../session/session-reset.js';
+import { maybeAutoTitleSession } from '../session/session-title.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import {
   expandResolvedSkillInvocation,
@@ -58,9 +65,16 @@ import {
   deriveSkillExecutionOutcome,
   recordSkillExecution,
 } from '../skills/skills-observation.js';
-import type { PendingApproval, ToolProgressEvent } from '../types/execution.js';
+import {
+  normalizeEscalationTarget,
+  type PendingApproval,
+  type ToolProgressEvent,
+} from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
+import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
+import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
+import { normalizeSilentMessageSendReply } from './chat-result.js';
 import { buildConciergeChoiceComponents } from './concierge-choice.js';
 import {
   buildConciergeExecutionNotice,
@@ -77,6 +91,11 @@ import {
   syncFullAutoRuntimeContext,
 } from './fullauto-runtime.js';
 import { buildFullAutoOperatingContract } from './fullauto-workspace.js';
+import {
+  GATEWAY_SYSTEM_PROMPT_MODE_ENV,
+  GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+  GATEWAY_TOOLS_MODE_ENV,
+} from './gateway-lifecycle.js';
 import { tryEnsurePluginManagerInitializedForGateway } from './gateway-plugin-runtime.js';
 import { registerActiveGatewayRequest } from './gateway-request-runtime.js';
 import {
@@ -85,11 +104,11 @@ import {
   buildStoredUserTurnContent,
   buildTokenUsageAuditPayload,
   cloneMediaContextItems,
-  enqueueDelegationFromSideEffect,
+  enqueueDelegationBatchFromSideEffects,
   extractDelegationDepth,
-  extractUsageCostUsd,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
+  getGatewayAssistantPresentationForMessageAgent,
   isGatewayRequestLoggingEnabled,
   isVersionOnlyQuestion,
   maybeRecordGatewayRequestLog,
@@ -107,12 +126,195 @@ import {
 } from './gateway-service.js';
 import type { GatewayChatRequest, GatewayChatResult } from './gateway-types.js';
 import { firstNumber } from './gateway-utils.js';
+import { isSupportedProactiveChannelId } from './proactive-delivery.js';
 import {
   normalizeSessionShowMode,
   sessionShowModeShowsTools,
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function formatEscalationRouteNotice(
+  approval: PendingApproval,
+  target: NonNullable<PendingApproval['escalationTarget']>,
+): string {
+  return `Escalation for ${target.recipient} on ${target.channel}.\n\n${approval.prompt}`;
+}
+
+async function routeEscalationApproval(params: {
+  approval: PendingApproval | undefined;
+  agentId: string;
+  currentChannelId: string;
+  sessionId: string;
+  runId: string;
+  onProactiveMessage: GatewayChatRequest['onProactiveMessage'];
+}): Promise<void> {
+  if (!params.approval) return;
+  const target = normalizeEscalationTarget(params.approval.escalationTarget);
+  if (!target) return;
+  const targetChannel = target.channel;
+  if (targetChannel === params.currentChannelId) return;
+  const auditBase = {
+    type: 'escalation.route',
+    approvalId: params.approval.approvalId,
+    agentId: params.agentId,
+    currentChannelId: params.currentChannelId,
+    targetChannel,
+    targetRecipient: target.recipient,
+  };
+  if (!isSupportedProactiveChannelId(targetChannel)) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Blocked escalation approval route to unsupported proactive target',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'blocked',
+        reason: 'unsupported_proactive_target',
+      },
+    });
+    return;
+  }
+  if (!params.onProactiveMessage) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Unable to route escalation approval notification because onProactiveMessage is unavailable',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'not_sent',
+        reason: 'missing_proactive_callback',
+      },
+    });
+    return;
+  }
+  try {
+    await params.onProactiveMessage({
+      channelId: targetChannel,
+      text: formatEscalationRouteNotice(params.approval, target),
+    });
+    logger.info(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+      },
+      'Routed escalation approval notification',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'sent',
+      },
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        approvalId: params.approval.approvalId,
+        sourceAgentId: params.agentId,
+        targetChannel,
+        error,
+      },
+      'Failed to route escalation approval notification',
+    );
+    recordAuditEvent({
+      sessionId: params.sessionId,
+      runId: params.runId,
+      event: {
+        ...auditBase,
+        result: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    });
+  }
+}
+
+function readGatewayPromptModeDefault(): PromptMode | undefined {
+  const raw = String(process.env[GATEWAY_SYSTEM_PROMPT_MODE_ENV] || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return undefined;
+  if (raw === 'full' || raw === 'minimal' || raw === 'none') return raw;
+  throw new Error(
+    `Invalid value for ${GATEWAY_SYSTEM_PROMPT_MODE_ENV}: ${raw}. Use full, minimal, or none.`,
+  );
+}
+
+function readGatewayToolsDisabledDefault(): boolean {
+  const raw = String(process.env[GATEWAY_TOOLS_MODE_ENV] || '')
+    .trim()
+    .toLowerCase();
+  if (!raw || raw === 'full') return false;
+  if (raw === 'none') return true;
+  throw new Error(
+    `Invalid value for ${GATEWAY_TOOLS_MODE_ENV}: ${raw}. Use full or none.`,
+  );
+}
+
+function readGatewayPromptPartDefault(
+  envName: string,
+  flagName: string,
+): PromptPartName[] | undefined {
+  const raw = String(process.env[envName] || '').trim();
+  if (!raw) return undefined;
+  try {
+    return parsePromptPartList(raw, flagName);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid value for ${envName}: ${message}`);
+  }
+}
+
+export function validateGatewayPromptEnvDefaults(): void {
+  readGatewayPromptModeDefault();
+  readGatewayToolsDisabledDefault();
+  readGatewayPromptPartDefault(
+    GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+    '--system-prompt',
+  );
+}
+
+function resolveGatewayPromptPartDefaults(req: GatewayChatRequest): {
+  promptMode?: PromptMode;
+  includePromptParts?: PromptPartName[];
+  omitPromptParts?: PromptPartName[];
+  toolsDisabled: boolean;
+} {
+  const promptMode = req.promptMode ?? readGatewayPromptModeDefault();
+  const toolsDisabled = readGatewayToolsDisabledDefault();
+  const includePromptParts =
+    req.includePromptParts ??
+    readGatewayPromptPartDefault(
+      GATEWAY_SYSTEM_PROMPT_PARTS_ENV,
+      '--system-prompt',
+    );
+  return {
+    ...(promptMode ? { promptMode } : {}),
+    ...(includePromptParts && includePromptParts.length > 0
+      ? { includePromptParts }
+      : {}),
+    ...(req.omitPromptParts && req.omitPromptParts.length > 0
+      ? { omitPromptParts: req.omitPromptParts }
+      : {}),
+    toolsDisabled,
+  };
+}
 
 export async function handleGatewayMessage(
   req: GatewayChatRequest,
@@ -237,9 +439,6 @@ async function handleGatewayMessageInner(
     getChannelByContextId(req.channelId) ||
     undefined;
   const autoApproveTools = req.autoApproveTools === true;
-  const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
-    ? req.neverAutoApproveTools
-    : FULLAUTO_NEVER_APPROVE_TOOLS;
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
       sessionId: req.sessionId,
@@ -306,6 +505,15 @@ async function handleGatewayMessageInner(
   const workspacePath = path.resolve(
     req.workspacePathOverride || agentWorkspaceDir(agentId),
   );
+  const fullAutoEnabled = autoApproveTools || isFullAutoEnabled(session);
+  const neverAutoApproveTools = Array.isArray(req.neverAutoApproveTools)
+    ? req.neverAutoApproveTools
+    : fullAutoEnabled
+      ? [
+          ...FULLAUTO_NEVER_APPROVE_TOOLS,
+          ...loadPolicyFullAutoNeverApprove(workspacePath),
+        ]
+      : FULLAUTO_NEVER_APPROVE_TOOLS;
   const workspaceDisplayPath =
     req.workspaceDisplayRootOverride?.trim() || workspacePath;
   const workspaceBootstrap = req.workspacePathOverride
@@ -390,6 +598,15 @@ async function handleGatewayMessageInner(
     source !== 'fullauto' &&
     channelType !== 'scheduler' &&
     channelType !== 'heartbeat';
+  // Each success path returns after scheduling title work, so one turn enqueues
+  // at most one title request.
+  const autoTitleParams = () => ({
+    sessionId: req.sessionId,
+    agentId,
+    chatbotId,
+    model,
+    isFirstTurn: turnIndex === 1,
+  });
   const explicitModelPinned = Boolean(
     req.model?.trim() ||
       session.model?.trim() ||
@@ -412,6 +629,10 @@ async function handleGatewayMessageInner(
   });
   let conciergeExecutionProfile: ConciergeProfile | null = null;
   if (conciergeTurn.kind === 'respond') {
+    const conciergeUserContent = buildStoredUserTurnContent(
+      userTurnContent,
+      media,
+    );
     const storedTurn = recordSuccessfulTurn({
       sessionId: req.sessionId,
       agentId,
@@ -425,11 +646,15 @@ async function handleGatewayMessageInner(
       userId: req.userId,
       username: req.username,
       canonicalScopeId: canonicalContextScope,
-      userContent: buildStoredUserTurnContent(userTurnContent, media),
+      userContent: conciergeUserContent,
       resultText: conciergeTurn.resultText,
       toolCallCount: 0,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+    });
+    maybeAutoTitleSession({
+      ...autoTitleParams(),
+      userContent: conciergeUserContent,
     });
     return attachSessionIdentity({
       status: 'success',
@@ -445,6 +670,8 @@ async function handleGatewayMessageInner(
             })
           : undefined,
       toolsUsed: [],
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     });
@@ -481,7 +708,10 @@ async function handleGatewayMessageInner(
     audioTranscriptCount: audioPrelude.transcripts.length,
     contentLength: effectiveUserTurnContentExpanded.length,
     streamingRequested: Boolean(
-      req.onTextDelta || req.onToolProgress || req.onApprovalProgress,
+      req.onTextDelta ||
+        req.onThinkingDelta ||
+        req.onToolProgress ||
+        req.onApprovalProgress,
     ),
   };
 
@@ -602,10 +832,16 @@ async function handleGatewayMessageInner(
       agentId,
       model,
       provider,
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    maybeAutoTitleSession({
+      ...autoTitleParams(),
+      userContent: req.content,
+    });
     return attachSessionIdentity(result);
   }
 
@@ -697,6 +933,7 @@ async function handleGatewayMessageInner(
       )
     : undefined;
   const mediaPolicy = resolveMediaToolPolicy(effectiveUserTurnContent, media);
+  const promptPartDefaults = resolveGatewayPromptPartDefaults(req);
   const { messages, skills, historyStats, explicitSkillInvocation } =
     buildConversationContext({
       agentId,
@@ -706,9 +943,9 @@ async function handleGatewayMessageInner(
         : pluginPromptSummary,
       history,
       currentUserContent: effectiveUserTurnContent,
-      promptMode: req.promptMode,
-      includePromptParts: req.includePromptParts,
-      omitPromptParts: req.omitPromptParts,
+      promptMode: promptPartDefaults.promptMode,
+      includePromptParts: promptPartDefaults.includePromptParts,
+      omitPromptParts: promptPartDefaults.omitPromptParts,
       extraSafetyText: fullAutoOperatingContract,
       runtimeInfo: {
         chatbotId,
@@ -721,6 +958,7 @@ async function handleGatewayMessageInner(
         sessionContext,
         workspacePath: workspaceDisplayPath,
       },
+      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
     });
   const historyStart =
@@ -779,9 +1017,88 @@ async function handleGatewayMessageInner(
       )
     : effectiveUserTurnContentExpanded;
   const explicitSkillName = explicitSkillInvocation?.skill.name || null;
-  const agentUserContent = mediaContextBlock
+  const activeSkill = explicitSkillInvocation
+    ? {
+        name: explicitSkillInvocation.skill.name,
+        middleware: explicitSkillInvocation.skill.manifest.middleware,
+      }
+    : undefined;
+  let agentUserContent = mediaContextBlock
     ? `${expandedUserContent}\n\n${mediaContextBlock}`
     : expandedUserContent;
+  if (pluginManager?.hasMiddleware('pre_send')) {
+    const preSendOutcome = await pluginManager.applyMiddleware('pre_send', {
+      sessionId: req.sessionId,
+      userId: req.userId,
+      agentId,
+      channelId: req.channelId,
+      model: model || undefined,
+      workspacePath,
+      messages: [
+        ...messages,
+        {
+          role: 'user',
+          content: agentUserContent,
+        },
+      ],
+      userContent: agentUserContent,
+      skill: activeSkill,
+    });
+    for (const event of preSendOutcome.events) {
+      if (event.action === 'allow') continue;
+      logger.info(
+        {
+          sessionId: req.sessionId,
+          agentId,
+          middlewareId: event.skillId,
+          action: event.action,
+          reason: event.reason,
+        },
+        'Plugin pre-send middleware adjusted turn',
+      );
+    }
+    if (preSendOutcome.blocked) {
+      const storedUserContent = buildStoredUserTurnContent(
+        userTurnContent,
+        media,
+      );
+      const resultText =
+        preSendOutcome.resultText || 'Message blocked by pre-send middleware.';
+      const storedTurn = recordSuccessfulTurn({
+        sessionId: req.sessionId,
+        agentId,
+        chatbotId,
+        enableRag,
+        model,
+        channelId: req.channelId,
+        promptMode: req.promptMode,
+        runId,
+        turnIndex,
+        userId: req.userId,
+        username: req.username,
+        canonicalScopeId: canonicalContextScope,
+        userContent: storedUserContent,
+        resultText,
+        toolCallCount: 0,
+        startedAt,
+        replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
+      });
+      return attachSessionIdentity({
+        status: 'success',
+        result: resultText,
+        toolsUsed: [],
+        pluginsUsed,
+        agentId,
+        model,
+        provider,
+        assistantPresentation:
+          getGatewayAssistantPresentationForMessageAgent(agentId),
+        userMessageId: storedTurn.userMessageId,
+        assistantMessageId: storedTurn.assistantMessageId,
+      });
+    }
+    agentUserContent = preSendOutcome.userContent;
+  }
   logger.debug(
     {
       ...debugMeta,
@@ -825,6 +1142,9 @@ async function handleGatewayMessageInner(
       req.onTextDelta?.(delta);
     };
     const emitTextDeltas = req.onTextDelta ? onTextDelta : undefined;
+    const emitThinkingDeltas = req.onThinkingDelta
+      ? (delta: string): void => req.onThinkingDelta?.(delta)
+      : undefined;
     const onToolProgress = (event: ToolProgressEvent): void => {
       logger.debug(
         {
@@ -897,24 +1217,27 @@ async function handleGatewayMessageInner(
       agentId,
       workspacePathOverride: req.workspacePathOverride,
       workspaceDisplayRootOverride: req.workspaceDisplayRootOverride,
-      skipContainerSystemPrompt: req.promptMode === 'none',
+      skipContainerSystemPrompt: promptPartDefaults.promptMode === 'none',
       maxTokens: req.maxTokens,
       maxWallClockMs: req.maxWallClockMs,
       inactivityTimeoutMs: req.inactivityTimeoutMs,
       bashProxy: req.bashProxy,
       channelId: req.channelId,
       ralphMaxIterations: resolveSessionRalphIterations(session),
-      fullAutoEnabled: autoApproveTools || isFullAutoEnabled(session),
+      fullAutoEnabled,
       fullAutoNeverApproveTools: neverAutoApproveTools,
       scheduledTasks,
+      allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
       onTextDelta: emitTextDeltas,
+      onThinkingDelta: emitThinkingDeltas,
       onToolProgress,
       onApprovalProgress,
       abortSignal: activeGatewayRequest.signal,
       media,
       audioTranscriptsPrepended: audioPrelude.transcripts.length > 0,
       pluginTools: pluginManager?.getToolDefinitions() ?? [],
+      escalationTarget: resolveAgentEscalationTarget(resolvedAgent.id),
     });
     agentStage = 'processing-agent-output';
     const storedUserContent = buildStoredUserTurnContent(
@@ -922,6 +1245,14 @@ async function handleGatewayMessageInner(
       media,
     );
     const toolExecutions = output.toolExecutions || [];
+    await routeEscalationApproval({
+      approval: output.pendingApproval,
+      agentId: resolvedAgent.id,
+      currentChannelId: req.channelId,
+      sessionId: req.sessionId,
+      runId,
+      onProactiveMessage: req.onProactiveMessage,
+    });
     const observedSkillName = resolveObservedSkillName({
       explicitSkillName,
       toolExecutions,
@@ -949,7 +1280,12 @@ async function handleGatewayMessageInner(
         ...usagePayload,
       },
     });
-    recordUsageEvent({
+    const costUsd = await resolveUsageCostUsdAfterMetadataRefresh({
+      model,
+      tokenUsage: output.tokenUsage,
+      usage: usagePayload,
+    });
+    enqueueTokenUsage({
       sessionId: req.sessionId,
       agentId,
       model,
@@ -957,7 +1293,8 @@ async function handleGatewayMessageInner(
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: toolExecutions.length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
+      costUsd,
+      auditRunId: runId,
     });
     if (observedSkillName) {
       try {
@@ -971,6 +1308,15 @@ async function handleGatewayMessageInner(
             toolExecutions,
           }),
           durationMs: Date.now() - startedAt,
+          model,
+          tokenUsage: output.tokenUsage,
+          costUsd,
+          agentId,
+          input: storedUserContent,
+          output: {
+            status: output.status,
+            result: output.result,
+          },
           errorDetail: output.error,
         });
       } catch (error) {
@@ -983,6 +1329,9 @@ async function handleGatewayMessageInner(
 
     const parentDepth = extractDelegationDepth(req.sessionId);
     let acceptedDelegations = 0;
+    const acceptedDelegationPlans: NonNullable<
+      ReturnType<typeof normalizeDelegationEffect>['plan']
+    >[] = [];
     processSideEffects(output, req.sessionId, req.channelId, {
       onDelegation: (effect) => {
         const normalized = normalizeDelegationEffect(effect, model);
@@ -1028,18 +1377,28 @@ async function handleGatewayMessageInner(
           return;
         }
         acceptedDelegations += requestedRuns;
-        enqueueDelegationFromSideEffect({
-          plan: normalized.plan,
-          parentSessionId: req.sessionId,
-          channelId: req.channelId,
-          chatbotId,
-          enableRag,
-          agentId,
-          onProactiveMessage: req.onProactiveMessage,
-          parentDepth,
-        });
+        acceptedDelegationPlans.push(normalized.plan);
       },
     });
+    const delegationAcknowledgement =
+      acceptedDelegations > 0
+        ? `Started ${acceptedDelegations} delegate ${acceptedDelegations === 1 ? 'job' : 'jobs'}. I'll synthesize the final answer when they finish.`
+        : null;
+    if (acceptedDelegationPlans.length > 0) {
+      enqueueDelegationBatchFromSideEffects({
+        plans: acceptedDelegationPlans,
+        parentSessionId: req.sessionId,
+        channelId: req.channelId,
+        chatbotId,
+        enableRag,
+        agentId,
+        parentModel: model,
+        onProactiveMessage: req.onProactiveMessage,
+        parentDepth,
+        parentPrompt: req.content,
+        parentResult: delegationAcknowledgement || '',
+      });
+    }
 
     promoteWorkspaceSkills(workspacePath);
 
@@ -1120,10 +1479,57 @@ async function handleGatewayMessageInner(
       });
     }
 
-    const rawResultText = output.result || 'No response from agent.';
-    const resultText = conciergeExecutionNotice
+    const rawResultText =
+      delegationAcknowledgement || output.result || 'No response from agent.';
+    const unnormalizedResultText = conciergeExecutionNotice
       ? `${conciergeExecutionNotice}${rawResultText}`
       : rawResultText;
+    const normalizedResult = normalizeSilentMessageSendReply({
+      status: 'success',
+      result: unnormalizedResultText,
+      toolsUsed: output.toolsUsed || [],
+      toolExecutions,
+    });
+    let resultText = String(normalizedResult.result || unnormalizedResultText);
+    if (pluginManager?.hasOutputGuards()) {
+      try {
+        const guardOutcome = await pluginManager.applyOutputGuards({
+          sessionId: req.sessionId,
+          userId: req.userId,
+          agentId,
+          channelId: req.channelId,
+          model: model || undefined,
+          workspacePath,
+          messages: [...messages, { role: 'assistant', content: resultText }],
+          userContent: storedUserContent,
+          resultText,
+          toolExecutions,
+          skill: activeSkill,
+        });
+        if (guardOutcome.events.length > 0) {
+          for (const event of guardOutcome.events) {
+            if (event.action === 'allow') continue;
+            logger.info(
+              {
+                sessionId: req.sessionId,
+                agentId,
+                pluginId: event.pluginId,
+                guardId: event.guardId,
+                action: event.action,
+                reason: event.reason,
+              },
+              'Plugin output guard adjusted response',
+            );
+          }
+          resultText = guardOutcome.resultText || resultText;
+        }
+      } catch (error) {
+        logger.warn(
+          { sessionId: req.sessionId, agentId, error },
+          'Plugin output guard pipeline failed; allowing original output',
+        );
+      }
+    }
     const memoryCitations = extractMemoryCitations(
       resultText,
       memoryContext.citationIndex,
@@ -1157,6 +1563,7 @@ async function handleGatewayMessageInner(
       canonicalScopeId: canonicalContextScope,
       userContent: storedUserContent,
       resultText,
+      artifacts: output.artifacts,
       toolCallCount: toolExecutions.length,
       startedAt,
       replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
@@ -1238,10 +1645,16 @@ async function handleGatewayMessageInner(
       pendingApproval: output.pendingApproval,
       tokenUsage: output.tokenUsage,
       effectiveUserPrompt: output.effectiveUserPrompt,
+      assistantPresentation:
+        getGatewayAssistantPresentationForMessageAgent(agentId),
       userMessageId: storedTurn.userMessageId,
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    maybeAutoTitleSession({
+      ...autoTitleParams(),
+      userContent: storedUserContent,
+    });
     if (requestMessages !== null) {
       maybeRecordGatewayRequestLog({
         sessionId: req.sessionId,

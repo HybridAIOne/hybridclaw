@@ -12,7 +12,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 let tmpDir: string;
 
-// Modules imported dynamically after env setup.
 let appendAuditEvent: typeof import('../src/audit/audit-trail.js').appendAuditEvent;
 let verifyAuditSessionChain: typeof import('../src/audit/audit-trail.js').verifyAuditSessionChain;
 let getAuditWirePath: typeof import('../src/audit/audit-trail.js').getAuditWirePath;
@@ -200,7 +199,7 @@ describe('audit trail integration', () => {
       .filter(Boolean);
     // Remove the 3rd record (index 3, which is seq 3).
     lines.splice(3, 1);
-    fs.writeFileSync(wirePath, lines.join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(wirePath, `${lines.join('\n')}\n`, 'utf-8');
 
     const result = verifyAuditSessionChain(removeSessionId);
     expect(result.ok).toBe(false);

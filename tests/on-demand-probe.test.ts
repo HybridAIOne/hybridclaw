@@ -37,7 +37,8 @@ describe('createOnDemandProbe', () => {
   test('get() re-probes after TTL expires', async () => {
     vi.useFakeTimers();
     const { createOnDemandProbe } = await importFreshModule();
-    const probeFn = vi.fn()
+    const probeFn = vi
+      .fn()
       .mockResolvedValueOnce('first')
       .mockResolvedValueOnce('second');
 
@@ -97,7 +98,8 @@ describe('createOnDemandProbe', () => {
 
   test('invalidate() causes next get() to re-probe', async () => {
     const { createOnDemandProbe } = await importFreshModule();
-    const probeFn = vi.fn()
+    const probeFn = vi
+      .fn()
       .mockResolvedValueOnce('before')
       .mockResolvedValueOnce('after');
 
@@ -123,7 +125,8 @@ describe('createOnDemandProbe', () => {
 
   test('probe error does not cache — next get() retries', async () => {
     const { createOnDemandProbe } = await importFreshModule();
-    const probeFn = vi.fn()
+    const probeFn = vi
+      .fn()
       .mockRejectedValueOnce(new Error('transient'))
       .mockResolvedValueOnce('recovered');
 

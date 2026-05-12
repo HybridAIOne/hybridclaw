@@ -220,6 +220,11 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
               },
             },
           ],
+          usage: {
+            prompt_tokens: 42,
+            completion_tokens: 8,
+            total_tokens: 50,
+          },
         }),
         {
           status: 200,
@@ -245,6 +250,85 @@ test('host auxiliary caller strips the HybridAI display prefix from request mode
     provider: 'hybridai',
     model: 'hybridai/gpt-5-nano',
     content: 'HybridAI cleanup response.',
+    usage: {
+      inputTokens: 42,
+      outputTokens: 8,
+      totalTokens: 50,
+    },
+  });
+});
+
+test('host auxiliary caller supports HybridAI-routed vendor model hints', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    apiKey: 'hybridai-key',
+    baseUrl: 'https://hybridai.one',
+    chatbotId: 'bot_123',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    maxTokens: 2048,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://hybridai.one/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({
+        model: 'anthropic/claude-haiku-4-5',
+        chatbot_id: 'bot_123',
+        enable_rag: false,
+      });
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'HybridAI vendor model response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    fallbackModel: 'hybridai/anthropic/claude-haiku-4-5',
+    fallbackChatbotId: 'bot_123',
+    messages: [{ role: 'user', content: 'Summarize this.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'hybridai',
+    model: 'hybridai/anthropic/claude-haiku-4-5',
+    content: 'HybridAI vendor model response.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith({
+    model: 'hybridai/anthropic/claude-haiku-4-5',
+    chatbotId: 'bot_123',
+    enableRag: false,
+    agentId: 'main',
   });
 });
 
@@ -273,7 +357,7 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
     'event: response.output_text.delta\r\n',
     'data: {"type":"response.output_text.delta","delta":" memory"}\r\n\r\n',
     'event: response.completed\r\n',
-    'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Clean memory"}]}]}}\r\n\r\n',
+    'data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Clean memory"}]}],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18}}}\r\n\r\n',
   ].join('');
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -310,6 +394,11 @@ test('host auxiliary caller streams Codex responses for auxiliary tasks', async 
     provider: 'openai-codex',
     model: 'openai-codex/gpt-5-codex',
     content: 'Clean memory',
+    usage: {
+      inputTokens: 11,
+      outputTokens: 7,
+      totalTokens: 18,
+    },
   });
 });
 
@@ -343,7 +432,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
       >;
       expect(body).toMatchObject({
         model: 'anthropic/claude-sonnet-4',
-        max_tokens: 64_000,
+        max_tokens: 77,
         temperature: 0.25,
         user: 'aux-test',
       });
@@ -358,7 +447,7 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
         unknown
       >;
       expect(body.max_tokens).toBeUndefined();
-      expect(body.max_completion_tokens).toBe(64_000);
+      expect(body.max_completion_tokens).toBe(77);
       return new Response(
         JSON.stringify({
           choices: [
@@ -416,7 +505,137 @@ test('host auxiliary caller supports explicit provider overrides and max_complet
   });
 });
 
-test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without discovery metadata', async () => {
+test('host auxiliary caller uses OpenAI-compatible routing for xAI models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'xai' as const,
+    apiKey: 'xai-key',
+    baseUrl: 'https://api.x.ai/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://api.x.ai/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body).toMatchObject({
+        model: 'grok-3',
+      });
+      expect(body.chatbot_id).toBeUndefined();
+      expect(body.enable_rag).toBeUndefined();
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'xAI title response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'session_title',
+    agentId: 'main',
+    fallbackModel: 'xai/grok-3',
+    fallbackChatbotId: '',
+    messages: [{ role: 'user', content: 'Title this session.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'xai',
+    model: 'xai/grok-3',
+    content: 'xAI title response.',
+  });
+});
+
+test('host auxiliary caller honors requested max tokens for OpenRouter Anthropic models', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.max_tokens).toBe(77);
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Fallback max tokens response.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    provider: 'openrouter',
+    model: 'anthropic/claude-sonnet-4',
+    maxTokens: 77,
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-sonnet-4',
+    content: 'Fallback max tokens response.',
+  });
+});
+
+test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthropic models without request or discovery metadata', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => undefined);
   const resolveModelRuntimeCredentials = vi.fn(async () => ({
     provider: 'openrouter' as const,
@@ -468,7 +687,6 @@ test('host auxiliary caller falls back to 32000 max tokens for OpenRouter Anthro
     task: 'compression',
     provider: 'openrouter',
     model: 'anthropic/claude-sonnet-4',
-    maxTokens: 77,
     messages: [{ role: 'user', content: 'Summarize this transcript.' }],
   });
 
@@ -506,7 +724,7 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
         string,
         unknown
       >;
-      expect(body.max_tokens).toBe(48_000);
+      expect(body.max_tokens).toBe(77);
       expect(body.max_completion_tokens).toBeUndefined();
       return new Response('unsupported_parameter: tools', { status: 400 });
     },
@@ -622,4 +840,75 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
     }),
     'Auxiliary provider resolution failed; using OpenRouter fallback',
   );
+});
+
+test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hints', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'hybridai/anthropic/claude-haiku-4-5',
+    error: 'HybridAI provider is unavailable.',
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('anthropic/claude-haiku-4-5');
+      expect(body.max_tokens).toBe(1_200);
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through OpenRouter fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    agentId: 'main',
+    maxTokens: 1_200,
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-haiku-4-5',
+    content: 'Recovered through OpenRouter fallback.',
+  });
 });

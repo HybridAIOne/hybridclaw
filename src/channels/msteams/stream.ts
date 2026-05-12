@@ -12,8 +12,6 @@ import {
 } from './retry.js';
 
 const DEFAULT_EDIT_INTERVAL_MS = 1_200;
-// Coalesce token bursts into a few visible edits instead of issuing one activity
-// update per delta, while still keeping Teams replies responsive.
 const STREAM_FAILURE_TEXT =
   'Teams streaming was interrupted while sending the reply. Please retry.';
 

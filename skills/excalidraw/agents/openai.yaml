@@ -1,0 +1,4 @@
+interface:
+  display_name: "Excalidraw"
+  short_description: "Editable Excalidraw diagrams and share links."
+  default_prompt: "Use $excalidraw to create an editable Excalidraw diagram for this system or process and save the .excalidraw file in the workspace."

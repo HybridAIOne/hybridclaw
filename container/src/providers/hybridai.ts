@@ -2,6 +2,9 @@ import { stripHybridAIModelPrefix } from '../../shared/model-names.js';
 import type { ChatCompletionResponse, ToolCall } from '../types.js';
 import {
   buildRequestHeaders,
+  emitRawSseLineDebug,
+  logLastPrompt,
+  logModelResponseDebug,
   type NormalizedCallArgs,
   type NormalizedStreamCallArgs,
   ProviderRequestError,
@@ -113,10 +116,24 @@ function mergeToolCallDelta(
 export async function callHybridAIProvider(
   args: NormalizedCallArgs,
 ): Promise<ChatCompletionResponse> {
+  const body = buildHybridAIRequestBody(args);
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'hybridai_non_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${args.baseUrl}/v1/chat/completions`,
+        body,
+      },
+    });
+  }
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: buildRequestHeaders(args.apiKey, args.requestHeaders),
-    body: JSON.stringify(buildHybridAIRequestBody(args)),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -124,7 +141,16 @@ export async function callHybridAIProvider(
     throw new ProviderRequestError(response.status, text);
   }
 
-  return (await response.json()) as ChatCompletionResponse;
+  const payload = (await response.json()) as ChatCompletionResponse;
+  if (args.debugModelResponses) {
+    logModelResponseDebug({
+      provider: args.provider,
+      model: args.model,
+      kind: 'raw_non_streaming_response',
+      response: payload,
+    });
+  }
+  return payload;
 }
 
 export async function callHybridAIProviderStream(
@@ -137,6 +163,19 @@ export async function callHybridAIProviderStream(
       include_usage: true,
     },
   };
+  if (args.debugModelResponses) {
+    logLastPrompt({
+      sessionId: args.sessionId,
+      provider: args.provider,
+      model: args.model,
+      kind: 'hybridai_streaming_request',
+      request: {
+        method: 'POST',
+        url: `${args.baseUrl}/v1/chat/completions`,
+        body,
+      },
+    });
+  }
 
   const response = await fetch(`${args.baseUrl}/v1/chat/completions`, {
     method: 'POST',
@@ -160,11 +199,29 @@ export async function callHybridAIProviderStream(
     !contentType.includes('ndjson') &&
     !contentType.includes('event-stream')
   ) {
-    return (await response.json()) as ChatCompletionResponse;
+    const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
+    return payload;
   }
 
   if (!response.body) {
-    return (await response.json()) as ChatCompletionResponse;
+    const payload = (await response.json()) as ChatCompletionResponse;
+    if (args.debugModelResponses) {
+      logModelResponseDebug({
+        provider: args.provider,
+        model: args.model,
+        kind: 'raw_non_streaming_response',
+        response: payload,
+      });
+    }
+    return payload;
   }
 
   const reader = response.body.getReader();
@@ -209,16 +266,22 @@ export async function callHybridAIProviderStream(
       : undefined;
     if (!choice) return;
 
+    let usedMessageContent = false;
     if (choice.message) {
       const message = choice.message;
       if (typeof message.role === 'string' && message.role) role = message.role;
       if (typeof message.content === 'string') {
         const nextContent = message.content;
-        const delta = nextContent.startsWith(textContent)
-          ? nextContent.slice(textContent.length)
-          : nextContent;
-        textContent = nextContent;
-        if (delta) args.onTextDelta(delta);
+        const messageDelta = nextContent
+          ? nextContent.startsWith(textContent)
+            ? nextContent.slice(textContent.length)
+            : nextContent
+          : '';
+        if (messageDelta) {
+          textContent = nextContent;
+          usedMessageContent = true;
+          args.onTextDelta(messageDelta);
+        }
       }
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         toolCalls.length = 0;
@@ -238,7 +301,11 @@ export async function callHybridAIProviderStream(
     if (choice.delta) {
       const delta = choice.delta;
       if (typeof delta.role === 'string' && delta.role) role = delta.role;
-      if (typeof delta.content === 'string' && delta.content) {
+      if (
+        !usedMessageContent &&
+        typeof delta.content === 'string' &&
+        delta.content
+      ) {
         textContent += delta.content;
         args.onTextDelta(delta.content);
       }
@@ -271,6 +338,7 @@ export async function callHybridAIProviderStream(
       buffer = lines.pop() || '';
 
       for (const rawLine of lines) {
+        emitRawSseLineDebug(args, rawLine);
         const payloadText = parseStreamPayloadLine(rawLine);
         if (!payloadText) continue;
         consumePayload(payloadText);
@@ -279,6 +347,7 @@ export async function callHybridAIProviderStream(
     }
 
     if (!streamDone && buffer.trim()) {
+      emitRawSseLineDebug(args, buffer);
       const payloadText = parseStreamPayloadLine(buffer);
       if (payloadText) consumePayload(payloadText);
     }

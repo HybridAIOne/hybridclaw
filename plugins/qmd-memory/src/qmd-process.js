@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 
-// Strip generic question scaffolding and doc-reference noise from fallback queries.
 const FALLBACK_QUERY_EXCLUDED_TERMS = new Set([
   'according',
   'are',

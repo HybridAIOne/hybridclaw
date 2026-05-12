@@ -6,49 +6,79 @@ sidebar_position: 1
 
 # HybridClaw Docs
 
-This section turns the repo-shipped markdown docs into a browsable manual for
-operators, contributors, and advanced users. The structure follows audience and
-job-to-be-done, not repository internals:
+Welcome to the HybridClaw handbook — the operator, contributor, and
+advanced-user manual for running, extending, and understanding HybridClaw. The
+chapters are organized around what you are trying to do rather than how the
+repository is laid out. **Getting Started** walks through installation,
+onboarding, and your first run. **Channels** is the transport reference across
+Discord, Slack, Telegram, Signal, email, WhatsApp, iMessage, and Microsoft Teams.
+**Guides** collects task-focused walkthroughs for everyday operational work,
+**Tutorials** provides practical owner, GTM, marketing, sales, and community
+workflows, **Extensibility** covers tools, skills, plugins, and the extension
+architecture, and the **Developer Guide** goes deeper into architecture and
+maintainer-facing internals. When you just need a fact — a command, a config
+key, a diagnostic — **Reference** is the place to land.
 
-- `Getting Started` for first install, onboarding, and first run
-- `Channels` for the canonical transport manual across Discord, Slack,
-  Telegram, email, WhatsApp, iMessage, and Microsoft Teams
-- `Guides` for operational and task-focused walkthroughs
-- `Extensibility` for tools, skills, plugins, and extension architecture
-- `Developer Guide` for architecture and maintainer-facing internals
-- `Reference` for commands, configuration, diagnostics, and tool reference
-
-In the browser docs shell, each page can open its raw `.md` source directly or
-copy the full page markdown from the document header.
-
-If you want a raw-markdown entrypoint that links every docs page directly, use
-[For Agents](./agents.md).
+Every page in the browser docs shell keeps its raw `.md` source one click
+away: open it directly from the header, or copy the full page markdown for
+sharing and quoting. If you prefer a single markdown index that links every
+doc at once, start from [For Agents](./agents.md).
 
 ## Latest Highlights
 
-- Provider auth and model selection span HybridAI, Codex, OpenRouter, Mistral,
-  Hugging Face, Gemini, DeepSeek, xAI, Z.AI, Kimi, MiniMax, DashScope, Xiaomi,
-  Kilo Code, and local backends. Several remote providers also discover model
-  catalogs at runtime.
-- Skills can be enabled or disabled globally or per channel from
-  `hybridclaw skill enable|disable`, TUI `/skill config`, or the admin
-  `Skills` page.
-- Built-in memory can stay standalone or layer with ByteRover, Mem0, Honcho,
-  MemPalace, QMD, and GBrain plugins. The
-  [Memory Plugins](./extensibility/memory-plugins.md) guide compares the main
-  tradeoffs.
-- HybridClaw can emit OpenTelemetry traces to OTLP backends when
-  `OTEL_ENABLED=true` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set, correlating
-  gateway and agent spans with structured logs.
+- `npm run desktop` launches a native macOS wrapper around the local chat UI,
+  with gateway reuse/startup and admin access from the app menu.
+- Browser automation can run against local persistent Playwright profiles or
+  Browser Use Cloud sessions, with encrypted secret lookup and
+  `hybridclaw doctor browser-use` diagnostics.
+- A2A outbound delivery supports JSON-RPC Agent Card peers and signed webhook
+  peers through an audited retrying outbox.
+- Canonical user and agent identity helpers now include DNS-style discovery for
+  mapping remote identities to peer URLs and public keys.
+- Approval policy evaluation runs through a hook-fed rule pipeline that keeps
+  built-in trust behavior while allowing explicit policy ordering and plugin
+  visibility.
+- Web chat session history and active-agent switching are more stable across
+  route changes and resumed sessions.
+- The `download-platform-invoices` skill harvests official monthly SaaS
+  invoice PDFs and normalized records across billing APIs, browser-backed
+  portals, Google Ads, cloud providers, and DATEV handoff flows.
+- The `warehouse-sql` skill reviews and runs read-only natural-language SQL
+  against cached warehouse schemas.
+- Signal joins the channel catalog with a full `signal-cli` daemon setup guide,
+  private-by-default DM policy, group controls, and admin QR linking.
+- `.confidential.yml` rules can redact NDA-class business data before model
+  calls, while `hybridclaw audit scan-leaks` scans historical audit logs for
+  possible leaks.
+- Web chat shows live context-window usage, supports `/context`, searches
+  recent sessions, and can switch the active agent from the composer.
+- The admin console includes statistics and agent-scoreboard pages for
+  sessions, messages, tokens, cost trends, skill scores, reliability, timing,
+  and CV links.
+- Packaged business skills can declare manifests, capabilities, required
+  credentials, supported channels, lifecycle snapshots, and rollback history.
+- Deployment config can describe cloud/local mode and tunnel provider intent;
+  the built-in ngrok, Tailscale, and Cloudflare providers read runtime auth
+  secrets from encrypted storage.
+- `HYBRIDAI_FALLBACK_CHAIN` can route auth and rate-limit provider failures to
+  alternate models/providers with primary-provider cooldowns.
+- Model info, usage summaries, and the admin Models page surface discovered
+  context windows, output limits, capabilities, pricing, and monthly spend
+  where providers expose the metadata.
+- Installation options include npm, source checkout, a multi-arch Nix flake,
+  a NixOS module, and a preview Homebrew formula for `--HEAD` builds.
 
 ## Browse By Section
 
+- [HybridClaw: The AI Coworker Who's Already On It](./manifesto.md) — the product principles HybridClaw is built around: what we will and will not ship
 - [Getting Started](./getting-started/README.md) for installation,
   onboarding, provider authentication, and connecting the first transport
 - [Channels](./channels/README.md) for the full supported channel catalog and
   transport-specific setup details
 - [Guides](./guides/README.md) for local providers, MCP, bundled skills,
   remote access, voice/TTS, and optional office tooling
+- [Tutorials](./tutorials/README.md) for practical owner, GTM, marketing,
+  sales, and community workflows
 - [Extensibility](./extensibility/README.md) for tools, skills, plugins,
   agent packages, and extension-specific operator workflows
 - [Developer Guide](./developer-guide/README.md) for architecture, runtime

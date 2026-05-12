@@ -71,7 +71,7 @@ describe('Dropdown', () => {
 
     expect(screen.getByText('Item 1')).toBeDefined();
 
-    const item = screen.getByRole('button', { name: 'Item 1' });
+    const item = screen.getByRole('menuitem', { name: 'Item 1' });
     fireEvent.click(item);
 
     expect(handleSelect).toHaveBeenCalled();
@@ -172,7 +172,7 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    const item = screen.getByRole('button', { name: 'Item 1' });
+    const item = screen.getByRole('menuitem', { name: 'Item 1' });
     expect(item.className).toContain('custom-item');
   });
 
@@ -264,9 +264,7 @@ describe('Dropdown', () => {
     fireEvent.click(trigger);
     await flushTimers();
 
-    const items = screen
-      .getAllByRole('button')
-      .filter((element) => /^Item /.test(element.textContent || ''));
+    const items = screen.getAllByRole('menuitem');
     expect(items).toHaveLength(3);
   });
 

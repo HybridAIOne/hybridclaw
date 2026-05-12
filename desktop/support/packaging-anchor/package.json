@@ -1,0 +1,8 @@
+{
+  "name": "@hybridaione/hybridclaw-desktop-packaging-anchor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dummy dependency so that desktop/node_modules exists. electron-builder's extraResources globs resolve relative to the workspace — without at least one real dependency, node_modules is absent and the runtime copy step silently skips.",
+  "main": "index.js"
+}

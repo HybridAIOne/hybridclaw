@@ -1,17 +1,39 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, test, vi } from 'vitest';
+import type { Client } from 'discord.js';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+const loggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('../src/logger.ts', () => ({
+  logger: loggerMocks,
+}));
+
+import {
+  attachDiscordTransportErrorHandlers,
+  logDiscordApiError,
+} from '../src/channels/discord/transport-errors.ts';
 
 /**
- * Regression test for gateway crash caused by unhandled Discord client 'error'
- * events. Without an error listener, Node's EventEmitter throws 'error' events
- * as uncaught exceptions — which hit our process.on('uncaughtException') handler
- * in logger.ts and call process.exit(1).
- *
- * The fix adds `client.on('error', ...)` in initDiscord() so transient
- * WebSocket errors (e.g. "Opening handshake has timed out") are logged
- * instead of crashing the gateway.
+ * Regression tests for transport errors bubbling out of Discord websocket
+ * setup/reconnect paths. These failures are expected during normal network
+ * churn and must be handled locally instead of surfacing as fatal process
+ * exceptions.
  */
-describe('Discord client error handler', () => {
+class FakeDiscordClient extends EventEmitter {}
+
+afterEach(() => {
+  loggerMocks.debug.mockReset();
+  loggerMocks.error.mockReset();
+  loggerMocks.warn.mockReset();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe('Discord client transport error handlers', () => {
   test('EventEmitter without error listener throws on error event', () => {
     const emitter = new EventEmitter();
     // Without a listener, emitting 'error' throws
@@ -20,18 +42,83 @@ describe('Discord client error handler', () => {
     );
   });
 
-  test('EventEmitter with error listener does not throw', () => {
-    const emitter = new EventEmitter();
-    const errorHandler = vi.fn();
-    emitter.on('error', errorHandler);
+  test('expected Discord transport errors are handled locally', () => {
+    const client = new FakeDiscordClient() as unknown as Client;
 
-    // With a listener, emitting 'error' is handled gracefully
+    attachDiscordTransportErrorHandlers(client);
+
     expect(() =>
-      emitter.emit('error', new Error('Opening handshake has timed out')),
+      client.emit('error', new Error('Opening handshake has timed out')),
     ).not.toThrow();
-    expect(errorHandler).toHaveBeenCalledOnce();
-    expect(errorHandler.mock.calls[0][0].message).toBe(
-      'Opening handshake has timed out',
+    expect(() =>
+      client.emit(
+        'shardError',
+        new Error('Opening handshake has timed out'),
+        7,
+      ),
+    ).not.toThrow();
+
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Discord client transport error (will reconnect automatically)',
+    );
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      { err: expect.any(Error), shardId: 7 },
+      'Discord shard transport error (will reconnect automatically)',
+    );
+  });
+
+  test('unexpected Discord client errors stay at error level', () => {
+    const client = new FakeDiscordClient() as unknown as Client;
+
+    attachDiscordTransportErrorHandlers(client);
+
+    expect(() =>
+      client.emit('error', new Error('Discord parser exploded')),
+    ).not.toThrow();
+
+    expect(loggerMocks.error).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Unexpected Discord client error (reconnect may not recover automatically)',
+    );
+  });
+
+  test('rate-limits repeated expected transport warnings and resumes later', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-19T17:00:00Z'));
+
+    const client = new FakeDiscordClient() as unknown as Client;
+    attachDiscordTransportErrorHandlers(client);
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      client.emit('error', new Error('socket hang up'));
+    }
+
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(new Date('2026-04-19T17:01:01Z'));
+    client.emit('error', new Error('socket hang up'));
+
+    expect(loggerMocks.warn).toHaveBeenCalledTimes(3);
+  });
+
+  test('formats expected Discord API failures with user-readable wording', () => {
+    logDiscordApiError({
+      error: Object.assign(new Error('lookup failed'), {
+        code: 'ENOTFOUND',
+        hostname: 'discord.com',
+      }),
+      expectedAction: 'Typing indicator was not sent.',
+      unexpectedMessage: 'Failed to send typing indicator',
+      metadata: { channelId: '123' },
+      level: 'debug',
+    });
+
+    expect(loggerMocks.warn).not.toHaveBeenCalled();
+    expect(loggerMocks.error).not.toHaveBeenCalled();
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      { channelId: '123' },
+      'Discord API DNS lookup failed for discord.com. Typing indicator was not sent.',
     );
   });
 });

@@ -69,6 +69,16 @@ Commands:
   search <query> [n]                 Search structured audit events
   approvals [n] [--denied]           Show approval decisions
   verify <sessionId>                 Verify wire hash chain integrity
+  verify-usage-batch <batchId>       Verify a token-usage batch hash
+  scan-leaks [sessionId] [--quiet|--all] [--level <sev>] [--type <list>] [--json]
+                                     Scan audit logs for leaked confidential info. Verbosity:
+                                       --quiet  → summary block only
+                                       (default) → matched sessions + summary (clean sessions hidden)
+                                       --all    → every session, including clean
+                                     Filters (applied after scan):
+                                       --level critical|high|medium|low      keep records at or above this severity
+                                       --type  in,out,tool,url               keep records in any of the listed buckets
+                                     Rules loaded from ./.confidential.yml (project-local) or ~/.hybridclaw/.confidential.yml (user-global).
   instructions [--sync] [--approve]  Verify or restore runtime instruction files`);
 }
 
@@ -201,6 +211,12 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
     return;
   }
 
+  if (cmd === 'scan-leaks') {
+    const { runLeakScanCli } = await import('./leak-scanner-cli.js');
+    await runLeakScanCli(args);
+    return;
+  }
+
   if (cmd === 'verify') {
     const sessionId = args[0];
     if (!sessionId) {
@@ -217,6 +233,32 @@ export async function runAuditCli(rawArgs: string[]): Promise<void> {
       return;
     }
     console.error(`Audit verification failed for ${sessionId}`);
+    for (const line of result.errors.slice(0, 10)) {
+      console.error(`- ${line}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  if (cmd === 'verify-usage-batch') {
+    const batchId = args[0];
+    if (!batchId) {
+      printUsage();
+      process.exitCode = 1;
+      return;
+    }
+    await getDbModule();
+    const { verifyTokenUsageBatchHash } = await import(
+      '../usage/token-usage-buffer.js'
+    );
+    const result = verifyTokenUsageBatchHash(batchId);
+    if (result.ok) {
+      console.log(
+        `✓ ${result.rowCount} usage events verified for batch ${result.batchId}.`,
+      );
+      return;
+    }
+    console.error(`Usage batch verification failed for ${result.batchId}`);
     for (const line of result.errors.slice(0, 10)) {
       console.error(`- ${line}`);
     }

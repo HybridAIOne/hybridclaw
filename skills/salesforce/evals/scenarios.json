@@ -1,0 +1,212 @@
+[
+  {
+    "id": "sf-read-001",
+    "category": "read",
+    "prompt": "Find leads matching Acme",
+    "expected": { "firstAction": "find-records", "recordType": "leads" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-002",
+    "category": "read",
+    "prompt": "Show leads for Atlas",
+    "expected": { "firstAction": "find-records", "recordType": "leads" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-003",
+    "category": "read",
+    "prompt": "List contacts at Acme",
+    "expected": { "firstAction": "find-records", "recordType": "contacts" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-004",
+    "category": "read",
+    "prompt": "Read contacts matching jane@example.com",
+    "expected": { "firstAction": "find-records", "recordType": "contacts" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-005",
+    "category": "read",
+    "prompt": "Find opportunities matching Acme",
+    "expected": { "firstAction": "find-records", "recordType": "opportunities" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-006",
+    "category": "read",
+    "prompt": "Show open opportunities for Globex",
+    "expected": { "firstAction": "find-records", "recordType": "opportunities" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-007",
+    "category": "read",
+    "prompt": "List deals about Renewal",
+    "expected": { "firstAction": "find-records", "recordType": "opportunities" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-008",
+    "category": "read",
+    "prompt": "Read opportunities named BigCo",
+    "expected": { "firstAction": "find-records", "recordType": "opportunities" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-009",
+    "category": "read",
+    "prompt": "Find contacts for Rivera",
+    "expected": { "firstAction": "find-records", "recordType": "contacts" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-read-010",
+    "category": "read",
+    "prompt": "Show leads about Webinar",
+    "expected": { "firstAction": "find-records", "recordType": "leads" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-001",
+    "category": "write-update",
+    "prompt": "Move the Acme deal to Closed Won",
+    "expected": { "firstAction": "update-opportunity", "stage": "Closed Won" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-002",
+    "category": "write-update",
+    "prompt": "Move Acme opportunity to Closed Lost",
+    "expected": { "firstAction": "update-opportunity", "stage": "Closed Lost" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-003",
+    "category": "write-update",
+    "prompt": "Move the Globex deal to Negotiation/Review with probability 75",
+    "expected": { "firstAction": "update-opportunity", "stage": "Negotiation/Review" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-004",
+    "category": "write-update",
+    "prompt": "Move the Renewal opportunity to Proposal/Price Quote with probability 60",
+    "expected": { "firstAction": "update-opportunity", "stage": "Proposal/Price Quote" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-005",
+    "category": "write-update",
+    "prompt": "Move the Churn Save deal to Qualification with probability 25",
+    "expected": { "firstAction": "update-opportunity", "stage": "Qualification" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-006",
+    "category": "write-update",
+    "prompt": "Move the Summit deal to Needs Analysis with probability 35",
+    "expected": { "firstAction": "update-opportunity", "stage": "Needs Analysis" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-007",
+    "category": "write-update",
+    "prompt": "Move the PaperTrail opportunity to Value Proposition with probability 40",
+    "expected": { "firstAction": "update-opportunity", "stage": "Value Proposition" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-008",
+    "category": "write-update",
+    "prompt": "Move the Nordic Expansion deal to Prospecting with probability 10",
+    "expected": { "firstAction": "update-opportunity", "stage": "Prospecting" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-009",
+    "category": "write-update",
+    "prompt": "Move the Healthcare Pilot opportunity to Id. Decision Makers with probability 50",
+    "expected": { "firstAction": "update-opportunity", "stage": "Id. Decision Makers" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-update-010",
+    "category": "write-update",
+    "prompt": "Move the Migration deal to Perception Analysis with probability 55",
+    "expected": { "firstAction": "update-opportunity", "stage": "Perception Analysis" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-activity-001",
+    "category": "write-activity",
+    "prompt": "Log a call from today on Acme deal",
+    "expected": { "firstAction": "log-activity", "activityType": "call" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-activity-002",
+    "category": "write-activity",
+    "prompt": "Log an email from today for Jane contact",
+    "expected": { "firstAction": "log-activity", "activityType": "email" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-activity-003",
+    "category": "write-activity",
+    "prompt": "Log a meeting on 2026-05-01 for BigCo account",
+    "expected": { "firstAction": "log-activity", "activityType": "meeting" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-activity-004",
+    "category": "write-activity",
+    "prompt": "Log a call from tomorrow for Rivera lead",
+    "expected": { "firstAction": "log-activity", "activityType": "call" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-activity-005",
+    "category": "write-activity",
+    "prompt": "Log an email on 2026-05-03 on Globex opportunity",
+    "expected": { "firstAction": "log-activity", "activityType": "email" },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-compound-001",
+    "category": "compound",
+    "prompt": "Move the Acme deal to Closed Won and log a call from today",
+    "expected": { "firstAction": "update-opportunity", "actionCount": 2 },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-compound-002",
+    "category": "compound",
+    "prompt": "Move the Beta opportunity to Negotiation/Review with probability 80 and log a meeting from tomorrow",
+    "expected": { "firstAction": "update-opportunity", "actionCount": 2 },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-compound-003",
+    "category": "compound",
+    "prompt": "Move the Atlas deal to Closed Lost and log an email from today",
+    "expected": { "firstAction": "update-opportunity", "actionCount": 2 },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-compound-004",
+    "category": "compound",
+    "prompt": "Move the Expansion deal to Proposal/Price Quote with probability 65 and log a call from today",
+    "expected": { "firstAction": "update-opportunity", "actionCount": 2 },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  },
+  {
+    "id": "sf-compound-005",
+    "category": "compound",
+    "prompt": "Move the Strategic Renewal opportunity to Closed Won and log a meeting on 2026-05-07",
+    "expected": { "firstAction": "update-opportunity", "actionCount": 2 },
+    "costMeasurement": { "system": "UsageTotals", "scope": "per run" }
+  }
+]

@@ -2,8 +2,16 @@ import {
   isRuntimeSecretName,
   readStoredRuntimeSecret,
 } from './runtime-secrets.js';
+import {
+  createSecretHandle,
+  type SecretHandle,
+  type SecretSinkKind,
+  unsafeEscapeSecretHandle,
+} from './secret-handles.js';
+import { normalizeSecretString } from './secret-normalization.js';
 
 const ENV_SECRET_REF_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
+const SECRET_REF_BRAND: unique symbol = Symbol('SecretRef');
 
 export type EnvSecretRef = {
   source: 'env';
@@ -15,7 +23,12 @@ export type StoreSecretRef = {
   id: string;
 };
 
-export type SecretRef = EnvSecretRef | StoreSecretRef;
+type SecretRefRuntimeGuards = {
+  readonly [SECRET_REF_BRAND]?: true;
+};
+
+export type SecretRef = (EnvSecretRef | StoreSecretRef) &
+  SecretRefRuntimeGuards;
 export type SecretInput = string | SecretRef;
 
 type ParsedSecretInput =
@@ -29,6 +42,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isValidEnvSecretId(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
+export function hardenSecretRef(ref: EnvSecretRef | StoreSecretRef): SecretRef {
+  const hardened =
+    ref.source === 'env'
+      ? { source: 'env' as const, id: ref.id }
+      : { source: 'store' as const, id: ref.id };
+  Object.defineProperties(hardened, {
+    [SECRET_REF_BRAND]: {
+      value: true,
+    },
+    toString: {
+      value: () => {
+        throw new Error(
+          'SecretRef cannot be string-coerced; pass it to an audited secret API.',
+        );
+      },
+    },
+    toJSON: {
+      value: () => {
+        throw new Error(
+          'SecretRef cannot be JSON-stringified; pass it to an audited secret API.',
+        );
+      },
+    },
+    [Symbol.toPrimitive]: {
+      value: () => {
+        throw new Error(
+          'SecretRef cannot be coerced; pass it to an audited secret API.',
+        );
+      },
+    },
+  });
+  return Object.freeze(hardened);
 }
 
 export function parseSecretInput(value: unknown): ParsedSecretInput {
@@ -100,8 +147,9 @@ export function resolveSecretInput(
   opts: {
     path: string;
     required?: boolean;
+    sinkKind?: SecretSinkKind;
   },
-): string | undefined {
+): string | SecretHandle | undefined {
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'invalid') {
     throw new Error(`${opts.path} ${parsed.reason}`);
@@ -110,18 +158,52 @@ export function resolveSecretInput(
     return typeof value === 'string' ? value : undefined;
   }
 
+  const ref = hardenSecretRef(parsed.ref);
   const resolved =
-    parsed.ref.source === 'env'
-      ? String(process.env[parsed.ref.id] || '').trim()
-      : readStoredRuntimeSecret(parsed.ref.id) || '';
+    ref.source === 'env'
+      ? normalizeSecretString(process.env[ref.id])
+      : readStoredRuntimeSecret(ref.id) || '';
 
   if (!resolved && opts.required) {
     throw new Error(
-      `${opts.path} references ${describeSecretRef(parsed.ref)} but it is not set`,
+      `${opts.path} references ${describeSecretRef(ref)} but it is not set`,
     );
   }
 
-  return resolved;
+  return createSecretHandle(ref, resolved, opts.sinkKind || 'unsafe');
+}
+
+export function resolveSecretHandleInput(
+  value: unknown,
+  opts: {
+    path: string;
+    required?: boolean;
+    sinkKind: SecretSinkKind;
+  },
+): SecretHandle | undefined {
+  const resolved = resolveSecretInput(value, opts);
+  return typeof resolved === 'string' ? undefined : resolved;
+}
+
+export function resolveSecretInputUnsafe(
+  value: unknown,
+  opts: {
+    path: string;
+    required?: boolean;
+    reason: string;
+    audit: (handle: SecretHandle, reason: string) => void;
+  },
+): string | undefined {
+  const resolved = resolveSecretInput(value, {
+    path: opts.path,
+    required: opts.required,
+    sinkKind: 'unsafe',
+  });
+  if (!resolved || typeof resolved === 'string') return resolved;
+  return unsafeEscapeSecretHandle(resolved, {
+    reason: opts.reason,
+    audit: opts.audit,
+  });
 }
 
 export function isSecretRefInput(value: unknown): value is SecretRef {

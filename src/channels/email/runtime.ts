@@ -4,7 +4,7 @@ import { EMAIL_PASSWORD, getConfigSnapshot } from '../../config/config.js';
 import { logger } from '../../logger.js';
 import type { MediaContextItem } from '../../types/container.js';
 import { EMAIL_CAPABILITIES } from '../channel.js';
-import { registerChannel } from '../channel-registry.js';
+import { createChannelRuntime } from '../channel-runtime-factory.js';
 import { createEmailConnectionManager } from './connection.js';
 import { type EmailSendParams, sendEmail } from './delivery.js';
 import { cleanupEmailInboundMedia, processInboundEmail } from './inbound.js';
@@ -56,17 +56,6 @@ export interface EmailTextSendOptions {
   inReplyTo?: string | null;
   references?: string[] | null;
   metadata?: EmailDeliveryMetadata | null;
-}
-
-export interface EmailRuntime {
-  initEmail: (messageHandler: EmailMessageHandler) => Promise<void>;
-  sendToEmail: (
-    to: string,
-    text: string,
-    options?: EmailTextSendOptions,
-  ) => Promise<void>;
-  sendEmailAttachmentTo: (params: EmailAttachmentSendParams) => Promise<void>;
-  shutdownEmail: () => Promise<void>;
 }
 
 function createEmailShutdownAbortError(): Error {
@@ -154,7 +143,7 @@ function resolveRuntimeConfig(): {
   };
 }
 
-export function createEmailRuntime(): EmailRuntime {
+export function createEmailRuntime() {
   type ResolvedRuntimeConfig = ReturnType<typeof resolveRuntimeConfig>;
 
   let connectionManager: ReturnType<
@@ -164,7 +153,6 @@ export function createEmailRuntime(): EmailRuntime {
   let runtimeConfig: ResolvedRuntimeConfig | null = null;
   let transport: Transporter | null = null;
   let threadTracker: ReturnType<typeof createThreadTracker> | null = null;
-  let runtimeInitialized = false;
   const inFlightControllers = new Set<AbortController>();
 
   const ensureRuntimeActive = (): void => {
@@ -359,21 +347,36 @@ export function createEmailRuntime(): EmailRuntime {
     );
     return connectionManager;
   };
+  const runtimeLifecycle = createChannelRuntime<EmailMessageHandler>()({
+    kind: 'email',
+    capabilities: EMAIL_CAPABILITIES,
+    resolveConfig: () => {
+      ensureRuntimeActive();
+      return ensureRuntimeConfig();
+    },
+    resolveRegistration: (config) => config.address,
+    start: async (params: {
+      config: ResolvedRuntimeConfig;
+      handler: EmailMessageHandler;
+    }) => {
+      await ensureTransport();
+      await ensureConnectionManager(params.handler).start();
+    },
+    cleanup: async () => {
+      shuttingDown = true;
+      abortInFlightHandlers();
+      await connectionManager?.stop();
+      await transport?.close();
+      connectionManager = null;
+      runtimeConfig = null;
+      transport = null;
+      threadTracker?.clear();
+      threadTracker = null;
+    },
+  });
 
   return {
-    async initEmail(messageHandler: EmailMessageHandler): Promise<void> {
-      ensureRuntimeActive();
-      if (runtimeInitialized) return;
-      runtimeInitialized = true;
-      const config = ensureRuntimeConfig();
-      registerChannel({
-        kind: 'email',
-        id: config.address,
-        capabilities: EMAIL_CAPABILITIES,
-      });
-      await ensureTransport();
-      await ensureConnectionManager(messageHandler).start();
-    },
+    initEmail: runtimeLifecycle.init,
     async sendToEmail(
       to: string,
       text: string,
@@ -386,47 +389,29 @@ export function createEmailRuntime(): EmailRuntime {
     ): Promise<void> {
       await sendAttachmentToAddress(params);
     },
-    async shutdownEmail(): Promise<void> {
-      shuttingDown = true;
-      abortInFlightHandlers();
-      await connectionManager?.stop();
-      await transport?.close();
-      connectionManager = null;
-      runtimeConfig = null;
-      transport = null;
-      threadTracker?.clear();
-      threadTracker = null;
-      runtimeInitialized = false;
-    },
+    shutdownEmail: runtimeLifecycle.shutdown,
   };
 }
 
-let defaultRuntime: EmailRuntime | null = null;
+let defaultRuntime: ReturnType<typeof createEmailRuntime> | null = null;
 
-function ensureDefaultRuntime(): EmailRuntime {
+function ensureDefaultRuntime(): ReturnType<typeof createEmailRuntime> {
   defaultRuntime ??= createEmailRuntime();
   return defaultRuntime;
 }
 
-export async function initEmail(
-  messageHandler: EmailMessageHandler,
-): Promise<void> {
-  await ensureDefaultRuntime().initEmail(messageHandler);
-}
+export const initEmail = (messageHandler: EmailMessageHandler): Promise<void> =>
+  ensureDefaultRuntime().initEmail(messageHandler);
 
-export async function sendToEmail(
+export const sendToEmail = (
   to: string,
   text: string,
   options?: EmailTextSendOptions,
-): Promise<void> {
-  await ensureDefaultRuntime().sendToEmail(to, text, options);
-}
+): Promise<void> => ensureDefaultRuntime().sendToEmail(to, text, options);
 
-export async function sendEmailAttachmentTo(
+export const sendEmailAttachmentTo = (
   params: EmailAttachmentSendParams,
-): Promise<void> {
-  await ensureDefaultRuntime().sendEmailAttachmentTo(params);
-}
+): Promise<void> => ensureDefaultRuntime().sendEmailAttachmentTo(params);
 
 export async function shutdownEmail(): Promise<void> {
   const runtime = defaultRuntime;

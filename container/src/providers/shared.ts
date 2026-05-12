@@ -9,7 +9,9 @@ import { isRuntimeProvider, type RuntimeProvider } from './provider-ids.js';
 export type { RuntimeProvider } from './provider-ids.js';
 
 export interface NormalizedCallArgs {
+  sessionId?: string;
   provider: RuntimeProvider | undefined;
+  providerMethod?: string;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -18,6 +20,7 @@ export interface NormalizedCallArgs {
   requestHeaders: Record<string, string> | undefined;
   messages: ChatMessage[];
   tools: ToolDefinition[];
+  debugModelResponses?: boolean;
   maxTokens: number | undefined;
   isLocal: boolean;
   contextWindow: number | undefined;
@@ -26,6 +29,7 @@ export interface NormalizedCallArgs {
 
 export interface NormalizedStreamCallArgs extends NormalizedCallArgs {
   onTextDelta: (delta: string) => void;
+  onThinkingDelta?: (delta: string) => void;
   onActivity?: () => void;
 }
 
@@ -151,6 +155,89 @@ export function summarizeHybridAICompletionForDebug(
   return `id=${response.id || 'null'} model=${response.model || 'null'} finish=${choice?.finish_reason || 'null'} contentType=${contentType}`;
 }
 
+export function logModelResponseDebug(params: {
+  provider: RuntimeProvider | undefined;
+  model: string;
+  kind:
+    | 'raw_non_streaming_response'
+    | 'non_streaming_response'
+    | 'streaming_response';
+  response: unknown;
+}): void {
+  try {
+    emitModelResponseDebugFileText(
+      `[model-response-debug] ${JSON.stringify({
+        provider: params.provider || 'hybridai',
+        model: params.model,
+        kind: params.kind,
+        response: params.response,
+      })}\n`,
+    );
+  } catch (err) {
+    emitModelResponseDebugFileText(
+      `[model-response-debug] failed to serialize response: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+export function emitModelResponseDebugFileText(text: string): void {
+  console.error(
+    `[model-response-debug-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
+  );
+}
+
+export function logLastPrompt(params: {
+  sessionId?: string;
+  provider: RuntimeProvider | undefined;
+  model: string;
+  kind: string;
+  request: unknown;
+}): void {
+  try {
+    const text = `${JSON.stringify({
+      ts: new Date().toISOString(),
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      provider: params.provider || 'hybridai',
+      model: params.model,
+      kind: params.kind,
+      request: params.request,
+    })}\n`;
+    console.error(
+      `[last-prompt-file] ${Buffer.from(text, 'utf-8').toString('base64')}`,
+    );
+  } catch {
+    // Prompt dumping is diagnostic-only and must not disrupt model execution.
+  }
+}
+
+export function emitRawSsePayloadDebug(
+  args: NormalizedCallArgs,
+  payloadText: string,
+): void {
+  if (!args.debugModelResponses) return;
+  emitModelResponseDebugFileText(`data: ${payloadText}\n\n`);
+}
+
+export function emitRawSseLineDebug(
+  args: NormalizedCallArgs,
+  rawLine: string,
+): void {
+  if (!args.debugModelResponses) return;
+  const normalized = rawLine.replace(/\r$/, '');
+  if (!normalized.trimStart().startsWith('data:')) return;
+  emitModelResponseDebugFileText(`${normalized}\n\n`);
+}
+
+export function emitRawNdjsonLineDebug(
+  args: NormalizedCallArgs,
+  rawLine: string,
+): void {
+  if (!args.debugModelResponses) return;
+  const normalized = rawLine.replace(/\r$/, '');
+  if (!normalized.trim()) return;
+  emitModelResponseDebugFileText(`${normalized}\n`);
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -187,16 +274,17 @@ export function normalizeCallArgs(rawArgs: unknown[]): NormalizedCallArgs {
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
       apiKey: String(rawArgs[2] || ''),
-      model: String(rawArgs[3] || ''),
-      chatbotId: String(rawArgs[4] || ''),
-      enableRag: Boolean(rawArgs[5]),
-      requestHeaders: isStringRecord(rawArgs[6]) ? rawArgs[6] : undefined,
-      messages: (rawArgs[7] as ChatMessage[]) || [],
-      tools: (rawArgs[8] as ToolDefinition[]) || [],
-      maxTokens: typeof rawArgs[9] === 'number' ? rawArgs[9] : undefined,
-      isLocal: Boolean(rawArgs[10]),
-      contextWindow: typeof rawArgs[11] === 'number' ? rawArgs[11] : undefined,
-      thinkingFormat: rawArgs[12] === 'qwen' ? 'qwen' : undefined,
+      providerMethod: typeof rawArgs[3] === 'string' ? rawArgs[3] : undefined,
+      model: String(rawArgs[4] || ''),
+      chatbotId: String(rawArgs[5] || ''),
+      enableRag: Boolean(rawArgs[6]),
+      requestHeaders: isStringRecord(rawArgs[7]) ? rawArgs[7] : undefined,
+      messages: (rawArgs[8] as ChatMessage[]) || [],
+      tools: (rawArgs[9] as ToolDefinition[]) || [],
+      maxTokens: typeof rawArgs[10] === 'number' ? rawArgs[10] : undefined,
+      isLocal: Boolean(rawArgs[11]),
+      contextWindow: typeof rawArgs[12] === 'number' ? rawArgs[12] : undefined,
+      thinkingFormat: rawArgs[13] === 'qwen' ? 'qwen' : undefined,
     };
   }
 
@@ -222,10 +310,10 @@ export function normalizeStreamCallArgs(
 ): NormalizedStreamCallArgs {
   if (isRuntimeProvider(rawArgs[0])) {
     const onActivity =
-      typeof rawArgs[10] === 'function'
-        ? (rawArgs[10] as () => void)
+      typeof rawArgs[11] === 'function'
+        ? (rawArgs[11] as () => void)
         : () => undefined;
-    const maxTokensIndex = typeof rawArgs[10] === 'function' ? 11 : 10;
+    const maxTokensIndex = typeof rawArgs[11] === 'function' ? 12 : 11;
     const isLocalIndex = maxTokensIndex + 1;
     const contextWindowIndex = maxTokensIndex + 2;
     const thinkingFormatIndex = maxTokensIndex + 3;
@@ -233,13 +321,14 @@ export function normalizeStreamCallArgs(
       provider: rawArgs[0],
       baseUrl: String(rawArgs[1] || ''),
       apiKey: String(rawArgs[2] || ''),
-      model: String(rawArgs[3] || ''),
-      chatbotId: String(rawArgs[4] || ''),
-      enableRag: Boolean(rawArgs[5]),
-      requestHeaders: isStringRecord(rawArgs[6]) ? rawArgs[6] : undefined,
-      messages: (rawArgs[7] as ChatMessage[]) || [],
-      tools: (rawArgs[8] as ToolDefinition[]) || [],
-      onTextDelta: (rawArgs[9] as (delta: string) => void) || (() => {}),
+      providerMethod: typeof rawArgs[3] === 'string' ? rawArgs[3] : undefined,
+      model: String(rawArgs[4] || ''),
+      chatbotId: String(rawArgs[5] || ''),
+      enableRag: Boolean(rawArgs[6]),
+      requestHeaders: isStringRecord(rawArgs[7]) ? rawArgs[7] : undefined,
+      messages: (rawArgs[8] as ChatMessage[]) || [],
+      tools: (rawArgs[9] as ToolDefinition[]) || [],
+      onTextDelta: (rawArgs[10] as (delta: string) => void) || (() => {}),
       onActivity,
       maxTokens:
         typeof rawArgs[maxTokensIndex] === 'number'

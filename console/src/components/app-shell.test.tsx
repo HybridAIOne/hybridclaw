@@ -2,22 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { resolveCurrentAdminNavItem } from './admin-nav';
 
 describe('resolveCurrentAdminNavItem', () => {
-  const visibleNavItems = [
-    { to: '/', label: 'Dashboard' },
-    { to: '/approvals', label: 'Approvals' },
-  ] as const;
-
-  it('keeps the chat title for the hidden admin chat route', () => {
-    expect(resolveCurrentAdminNavItem('/chat', visibleNavItems)).toEqual({
-      to: '/chat',
-      label: 'Chat',
+  it('resolves a nav item by exact path', () => {
+    expect(resolveCurrentAdminNavItem('/admin/approvals')).toMatchObject({
+      to: '/admin/approvals',
+      label: 'Approvals',
     });
   });
 
-  it('prefers visible sidebar items when present', () => {
-    expect(resolveCurrentAdminNavItem('/approvals', visibleNavItems)).toEqual({
-      to: '/approvals',
-      label: 'Approvals',
+  it('falls back to the first nav item when no match is found', () => {
+    expect(resolveCurrentAdminNavItem('/admin/unknown')).toMatchObject({
+      to: '/admin',
     });
   });
 });

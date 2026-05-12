@@ -9,7 +9,12 @@ import type {
   SkillHealthMetrics,
   SkillObservation,
 } from './adaptive-skills-types.js';
-import { loadSkillCatalog, type SkillCatalogEntry } from './skills.js';
+import {
+  type BlockedSkillCatalogEntry,
+  loadBlockedSkillCatalog,
+  loadSkillCatalog,
+  type SkillCatalogEntry,
+} from './skills.js';
 import {
   applyAmendment,
   proposeAmendment,
@@ -26,6 +31,11 @@ export interface SkillCatalogInstallEntry {
 }
 
 export interface SkillCatalogSummaryEntry extends SkillCatalogEntry {
+  installs: SkillCatalogInstallEntry[];
+}
+
+export interface BlockedSkillCatalogSummaryEntry
+  extends BlockedSkillCatalogEntry {
   installs: SkillCatalogInstallEntry[];
 }
 
@@ -65,6 +75,17 @@ export type SkillAmendmentCommandResult =
 
 export function listSkillCatalogEntries(): SkillCatalogSummaryEntry[] {
   return loadSkillCatalog().map((skill) => ({
+    ...skill,
+    installs: (skill.metadata.hybridclaw.install || []).map((spec, index) => ({
+      id: resolveSkillInstallId(spec, index),
+      kind: spec.kind,
+      label: spec.label || '',
+    })),
+  }));
+}
+
+export function listBlockedSkillCatalogEntries(): BlockedSkillCatalogSummaryEntry[] {
+  return loadBlockedSkillCatalog().map((skill) => ({
     ...skill,
     installs: (skill.metadata.hybridclaw.install || []).map((spec, index) => ({
       id: resolveSkillInstallId(spec, index),

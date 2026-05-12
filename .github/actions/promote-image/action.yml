@@ -1,0 +1,89 @@
+name: Promote Image
+description: Promote a multi-arch source image to one or more target tags.
+
+inputs:
+  source:
+    description: Source image tag to promote from.
+    required: true
+  target-tags:
+    description: Newline-delimited list of target tags.
+    required: true
+  max-attempts-push:
+    description: Poll attempts for push-triggered runs.
+    required: false
+    default: '80'
+  max-attempts-other:
+    description: Poll attempts for non-push runs.
+    required: false
+    default: '1'
+  sleep-seconds:
+    description: Sleep duration between poll attempts.
+    required: false
+    default: '15'
+
+outputs:
+  promoted:
+    description: Whether promotion succeeded.
+    value: ${{ steps.promote.outputs.promoted }}
+
+runs:
+  using: composite
+  steps:
+    - name: Promote image tags
+      id: promote
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+        TARGET_TAGS: ${{ inputs.target-tags }}
+        MAX_ATTEMPTS_PUSH: ${{ inputs.max-attempts-push }}
+        MAX_ATTEMPTS_OTHER: ${{ inputs.max-attempts-other }}
+        SLEEP_SECONDS: ${{ inputs.sleep-seconds }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${SOURCE}" || "${SOURCE}" == *"//"* || "${SOURCE}" != *":"* ]]; then
+          echo "Invalid source image '${SOURCE}'." >&2
+          exit 1
+        fi
+
+        MAX_ATTEMPTS="${MAX_ATTEMPTS_OTHER}"
+        if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+          MAX_ATTEMPTS="${MAX_ATTEMPTS_PUSH}"
+        fi
+
+        RAW=""
+        for ((_attempt=1; _attempt<=MAX_ATTEMPTS; _attempt++)); do
+          RAW="$(docker buildx imagetools inspect --raw "${SOURCE}" 2>/dev/null || true)"
+          if [[ -n "${RAW}" ]]; then
+            break
+          fi
+          echo "Waiting for source image ${SOURCE}..."
+          sleep "${SLEEP_SECONDS}"
+        done
+
+        if [[ -z "${RAW}" ]]; then
+          echo "Source image not available; falling back to build."
+          echo "promoted=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        if ! jq -e '
+          (.manifests // [])
+          | map(.platform.architecture)
+          | (index("amd64") and index("arm64"))
+        ' <<< "${RAW}" >/dev/null; then
+          echo "Source image is not multi-arch; falling back to build."
+          echo "promoted=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        while IFS= read -r tag; do
+          [[ -n "${tag}" ]] || continue
+          if [[ "${tag}" == *"//"* || "${tag}" != *":"* ]]; then
+            echo "Invalid target image tag '${tag}'." >&2
+            exit 1
+          fi
+          docker buildx imagetools create --tag "${tag}" "${SOURCE}"
+        done <<< "${TARGET_TAGS}"
+
+        echo "promoted=true" >> "${GITHUB_OUTPUT}"

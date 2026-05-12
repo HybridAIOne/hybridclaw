@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   agentWorkspaceDir: vi.fn(() => '/tmp/hybridclaw-heartbeat-workspace'),
@@ -27,6 +27,12 @@ const mocks = vi.hoisted(() => ({
   processSideEffects: vi.fn(),
   proactiveWindowLabel: vi.fn(() => 'always-on'),
   recordAuditEvent: vi.fn(),
+  formatCoworkerLivenessPage: vi.fn(
+    (probe: { agentId: string; state: string }) =>
+      `Agent liveness ${probe.state}: ${probe.agentId}`,
+  ),
+  getCoworkerLivenessSummary: vi.fn(() => ({ probes: [] })),
+  heartbeatEnabled: true,
   resolveAgentForRequest: vi.fn(() => ({
     agentId: 'vllm',
     model: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
@@ -65,10 +71,17 @@ vi.mock('../src/audit/audit-events.js', () => ({
 
 vi.mock('../src/config/config.js', () => ({
   HEARTBEAT_CHANNEL: '',
-  HEARTBEAT_ENABLED: true,
+  get HEARTBEAT_ENABLED() {
+    return mocks.heartbeatEnabled;
+  },
   HYBRIDAI_CHATBOT_ID: '',
   HYBRIDAI_ENABLE_RAG: false,
   HYBRIDAI_MODEL: 'vllm/mistralai/Mistral-Small-3.2-24B-Instruct-2506',
+}));
+
+vi.mock('../src/gateway/coworker-liveness.js', () => ({
+  formatCoworkerLivenessPage: mocks.formatCoworkerLivenessPage,
+  getCoworkerLivenessSummary: mocks.getCoworkerLivenessSummary,
 }));
 
 vi.mock('../src/infra/ipc.js', () => ({
@@ -105,6 +118,10 @@ vi.mock('../src/session/token-efficiency.js', () => ({
   estimateTokenCountFromMessages: mocks.estimateTokenCountFromMessages,
   estimateTokenCountFromText: mocks.estimateTokenCountFromText,
 }));
+
+beforeEach(() => {
+  mocks.heartbeatEnabled = true;
+});
 
 afterEach(async () => {
   try {
@@ -176,4 +193,63 @@ test('delivers substantive heartbeat messages', async () => {
   expect(mocks.memoryService.storeTurn).toHaveBeenCalledTimes(1);
   expect(mocks.appendSessionTranscript).toHaveBeenCalledTimes(2);
   expect(mocks.maybeCompactSession).toHaveBeenCalledTimes(1);
+});
+
+test('pages red agent liveness transitions through heartbeat delivery', async () => {
+  vi.useFakeTimers();
+  mocks.runAgent.mockResolvedValue({
+    status: 'success',
+    result: 'HEARTBEAT_OK',
+    toolExecutions: [],
+  });
+  mocks.getCoworkerLivenessSummary.mockReturnValue({
+    probes: [
+      {
+        agentId: 'ops',
+        state: 'red',
+        reasonCodes: ['process_unresponsive'],
+      },
+    ],
+  });
+
+  const { startHeartbeat, stopHeartbeat } = await import(
+    '../src/scheduler/heartbeat.ts'
+  );
+  const onMessage = vi.fn();
+
+  startHeartbeat('vllm', 1_000, onMessage);
+  await vi.advanceTimersByTimeAsync(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  stopHeartbeat();
+
+  expect(onMessage).toHaveBeenCalledTimes(1);
+  expect(onMessage).toHaveBeenCalledWith('Agent liveness red: ops');
+});
+
+test('pages red agent liveness when heartbeat agent is disabled', async () => {
+  vi.useFakeTimers();
+  mocks.heartbeatEnabled = false;
+  mocks.getCoworkerLivenessSummary.mockReturnValue({
+    probes: [
+      {
+        agentId: 'ops',
+        state: 'red',
+        reasonCodes: ['process_unresponsive'],
+      },
+    ],
+  });
+
+  const { startHeartbeat, stopHeartbeat } = await import(
+    '../src/scheduler/heartbeat.ts'
+  );
+  const onMessage = vi.fn();
+
+  startHeartbeat('vllm', 1_000, onMessage);
+  await vi.advanceTimersByTimeAsync(1_000);
+  await vi.advanceTimersByTimeAsync(1_000);
+  stopHeartbeat();
+
+  expect(mocks.runAgent).not.toHaveBeenCalled();
+  expect(onMessage).toHaveBeenCalledTimes(1);
+  expect(onMessage).toHaveBeenCalledWith('Agent liveness red: ops');
 });

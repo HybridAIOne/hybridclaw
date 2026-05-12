@@ -1,0 +1,13 @@
+{
+  "provider": "datev-unternehmen-online",
+  "recorded_at": "2026-05-01T00:00:00.000Z",
+  "sanitized": true,
+  "source_url": "https://www.datev.de/web/de/steuerberatung/loesungen/rechnungswesen/belege-und-daten-digital-in-die-kanzlei-uebertragen/digital-zusammenarbeiten/belege-mit-mandanten-austauschen",
+  "text": "Startseite Belege. Über Belege hochladen kann Ihr Mandant neue Belege übertragen. In der Uploadmaske können Belege per Drag & Drop in Rechnungseingang, Rechnungsausgang oder Kasse hochgeladen werden.",
+  "labels": [
+    "Startseite Belege",
+    "Belege hochladen",
+    "Rechnungseingang",
+    "Rechnungsausgang"
+  ]
+}

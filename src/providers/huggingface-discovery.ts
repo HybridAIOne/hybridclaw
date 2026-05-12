@@ -2,9 +2,16 @@ import { HUGGINGFACE_BASE_URL, HUGGINGFACE_ENABLED } from '../config/config.js';
 import { logger } from '../logger.js';
 import { HUGGINGFACE_MODEL_PREFIX } from './huggingface-utils.js';
 import { readApiKeyForOpenAICompatProvider } from './openai-compat-remote.js';
-import { isRecord, normalizeBaseUrl, readPositiveInteger } from './utils.js';
-
-const HUGGINGFACE_DISCOVERY_TTL_MS = 3_600_000;
+import {
+  type DiscoveredModelPricingUsdPerToken,
+  readDiscoveredModelPricingUsdPerToken,
+} from './pricing-discovery.js';
+import {
+  createDiscoveryStore,
+  isRecord,
+  normalizeBaseUrl,
+  readPositiveInteger,
+} from './utils.js';
 
 function normalizeHuggingFaceModelName(modelId: string): string {
   const normalized = String(modelId || '').trim();
@@ -37,25 +44,31 @@ export interface HuggingFaceDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
   getModelContextWindow: (model: string) => number | null;
+  getModelPricingUsdPerToken: (
+    model: string,
+  ) => DiscoveredModelPricingUsdPerToken | null;
 }
 
+interface HuggingFaceDiscoveryState {
+  discoveredModelNames: string[];
+  contextWindowByModel: Map<string, number>;
+  pricingByModel: Map<string, DiscoveredModelPricingUsdPerToken>;
+}
+
+const buildEmptyHuggingFaceDiscoveryState = (): HuggingFaceDiscoveryState => ({
+  discoveredModelNames: [],
+  contextWindowByModel: new Map(),
+  pricingByModel: new Map(),
+});
+
 export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
-  let discoveredModelNames: string[] = [];
-  let contextWindowByModel = new Map<string, number>();
-  let discoveredAtMs = 0;
-  let discoveryInFlight: Promise<string[]> | null = null;
+  const discoveryStore = createDiscoveryStore(
+    buildEmptyHuggingFaceDiscoveryState(),
+  );
 
-  function replaceDiscoveryCache(
-    modelNames: string[],
-    nextContextWindows: Iterable<[string, number]> = [],
-    opts?: { cacheResult?: boolean },
-  ): void {
-    discoveredModelNames = [...modelNames];
-    contextWindowByModel = new Map(nextContextWindows);
-    discoveredAtMs = opts?.cacheResult === false ? 0 : Date.now();
-  }
-
-  async function fetchHuggingFaceModels(apiKey: string): Promise<string[]> {
+  async function fetchHuggingFaceModels(
+    apiKey: string,
+  ): Promise<HuggingFaceDiscoveryState> {
     const response = await fetch(
       `${normalizeBaseUrl(HUGGINGFACE_BASE_URL)}/models`,
       {
@@ -74,6 +87,7 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
       isRecord(payload) && Array.isArray(payload.data) ? payload.data : [];
     const discovered = new Set<string>();
     const contextWindows = new Map<string, number>();
+    const pricingByModel = new Map<string, DiscoveredModelPricingUsdPerToken>();
     for (const entry of data) {
       if (!isRecord(entry) || typeof entry.id !== 'string') continue;
       const normalized = normalizeHuggingFaceModelName(entry.id);
@@ -83,14 +97,30 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
       if (contextWindow != null) {
         contextWindows.set(normalized, contextWindow);
       }
+      const pricing =
+        readDiscoveredModelPricingUsdPerToken(entry) ??
+        (Array.isArray(entry.providers)
+          ? entry.providers
+              .filter(isRecord)
+              .map(readDiscoveredModelPricingUsdPerToken)
+              .find((value) => value != null)
+          : null);
+      if (pricing) {
+        pricingByModel.set(normalized, pricing);
+      }
     }
-    replaceDiscoveryCache([...discovered], contextWindows);
-    return [...discovered];
+    return {
+      discoveredModelNames: [...discovered],
+      contextWindowByModel: contextWindows,
+      pricingByModel,
+    };
   }
 
   async function discoverModels(opts?: { force?: boolean }): Promise<string[]> {
     if (!HUGGINGFACE_ENABLED) {
-      replaceDiscoveryCache([], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyHuggingFaceDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
@@ -98,43 +128,37 @@ export function createHuggingFaceDiscoveryStore(): HuggingFaceDiscoveryStore {
       required: false,
     });
     if (!apiKey) {
-      replaceDiscoveryCache([], [], { cacheResult: false });
+      discoveryStore.replaceState(buildEmptyHuggingFaceDiscoveryState(), {
+        skipCache: true,
+      });
       return [];
     }
 
-    const cacheAgeMs = Date.now() - discoveredAtMs;
-    if (
-      !opts?.force &&
-      discoveredAtMs > 0 &&
-      cacheAgeMs < HUGGINGFACE_DISCOVERY_TTL_MS
-    ) {
-      return [...discoveredModelNames];
-    }
-
-    if (discoveryInFlight) return discoveryInFlight;
-    const stale = [...discoveredModelNames];
-
-    discoveryInFlight = (async () => {
-      try {
-        await fetchHuggingFaceModels(apiKey);
-        return [...discoveredModelNames];
-      } catch (err) {
-        logger.warn({ err }, 'HuggingFace model discovery failed');
-        return stale;
-      } finally {
-        discoveryInFlight = null;
-      }
-    })();
-
-    return discoveryInFlight;
+    const state = await discoveryStore.discover(
+      () => fetchHuggingFaceModels(apiKey),
+      {
+        force: opts?.force,
+        onError: (err, staleState) => {
+          logger.warn({ err }, 'HuggingFace model discovery failed');
+          return staleState;
+        },
+      },
+    );
+    return [...state.discoveredModelNames];
   }
 
   return {
     discoverModels,
-    getModelNames: () => [...discoveredModelNames],
+    getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
     getModelContextWindow: (model: string) => {
+      const state = discoveryStore.getState();
       const normalized = normalizeHuggingFaceModelName(model);
-      return contextWindowByModel.get(normalized) ?? null;
+      return state.contextWindowByModel.get(normalized) ?? null;
+    },
+    getModelPricingUsdPerToken: (model: string) => {
+      const state = discoveryStore.getState();
+      const normalized = normalizeHuggingFaceModelName(model);
+      return state.pricingByModel.get(normalized) ?? null;
     },
   };
 }
@@ -155,4 +179,10 @@ export function getDiscoveredHuggingFaceModelContextWindow(
   model: string,
 ): number | null {
   return defaultHuggingFaceDiscoveryStore.getModelContextWindow(model);
+}
+
+export function getDiscoveredHuggingFaceModelPricingUsdPerToken(
+  model: string,
+): DiscoveredModelPricingUsdPerToken | null {
+  return defaultHuggingFaceDiscoveryStore.getModelPricingUsdPerToken(model);
 }

@@ -17,8 +17,6 @@ function useToggleGroupContext(): ToggleGroupContextValue {
   return ctx;
 }
 
-// ── Root ───────────────────────────────────────────────────────────────────
-
 export function ToggleGroup(props: {
   /** Currently selected value. */
   value: string;
@@ -60,8 +58,6 @@ export function ToggleGroup(props: {
   );
 }
 
-// ── Item ───────────────────────────────────────────────────────────────────
-
 export function ToggleGroupItem(props: {
   /** The value this item represents. Matched against ToggleGroup.value. */
   value: string;
@@ -81,8 +77,6 @@ export function ToggleGroupItem(props: {
   const tone = props.activeTone ?? 'is-on';
   const isDisabled = props.disabled ?? ctx.disabled;
 
-  // data-state mirrors Radix: every item carries the attribute so CSS
-  // transitions can target [data-state="on"] and [data-state="off"].
   const dataState = active ? (tone === 'is-off' ? 'off' : 'on') : 'off';
 
   return (

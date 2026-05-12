@@ -3,8 +3,15 @@ import { useEffect, useState } from 'react';
 import { deleteMcpServer, fetchMcp, saveMcpServer } from '../api/client';
 import type { AdminMcpConfig, AdminMcpServer } from '../api/types';
 import { useAuth } from '../auth';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
 import { useToast } from '../components/toast';
-import { BooleanField, BooleanPill, PageHeader, Panel } from '../components/ui';
+import { BooleanField, BooleanPill, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 
 interface McpDraft {
@@ -193,10 +200,14 @@ export function McpPage() {
         </div>
       ) : (
         <div className="two-column-grid">
-          <Panel
-            title="Servers"
-            subtitle={`${mcpQuery.data?.servers.length || 0} configured server${mcpQuery.data?.servers.length === 1 ? '' : 's'}`}
-          >
+          <Card>
+            <CardHeader>
+              <CardTitle>Servers</CardTitle>
+              <CardDescription>
+                {`${mcpQuery.data?.servers.length || 0} configured server${mcpQuery.data?.servers.length === 1 ? '' : 's'}`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
             {mcpQuery.isLoading ? (
               <div className="empty-state">Loading MCP servers...</div>
             ) : mcpQuery.data?.servers.length ? (
@@ -242,10 +253,15 @@ export function McpPage() {
                 </button>
               </div>
             )}
-          </Panel>
+            </CardContent>
+          </Card>
 
           {showEditor ? (
-            <Panel title="Server editor" accent="warm">
+            <Card variant="muted">
+              <CardHeader>
+                <CardTitle>Server editor</CardTitle>
+              </CardHeader>
+              <CardContent>
               <div className="stack-form">
                 <div className="field-grid">
                   <label className="field">
@@ -414,7 +430,8 @@ export function McpPage() {
                   </div>
                 ) : null}
               </div>
-            </Panel>
+              </CardContent>
+            </Card>
           ) : null}
         </div>
       )}

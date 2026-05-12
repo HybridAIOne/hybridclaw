@@ -26,6 +26,7 @@ import {
   type GatewayCommandResult,
   type GatewayMediaItem,
   type GatewayPluginCommandSummary,
+  type GatewayProactiveMessage,
   gatewayChat,
   gatewayChatStream,
   gatewayCommand,
@@ -107,7 +108,9 @@ import {
   TuiSlashMenuController,
   type TuiSlashMenuPalette,
 } from './tui-slash-menu.js';
+import { stopTuiRun } from './tui-stop.js';
 import {
+  appendTerminalRowCount,
   countTerminalRows,
   createTuiStreamFormatState,
   createTuiThinkingStreamState,
@@ -129,6 +132,7 @@ type TuiTheme = 'dark' | 'light';
 type TuiReadlineInterface = readline.Interface & {
   history: string[];
   _refreshLine?: () => void;
+  prevRows?: number;
 };
 
 interface TuiPalette {
@@ -324,21 +328,29 @@ const TUI_MULTILINE_PASTE_DEBOUNCE_MS = Math.max(
   20,
   parseInt(process.env.TUI_MULTILINE_PASTE_DEBOUNCE_MS || '90', 10) || 90,
 );
-// Keep lone ESC responsive for local TUI use. This is lower than readline's
-// default and can misclassify multi-byte escape sequences on high-latency SSH
-// links if arrow-key bytes arrive too far apart, so raise it here if operators
-// report flaky cursor keys on slow connections.
 const TUI_ESCAPE_CODE_TIMEOUT_MS = 10;
 const TUI_PROACTIVE_POLL_INTERVAL_MS = Math.max(
   500,
-  parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '2500', 10) || 2500,
+  parseInt(process.env.TUI_PROACTIVE_POLL_INTERVAL_MS || '10000', 10) || 10000,
 );
+const TUI_PROACTIVE_PULL_LIMIT = 100;
 const TUI_HISTORY_SIZE = 100;
 const TOOL_PREVIEW_MAX_CHARS = 140;
 const TUI_APPROVAL_PRESENTATION = createApprovalPresentation('text');
 
+function formatToolPreview(preview: string | undefined): string {
+  const normalized = (preview || '').replace(/\s+/g, ' ').trim();
+  return normalized.length > TOOL_PREVIEW_MAX_CHARS
+    ? `${normalized.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
+    : normalized;
+}
+
 let activeRunAbortController: AbortController | null = null;
+let activeRunStopInFlight: Promise<GatewayCommandResult> | null = null;
 let proactivePollInFlight = false;
+let delegateStatusRows = 0;
+let delegateStreamActive = false;
+let delegateStreamFormatState = createTuiStreamFormatState();
 let tuiFullAutoState: TuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
 let fullAutoSteeringInFlight = false;
 type TuiCachedApproval = {
@@ -847,8 +859,72 @@ function stripAnsiTui(value: string): string {
   return output;
 }
 
-function visibleTuiLength(value: string): number {
-  return [...stripAnsiTui(value)].length;
+function tuiCharacterWidth(symbol: string): number {
+  const code = symbol.codePointAt(0);
+  if (code == null) return 0;
+  if (code === 0) return 0;
+  if (code < 32 || (code >= 0x7f && code < 0xa0)) return 0;
+  if (
+    (code >= 0x300 && code <= 0x36f) ||
+    (code >= 0x200b && code <= 0x200f) ||
+    code === 0x200d ||
+    (code >= 0xfe00 && code <= 0xfe0f) ||
+    (code >= 0xe0100 && code <= 0xe01ef)
+  ) {
+    return 0;
+  }
+  if (
+    code >= 0x1100 &&
+    (code <= 0x115f ||
+      code === 0x2329 ||
+      code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe19) ||
+      (code >= 0xfe30 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6) ||
+      (code >= 0x1f300 && code <= 0x1faff) ||
+      (code >= 0x20000 && code <= 0x3fffd))
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+function nextTuiSymbol(
+  source: string,
+  index: number,
+): { symbol: string; nextIndex: number } {
+  const code = source.codePointAt(index);
+  const symbol =
+    code == null ? source[index] || '' : String.fromCodePoint(code);
+  return {
+    symbol,
+    nextIndex: index + (symbol.length || 1),
+  };
+}
+
+export function visibleTuiLength(value: string): number {
+  const source = String(value || '');
+  let width = 0;
+  for (let index = 0; index < source.length; ) {
+    if (source.charCodeAt(index) === 27 && source[index + 1] === '[') {
+      index += 2;
+      while (index < source.length) {
+        const code = source.charCodeAt(index);
+        index += 1;
+        if (code >= 64 && code <= 126) break;
+      }
+      continue;
+    }
+
+    const next = nextTuiSymbol(source, index);
+    width += tuiCharacterWidth(next.symbol);
+    index = next.nextIndex;
+  }
+  return width;
 }
 
 function padAnsiTuiEnd(value: string, width: number): string {
@@ -874,9 +950,9 @@ function tokenizeAnsiTui(value: string): TuiAnsiToken[] {
       tokens.push({ kind: 'ansi', value: source.slice(start, index) });
       continue;
     }
-    const symbol = [...source.slice(index)][0] || source[index] || '';
-    tokens.push({ kind: 'char', value: symbol });
-    index += symbol.length || 1;
+    const next = nextTuiSymbol(source, index);
+    tokens.push({ kind: 'char', value: next.symbol });
+    index = next.nextIndex;
   }
   return tokens;
 }
@@ -995,16 +1071,15 @@ function truncateAnsiTuiEnd(value: string, width: number): string {
       output += source.slice(start, index);
       continue;
     }
-    const symbol =
-      [...source.slice(index, index + 2)][0] || source[index] || '';
-    const symbolLength = [...symbol].length || 1;
-    if (visibleCount + 1 >= width) {
+    const next = nextTuiSymbol(source, index);
+    const symbolWidth = tuiCharacterWidth(next.symbol);
+    if (symbolWidth > 0 && visibleCount + symbolWidth + 1 > width) {
       output += '…';
       return output.endsWith(RESET) ? output : `${output}${RESET}`;
     }
-    output += symbol;
-    visibleCount += 1;
-    index += symbolLength;
+    output += next.symbol;
+    visibleCount += symbolWidth;
+    index = next.nextIndex;
   }
   return output;
 }
@@ -1235,8 +1310,8 @@ export function formatTuiTitledCommandBlock(
   return [...lines, '', ...wrapTuiBlock(text, width, '  ').split('\n')];
 }
 
-function isInactiveSkillListLine(line: string): boolean {
-  return /\[disabled\]/i.test(line);
+export function isMutedSkillListLine(line: string): boolean {
+  return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
 }
 
 function printGatewayCommandResult(result: GatewayCommandResult): void {
@@ -1254,7 +1329,7 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     clearTuiSlashMenu();
     console.log();
     for (const line of formatTuiOutput(rendered).split('\n')) {
-      const color = isInactiveSkillListLine(line) ? MUTED : GOLD;
+      const color = isMutedSkillListLine(line) ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
     }
     console.log();
@@ -1306,11 +1381,55 @@ function pickOceanActivityVerb(): string {
   return OCEAN_ACTIVITY_VERBS[index] || 'floating';
 }
 
+export interface SpinnerToolEntry {
+  name: string;
+  preview: string;
+  count: number;
+}
+
+export function formatTuiToolActivityLine(params: {
+  toolName: string;
+  preview?: string;
+  columns: number;
+  frameIndex?: number;
+  count?: number;
+}): string {
+  const frameIndex = Math.max(0, params.frameIndex || 0);
+  const frame =
+    JELLYFISH_PULSE_FRAMES[frameIndex % JELLYFISH_PULSE_FRAMES.length];
+  const previewText = params.preview
+    ? ` ${MUTED}${params.preview}${RESET}`
+    : '';
+  const count = Math.max(1, params.count || 1);
+  const countText = count > 1 ? ` ${MUTED}x${count}${RESET}` : '';
+  const body = `  ${frame.emojiColor}${JELLYFISH}${RESET} ${TEAL}${params.toolName}${RESET}${countText}${previewText}`;
+  const safeColumns = Math.max(1, params.columns - 1);
+  return truncateAnsiTuiEnd(body, safeColumns);
+}
+
+export function formatTuiToolActivityBlock(params: {
+  entries: SpinnerToolEntry[];
+  columns: number;
+  frameIndex?: number;
+}): string[] {
+  return params.entries.map((entry) =>
+    formatTuiToolActivityLine({
+      toolName: entry.name,
+      preview: entry.preview,
+      columns: params.columns,
+      frameIndex: params.frameIndex,
+      count: entry.count,
+    }),
+  );
+}
+
 function spinner(): {
   stop: () => void;
   addTool: (toolName: string, preview?: string) => void;
+  finishTool: (toolName: string, preview?: string) => void;
   addVisibleTextDelta: (delta: string) => void;
   flushVisibleText: () => void;
+  clearVisibleText: () => void;
   trailingNewlinesAfterVisibleText: () => string;
   setThinkingPreview: (preview: string | null) => void;
   clearThinkingPreview: () => void;
@@ -1324,11 +1443,24 @@ function spinner(): {
   let i = 0;
   let stopped = false;
   let cursorHidden = false;
-  let transientToolLines = 0;
+  const toolEntries: SpinnerToolEntry[] = [];
   let hasVisibleText = false;
   let visibleTextState = createTuiStreamFormatState();
+  let visibleTextRows = 0;
   let thinkingPreviewRows = 0;
+  let toolActivityRows = 0;
   const clearLine = () => process.stdout.write('\r\x1b[2K');
+  const clearRows = (rows: number) => {
+    const normalizedRows = Math.max(0, rows);
+    if (normalizedRows <= 0) return;
+    if (!process.stdout.isTTY) return;
+    if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+    for (let row = 0; row < normalizedRows; row += 1) {
+      clearLine();
+      if (row < normalizedRows - 1) process.stdout.write('\n');
+    }
+    if (normalizedRows > 1) process.stdout.write(`\x1b[${normalizedRows - 1}A`);
+  };
   const hideCursor = () => {
     if (cursorHidden || !process.stdout.isTTY) return;
     process.stdout.write(HIDE_CURSOR);
@@ -1339,10 +1471,34 @@ function spinner(): {
     process.stdout.write(SHOW_CURSOR);
     cursorHidden = false;
   };
+  const clearToolActivityBlock = () => {
+    if (toolActivityRows > 0) {
+      clearRows(toolActivityRows);
+      toolActivityRows = 0;
+      return;
+    }
+    clearLine();
+  };
+  const repaintToolBlock = (frameIdx: number) => {
+    if (toolEntries.length <= 0) return;
+    clearToolActivityBlock();
+    const lines = formatTuiToolActivityBlock({
+      entries: toolEntries,
+      columns: terminalColumns(),
+      frameIndex: frameIdx,
+    });
+    process.stdout.write(`\r${lines.join('\n')}`);
+    toolActivityRows = lines.length;
+  };
   const render = () => {
     if (stopped) return;
-    if (!showActivityPreview) return;
     if (hasVisibleText || thinkingPreviewRows > 0) return;
+    if (toolEntries.length > 0) {
+      repaintToolBlock(i);
+      i++;
+      return;
+    }
+    if (!showActivityPreview) return;
     clearLine();
     const frame = JELLYFISH_PULSE_FRAMES[i % JELLYFISH_PULSE_FRAMES.length];
     process.stdout.write(
@@ -1352,14 +1508,9 @@ function spinner(): {
   };
 
   const clearTools = () => {
-    if (transientToolLines <= 0) return;
-    process.stdout.write(`\x1b[${transientToolLines}A`);
-    for (let i = 0; i < transientToolLines; i++) {
-      clearLine();
-      process.stdout.write('\x1b[M');
-    }
-    clearLine();
-    transientToolLines = 0;
+    if (toolEntries.length <= 0) return;
+    clearToolActivityBlock();
+    toolEntries.length = 0;
     if (
       !stopped &&
       showActivityPreview &&
@@ -1384,6 +1535,25 @@ function spinner(): {
     }
   };
 
+  const clearVisibleText = () => {
+    if (!hasVisibleText) return;
+    if (process.stdout.isTTY) {
+      const rows = Math.max(1, visibleTextRows);
+      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+      for (let row = 0; row < rows; row += 1) {
+        clearLine();
+        if (row < rows - 1) process.stdout.write('\n');
+      }
+      if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+    }
+    hasVisibleText = false;
+    visibleTextState = createTuiStreamFormatState();
+    visibleTextRows = 0;
+    if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
+      render();
+    }
+  };
+
   const setThinkingPreview = (preview: string | null) => {
     if (!showThinkingPreview) return;
     const normalizedPreview = String(preview || '');
@@ -1392,12 +1562,12 @@ function spinner(): {
       return;
     }
     if (hasVisibleText) return;
-    if (transientToolLines > 0) return;
+    if (toolEntries.length > 0) return;
     clearThinkingPreview();
     clearLine();
     const formatted = wrapTuiBlock(normalizedPreview, terminalColumns(), '  ');
     process.stdout.write(`\r${THINKING_PREVIEW_COLOR}${formatted}${RESET}`);
-    thinkingPreviewRows = countTerminalRows(formatted, terminalColumns());
+    thinkingPreviewRows = Math.max(1, formatted.split('\n').length);
   };
 
   hideCursor();
@@ -1407,8 +1577,19 @@ function spinner(): {
     stop: () => {
       stopped = true;
       if (interval) clearInterval(interval);
+      if (
+        toolEntries.length > 0 &&
+        !hasVisibleText &&
+        thinkingPreviewRows === 0
+      ) {
+        repaintToolBlock(i);
+      }
       if (showActivityPreview && !hasVisibleText && thinkingPreviewRows === 0) {
-        clearLine();
+        if (toolActivityRows > 0) {
+          clearToolActivityBlock();
+        } else {
+          clearLine();
+        }
       }
       showCursor();
     },
@@ -1417,12 +1598,53 @@ function spinner(): {
       if (hasVisibleText) return;
       clearThinkingPreview();
       clearLine();
-      const previewText = preview ? ` ${MUTED}${preview}${RESET}` : '';
-      process.stdout.write(
-        `  ${JELLYFISH} ${TEAL}${toolName}${RESET}${previewText}\n`,
-      );
-      transientToolLines++;
-      if (showActivityPreview) render();
+      const normalizedPreview = preview || '';
+      let existingEntry: SpinnerToolEntry | undefined;
+      for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
+        const entry = toolEntries[idx];
+        if (entry.name !== toolName || entry.preview !== normalizedPreview) {
+          continue;
+        }
+        existingEntry = entry;
+        break;
+      }
+      if (existingEntry) {
+        existingEntry.count += 1;
+        repaintToolBlock(i);
+        return;
+      }
+      const entry: SpinnerToolEntry = {
+        name: toolName,
+        preview: normalizedPreview,
+        count: 1,
+      };
+      toolEntries.push(entry);
+      repaintToolBlock(i);
+    },
+    finishTool: (toolName: string, preview?: string) => {
+      if (!showTools) return;
+      if (hasVisibleText) return;
+      const normalizedPreview = preview || '';
+      for (let idx = toolEntries.length - 1; idx >= 0; idx -= 1) {
+        const entry = toolEntries[idx];
+        if (entry.name !== toolName || entry.preview !== normalizedPreview) {
+          continue;
+        }
+        if (entry.count > 1) {
+          entry.count -= 1;
+        } else {
+          toolEntries.splice(idx, 1);
+        }
+        break;
+      }
+      if (toolEntries.length > 0) {
+        repaintToolBlock(i);
+      } else {
+        clearToolActivityBlock();
+        if (!stopped && showActivityPreview && thinkingPreviewRows === 0) {
+          render();
+        }
+      }
     },
     addVisibleTextDelta: (delta: string) => {
       if (!delta) return;
@@ -1439,6 +1661,7 @@ function spinner(): {
       visibleTextState = formatted.state;
       if (!formatted.text) return;
       hasVisibleText = true;
+      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
       process.stdout.write(formatted.text);
     },
     flushVisibleText: () => {
@@ -1454,8 +1677,10 @@ function spinner(): {
         clearLine();
         hasVisibleText = true;
       }
+      visibleTextRows = appendTerminalRowCount(visibleTextRows, formatted.text);
       process.stdout.write(formatted.text);
     },
+    clearVisibleText,
     trailingNewlinesAfterVisibleText: () =>
       getTuiStreamTrailingNewlines(visibleTextState, terminalColumns()),
     setThinkingPreview,
@@ -1555,6 +1780,18 @@ async function requestGatewayCommand(
   return result;
 }
 
+function stopActiveRun(): Promise<GatewayCommandResult> | null {
+  activeRunStopInFlight = stopTuiRun({
+    abortController: activeRunAbortController,
+    stopRequest: activeRunStopInFlight,
+    requestStop: () => requestGatewayCommand(['stop']),
+    clearStopRequest: () => {
+      activeRunStopInFlight = null;
+    },
+  });
+  return activeRunStopInFlight;
+}
+
 function collectToolNames(result: GatewayChatResult): string[] {
   const names = new Set<string>();
 
@@ -1644,6 +1881,10 @@ function promptTuiInput(rl: readline.Interface): void {
   clearTuiSlashMenu();
   rl.prompt();
   syncTuiSlashMenu();
+}
+
+function resetReadlinePromptRows(rl: readline.Interface): void {
+  (rl as TuiReadlineInterface).prevRows = 0;
 }
 
 function refreshPrompt(rl: readline.Interface): void {
@@ -1777,9 +2018,10 @@ async function syncFullAutoStateFromGateway(
 async function runGatewayCommand(
   args: string[],
   rl: readline.Interface,
+  request: Promise<GatewayCommandResult> = requestGatewayCommand(args),
 ): Promise<void> {
   try {
-    const result = await requestGatewayCommand(args);
+    const result = await request;
     const pendingApproval =
       result.kind === 'info' ? parseTuiApprovalPrompt(result.text || '') : null;
     if (pendingApproval) {
@@ -2126,18 +2368,16 @@ async function handleSlashCommand(
       await runGatewayCommand(['status'], rl);
       return true;
     case 'stop':
-    case 'abort':
-      if (
-        activeRunAbortController &&
-        !activeRunAbortController.signal.aborted
-      ) {
-        activeRunAbortController.abort();
+    case 'abort': {
+      const stopRequest = stopActiveRun();
+      if (stopRequest) {
         printInfo('Stopping current request and disabling full-auto...');
       } else {
         printInfo('No active foreground request. Disabling full-auto...');
       }
-      await runGatewayCommand(['stop'], rl);
+      await runGatewayCommand(['stop'], rl, stopRequest ?? undefined);
       return true;
+    }
     default:
       break;
   }
@@ -2174,8 +2414,13 @@ async function processMessage(
     const request = buildGatewayChatRequest(content, queuedMedia);
     const streamState = createTuiThinkingStreamState();
     const streamedToolNames = new Set<string>();
+    const activeDisplayedToolStartCounts = new Map<string, number>();
+    const hiddenDuplicateToolCounts = new Map<string, number>();
+    const makeToolDisplayKey = (toolName: string, preview: string): string =>
+      `${toolName}\0${preview}`;
     let sawStreamEvent = false;
     let sawVisibleTextDelta = false;
+    let activeDelegateToolCount = 0;
     let streamedApproval: GatewayChatApprovalEvent | null = null;
     let result: GatewayChatResult;
 
@@ -2188,6 +2433,7 @@ async function processMessage(
         (event) => {
           if (event.type === 'text') {
             sawStreamEvent = true;
+            if (activeDelegateToolCount > 0) return;
             sawResponse = true;
             const streamed = streamState.push(event.delta);
             if (streamed.visibleDelta) {
@@ -2198,26 +2444,80 @@ async function processMessage(
             }
             return;
           }
+          if (event.type === 'thinking') {
+            sawStreamEvent = true;
+            sawResponse = true;
+            const streamed = streamState.pushThinking(event.delta);
+            if (!sawVisibleTextDelta && streamed.thinkingPreview) {
+              s.setThinkingPreview(streamed.thinkingPreview);
+            }
+            return;
+          }
           if (event.type === 'approval') {
             sawStreamEvent = true;
             sawResponse = true;
             streamedApproval = event;
             return;
           }
-          if (
-            event.type !== 'tool' ||
-            event.phase !== 'start' ||
-            !event.toolName
-          )
-            return;
+          if (event.type !== 'tool' || !event.toolName) return;
           sawStreamEvent = true;
           sawResponse = true;
-          const preview = (event.preview || '').replace(/\s+/g, ' ').trim();
-          const previewText =
-            preview.length > TOOL_PREVIEW_MAX_CHARS
-              ? `${preview.slice(0, TOOL_PREVIEW_MAX_CHARS - 1)}…`
-              : preview;
+          if (
+            event.toolName === 'delegate' &&
+            event.phase === 'start' &&
+            activeDelegateToolCount === 0
+          ) {
+            if (sawVisibleTextDelta) {
+              s.clearVisibleText();
+              sawVisibleTextDelta = false;
+            }
+          }
+          activeDelegateToolCount = nextActiveDelegateToolCount(
+            activeDelegateToolCount,
+            event,
+          );
+          if (event.phase === 'finish') {
+            const previewText = formatToolPreview(event.preview);
+            const displayKey = makeToolDisplayKey(event.toolName, previewText);
+            const hiddenCount = hiddenDuplicateToolCounts.get(displayKey) || 0;
+            if (hiddenCount > 0) {
+              if (hiddenCount === 1) {
+                hiddenDuplicateToolCounts.delete(displayKey);
+              } else {
+                hiddenDuplicateToolCounts.set(displayKey, hiddenCount - 1);
+              }
+              return;
+            }
+            s.finishTool(event.toolName, previewText || undefined);
+            const activeDisplayCount =
+              activeDisplayedToolStartCounts.get(displayKey) || 0;
+            if (activeDisplayCount <= 1) {
+              activeDisplayedToolStartCounts.delete(displayKey);
+            } else {
+              activeDisplayedToolStartCounts.set(
+                displayKey,
+                activeDisplayCount - 1,
+              );
+            }
+            return;
+          }
+          if (event.phase !== 'start') return;
+          const previewText = formatToolPreview(event.preview);
+          const displayKey = makeToolDisplayKey(event.toolName, previewText);
           streamedToolNames.add(event.toolName);
+          const activeDisplayCount =
+            activeDisplayedToolStartCounts.get(displayKey) || 0;
+          if (activeDisplayCount > 0) {
+            hiddenDuplicateToolCounts.set(
+              displayKey,
+              (hiddenDuplicateToolCounts.get(displayKey) || 0) + 1,
+            );
+            return;
+          }
+          activeDisplayedToolStartCounts.set(
+            displayKey,
+            activeDisplayCount + 1,
+          );
           s.addTool(event.toolName, previewText || undefined);
         },
         abortController.signal,
@@ -2316,6 +2616,10 @@ async function processMessage(
     s.clearTools();
     if (activeRunAbortController === abortController) {
       activeRunAbortController = null;
+      void pollProactiveMessages(rl, {
+        promptAfter: false,
+        promptVisible: false,
+      });
     }
   }
 }
@@ -2391,29 +2695,244 @@ async function processFullAutoSteeringMessage(
   })();
 }
 
-async function pollProactiveMessages(rl: readline.Interface): Promise<void> {
+function isDelegateStatusMessage(text: string): boolean {
+  return text.trimStart().startsWith('[Delegate Status]');
+}
+
+export function nextActiveDelegateToolCount(
+  activeCount: number,
+  event: { toolName?: string | null; phase?: string | null },
+): number {
+  if (event.toolName !== 'delegate') return activeCount;
+  if (event.phase === 'start') return activeCount + 1;
+  if (event.phase === 'finish') return Math.max(0, activeCount - 1);
+  return activeCount;
+}
+
+function isDelegateStreamSource(source: string): boolean {
+  return String(source || '').startsWith('delegate:stream:');
+}
+
+function handleDelegateStreamMessage(message: {
+  text: string;
+  source: string;
+}): boolean {
+  const source = String(message.source || '');
+  if (!isDelegateStreamSource(source)) return false;
+
+  if (source === 'delegate:stream:start') {
+    delegateStreamActive = true;
+    delegateStreamFormatState = createTuiStreamFormatState();
+    return true;
+  }
+
+  if (source === 'delegate:stream:delta') {
+    if (!delegateStreamActive) {
+      delegateStreamActive = true;
+      delegateStreamFormatState = createTuiStreamFormatState();
+    }
+    const formatted = formatTuiStreamDelta(
+      message.text,
+      delegateStreamFormatState,
+      terminalColumns(),
+    );
+    delegateStreamFormatState = formatted.state;
+    if (formatted.text) process.stdout.write(formatted.text);
+    return true;
+  }
+
+  if (source === 'delegate:stream:end') {
+    if (delegateStreamActive) {
+      const flushed = flushTuiStreamDelta(
+        delegateStreamFormatState,
+        terminalColumns(),
+      );
+      delegateStreamFormatState = flushed.state;
+      if (flushed.text) process.stdout.write(flushed.text);
+    }
+    delegateStreamActive = false;
+    delegateStreamFormatState = createTuiStreamFormatState();
+    return true;
+  }
+
+  return true;
+}
+
+function clearDelegateStatusBlock(): void {
+  if (delegateStatusRows <= 0) return;
+  clearTerminalRows(delegateStatusRows, delegateStatusRows);
+  delegateStatusRows = 0;
+}
+
+function currentPromptRows(): number {
+  return countTerminalRows(stripAnsiTui(buildPromptText()), terminalColumns());
+}
+
+function clearTerminalRows(rows: number, moveUpRows: number): void {
+  if (rows <= 0) return;
+  if (moveUpRows > 0) process.stdout.write(`\x1b[${moveUpRows}A`);
+  for (let row = 0; row < rows; row += 1) {
+    process.stdout.write('\r\x1b[2K');
+    if (row < rows - 1) process.stdout.write('\n');
+  }
+  if (rows > 1) process.stdout.write(`\x1b[${rows - 1}A`);
+}
+
+function clearPromptBlockForDelegateStatus(): void {
+  if (!process.stdout.isTTY) return;
+  const promptRows = currentPromptRows();
+  clearTerminalRows(promptRows, Math.max(0, promptRows - 1));
+}
+
+function clearDelegateStatusAndPromptBlock(): void {
+  if (!process.stdout.isTTY || delegateStatusRows <= 0) {
+    clearPromptBlockForDelegateStatus();
+    return;
+  }
+  const promptRows = currentPromptRows();
+  const rowsToClear = delegateStatusRows + promptRows;
+  clearTerminalRows(rowsToClear, rowsToClear - 1);
+  delegateStatusRows = 0;
+}
+
+function printDelegateStatusBlock(text: string, promptVisible: boolean): void {
+  if (promptVisible) {
+    clearDelegateStatusAndPromptBlock();
+  } else {
+    clearDelegateStatusBlock();
+  }
+  const body = text.replace(/^\[Delegate Status\]\s*/, '').trim();
+  const rendered = formatTuiOutput(body);
+  console.log(rendered);
+  delegateStatusRows = countTerminalRows(rendered, terminalColumns());
+}
+
+function renderLatestProactiveDelegateStatus(
+  rl: readline.Interface,
+  message: GatewayProactiveMessage | undefined,
+  promptVisible: boolean,
+): void {
+  if (!message) return;
+  printDelegateStatusBlock(message.text, promptVisible);
+  resetReadlinePromptRows(rl);
+}
+
+function prepareProactiveRegularMessageOutput(
+  rl: readline.Interface,
+  hasDelegateStatus: boolean,
+  promptVisible: boolean,
+): void {
+  if (!hasDelegateStatus && promptVisible) {
+    clearPromptBlockForDelegateStatus();
+    resetReadlinePromptRows(rl);
+  }
+  console.log();
+}
+
+function renderProactiveRegularMessage(
+  message: GatewayProactiveMessage,
+): boolean {
+  if (handleDelegateStreamMessage(message)) return true;
+
+  const badge = proactiveBadgeLabel(message.source);
+  const suffix = proactiveSourceSuffix(message.source);
+  const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+  if (badge === 'delegate') {
+    console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
+    return false;
+  }
+  const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
+  console.log(badgePrefix);
+  console.log();
+  console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
+  return false;
+}
+
+function renderProactiveRegularMessages(
+  messages: GatewayProactiveMessage[],
+): boolean {
+  let sawDelegateStreamMessage = false;
+  for (const message of messages) {
+    if (renderProactiveRegularMessage(message)) {
+      sawDelegateStreamMessage = true;
+    }
+  }
+  return sawDelegateStreamMessage;
+}
+
+function restorePromptAfterProactiveMessages(
+  rl: readline.Interface,
+  promptAfter: boolean,
+  sawDelegateStreamMessage: boolean,
+): void {
+  if (!promptAfter) return;
+  if (!delegateStreamActive || !sawDelegateStreamMessage) {
+    promptTuiInput(rl);
+  }
+}
+
+async function pollProactiveMessages(
+  rl: readline.Interface,
+  options: { promptAfter?: boolean; promptVisible?: boolean } = {},
+): Promise<void> {
   if (proactivePollInFlight) return;
   if (activeRunAbortController && !activeRunAbortController.signal.aborted)
     return;
+  const promptAfter = options.promptAfter !== false;
+  const promptVisible = options.promptVisible !== false;
 
   proactivePollInFlight = true;
   try {
-    const result = await gatewayPullProactive(CHANNEL_ID, 20);
+    const result = await gatewayPullProactive(
+      CHANNEL_ID,
+      TUI_PROACTIVE_PULL_LIMIT,
+    );
     if (!Array.isArray(result.messages) || result.messages.length === 0) return;
 
     clearTuiSlashMenu();
-    console.log();
-    for (const message of result.messages) {
-      const badge = proactiveBadgeLabel(message.source);
-      const suffix = proactiveSourceSuffix(message.source);
-      const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
-      const badgePrefix = badge ? `  ${GOLD}[${badge}]${RESET}` : '  >';
-      console.log(badgePrefix);
-      console.log();
-      console.log(`${message.text}${sourceSuffix}`);
+    const regularMessages = result.messages.filter(
+      (message) =>
+        !isDelegateStatusMessage(message.text) ||
+        isDelegateStreamSource(message.source),
+    );
+    let latestDelegateStatus: GatewayProactiveMessage | undefined;
+    for (let idx = result.messages.length - 1; idx >= 0; idx -= 1) {
+      const message = result.messages[idx];
+      if (message && isDelegateStatusMessage(message.text)) {
+        latestDelegateStatus = message;
+        break;
+      }
     }
-    console.log();
-    promptTuiInput(rl);
+
+    renderLatestProactiveDelegateStatus(
+      rl,
+      latestDelegateStatus,
+      promptVisible,
+    );
+
+    if (regularMessages.length === 0) {
+      if (promptAfter) promptTuiInput(rl);
+      return;
+    }
+
+    prepareProactiveRegularMessageOutput(
+      rl,
+      Boolean(latestDelegateStatus),
+      promptVisible,
+    );
+    const sawDelegateStreamMessage =
+      renderProactiveRegularMessages(regularMessages);
+    if (!delegateStreamActive) {
+      console.log();
+    }
+    restorePromptAfterProactiveMessages(
+      rl,
+      promptAfter,
+      sawDelegateStreamMessage,
+    );
+    if (!delegateStreamActive) {
+      return;
+    }
   } catch (error) {
     logger.debug(
       { error },
@@ -2489,9 +3008,18 @@ async function main(): Promise<void> {
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.on('keypress', (_str, key) => {
     if (key?.name !== 'escape') return;
-    if (!activeRunAbortController || activeRunAbortController.signal.aborted)
-      return;
-    activeRunAbortController.abort();
+    const stopRequest = stopActiveRun();
+    if (!stopRequest) return;
+    void stopRequest
+      .then((result) => {
+        tuiFullAutoState = deriveTuiFullAutoState({
+          current: tuiFullAutoState,
+          args: ['stop'],
+          result,
+        });
+        refreshPrompt(rl);
+      })
+      .catch(() => {});
   });
 
   promptTuiInput(rl);
@@ -2599,6 +3127,7 @@ export async function runTui(options?: Partial<TuiRunOptions>): Promise<void> {
     String(options?.resumeCommand || 'hybridclaw tui --resume').trim() ||
     'hybridclaw tui --resume';
   activeRunAbortController = null;
+  activeRunStopInFlight = null;
   proactivePollInFlight = false;
   tuiFullAutoState = DEFAULT_TUI_FULLAUTO_STATE;
   fullAutoSteeringInFlight = false;

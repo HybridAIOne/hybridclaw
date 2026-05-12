@@ -12,6 +12,7 @@ import { JobsPage } from './jobs';
 const fetchJobsContextMock = vi.fn();
 const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const moveSchedulerJobMock = vi.fn();
+const resumeInteractiveEscalationMock = vi.fn();
 const saveSchedulerJobMock = vi.fn();
 const useAuthMock = vi.fn();
 
@@ -19,6 +20,8 @@ vi.mock('../api/client', () => ({
   fetchJobsContext: (...args: unknown[]) => fetchJobsContextMock(...args),
   fetchScheduler: () => fetchSchedulerMock(),
   moveSchedulerJob: (...args: unknown[]) => moveSchedulerJobMock(...args),
+  resumeInteractiveEscalation: (...args: unknown[]) =>
+    resumeInteractiveEscalationMock(...args),
   saveSchedulerJob: (...args: unknown[]) => saveSchedulerJobMock(...args),
 }));
 
@@ -102,6 +105,7 @@ describe('JobsPage', () => {
     fetchJobsContextMock.mockReset();
     fetchSchedulerMock.mockReset();
     moveSchedulerJobMock.mockReset();
+    resumeInteractiveEscalationMock.mockReset();
     saveSchedulerJobMock.mockReset();
     useAuthMock.mockReset();
     useAuthMock.mockReturnValue({
@@ -110,9 +114,18 @@ describe('JobsPage', () => {
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
       sessions: [],
+      suspendedSessions: [],
     });
     fetchSchedulerMock.mockResolvedValue({
       jobs: [makeConfigJob()],
+    });
+    resumeInteractiveEscalationMock.mockResolvedValue({
+      session: {
+        sessionId: 'session-2fa',
+        status: 'resumed',
+        modality: 'sms',
+      },
+      response: { kind: 'code', value: '123456' },
     });
   });
 
@@ -144,6 +157,7 @@ describe('JobsPage', () => {
     fetchJobsContextMock.mockResolvedValue({
       agents: [{ id: 'main', name: 'Main' }],
       sessions: [makeJobSession()],
+      suspendedSessions: [],
     });
     fetchSchedulerMock.mockResolvedValue({
       jobs: [
@@ -170,5 +184,54 @@ describe('JobsPage', () => {
       expect(screen.getByText('Created')).toBeTruthy();
     });
     expect(screen.queryByText('never')).toBeNull();
+  });
+
+  it('shows blocked sessions on the board and resumes them from the detail pane', async () => {
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [{ id: 'main', name: 'Main' }],
+      sessions: [],
+      suspendedSessions: [
+        {
+          sessionId: 'session-2fa',
+          agentId: 'main',
+          approvalId: 'approval-2fa',
+          userId: 'operator-1',
+          prompt: 'Enter the SMS verification code.',
+          status: 'pending',
+          modality: 'sms',
+          expectedReturnKinds: ['code', 'declined', 'timeout'],
+          context: {
+            host: 'sap.example',
+            pageTitle: 'Verify sign in',
+            url: 'https://sap.example/login',
+          },
+          createdAt: '2026-04-12T18:40:00.000Z',
+          expiresAt: '2026-04-12T18:50:00.000Z',
+          blockedLabel: 'Blocked: sms',
+        },
+      ],
+    });
+
+    renderJobsPage();
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Blocked: sms').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByText('Blocked: sms')[0]);
+    fireEvent.change(screen.getByLabelText('Code for session-2fa'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => {
+      expect(resumeInteractiveEscalationMock).toHaveBeenCalledWith(
+        'test-token',
+        {
+          sessionId: 'session-2fa',
+          response: { kind: 'code', value: '123456' },
+        },
+      );
+    });
   });
 });

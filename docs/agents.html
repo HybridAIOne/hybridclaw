@@ -1221,9 +1221,6 @@
                 <span class="refresh-spinner" aria-hidden="true"></span>
                 <span id="refreshLabel">Auto-refresh every 15s</span>
               </div>
-              <button id="refreshButton" type="button" class="button button-secondary">
-                Refresh now
-              </button>
             </div>
           </div>
 
@@ -2191,10 +2188,6 @@
     document.getElementById('sidebarToggle').addEventListener('click', () => {
       const next = !layoutEl.classList.contains('is-sidebar-collapsed');
       setSidebarCollapsed(next);
-    });
-
-    document.getElementById('refreshButton').addEventListener('click', () => {
-      void refreshAll();
     });
 
     openChatButtonEl.addEventListener('click', () => {

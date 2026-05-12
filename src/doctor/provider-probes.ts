@@ -1,7 +1,16 @@
+import { spawnSync } from 'node:child_process';
+import {
+  requireAnthropicApiKey,
+  requireAnthropicClaudeCliCredential,
+} from '../auth/anthropic-auth.js';
 import { resolveCodexCredentials } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import {
+  ANTHROPIC_BASE_URL,
+  ANTHROPIC_ENABLED,
+  ANTHROPIC_METHOD,
   CODEX_BASE_URL,
+  CONTAINER_SANDBOX_MODE,
   HUGGINGFACE_BASE_URL,
   HUGGINGFACE_ENABLED,
   MISTRAL_BASE_URL,
@@ -9,6 +18,10 @@ import {
   OPENROUTER_BASE_URL,
   OPENROUTER_ENABLED,
 } from '../config/config.js';
+import {
+  isAnthropicOAuthToken,
+  normalizeAnthropicBaseUrl,
+} from '../providers/anthropic-utils.js';
 import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
@@ -66,6 +79,91 @@ export async function probeOpenRouter(): Promise<ProviderProbeResult> {
         Authorization: `Bearer ${apiKey}`,
         ...buildOpenRouterAttributionHeaders(),
       },
+      signal: AbortSignal.timeout(5_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { data?: unknown[] };
+  return {
+    reachable: true,
+    detail: `${Date.now() - startedAt}ms`,
+    modelCount: Array.isArray(payload.data) ? payload.data.length : 0,
+  };
+}
+
+export async function probeAnthropic(): Promise<ProviderProbeResult> {
+  if (!ANTHROPIC_ENABLED) {
+    return {
+      reachable: false,
+      detail: 'Provider disabled',
+    };
+  }
+
+  if (ANTHROPIC_METHOD === 'claude-cli') {
+    if (CONTAINER_SANDBOX_MODE !== 'host') {
+      return {
+        reachable: false,
+        detail:
+          'Claude CLI transport requires `container.sandboxMode=host` or `--sandbox=host`.',
+      };
+    }
+
+    try {
+      requireAnthropicClaudeCliCredential();
+    } catch (error) {
+      return {
+        reachable: false,
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const startedAt = Date.now();
+    const result = spawnSync('claude', ['--version'], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.status !== 0) {
+      return {
+        reachable: false,
+        detail:
+          result.stderr?.trim() ||
+          result.stdout?.trim() ||
+          'Failed to execute `claude --version`.',
+      };
+    }
+
+    return {
+      reachable: true,
+      detail: `${Date.now() - startedAt}ms`,
+    };
+  }
+
+  let auth: ReturnType<typeof requireAnthropicApiKey>;
+  try {
+    auth = requireAnthropicApiKey();
+  } catch (error) {
+    return {
+      reachable: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const headers: Record<string, string> = {
+    ...auth.headers,
+    ...(isAnthropicOAuthToken(auth.apiKey)
+      ? { Authorization: `Bearer ${auth.apiKey}` }
+      : { 'x-api-key': auth.apiKey }),
+  };
+
+  const startedAt = Date.now();
+  const response = await fetch(
+    `${normalizeAnthropicBaseUrl(ANTHROPIC_BASE_URL)}/models`,
+    {
+      headers,
       signal: AbortSignal.timeout(5_000),
     },
   );

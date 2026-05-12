@@ -54,9 +54,24 @@ import {
   sendOpenAICompatibleStreamError,
   writeOpenAICompatibleStreamChunk,
 } from './openai-compatible-response.js';
+import {
+  callWithProviderFallback,
+  loadFallbackChainFromEnv,
+} from './provider-fallback.js';
 
 function isResponseWritable(res: ServerResponse): boolean {
   return !res.writableEnded && !res.destroyed;
+}
+
+function buildOpenAICompatibleTraceHeaders(
+  prepared: ReturnType<typeof prepareOpenAICompatibleRequest>,
+): Record<string, string> {
+  return {
+    'X-HybridClaw-Session-Id': prepared.sessionId,
+    'X-HybridClaw-Session-Key': prepared.sessionId,
+    'X-HybridClaw-Agent-Id': prepared.requestAgentId,
+    'X-HybridClaw-Workspace-Mode': prepared.profile.workspaceMode,
+  };
 }
 
 function normalizeGatewayResult(result: GatewayChatResult): GatewayChatResult {
@@ -210,11 +225,15 @@ function prepareOpenAICompatibleRequest(
 ): {
   responseModel: string;
   cleanupAgentId: string | null;
+  isEvalRequest: boolean;
   requestAgentId: string;
   sessionId: string;
   model: string;
   profile: ReturnType<typeof parseEvalProfileModel>['profile'];
 } {
+  const isEvalRequest =
+    Boolean(input.evalProfile?.trim()) ||
+    input.model.includes(EVAL_MODEL_PROFILE_MARKER);
   const profiledModel = input.evalProfile
     ? input.model.includes(EVAL_MODEL_PROFILE_MARKER)
       ? input.model
@@ -261,6 +280,7 @@ function prepareOpenAICompatibleRequest(
   return {
     responseModel: input.model,
     cleanupAgentId: freshAgentId,
+    isEvalRequest,
     requestAgentId,
     sessionId,
     model,
@@ -280,6 +300,11 @@ function buildGatewayChatRequest(params: {
     sessionId: params.prepared.sessionId,
     ...(params.executionSessionId
       ? { executionSessionId: params.executionSessionId }
+      : {}),
+    ...(params.prepared.isEvalRequest
+      ? {
+          autoApproveTools: true,
+        }
       : {}),
     guildId: null,
     channelId: 'openai',
@@ -431,8 +456,24 @@ async function handleOpenAICompatibleNonStreamingChat(
   responseModel: string,
   completionId: string,
   created: number,
+  traceHeaders: Record<string, string>,
 ): Promise<void> {
   const result = await runOpenAICompatibleChat(chatRequest);
+  const responseTraceHeaders = {
+    ...traceHeaders,
+    ...(result.sessionId
+      ? { 'X-HybridClaw-Session-Id': result.sessionId }
+      : {}),
+    ...(result.sessionKey
+      ? { 'X-HybridClaw-Session-Key': result.sessionKey }
+      : {}),
+    ...(chatRequest.executionSessionId
+      ? {
+          'X-HybridClaw-Execution-Session-Id': chatRequest.executionSessionId,
+        }
+      : {}),
+    'X-HybridClaw-Artifact-Count': String(result.artifacts?.length || 0),
+  };
   const payload = buildOpenAICompatibleCompletionResponse({
     completionId,
     created,
@@ -441,6 +482,7 @@ async function handleOpenAICompatibleNonStreamingChat(
     tokenUsage: result.tokenUsage,
   });
   res.writeHead(200, {
+    ...responseTraceHeaders,
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(payload, null, 2));
@@ -452,15 +494,22 @@ async function handleOpenAICompatibleToolChat(
   prepared: ReturnType<typeof prepareOpenAICompatibleRequest>,
   completionId: string,
   created: number,
+  traceHeaders: Record<string, string>,
 ): Promise<void> {
   const runtime = await resolveToolAwareRuntime({ prepared });
   const messages = await buildToolAwareMessages({ input, prepared });
-  const result = await callOpenAICompatibleModel({
-    runtime,
-    model: prepared.model,
-    messages,
-    tools: input.tools,
-    toolChoice: input.toolChoice,
+  const result = await callWithProviderFallback({
+    primaryRuntime: runtime,
+    primaryModel: prepared.model,
+    chain: loadFallbackChainFromEnv(),
+    invoke: (activeRuntime, activeModel) =>
+      callOpenAICompatibleModel({
+        runtime: activeRuntime,
+        model: activeModel,
+        messages,
+        tools: input.tools,
+        toolChoice: input.toolChoice,
+      }),
   });
   const choice = result.choices[0];
   const payload = buildOpenAICompatibleCompletionResponse({
@@ -478,6 +527,7 @@ async function handleOpenAICompatibleToolChat(
     tokenUsage: mapOpenAICompatibleUsageToTokenStats(result.usage),
   });
   res.writeHead(200, {
+    ...traceHeaders,
     'Content-Type': 'application/json; charset=utf-8',
   });
   res.end(JSON.stringify(payload, null, 2));
@@ -491,6 +541,7 @@ async function handleOpenAICompatibleStreamingChat(
   includeUsage: boolean,
   completionId: string,
   created: number,
+  traceHeaders: Record<string, string>,
 ): Promise<void> {
   const abortController = new AbortController();
   const abortStreaming = (): void => {
@@ -501,6 +552,7 @@ async function handleOpenAICompatibleStreamingChat(
   req.on('close', abortStreaming);
 
   res.writeHead(200, {
+    ...traceHeaders,
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
@@ -616,6 +668,7 @@ async function handleOpenAICompatibleStreamingToolChat(
   includeUsage: boolean,
   completionId: string,
   created: number,
+  traceHeaders: Record<string, string>,
 ): Promise<void> {
   const abortController = new AbortController();
   const abortStreaming = (): void => {
@@ -626,6 +679,7 @@ async function handleOpenAICompatibleStreamingToolChat(
   req.on('close', abortStreaming);
 
   res.writeHead(200, {
+    ...traceHeaders,
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
@@ -649,24 +703,38 @@ async function handleOpenAICompatibleStreamingToolChat(
   try {
     const runtime = await resolveToolAwareRuntime({ prepared });
     const messages = await buildToolAwareMessages({ input, prepared });
-    const result = await callOpenAICompatibleModelStream({
-      runtime,
-      model: prepared.model,
-      messages,
-      tools: input.tools,
-      toolChoice: input.toolChoice,
-      onTextDelta: (delta) => {
-        if (!isResponseWritable(res) || !delta) return;
-        writeOpenAICompatibleStreamChunk(
-          res,
-          buildOpenAICompatibleStreamTextChunk({
-            completionId,
-            created,
-            model: prepared.responseModel,
-            content: delta,
-          }),
-        );
-      },
+    let streamStarted = false;
+    const result = await callWithProviderFallback({
+      primaryRuntime: runtime,
+      primaryModel: prepared.model,
+      chain: loadFallbackChainFromEnv(),
+      // Once the SSE stream has emitted bytes we cannot safely switch
+      // providers — a fallback would duplicate or interleave content. Suppress
+      // further retries so the original provider error propagates instead of a
+      // generic "Stream already started" placeholder.
+      shouldFallback: () => !streamStarted,
+      invoke: (activeRuntime, activeModel) =>
+        callOpenAICompatibleModelStream({
+          runtime: activeRuntime,
+          model: activeModel,
+          messages,
+          tools: input.tools,
+          toolChoice: input.toolChoice,
+          onTextDelta: (delta) => {
+            if (!delta) return;
+            streamStarted = true;
+            if (!isResponseWritable(res)) return;
+            writeOpenAICompatibleStreamChunk(
+              res,
+              buildOpenAICompatibleStreamTextChunk({
+                completionId,
+                created,
+                model: prepared.responseModel,
+                content: delta,
+              }),
+            );
+          },
+        }),
     });
     if (!isResponseWritable(res)) return;
     const choice = result.choices[0];
@@ -717,6 +785,7 @@ export async function handleOpenAICompatibleChatCompletions(
   try {
     const input = await readOpenAICompatibleChatRequest(req);
     const prepared = prepareOpenAICompatibleRequest(input);
+    const traceHeaders = buildOpenAICompatibleTraceHeaders(prepared);
     const executionSession = input.usesClientTools
       ? null
       : acquireOpenAIExecutionSession({ input, prepared });
@@ -734,6 +803,7 @@ export async function handleOpenAICompatibleChatCompletions(
             input.includeUsage,
             completionId,
             created,
+            traceHeaders,
           );
           return;
         }
@@ -743,6 +813,7 @@ export async function handleOpenAICompatibleChatCompletions(
           prepared,
           completionId,
           created,
+          traceHeaders,
         );
         return;
       }
@@ -761,6 +832,7 @@ export async function handleOpenAICompatibleChatCompletions(
           input.includeUsage,
           completionId,
           created,
+          traceHeaders,
         );
         return;
       }
@@ -771,6 +843,7 @@ export async function handleOpenAICompatibleChatCompletions(
         prepared.responseModel,
         completionId,
         created,
+        traceHeaders,
       );
     } finally {
       executionSession?.release();

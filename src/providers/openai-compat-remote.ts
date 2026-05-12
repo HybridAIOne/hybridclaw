@@ -66,6 +66,7 @@ export function createOpenAICompatRemoteProvider(
     const agentId = normalizeAgentId(params.agentId);
     return {
       provider: def.id,
+      model: params.model,
       apiKey: def.readApiKey({ required: true }),
       baseUrl: normalizeBaseUrl(def.readBaseUrl()),
       chatbotId: '',

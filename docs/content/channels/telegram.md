@@ -138,7 +138,7 @@ hybridclaw gateway status
 ```
 
 If the gateway is already running and you have the admin UI open, you can also
-go to `/admin/gateway` and click `Restart Gateway`.
+go to `/admin/gateway` and click `Reload Gateway`.
 
 If the gateway is already running, Telegram config changes usually hot-reload
 within a few seconds. If you see a log line like:

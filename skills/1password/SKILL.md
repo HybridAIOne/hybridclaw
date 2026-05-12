@@ -11,7 +11,7 @@ metadata:
       - enterprise
       - 1password
     install:
-      - id: brew
+      - id: op
         kind: brew
         formula: 1password-cli
         bins: ["op"]
@@ -29,7 +29,7 @@ Use this skill for host-side secret workflows with 1Password CLI.
    ```
 2. If it is missing, tell the user to run:
    ```bash
-   hybridclaw skill install 1password brew
+   hybridclaw skill install 1password op
    ```
    or install it manually.
 3. Verify sign-in state:

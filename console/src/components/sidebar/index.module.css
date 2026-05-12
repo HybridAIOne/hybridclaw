@@ -12,7 +12,10 @@
   top: 0;
   z-index: 30;
   display: grid;
+  /* Prevents full-width children from widening the column past the collapsed rail. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
+  flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);
   height: 100vh;
   border-right: 1px solid var(--sidebar-border);
@@ -22,6 +25,12 @@
     width 180ms ease,
     transform 180ms ease;
   overflow: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
 }
 
 .header,
@@ -172,29 +181,49 @@
   color: var(--accent-foreground);
 }
 
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.sidebarToggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.sidebarToggle svg {
+  width: 16px;
+  height: 16px;
+}
+
 .brand {
   display: grid;
   padding: 2px 6px;
+  min-width: 0;
 }
 
 .brandTitle {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-height: 34px;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
 }
 
 .brandText {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
-  padding-top: 1px;
 }
 
 .brandTitle h1 {
   margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 1.125rem;
+  font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.1;
 }
@@ -211,8 +240,8 @@
 }
 
 .brandMark {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   color: var(--accent-foreground);
 }
@@ -226,8 +255,8 @@
 }
 
 .brandMark svg {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
 }
 
 .menuIcon svg,
@@ -305,6 +334,7 @@
 /* Collapsed desktop state — placed after base selectors for specificity */
 
 .root[data-state="collapsed"] {
+  flex: 0 0 var(--sidebar-width-icon);
   width: var(--sidebar-width-icon);
   overflow: hidden;
 }
@@ -315,6 +345,14 @@
 .root[data-state="collapsed"] .footerDivider,
 .root[data-state="collapsed"] .footerButton span:not(.icon),
 .root[data-state="collapsed"] .themeToggleLabel {
+  display: none;
+}
+
+.root[data-state="collapsed"] .headerRow {
+  justify-content: center;
+}
+
+.root[data-state="collapsed"] .brand {
   display: none;
 }
 
