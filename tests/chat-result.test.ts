@@ -40,6 +40,26 @@ describe('normalizePlaceholderToolReply', () => {
     });
   });
 
+  test('normalizes legacy image analysis tool executions', () => {
+    const result = makeResult({
+      toolExecutions: [
+        {
+          name: 'image',
+          arguments: '{"file_path":"/tmp/image.jpg"}',
+          result: JSON.stringify({
+            success: true,
+            analysis: 'A basil plant in a terracotta pot.',
+          }),
+          durationMs: 43800,
+        },
+      ],
+    });
+
+    expect(normalizePlaceholderToolReply(result)).toMatchObject({
+      result: 'A basil plant in a terracotta pot.',
+    });
+  });
+
   test('leaves non-placeholder replies unchanged', () => {
     const result = makeResult({
       result: 'Direct model answer',

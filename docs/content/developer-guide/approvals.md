@@ -101,7 +101,7 @@ Two important transitions:
 | --- | --- | --- | --- |
 | Read-only file and session tools | Green | `read`, `glob`, `grep`, `session_search` | No side effects |
 | Read-only channel actions | Green | `message read`, `message member-info`, `message channel-info` | Channel lookup only |
-| Image analysis | Green | `vision_analyze`, `image` | Read-only image inspection |
+| Image analysis | Green | `vision_analyze` | Read-only image inspection |
 | Read-like MCP tools | Green | MCP tools classified as `read`, `search`, or `fetch` | Classified by MCP tool name |
 | Delegation | Green | `delegate` | Internal orchestration only; child tool calls are classified independently |
 | Policy-allowlisted external hosts | Green | `web_fetch`, `web_extract`, `http_request`, `browser_navigate`, `curl`, `wget`, or `web_search` targets matching an allow rule | Rules are evaluated in order; first match wins |

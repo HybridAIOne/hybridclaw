@@ -272,4 +272,81 @@ describe('image_generate tool', () => {
     expect(result.isError).toBe(true);
     expect(result.output).toContain('remote reference image URL is blocked');
   });
+
+  test('rejects provider image URLs that target private hosts', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [{ url: 'https://127.0.0.1/private.png' }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setModelContext } = await loadTools();
+    setModelContext(
+      'openai-codex',
+      undefined,
+      'https://api.openai.test/v1',
+      'test-key',
+      'openai-codex/gpt-image-1',
+      '',
+      {},
+    );
+
+    const result = await executeToolWithMetadata(
+      'image_generate',
+      JSON.stringify({ prompt: 'a clean product icon' }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'provider image URL blocked: private or loopback host',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('rejects oversized provider image downloads before persisting', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ url: 'https://93.184.216.34/image.png' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response('', {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+            'content-length': String(21 * 1024 * 1024),
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setModelContext } = await loadTools();
+    setModelContext(
+      'openai-codex',
+      undefined,
+      'https://api.openai.test/v1',
+      'test-key',
+      'openai-codex/gpt-image-1',
+      '',
+      {},
+    );
+
+    const result = await executeToolWithMetadata(
+      'image_generate',
+      JSON.stringify({ prompt: 'a clean product icon' }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('generated image exceeds max size');
+    expect(
+      fs.existsSync(path.join(workspaceRoot, '.generated-images')),
+    ).toBe(false);
+  });
 });

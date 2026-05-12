@@ -205,7 +205,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.91 | Skill | Searxng-search skill — privacy-respecting metasearch across configurable engines. | ⬜ To be filed |
 | R21.92 | Skill | Hyperframes / website-to-video creative pipeline. Fills the gap between R21.43 social-first ideation and R21.44 photo/video planning. | ⬜ To be filed |
 | R21.93 | Skill | Serial / IoT hardware skill targeting RISC-V / ARM microcontrollers. Possible R32 sibling for embedded ops. | ⬜ To be filed |
-| R21.94 | Tool | Native `video_analyze` tool via multimodal LLM — sibling to `image_analyze`. Tool primitive, not a skill. | ⬜ To be filed |
+| R21.94 | Tool | Native `video_analyze` tool via multimodal LLM — sibling to `vision_analyze`. Tool primitive, not a skill. | ⬜ To be filed |
 
 ## R1 Messaging Work
 

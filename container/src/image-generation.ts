@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { RuntimeProvider } from './providers/provider-ids.js';
@@ -59,7 +61,10 @@ interface GeneratedImageBuffer {
 
 const OUTPUT_DIR = '.generated-images';
 const MAX_REFERENCE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_GENERATED_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_GENERATED_TOTAL_BYTES = 64 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
+const PROVIDER_API_TIMEOUT_MS = 60_000;
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_GEMINI_BASE_URL =
   'https://generativelanguage.googleapis.com/v1beta';
@@ -172,6 +177,134 @@ function extensionFromMimeType(mimeType: string): string {
   if (normalized === 'image/webp') return '.webp';
   if (normalized === 'image/gif') return '.gif';
   return '.png';
+}
+
+function normalizeHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized.startsWith('[') && normalized.endsWith(']')) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)
+  ) {
+    return false;
+  }
+
+  const [a, b] = parts;
+  if (a === 0) return true;
+  if (a === 10 || a === 127) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a >= 224) return true;
+  return false;
+}
+
+function decodeIpv4MappedIpv6Tail(value: string): string | null {
+  if (net.isIP(value) === 4) return value;
+
+  const parts = value.split(':');
+  if (parts.length !== 2) return null;
+
+  const words = parts.map((part) => Number.parseInt(part, 16));
+  if (
+    words.some(
+      (word, index) =>
+        !/^[0-9a-f]{1,4}$/i.test(parts[index] ?? '') ||
+        Number.isNaN(word) ||
+        word < 0 ||
+        word > 0xffff,
+    )
+  ) {
+    return null;
+  }
+
+  return [
+    (words[0] >> 8) & 0xff,
+    words[0] & 0xff,
+    (words[1] >> 8) & 0xff,
+    words[1] & 0xff,
+  ].join('.');
+}
+
+function isPrivateIpv6(ip: string): boolean {
+  const lower = (ip.split('%')[0] ?? '').toLowerCase();
+  if (lower === '::') return true;
+  if (lower === '::1') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  if (/^fe[89ab]/.test(lower)) return true;
+  if (lower.startsWith('::ffff:')) {
+    const mapped = decodeIpv4MappedIpv6Tail(lower.slice('::ffff:'.length));
+    return mapped ? isPrivateIpv4(mapped) : false;
+  }
+  return false;
+}
+
+function isPrivateIp(ip: string): boolean {
+  const normalized = normalizeHostname(ip);
+  const version = net.isIP(normalized);
+  if (version === 4) return isPrivateIpv4(normalized);
+  if (version === 6) return isPrivateIpv6(normalized);
+  return false;
+}
+
+async function assertPublicHttpsProviderImageUrl(rawUrl: string): Promise<URL> {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    throw new Error('provider image URL is invalid');
+  }
+  if (parsedUrl.protocol !== 'https:') {
+    throw new Error('provider image URL must use https');
+  }
+  if (parsedUrl.username || parsedUrl.password) {
+    throw new Error('provider image URL must not include credentials');
+  }
+
+  const host = normalizeHostname(parsedUrl.hostname);
+  if (
+    !host ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local')
+  ) {
+    throw new Error(`provider image URL blocked: private or loopback host (${host})`);
+  }
+  if (net.isIP(host) > 0) {
+    if (isPrivateIp(host)) {
+      throw new Error(
+        `provider image URL blocked: private or loopback host (${host})`,
+      );
+    }
+    return parsedUrl;
+  }
+
+  try {
+    const resolved = await lookup(host, { all: true, verbatim: true });
+    if (resolved.length === 0) {
+      throw new Error(`provider image URL blocked: DNS lookup failed (${host})`);
+    }
+    if (resolved.some((entry) => isPrivateIp(entry.address))) {
+      throw new Error(
+        `provider image URL blocked: private or loopback host (${host})`,
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('provider image URL blocked:')) {
+      throw error;
+    }
+    throw new Error(`provider image URL blocked: DNS lookup failed (${host})`);
+  }
+
+  return parsedUrl;
 }
 
 function normalizeLocalReferencePath(rawPath: string): string | null {
@@ -469,16 +602,29 @@ async function fetchJson(
   url: string,
   init: RequestInit,
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(url, init);
-  const rawText = await response.text();
-  if (!response.ok) throw new ProviderRequestError(response.status, rawText);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
   try {
-    const parsed = JSON.parse(rawText) as unknown;
-    if (isRecord(parsed)) return parsed;
-  } catch {
-    // Fall through to structured error below.
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const rawText = await response.text();
+    if (!response.ok) throw new ProviderRequestError(response.status, rawText);
+    try {
+      const parsed = JSON.parse(rawText) as unknown;
+      if (isRecord(parsed)) return parsed;
+    } catch {
+      // Fall through to structured error below.
+    }
+    throw new Error('provider returned invalid JSON');
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(
+        `provider API request timed out after ${PROVIDER_API_TIMEOUT_MS}ms`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  throw new Error('provider returned invalid JSON');
 }
 
 function authJsonHeaders(candidate: ProviderCandidate): Record<string, string> {
@@ -523,17 +669,106 @@ function readRevisedPrompt(value: unknown): string | undefined {
 }
 
 async function fetchProviderImageUrl(rawUrl: string): Promise<Buffer> {
+  const safeUrl = await assertPublicHttpsProviderImageUrl(rawUrl);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(rawUrl, { signal: controller.signal });
+    const response = await fetch(safeUrl, {
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error('provider image redirects are blocked');
+    }
     if (!response.ok) {
       throw new Error(`provider image download failed (${response.status})`);
     }
-    return Buffer.from(await response.arrayBuffer());
+    return await readLimitedImageResponseBuffer(response);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(
+        `provider image download timed out after ${FETCH_TIMEOUT_MS}ms`,
+      );
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function readLimitedImageResponseBuffer(response: Response): Promise<Buffer> {
+  const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+  if (contentType && !contentType.startsWith('image/')) {
+    throw new Error(`provider image URL is not an image (${contentType})`);
+  }
+
+  const contentLength = Number.parseInt(
+    response.headers.get('content-length') || '',
+    10,
+  );
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_GENERATED_IMAGE_BYTES
+  ) {
+    throw new Error(
+      `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
+    );
+  }
+
+  const body = response.body;
+  if (body && typeof body === 'object' && 'getReader' in body) {
+    const reader = (body as ReadableStream<Uint8Array>).getReader();
+    const chunks: Uint8Array[] = [];
+    let bytesRead = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value || value.byteLength === 0) continue;
+        bytesRead += value.byteLength;
+        if (bytesRead > MAX_GENERATED_IMAGE_BYTES) {
+          throw new Error(
+            `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
+          );
+        }
+        chunks.push(value);
+      }
+    } finally {
+      if (bytesRead > MAX_GENERATED_IMAGE_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore cancellation failures after enforcing the byte cap.
+        }
+      }
+    }
+    return Buffer.concat(chunks, bytesRead);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  assertGeneratedImageSize(buffer);
+  return buffer;
+}
+
+function assertGeneratedImageSize(buffer: Buffer): void {
+  if (buffer.length > MAX_GENERATED_IMAGE_BYTES) {
+    throw new Error(
+      `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
+    );
+  }
+}
+
+function decodeGeneratedImageBase64(value: string): Buffer {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  const estimatedBytes = Math.floor((value.length * 3) / 4) - padding;
+  if (estimatedBytes > MAX_GENERATED_IMAGE_BYTES) {
+    throw new Error(
+      `generated image exceeds max size (${MAX_GENERATED_IMAGE_BYTES} bytes)`,
+    );
+  }
+  const buffer = Buffer.from(value, 'base64');
+  assertGeneratedImageSize(buffer);
+  return buffer;
 }
 
 async function parseOpenAIStyleImageResponse(
@@ -544,7 +779,7 @@ async function parseOpenAIStyleImageResponse(
   const revisedPrompt = readRevisedPrompt(payload);
   if (base64Images.length > 0) {
     return base64Images.map((b64) => ({
-      buffer: Buffer.from(b64, 'base64'),
+      buffer: decodeGeneratedImageBase64(b64),
       mimeType,
       ...(revisedPrompt ? { revisedPrompt } : {}),
     }));
@@ -658,7 +893,7 @@ async function generateWithGemini(
       const data = readStringValue(part.inlineData.data);
       const mimeType = readStringValue(part.inlineData.mimeType) || 'image/png';
       if (!data) continue;
-      images.push({ buffer: Buffer.from(data, 'base64'), mimeType });
+      images.push({ buffer: decodeGeneratedImageBase64(data), mimeType });
     }
   }
   if (images.length > 0) return images;
@@ -680,6 +915,7 @@ function persistImages(
   images: GeneratedImageBuffer[],
   provider: ProviderCandidate,
 ): Array<Record<string, unknown>> {
+  validateGeneratedImageSizes(images);
   const outputRoot = path.join(WORKSPACE_ROOT, OUTPUT_DIR);
   fs.mkdirSync(outputRoot, { recursive: true });
   return images.map((image, index) => {
@@ -699,6 +935,19 @@ function persistImages(
       ...(image.metadata ? { metadata: image.metadata } : {}),
     };
   });
+}
+
+function validateGeneratedImageSizes(images: GeneratedImageBuffer[]): void {
+  let totalBytes = 0;
+  for (const image of images) {
+    assertGeneratedImageSize(image.buffer);
+    totalBytes += image.buffer.length;
+    if (totalBytes > MAX_GENERATED_TOTAL_BYTES) {
+      throw new Error(
+        `generated images exceed max total size (${MAX_GENERATED_TOTAL_BYTES} bytes)`,
+      );
+    }
+  }
 }
 
 function sanitizeProviderError(error: unknown): string {
