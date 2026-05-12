@@ -779,8 +779,9 @@ export function SkillsPage() {
       <div className="metric-grid">
         <MetricCard
           label="Installed skills"
-          value={String(skillsQuery.data?.skills.length || 0)}
-          detail={`${skillsQuery.data?.disabled.length || 0} disabled`}
+          value={String(skillsQuery.data?.skills.length ?? 0)}
+          detail={`${skillsQuery.data?.disabled.length ?? 0} disabled`}
+          loading={!skillsQuery.data}
         />
         <MetricCard
           label="Observed skills"

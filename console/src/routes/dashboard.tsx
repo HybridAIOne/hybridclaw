@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { fetchOverview, reconnectTunnel } from '../api/client';
+import { fetchOverview, fetchStatistics, reconnectTunnel } from '../api/client';
 import type { AdminOverview, AdminTunnelStatus } from '../api/types';
 import { useAuth } from '../auth';
 import { ProviderHealthPanel } from '../components/provider-health';
@@ -11,16 +11,13 @@ import {
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
+import { UsageRollup } from '../components/usage-rollup';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import {
-  formatCompactNumber,
   formatDateTime,
   formatRelativeTime,
-  formatTokenBreakdown,
   formatUptime,
-  formatUsd,
-  pluralize,
 } from '../lib/format';
 import { compareDateTime, compareNumber, compareText } from '../lib/sort';
 
@@ -60,6 +57,21 @@ const RECENT_SESSION_DEFAULT_DIRECTIONS = {
   tasks: 'desc',
   lastActive: 'desc',
 } as const;
+
+const TREND_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  // Trend buckets come from the statistics API as UTC `YYYY-MM-DD`. Format
+  // them in UTC so a west-of-UTC user doesn't see the bucket shift one day
+  // earlier (midnight UTC is the previous local day).
+  timeZone: 'UTC',
+});
+
+function formatTrendDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  if (!year || !month || !day) return isoDate;
+  return TREND_DATE_FORMAT.format(new Date(Date.UTC(year, month - 1, day)));
+}
 
 function tunnelStatusClass(health: AdminTunnelStatus['health']): string {
   if (health === 'healthy') return 'list-status list-status-success';
@@ -157,6 +169,11 @@ export function DashboardPage() {
     queryKey: ['overview', auth.token],
     queryFn: () => fetchOverview(auth.token),
     refetchInterval: 30_000,
+  });
+  const usageTrendQuery = useQuery({
+    queryKey: ['usage-trend', auth.token, 30],
+    queryFn: () => fetchStatistics(auth.token, 30),
+    staleTime: 60_000,
   });
   const reconnectMutation = useMutation({
     mutationFn: () => reconnectTunnel(auth.token),
@@ -258,64 +275,12 @@ export function DashboardPage() {
       </div>
 
       <div className="two-column-grid">
-        <Panel title="Usage rollup" accent="warm">
-          <div className="usage-grid">
-            <div className="usage-stack">
-              <span>Daily</span>
-              <strong>
-                {formatCompactNumber(overview.usage.daily.totalTokens)}
-              </strong>
-              <small>
-                {formatTokenBreakdown({
-                  inputTokens: overview.usage.daily.totalInputTokens ?? 0,
-                  outputTokens: overview.usage.daily.totalOutputTokens ?? 0,
-                })}
-              </small>
-              <small>
-                {formatUsd(overview.usage.daily.totalCostUsd)} across{' '}
-                {pluralize(overview.usage.daily.callCount, 'call')}
-              </small>
-            </div>
-            <div className="usage-stack">
-              <span>Monthly</span>
-              <strong>
-                {formatCompactNumber(overview.usage.monthly.totalTokens)}
-              </strong>
-              <small>
-                {formatTokenBreakdown({
-                  inputTokens: overview.usage.monthly.totalInputTokens ?? 0,
-                  outputTokens: overview.usage.monthly.totalOutputTokens ?? 0,
-                })}
-              </small>
-              <small>
-                {formatUsd(overview.usage.monthly.totalCostUsd)} across{' '}
-                {pluralize(overview.usage.monthly.callCount, 'call')}
-              </small>
-            </div>
-          </div>
-          <div className="list-stack">
-            {overview.usage.topModels.length === 0 ? (
-              <p className="supporting-text">
-                No model usage has been recorded yet.
-              </p>
-            ) : (
-              overview.usage.topModels.map((row) => (
-                <div className="list-row" key={row.model}>
-                  <div>
-                    <strong>{row.model}</strong>
-                    <small>
-                      {formatTokenBreakdown({
-                        inputTokens: row.totalInputTokens ?? 0,
-                        outputTokens: row.totalOutputTokens ?? 0,
-                      })}{' '}
-                      · {pluralize(row.callCount, 'call')} this month
-                    </small>
-                  </div>
-                  <span>{formatUsd(row.totalCostUsd)}</span>
-                </div>
-              ))
-            )}
-          </div>
+        <Panel title="Usage">
+          <UsageRollup
+            usage={overview.usage}
+            trend={usageTrendQuery.data?.trend ?? null}
+            formatTrendDate={formatTrendDate}
+          />
         </Panel>
 
         <ProviderHealthPanel
