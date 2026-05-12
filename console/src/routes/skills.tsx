@@ -393,6 +393,8 @@ export function SkillsPage() {
       skill.description,
       skill.shortDescription || '',
       skill.source,
+      skill.blocked ? 'blocked' : '',
+      skill.blockedReason || '',
       ...(skill.tags || []),
       ...(skill.relatedSkills || []),
     ]
@@ -450,6 +452,8 @@ export function SkillsPage() {
   const degradedSkillCount = healthMetrics.filter(
     (metrics) => metrics.degraded,
   ).length;
+  const blockedSkillCount =
+    skillsQuery.data?.skills.filter((skill) => skill.blocked).length || 0;
   const historyEntries = historyQuery.data?.amendments || [];
 
   return (
@@ -780,7 +784,9 @@ export function SkillsPage() {
         <MetricCard
           label="Installed skills"
           value={String(skillsQuery.data?.skills.length ?? 0)}
-          detail={`${skillsQuery.data?.disabled.length ?? 0} disabled`}
+          detail={`${skillsQuery.data?.disabled.length ?? 0} disabled${
+            blockedSkillCount > 0 ? ` · ${blockedSkillCount} blocked` : ''
+          }`}
           loading={!skillsQuery.data}
         />
         <MetricCard
@@ -859,6 +865,7 @@ export function SkillsPage() {
                   const displayDescription =
                     skill.shortDescription?.trim() ||
                     abbreviateDescription(skill.description);
+                  const firstGuardFinding = skill.guardFindings?.[0];
                   return (
                     <tr key={skill.name}>
                       <td>
@@ -870,6 +877,13 @@ export function SkillsPage() {
                           {skill.name}
                         </button>
                         <small>{displayDescription}</small>
+                        {skill.blocked && firstGuardFinding ? (
+                          <small className="row-status-note-danger">
+                            {firstGuardFinding.severity}/
+                            {firstGuardFinding.category}:{' '}
+                            {firstGuardFinding.description}
+                          </small>
+                        ) : null}
                       </td>
                       <td>{skill.category}</td>
                       <td>{skill.source}</td>
@@ -902,13 +916,17 @@ export function SkillsPage() {
                             ariaLabel={`${skill.name} status`}
                             size="sm"
                             disabled={
+                              skill.blocked ||
                               toggleMutation.isPending ||
                               (!skill.available && !skill.enabled)
                             }
                             trueLabel="active"
                             falseLabel="inactive"
                             onChange={(enabled) => {
-                              if (enabled && !skill.available) {
+                              if (
+                                skill.blocked ||
+                                (enabled && !skill.available)
+                              ) {
                                 return;
                               }
                               toggleMutation.mutate({
@@ -917,7 +935,11 @@ export function SkillsPage() {
                               });
                             }}
                           />
-                          {!skill.available ? (
+                          {skill.blocked ? (
+                            <small className="row-status-note-danger">
+                              blocked: {skill.blockedReason || 'guarded'}
+                            </small>
+                          ) : !skill.available ? (
                             <small className="row-status-note-danger">
                               {skill.missing.join(', ') ||
                                 'missing requirements'}

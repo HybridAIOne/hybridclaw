@@ -325,10 +325,16 @@ import {
   getObservedAgentSkillCount,
 } from '../skills/agent-scoreboard.js';
 import {
+  type BlockedSkillCatalogEntry,
   loadSkillCatalog,
+  loadSkillCatalogs,
   resolveManagedCommunitySkillsDir,
+  type SkillCatalogEntry,
 } from '../skills/skills.js';
-import { guardSkillDirectory } from '../skills/skills-guard.js';
+import {
+  guardSkillDirectory,
+  type SkillGuardFinding,
+} from '../skills/skills-guard.js';
 import type { ChatMessage } from '../types/api.js';
 import type { StructuredAuditEntry } from '../types/audit.js';
 import type { MediaContextItem } from '../types/container.js';
@@ -462,6 +468,7 @@ import {
   type GatewayAdminPolicyRule,
   type GatewayAdminPolicyState,
   type GatewayAdminSession,
+  type GatewayAdminSkill,
   type GatewayAdminSkillsResponse,
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
@@ -5624,8 +5631,56 @@ export function applyGatewayAdminPolicyPreset(input: {
   }
 }
 
+function mapGatewayAdminSkillBase(
+  skill: SkillCatalogEntry | BlockedSkillCatalogEntry,
+): Omit<
+  GatewayAdminSkill,
+  | 'available'
+  | 'enabled'
+  | 'missing'
+  | 'blocked'
+  | 'blockedReason'
+  | 'guardFindings'
+> {
+  return {
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    shortDescription: skill.metadata.hybridclaw.shortDescription,
+    source: String(skill.source),
+    userInvocable: skill.userInvocable,
+    disableModelInvocation: skill.disableModelInvocation,
+    always: skill.always,
+    tags: skill.metadata.hybridclaw.tags,
+    relatedSkills: skill.metadata.hybridclaw.relatedSkills,
+    credentials: skill.manifest.credentials,
+  };
+}
+
+function sanitizeGatewayAdminSkillGuardFindings(
+  findings: SkillGuardFinding[],
+): NonNullable<GatewayAdminSkill['guardFindings']> {
+  return findings.map(({ match: _match, ...finding }) => finding);
+}
+
 export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
   const runtimeConfig = getRuntimeConfig();
+  const catalog = loadSkillCatalogs();
+  const availableSkills = catalog.available.map((skill) => ({
+    ...mapGatewayAdminSkillBase(skill),
+    available: skill.available,
+    enabled: skill.enabled,
+    missing: skill.missing,
+  }));
+  const blockedSkills = catalog.blocked.map((skill) => ({
+    ...mapGatewayAdminSkillBase(skill),
+    available: false,
+    enabled: false,
+    blocked: true,
+    blockedReason: skill.blockedReason,
+    guardFindings: sanitizeGatewayAdminSkillGuardFindings(skill.guardFindings),
+    missing: [skill.blockedReason],
+  }));
   return {
     extraDirs: runtimeConfig.skills.extraDirs,
     disabled: dedupeStrings(runtimeConfig.skills.disabled).sort((a, b) =>
@@ -5634,22 +5689,10 @@ export function getGatewayAdminSkills(): GatewayAdminSkillsResponse {
     channelDisabled: getAdminChannelDisabledSkills(
       runtimeConfig.skills.channelDisabled,
     ),
-    skills: loadSkillCatalog().map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      category: skill.category,
-      shortDescription: skill.metadata.hybridclaw.shortDescription,
-      source: String(skill.source),
-      available: skill.available,
-      enabled: skill.enabled,
-      missing: skill.missing,
-      userInvocable: skill.userInvocable,
-      disableModelInvocation: skill.disableModelInvocation,
-      always: skill.always,
-      tags: skill.metadata.hybridclaw.tags,
-      relatedSkills: skill.metadata.hybridclaw.relatedSkills,
-      credentials: skill.manifest.credentials,
-    })),
+    skills: [...availableSkills, ...blockedSkills].sort((left, right) => {
+      const categoryCompare = left.category.localeCompare(right.category);
+      return categoryCompare || left.name.localeCompare(right.name);
+    }),
   };
 }
 

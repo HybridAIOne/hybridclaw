@@ -14,11 +14,16 @@ import {
 import { parseSkillImportArgs } from '../skills/skill-import-args.js';
 import { buildGuardWarningLines } from '../skills/skill-import-warnings.js';
 import { resolveSkillInstallMode } from '../skills/skill-install-mode.js';
+import { isThirdPartySkillSource } from '../skills/skills.js';
+import type {
+  BlockedSkillCatalogSummaryEntry,
+  SkillCatalogInstallEntry,
+  SkillCatalogSummaryEntry,
+} from '../skills/skills-management.js';
 import type { GatewayCommandResult } from './gateway-types.js';
 
 const SKILL_COMMAND_USAGE =
-  'Usage: `skill list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
-const SKILL_LIST_LINE_MAX_CHARS = 113;
+  'Usage: `skill list [blocked]|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <source>|install <skill> <dependency>|upgrade <source>|uninstall <name>|revisions <name>|rollback <name> <revision-id>|setup <skill>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>`';
 
 interface SkillCommandContext {
   args: string[];
@@ -38,12 +43,7 @@ function isLocalSession(context: SkillCommandContext): boolean {
 }
 
 function hasExternalSkillSourceLabel(source: string): boolean {
-  return (
-    source === 'codex' ||
-    source === 'claude' ||
-    source === 'agents-personal' ||
-    source === 'agents-project'
-  );
+  return isThirdPartySkillSource(source);
 }
 
 function formatSkillCategoryLabel(category: string): string {
@@ -56,20 +56,93 @@ function formatSkillCategoryLabel(category: string): string {
     .join(' ');
 }
 
-function truncateSkillListDescription(
-  prefix: string,
-  description: string,
-  maxChars = SKILL_LIST_LINE_MAX_CHARS,
+function appendSkillListCategory(
+  lines: string[],
+  currentCategory: string,
+  category: string,
 ): string {
-  const normalized = String(description || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!normalized) return '';
-  const available = maxChars - prefix.length - 3;
-  if (available <= 0) return '';
-  if (normalized.length <= available) return normalized;
-  if (available <= 3) return '.'.repeat(available);
-  return `${normalized.slice(0, available - 3).trimEnd()}...`;
+  if (category === currentCategory) return currentCategory;
+  if (currentCategory) lines.push('');
+  lines.push(`${category}:`);
+  return category;
+}
+
+function formatSkillInstallLines(
+  installs: SkillCatalogInstallEntry[],
+): string[] {
+  if (installs.length === 0) return [];
+  const installSummary = installs
+    .map((install) => {
+      const label = install.label ? ` — ${install.label}` : '';
+      return `${install.id} (${install.kind})${label}`;
+    })
+    .join('; ');
+  return [`    installs: ${installSummary}`];
+}
+
+function renderSkillCatalogList(catalog: SkillCatalogSummaryEntry[]): {
+  lines: string[];
+  hasExternalSourceLabels: boolean;
+} {
+  const lines: string[] = [];
+  let hasExternalSourceLabels = false;
+  let currentCategory = '';
+
+  for (const skill of catalog) {
+    currentCategory = appendSkillListCategory(
+      lines,
+      currentCategory,
+      formatSkillCategoryLabel(skill.category),
+    );
+    const externalSourceMarker = hasExternalSkillSourceLabel(skill.source)
+      ? '*'
+      : '';
+    if (externalSourceMarker) hasExternalSourceLabels = true;
+    const availability = skill.available
+      ? skill.enabled
+        ? 'available'
+        : 'disabled'
+      : skill.missing.join(', ');
+    lines.push(`  ${skill.name}${externalSourceMarker} [${availability}]`);
+    lines.push(...formatSkillInstallLines(skill.installs));
+  }
+
+  return { lines, hasExternalSourceLabels };
+}
+
+function renderBlockedSkillCatalogList(
+  catalog: BlockedSkillCatalogSummaryEntry[],
+): {
+  lines: string[];
+  hasExternalSourceLabels: boolean;
+} {
+  const lines: string[] = [];
+  let hasExternalSourceLabels = false;
+  let currentCategory = '';
+
+  for (const skill of catalog) {
+    currentCategory = appendSkillListCategory(
+      lines,
+      currentCategory,
+      formatSkillCategoryLabel(skill.category),
+    );
+    const externalSourceMarker = hasExternalSkillSourceLabel(skill.source)
+      ? '*'
+      : '';
+    if (externalSourceMarker) hasExternalSourceLabels = true;
+    lines.push(
+      `  ${skill.name}${externalSourceMarker} [blocked: ${skill.blockedReason}]`,
+    );
+    if (skill.guardFindings.length) {
+      const finding = skill.guardFindings[0];
+      lines.push(
+        `    ${finding.severity}/${finding.category}: ${finding.description} (${finding.file}:${finding.line})`,
+      );
+    }
+    lines.push(...formatSkillInstallLines(skill.installs));
+  }
+
+  return { lines, hasExternalSourceLabels };
 }
 
 export async function handleSkillCommand(
@@ -81,47 +154,29 @@ export async function handleSkillCommand(
   }
 
   if (sub === 'list') {
-    const { listSkillCatalogEntries } = await import(
-      '../skills/skills-management.js'
-    );
+    const listMode = parseLowerArg(context.args, 2);
+    const { listBlockedSkillCatalogEntries, listSkillCatalogEntries } =
+      await import('../skills/skills-management.js');
+    const listBlocked = listMode === 'blocked';
+
+    if (listBlocked) {
+      const catalog = listBlockedSkillCatalogEntries();
+      if (catalog.length === 0) {
+        return context.plainCommand('No blocked skills found.');
+      }
+      const { lines, hasExternalSourceLabels } =
+        renderBlockedSkillCatalogList(catalog);
+      if (hasExternalSourceLabels) {
+        lines.push('', '* external source label, not verified provenance');
+      }
+      return context.infoCommand('Blocked Skills', lines.join('\n'));
+    }
+
     const catalog = listSkillCatalogEntries();
     if (catalog.length === 0) {
       return context.plainCommand('No skills are available.');
     }
-    const lines: string[] = [];
-    let hasExternalSourceLabels = false;
-    let currentCategory = '';
-    for (const skill of catalog) {
-      const category = formatSkillCategoryLabel(skill.category);
-      if (category !== currentCategory) {
-        if (currentCategory) lines.push('');
-        currentCategory = category;
-        lines.push(`${category}:`);
-      }
-      const externalSourceMarker = hasExternalSkillSourceLabel(skill.source)
-        ? '*'
-        : '';
-      if (externalSourceMarker) hasExternalSourceLabels = true;
-      const availability = skill.available
-        ? skill.enabled
-          ? 'available'
-          : 'disabled'
-        : skill.missing.join(', ');
-      const prefix = `  ${skill.name}${externalSourceMarker} [${availability}]`;
-      const listDescription =
-        skill.metadata.hybridclaw.shortDescription || skill.description;
-      const description = truncateSkillListDescription(prefix, listDescription);
-      lines.push(`${prefix}${description ? ` — ${description}` : ''}`);
-      if (skill.installs.length > 0) {
-        const installs = skill.installs
-          .map((install) => {
-            const label = install.label ? ` — ${install.label}` : '';
-            return `${install.id} (${install.kind})${label}`;
-          })
-          .join('; ');
-        lines.push(`    installs: ${installs}`);
-      }
-    }
+    const { lines, hasExternalSourceLabels } = renderSkillCatalogList(catalog);
     if (hasExternalSourceLabels) {
       lines.push('', '* external source label, not verified provenance');
     }

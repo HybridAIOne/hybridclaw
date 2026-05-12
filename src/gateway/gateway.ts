@@ -145,6 +145,7 @@ import {
   startScheduler,
   stopScheduler,
 } from '../scheduler/scheduler.js';
+import { persistThirdPartySkillDiscoveryDefaults } from '../skills/skills.js';
 import {
   type ArtifactMetadata,
   type EscalationTarget,
@@ -3169,6 +3170,14 @@ async function main(): Promise<void> {
   initDatabase();
   listAgents();
   await initGatewayService();
+  try {
+    persistThirdPartySkillDiscoveryDefaults();
+  } catch (error) {
+    logger.warn(
+      { error },
+      'Failed to persist third-party skill discovery defaults during startup',
+    );
+  }
   resumeEnabledFullAutoSessions();
   void runManagedMediaCleanup('startup').catch((error) => {
     logger.warn({ error }, 'Managed media cleanup failed during startup');

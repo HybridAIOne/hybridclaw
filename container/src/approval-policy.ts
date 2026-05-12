@@ -306,6 +306,11 @@ const AGENT_TRUST_STORE_PATH = path.join(
   '.hybridclaw',
   'approval-agent-trust.json',
 );
+const PENDING_APPROVAL_STORE_PATH = path.join(
+  WORKSPACE_ROOT_ACTUAL,
+  '.hybridclaw',
+  'pending-approvals.json',
+);
 const APPROVAL_MODES = ['once', 'session', 'agent', 'all'] as const;
 type ApprovalMode = (typeof APPROVAL_MODES)[number];
 const TRUST_STORE_PATH = path.join(
@@ -1241,6 +1246,12 @@ interface PersistedApprovalTrustStore {
   updatedAt: string;
 }
 
+interface PersistedPendingApprovalStore {
+  version: 1;
+  pending: PendingApproval[];
+  updatedAt: string;
+}
+
 function parsePersistedTrustStore(
   raw: string,
 ): PersistedApprovalTrustStore | null {
@@ -1277,6 +1288,90 @@ function parsePersistedTrustStore(
         typeof record.updatedAt === 'string'
           ? record.updatedAt
           : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parsePersistedPendingApproval(value: unknown): PendingApproval | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  const fingerprint =
+    typeof record.fingerprint === 'string' ? record.fingerprint.trim() : '';
+  const actionKey =
+    typeof record.actionKey === 'string' ? record.actionKey.trim() : '';
+  const toolName =
+    typeof record.toolName === 'string' ? record.toolName.trim() : '';
+  const intent = typeof record.intent === 'string' ? record.intent.trim() : '';
+  const consequenceIfDenied =
+    typeof record.consequenceIfDenied === 'string'
+      ? record.consequenceIfDenied.trim()
+      : '';
+  const reason = typeof record.reason === 'string' ? record.reason.trim() : '';
+  const commandPreview =
+    typeof record.commandPreview === 'string'
+      ? record.commandPreview.trim()
+      : '';
+  const originalPrompt =
+    typeof record.originalPrompt === 'string' ? record.originalPrompt : '';
+  const createdAtMs =
+    typeof record.createdAtMs === 'number' ? record.createdAtMs : NaN;
+  const expiresAtMs =
+    typeof record.expiresAtMs === 'number' ? record.expiresAtMs : NaN;
+
+  if (
+    !id ||
+    !fingerprint ||
+    !actionKey ||
+    !toolName ||
+    !intent ||
+    !consequenceIfDenied ||
+    !reason ||
+    !Number.isFinite(createdAtMs) ||
+    !Number.isFinite(expiresAtMs)
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    fingerprint,
+    actionKey,
+    toolName,
+    intent,
+    consequenceIfDenied,
+    reason,
+    commandPreview,
+    createdAtMs,
+    expiresAtMs,
+    originalPrompt,
+    pinned: record.pinned === true,
+  };
+}
+
+function parsePersistedPendingApprovalStore(
+  raw: string,
+): PersistedPendingApprovalStore | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const pending = Array.isArray(record.pending)
+      ? record.pending
+          .map((entry) => parsePersistedPendingApproval(entry))
+          .filter((entry): entry is PendingApproval => Boolean(entry))
+      : [];
+    return {
+      version: 1,
+      pending,
+      updatedAt:
+        typeof record.updatedAt === 'string'
+          ? record.updatedAt
+          : new Date(0).toISOString(),
     };
   } catch {
     return null;
@@ -1868,6 +1963,7 @@ export class TrustedAgentApprovalRuntime {
   private readonly agentTrustStorePath: string;
   private readonly legacyAgentTrustStorePath: string;
   private readonly trustStorePath: string;
+  private readonly pendingStorePath: string;
   private loadedPolicy: ApprovalPolicyConfig = DEFAULT_POLICY;
   private policyMtimeMs = -1;
   private readonly pending = new Map<string, PendingApproval>();
@@ -1894,11 +1990,13 @@ export class TrustedAgentApprovalRuntime {
     trustStorePath = TRUST_STORE_PATH,
     legacyAgentTrustStorePath = LEGACY_AGENT_TRUST_STORE_PATH,
     stakesClassifier: StakesClassifier = createStakesClassifier(),
+    pendingStorePath = PENDING_APPROVAL_STORE_PATH,
   ) {
     this.policyPath = policyPath;
     this.agentTrustStorePath = agentTrustStorePath;
     this.trustStorePath = trustStorePath;
     this.legacyAgentTrustStorePath = legacyAgentTrustStorePath;
+    this.pendingStorePath = pendingStorePath;
     this.stakesClassifier = stakesClassifier;
     this.stakesMiddleware = createStakesMiddlewareSkill(this.stakesClassifier);
     this.behaviorAnomalyReranker = new BehaviorAnomalyReranker();
@@ -1914,6 +2012,7 @@ export class TrustedAgentApprovalRuntime {
       actionSet: this.allowlistedActions,
       fingerprintSet: this.allowlistedFingerprints,
     });
+    this.loadPersistedPendingApprovals();
   }
 
   setApprovalRuleHookEmitter(
@@ -2139,6 +2238,52 @@ export class TrustedAgentApprovalRuntime {
     }
   }
 
+  private loadPersistedPendingApprovals(): void {
+    try {
+      if (!fs.existsSync(this.pendingStorePath)) return;
+      const parsed = parsePersistedPendingApprovalStore(
+        fs.readFileSync(this.pendingStorePath, 'utf-8'),
+      );
+      if (!parsed) return;
+      const now = Date.now();
+      let droppedExpiredCount = 0;
+      for (const pending of parsed.pending) {
+        if (pending.expiresAtMs <= now) {
+          droppedExpiredCount += 1;
+          continue;
+        }
+        this.pending.set(pending.id, pending);
+      }
+      if (droppedExpiredCount > 0) {
+        console.warn(
+          `[approval-policy] dropped ${droppedExpiredCount} expired persisted pending approval(s) on load`,
+        );
+        this.persistPendingApprovals();
+      }
+    } catch {
+      // ignore persistence failures and continue with in-memory pending approvals
+    }
+  }
+
+  private persistPendingApprovals(): void {
+    const payload: PersistedPendingApprovalStore = {
+      version: 1,
+      pending: [...this.pending.values()].sort(
+        (left, right) => left.createdAtMs - right.createdAtMs,
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      const dir = path.dirname(this.pendingStorePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = `${this.pendingStorePath}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, this.pendingStorePath);
+    } catch {
+      // ignore persistence failures and continue with in-memory pending approvals
+    }
+  }
+
   handleApprovalResponse(messages: ChatMessage[]): ApprovalPrelude | null {
     this.reloadPolicyIfNeeded();
     this.cleanupExpiredPending();
@@ -2159,6 +2304,7 @@ export class TrustedAgentApprovalRuntime {
 
     if (parsedResponse.kind === 'deny') {
       this.pending.delete(target.id);
+      this.persistPendingApprovals();
       return {
         immediateMessage: `Skipped \`${target.intent}\`. I will continue without that action.`,
       };
@@ -2167,6 +2313,7 @@ export class TrustedAgentApprovalRuntime {
     const requestedMode = parsedResponse.mode || 'once';
     let mode: ApprovalMode = requestedMode;
     this.pending.delete(target.id);
+    this.persistPendingApprovals();
     if (requestedMode === 'session') {
       if (target.pinned) {
         // Pinned-red actions are never session-trusted. Approve only this single run.
@@ -2347,6 +2494,7 @@ export class TrustedAgentApprovalRuntime {
       expiresAtMs: createdAtMs + this.loadedPolicy.approvalTimeoutSecs * 1_000,
     };
     this.pending.set(pending.id, pending);
+    this.persistPendingApprovals();
     return pending;
   }
 
@@ -2365,10 +2513,15 @@ export class TrustedAgentApprovalRuntime {
 
   private cleanupExpiredPending(): void {
     const now = Date.now();
+    let changed = false;
     for (const [id, pending] of this.pending.entries()) {
       if (pending.expiresAtMs <= now) {
         this.pending.delete(id);
+        changed = true;
       }
+    }
+    if (changed) {
+      this.persistPendingApprovals();
     }
   }
 
