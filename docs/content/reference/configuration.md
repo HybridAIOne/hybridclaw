@@ -99,6 +99,11 @@ saved revision history directly.
 - `container.binds` for explicit host-to-container mounts in
   `host:container[:ro|rw]` format; mounted paths appear inside the sandbox
   under `/workspace/extra/<container>`
+- `browser.provider` selects the browser automation backend. Supported values
+  include `local`, `camofox`, and `browser-use-cloud`. `browser.local.*` and
+  `browser.camofox.*` configure persistent profile roots and headed mode;
+  `browser.browserUseCloud.*` configures the managed Browser Use Cloud
+  passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
@@ -211,7 +216,14 @@ saved revision history directly.
   encrypted runtime secrets named `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, and
   `TAVILY_API_KEY`; process environment variables with the same names are
   fallback values when no encrypted secret is present
-- `media.audio` for inbound audio transcription backend selection
+- `web.search.provider`, `web.search.fallbackProviders`,
+  `web.search.defaultCount`, `web.search.cacheTtlMinutes`,
+  `web.search.searxngBaseUrl`, and `web.search.tavilySearchDepth` control the
+  built-in web-search provider chain. Set `web.search.searxngBaseUrl` or
+  `SEARXNG_BASE_URL` when using the self-hosted SearXNG provider.
+- `media.audio` for inbound audio transcription backend selection. Generated
+  image and video artifacts are written through the native media-generation
+  tools when the corresponding provider credentials and models are configured.
 
 Operator-facing controls for `skills.disabled`, `skills.channelDisabled.*`,
 and `adaptiveSkills.*` are covered in

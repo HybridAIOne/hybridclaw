@@ -137,6 +137,8 @@ Once the gateway is running, open HybridClaw locally:
   browser.
 - `/admin/statistics` reports message, session, token, cost, and channel trends
   across a selected date range.
+- The Usage rollup surfaces loading skeletons, cost metrics, and per-model
+  spend summaries without scanning every stored session on page load.
 - `/admin/agent-scoreboard` ranks agents by observed skill scores, reliability,
   timing, best skills, and CV links.
 - `hybridclaw agent config` accepts generated JSON payloads to upsert agent
@@ -148,6 +150,8 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/approvals` manages approval policies from the browser.
 - Approval policy evaluation runs through a hook-fed rule pipeline, so
   workspace policy ordering and plugin tool-use hooks share one approval path.
+- `/admin/a2a-trust` shows the local A2A public-key trust ledger for paired
+  peer instances.
 - `/admin/gateway` reloads runtime config and refreshes secrets from the
   browser, and shows public URL plus tunnel status, without tearing down the
   enclosing workspace container; keep `hybridclaw gateway restart` for
@@ -182,8 +186,8 @@ Once the gateway is running, open HybridClaw locally:
   the active run and returns control to the prompt.
 - `hybridclaw doctor` checks runtime health including resource hygiene
   maintenance for stale gateway artifacts. `hybridclaw doctor browser-use`
-  checks the local browser automation substrate and can install missing
-  Playwright Chromium support with `--fix`.
+  checks the local Playwright browser automation substrate and can install
+  missing Chromium support with `--fix`.
 - `hybridclaw onboarding` and related local setup flows can restore the last
   known-good saved config snapshot or roll back to a tracked revision when
   `config.json` becomes invalid.
@@ -220,6 +224,9 @@ Once the gateway is running, open HybridClaw locally:
 - Brave, Perplexity, and Tavily web-search credentials can live in the
   encrypted runtime secret store and are passed into host or container agent
   runtimes from the active config.
+- Web search can also target a self-hosted SearXNG instance through
+  `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`; bundled `search.web`,
+  `search.news`, and `search.images` skills prefer that sovereign search path.
 - Google OAuth credentials for Workspace skills live in the encrypted runtime
   secret store; agent runtimes receive short-lived access tokens for `gog` and
   `gws` instead of long-lived refresh tokens.
@@ -237,12 +244,17 @@ Once the gateway is running, open HybridClaw locally:
   credentials, supported channels, and per-agent autonomy policy.
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
-  monthly SaaS invoice harvesting (`download-platform-invoices`),
-  natural-language warehouse SQL (`warehouse-sql`), brand-voice drafting, and
-  editable Excalidraw diagram creation.
-- Browser automation can use local persistent Playwright profiles or Browser
-  Use Cloud sessions with encrypted `BROWSER_USE_API_KEY` storage, usage
-  metering, and shared navigation guards.
+  monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
+  FastBill, Firecrawl, Google Ads, HeyGen, natural-language warehouse SQL
+  (`warehouse-sql`), brand-voice drafting, and editable Excalidraw diagram
+  creation.
+- Native media tools generate images and videos through configured providers,
+  persist the resulting artifacts, and expose the same capability through the
+  bundled `image-generation` and `video-generation` skills.
+- Browser automation can use local persistent Playwright profiles, Camofox
+  profiles, or Browser Use Cloud sessions with encrypted `BROWSER_USE_API_KEY`
+  storage, usage metering, shared navigation guards, and SecretRef-gated
+  credential fills.
 - The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
   responses that violate configured voice rules before they reach users.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled
@@ -305,13 +317,13 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, and channel integrations for Discord, Slack, Signal, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Slack, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt, live delegate status/progress,
   an interactive approval picker for pending approvals, and an exit summary
   with a ready-to-run resume command
-- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
+- **Container** (Docker, ephemeral) — HybridAI API client, sandboxed tool executor, native media-generation tools, web/search adapters, and preinstalled browser automation runtime with cursor-aware snapshots for JS-heavy custom UI
 - Communication via file-based IPC (input.json / output.json)
 
 ## Documentation

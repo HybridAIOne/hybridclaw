@@ -6,6 +6,63 @@ sidebar_position: 8
 
 # Publishing Skills
 
+## image-generation
+
+Generate or edit raster images through the native `image_generate` tool. The
+runtime owns provider auth, provider quirks, artifact persistence, and media
+delivery paths.
+
+**Prerequisites** — configure at least one supported image provider and model
+credential in the runtime environment or encrypted secret store.
+
+> 💡 **Tips & Tricks**
+>
+> Use this skill for deliverable bitmap images. Use Excalidraw when the user
+> needs an editable diagram.
+>
+> Include subject, composition, style, color, aspect ratio, and any exact text
+> that must appear in the image.
+>
+> For edits, reference safe current-turn or workspace media paths rather than
+> remote private URLs.
+
+> 🎯 **Try it yourself**
+>
+> `Generate a 16:9 product launch header image for an AI operations dashboard`
+>
+> `Create a square social image for a webinar about secure AI workflows`
+>
+> `Restyle this uploaded image as a clean editorial illustration`
+
+---
+
+## video-generation
+
+Generate short videos through the native `video_generate` tool. The runtime
+handles provider selection, output persistence, warnings, and artifact delivery.
+
+**Prerequisites** — configure at least one supported video provider and model
+credential in the runtime environment or encrypted secret store.
+
+> 💡 **Tips & Tricks**
+>
+> Use concise cinematic prompts with subject, movement, camera angle, duration,
+> aspect ratio, lighting, and audio direction when the selected provider
+> supports audio.
+>
+> Treat provider warnings as user-relevant when they change duration,
+> resolution, or aspect ratio.
+
+> 🎯 **Try it yourself**
+>
+> `Generate an 8-second product teaser showing a clean admin dashboard coming online`
+>
+> `Create a vertical video background for a launch announcement`
+>
+> `Make a 6-second cinematic clip of a secure server room with warm monitor light`
+
+---
+
 ## manim-video
 
 Plan, script, render, and stitch Manim Community Edition videos for animated

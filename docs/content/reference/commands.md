@@ -298,6 +298,7 @@ hybridclaw channels slack manifest [--format <yaml|json>]
 hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
 hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
+hybridclaw channels threema setup --identity <gateway-id> [--secret <gateway-secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
 hybridclaw channels imessage setup [--backend <local|remote>] [--allow-from <phone|email|chat:id>]... [--server-url <url>] [--password <password>] [--cli-path <path>] [--db-path <path>] [--webhook-path <path>] [--allow-private-network]
 hybridclaw channels whatsapp setup [--reset] [--allow-from <+E164>]...
 hybridclaw channels email setup [--address <email>] [--password <password>] [--imap-host <host>] [--imap-port <port>] [--imap-secure|--no-imap-secure] [--smtp-host <host>] [--smtp-port <port>] [--smtp-secure|--no-smtp-secure] [--folder <name>]... [--allow-from <email|*@domain|*>]... [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>]
@@ -308,9 +309,10 @@ hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
 
 Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
-because they need app credentials rather than a local pairing flow. For the
-step-by-step setup guides, see [Channels: Overview](../channels/overview.md)
-and [Connect Your First Channel](../getting-started/first-channel.md).
+because they need app credentials rather than a local pairing flow. Threema
+uses Gateway Basic mode for outbound text delivery. For the step-by-step setup
+guides, see [Channels: Overview](../channels/overview.md) and
+[Connect Your First Channel](../getting-started/first-channel.md).
 Twilio voice is configured through `/admin/channels` or direct `voice.*`
 config keys, then inspected or used for outbound dialing with
 `hybridclaw gateway voice info` and `hybridclaw gateway voice call <number>`.
