@@ -11,13 +11,15 @@
   "bugs": {
     "url": "https://github.com/HybridAIOne/hybridclaw/issues"
   },
+  "packageManager": "npm@11.10.0",
   "workspaces": [
     "desktop",
     "console",
     "container"
   ],
   "engines": {
-    "node": "22.x"
+    "node": "22.x",
+    "npm": ">=11.10.0 <12"
   },
   "publishConfig": {
     "access": "public"
@@ -68,6 +70,9 @@
     "test:integration": "vitest run --configLoader runner --config vitest.integration.config.ts --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --config vitest.e2e.config.ts --passWithNoTests",
     "test:console": "npm --workspace console run test",
+    "audit:signatures": "npm audit signatures && npm --prefix container audit signatures",
+    "deps:update-lockfile": "npm update --package-lock-only && npm --prefix container update --package-lock-only",
+    "deps:verify": "npm ci --no-audit --fund=false && npm --prefix container ci --no-audit --fund=false && npm run audit:signatures",
     "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "eval:trace-judge:gate:live": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-live-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate({live:true})).catch((err)=>{console.error(err);process.exitCode=1})\"",
     "desktop": "npm run build:desktop && npm --workspace desktop run start",
@@ -94,7 +99,6 @@
     "@opentelemetry/exporter-trace-otlp-http": "0.214.0",
     "@opentelemetry/resources": "2.6.1",
     "@opentelemetry/sdk-node": "0.214.0",
-    "@opentelemetry/semantic-conventions": "1.40.0",
     "@slack/bolt": "4.7.0",
     "@huggingface/transformers": "3.8.1",
     "@ngrok/ngrok": "1.5.2",
@@ -137,7 +141,6 @@
     "@types/yauzl": "2.10.3",
     "@types/yazl": "3.3.0",
     "@vitest/coverage-v8": "4.0.18",
-    "html-to-text": "9.0.5",
     "husky": "9.1.7",
     "tsx": "4.21.0",
     "typescript": "5.9.3",

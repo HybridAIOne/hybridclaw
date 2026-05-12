@@ -148,6 +148,56 @@ Verification command:
 hybridclaw audit verify <sessionId>
 ```
 
+### 6) npm Supply-Chain Controls
+
+HybridClaw treats npm lockfiles and package-manager configuration as security
+controls:
+
+- `.npmrc` enforces exact saves, strict engines, and a seven-day minimum release
+  age.
+- `package.json` requires npm 11.10+ because older npm versions do not enforce
+  the release-age policy.
+- CI upgrades to the pinned npm version before running `npm ci`, so pull
+  requests and release publishes use the same install policy as local
+  development.
+- Docker builds install the pinned npm version before npm install steps. The
+  gateway image copies the repository `.npmrc` before `npm ci`; the agent image
+  materializes the same safe npm config inside its isolated Docker context.
+- CI runs `npm audit signatures` after installs to verify npm registry
+  signatures and available provenance attestations for installed packages.
+- Release publishing uses npm provenance through the trusted-publishing-capable
+  npm CLI. The npm package should be configured on npmjs.com to use trusted
+  publishing and to disallow token-based publishes after the OIDC workflow is
+  verified.
+
+Dependency updates should use `npm ci` for verification and keep
+`package-lock.json` changes reviewable. Avoid unconstrained interactive or
+ad-hoc `npm update` runs; use the lockfile-only update script below so npm's
+configured release-age gate applies and the resulting diff can be reviewed. Do
+not add git, tarball, or non-registry dependencies without a specific security
+review. The current WhatsApp channel dependency chain includes a pinned GitHub
+dependency from `@whiskeysockets/baileys` to `libsignal`; replacing that
+dependency with a registry-only package should be prioritized before enabling
+npm's `allow-git` restriction.
+
+Recommended dependency update workflow:
+
+```bash
+npm install --global npm@11.10.0 --no-audit --fund=false
+npm run deps:update-lockfile
+git diff -- package.json package-lock.json container/package.json container/package-lock.json
+npm run deps:verify
+npm run typecheck
+npm run test:unit
+```
+
+`deps:update-lockfile` regenerates the root/workspace lockfile and the standalone
+container lockfile through npm's configured seven-day release-age filter.
+`deps:verify` then performs clean installs from those lockfiles and verifies npm
+registry signatures. Review lockfile diffs before merging; unexpected new
+maintainers, new install scripts, git/tarball URLs, or large transitive churn
+should be treated as security review triggers.
+
 ## Incident Response
 
 If compromise is suspected:
@@ -157,6 +207,8 @@ If compromise is suspected:
 3. Review mount allowlist, workspace files, and `sessionRouting.identityLinks`.
 4. Inspect denied/authorization events with `hybridclaw audit approvals --denied`.
 5. Validate audit integrity with `hybridclaw audit verify`.
+6. If compromise may involve npm install-time malware, rotate npm, GitHub, SSH,
+   cloud, and registry credentials reachable from the affected host or runner.
 
 ## Reporting A Vulnerability
 
