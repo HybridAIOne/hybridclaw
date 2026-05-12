@@ -91,6 +91,7 @@ export interface GatewayStatus {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  emailEnabled?: boolean;
   imessage?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -1191,6 +1192,16 @@ export interface AdminSkill {
   source: string;
   available: boolean;
   enabled: boolean;
+  blocked?: boolean;
+  blockedReason?: string;
+  guardFindings?: Array<{
+    patternId: string;
+    severity: string;
+    category: string;
+    file: string;
+    line: number;
+    description: string;
+  }>;
   missing: string[];
   userInvocable: boolean;
   disableModelInvocation: boolean;

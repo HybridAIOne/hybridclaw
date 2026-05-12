@@ -8,7 +8,14 @@ import {
 } from '../api/client';
 import type { AdminA2ATrustPeer } from '../api/types';
 import { useAuth } from '../auth';
-import { BooleanPill, PageHeader, Panel } from '../components/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { BooleanPill, PageHeader } from '../components/ui';
 import { formatDateTime, formatRelativeTime } from '../lib/format';
 
 function shortFingerprint(value: string): string {
@@ -100,218 +107,240 @@ export function A2ATrustPage() {
     <div className="page-stack">
       <PageHeader title="A2A Trust" />
 
-      <Panel title="Local identity">
-        {trustQuery.isLoading ? (
-          <div className="empty-state">Loading identity...</div>
-        ) : trustQuery.data ? (
-          <div className="key-value-grid">
-            <div>
-              <span>Instance</span>
-              <strong>{trustQuery.data.identity.instanceId}</strong>
-            </div>
-            <div>
-              <span>Public key</span>
-              <strong>
-                {shortFingerprint(
-                  trustQuery.data.identity.publicKeyFingerprint,
-                )}
-              </strong>
-            </div>
-          </div>
-        ) : (
-          <div className="empty-state">Identity unavailable.</div>
-        )}
-      </Panel>
-
-      <div className="two-column-grid">
-        <Panel
-          title="Trusted peers"
-          subtitle={`${peers.length} peer${peers.length === 1 ? '' : 's'}`}
-        >
+      <Card>
+        <CardHeader>
+          <CardTitle>Local identity</CardTitle>
+        </CardHeader>
+        <CardContent>
           {trustQuery.isLoading ? (
-            <div className="empty-state">Loading peers...</div>
-          ) : peers.length ? (
-            <div className="list-stack selectable-list">
-              {peers.map((peer) => (
-                <button
-                  key={peer.peerId}
-                  className={
-                    peer.peerId === selectedPeer?.peerId
-                      ? 'selectable-row active'
-                      : 'selectable-row'
-                  }
-                  type="button"
-                  onClick={() => setSelectedPeerId(peer.peerId)}
-                >
-                  <div>
-                    <strong>{peer.peerId}</strong>
-                    <small>{shortFingerprint(peer.publicKeyFingerprint)}</small>
-                  </div>
-                  {peerStatus(peer)}
-                </button>
-              ))}
+            <div className="empty-state">Loading identity...</div>
+          ) : trustQuery.data ? (
+            <div className="key-value-grid">
+              <div>
+                <span>Instance</span>
+                <strong>{trustQuery.data.identity.instanceId}</strong>
+              </div>
+              <div>
+                <span>Public key</span>
+                <strong>
+                  {shortFingerprint(
+                    trustQuery.data.identity.publicKeyFingerprint,
+                  )}
+                </strong>
+              </div>
             </div>
           ) : (
-            <div className="empty-state">No A2A peer keys cached.</div>
+            <div className="empty-state">Identity unavailable.</div>
           )}
-        </Panel>
+        </CardContent>
+      </Card>
+
+      <div className="two-column-grid">
+        <Card>
+          <CardHeader>
+            <CardTitle>Trusted peers</CardTitle>
+            <CardDescription>
+              {`${peers.length} peer${peers.length === 1 ? '' : 's'}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {trustQuery.isLoading ? (
+              <div className="empty-state">Loading peers...</div>
+            ) : peers.length ? (
+              <div className="list-stack selectable-list">
+                {peers.map((peer) => (
+                  <button
+                    key={peer.peerId}
+                    className={
+                      peer.peerId === selectedPeer?.peerId
+                        ? 'selectable-row active'
+                        : 'selectable-row'
+                    }
+                    type="button"
+                    onClick={() => setSelectedPeerId(peer.peerId)}
+                  >
+                    <div>
+                      <strong>{peer.peerId}</strong>
+                      <small>
+                        {shortFingerprint(peer.publicKeyFingerprint)}
+                      </small>
+                    </div>
+                    {peerStatus(peer)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">No A2A peer keys cached.</div>
+            )}
+          </CardContent>
+        </Card>
 
         <div className="sticky-detail">
-          <Panel title="Peer detail" accent="warm">
-            {!selectedPeer ? (
-              <div className="empty-state">Select a peer.</div>
-            ) : (
-              <div className="detail-stack">
-                <div className="key-value-grid">
-                  <div>
-                    <span>Peer</span>
-                    <strong>{selectedPeer.peerId}</strong>
+          <Card variant="muted">
+            <CardHeader>
+              <CardTitle>Peer detail</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!selectedPeer ? (
+                <div className="empty-state">Select a peer.</div>
+              ) : (
+                <div className="detail-stack">
+                  <div className="key-value-grid">
+                    <div>
+                      <span>Peer</span>
+                      <strong>{selectedPeer.peerId}</strong>
+                    </div>
+                    <div>
+                      <span>Status</span>
+                      <strong>{selectedPeer.status}</strong>
+                    </div>
+                    <div>
+                      <span>Trusted</span>
+                      <strong>{formatDateTime(selectedPeer.trustedAt)}</strong>
+                    </div>
+                    <div>
+                      <span>Last seen</span>
+                      <strong>
+                        {formatRelativeTime(selectedPeer.lastSeenAt)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Agent Card</span>
+                      <strong>{selectedPeer.agentCardUrl}</strong>
+                    </div>
+                    <div>
+                      <span>Delivery URL</span>
+                      <strong>{selectedPeer.deliveryUrl}</strong>
+                    </div>
+                    <div>
+                      <span>Fingerprint</span>
+                      <strong>{selectedPeer.publicKeyFingerprint}</strong>
+                    </div>
+                    <div>
+                      <span>Mismatch</span>
+                      <strong>{selectedPeer.lastMismatchAt || 'none'}</strong>
+                    </div>
                   </div>
-                  <div>
-                    <span>Status</span>
-                    <strong>{selectedPeer.status}</strong>
-                  </div>
-                  <div>
-                    <span>Trusted</span>
-                    <strong>{formatDateTime(selectedPeer.trustedAt)}</strong>
-                  </div>
-                  <div>
-                    <span>Last seen</span>
-                    <strong>
-                      {formatRelativeTime(selectedPeer.lastSeenAt)}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Agent Card</span>
-                    <strong>{selectedPeer.agentCardUrl}</strong>
-                  </div>
-                  <div>
-                    <span>Delivery URL</span>
-                    <strong>{selectedPeer.deliveryUrl}</strong>
-                  </div>
-                  <div>
-                    <span>Fingerprint</span>
-                    <strong>{selectedPeer.publicKeyFingerprint}</strong>
-                  </div>
-                  <div>
-                    <span>Mismatch</span>
-                    <strong>{selectedPeer.lastMismatchAt || 'none'}</strong>
-                  </div>
-                </div>
 
+                  <label className="field">
+                    <span>Revocation reason</span>
+                    <input
+                      value={revokeReason}
+                      onChange={(event) => setRevokeReason(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    disabled={
+                      selectedPeer.status === 'revoked' ||
+                      revokeMutation.isPending
+                    }
+                    onClick={() => revokeMutation.mutate(selectedPeer.peerId)}
+                  >
+                    Revoke
+                  </button>
+                  <button
+                    className="danger-button"
+                    type="button"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => deleteMutation.mutate(selectedPeer.peerId)}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => fillSelectedPeer(selectedPeer)}
+                  >
+                    Use in override
+                  </button>
+                  {revokeMutation.error ? (
+                    <small className="row-status-note-danger">
+                      {revokeMutation.error instanceof Error
+                        ? revokeMutation.error.message
+                        : 'Revocation failed.'}
+                    </small>
+                  ) : null}
+                  {deleteMutation.error ? (
+                    <small className="row-status-note-danger">
+                      {deleteMutation.error instanceof Error
+                        ? deleteMutation.error.message
+                        : 'Delete failed.'}
+                    </small>
+                  ) : null}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Operator override</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="detail-stack">
                 <label className="field">
-                  <span>Revocation reason</span>
+                  <span>Peer</span>
                   <input
-                    value={revokeReason}
-                    onChange={(event) => setRevokeReason(event.target.value)}
+                    value={pinPeerId}
+                    onChange={(event) => setPinPeerId(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Agent Card</span>
+                  <input
+                    value={pinAgentCardUrl}
+                    onChange={(event) => setPinAgentCardUrl(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Delivery URL</span>
+                  <input
+                    value={pinDeliveryUrl}
+                    onChange={(event) => setPinDeliveryUrl(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Fingerprint</span>
+                  <input
+                    value={pinFingerprint}
+                    onChange={(event) => setPinFingerprint(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Public JWK</span>
+                  <textarea
+                    rows={5}
+                    value={pinPublicKeyJwk}
+                    onChange={(event) => setPinPublicKeyJwk(event.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Reason</span>
+                  <input
+                    value={pinReason}
+                    onChange={(event) => setPinReason(event.target.value)}
                   />
                 </label>
                 <button
-                  className="danger-button"
-                  type="button"
-                  disabled={
-                    selectedPeer.status === 'revoked' ||
-                    revokeMutation.isPending
-                  }
-                  onClick={() => revokeMutation.mutate(selectedPeer.peerId)}
-                >
-                  Revoke
-                </button>
-                <button
-                  className="danger-button"
-                  type="button"
-                  disabled={deleteMutation.isPending}
-                  onClick={() => deleteMutation.mutate(selectedPeer.peerId)}
-                >
-                  Delete
-                </button>
-                <button
                   className="primary-button"
                   type="button"
-                  onClick={() => fillSelectedPeer(selectedPeer)}
+                  disabled={!pinPeerId.trim() || upsertMutation.isPending}
+                  onClick={() => upsertMutation.mutate()}
                 >
-                  Use in override
+                  Trust
                 </button>
-                {revokeMutation.error ? (
+                {upsertMutation.error ? (
                   <small className="row-status-note-danger">
-                    {revokeMutation.error instanceof Error
-                      ? revokeMutation.error.message
-                      : 'Revocation failed.'}
-                  </small>
-                ) : null}
-                {deleteMutation.error ? (
-                  <small className="row-status-note-danger">
-                    {deleteMutation.error instanceof Error
-                      ? deleteMutation.error.message
-                      : 'Delete failed.'}
+                    {upsertMutation.error instanceof Error
+                      ? upsertMutation.error.message
+                      : 'Trust update failed.'}
                   </small>
                 ) : null}
               </div>
-            )}
-          </Panel>
-
-          <Panel title="Operator override">
-            <div className="detail-stack">
-              <label className="field">
-                <span>Peer</span>
-                <input
-                  value={pinPeerId}
-                  onChange={(event) => setPinPeerId(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Agent Card</span>
-                <input
-                  value={pinAgentCardUrl}
-                  onChange={(event) => setPinAgentCardUrl(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Delivery URL</span>
-                <input
-                  value={pinDeliveryUrl}
-                  onChange={(event) => setPinDeliveryUrl(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Fingerprint</span>
-                <input
-                  value={pinFingerprint}
-                  onChange={(event) => setPinFingerprint(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Public JWK</span>
-                <textarea
-                  rows={5}
-                  value={pinPublicKeyJwk}
-                  onChange={(event) => setPinPublicKeyJwk(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Reason</span>
-                <input
-                  value={pinReason}
-                  onChange={(event) => setPinReason(event.target.value)}
-                />
-              </label>
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!pinPeerId.trim() || upsertMutation.isPending}
-                onClick={() => upsertMutation.mutate()}
-              >
-                Trust
-              </button>
-              {upsertMutation.error ? (
-                <small className="row-status-note-danger">
-                  {upsertMutation.error instanceof Error
-                    ? upsertMutation.error.message
-                    : 'Trust update failed.'}
-                </small>
-              ) : null}
-            </div>
-          </Panel>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

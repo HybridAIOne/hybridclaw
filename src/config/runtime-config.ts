@@ -115,7 +115,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 27;
+export const CONFIG_VERSION = 28;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -765,6 +765,7 @@ export interface RuntimeConfig {
     extraDirs: string[];
     disabled: string[];
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
+    externalDiscovered: string[];
     autonomy: RuntimeSkillAutonomyConfig;
     installed: RuntimeInstalledSkillManifest[];
   };
@@ -1161,6 +1162,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     extraDirs: [],
     disabled: [],
     channelDisabled: {},
+    externalDiscovered: [],
     autonomy: {
       defaultLevel: 'confirm-each',
       rules: [],
@@ -5248,6 +5250,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.skills.disabled,
       ),
       channelDisabled: normalizeSkillChannelDisabled(rawSkills.channelDisabled),
+      externalDiscovered: normalizeStringArray(
+        rawSkills.externalDiscovered,
+        DEFAULT_RUNTIME_CONFIG.skills.externalDiscovered,
+      ),
       autonomy: normalizeSkillAutonomyConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,

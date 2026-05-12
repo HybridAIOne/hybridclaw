@@ -328,7 +328,7 @@ export function EmailPage() {
   const mailboxQuery = useQuery({
     queryKey: ['admin-email-mailbox', auth.token],
     queryFn: () => fetchAdminEmailMailbox(auth.token),
-    enabled: shellConfig.configReady && shellConfig.emailEnabled,
+    enabled: shellConfig.emailEnabled,
     refetchInterval: MAILBOX_REFRESH_INTERVAL_MS,
   });
 
@@ -464,10 +464,6 @@ export function EmailPage() {
   function handleDeleteMessage(params: { folder: string; uid: number }): void {
     deleteMutation.reset();
     deleteMutation.mutate(params);
-  }
-
-  if (!shellConfig.configReady) {
-    return <div className="empty-state">Loading mailbox settings...</div>;
   }
 
   if (mailboxQuery.isLoading && !mailboxQuery.data) {

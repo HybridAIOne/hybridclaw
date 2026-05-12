@@ -1,6 +1,14 @@
 # --- Build stage ---
 FROM node:22-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea AS builder
 WORKDIR /app
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --global npm@11.10.0 --no-audit --fund=false
+RUN printf '%s\n' \
+    'engine-strict=true' \
+    'save-exact=true' \
+    'min-release-age=7' \
+    > .npmrc
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
@@ -16,6 +24,9 @@ ARG HYBRIDCLAW_VERSION=0.0.0
 LABEL org.opencontainers.image.source="https://github.com/HybridAIOne/hybridclaw"
 LABEL org.opencontainers.image.description="HybridClaw sandboxed agent runtime"
 LABEL org.opencontainers.image.version="${HYBRIDCLAW_VERSION}"
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --global npm@11.10.0 --no-audit --fund=false
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -43,7 +54,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-COPY --link --from=builder /app/package.json /app/package-lock.json ./
+COPY --link --from=builder /app/.npmrc /app/package.json /app/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 

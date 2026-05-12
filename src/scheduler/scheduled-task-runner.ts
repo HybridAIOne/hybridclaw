@@ -16,6 +16,7 @@ import {
   migrateLegacySessionKey,
 } from '../session/session-key.js';
 import { appendSessionTranscript } from '../session/session-transcripts.js';
+import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import {
   buildModelUsageAuditStats,
@@ -160,6 +161,11 @@ export async function runIsolatedScheduledTask(params: {
       outputTokens: usage.completionTokens,
       totalTokens: usage.totalTokens,
       toolCalls: usage.toolCallCount,
+      costUsd: await resolveUsageCostUsdAfterMetadataRefresh({
+        model,
+        tokenUsage: output.tokenUsage,
+        usage,
+      }),
       auditRunId: runId,
     });
 

@@ -2,13 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { fetchModels, saveModels } from '../api/client';
 import { useAuth } from '../auth';
-import { useToast } from '../components/toast';
 import {
-  PageHeader,
-  Panel,
-  SortableHeader,
-  useSortableRows,
-} from '../components/ui';
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import { useToast } from '../components/toast';
+import { PageHeader, SortableHeader, useSortableRows } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 import {
   formatCompactNumber,
@@ -223,213 +225,237 @@ export function ModelsPage() {
       />
 
       <div className="two-column-grid">
-        <Panel title="Provider status">
-          <div className="list-stack">
-            {providerEntries.map(({ name, status }) => (
-              <div className="list-row" key={name}>
-                <div>
-                  <strong>{name}</strong>
-                  <small>
-                    {status?.reachable
-                      ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
-                      : status
-                        ? status.error || 'unreachable'
-                        : 'Visible in catalog · no live health data'}
-                  </small>
-                </div>
-                <span
-                  className={
-                    status?.reachable
-                      ? 'list-status list-status-success'
-                      : status
-                        ? 'list-status list-status-danger'
-                        : 'list-status'
-                  }
-                >
+        <Card>
+          <CardHeader>
+            <CardTitle>Provider status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="list-stack">
+              {providerEntries.map(({ name, status }) => (
+                <div className="list-row" key={name}>
+                  <div>
+                    <strong>{name}</strong>
+                    <small>
+                      {status?.reachable
+                        ? `${status.detail || (typeof status.latencyMs === 'number' ? `${status.latencyMs}ms` : 'ready')} · ${status.modelCount ?? 0} models`
+                        : status
+                          ? status.error || 'unreachable'
+                          : 'Visible in catalog · no live health data'}
+                    </small>
+                  </div>
                   <span
                     className={
                       status?.reachable
-                        ? 'status-dot status-dot-success'
+                        ? 'list-status list-status-success'
                         : status
-                          ? 'status-dot status-dot-danger'
-                          : 'status-dot'
+                          ? 'list-status list-status-danger'
+                          : 'list-status'
                     }
-                  />
-                  {status?.reachable ? 'healthy' : status ? 'down' : 'catalog'}
-                </span>
-              </div>
-            ))}
-            {providerEntries.length === 0 ? (
-              <div className="empty-state">
-                No provider health checks available.
-              </div>
-            ) : null}
-          </div>
-        </Panel>
+                  >
+                    <span
+                      className={
+                        status?.reachable
+                          ? 'status-dot status-dot-success'
+                          : status
+                            ? 'status-dot status-dot-danger'
+                            : 'status-dot'
+                      }
+                    />
+                    {status?.reachable
+                      ? 'healthy'
+                      : status
+                        ? 'down'
+                        : 'catalog'}
+                  </span>
+                </div>
+              ))}
+              {providerEntries.length === 0 ? (
+                <div className="empty-state">
+                  No provider health checks available.
+                </div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
 
-        <Panel title="Selection" accent="warm">
+        <Card variant="muted">
+          <CardHeader>
+            <CardTitle>Selection</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {modelsQuery.isLoading ? (
+              <div className="empty-state">Loading model catalog...</div>
+            ) : (
+              <div className="stack-form">
+                <label className="field">
+                  <span>Default model</span>
+                  <select
+                    value={draft.defaultModel}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        defaultModel: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Select model</option>
+                    {(modelsQuery.data?.models || []).map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={saveMutation.isPending}
+                    onClick={() => saveMutation.mutate()}
+                  >
+                    {saveMutation.isPending ? 'Saving...' : 'Save selection'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Catalog</CardTitle>
+          <CardDescription>
+            {`${pluralize(models.length, 'model')} visible`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           {modelsQuery.isLoading ? (
             <div className="empty-state">Loading model catalog...</div>
           ) : (
-            <div className="stack-form">
-              <label className="field">
-                <span>Default model</span>
-                <select
-                  value={draft.defaultModel}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      defaultModel: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Select model</option>
-                  {(modelsQuery.data?.models || []).map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.id}
-                    </option>
+            <div className="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <SortableHeader
+                      label="Model"
+                      sortKey="model"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Backend"
+                      sortKey="backend"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Context"
+                      sortKey="context"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Monthly usage"
+                      sortKey="monthlyUsage"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map((model) => (
+                    <tr key={model.id}>
+                      <td>
+                        <strong>{model.id}</strong>
+                        {formatModelMetadata(model) ? (
+                          <small>{formatModelMetadata(model)}</small>
+                        ) : null}
+                      </td>
+                      <td>{model.backend || 'remote'}</td>
+                      <td>
+                        {model.contextWindow
+                          ? formatCompactNumber(model.contextWindow)
+                          : 'unknown'}
+                      </td>
+                      <td>
+                        {model.usageMonthly ? (
+                          <>
+                            <strong>
+                              {formatCompactNumber(
+                                model.usageMonthly.totalTokens,
+                              )}
+                            </strong>
+                            <small>
+                              {formatTokenBreakdown({
+                                inputTokens:
+                                  model.usageMonthly.totalInputTokens ?? 0,
+                                outputTokens:
+                                  model.usageMonthly.totalOutputTokens ?? 0,
+                              })}
+                            </small>
+                            <small>
+                              {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
+                              {pluralize(model.usageMonthly.callCount, 'call')}
+                            </small>
+                          </>
+                        ) : (
+                          <small>No usage recorded</small>
+                        )}
+                      </td>
+                    </tr>
                   ))}
-                </select>
-              </label>
-
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  type="button"
-                  disabled={saveMutation.isPending}
-                  onClick={() => saveMutation.mutate()}
-                >
-                  {saveMutation.isPending ? 'Saving...' : 'Save selection'}
-                </button>
-              </div>
+                  {models.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>
+                        <div className="empty-state">
+                          No models match this filter.
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
             </div>
           )}
-        </Panel>
-      </div>
-
-      <Panel
-        title="Catalog"
-        subtitle={`${pluralize(models.length, 'model')} visible`}
-      >
-        {modelsQuery.isLoading ? (
-          <div className="empty-state">Loading model catalog...</div>
-        ) : (
-          <div className="table-shell">
-            <table>
-              <thead>
-                <tr>
-                  <SortableHeader
-                    label="Model"
-                    sortKey="model"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Backend"
-                    sortKey="backend"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Context"
-                    sortKey="context"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Monthly usage"
-                    sortKey="monthlyUsage"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {models.map((model) => (
-                  <tr key={model.id}>
-                    <td>
-                      <strong>{model.id}</strong>
-                      {formatModelMetadata(model) ? (
-                        <small>{formatModelMetadata(model)}</small>
-                      ) : null}
-                    </td>
-                    <td>{model.backend || 'remote'}</td>
-                    <td>
-                      {model.contextWindow
-                        ? formatCompactNumber(model.contextWindow)
-                        : 'unknown'}
-                    </td>
-                    <td>
-                      {model.usageMonthly ? (
-                        <>
-                          <strong>
-                            {formatCompactNumber(
-                              model.usageMonthly.totalTokens,
-                            )}
-                          </strong>
-                          <small>
-                            {formatTokenBreakdown({
-                              inputTokens:
-                                model.usageMonthly.totalInputTokens ?? 0,
-                              outputTokens:
-                                model.usageMonthly.totalOutputTokens ?? 0,
-                            })}
-                          </small>
-                          <small>
-                            {formatUsd(model.usageMonthly.totalCostUsd)} ·{' '}
-                            {pluralize(model.usageMonthly.callCount, 'call')}
-                          </small>
-                        </>
-                      ) : (
-                        <small>No usage recorded</small>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {models.length === 0 ? (
-                  <tr>
-                    <td colSpan={4}>
-                      <div className="empty-state">
-                        No models match this filter.
-                      </div>
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+        </CardContent>
+      </Card>
 
       {modelsWithDailyUsage.length > 0 ? (
-        <Panel
-          title="Recent daily activity"
-          subtitle={`Updated ${formatRelativeTime(new Date().toISOString())}`}
-        >
-          <div className="list-stack">
-            {modelsWithDailyUsage
-              .sort(
-                (left, right) =>
-                  right.usageDaily.totalTokens - left.usageDaily.totalTokens,
-              )
-              .slice(0, 6)
-              .map((model) => (
-                <div className="list-row" key={`${model.id}-daily`}>
-                  <div>
-                    <strong>{model.id}</strong>
-                    <small>
-                      {formatTokenBreakdown({
-                        inputTokens: model.usageDaily.totalInputTokens ?? 0,
-                        outputTokens: model.usageDaily.totalOutputTokens ?? 0,
-                      })}{' '}
-                      · {pluralize(model.usageDaily.callCount, 'call')} today
-                    </small>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent daily activity</CardTitle>
+            <CardDescription>
+              {`Updated ${formatRelativeTime(new Date().toISOString())}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="list-stack">
+              {modelsWithDailyUsage
+                .sort(
+                  (left, right) =>
+                    right.usageDaily.totalTokens - left.usageDaily.totalTokens,
+                )
+                .slice(0, 6)
+                .map((model) => (
+                  <div className="list-row" key={`${model.id}-daily`}>
+                    <div>
+                      <strong>{model.id}</strong>
+                      <small>
+                        {formatTokenBreakdown({
+                          inputTokens: model.usageDaily.totalInputTokens ?? 0,
+                          outputTokens: model.usageDaily.totalOutputTokens ?? 0,
+                        })}{' '}
+                        · {pluralize(model.usageDaily.callCount, 'call')} today
+                      </small>
+                    </div>
+                    <span>{formatUsd(model.usageDaily.totalCostUsd ?? 0)}</span>
                   </div>
-                  <span>{formatUsd(model.usageDaily.totalCostUsd ?? 0)}</span>
-                </div>
-              ))}
-          </div>
-        </Panel>
+                ))}
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
     </div>
   );

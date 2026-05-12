@@ -3,9 +3,15 @@ import { fetchAgentScoreboard } from '../api/client';
 import type { AdminAgentScoreboardEntry } from '../api/types';
 import { useAuth } from '../auth';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
+import {
   MetricCard,
   PageHeader,
-  Panel,
   SortableHeader,
   useSortableRows,
 } from '../components/ui';
@@ -106,16 +112,19 @@ export function AgentsPage() {
           label="Observed agents"
           value={String(agents.length)}
           detail="with recorded skill runs"
+          loading={!scoreboardQuery.data}
         />
         <MetricCard
           label="Observed skills"
           value={String(observedSkillCount)}
           detail="across agent runs"
+          loading={!scoreboardQuery.data}
         />
         <MetricCard
           label="Best average score"
           value={topAgent ? `${topAgent.avg_score}/100` : '0/100'}
           detail={topAgent?.display_name || 'No runs yet'}
+          loading={!scoreboardQuery.data}
         />
         <MetricCard
           label="Total runs"
@@ -123,127 +132,133 @@ export function AgentsPage() {
             agents.reduce((total, agent) => total + agent.total_executions, 0),
           )}
           detail="skill executions"
+          loading={!scoreboardQuery.data}
         />
       </div>
 
-      <Panel
-        title="Agent scoreboard"
-        subtitle={`${sortedRows.length} agent${sortedRows.length === 1 ? '' : 's'} visible`}
-      >
-        {scoreboardQuery.isLoading ? (
-          <div className="empty-state">Loading agent scoreboard...</div>
-        ) : sortedRows.length === 0 ? (
-          <div className="empty-state">No agent skill runs recorded yet.</div>
-        ) : (
-          <div className="table-shell">
-            <table>
-              <thead>
-                <tr>
-                  <SortableHeader
-                    label="Agent"
-                    sortKey="agent"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Score"
-                    sortKey="score"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Runs"
-                    sortKey="runs"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Quality"
-                    sortKey="quality"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Reliability"
-                    sortKey="reliability"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Timing"
-                    sortKey="timing"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Best at"
-                    sortKey="skill"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Anomalies"
-                    sortKey="anomalies"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <SortableHeader
-                    label="Recent"
-                    sortKey="recent"
-                    sortState={sortState}
-                    onToggle={toggleSort}
-                  />
-                  <th>CV</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((agent) => (
-                  <tr key={agent.agent_id}>
-                    <td>
-                      <strong>{agent.display_name}</strong>
-                      <div className="supporting-text">{agent.agent_id}</div>
-                    </td>
-                    <td>{agent.avg_score}/100</td>
-                    <td>{agent.total_executions}</td>
-                    <td>{agent.avg_quality_score}/100</td>
-                    <td>{agent.avg_reliability_score}/100</td>
-                    <td>{agent.avg_timing_score}/100</td>
-                    <td>
-                      <strong>{formatBestAt(agent)}</strong>
-                      {agent.best_skills[0] ? (
-                        <div className="supporting-text">
-                          Q {agent.best_skills[0].quality_score} · R{' '}
-                          {agent.best_skills[0].reliability_score} · T{' '}
-                          {agent.best_skills[0].timing_score}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>
-                      {agent.weekly_anomalies_flagged}
-                      <div className="supporting-text">
-                        {agent.weekly_anomalies_confirmed_normal} confirmed
-                        normal
-                      </div>
-                    </td>
-                    <td>
-                      {agent.last_observed_at
-                        ? formatRelativeTime(agent.last_observed_at)
-                        : 'No recent runs'}
-                    </td>
-                    <td>
-                      <a
-                        href={`/admin/agents?agent=${encodeURIComponent(agent.agent_id)}&file=CV.md`}
-                      >
-                        CV.md
-                      </a>
-                    </td>
+      <Card>
+        <CardHeader>
+          <CardTitle>Agent scoreboard</CardTitle>
+          <CardDescription>
+            {`${sortedRows.length} agent${sortedRows.length === 1 ? '' : 's'} visible`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {scoreboardQuery.isLoading ? (
+            <div className="empty-state">Loading agent scoreboard...</div>
+          ) : sortedRows.length === 0 ? (
+            <div className="empty-state">No agent skill runs recorded yet.</div>
+          ) : (
+            <div className="table-shell">
+              <table>
+                <thead>
+                  <tr>
+                    <SortableHeader
+                      label="Agent"
+                      sortKey="agent"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Score"
+                      sortKey="score"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Runs"
+                      sortKey="runs"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Quality"
+                      sortKey="quality"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Reliability"
+                      sortKey="reliability"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Timing"
+                      sortKey="timing"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Best at"
+                      sortKey="skill"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Anomalies"
+                      sortKey="anomalies"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <SortableHeader
+                      label="Recent"
+                      sortKey="recent"
+                      sortState={sortState}
+                      onToggle={toggleSort}
+                    />
+                    <th>CV</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                </thead>
+                <tbody>
+                  {sortedRows.map((agent) => (
+                    <tr key={agent.agent_id}>
+                      <td>
+                        <strong>{agent.display_name}</strong>
+                        <div className="supporting-text">{agent.agent_id}</div>
+                      </td>
+                      <td>{agent.avg_score}/100</td>
+                      <td>{agent.total_executions}</td>
+                      <td>{agent.avg_quality_score}/100</td>
+                      <td>{agent.avg_reliability_score}/100</td>
+                      <td>{agent.avg_timing_score}/100</td>
+                      <td>
+                        <strong>{formatBestAt(agent)}</strong>
+                        {agent.best_skills[0] ? (
+                          <div className="supporting-text">
+                            Q {agent.best_skills[0].quality_score} · R{' '}
+                            {agent.best_skills[0].reliability_score} · T{' '}
+                            {agent.best_skills[0].timing_score}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        {agent.weekly_anomalies_flagged}
+                        <div className="supporting-text">
+                          {agent.weekly_anomalies_confirmed_normal} confirmed
+                          normal
+                        </div>
+                      </td>
+                      <td>
+                        {agent.last_observed_at
+                          ? formatRelativeTime(agent.last_observed_at)
+                          : 'No recent runs'}
+                      </td>
+                      <td>
+                        <a
+                          href={`/admin/agents?agent=${encodeURIComponent(agent.agent_id)}&file=CV.md`}
+                        >
+                          CV.md
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

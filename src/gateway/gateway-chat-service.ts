@@ -71,6 +71,7 @@ import {
   type ToolProgressEvent,
 } from '../types/execution.js';
 import type { CanonicalSessionContext } from '../types/session.js';
+import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js';
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
@@ -105,7 +106,6 @@ import {
   cloneMediaContextItems,
   enqueueDelegationBatchFromSideEffects,
   extractDelegationDepth,
-  extractUsageCostUsd,
   formatCanonicalContextPrompt,
   formatPluginPromptContext,
   getGatewayAssistantPresentationForMessageAgent,
@@ -1280,6 +1280,11 @@ async function handleGatewayMessageInner(
         ...usagePayload,
       },
     });
+    const costUsd = await resolveUsageCostUsdAfterMetadataRefresh({
+      model,
+      tokenUsage: output.tokenUsage,
+      usage: usagePayload,
+    });
     enqueueTokenUsage({
       sessionId: req.sessionId,
       agentId,
@@ -1288,7 +1293,7 @@ async function handleGatewayMessageInner(
       outputTokens: firstNumber([usagePayload.completionTokens]) || 0,
       totalTokens: firstNumber([usagePayload.totalTokens]) || 0,
       toolCalls: toolExecutions.length,
-      costUsd: extractUsageCostUsd(output.tokenUsage),
+      costUsd,
       auditRunId: runId,
     });
     if (observedSkillName) {
@@ -1305,7 +1310,7 @@ async function handleGatewayMessageInner(
           durationMs: Date.now() - startedAt,
           model,
           tokenUsage: output.tokenUsage,
-          costUsd: extractUsageCostUsd(output.tokenUsage),
+          costUsd,
           agentId,
           input: storedUserContent,
           output: {

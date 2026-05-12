@@ -17,6 +17,7 @@ import type {
 } from '../config/runtime-config.js';
 import type { AgentScoreboardEntry } from '../skills/adaptive-skills-types.js';
 import type { SkillManifestDeclaredCredential } from '../skills/skills.js';
+import type { SkillGuardFinding } from '../skills/skills-guard.js';
 import type { TunnelState } from '../tunnel/tunnel-provider.js';
 import type { MediaContextItem } from '../types/container.js';
 import type {
@@ -412,6 +413,7 @@ export interface GatewayStatus {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
   };
+  emailEnabled?: boolean;
   imessage?: {
     passwordConfigured: boolean;
     passwordSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -1178,6 +1180,8 @@ export interface GatewayAdminApprovalsResponse {
   availablePresets: GatewayAdminPolicyPresetSummary[];
 }
 
+export type GatewayAdminSkillGuardFinding = Omit<SkillGuardFinding, 'match'>;
+
 export interface GatewayAdminSkill {
   name: string;
   description: string;
@@ -1186,6 +1190,9 @@ export interface GatewayAdminSkill {
   source: string;
   available: boolean;
   enabled: boolean;
+  blocked?: boolean;
+  blockedReason?: string;
+  guardFindings?: GatewayAdminSkillGuardFinding[];
   missing: string[];
   userInvocable: boolean;
   disableModelInvocation: boolean;

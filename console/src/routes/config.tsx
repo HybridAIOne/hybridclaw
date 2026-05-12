@@ -3,8 +3,15 @@ import { useEffect, useState } from 'react';
 import { fetchConfig, saveConfig } from '../api/client';
 import type { AdminConfig } from '../api/types';
 import { useAuth } from '../auth';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../components/card';
 import { useToast } from '../components/toast';
-import { BooleanField, PageHeader, Panel } from '../components/ui';
+import { BooleanField, PageHeader } from '../components/ui';
 import { getErrorMessage } from '../lib/error-message';
 
 function cloneConfig<T>(value: T): T {
@@ -72,249 +79,251 @@ export function ConfigPage() {
         }
       />
 
-      <Panel
-        title="Runtime config"
-        subtitle={configQuery.data.path}
-        accent="warm"
-      >
-        {rawMode ? (
-          <div className="stack-form">
-            <label className="field textarea-field">
-              <span>config.json</span>
-              <textarea
-                className="code-editor"
-                rows={24}
-                value={rawJson}
-                onChange={(event) => setRawJson(event.target.value)}
-              />
-            </label>
-            <div className="button-row">
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => {
-                  try {
-                    const parsed = JSON.parse(rawJson) as AdminConfig;
-                    setDraft(parsed);
-                    saveMutation.mutate(parsed);
-                  } catch (error) {
-                    toast.error('Invalid JSON', getErrorMessage(error));
-                  }
-                }}
-              >
-                Save JSON
-              </button>
+      <Card variant="muted">
+        <CardHeader>
+          <CardTitle>Runtime config</CardTitle>
+          <CardDescription>{configQuery.data.path}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {rawMode ? (
+            <div className="stack-form">
+              <label className="field textarea-field">
+                <span>config.json</span>
+                <textarea
+                  className="code-editor"
+                  rows={24}
+                  value={rawJson}
+                  onChange={(event) => setRawJson(event.target.value)}
+                />
+              </label>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(rawJson) as AdminConfig;
+                      setDraft(parsed);
+                      saveMutation.mutate(parsed);
+                    } catch (error) {
+                      toast.error('Invalid JSON', getErrorMessage(error));
+                    }
+                  }}
+                >
+                  Save JSON
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="config-grid">
-            <section className="config-section">
-              <h4>Operations</h4>
-              <label className="field">
-                <span>Health host</span>
-                <input
-                  value={draft.ops.healthHost}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            ops: {
-                              ...current.ops,
-                              healthHost: event.target.value,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>Health port</span>
-                <input
-                  value={String(draft.ops.healthPort)}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            ops: {
-                              ...current.ops,
-                              healthPort:
-                                Number.parseInt(event.target.value, 10) || 0,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>Log level</span>
-                <input
-                  value={draft.ops.logLevel}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            ops: {
-                              ...current.ops,
-                              logLevel: event.target.value,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-            </section>
+          ) : (
+            <div className="config-grid">
+              <section className="config-section">
+                <h4>Operations</h4>
+                <label className="field">
+                  <span>Health host</span>
+                  <input
+                    value={draft.ops.healthHost}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              ops: {
+                                ...current.ops,
+                                healthHost: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Health port</span>
+                  <input
+                    value={String(draft.ops.healthPort)}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              ops: {
+                                ...current.ops,
+                                healthPort:
+                                  Number.parseInt(event.target.value, 10) || 0,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Log level</span>
+                  <input
+                    value={draft.ops.logLevel}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              ops: {
+                                ...current.ops,
+                                logLevel: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+              </section>
 
-            <section className="config-section">
-              <h4>Security</h4>
-              <BooleanField
-                label="Confidential leak guard"
-                value={draft.security?.confidentialRedactionEnabled ?? false}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(confidentialRedactionEnabled) =>
-                  setDraft((current) => {
-                    if (!current) return current;
-                    const security = current.security ?? {
-                      trustModelAccepted: false,
-                      trustModelAcceptedAt: '',
-                      trustModelVersion: '',
-                      trustModelAcceptedBy: '',
-                      confidentialRedactionEnabled: false,
-                    };
-                    return {
-                      ...current,
-                      security: {
-                        ...security,
-                        confidentialRedactionEnabled,
-                      },
-                    };
-                  })
-                }
-              />
-            </section>
+              <section className="config-section">
+                <h4>Security</h4>
+                <BooleanField
+                  label="Confidential leak guard"
+                  value={draft.security?.confidentialRedactionEnabled ?? false}
+                  trueLabel="on"
+                  falseLabel="off"
+                  onChange={(confidentialRedactionEnabled) =>
+                    setDraft((current) => {
+                      if (!current) return current;
+                      const security = current.security ?? {
+                        trustModelAccepted: false,
+                        trustModelAcceptedAt: '',
+                        trustModelVersion: '',
+                        trustModelAcceptedBy: '',
+                        confidentialRedactionEnabled: false,
+                      };
+                      return {
+                        ...current,
+                        security: {
+                          ...security,
+                          confidentialRedactionEnabled,
+                        },
+                      };
+                    })
+                  }
+                />
+              </section>
 
-            <section className="config-section">
-              <h4>HybridAI</h4>
-              <label className="field">
-                <span>Base URL</span>
-                <input
-                  value={draft.hybridai.baseUrl}
-                  onChange={(event) =>
+              <section className="config-section">
+                <h4>HybridAI</h4>
+                <label className="field">
+                  <span>Base URL</span>
+                  <input
+                    value={draft.hybridai.baseUrl}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              hybridai: {
+                                ...current.hybridai,
+                                baseUrl: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Default model</span>
+                  <input
+                    value={draft.hybridai.defaultModel}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              hybridai: {
+                                ...current.hybridai,
+                                defaultModel: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                <BooleanField
+                  label="RAG default"
+                  value={draft.hybridai.enableRag}
+                  trueLabel="on"
+                  falseLabel="off"
+                  onChange={(enableRag) =>
                     setDraft((current) =>
                       current
                         ? {
                             ...current,
                             hybridai: {
                               ...current.hybridai,
-                              baseUrl: event.target.value,
+                              enableRag,
                             },
                           }
                         : current,
                     )
                   }
                 />
-              </label>
-              <label className="field">
-                <span>Default model</span>
-                <input
-                  value={draft.hybridai.defaultModel}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            hybridai: {
-                              ...current.hybridai,
-                              defaultModel: event.target.value,
-                            },
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-              <BooleanField
-                label="RAG default"
-                value={draft.hybridai.enableRag}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(enableRag) =>
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          hybridai: {
-                            ...current.hybridai,
-                            enableRag,
-                          },
-                        }
-                      : current,
-                  )
-                }
-              />
-            </section>
+              </section>
 
-            <section className="config-section">
-              <h4>Container</h4>
-              <label className="field">
-                <span>Memory</span>
-                <input
-                  value={draft.container.memory}
-                  onChange={(event) =>
+              <section className="config-section">
+                <h4>Container</h4>
+                <label className="field">
+                  <span>Memory</span>
+                  <input
+                    value={draft.container.memory}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              container: {
+                                ...current.container,
+                                memory: event.target.value,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                <BooleanField
+                  label="Persistent bash state"
+                  value={draft.container.persistBashState}
+                  trueLabel="on"
+                  falseLabel="off"
+                  onChange={(persistBashState) =>
                     setDraft((current) =>
                       current
                         ? {
                             ...current,
                             container: {
                               ...current.container,
-                              memory: event.target.value,
+                              persistBashState,
                             },
                           }
                         : current,
                     )
                   }
                 />
-              </label>
-              <BooleanField
-                label="Persistent bash state"
-                value={draft.container.persistBashState}
-                trueLabel="on"
-                falseLabel="off"
-                onChange={(persistBashState) =>
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          container: {
-                            ...current.container,
-                            persistBashState,
-                          },
-                        }
-                      : current,
-                  )
-                }
-              />
-            </section>
-          </div>
-        )}
+              </section>
+            </div>
+          )}
 
-        <div className="button-row">
-          <button
-            className="primary-button"
-            type="button"
-            disabled={saveMutation.isPending}
-            onClick={() => saveMutation.mutate(draft)}
-          >
-            {saveMutation.isPending ? 'Saving...' : 'Save config'}
-          </button>
-        </div>
-      </Panel>
+          <div className="button-row">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={saveMutation.isPending}
+              onClick={() => saveMutation.mutate(draft)}
+            >
+              {saveMutation.isPending ? 'Saving...' : 'Save config'}
+            </button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

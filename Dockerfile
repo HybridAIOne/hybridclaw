@@ -8,7 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY package*.json ./
+RUN npm install --global npm@11.10.0 --no-audit --fund=false
+
+COPY .npmrc package*.json ./
 COPY console/package*.json console/
 COPY scripts/postinstall-container.mjs scripts/
 RUN npm ci
