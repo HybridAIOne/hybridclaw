@@ -475,7 +475,9 @@ function agentSkillScoresNeedMigration(database: Database.Database): boolean {
 }
 
 function agentA2ANeedMigration(database: Database.Database): boolean {
-  return tableExists(database, 'agents') && !columnExists(database, 'agents', 'a2a');
+  return (
+    tableExists(database, 'agents') && !columnExists(database, 'agents', 'a2a')
+  );
 }
 
 function boardCardsNeedMigration(database: Database.Database): boolean {
@@ -4103,7 +4105,7 @@ export function listUsageByModel(params?: {
      FROM usage_events
      ${where}
      GROUP BY model
-     ORDER BY total_cost_usd DESC, total_tokens DESC, call_count DESC`,
+     ORDER BY total_tokens DESC, call_count DESC, total_cost_usd DESC`,
     ...args,
   );
 

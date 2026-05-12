@@ -74,20 +74,21 @@
 }
 
 .area {
-  fill: var(--accent);
-  fill-opacity: 0.14;
+  fill: var(--primary);
+  fill-opacity: 0.1;
 }
 
 .line {
   fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.75;
+  stroke: var(--primary);
+  stroke-opacity: 0.72;
+  stroke-width: 2.25;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 
 .crosshair {
-  stroke: color-mix(in srgb, var(--text) 25%, transparent);
+  stroke: color-mix(in srgb, var(--primary) 48%, transparent);
   stroke-width: 1;
   stroke-dasharray: 2 3;
   pointer-events: none;
@@ -141,15 +142,16 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content 5.25rem;
+  column-gap: 12px;
+  row-gap: 6px;
 }
 
 .topModelRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 12px;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: baseline;
   font-size: 0.85rem;
 }
@@ -164,11 +166,16 @@
 .topModelDetail {
   color: color-mix(in srgb, var(--text) 55%, transparent);
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .topModelCost {
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
 }
 
 @media (max-width: 720px) {

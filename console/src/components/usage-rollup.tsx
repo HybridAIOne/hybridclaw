@@ -3,16 +3,19 @@ import type { AdminOverview, AdminStatisticsTrendDay } from '../api/types';
 import {
   formatCompactNumber,
   formatTokenBreakdown,
-  formatUsd,
   pluralize,
 } from '../lib/format';
 import css from './usage-rollup.module.css';
 
-// Render zero spend as a bare "$0" in the rollup. Routes that show USD in
-// columns (Models, Statistics) still want `formatUsd`'s fixed-decimal form so
-// tabular-nums alignment holds across rows.
+// Keep the rollup compact: zero is bare, nonzero values are capped at cents.
 function formatUsdCompact(value: number): string {
-  return value === 0 ? '$0' : formatUsd(value);
+  if (value === 0) return '$0';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 const CHART_VIEWBOX_WIDTH = 600;
