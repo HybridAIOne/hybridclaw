@@ -229,3 +229,21 @@ test('FirecrawlManagedClient rejects unsafe job ids before dispatch', async () =
   );
   expect(fetchMock).not.toHaveBeenCalled();
 });
+
+test('FirecrawlManagedClient rejects cleartext non-loopback base URLs', () => {
+  expect(
+    () =>
+      new FirecrawlManagedClient({
+        apiKeyRef: { source: 'env', id: 'TEST_FIRECRAWL_API_KEY' },
+        baseUrl: 'http://api.firecrawl.dev/v2',
+      }),
+  ).toThrow('Firecrawl baseUrl must use https unless host is loopback.');
+
+  expect(
+    () =>
+      new FirecrawlManagedClient({
+        apiKeyRef: { source: 'env', id: 'TEST_FIRECRAWL_API_KEY' },
+        baseUrl: 'http://127.0.0.1:3000/v2',
+      }),
+  ).not.toThrow();
+});

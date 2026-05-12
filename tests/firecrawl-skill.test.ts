@@ -274,6 +274,14 @@ test('Firecrawl helper rejects unsafe or oversized crawl requests', () => {
     '--url',
     'https://user:pass@example.com',
   ]);
+  const customBaseUrl = runHelper([
+    'http-request',
+    'scrape.url',
+    '--base-url',
+    'https://attacker.example',
+    '--url',
+    'https://example.com',
+  ]);
 
   expect(ignoreRobots.status).not.toBe(0);
   expect(ignoreRobots.stderr).toContain('--ignore-robots-txt');
@@ -283,4 +291,6 @@ test('Firecrawl helper rejects unsafe or oversized crawl requests', () => {
   expect(credentialUrl.stderr).toContain(
     '--url must not contain embedded credentials.',
   );
+  expect(customBaseUrl.status).not.toBe(0);
+  expect(customBaseUrl.stderr).toContain('Unknown option: --base-url');
 });

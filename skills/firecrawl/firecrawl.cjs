@@ -45,7 +45,6 @@ Usage:
 
 Global options:
   --format json|pretty       Output JSON or pretty-printed JSON. Default: pretty.
-  --base-url <url>           Firecrawl API base URL. Default: ${DEFAULT_BASE_URL}
   --timeout-ms <ms>          Gateway request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --max-response-bytes <n>   Gateway response cap. Default: ${DEFAULT_MAX_RESPONSE_BYTES}
 
@@ -88,7 +87,6 @@ function fail(message) {
 function parseArgs(argv) {
   const opts = {
     format: 'pretty',
-    baseUrl: DEFAULT_BASE_URL,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
     formatNames: [],
@@ -120,9 +118,6 @@ function parseArgs(argv) {
     switch (arg) {
       case '--format':
         opts.format = readValue();
-        break;
-      case '--base-url':
-        opts.baseUrl = readValue();
         break;
       case '--timeout-ms':
         opts.timeoutMs = parseInteger(readValue(), '--timeout-ms', 1, 600_000);
@@ -247,19 +242,6 @@ function parseInteger(value, label, min, max) {
   return parsed;
 }
 
-function normalizeBaseUrl(value) {
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    fail('--base-url must be a valid http(s) URL.');
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    fail('--base-url must use http or https.');
-  }
-  return parsed.toString().replace(/\/+$/u, '');
-}
-
 function normalizeTargetUrl(value) {
   if (!value) fail('--url is required.');
   let parsed;
@@ -365,7 +347,7 @@ function scrapeOptions(opts, schema, defaults = ['markdown']) {
 }
 
 function buildRequest(command, opts) {
-  const baseUrl = normalizeBaseUrl(opts.baseUrl);
+  const baseUrl = DEFAULT_BASE_URL;
   const schema = readSchema(opts);
   const operation = normalizeCommand(command);
   let path;

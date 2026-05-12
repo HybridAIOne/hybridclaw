@@ -147,10 +147,27 @@ function normalizeBaseUrl(baseUrl?: string): string {
   } catch {
     throw new Error('Firecrawl baseUrl must be a valid http(s) URL.');
   }
+  if (parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname)) {
+    throw new Error(
+      'Firecrawl baseUrl must use https unless host is loopback.',
+    );
+  }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('Firecrawl baseUrl must use http or https.');
+    throw new Error(
+      'Firecrawl baseUrl must use https unless host is loopback.',
+    );
   }
   return parsed.toString().replace(/\/+$/u, '');
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
 }
 
 function assertRecord(
