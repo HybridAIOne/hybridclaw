@@ -65,10 +65,10 @@ network:
   default: deny
   rules:
     - action: allow
-      host: "hybridclaw.io"
+      host: "hybridaione.github.io"
       port: 443
       methods: ["*"]
-      paths: ["/**"]
+      paths: ["/hybridclaw/**"]
       agent: "*"
   presets: []
 

@@ -13,7 +13,6 @@ describe('getToolExecutionMode', () => {
     ['grep', '{"pattern":"TODO"}'],
     ['session_search', '{"query":"parallel tools"}'],
     ['vision_analyze', '{"image_url":"x.png","question":"what is this?"}'],
-    ['image', '{"image_url":"x.png","question":"what is this?"}'],
     ['message', '{"action":"read","channelId":"123"}'],
     ['message', '{"action":"member-info","userId":"123","guildId":"456"}'],
     ['message', '{"action":"channel-info","channelId":"123"}'],

@@ -44,10 +44,10 @@ test('reads the default network policy when policy.yaml is missing', () => {
     expect.objectContaining({
       index: 1,
       action: 'allow',
-      host: 'hybridclaw.io',
+      host: 'hybridaione.github.io',
       port: 443,
       methods: ['*'],
-      paths: ['/**'],
+      paths: ['/hybridclaw/**'],
       agent: '*',
     }),
   ]);
@@ -116,7 +116,7 @@ test('updates default action, deletes rules by host, and resets to the packaged 
   expect(deleted.deleted[0]?.host).toBe('api.openai.com');
   state = deleted.state;
   expect(state.rules).toEqual([
-    expect.objectContaining({ host: 'hybridclaw.io' }),
+    expect.objectContaining({ host: 'hybridaione.github.io' }),
   ]);
 
   state = resetPolicyNetwork(workspacePath);
@@ -124,10 +124,10 @@ test('updates default action, deletes rules by host, and resets to the packaged 
   expect(state.presets).toEqual([]);
   expect(state.rules).toEqual([
     expect.objectContaining({
-      host: 'hybridclaw.io',
+      host: 'hybridaione.github.io',
       action: 'allow',
       methods: ['*'],
-      paths: ['/**'],
+      paths: ['/hybridclaw/**'],
       agent: '*',
     }),
   ]);

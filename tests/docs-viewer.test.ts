@@ -19,8 +19,8 @@ describe('docs viewer helpers', () => {
       'utf8',
     );
 
-    expect(aboutHtml).toContain('url=/');
-    expect(aboutHtml).toContain('href="/"');
+    expect(aboutHtml).toContain('url=/hybridclaw/');
+    expect(aboutHtml).toContain('href="/hybridclaw/"');
   });
 
   test('maps clean routes to markdown paths', () => {
@@ -60,6 +60,25 @@ describe('docs viewer helpers', () => {
     expect(
       buildDocMarkdownHref('extensibility/skills.md', '/docs', '/content'),
     ).toBe('/content/extensibility/skills.md');
+  });
+
+  test('builds routes for the GitHub Pages project base path', () => {
+    expect(
+      resolveDocPathFromPathname(
+        '/hybridclaw/docs/extensibility/skills',
+        '/hybridclaw/docs',
+      ),
+    ).toBe('extensibility/skills.md');
+    expect(buildDocHtmlHref('README.md', '/hybridclaw/docs')).toBe(
+      '/hybridclaw/docs/',
+    );
+    expect(
+      buildDocMarkdownHref(
+        'extensibility/skills.md',
+        '/hybridclaw/docs',
+        '/hybridclaw/content',
+      ),
+    ).toBe('/hybridclaw/content/extensibility/skills.md');
   });
 
   test('exposes remote access in the guides section metadata', () => {

@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@hybridaione/hybridclaw)](https://www.npmjs.com/package/@hybridaione/hybridclaw)
 [![Node](https://img.shields.io/badge/node-22.x-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![License](https://img.shields.io/github/license/HybridAIOne/hybridclaw)](https://github.com/HybridAIOne/hybridclaw/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-hybridclaw.io-blue)](https://www.hybridclaw.io/docs/)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://hybridaione.github.io/hybridclaw/docs/)
 [![Powered by HybridAI](https://img.shields.io/badge/powered%20by-HybridAI-blueviolet)](https://hybridai.one)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/jsVW4vJw27)
 
@@ -23,22 +23,22 @@ Connect it to Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams,
 email, Twilio voice, or the web. Run it locally, deploy it for business
 workflows, and keep your agents, secrets, and data under your control.
 
-[Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart) ·
-[Installation](https://www.hybridclaw.io/docs/getting-started/installation) ·
-[Configuration](https://www.hybridclaw.io/docs/reference/configuration) ·
-[Migration](https://www.hybridclaw.io/docs/reference/commands#migration) ·
+[Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart) ·
+[Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) ·
+[Configuration](https://hybridaione.github.io/hybridclaw/docs/reference/configuration) ·
+[Migration](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration) ·
 [Contributing](./CONTRIBUTING.md) ·
 [Support](./SUPPORT.md)
 
 ## Pick your path
 
 - Want the shortest path to a running assistant? Start with
-  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart).
+  [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart).
 - Want the full setup flow with providers, channels, and admin surfaces? Start
-  with [Installation](https://www.hybridclaw.io/docs/getting-started/installation)
-  and [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication).
+  with [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation)
+  and [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication).
 - Want to migrate from OpenClaw or Hermes? Start with the
-  [migration commands](https://www.hybridclaw.io/docs/reference/commands#migration).
+  [migration commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration).
 - Want to contribute from source? Start with [CONTRIBUTING.md](./CONTRIBUTING.md)
   and the maintainer docs under [docs/content/README.md](./docs/content/README.md).
 
@@ -98,7 +98,7 @@ listening on `http://127.0.0.1:9090`.
 
 Release notes live in [CHANGELOG.md](./CHANGELOG.md), and the browsable
 operator and maintainer manual lives at
-[hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
+[hybridaione.github.io/hybridclaw/docs](https://hybridaione.github.io/hybridclaw/docs/).
 
 ## See it in Action
 
@@ -317,55 +317,55 @@ Once the gateway is running, open HybridClaw locally:
 ## Documentation
 
 Browse the full manual at
-[hybridclaw.io/docs](https://www.hybridclaw.io/docs/).
+[hybridaione.github.io/hybridclaw/docs](https://hybridaione.github.io/hybridclaw/docs/).
 
 - Getting started:
-  [Installation](https://www.hybridclaw.io/docs/getting-started/installation),
-  [Authentication](https://www.hybridclaw.io/docs/getting-started/authentication), and
-  [Quick Start](https://www.hybridclaw.io/docs/getting-started/quickstart)
+  [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation),
+  [Authentication](https://hybridaione.github.io/hybridclaw/docs/getting-started/authentication), and
+  [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart)
 - Enterprise deployment:
-  [Runtime Internals](https://www.hybridclaw.io/docs/developer-guide/runtime) and
-  [Architecture](https://www.hybridclaw.io/docs/developer-guide/architecture)
+  [Runtime Internals](https://hybridaione.github.io/hybridclaw/docs/developer-guide/runtime) and
+  [Architecture](https://hybridaione.github.io/hybridclaw/docs/developer-guide/architecture)
 - Operations:
-  [Remote Access](https://www.hybridclaw.io/docs/guides/remote-access)
+  [Remote Access](https://hybridaione.github.io/hybridclaw/docs/guides/remote-access)
 - Security:
   [SECURITY.md](./SECURITY.md) and [TRUST_MODEL.md](./TRUST_MODEL.md)
 - Migration:
-  [Commands: Migration](https://www.hybridclaw.io/docs/reference/commands#migration) and
-  [FAQ](https://www.hybridclaw.io/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
+  [Commands: Migration](https://hybridaione.github.io/hybridclaw/docs/reference/commands#migration) and
+  [FAQ](https://hybridaione.github.io/hybridclaw/docs/reference/faq#can-i-migrate-an-existing-openclaw-or-hermes-agent-home)
 - Channels:
-  [Connect Your First Channel](https://www.hybridclaw.io/docs/getting-started/first-channel),
-  [Overview](https://www.hybridclaw.io/docs/channels/overview),
-  [Twilio Voice](https://www.hybridclaw.io/docs/guides/twilio-voice),
-  [Discord](https://www.hybridclaw.io/docs/channels/discord),
-  [Slack](https://www.hybridclaw.io/docs/channels/slack),
-  [Telegram](https://www.hybridclaw.io/docs/channels/telegram),
-  [Signal](https://www.hybridclaw.io/docs/channels/signal),
-  [Threema](https://www.hybridclaw.io/docs/channels/threema),
-  [Email](https://www.hybridclaw.io/docs/channels/email),
-  [WhatsApp](https://www.hybridclaw.io/docs/channels/whatsapp),
-  [iMessage](https://www.hybridclaw.io/docs/channels/imessage), and
-  [Microsoft Teams](https://www.hybridclaw.io/docs/channels/msteams)
+  [Connect Your First Channel](https://hybridaione.github.io/hybridclaw/docs/getting-started/first-channel),
+  [Overview](https://hybridaione.github.io/hybridclaw/docs/channels/overview),
+  [Twilio Voice](https://hybridaione.github.io/hybridclaw/docs/guides/twilio-voice),
+  [Discord](https://hybridaione.github.io/hybridclaw/docs/channels/discord),
+  [Slack](https://hybridaione.github.io/hybridclaw/docs/channels/slack),
+  [Telegram](https://hybridaione.github.io/hybridclaw/docs/channels/telegram),
+  [Signal](https://hybridaione.github.io/hybridclaw/docs/channels/signal),
+  [Threema](https://hybridaione.github.io/hybridclaw/docs/channels/threema),
+  [Email](https://hybridaione.github.io/hybridclaw/docs/channels/email),
+  [WhatsApp](https://hybridaione.github.io/hybridclaw/docs/channels/whatsapp),
+  [iMessage](https://hybridaione.github.io/hybridclaw/docs/channels/imessage), and
+  [Microsoft Teams](https://hybridaione.github.io/hybridclaw/docs/channels/msteams)
 - Tutorials:
-  [Practical Workflows](https://www.hybridclaw.io/docs/tutorials) for owner,
+  [Practical Workflows](https://hybridaione.github.io/hybridclaw/docs/tutorials) for owner,
   GTM, marketing, sales, DevRel, content, invoicing, webinar, and release
   launch workflows
 - Skills and plugins:
-  [Extensibility](https://www.hybridclaw.io/docs/extensibility),
-  [Bundled Skills](https://www.hybridclaw.io/docs/guides/bundled-skills),
-  [Plugin System](https://www.hybridclaw.io/docs/extensibility/plugins),
-  [Memory Plugins](https://www.hybridclaw.io/docs/extensibility/memory-plugins),
-  [ByteRover Memory Plugin](https://www.hybridclaw.io/docs/extensibility/byterover-memory-plugin),
-  [GBrain Plugin](https://www.hybridclaw.io/docs/extensibility/gbrain-plugin),
-  [Mem0 Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mem0-memory-plugin),
-  [Honcho Memory Plugin](https://www.hybridclaw.io/docs/extensibility/honcho-memory-plugin), and
-  [MemPalace Memory Plugin](https://www.hybridclaw.io/docs/extensibility/mempalace-memory-plugin)
+  [Extensibility](https://hybridaione.github.io/hybridclaw/docs/extensibility),
+  [Bundled Skills](https://hybridaione.github.io/hybridclaw/docs/guides/bundled-skills),
+  [Plugin System](https://hybridaione.github.io/hybridclaw/docs/extensibility/plugins),
+  [Memory Plugins](https://hybridaione.github.io/hybridclaw/docs/extensibility/memory-plugins),
+  [ByteRover Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/byterover-memory-plugin),
+  [GBrain Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/gbrain-plugin),
+  [Mem0 Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/mem0-memory-plugin),
+  [Honcho Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/honcho-memory-plugin), and
+  [MemPalace Memory Plugin](https://hybridaione.github.io/hybridclaw/docs/extensibility/mempalace-memory-plugin)
 - Configuration:
-  [Configuration Reference](https://www.hybridclaw.io/docs/reference/configuration)
+  [Configuration Reference](https://hybridaione.github.io/hybridclaw/docs/reference/configuration)
 - CLI reference:
-  [Commands](https://www.hybridclaw.io/docs/reference/commands),
-  [Diagnostics](https://www.hybridclaw.io/docs/reference/diagnostics), and
-  [FAQ](https://www.hybridclaw.io/docs/reference/faq)
+  [Commands](https://hybridaione.github.io/hybridclaw/docs/reference/commands),
+  [Diagnostics](https://hybridaione.github.io/hybridclaw/docs/reference/diagnostics), and
+  [FAQ](https://hybridaione.github.io/hybridclaw/docs/reference/faq)
 
 ## Contributing
 

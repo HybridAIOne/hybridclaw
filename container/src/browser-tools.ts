@@ -8,6 +8,7 @@ import { parseOptionalBoolean } from '../shared/boolean-utils.js';
 import { assertBrowserNavigationUrl } from '../shared/browser-navigation.js';
 import { BROWSER_PROFILE_CHROMIUM_ARGS } from '../shared/browser-profile.js';
 import { callAuxiliaryModel } from './providers/auxiliary.js';
+import type { RuntimeProvider } from './providers/provider-ids.js';
 import {
   DISCORD_MEDIA_CACHE_ROOT_DISPLAY,
   resolveMediaPath,
@@ -185,17 +186,7 @@ type ClickTarget = {
   button?: 'left' | 'right' | 'middle';
 };
 type BrowserModelContext = {
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm';
+  provider: RuntimeProvider;
   providerMethod?: string;
   baseUrl: string;
   apiKey: string;
@@ -281,18 +272,7 @@ function cloneTaskModelPolicies(
 }
 
 export function setBrowserModelContext(
-  provider:
-    | 'hybridai'
-    | 'openai-codex'
-    | 'anthropic'
-    | 'openrouter'
-    | 'mistral'
-    | 'huggingface'
-    | 'ollama'
-    | 'lmstudio'
-    | 'llamacpp'
-    | 'vllm'
-    | undefined,
+  provider: RuntimeProvider | undefined,
   providerMethod: string | undefined,
   baseUrl: string,
   apiKey: string,

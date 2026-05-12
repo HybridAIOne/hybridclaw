@@ -355,6 +355,7 @@ import type {
   DelegationTaskSpec,
 } from '../types/side-effects.js';
 import type { TokenUsageStats } from '../types/usage.js';
+import { buildMediaGenerationUsageEvents } from '../usage/media-generation-usage.js';
 import {
   extractExplicitUsageCostUsd,
   resolveUsageCostUsdAfterMetadataRefresh,
@@ -757,7 +758,8 @@ const BASE_SUBAGENT_ALLOWED_TOOLS = [
   'browser_pdf',
   'browser_vision',
   'vision_analyze',
-  'image',
+  'image_generate',
+  'video_generate',
   'browser_get_images',
   'browser_console',
   'browser_network',
@@ -898,6 +900,14 @@ async function persistDelegationAttempt(params: {
       }),
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: params.sessionId,
+      agentId: 'delegate',
+      auditRunId: runId,
+      toolExecutions,
+    })) {
+      enqueueTokenUsage(event);
+    }
   }
   maybeRecordGatewayRequestLog({
     sessionId: params.sessionId,
@@ -6494,6 +6504,14 @@ export async function ensureGatewayBootstrapAutostart(params: {
       }),
       auditRunId: runId,
     });
+    for (const event of buildMediaGenerationUsageEvents({
+      sessionId: session.id,
+      agentId: resolved.agentId,
+      auditRunId: runId,
+      toolExecutions: output.toolExecutions || [],
+    })) {
+      enqueueTokenUsage(event);
+    }
 
     if (output.status !== 'success' || !resultText) {
       deleteMemoryValue(session.id, BOOTSTRAP_AUTOSTART_MARKER_KEY);

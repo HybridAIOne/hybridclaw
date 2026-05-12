@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation and quick start
-    url: https://www.hybridclaw.io/docs/
+    url: https://hybridaione.github.io/hybridclaw/docs/
     about: Start here for installation, setup, configuration, and command reference.
   - name: GitHub Discussions
     url: https://github.com/HybridAIOne/hybridclaw/discussions
