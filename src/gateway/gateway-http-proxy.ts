@@ -530,27 +530,24 @@ function extractBindingDomainFromResponse(
 }
 
 /**
- * Auto-detect an OAuth2 token response (RFC 6749 S5.1) by checking for
- * `access_token` in the JSON body.  When detected, capture all matching
- * fields into the secret store and return the mapping.  The original
- * response body is **never** forwarded to the caller.
+ * Capture selected string fields into the secret store and return only the
+ * capture mapping. The original response body is never forwarded to the
+ * caller when a capture succeeds.
  *
- * Captured OAuth secrets are bound by default so that `bearerSecretName` only
- * works against the resource host. OAuth APIs such as Salesforce issue tokens
- * from a login host but return an `instance_url` resource host; bind to that
- * resource host when present and fall back to the OAuth endpoint hostname
- * otherwise. Non-token metadata captures must be explicitly exempted.
+ * Captured secrets are bound by default so that `bearerSecretName` only works
+ * against the resource host. OAuth APIs such as Salesforce issue tokens from a
+ * login host but return an `instance_url` resource host; bind to that resource
+ * host when present and fall back to the request hostname otherwise. Non-token
+ * metadata captures must be explicitly exempted.
  */
-function captureOAuthResponse(
+function captureSecretResponseFields(
   responseJson: unknown,
   rules: CaptureFieldRule[],
   requestUrl: URL,
 ): Record<string, string> | null {
+  if (rules.length === 0) return null;
   if (!responseJson || typeof responseJson !== 'object') return null;
   const obj = responseJson as Record<string, unknown>;
-  if (typeof obj.access_token !== 'string' || !obj.access_token.trim()) {
-    return null;
-  }
 
   const baseDomain = extractBindingDomainFromResponse(obj, requestUrl);
   const secrets: Record<string, string> = {};
@@ -890,10 +887,13 @@ export async function handleApiHttpRequest(
     responseJson = undefined;
   }
 
-  // Auto-detect OAuth2 token responses: if the JSON body contains
-  // `access_token`, store the tokens in the secret store and return only
-  // a confirmation.  The original response body is never forwarded.
-  const captured = captureOAuthResponse(responseJson, captureFields, url);
+  // Capture selected token fields into the secret store and return only a
+  // confirmation. The original response body is never forwarded on capture.
+  const captured = captureSecretResponseFields(
+    responseJson,
+    captureFields,
+    url,
+  );
   if (captured) {
     sendJson(res, 200, {
       ok: response.ok,
