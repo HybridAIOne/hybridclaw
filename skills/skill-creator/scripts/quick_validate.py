@@ -28,6 +28,7 @@ ALLOWED_FRONTMATTER_KEYS = {
     "disable-model-invocation",
     "always",
     "requires",
+    "credentials",
     "metadata",
     "license",
     "allowed-tools",
