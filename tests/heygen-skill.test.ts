@@ -37,6 +37,10 @@ test('HeyGen helper --help exits cleanly without exposing auth escape hatches', 
   expect(result.stdout).toContain('HeyGen skill helper');
   expect(result.stdout).toContain('list-avatars');
   expect(result.stdout).toContain('generate-video');
+  expect(result.stdout).toContain('--image-url <public-url>');
+  expect(result.stdout).toContain('--audio-asset-id <asset-id>');
+  expect(result.stdout).toContain('--output-languages <language>');
+  expect(result.stdout).toContain('--translate-audio-only');
   expect(result.stdout).toContain('request <operation>');
   expect(result.stdout).toContain('classify-rate-limit');
   expect(result.stdout).not.toContain('--api-key ');
@@ -318,11 +322,56 @@ test('HeyGen helper blocks internal media URLs and removed API-key flags', () =>
     '--api-key',
     'api-key-value',
   ]);
+  const ipv6Loopback = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'translate-video',
+    '--video-url',
+    'http://[::1]/source.mp4',
+    '--output-language',
+    'de',
+    '--operator-grant',
+  ]);
+  const ipv6MappedLoopback = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'translate-video',
+    '--video-url',
+    'http://[::ffff:127.0.0.1]/source.mp4',
+    '--output-language',
+    'de',
+    '--operator-grant',
+  ]);
+  const publicFcHostname = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'translate-video',
+    '--video-url',
+    'https://fc-example.com/source.mp4',
+    '--output-language',
+    'de',
+    '--operator-grant',
+  ]);
 
   expect(internalUrl.status).not.toBe(0);
   expect(internalUrl.stderr).toContain(
     '--video-url must not target private or internal addresses.',
   );
+  expect(ipv6Loopback.status).not.toBe(0);
+  expect(ipv6Loopback.stderr).toContain(
+    '--video-url must not target private or internal addresses.',
+  );
+  expect(ipv6MappedLoopback.status).not.toBe(0);
+  expect(ipv6MappedLoopback.stderr).toContain(
+    '--video-url must not target private or internal addresses.',
+  );
+  expect(publicFcHostname.status).toBe(0);
+  expect(JSON.parse(publicFcHostname.stdout).httpRequest.json).toMatchObject({
+    video_url: 'https://fc-example.com/source.mp4',
+  });
   expect(apiKeyFlag.status).not.toBe(0);
   expect(apiKeyFlag.stderr).toContain(
     '--api-key is not supported by the HeyGen helper.',

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
+const net = require('node:net');
+
 const API_BASE = 'https://api.heygen.com';
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_API_KEY_SECRET = 'HEYGEN_API_KEY';
@@ -137,17 +139,55 @@ function isPrivateUrl(rawUrl) {
   }
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (hostname === 'localhost' || hostname === '::1') return true;
-  if (
-    hostname.startsWith('fe80:') ||
-    hostname.startsWith('fc') ||
-    hostname.startsWith('fd')
-  ) {
-    return true;
+
+  if (net.isIP(hostname) === 6) {
+    if (
+      hostname.startsWith('fe80:') ||
+      hostname.startsWith('fc') ||
+      hostname.startsWith('fd')
+    ) {
+      return true;
+    }
+    const mapped = ipv4OctetsFromMappedIpv6(hostname);
+    return mapped ? isPrivateIpv4Octets(mapped) : false;
   }
-  const octets = hostname.split('.').map((part) => Number.parseInt(part, 10));
-  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
+
+  const octets = parseIpv4Octets(hostname);
+  if (!octets) {
     return false;
   }
+  return isPrivateIpv4Octets(octets);
+}
+
+function parseIpv4Octets(hostname) {
+  const parts = hostname.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return null;
+  }
+  const octets = parts.map((part) => Number.parseInt(part, 10));
+  if (octets.some((octet) => octet < 0 || octet > 255)) {
+    return null;
+  }
+  return octets;
+}
+
+function ipv4OctetsFromMappedIpv6(hostname) {
+  const dotted = hostname.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dotted) {
+    return parseIpv4Octets(dotted[1]);
+  }
+  const packed = hostname.match(
+    /^::ffff:(?:0:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/,
+  );
+  if (!packed) {
+    return null;
+  }
+  const high = Number.parseInt(packed[1], 16);
+  const low = Number.parseInt(packed[2], 16);
+  return [high >> 8, high & 255, low >> 8, low & 255];
+}
+
+function isPrivateIpv4Octets(octets) {
   const [first, second] = octets;
   return (
     first === 10 ||
@@ -498,8 +538,39 @@ Read operations:
   translation-status --video-translate-id <id>
 
 Credit-consuming operations, requiring --operator-grant:
-  generate-video --avatar-id <id> --script <text> --voice-id <id> [--title <title>] [--resolution 720p|1080p] [--aspect-ratio 16:9|9:16]
-  translate-video --video-url <url> --output-language <language> [--mode fast|quality] [--title <title>]
+  generate-video
+    exactly one avatar source:
+      --avatar-id <id>
+      --image-url <public-url>
+      --image-asset-id <asset-id>
+    and exactly one audio source:
+      --script <text> --voice-id <id>
+      --audio-url <public-url>
+      --audio-asset-id <asset-id>
+    optional:
+      --title <title>
+      --resolution 720p|1080p
+      --aspect-ratio 16:9|9:16
+      --motion-prompt <text>
+      --expressiveness low|medium|high
+      --remove-background
+      --background-json <json>
+      --voice-settings-json <json>
+      --operator-grant
+
+  translate-video
+    required:
+      --video-url <public-url>
+      --output-language <language> OR repeated --output-languages <language>
+    optional:
+      --title <title>
+      --mode fast|quality
+      --translate-audio-only
+      --speaker-num <count>
+      --callback-id <id>
+      --brand-voice-id <id>
+      --keep-the-same-format
+      --operator-grant
 
 Authentication:
   Store the Direct API key as HEYGEN_API_KEY. The helper never accepts or prints API keys.
