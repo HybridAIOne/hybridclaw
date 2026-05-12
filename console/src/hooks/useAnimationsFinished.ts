@@ -4,7 +4,8 @@ import { type RefObject, useEffect } from 'react';
  * Calls `onComplete` when all CSS animations/transitions on `ref` finish.
  * Uses the Web Animations API (el.getAnimations()) — handles multiple
  * concurrent animations naturally. Falls back to immediate call when
- * there are no running animations (jsdom, prefers-reduced-motion, etc.).
+ * WAAPI is unavailable or there are no running animations (jsdom,
+ * prefers-reduced-motion, older runtimes, etc.).
  *
  * @param onComplete Must be referentially stable (wrap in `useCallback`).
  */
@@ -16,7 +17,7 @@ export function useAnimationsFinished(
   useEffect(() => {
     if (!exiting) return;
     const el = ref.current;
-    if (!el) {
+    if (!el || typeof el.getAnimations !== 'function') {
       onComplete();
       return;
     }

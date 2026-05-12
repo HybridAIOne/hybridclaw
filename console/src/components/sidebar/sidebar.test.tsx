@@ -264,7 +264,30 @@ describe('Sidebar — mobile overlay', () => {
     expect(panel?.getAttribute('data-mobile')).toBe('true');
   });
 
-  it('mobile drawer has role="dialog", aria-modal, and accessible title', () => {
+  it('mobile drawer has role="dialog", aria-modal, and accessible title when open', () => {
+    const captured = { value: null as SidebarCtx | null };
+    render(
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarContent>Content</SidebarContent>
+        </Sidebar>
+        <SidebarContextSpy
+          onRender={(ctx) => {
+            captured.value = ctx;
+          }}
+        />
+      </SidebarProvider>,
+    );
+    act(() => captured.value?.setOpenMobile(true));
+    const dialog = document.body.querySelector('[role="dialog"]');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+    // Dialog links the dialog to its title via aria-labelledby (not aria-label).
+    const titleId = dialog?.getAttribute('aria-labelledby') ?? '';
+    expect(titleId).not.toBe('');
+    expect(document.getElementById(titleId)?.textContent).toBe('Navigation');
+  });
+
+  it('mobile drawer is inert and aria-hidden when closed', () => {
     render(
       <SidebarProvider>
         <Sidebar>
@@ -273,11 +296,9 @@ describe('Sidebar — mobile overlay', () => {
       </SidebarProvider>,
     );
     const dialog = document.body.querySelector('[role="dialog"]');
-    expect(dialog?.getAttribute('aria-modal')).toBe('true');
-    // Dialog links the dialog to its title via aria-labelledby (not aria-label).
-    const titleId = dialog?.getAttribute('aria-labelledby') ?? '';
-    expect(titleId).not.toBe('');
-    expect(document.getElementById(titleId)?.textContent).toBe('Navigation');
+    expect(dialog?.getAttribute('aria-hidden')).toBe('true');
+    expect(dialog?.hasAttribute('inert')).toBe(true);
+    expect(dialog?.getAttribute('aria-modal')).toBeNull();
   });
 
   it('trigger shows "Open sidebar" initially', () => {

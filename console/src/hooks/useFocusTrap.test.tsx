@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { type RefObject, useRef, useState } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type RefObject, useCallback, useRef, useState } from 'react';
+import { afterEach, describe, expect, it } from 'vitest';
 import { FocusGuard } from './FocusGuard';
 import { useFocusTrap } from './useFocusTrap';
 
@@ -12,6 +12,23 @@ function TrapHarness(props: { active: boolean }) {
       <button type="button">First</button>
       <button type="button">Second</button>
       <button type="button">Third</button>
+    </div>
+  );
+}
+
+function SentinelHarness() {
+  const trapRef = useRef<HTMLDivElement>(null);
+  const focusFirst = useCallback(() => {
+    trapRef.current?.querySelector<HTMLElement>('button')?.focus();
+  }, []);
+  return (
+    <div>
+      <div ref={trapRef} data-testid="trap">
+        <button type="button">First</button>
+        <button type="button">Second</button>
+        <button type="button">Third</button>
+      </div>
+      <FocusGuard onFocus={focusFirst} />
     </div>
   );
 }
@@ -99,24 +116,22 @@ describe('useFocusTrap', () => {
     expect(document.activeElement).toBe(outside);
   });
 
-  it('FocusGuard sentinel redirects focus to first element when it receives focus', async () => {
+  it('FocusGuard sentinel redirects focus when its onFocus callback moves focus', async () => {
     // Render a trap container with a FocusGuard sentinel rendered after the
     // content (simulating the post-content sentinel that catches Tab past the
-    // last element and redirects focus back to the first).
-    const onFocus = vi.fn();
-    const { container } = render(
-      <div>
-        <TrapHarness active={true} />
-        <FocusGuard onFocus={onFocus} />
-      </div>,
-    );
+    // last element and redirects focus back to the first). Wire onFocus to a
+    // real focus action so we can assert focus actually moves.
+    const { container } = render(<SentinelHarness />);
     await new Promise((r) => requestAnimationFrame(r));
 
     const sentinel = container.querySelector<HTMLElement>('span[aria-hidden]');
     expect(sentinel).not.toBeNull();
+    const firstButton = container.querySelector<HTMLElement>(
+      '[data-testid="trap"] button',
+    );
+    expect(firstButton).not.toBeNull();
 
-    // Fire focus on the sentinel — onFocus should be called.
     fireEvent.focus(sentinel as HTMLElement);
-    expect(onFocus).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(firstButton);
   });
 });

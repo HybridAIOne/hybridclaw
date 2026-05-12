@@ -186,7 +186,9 @@ export function DialogContent({
           {...rest}
           ref={drawerPanelRef}
           role={role ?? 'dialog'}
-          aria-modal="true"
+          aria-modal={open ? 'true' : undefined}
+          aria-hidden={open ? undefined : true}
+          inert={!open}
           aria-labelledby={titleId}
           aria-describedby={descriptionId}
           data-sheet="content"
@@ -225,6 +227,7 @@ export function DialogContent({
         <FocusGuard onFocus={focusLast} />
         {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: role is always dialog or alertdialog, both support aria-modal */}
         <div
+          {...(rest as HTMLAttributes<HTMLDivElement>)}
           ref={panelRef}
           role={role ?? 'dialog'}
           aria-modal="true"

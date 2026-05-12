@@ -772,7 +772,12 @@ describe('ChatPage', () => {
       ),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    // Use getByText rather than getByRole — at default jsdom viewport (1024) the
+    // chat sidebar renders inside a closed mobile drawer, which is now inert
+    // (excluded from the accessibility tree). The button is still clickable.
+    fireEvent.click(
+      screen.getByText('All').closest('button') as HTMLButtonElement,
+    );
 
     await waitFor(() =>
       expect(fetchChatRecentMock).toHaveBeenLastCalledWith(
