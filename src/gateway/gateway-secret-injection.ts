@@ -66,6 +66,13 @@ export function assertSecretResolveAllowed(params: {
     },
   });
   if (evaluation.decision === 'allow') return;
+  if (
+    !evaluation.matchedRule &&
+    params.secretSource === 'store' &&
+    readStoredRuntimeSecret(params.secretId)
+  ) {
+    return;
+  }
   throw new GatewayRequestError(
     403,
     `Secret ${params.secretSource}:${params.secretId} is blocked by secret resolution policy.`,

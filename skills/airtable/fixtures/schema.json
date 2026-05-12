@@ -1,0 +1,73 @@
+{
+  "tables": [
+    {
+      "id": "tblPipeline",
+      "name": "Pipeline",
+      "fields": [
+        {
+          "id": "fldName",
+          "name": "Name",
+          "type": "singleLineText"
+        },
+        {
+          "id": "fldStatus",
+          "name": "Status",
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              { "id": "selNew", "name": "New" },
+              { "id": "selActive", "name": "Active" },
+              { "id": "selClosed", "name": "Closed" }
+            ]
+          }
+        },
+        {
+          "id": "fldTags",
+          "name": "Tags",
+          "type": "multipleSelects",
+          "options": {
+            "choices": [
+              { "id": "selDach", "name": "DACH" },
+              { "id": "selEnterprise", "name": "Enterprise" }
+            ]
+          }
+        },
+        {
+          "id": "fldAmount",
+          "name": "Amount",
+          "type": "currency"
+        },
+        {
+          "id": "fldClosed",
+          "name": "Closed",
+          "type": "checkbox"
+        },
+        {
+          "id": "fldDue",
+          "name": "Due Date",
+          "type": "date"
+        },
+        {
+          "id": "fldFiles",
+          "name": "Files",
+          "type": "multipleAttachments"
+        },
+        {
+          "id": "fldOwner",
+          "name": "Owner",
+          "type": "multipleCollaborators"
+        },
+        {
+          "id": "fldRelated",
+          "name": "Related Accounts",
+          "type": "multipleRecordLinks"
+        },
+        {
+          "id": "fldTotal",
+          "name": "Total Contract Value",
+          "type": "formula"
+        }
+      ]
+    }
+  ]
+}
