@@ -1313,6 +1313,10 @@ th {
   overflow: hidden;
 }
 
+.a2a-inbox-shell {
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+}
+
 .mailbox-sidebar,
 .mailbox-main,
 .mailbox-detail {

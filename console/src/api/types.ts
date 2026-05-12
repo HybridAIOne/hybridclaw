@@ -1082,6 +1082,30 @@ export interface AdminA2ATrustUpsertRequest {
   reason?: string;
 }
 
+export interface AdminA2AThreadMessage {
+  id: string;
+  threadId: string;
+  senderAgentId: string;
+  recipientAgentId: string;
+  parentMessageId: string | null;
+  intent: 'chat' | 'handoff' | 'escalate' | 'ack' | 'policy.update';
+  content: string;
+  createdAt: string;
+}
+
+export interface AdminA2AThreadSummary {
+  id: string;
+  messageCount: number;
+  participants: string[];
+  latestMessage: AdminA2AThreadMessage | null;
+}
+
+export interface AdminA2AInboxResponse {
+  threads: AdminA2AThreadSummary[];
+  selectedThreadId: string | null;
+  messages: AdminA2AThreadMessage[];
+}
+
 export interface AdminApprovalAgent {
   id: string;
   name: string | null;

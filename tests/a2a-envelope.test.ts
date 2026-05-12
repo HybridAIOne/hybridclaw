@@ -356,6 +356,77 @@ describe('A2A envelope persistence', () => {
     );
   });
 
+  test('lists persisted threads by latest message recency', async () => {
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const store = await import('../src/a2a/store.ts');
+    const envelopeMod = await import('../src/a2a/envelope.ts');
+
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [{ id: 'main', owner: 'team' }];
+    });
+
+    store.saveA2AEnvelope(
+      envelopeMod.validateA2AEnvelope({
+        id: 'msg-thread-a-1',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'main',
+        thread_id: 'thread-a',
+        intent: 'chat',
+        content: 'Older thread.',
+        created_at: '2026-04-28T10:00:00.000Z',
+      }),
+    );
+    store.saveA2AEnvelope(
+      envelopeMod.validateA2AEnvelope({
+        id: 'msg-thread-b-1',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'main',
+        thread_id: 'thread-b',
+        intent: 'handoff',
+        content: 'Newest thread.',
+        created_at: '2026-04-28T10:03:00.000Z',
+      }),
+    );
+    store.saveA2AEnvelope(
+      envelopeMod.validateA2AEnvelope({
+        id: 'msg-thread-a-2',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'main',
+        thread_id: 'thread-a',
+        parent_message_id: 'msg-thread-a-1',
+        intent: 'ack',
+        content: 'Thread A follow-up.',
+        created_at: '2026-04-28T10:02:00.000Z',
+      }),
+    );
+
+    expect(store.listA2AThreads()).toEqual([
+      expect.objectContaining({
+        thread_id: 'thread-b',
+        message_count: 1,
+        latest_message_id: 'msg-thread-b-1',
+        latest_intent: 'handoff',
+        latest_content: 'Newest thread.',
+        latest_created_at: '2026-04-28T10:03:00.000Z',
+        latest_sender_agent_id: 'main@team@local-dev',
+        latest_recipient_agent_id: 'main@team@local-dev',
+        participants: ['main@team@local-dev'],
+      }),
+      expect.objectContaining({
+        thread_id: 'thread-a',
+        message_count: 2,
+        latest_message_id: 'msg-thread-a-2',
+        latest_parent_message_id: 'msg-thread-a-1',
+        latest_intent: 'ack',
+        latest_content: 'Thread A follow-up.',
+        latest_created_at: '2026-04-28T10:02:00.000Z',
+        latest_sender_agent_id: 'main@team@local-dev',
+        latest_recipient_agent_id: 'main@team@local-dev',
+        participants: ['main@team@local-dev'],
+      }),
+    ]);
+  });
+
   test('rejects duplicate envelope ids in a thread', async () => {
     const store = await import('../src/a2a/store.ts');
     const envelopeMod = await import('../src/a2a/envelope.ts');
