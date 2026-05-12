@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.17.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.17.0) - 2026-05-12
+
 ### Added
 
 - **Native media generation tools**: The container runtime now exposes
