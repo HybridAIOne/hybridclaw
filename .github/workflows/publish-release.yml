@@ -297,6 +297,9 @@ jobs:
           ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npm ci
 
+      - name: Verify npm registry signatures
+        run: npm audit signatures
+
       - name: Build and verify pack contents
         run: npm run prepack
 
