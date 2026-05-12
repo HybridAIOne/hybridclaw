@@ -117,14 +117,17 @@ change needs them, and say so in the PR.
 
 ## Git Hooks
 
-This repo uses Husky with a pre-commit hook that runs:
+This repo uses Husky with a pre-commit hook that:
 
-```bash
-npx biome check --write --staged
-```
+1. Formats and lints staged files with Biome
+   (`npx biome check --write --staged`).
+2. Runs `tsc --noEmit` for each workspace whose source actually changed
+   (root, console, desktop, container). Uses TypeScript's `incremental` mode
+   so warm runs finish in a few seconds.
 
 Stage files before committing so the hook can validate and auto-format the
-staged diff.
+staged diff. The first commit after a clean checkout will be slower while
+`tsc` populates `.tsbuildinfo`; subsequent commits are fast.
 
 ## Repository Map
 

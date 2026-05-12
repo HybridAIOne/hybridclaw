@@ -224,7 +224,8 @@ npm run tui                          # tsx src/cli.ts tui
 
 - **Language:** TypeScript (strict mode, ES2022 target, NodeNext modules, ESM).
 - **Formatting:** Biome is authoritative. Run `npm run format` before
-  committing. The Husky pre-commit hook runs `npx biome check --write --staged`.
+  committing. The Husky pre-commit hook runs `npx biome check --write --staged`
+  followed by `tsc --noEmit` for each workspace whose source changed.
 - **Single quotes** for strings (configured in `biome.json`).
 - **No `any`** without strong justification. No `@ts-nocheck`.
 - **File size:** aim for ~500 LOC; split when it improves clarity or

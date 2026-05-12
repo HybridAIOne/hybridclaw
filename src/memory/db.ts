@@ -3777,11 +3777,11 @@ export function getUsageTotals(params?: {
 }
 
 export function monthlySpendUsd(agentId: string): number {
-  agentId = agentId.trim();
-  if (!agentId) {
+  const trimmed = agentId.trim();
+  if (!trimmed) {
     throw new Error('Agent id is required.');
   }
-  return getUsageTotals({ agentId, window: 'monthly' }).total_cost_usd;
+  return getUsageTotals({ agentId: trimmed, window: 'monthly' }).total_cost_usd;
 }
 
 export function monthlySpendEur(agentId: string): number {

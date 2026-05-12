@@ -12,6 +12,7 @@ desktop/build/runtime-bin/
 desktop/build/runtime-deps/
 container/dist/
 coverage/
+*.tsbuildinfo
 
 # Runtime data
 data/

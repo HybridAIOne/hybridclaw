@@ -1,1 +1,27 @@
 npx biome check --write --staged --no-errors-on-unmatched
+
+# Type-check the workspace(s) whose source actually changed. Uses
+# `incremental` builds (configured in tsconfig.json), so warm runs are fast.
+changed_paths=$(git diff --cached --name-only --diff-filter=ACMR)
+
+ts_pattern='\.(ts|tsx|mts|cts)$'
+
+if printf '%s\n' "$changed_paths" | grep -qE "^src/.*${ts_pattern}"; then
+  echo "→ typecheck (root)"
+  npx tsc --noEmit -p tsconfig.json || exit 1
+fi
+
+if printf '%s\n' "$changed_paths" | grep -qE "^console/.*${ts_pattern}"; then
+  echo "→ typecheck (console)"
+  npm --workspace console run typecheck || exit 1
+fi
+
+if printf '%s\n' "$changed_paths" | grep -qE "^desktop/.*${ts_pattern}"; then
+  echo "→ typecheck (desktop)"
+  npm --workspace desktop run typecheck || exit 1
+fi
+
+if printf '%s\n' "$changed_paths" | grep -qE "^container/.*${ts_pattern}"; then
+  echo "→ typecheck (container)"
+  npm --prefix container run lint || exit 1
+fi
