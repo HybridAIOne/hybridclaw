@@ -118,6 +118,44 @@ describe('Toast', () => {
     expect(allToasts.length).toBe(2);
   });
 
+  it('does not evict pinned toasts when the limit is exceeded', () => {
+    function PinnedTrigger() {
+      const toast = useToast();
+      return (
+        <button
+          type="button"
+          onClick={() =>
+            toast.add({
+              title: 'Live updates paused',
+              duration: 0,
+              pinned: true,
+            })
+          }
+        >
+          Trigger pinned
+        </button>
+      );
+    }
+    render(
+      <ToastProvider limit={2}>
+        <ToastTriggers />
+        <PinnedTrigger />
+      </ToastProvider>,
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'Trigger pinned' }).click();
+      screen.getByRole('button', { name: 'Success' }).click();
+      screen.getByRole('button', { name: 'Error' }).click();
+    });
+
+    // 3 toasts added with limit=2. The pinned one survives; eviction takes
+    // the oldest non-pinned ('Saved'), not the pinned indicator.
+    expect(screen.getByText('Live updates paused')).toBeTruthy();
+    expect(screen.queryByText('Saved')).toBeNull();
+    expect(screen.getByText('Failed')).toBeTruthy();
+  });
+
   it('uses role="alert" for error toasts', () => {
     setup();
     act(() => {

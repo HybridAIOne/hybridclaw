@@ -26,6 +26,13 @@ export interface AgentCv {
   asset?: string;
 }
 
+export type AgentA2AExposure = 'public' | 'trusted' | 'private';
+
+export interface AgentA2AConfig {
+  exposure?: AgentA2AExposure;
+  skillExposure?: Record<string, AgentA2AExposure>;
+}
+
 export interface AgentConfig {
   id: string;
   name?: string;
@@ -43,6 +50,7 @@ export interface AgentConfig {
   peers?: string[];
   cv?: AgentCv;
   escalationTarget?: EscalationTarget;
+  a2a?: AgentA2AConfig;
 }
 
 export interface AgentDefaultsConfig {
@@ -101,6 +109,63 @@ export function cloneAgentCv(value: AgentCv | undefined): AgentCv | undefined {
   return {
     ...value,
     ...(value.capabilities ? { capabilities: [...value.capabilities] } : {}),
+  };
+}
+
+function normalizeAgentA2AExposureValue(
+  value: unknown,
+): AgentA2AExposure | undefined {
+  const normalized = normalizeTrimmedString(value).toLowerCase();
+  if (
+    normalized === 'public' ||
+    normalized === 'trusted' ||
+    normalized === 'private'
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function normalizeAgentA2AConfig(
+  value: unknown,
+): AgentA2AConfig | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const exposure = normalizeAgentA2AExposureValue(record.exposure);
+  const rawSkillExposure =
+    record.skillExposure ?? record.skill_exposure ?? record.skills;
+  const skillExposure: Record<string, AgentA2AExposure> = {};
+  if (
+    rawSkillExposure &&
+    typeof rawSkillExposure === 'object' &&
+    !Array.isArray(rawSkillExposure)
+  ) {
+    for (const [rawSkill, rawExposure] of Object.entries(rawSkillExposure)) {
+      const skill = normalizeTrimmedString(rawSkill);
+      const normalizedExposure = normalizeAgentA2AExposureValue(rawExposure);
+      if (skill && normalizedExposure) {
+        skillExposure[skill] = normalizedExposure;
+      }
+    }
+  }
+  const normalized: AgentA2AConfig = {
+    ...(exposure ? { exposure } : {}),
+    ...(Object.keys(skillExposure).length > 0 ? { skillExposure } : {}),
+  };
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+export function cloneAgentA2AConfig(
+  value: AgentA2AConfig | undefined,
+): AgentA2AConfig | undefined {
+  if (!value) return undefined;
+  return {
+    ...(value.exposure ? { exposure: value.exposure } : {}),
+    ...(value.skillExposure
+      ? { skillExposure: { ...value.skillExposure } }
+      : {}),
   };
 }
 

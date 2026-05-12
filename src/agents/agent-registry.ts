@@ -29,8 +29,10 @@ import {
   type AgentModelConfig,
   type AgentsConfig,
   buildOptionalAgentPresentation,
+  cloneAgentA2AConfig,
   cloneAgentCv,
   DEFAULT_AGENT_ID,
+  normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   resolveSnakeCamelAlias,
@@ -189,6 +191,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const escalationTarget = normalizeAgentEscalationTarget(
     (value as { escalationTarget?: unknown }).escalationTarget,
   );
+  const a2a = normalizeAgentA2AConfig((value as { a2a?: unknown }).a2a);
   return {
     id,
     ...(name ? { name } : {}),
@@ -205,6 +208,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(peers !== undefined ? { peers } : {}),
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
+    ...(a2a ? { a2a } : {}),
   };
 }
 
@@ -257,6 +261,12 @@ function fingerprintAgent(agent: AgentConfig): string {
     fingerprintCv(agent.cv),
     fingerprintString(agent.escalationTarget?.channel),
     fingerprintString(agent.escalationTarget?.recipient),
+    fingerprintString(agent.a2a?.exposure),
+    fingerprintStringArray(
+      Object.entries(agent.a2a?.skillExposure ?? {})
+        .map(([skill, exposure]) => `${skill}:${exposure}`)
+        .sort(),
+    ),
   ].join('|');
 }
 
@@ -335,6 +345,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.escalationTarget
       ? { escalationTarget: { ...agent.escalationTarget } }
       : {}),
+    ...(agent.a2a ? { a2a: cloneAgentA2AConfig(agent.a2a) } : {}),
   };
 }
 
@@ -385,6 +396,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     peers: agent.peers,
     cv: cloneAgentCv(agent.cv),
     escalationTarget: agent.escalationTarget,
+    a2a: cloneAgentA2AConfig(agent.a2a),
   };
 }
 

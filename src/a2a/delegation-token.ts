@@ -94,6 +94,13 @@ export class A2ADelegationTokenError extends Error {
   }
 }
 
+export class A2ARevokedDelegationTokenError extends A2ADelegationTokenError {
+  constructor(message = 'JWT has been revoked') {
+    super(message);
+    this.name = 'A2ARevokedDelegationTokenError';
+  }
+}
+
 let cachedKeyPair: A2ADelegationTokenKeyPair | null = null;
 let cachedPrivateKey: { pem: string; key: KeyObject } | null = null;
 const cachedPublicKeys = new Map<string, KeyObject>();
@@ -618,7 +625,7 @@ export function verifyA2ADelegationToken(
       revocationRootDir: input.revocationRootDir,
     })
   ) {
-    throw new A2ADelegationTokenError('JWT has been revoked');
+    throw new A2ARevokedDelegationTokenError();
   }
   return claims;
 }

@@ -12,6 +12,7 @@ import {
   useSortableRows,
 } from '../components/ui';
 import { UsageRollup } from '../components/usage-rollup';
+import { useLiveConnectionToasts } from '../hooks/use-live-connection-toasts';
 import { useLiveEvents } from '../hooks/use-live-events';
 import { getErrorMessage } from '../lib/error-message';
 import {
@@ -165,6 +166,7 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const live = useLiveEvents(auth.token);
+  useLiveConnectionToasts(live.connection);
   const overviewQuery = useQuery({
     queryKey: ['overview', auth.token],
     queryFn: () => fetchOverview(auth.token),
@@ -237,19 +239,7 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
-        title="Dashboard"
-        actions={
-          <div className="status-pill">
-            <span
-              className={
-                live.connection === 'open' ? 'status-dot live' : 'status-dot'
-              }
-            />
-            {live.connection === 'open' ? 'connected' : 'polling fallback'}
-          </div>
-        }
-      />
+      <PageHeader title="Dashboard" />
 
       <div className="metric-grid">
         <MetricCard

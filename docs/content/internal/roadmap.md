@@ -163,7 +163,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | R21.49 | Skill | Deutsche Bahn business-travel skill (schedule lookup, ticket booking, BahnCard expense reconciliation) | ⬜ To be filed |
 | R21.50 | Skill | Lufthansa business-travel skill (NDC booking, status/frequent-flyer lookup, irregular-ops rebooking) | ⬜ #805 |
 | R21.51 | Skill | Workday HR-workflow skill (onboarding, time-off, expense, review prep — consumes R21.34 connector) | ⬜ To be filed |
-| R21.52 | Skill | Airtable skill (bases/tables search, record CRUD with field-type validation, attachments, formula-field reads) | ⬜ To be filed |
+| R21.52 | Skill | Airtable skill (bases/tables search, record CRUD with field-type validation, attachments, formula-field reads) | 🟡 #908 |
 | R21.53 | Skill | Pipedrive skill (deals/persons/orgs read, stage and probability updates, activity logging) | ⬜ To be filed |
 | R21.54 | Skill | Zoho CRM skill (lead/contact/deal CRUD, blueprint transitions, custom-module support) | ⬜ To be filed |
 | R21.55 | Skill | Asana skill (project/task CRUD, custom fields, sections, my-tasks lookup) | ⬜ To be filed |
