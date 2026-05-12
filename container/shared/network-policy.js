@@ -5,10 +5,10 @@ export const DEFAULT_NETWORK_DEFAULT = 'deny';
 export const DEFAULT_NETWORK_RULES = [
   {
     action: 'allow',
-    host: 'hybridclaw.io',
+    host: 'hybridaione.github.io',
     port: 443,
     methods: ['*'],
-    paths: ['/**'],
+    paths: ['/hybridclaw/**'],
     agent: '*',
   },
 ];

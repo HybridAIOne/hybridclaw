@@ -65,6 +65,7 @@ function buildRedactedInput(input: ContainerInput): ContainerInput {
     requestHeaders: {},
     taskModels: redactTaskModelSecrets(input.taskModels),
     webSearch: redactWebSearchSecrets(input.webSearch),
+    providerCredentials: undefined,
   };
 }
 
