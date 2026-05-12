@@ -1310,8 +1310,8 @@ export function formatTuiTitledCommandBlock(
   return [...lines, '', ...wrapTuiBlock(text, width, '  ').split('\n')];
 }
 
-function isInactiveSkillListLine(line: string): boolean {
-  return /\[disabled\]/i.test(line);
+export function isMutedSkillListLine(line: string): boolean {
+  return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
 }
 
 function printGatewayCommandResult(result: GatewayCommandResult): void {
@@ -1329,7 +1329,7 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     clearTuiSlashMenu();
     console.log();
     for (const line of formatTuiOutput(rendered).split('\n')) {
-      const color = isInactiveSkillListLine(line) ? MUTED : GOLD;
+      const color = isMutedSkillListLine(line) ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
     }
     console.log();

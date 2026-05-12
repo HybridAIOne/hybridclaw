@@ -189,12 +189,12 @@ const INSTALL_POLICY: Record<
   },
   personal: {
     safe: 'allow',
-    caution: 'block',
+    caution: 'allow',
     dangerous: 'block',
   },
   community: {
     safe: 'allow',
-    caution: 'block',
+    caution: 'allow',
     dangerous: 'block',
   },
 };

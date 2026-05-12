@@ -1,6 +1,12 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, test } from 'vitest';
 
-import { scanSkillContent } from '../src/skills/skills-guard.js';
+import {
+  guardSkillDirectory,
+  scanSkillContent,
+} from '../src/skills/skills-guard.js';
 
 test('skill guard blocks SecretRef stringification patterns', () => {
   const interpolation = '$' + '{datevCredentialRef}';
@@ -27,4 +33,33 @@ test('skill guard blocks SecretRef stringification patterns', () => {
       'secret_ref_json_stringify',
     ]),
   );
+});
+
+test('skill guard allows personal caution findings for manual enable flow', () => {
+  const skillDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-caution-skill-'));
+  try {
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: cautious-skill',
+        'description: Caution test',
+        '---',
+        '',
+        'See [registry](../../tools/REGISTRY.md).',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const decision = guardSkillDirectory({
+      skillName: 'cautious-skill',
+      skillPath: skillDir,
+      sourceTag: 'claude',
+    });
+
+    expect(decision.result.verdict).toBe('caution');
+    expect(decision.allowed).toBe(true);
+  } finally {
+    fs.rmSync(skillDir, { recursive: true, force: true });
+  }
 });
