@@ -284,11 +284,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          # The package declares Node 22.x and .npmrc enforces engines during
-          # npm ci. The publish step invokes npm 11 through npx so trusted
-          # publishing does not require mutating the runner's bundled npm.
+          # The package declares Node 22.x and npm 11.x because .npmrc uses
+          # npm 11 supply-chain hardening such as min-release-age.
           node-version: 22
           cache: npm
+
+      - name: Use npm 11
+        run: npm install --global npm@11.10.0 --no-audit --fund=false
 
       - name: Install dependencies
         env:
@@ -306,4 +308,4 @@ jobs:
           else
             NPM_TAG="latest"
           fi
-          npx -y npm@11 publish --access public --tag "$NPM_TAG" --provenance
+          npm publish --access public --tag "$NPM_TAG" --provenance
