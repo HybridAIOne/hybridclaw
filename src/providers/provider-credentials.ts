@@ -1,11 +1,5 @@
-import {
-  BFL_API_KEY,
-  GEMINI_API_KEY,
-  GEMINI_BASE_URL,
-  OPENAI_API_KEY,
-  XAI_API_KEY,
-  XAI_BASE_URL,
-} from '../config/config.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
+import { readStoredRuntimeSecrets } from '../security/runtime-secrets.js';
 import type {
   ProviderCredential,
   ProviderCredentials,
@@ -20,8 +14,22 @@ function optionalString(value: unknown): string | undefined {
   return text || undefined;
 }
 
-function optionalEnvConfig(name: string): string | undefined {
-  return optionalString(process.env[name]);
+function readSecretValue(
+  secrets: Record<string, string>,
+  names: string[],
+): string {
+  for (const name of names) {
+    const value = readConfigValue(secrets[name]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function optionalSecretConfig(
+  secrets: Record<string, string>,
+  names: string[],
+): string | undefined {
+  return optionalString(readSecretValue(secrets, names));
 }
 
 function providerConfig(params: {
@@ -41,28 +49,33 @@ function providerConfig(params: {
 }
 
 export function resolveProviderCredentials(): ProviderCredentials {
+  const secrets = readStoredRuntimeSecrets();
+  const config = getRuntimeConfig();
   return {
     openai: providerConfig({
-      apiKey: OPENAI_API_KEY,
-      baseUrl: optionalEnvConfig('OPENAI_BASE_URL'),
-      imageModel: optionalEnvConfig('OPENAI_IMAGE_MODEL'),
-      videoModel: optionalEnvConfig('OPENAI_VIDEO_MODEL'),
+      apiKey: readSecretValue(secrets, ['OPENAI_API_KEY']),
+      baseUrl: optionalSecretConfig(secrets, ['OPENAI_BASE_URL']),
+      imageModel: optionalSecretConfig(secrets, ['OPENAI_IMAGE_MODEL']),
+      videoModel: optionalSecretConfig(secrets, ['OPENAI_VIDEO_MODEL']),
     }),
     gemini: providerConfig({
-      apiKey: GEMINI_API_KEY,
-      baseUrl: optionalString(GEMINI_BASE_URL),
-      imageModel: optionalEnvConfig('GEMINI_IMAGE_MODEL'),
-      videoModel: optionalEnvConfig('GEMINI_VIDEO_MODEL'),
+      apiKey: readSecretValue(secrets, ['GEMINI_API_KEY', 'GOOGLE_API_KEY']),
+      baseUrl: optionalString(config.gemini.baseUrl),
+      imageModel: optionalSecretConfig(secrets, ['GEMINI_IMAGE_MODEL']),
+      videoModel: optionalSecretConfig(secrets, ['GEMINI_VIDEO_MODEL']),
     }),
     xai: providerConfig({
-      apiKey: XAI_API_KEY,
-      baseUrl: optionalString(XAI_BASE_URL),
-      imageModel: optionalEnvConfig('XAI_IMAGE_MODEL'),
+      apiKey: readSecretValue(secrets, ['XAI_API_KEY']),
+      baseUrl: optionalString(config.xai.baseUrl),
+      imageModel: optionalSecretConfig(secrets, ['XAI_IMAGE_MODEL']),
     }),
     bfl: providerConfig({
-      apiKey: BFL_API_KEY,
-      baseUrl: optionalEnvConfig('BFL_BASE_URL'),
-      imageModel: optionalEnvConfig('BFL_IMAGE_MODEL'),
+      apiKey: readSecretValue(secrets, [
+        'BFL_API_KEY',
+        'BLACK_FOREST_LABS_API_KEY',
+      ]),
+      baseUrl: optionalSecretConfig(secrets, ['BFL_BASE_URL']),
+      imageModel: optionalSecretConfig(secrets, ['BFL_IMAGE_MODEL']),
     }),
   };
 }
