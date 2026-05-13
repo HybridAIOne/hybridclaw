@@ -1,6 +1,6 @@
 ---
 name: firecrawl
-description: "Scrape pages, crawl public sites, map URLs, and run JSON-schema extraction through the managed Firecrawl API."
+description: "Scrape pages, crawl public sites, map URLs, and run JSON-schema extraction through managed or self-hosted Firecrawl."
 user-invocable: true
 requires:
   bins:
@@ -8,16 +8,24 @@ requires:
 credentials:
   - id: firecrawl-api-key
     kind: api_key
-    required: true
+    required: false
     secret_ref:
       source: store
       id: FIRECRAWL_API_KEY
     scope: "api.firecrawl.dev"
     how_to_obtain: "Create a managed Firecrawl API key in the Firecrawl dashboard."
+  - id: firecrawl-self-host-api-key
+    kind: api_key
+    required: false
+    secret_ref:
+      source: store
+      id: FIRECRAWL_SELF_HOST_API_KEY
+    scope: "self-hosted Firecrawl"
+    how_to_obtain: "Set this only when your self-hosted Firecrawl instance has API authentication enabled."
 metadata:
   hybridclaw:
     category: research
-    short_description: "Firecrawl managed scrape, crawl, map, and extraction."
+    short_description: "Firecrawl managed/self-host scrape, crawl, map, and extraction."
     tags:
       - firecrawl
       - scrape
@@ -27,8 +35,11 @@ metadata:
     related_roadmap:
       - R53
       - R53.1
+      - R53.2
     issue: 829
-    sub_issue: 862
+    sub_issues:
+      - 862
+      - 863
     stakes_tiers:
       green:
         - scrape.url
@@ -51,17 +62,36 @@ bypass access controls.
 
 ## Credential Rules
 
-Store the managed Firecrawl API key in HybridClaw encrypted runtime secrets:
+For managed mode, store the Firecrawl API key in HybridClaw encrypted runtime secrets:
 
 ```bash
 hybridclaw secret set FIRECRAWL_API_KEY "<fc-api-key>"
 ```
 
+For a self-hosted Firecrawl instance, set the gateway-reachable base URL in the
+runtime environment or pass it explicitly to the helper:
+
+```bash
+export FIRECRAWL_SELF_HOST_BASE_URL="http://firecrawl:3002"
+```
+
+The helper accepts base URLs with or without `/v2` and normalizes them to the
+v2 API path. If your self-hosted Firecrawl deployment enables API
+authentication, store that token separately:
+
+```bash
+hybridclaw secret set FIRECRAWL_SELF_HOST_API_KEY "<self-host-api-key>"
+```
+
+Use HTTPS for any self-host endpoint outside a trusted private network, especially when `--self-host-auth` is enabled; plain HTTP can expose bearer tokens on untrusted networks.
+
 For live calls, run the colocated helper to build an `http_request` payload and
 pass only the emitted `httpRequest` object to the built-in `http_request` tool.
 The helper sets `bearerSecretName: "FIRECRAWL_API_KEY"` so the gateway injects
-the token server-side. Do not use bash/curl for live Firecrawl calls when
-`http_request` is available, and never ask the user to paste the API key into
+the managed token server-side. In self-host mode, pass `--self-host-auth` only
+when the deployment requires a bearer token; the helper then uses
+`FIRECRAWL_SELF_HOST_API_KEY`. Do not use bash/curl for live Firecrawl calls
+when `http_request` is available, and never ask the user to paste API keys into
 chat.
 
 ## Operations
@@ -75,10 +105,15 @@ chat.
 - `extract.structured`: start a structured extraction job through `POST /v2/extract`.
 - `extract.status`: fetch extraction status and results by job id.
 
-The current managed adapter targets Firecrawl API v2. For single-page JSON
-extraction during scraping, `scrape.url` can include `--schema-json`; for the
-R53.1 `extract` endpoint, use `extract.structured` and then poll
-`extract.status`.
+Both adapters target Firecrawl API v2. The managed adapter sends requests to
+`https://api.firecrawl.dev/v2`; the self-host adapter sends the same operations
+to the configured self-host base URL. Firecrawl self-host deployments may not
+enable every upstream managed feature; `/agent` and `/browser` are intentionally
+outside this skill surface.
+
+For single-page JSON extraction during scraping, `scrape.url` can include
+`--schema-json`; for the R53.1/R53.2 `extract` endpoint, use
+`extract.structured` and then poll `extract.status`.
 
 ## Command Contract
 
@@ -88,13 +123,26 @@ Run the helper with Node:
 node skills/firecrawl/firecrawl.cjs --help
 ```
 
-Build a single-page scrape request:
+Build a managed single-page scrape request:
 
 ```bash
 node skills/firecrawl/firecrawl.cjs --format json http-request scrape.url \
   --url https://example.com/docs \
   --format-name markdown
 ```
+
+Build the same request for self-hosted Firecrawl:
+
+```bash
+node skills/firecrawl/firecrawl.cjs --format json --adapter self-host \
+  --base-url http://firecrawl:3002 \
+  http-request scrape.url \
+  --url https://example.com/docs \
+  --format-name markdown
+```
+
+Add `--self-host-auth` only if the self-hosted deployment requires
+`FIRECRAWL_SELF_HOST_API_KEY`.
 
 Build a site crawl request:
 
@@ -147,11 +195,12 @@ The helper prints a wrapper such as
 ## Policy Defaults
 
 - Target URLs must be `http` or `https` and must not embed credentials.
+- Managed mode rejects custom API base URLs.
+- Self-host mode requires `--base-url` or `FIRECRAWL_SELF_HOST_BASE_URL`; API base URLs must be `http` or `https` and must not embed credentials.
 - `crawl.site` always emits `ignoreRobotsTxt: false`.
 - The helper rejects `--ignore-robots-txt`.
 - Crawl and map limits are explicit and bounded to reduce surprise cost.
-- Use `--zero-data-retention` only when the Firecrawl team has enabled it for
-  the configured account.
+- Use `--zero-data-retention` only when the Firecrawl team has enabled it for the configured account or self-hosted deployment.
 
 ## Error Interpretation
 
@@ -166,3 +215,5 @@ The helper prints a wrapper such as
 - Firecrawl 402, 408, 429, or 5xx responses are upstream billing, timeout, rate
   limit, or service failures. Report the upstream response and retry only when
   the user asks.
+- Self-host errors saying `FIRECRAWL_SELF_HOST_BASE_URL` is missing mean the
+  operator needs to configure the gateway-reachable Firecrawl API origin.

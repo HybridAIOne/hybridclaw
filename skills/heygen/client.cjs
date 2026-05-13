@@ -102,6 +102,8 @@ function normalizeHeyGenPayload(wrapper) {
     json,
     videoId: firstString(record.video_id, record.id),
     videoTranslateId: firstString(record.video_translate_id, record.id),
+    videoUrl: firstString(record.video_url, record.videoUrl, record.url),
+    thumbnailUrl: firstString(record.thumbnail_url, record.thumbnailUrl),
     statusValue: firstString(record.status, record.state),
   };
 }

@@ -119,6 +119,9 @@ test('buildSystemPromptFromHooks adds mandatory routing instructions for availab
   expect(prompt).toContain(
     'Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
   );
+  expect(prompt).toContain(
+    'Run documented skill helper commands exactly as shown unless the skill explicitly says to modify them. Do not add Node permission flags such as `--experimental-permission`, and do not rewrite `skills/...` helper paths to `/workspace/skills/...`.',
+  );
   expect(prompt).toContain('<available_skills>');
   expect(prompt).toContain('<name>pdf</name>');
   expect(prompt).toContain('<category>office</category>');
@@ -251,9 +254,7 @@ test('buildSystemPromptFromHooks uses the provided workspace path in runtime met
   });
 
   expect(prompt).toContain('Workspace: /tmp/hybridclaw-agent-workspace');
-  expect(prompt).toContain(
-    'HybridClaw Documentation: [/docs/](/docs/)',
-  );
+  expect(prompt).toContain('HybridClaw Documentation: [/docs/](/docs/)');
 });
 
 test('buildSystemPromptFromHooks combines model and provider in runtime metadata', () => {

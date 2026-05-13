@@ -656,7 +656,7 @@ test('browser-use cloud provider rejects unresolved fill SecretRefs', async () =
       source: 'store',
       id: 'MISSING_BROWSER_SECRET',
     }),
-  ).rejects.toThrow(/stored secret MISSING_BROWSER_SECRET/u);
+  ).rejects.toThrow(/Stored secret MISSING_BROWSER_SECRET/u);
   expect(mock.page.fill).not.toHaveBeenCalled();
 
   await provider.closeSession(session);

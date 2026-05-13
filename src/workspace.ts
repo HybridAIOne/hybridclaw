@@ -60,6 +60,7 @@ const DEFAULT_POLICY_TEMPLATE = `approval:
   workspace_fence: true
   max_pending_approvals: 3
   approval_timeout_secs: 120
+  implicit_delay_enabled: false
 
 network:
   default: deny

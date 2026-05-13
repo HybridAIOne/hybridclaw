@@ -632,7 +632,7 @@ export function listImageGenerationProviders(
       active: active === 'openai',
       missing: ready.has('openai')
         ? null
-        : 'Set OPENAI_API_KEY or use an openai-codex model with credentials.',
+        : 'Store OPENAI_API_KEY with `/secret set OPENAI_API_KEY <key>`, or use an openai-codex model with credentials.',
     },
     {
       id: 'gemini',
@@ -641,7 +641,7 @@ export function listImageGenerationProviders(
       active: active === 'gemini',
       missing: ready.has('gemini')
         ? null
-        : 'Set GEMINI_API_KEY/GOOGLE_API_KEY or use a configured gemini model.',
+        : 'Store GEMINI_API_KEY or GOOGLE_API_KEY with `/secret set ...`, or use a configured gemini model.',
     },
     {
       id: 'xai',
@@ -650,7 +650,7 @@ export function listImageGenerationProviders(
       active: active === 'xai',
       missing: ready.has('xai')
         ? null
-        : 'Set XAI_API_KEY or use a configured xai model.',
+        : 'Store XAI_API_KEY with `/secret set XAI_API_KEY <key>`, or use a configured xai model.',
     },
     {
       id: 'bfl',
@@ -659,7 +659,7 @@ export function listImageGenerationProviders(
       active: active === 'bfl',
       missing: ready.has('bfl')
         ? null
-        : 'Set BFL_API_KEY/BLACK_FOREST_LABS_API_KEY.',
+        : 'Store BFL_API_KEY or BLACK_FOREST_LABS_API_KEY with `/secret set ...`.',
       default_model: DEFAULT_BFL_IMAGE_MODEL,
     },
   ];
@@ -1305,7 +1305,7 @@ export async function runImageGenerate(
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
     throw new Error(
-      'image_generate is not configured: set OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, XAI_API_KEY, BFL_API_KEY/BLACK_FOREST_LABS_API_KEY, or use a configured openai-codex/gemini/xai model.',
+      'image_generate is not configured: store OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, XAI_API_KEY, or BFL_API_KEY/BLACK_FOREST_LABS_API_KEY with `hybridclaw secret set`, or use a configured openai-codex/gemini/xai model.',
     );
   }
 

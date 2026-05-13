@@ -142,12 +142,19 @@ def validate_frontmatter(frontmatter: Dict[str, Any]) -> Tuple[List[str], List[s
         errors.append("Missing or invalid frontmatter field: name")
     else:
         normalized = name.strip()
-        if not re.match(r"^[a-z0-9-]+$", normalized):
+        if not re.match(r"^[a-z0-9.-]+$", normalized):
             errors.append(
-                f"Skill name '{normalized}' must be lowercase hyphen-case (a-z, 0-9, -)"
+                f"Skill name '{normalized}' must use lowercase skill-id characters (a-z, 0-9, -, .)"
             )
-        if normalized.startswith("-") or normalized.endswith("-") or "--" in normalized:
-            errors.append(f"Skill name '{normalized}' cannot start/end with '-' or include '--'")
+        if (
+            normalized.startswith(("-", "."))
+            or normalized.endswith(("-", "."))
+            or "--" in normalized
+            or ".." in normalized
+        ):
+            errors.append(
+                f"Skill name '{normalized}' cannot start/end with '-' or '.', or include '--' or '..'"
+            )
         if len(normalized) > MAX_SKILL_NAME_LENGTH:
             errors.append(
                 f"Skill name '{normalized}' is too long ({len(normalized)} > {MAX_SKILL_NAME_LENGTH})"

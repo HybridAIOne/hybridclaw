@@ -250,7 +250,8 @@ Once the gateway is running, open HybridClaw locally:
   creation.
 - Native media tools generate images and videos through configured providers,
   persist the resulting artifacts, and expose the same capability through the
-  bundled `image-generation` and `video-generation` skills.
+  bundled `image-generation`, `video-generation`, and `video.from-script`
+  skills.
 - Browser automation can use local persistent Playwright profiles, Camofox
   profiles, or Browser Use Cloud sessions with encrypted `BROWSER_USE_API_KEY`
   storage, usage metering, shared navigation guards, and SecretRef-gated

@@ -116,7 +116,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 | ID | Area | Todo | Status |
 |----|------|------|--------|
 | R53.1 | Managed adapter | Managed Firecrawl API adapter for `scrape`, `crawl`, `map`, and `extract`, using the F13 `FIRECRAWL_API_KEY` credential rail through gateway `http_request` secret injection | 🔄 #862 / #953 |
-| R53.2 | Self-host adapter | Open-source Firecrawl self-host adapter for Docker-managed deployments | ⬜ To be filed |
+| R53.2 | Self-host adapter | Open-source Firecrawl self-host adapter for Docker-managed deployments | 🔄 #863 |
 | R53.3 | Skill surface | User-invocable `scrape.url` and `crawl.site` surface with bounded defaults and clear output contracts | 🔄 #829 / #953 |
 | R53.4 | Extraction | Structured extraction via JSON Schema prompt and Firecrawl v2 extract lifecycle polling | 🔄 #829 / #953 |
 | R53.5 | Scoped knowledge | R47 ingestion bridge so crawled docs feed agent/skill collections without touching the global corpus | ⬜ To be filed |

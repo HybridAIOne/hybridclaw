@@ -67,6 +67,10 @@ export function browserPrivateNetworkAllowed(env = process.env) {
   );
 }
 
+export function isAllowedHostlessBrowserNavigationUrl(parsed) {
+  return parsed.protocol === 'about:' && parsed.href === 'about:blank';
+}
+
 export async function assertBrowserNavigationUrl(raw, options = {}) {
   const input = String(raw || '').trim();
   if (!input) {
@@ -79,7 +83,7 @@ export async function assertBrowserNavigationUrl(raw, options = {}) {
     throw new Error(`Invalid URL: ${input}`);
   }
 
-  if (parsed.protocol === 'about:' && parsed.href === 'about:blank') {
+  if (isAllowedHostlessBrowserNavigationUrl(parsed)) {
     return parsed;
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {

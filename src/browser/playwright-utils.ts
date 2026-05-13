@@ -88,7 +88,7 @@ export class PlaywrightBrowserSession<
 > implements BrowserSession
 {
   constructor(
-    private readonly page: TPage,
+    protected readonly page: TPage,
     private readonly secretAudit?: (
       handle: SecretHandle,
       reason: string,
