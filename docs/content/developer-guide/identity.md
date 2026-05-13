@@ -93,6 +93,28 @@ Use `parseAgentIdentity()` and `formatAgentIdentity()` from
 `slugifyAgentIdentityComponent()` when deriving a canonical component from a
 display name, config value, or environment value.
 
+## A2A Envelope Federation Metadata
+
+A2A envelopes carry canonical `sender_agent_id` and `recipient_agent_id`
+values when they cross instance boundaries. The sender instance is also exposed
+as `sender_instance_id` so transport headers, idempotency checks, and audit
+queries can index it without reparsing the agent identity string. If
+`sender_instance_id` is omitted and `sender_agent_id` is canonical, envelope
+validation derives it from the embedded `instance-id`. If both are present, they
+must match.
+
+The idempotency tuple for persisted A2A envelopes is
+`(envelope.id, sender_instance_id)`. Existing local envelopes without the
+explicit field remain valid and hydrate with compatibility
+`sender_instance_id: "local"` when read. Persisted canonical sender IDs receive
+the derived instance from `sender_agent_id`. Neither migration path rewrites
+thread state just to add the derived field.
+
+Delegation fields are a strict overlay on the federation base:
+`source_instance_id`, `target_instance_id`, and `delegation_token` are provided
+together for delegated handoffs. `source_instance_id` must match
+`sender_instance_id` and the instance portion of `sender_agent_id`.
+
 ## Identity Discovery
 
 Federated peers can resolve canonical user or agent IDs through DNS-style TXT

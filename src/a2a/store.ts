@@ -55,6 +55,10 @@ function normalizeEnvelopeId(envelopeId: string): string {
   return normalizeOpaqueId(envelopeId, 'id');
 }
 
+function a2aEnvelopeIdempotencyKey(envelope: A2AEnvelope): string {
+  return `${envelope.id}\u0000${envelope.sender_instance_id ?? ''}`;
+}
+
 export function a2aThreadAssetPath(threadId: string): string {
   const normalizedThreadId = normalizeThreadId(threadId);
   return path.join(
@@ -111,18 +115,21 @@ function parsePersistedThreadState(
   }
 
   const envelopes: A2AEnvelope[] = [];
-  const seenEnvelopeIds = new Set<string>();
+  const seenEnvelopeKeys = new Set<string>();
   if (Array.isArray(rawEnvelopes)) {
     rawEnvelopes.forEach((entry, index) => {
       try {
         const envelope = validateA2AEnvelope(entry);
+        const idempotencyKey = a2aEnvelopeIdempotencyKey(envelope);
         if (envelope.thread_id !== expectedThreadId) {
           issues.push(`envelopes[${index}] belongs to ${envelope.thread_id}`);
         }
-        if (seenEnvelopeIds.has(envelope.id)) {
-          issues.push(`duplicate envelope id: ${envelope.id}`);
+        if (seenEnvelopeKeys.has(idempotencyKey)) {
+          issues.push(
+            `duplicate envelope id/sender_instance_id: ${envelope.id}`,
+          );
         }
-        seenEnvelopeIds.add(envelope.id);
+        seenEnvelopeKeys.add(idempotencyKey);
         envelopes.push(envelope);
       } catch (error) {
         if (error instanceof A2AEnvelopeValidationError) {
@@ -279,7 +286,13 @@ export function saveA2AEnvelope(
 ): A2AEnvelope {
   const normalizedEnvelope = resolveA2AEnvelopeAgentIds(envelope);
   const state = readThreadState(normalizedEnvelope.thread_id);
-  if (state.envelopes.some((entry) => entry.id === normalizedEnvelope.id)) {
+  if (
+    state.envelopes.some(
+      (entry) =>
+        a2aEnvelopeIdempotencyKey(entry) ===
+        a2aEnvelopeIdempotencyKey(normalizedEnvelope),
+    )
+  ) {
     throw new A2AEnvelopeDuplicateError(
       normalizedEnvelope.id,
       normalizedEnvelope.thread_id,
