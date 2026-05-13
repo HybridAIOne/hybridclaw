@@ -3,9 +3,10 @@
  *
  * Handles `POST /api/http/request` — routes outbound HTTP calls with secret
  * placeholder resolution, bearer token injection, auth rule matching, and
- * automatic OAuth2 token capture.
+ * explicit response-field capture.
  */
 
+import { createSign } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
@@ -22,6 +23,7 @@ import {
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import {
+  isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
   readStoredRuntimeSecret,
   saveNamedRuntimeSecrets,
@@ -59,6 +61,8 @@ const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 const GOOGLE_WORKSPACE_CLI_TOKEN_SECRET = 'GOOGLE_WORKSPACE_CLI_TOKEN';
 const GOG_ACCESS_TOKEN_SECRET = 'GOG_ACCESS_TOKEN';
+const GOOGLE_SERVICE_ACCOUNT_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_SERVICE_ACCOUNT_JWT_TTL_SECONDS = 3600;
 
 type CaptureFieldRule = { jsonPath: string; secretName: string };
 
@@ -70,6 +74,7 @@ type ApiHttpRequestBody = {
   json?: unknown;
   bearerSecretName?: unknown;
   secretHeaders?: unknown;
+  googleServiceAccount?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
   timeoutMs?: unknown;
@@ -83,6 +88,13 @@ type ApiHttpRequestSecretHeaderBody = {
   name?: unknown;
   secretName?: unknown;
   prefix?: unknown;
+};
+
+type GoogleServiceAccountAuthRule = {
+  clientEmailSecretName: string;
+  privateKeySecretName: string;
+  scopes: string[];
+  subjectSecretName?: string;
 };
 
 type SecretResolveContext = {
@@ -335,17 +347,6 @@ async function resolveGoogleOAuthTokenOrThrow(
     );
   }
 
-  assertSecretResolveAllowed({
-    sessionId: context.sessionId,
-    agentId: context.agentId,
-    skillName: context.skillName,
-    secretSource: 'env',
-    secretId: secretName,
-    sinkKind: 'http',
-    host: context.host,
-    selector: context.selector,
-  });
-
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
   const token = normalizeSecretString(runtimeEnv[secretName]);
   if (!token) {
@@ -358,7 +359,7 @@ async function resolveGoogleOAuthTokenOrThrow(
   const auditContext = {
     sessionId: context.sessionId,
     skillName: context.skillName,
-    secretSource: 'env' as const,
+    secretSource: 'google-oauth' as const,
     secretId: secretName,
     sinkKind: 'http' as const,
     host: context.host,
@@ -396,6 +397,125 @@ async function resolveHttpSecretOrThrow(
     host: context.host,
     selector: context.selector,
   });
+}
+
+function base64UrlJson(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function signGoogleServiceAccountJwt(params: {
+  clientEmail: string;
+  privateKey: string;
+  scopes: string[];
+  subject?: string;
+}): string {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload: Record<string, unknown> = {
+    iss: params.clientEmail,
+    scope: params.scopes.join(' '),
+    aud: GOOGLE_SERVICE_ACCOUNT_TOKEN_URL,
+    iat: issuedAt,
+    exp: issuedAt + GOOGLE_SERVICE_ACCOUNT_JWT_TTL_SECONDS,
+  };
+  if (params.subject) payload.sub = params.subject;
+
+  const signingInput = [
+    base64UrlJson({ alg: 'RS256', typ: 'JWT' }),
+    base64UrlJson(payload),
+  ].join('.');
+  const signer = createSign('RSA-SHA256');
+  signer.update(signingInput);
+  signer.end();
+  const signature = signer.sign(params.privateKey).toString('base64url');
+  return `${signingInput}.${signature}`;
+}
+
+async function acquireGoogleServiceAccountAccessToken(
+  rule: GoogleServiceAccountAuthRule,
+  context: SecretResolveContext,
+): Promise<string> {
+  if (!isGoogleApisHost(context.host)) {
+    throw new GatewayRequestError(
+      403,
+      'Google service-account auth can only be used for googleapis.com requests.',
+    );
+  }
+
+  const clientEmail = await resolveHttpSecretOrThrow(
+    rule.clientEmailSecretName,
+    {
+      ...context,
+      selector: 'googleServiceAccount.clientEmail',
+    },
+  );
+  const privateKey = await resolveHttpSecretOrThrow(rule.privateKeySecretName, {
+    ...context,
+    selector: 'googleServiceAccount.privateKey',
+  });
+  const subject = rule.subjectSecretName
+    ? await resolveHttpSecretOrThrow(rule.subjectSecretName, {
+        ...context,
+        selector: 'googleServiceAccount.subject',
+      })
+    : '';
+  const assertion = signGoogleServiceAccountJwt({
+    clientEmail,
+    privateKey,
+    scopes: rule.scopes,
+    subject,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(GOOGLE_SERVICE_ACCOUNT_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+    });
+  } catch (error) {
+    throw new GatewayRequestError(
+      502,
+      `Google service-account token exchange failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const responseText = await response.text();
+  let responseJson: unknown;
+  try {
+    responseJson = JSON.parse(responseText) as unknown;
+  } catch {
+    responseJson = undefined;
+  }
+  if (!response.ok) {
+    throw new GatewayRequestError(
+      502,
+      `Google service-account token exchange returned ${response.status}: ${responseText}`,
+    );
+  }
+  const accessToken =
+    responseJson &&
+    typeof responseJson === 'object' &&
+    typeof (responseJson as Record<string, unknown>).access_token === 'string'
+      ? String((responseJson as Record<string, unknown>).access_token).trim()
+      : '';
+  if (!accessToken) {
+    throw new GatewayRequestError(
+      502,
+      'Google service-account token exchange did not return access_token.',
+    );
+  }
+
+  rememberResolvedSecretForLeakScan({
+    sessionId: normalizeSecretSessionId(context.sessionId),
+    secretId: 'GOOGLE_SERVICE_ACCOUNT_ACCESS_TOKEN',
+    value: accessToken,
+  });
+  return accessToken;
 }
 
 async function replaceSecretPlaceholdersInString(
@@ -446,7 +566,7 @@ async function replaceSecretPlaceholders(
 }
 
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
-const UNBOUND_OAUTH_CAPTURE_JSON_PATHS = new Set(['instance_url']);
+const UNBOUND_CAPTURE_JSON_PATHS = new Set(['instance_url']);
 
 /**
  * Return the exact lowercase hostname for domain binding.
@@ -463,10 +583,10 @@ function extractBaseDomain(hostname: string): string {
 /**
  * Check whether a target URL is allowed for a given bearer secret.
  *
- * When a token is captured via OAuth, the gateway stores a domain binding
- * as `{SECRET_NAME}_BOUND_DOMAIN`.  If a binding exists, the target URL's
- * hostname must match (exact or subdomain).  If no binding exists, any URL
- * is allowed (backward-compatible).
+ * When a captured value is stored as a bearer secret, the gateway stores a
+ * domain binding as `{SECRET_NAME}_BOUND_DOMAIN`. If a binding exists, the
+ * target URL's hostname must match (exact or subdomain). If no binding exists,
+ * any URL is allowed for backward compatibility.
  */
 function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
   const bindingKey = `${secretName}${BOUND_DOMAIN_SUFFIX}`;
@@ -505,9 +625,81 @@ function normalizeCaptureResponseFields(
         `Invalid secret name in captureResponseFields: ${secretName}`,
       );
     }
+    if (isReservedNonSecretRuntimeName(secretName)) {
+      throw new GatewayRequestError(
+        400,
+        `Reserved runtime config name cannot be used in captureResponseFields: ${secretName}`,
+      );
+    }
     rules.push({ jsonPath, secretName });
   }
   return rules;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeGoogleServiceAccountAuth(
+  value: unknown,
+): GoogleServiceAccountAuthRule | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount must be an object.',
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const clientEmailSecretName =
+    typeof record.clientEmailSecretName === 'string'
+      ? record.clientEmailSecretName.trim()
+      : '';
+  const privateKeySecretName =
+    typeof record.privateKeySecretName === 'string'
+      ? record.privateKeySecretName.trim()
+      : '';
+  const subjectSecretName =
+    typeof record.subjectSecretName === 'string'
+      ? record.subjectSecretName.trim()
+      : '';
+  const scopes = normalizeStringArray(record.scopes);
+
+  if (!clientEmailSecretName || !isRuntimeSecretName(clientEmailSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.clientEmailSecretName must be a valid secret name.',
+    );
+  }
+  if (!privateKeySecretName || !isRuntimeSecretName(privateKeySecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.privateKeySecretName must be a valid secret name.',
+    );
+  }
+  if (subjectSecretName && !isRuntimeSecretName(subjectSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.subjectSecretName must be a valid secret name.',
+    );
+  }
+  if (scopes.length === 0) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.scopes must include at least one scope.',
+    );
+  }
+
+  return {
+    clientEmailSecretName,
+    privateKeySecretName,
+    scopes,
+    ...(subjectSecretName ? { subjectSecretName } : {}),
+  };
 }
 
 function extractBindingDomainFromResponse(
@@ -530,27 +722,24 @@ function extractBindingDomainFromResponse(
 }
 
 /**
- * Auto-detect an OAuth2 token response (RFC 6749 S5.1) by checking for
- * `access_token` in the JSON body.  When detected, capture all matching
- * fields into the secret store and return the mapping.  The original
- * response body is **never** forwarded to the caller.
+ * Capture selected string fields into the secret store and return only the
+ * capture mapping. The original response body is never forwarded to the
+ * caller when a capture succeeds.
  *
- * Captured OAuth secrets are bound by default so that `bearerSecretName` only
- * works against the resource host. OAuth APIs such as Salesforce issue tokens
- * from a login host but return an `instance_url` resource host; bind to that
- * resource host when present and fall back to the OAuth endpoint hostname
- * otherwise. Non-token metadata captures must be explicitly exempted.
+ * Captured values are domain-bound by default so future `bearerSecretName`
+ * injection only works against the resource host. If the response includes an
+ * `instance_url` string, bind captured values to that host; otherwise bind to
+ * the request host. Non-credential metadata captures must be explicitly
+ * exempted.
  */
-function captureOAuthResponse(
+function captureSecretResponseFields(
   responseJson: unknown,
   rules: CaptureFieldRule[],
   requestUrl: URL,
 ): Record<string, string> | null {
+  if (rules.length === 0) return null;
   if (!responseJson || typeof responseJson !== 'object') return null;
   const obj = responseJson as Record<string, unknown>;
-  if (typeof obj.access_token !== 'string' || !obj.access_token.trim()) {
-    return null;
-  }
 
   const baseDomain = extractBindingDomainFromResponse(obj, requestUrl);
   const secrets: Record<string, string> = {};
@@ -562,9 +751,9 @@ function captureOAuthResponse(
       secrets[rule.secretName] = value.trim();
       captured[rule.jsonPath] = rule.secretName;
 
-      // Bind captured OAuth secrets by default so future token field names such
+      // Bind captured secrets by default so future token field names such
       // as "access" or "bearer" cannot silently become cross-host credentials.
-      if (!UNBOUND_OAUTH_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
+      if (!UNBOUND_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
         secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
       }
     }
@@ -574,8 +763,25 @@ function captureOAuthResponse(
     return null;
   }
 
-  saveNamedRuntimeSecrets(secrets);
+  try {
+    saveNamedRuntimeSecrets(secrets);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GatewayRequestError(400, message);
+  }
   return captured;
+}
+
+function resolveCaptureResponseFields(value: unknown): CaptureFieldRule[] {
+  if (value === undefined || value === null) return [];
+  const fields = normalizeCaptureResponseFields(value);
+  if (!fields) {
+    throw new GatewayRequestError(
+      400,
+      '`captureResponseFields` must be an array when provided.',
+    );
+  }
+  return fields;
 }
 
 function matchesHttpRequestAuthRulePrefix(
@@ -730,10 +936,9 @@ export async function handleApiHttpRequest(
     agentId: normalizeSecretString(body.agentId),
     skillName: normalizeSecretString(body.skillName),
   };
-  const captureFields =
-    body.captureResponseFields === undefined
-      ? []
-      : (normalizeCaptureResponseFields(body.captureResponseFields) ?? []);
+  const captureFields = resolveCaptureResponseFields(
+    body.captureResponseFields,
+  );
   const rawUrl = replacePlaceholders
     ? await replaceSecretPlaceholdersInString(String(body.url || ''), {
         ...baseSecretContext,
@@ -766,6 +971,15 @@ export async function handleApiHttpRequest(
     typeof body.bearerSecretName === 'string'
       ? body.bearerSecretName.trim()
       : '';
+  const googleServiceAccount = normalizeGoogleServiceAccountAuth(
+    body.googleServiceAccount,
+  );
+  if (bearerSecretName && googleServiceAccount) {
+    throw new GatewayRequestError(
+      400,
+      'Use either bearerSecretName or googleServiceAccount, not both.',
+    );
+  }
   if (bearerSecretName) {
     assertBearerDomainBinding(bearerSecretName, url);
     setHeaderValue(
@@ -776,6 +990,19 @@ export async function handleApiHttpRequest(
           ...secretContext,
           selector: 'Authorization',
         }),
+        'Bearer',
+      ),
+    );
+  }
+  if (googleServiceAccount) {
+    setHeaderValue(
+      headers,
+      'Authorization',
+      withAuthPrefix(
+        await acquireGoogleServiceAccountAccessToken(
+          googleServiceAccount,
+          secretContext,
+        ),
         'Bearer',
       ),
     );
@@ -890,10 +1117,13 @@ export async function handleApiHttpRequest(
     responseJson = undefined;
   }
 
-  // Auto-detect OAuth2 token responses: if the JSON body contains
-  // `access_token`, store the tokens in the secret store and return only
-  // a confirmation.  The original response body is never forwarded.
-  const captured = captureOAuthResponse(responseJson, captureFields, url);
+  // Capture selected response fields into the secret store and return only a
+  // confirmation. The original response body is never forwarded on capture.
+  const captured = captureSecretResponseFields(
+    responseJson,
+    captureFields,
+    url,
+  );
   if (captured) {
     sendJson(res, 200, {
       ok: response.ok,

@@ -72,6 +72,8 @@ describe('image_generate tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('image_generate is not configured');
+    expect(result.output).toContain('hybridclaw secret set');
+    expect(result.output).not.toContain('env');
   });
 
   test('lists gateway-resolved provider credentials without env exposure', async () => {

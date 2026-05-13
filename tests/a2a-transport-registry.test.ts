@@ -46,7 +46,7 @@ describe('A2A transport adapter registry', () => {
     const a2a = registry.resolve({
       transport: 'a2a',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+      bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
     });
     const unknown = registry.resolve({ transport: 'smtp' });
 
@@ -54,7 +54,7 @@ describe('A2A transport adapter registry', () => {
     expect(a2a.descriptor).toEqual({
       transport: 'a2a',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+      bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
     });
     expect(unknown.adapter).toBeNull();
     expect(unknown.descriptor).toEqual({
@@ -116,14 +116,14 @@ describe('A2A transport adapter registry', () => {
       normalizePeerDescriptor({
         transport: 'webhook',
         url: 'http://hooks.example.com/a2a',
-        secretRef: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },
+        secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       }),
     ).toThrow('url must use https unless targeting loopback');
     expect(() =>
       normalizePeerDescriptor({
         transport: 'webhook',
         url: 'http://128.0.0.1/a2a',
-        secretRef: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },
+        secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       }),
     ).toThrow('url must use https unless targeting loopback');
   });
@@ -159,12 +159,12 @@ describe('A2A transport adapter registry', () => {
       normalizePeerDescriptor({
         transport: 'a2a',
         url: 'https://peer.example.com/a2a',
-        bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+        bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
       }),
     ).toEqual({
       transport: 'a2a',
       agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-      bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+      bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
     });
     expect(
       normalizePeerDescriptor({
@@ -179,14 +179,14 @@ describe('A2A transport adapter registry', () => {
       normalizePeerDescriptor({
         transport: 'webhook',
         url: 'http://127.0.0.1:8787/a2a',
-        secret_ref: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },
+        secret_ref: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
         signature_header: 'X-Custom-Signature',
         version: '1',
       }),
     ).toEqual({
       transport: 'webhook',
       url: 'http://127.0.0.1:8787/a2a',
-      secretRef: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },
+      secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
       signatureHeader: 'X-Custom-Signature',
       version: '1',
     });
@@ -197,7 +197,7 @@ describe('A2A transport adapter registry', () => {
       normalizePeerDescriptor({
         transport: 'webhook',
         url: 'https://hooks.example.com/a2a',
-        secretRef: { source: 'env', id: 'A2A_WEBHOOK_SECRET' },
+        secretRef: { source: 'store', id: 'A2A_WEBHOOK_SECRET' },
         version: '2026-05-01',
       }),
     ).toThrow(/version must be 1/);
@@ -249,7 +249,7 @@ describe('A2A transport adapter registry', () => {
         peerDescriptor: {
           transport: 'a2a',
           agentCardUrl: 'https://peer.example.com/.well-known/agent.json',
-          bearerTokenRef: { source: 'env', id: 'A2A_PEER_TOKEN' },
+          bearerTokenRef: { source: 'store', id: 'A2A_PEER_TOKEN' },
         },
         registry,
       }),

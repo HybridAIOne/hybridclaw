@@ -8,15 +8,8 @@ import {
   type SecretSinkKind,
   unsafeEscapeSecretHandle,
 } from './secret-handles.js';
-import { normalizeSecretString } from './secret-normalization.js';
 
-const ENV_SECRET_REF_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 const SECRET_REF_BRAND: unique symbol = Symbol('SecretRef');
-
-export type EnvSecretRef = {
-  source: 'env';
-  id: string;
-};
 
 export type StoreSecretRef = {
   source: 'store';
@@ -27,8 +20,7 @@ type SecretRefRuntimeGuards = {
   readonly [SECRET_REF_BRAND]?: true;
 };
 
-export type SecretRef = (EnvSecretRef | StoreSecretRef) &
-  SecretRefRuntimeGuards;
+export type SecretRef = StoreSecretRef & SecretRefRuntimeGuards;
 export type SecretInput = string | SecretRef;
 
 type ParsedSecretInput =
@@ -40,15 +32,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isValidEnvSecretId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
-}
-
-export function hardenSecretRef(ref: EnvSecretRef | StoreSecretRef): SecretRef {
-  const hardened =
-    ref.source === 'env'
-      ? { source: 'env' as const, id: ref.id }
-      : { source: 'store' as const, id: ref.id };
+export function hardenSecretRef(ref: StoreSecretRef): SecretRef {
+  const hardened = { source: 'store' as const, id: ref.id };
   Object.defineProperties(hardened, {
     [SECRET_REF_BRAND]: {
       value: true,
@@ -80,36 +65,11 @@ export function hardenSecretRef(ref: EnvSecretRef | StoreSecretRef): SecretRef {
 
 export function parseSecretInput(value: unknown): ParsedSecretInput {
   if (typeof value === 'string') {
-    const match = value.trim().match(ENV_SECRET_REF_PATTERN);
-    if (!match) return { kind: 'plain' };
-    return {
-      kind: 'ref',
-      ref: {
-        source: 'env',
-        id: match[1] || '',
-      },
-    };
+    return { kind: 'plain' };
   }
 
   if (!isRecord(value) || typeof value.source !== 'string') {
     return { kind: 'plain' };
-  }
-
-  if (value.source === 'env') {
-    if (!isValidEnvSecretId(value.id)) {
-      return {
-        kind: 'invalid',
-        reason:
-          'must use `{ "source": "env", "id": "ENV_VAR_NAME" }` with a valid environment variable name',
-      };
-    }
-    return {
-      kind: 'ref',
-      ref: {
-        source: 'env',
-        id: value.id,
-      },
-    };
   }
 
   if (value.source === 'store') {
@@ -136,9 +96,6 @@ export function parseSecretInput(value: unknown): ParsedSecretInput {
 }
 
 function describeSecretRef(ref: SecretRef): string {
-  if (ref.source === 'env') {
-    return `environment variable ${ref.id}`;
-  }
   return `stored secret ${ref.id}`;
 }
 
@@ -159,10 +116,7 @@ export function resolveSecretInput(
   }
 
   const ref = hardenSecretRef(parsed.ref);
-  const resolved =
-    ref.source === 'env'
-      ? normalizeSecretString(process.env[ref.id])
-      : readStoredRuntimeSecret(ref.id) || '';
+  const resolved = readStoredRuntimeSecret(ref.id) || '';
 
   if (!resolved && opts.required) {
     throw new Error(

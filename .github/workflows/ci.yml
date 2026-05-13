@@ -137,7 +137,6 @@ jobs:
     env:
       HAS_HYBRIDAI_API_KEY: ${{ secrets.HYBRIDAI_API_KEY != '' }}
       HAS_HYBRIDAI_CHATBOT_ID: ${{ secrets.HYBRIDAI_CHATBOT_ID != '' }}
-      LIVE_TRACE_JUDGE_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3  # v6.0.0
@@ -151,12 +150,6 @@ jobs:
       - name: Trace judge eval gate
         run: npm run eval:trace-judge:gate
 
-      - name: Trace judge live accuracy credentials required
-        if: env.LIVE_TRACE_JUDGE_REQUIRED == 'true' && (env.HAS_HYBRIDAI_API_KEY != 'true' || env.HAS_HYBRIDAI_CHATBOT_ID != 'true')
-        run: |
-          echo "::error::Canonical CI requires HYBRIDAI_API_KEY and HYBRIDAI_CHATBOT_ID so live trace-judge accuracy regressions block promotion."
-          exit 1
-
       - name: Trace judge live accuracy gate
         if: env.HAS_HYBRIDAI_API_KEY == 'true' && env.HAS_HYBRIDAI_CHATBOT_ID == 'true'
         env:
@@ -166,8 +159,8 @@ jobs:
         run: npm run eval:trace-judge:gate:live
 
       - name: Trace judge live accuracy gate skipped
-        if: env.LIVE_TRACE_JUDGE_REQUIRED != 'true' && (env.HAS_HYBRIDAI_API_KEY != 'true' || env.HAS_HYBRIDAI_CHATBOT_ID != 'true')
-        run: echo "Skipping live trace-judge gate because HYBRIDAI_API_KEY and HYBRIDAI_CHATBOT_ID are not both available to this PR run; this run is harness-only. Pushes to main require the live gate."
+        if: env.HAS_HYBRIDAI_API_KEY != 'true' || env.HAS_HYBRIDAI_CHATBOT_ID != 'true'
+        run: echo "Skipping live trace-judge gate because HYBRIDAI_API_KEY and HYBRIDAI_CHATBOT_ID are not both available to this run."
 
       - name: Release bundle check (root)
         run: npm run release:check

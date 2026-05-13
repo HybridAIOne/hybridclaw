@@ -292,7 +292,6 @@ test('local browser provider requires skill context for secret ref fills', async
   const root = makeTempRoot();
   const mock = createMockPlaywright();
   const secretAudit = vi.fn();
-  process.env.TEST_BROWSER_PASSWORD = 'test-password';
   const provider = new LocalBrowserProvider({
     profileRoot: path.join(root, 'browser-profiles'),
     playwright: mock.playwright,
@@ -302,7 +301,7 @@ test('local browser provider requires skill context for secret ref fills', async
   const session = await provider.launchSession({});
   await expect(
     session.fill('#password', {
-      source: 'env',
+      source: 'store',
       id: 'TEST_BROWSER_PASSWORD',
     }),
   ).rejects.toThrow(/SessionOptions\.metering\.skillName/u);

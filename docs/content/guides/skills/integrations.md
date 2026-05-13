@@ -277,14 +277,24 @@ hybridclaw secret route add https://my.fastbill.com/api/1.0/ FASTBILL_BASIC_AUTH
 ## firecrawl
 
 Scrape pages, crawl public sites, map URLs, and run JSON-schema extraction
-through the managed Firecrawl API.
+through managed or self-hosted Firecrawl.
 
-**Prerequisites** — a managed Firecrawl API key stored in HybridClaw encrypted
-runtime secrets.
+**Prerequisites** — managed mode uses a Firecrawl API key stored in
+HybridClaw encrypted runtime secrets.
 
 ```bash
 hybridclaw secret set FIRECRAWL_API_KEY "<fc-api-key>"
 ```
+
+Self-host mode uses a gateway-reachable Firecrawl origin:
+
+```bash
+export FIRECRAWL_SELF_HOST_BASE_URL="http://firecrawl:3002"
+```
+
+If the self-hosted instance has API authentication enabled, store
+`FIRECRAWL_SELF_HOST_API_KEY` and pass `--self-host-auth` when building the
+request.
 
 > 💡 **Tips & Tricks**
 >

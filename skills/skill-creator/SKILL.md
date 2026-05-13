@@ -209,7 +209,8 @@ Avoid:
 Before calling a skill complete, verify:
 
 1. Frontmatter `description` clearly states what it does and when to use it.
-2. Skill name is lowercase hyphen-case and <= 64 characters.
+2. Skill name uses lowercase skill-id characters (`a-z`, `0-9`, `-`, `.`) and
+   is <= 64 characters.
 3. `SKILL.md` contains concise workflow guidance and links to deep docs.
 4. Scripts execute successfully on representative inputs.
 5. `quick_validate.py` passes.

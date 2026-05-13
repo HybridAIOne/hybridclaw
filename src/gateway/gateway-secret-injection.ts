@@ -44,12 +44,20 @@ export function assertSecretResolveAllowed(params: {
   sessionId?: string;
   agentId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
   selector?: string;
 }): void {
+  const value = readStoredRuntimeSecret(params.secretId);
+  if (!value) {
+    throw new GatewayRequestError(
+      400,
+      `Stored secret ${params.secretId} is not set.`,
+    );
+  }
+
   const agentId = resolveSecretAgentId(params);
   const workspacePath = agentWorkspaceDir(agentId);
   const state = readWorkspaceSecretPolicyState(workspacePath);
@@ -66,13 +74,6 @@ export function assertSecretResolveAllowed(params: {
     },
   });
   if (evaluation.decision === 'allow') return;
-  if (
-    !evaluation.matchedRule &&
-    params.secretSource === 'store' &&
-    readStoredRuntimeSecret(params.secretId)
-  ) {
-    return;
-  }
   throw new GatewayRequestError(
     403,
     `Secret ${params.secretSource}:${params.secretId} is blocked by secret resolution policy.`,
@@ -83,7 +84,7 @@ export function recordSecretResolved(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store' | 'google-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;
@@ -111,7 +112,7 @@ export function recordSecretUnsafeEscaped(params: {
   sessionId?: string;
   runId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store' | 'google-oauth';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;

@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -8157,7 +8157,6 @@ describe('gateway HTTP server', () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
-    writeAllowAllSecretPolicy(homeDir);
 
     vi.doMock('../src/auth/google-auth.js', () => ({
       resolveGoogleWorkspaceRuntimeEnv: vi.fn(async () => ({
@@ -8234,7 +8233,6 @@ describe('gateway HTTP server', () => {
         ],
       };
     });
-    writeAllowAllSecretPolicy(homeDir);
 
     vi.doMock('../src/auth/google-auth.js', () => ({
       resolveGoogleWorkspaceRuntimeEnv: vi.fn(async () => ({
@@ -8292,112 +8290,10 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body).json).toEqual({ rows: [], rowCount: 0 });
   });
 
-  test('honors secret resolution policy for Google OAuth runtime token injection', async () => {
-    const homeDir = makeTempDocsRoot('hybridclaw-http-google-policy-');
-    process.env.HOME = homeDir;
-    writeRuntimeConfig(homeDir);
-
-    const resolveGoogleWorkspaceRuntimeEnv = vi.fn(async () => ({
-      GOOGLE_WORKSPACE_CLI_TOKEN: 'minted-google-access-token',
-    }));
-    vi.doMock('../src/auth/google-auth.js', () => ({
-      resolveGoogleWorkspaceRuntimeEnv,
-    }));
-    vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '142.250.185.234', family: 4 }]),
-    }));
-    const state = await importFreshHealth({
-      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
-      gatewayApiToken: 'gateway-token',
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/http/request',
-      headers: { authorization: 'Bearer gateway-token' },
-      body: {
-        url: 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport',
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer <secret:GOOGLE_WORKSPACE_CLI_TOKEN>',
-        },
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body).error).toBe(
-      'Secret env:GOOGLE_WORKSPACE_CLI_TOKEN is blocked by secret resolution policy.',
-    );
-    expect(resolveGoogleWorkspaceRuntimeEnv).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test('honors secret resolution policy for Google OAuth URL auth routes', async () => {
-    const homeDir = makeTempDocsRoot('hybridclaw-http-google-route-policy-');
-    process.env.HOME = homeDir;
-    writeRuntimeConfig(homeDir, (config) => {
-      const tools = config.tools as Record<string, unknown>;
-      tools.httpRequest = {
-        authRules: [
-          {
-            urlPrefix: 'https://analyticsdata.googleapis.com/',
-            header: 'Authorization',
-            prefix: 'Bearer',
-            secret: { source: 'google-oauth' },
-          },
-        ],
-      };
-    });
-
-    const resolveGoogleWorkspaceRuntimeEnv = vi.fn(async () => ({
-      GOOGLE_WORKSPACE_CLI_TOKEN: 'minted-google-access-token',
-    }));
-    vi.doMock('../src/auth/google-auth.js', () => ({
-      resolveGoogleWorkspaceRuntimeEnv,
-    }));
-    vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '142.250.185.234', family: 4 }]),
-    }));
-    const state = await importFreshHealth({
-      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
-      gatewayApiToken: 'gateway-token',
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/http/request',
-      headers: { authorization: 'Bearer gateway-token' },
-      body: {
-        url: 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport',
-        method: 'POST',
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body).error).toBe(
-      'Secret env:GOOGLE_WORKSPACE_CLI_TOKEN is blocked by secret resolution policy.',
-    );
-    expect(resolveGoogleWorkspaceRuntimeEnv).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   test('does not substitute a different Google OAuth runtime token name', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-exact-token-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
-    writeAllowAllSecretPolicy(homeDir);
 
     const resolveGoogleWorkspaceRuntimeEnv = vi.fn(async () => ({
       GOOGLE_WORKSPACE_CLI_TOKEN: 'minted-google-access-token',
@@ -8478,6 +8374,140 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body).error).toContain(
       'GOG_ACCESS_TOKEN can only be injected into googleapis.com requests',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('exchanges Google service-account JWTs and injects short-lived bearer tokens', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const privateKeyPem = privateKey
+      .export({ type: 'pkcs8', format: 'pem' })
+      .toString();
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      GA4_SERVICE_ACCOUNT_EMAIL: 'ga4-sa@example.iam.gserviceaccount.com',
+      GA4_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem,
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '142.250.185.234', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'service-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ rows: [], rowCount: 0 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport',
+        method: 'POST',
+        googleServiceAccount: {
+          clientEmailSecretName: 'GA4_SERVICE_ACCOUNT_EMAIL',
+          privateKeySecretName: 'GA4_SERVICE_ACCOUNT_PRIVATE_KEY',
+          scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+        },
+        json: {
+          dateRanges: [{ startDate: '30daysAgo', endDate: 'yesterday' }],
+          metrics: [{ name: 'activeUsers' }],
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://oauth2.googleapis.com/token',
+    );
+    const tokenBody = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(tokenBody.get('grant_type')).toBe(
+      'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    );
+    const assertion = tokenBody.get('assertion') || '';
+    const assertionPayload = JSON.parse(
+      Buffer.from(assertion.split('.')[1] || '', 'base64url').toString('utf8'),
+    ) as Record<string, unknown>;
+    expect(assertionPayload).toMatchObject({
+      iss: 'ga4-sa@example.iam.gserviceaccount.com',
+      aud: 'https://oauth2.googleapis.com/token',
+      scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer service-token',
+        }),
+      }),
+    );
+    expect(JSON.parse(res.body).json).toEqual({ rows: [], rowCount: 0 });
+  });
+
+  test('blocks Google service-account auth for non-Google API hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-block-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/steal',
+        googleServiceAccount: {
+          clientEmailSecretName: 'GA4_SERVICE_ACCOUNT_EMAIL',
+          privateKeySecretName: 'GA4_SERVICE_ACCOUNT_PRIVATE_KEY',
+          scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'Google service-account auth can only be used for googleapis.com requests',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -8613,6 +8643,153 @@ describe('gateway HTTP server', () => {
       'request to evil.example.com is blocked',
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('captures explicit bearer token fields without exposing the response body', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      HERMES3000_EMAIL: 'writer@example.com',
+      HERMES3000_PASSWORD: 'password',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          token: 'hermes-jwt-token',
+          user: { email: 'writer@example.com' },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const authReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        json: {
+          email: '<secret:HERMES3000_EMAIL>',
+          password: '<secret:HERMES3000_PASSWORD>',
+        },
+        captureResponseFields: [
+          { jsonPath: 'token', secretName: 'HERMES3000_JWT' },
+        ],
+      },
+    });
+    const authRes = makeResponse();
+
+    state.handler(authReq as never, authRes as never);
+    await settle();
+
+    expect(authRes.statusCode).toBe(200);
+    expect(JSON.parse(authRes.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        token: 'HERMES3000_JWT',
+      },
+    });
+    expect(authRes.body).not.toContain('hermes-jwt-token');
+    expect(readStoredRuntimeSecret('HERMES3000_JWT')).toBe('hermes-jwt-token');
+    expect(readStoredRuntimeSecret('HERMES3000_JWT_BOUND_DOMAIN')).toBe(
+      'hermes3000.ai',
+    );
+  });
+
+  test('rejects malformed captureResponseFields before making outbound request', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-invalid-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        captureResponseFields: 'token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      '`captureResponseFields` must be an array',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects reserved runtime config names in captureResponseFields', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-reserved-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        captureResponseFields: [{ jsonPath: 'token', secretName: 'DB_PATH' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'Reserved runtime config name cannot be used in captureResponseFields',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {

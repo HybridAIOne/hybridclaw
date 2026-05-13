@@ -3,6 +3,7 @@ export function isPrivateBrowserHost(hostname: unknown): Promise<boolean>;
 export function browserPrivateNetworkAllowed(
   env?: Record<string, string | undefined>,
 ): boolean;
+export function isAllowedHostlessBrowserNavigationUrl(parsed: URL): boolean;
 export function assertBrowserNavigationUrl(
   raw: unknown,
   options?: {
