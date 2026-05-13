@@ -8511,6 +8511,153 @@ describe('gateway HTTP server', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  test('captures explicit bearer token fields without exposing the response body', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { readStoredRuntimeSecret, saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      HERMES3000_EMAIL: 'writer@example.com',
+      HERMES3000_PASSWORD: 'password',
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          token: 'hermes-jwt-token',
+          user: { email: 'writer@example.com' },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const authReq = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        json: {
+          email: '<secret:HERMES3000_EMAIL>',
+          password: '<secret:HERMES3000_PASSWORD>',
+        },
+        captureResponseFields: [
+          { jsonPath: 'token', secretName: 'HERMES3000_JWT' },
+        ],
+      },
+    });
+    const authRes = makeResponse();
+
+    state.handler(authReq as never, authRes as never);
+    await settle();
+
+    expect(authRes.statusCode).toBe(200);
+    expect(JSON.parse(authRes.body)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        token: 'HERMES3000_JWT',
+      },
+    });
+    expect(authRes.body).not.toContain('hermes-jwt-token');
+    expect(readStoredRuntimeSecret('HERMES3000_JWT')).toBe('hermes-jwt-token');
+    expect(readStoredRuntimeSecret('HERMES3000_JWT_BOUND_DOMAIN')).toBe(
+      'hermes3000.ai',
+    );
+  });
+
+  test('rejects malformed captureResponseFields before making outbound request', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-invalid-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        captureResponseFields: 'token',
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      '`captureResponseFields` must be an array',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects reserved runtime config names in captureResponseFields', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-token-capture-reserved-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        captureResponseFields: [{ jsonPath: 'token', secretName: 'DB_PATH' }],
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain(
+      'Reserved runtime config name cannot be used in captureResponseFields',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('blocks outbound http_request redirects to avoid SSRF bypasses', async () => {
     vi.doMock('node:dns/promises', () => ({
       lookup: vi.fn(async () => [{ address: '104.21.30.182', family: 4 }]),

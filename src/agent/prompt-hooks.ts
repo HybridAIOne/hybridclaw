@@ -209,6 +209,7 @@ function buildSkillsSection(skillsPrompt: string): string {
     '- Treat paths under `skills/` as bundled, read-only skill assets for normal user work.',
     '- For normal user work, put generated scripts in workspace `scripts/` or the workspace root. Only write under `skills/` when the user explicitly asked to create or edit a skill.',
     '- Before running a helper under `skills/.../scripts/...`, make sure that exact path came from the skill instructions or from a file read/listing in this turn. Do not invent helper names or guess that a sibling script exists.',
+    '- Run documented skill helper commands exactly as shown unless the skill explicitly says to modify them. Do not add Node permission flags such as `--experimental-permission`, and do not rewrite `skills/...` helper paths to `/workspace/skills/...`.',
     '',
     trimmed,
   ].join('\n');

@@ -133,6 +133,7 @@ export interface ApprovalPolicyConfig {
   workspaceFence: boolean;
   maxPendingApprovals: number;
   approvalTimeoutSecs: number;
+  implicitDelayEnabled: boolean;
   audit: {
     logAllRed: boolean;
     logDenials: boolean;
@@ -364,6 +365,7 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
   workspaceFence: true,
   maxPendingApprovals: 3,
   approvalTimeoutSecs: 120,
+  implicitDelayEnabled: false,
   audit: {
     logAllRed: true,
     logDenials: true,
@@ -731,6 +733,10 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
         DEFAULT_POLICY.approvalTimeoutSecs,
       ),
     ),
+    implicitDelayEnabled: normalizeBooleanValue(
+      approval.implicit_delay_enabled,
+      DEFAULT_POLICY.implicitDelayEnabled,
+    ),
     audit: {
       logAllRed: normalizeBooleanValue(
         audit.log_all_red,
@@ -813,6 +819,10 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
       typeof filePolicy.approvalTimeoutSecs === 'number'
         ? Math.max(5, filePolicy.approvalTimeoutSecs)
         : DEFAULT_POLICY.approvalTimeoutSecs,
+    implicitDelayEnabled:
+      typeof filePolicy.implicitDelayEnabled === 'boolean'
+        ? filePolicy.implicitDelayEnabled
+        : DEFAULT_POLICY.implicitDelayEnabled,
     audit: {
       logAllRed:
         typeof filePolicy.audit?.logAllRed === 'boolean'
@@ -2436,6 +2446,7 @@ export class TrustedAgentApprovalRuntime {
     toolName: string,
     channelId: string | undefined,
   ): boolean {
+    if (!this.loadedPolicy.implicitDelayEnabled) return false;
     if (isVoiceChannelId(channelId)) return false;
     const lowerTool = toolName.trim().toLowerCase();
     if (NO_IMPLICIT_DELAY_TOOLS.has(lowerTool)) return false;

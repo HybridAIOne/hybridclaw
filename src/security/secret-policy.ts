@@ -90,8 +90,11 @@ export function readSecretPolicyStateFromDocument(
           Boolean(rule),
         )
     : [];
+  const normalizedDefault = normalizeLower(secret.default);
   const defaultAction =
-    normalizeLower(secret.default) === 'allow' ? 'allow' : 'deny';
+    normalizedDefault === 'deny' || normalizedDefault === 'block'
+      ? 'deny'
+      : 'allow';
   return { defaultAction, rules };
 }
 

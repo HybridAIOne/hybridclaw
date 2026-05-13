@@ -85,7 +85,7 @@ calls are enforced by other layers.
 | Tier | Default behavior | Typical examples | Notes |
 | --- | --- | --- | --- |
 | Green | Runs immediately | read/search tools, image analysis, read-only MCP tools, allowlisted HTTP targets, unmatched network access when `network.default: allow` | No explicit approval required |
-| Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends, browser actions, unmatched network access when `network.default: deny` | Many text/local surfaces keep a short interrupt window before execution |
+| Yellow | Runs automatically, usually with narration | file edits, dependency installs, message sends, browser actions, unmatched network access when `network.default: deny` | The short pre-execution interrupt window is disabled by default; enable it with `approval.implicit_delay_enabled: true` |
 | Red | Blocks until explicit approval or denial, or is hard-blocked by policy | policy-blocked hosts, deletion, execute-like MCP tools, critical bash | Creates a pending approval with id and timeout unless the rule is an explicit network deny |
 
 Two important transitions:
@@ -347,11 +347,12 @@ these local admin or operator commands.
 
 | Surface | Yellow interrupt delay |
 | --- | --- |
-| TUI, web, and other text/local surfaces | Usually enabled for implicit yellow actions; browser input tools have their own special handling |
+| TUI, web, and other text/local surfaces | Disabled by default; enable with `approval.implicit_delay_enabled: true` |
 | Voice | Disabled |
 
-The voice path intentionally skips the `5s` implicit yellow delay because dead
-air on a phone call is worse than the pause window used on text surfaces.
+When the policy switch is enabled, the voice path still skips the `5s` implicit
+yellow delay because dead air on a phone call is worse than the pause window
+used on text surfaces.
 
 ## Relevant Files
 
