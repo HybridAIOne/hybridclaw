@@ -131,6 +131,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       discord: '',
       msteams: '',
       slack: '',
+      slack_webhook: '',
       signal: '',
       telegram: '',
       threema: '',
@@ -155,6 +156,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       textChunkLimit: 12000,
       replyStyle: 'thread',
       mediaMaxMb: 20,
+    },
+    slackWebhook: {
+      enabled: false,
+      webhooks: {},
     },
     telegram: {
       enabled: false,
@@ -316,6 +321,11 @@ function makeChannelsResponse(
       dmPolicy: 'disabled',
       defaultRequireMention: true,
       defaultReplyStyle: 'thread',
+    },
+    slackWebhook: {
+      enabled: false,
+      targetCount: 0,
+      defaultTargetConfigured: false,
     },
     msteams: {
       enabled: false,

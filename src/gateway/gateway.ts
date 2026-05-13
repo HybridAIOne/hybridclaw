@@ -70,6 +70,13 @@ import {
 } from '../channels/slack/runtime.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
 import {
+  hasSlackWebhookTargets,
+  initSlackWebhook,
+  sendToSlackWebhookTarget,
+  shutdownSlackWebhook,
+} from '../channels/slack-webhook/runtime.js';
+import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
+import {
   hasTelegramBotToken,
   initTelegram,
   sendTelegramMediaToChat,
@@ -314,6 +321,13 @@ function hasSlackConfigChanged(
   );
 }
 
+function hasSlackWebhookConfigChanged(
+  next: ReturnType<typeof getConfigSnapshot>['slackWebhook'],
+  prev: ReturnType<typeof getConfigSnapshot>['slackWebhook'],
+): boolean {
+  return JSON.stringify(next) !== JSON.stringify(prev);
+}
+
 function hasVoiceConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['voice'],
   prev: ReturnType<typeof getConfigSnapshot>['voice'],
@@ -455,6 +469,7 @@ function logGatewayStartup(params: {
     msteams: boolean;
     signal: boolean;
     slack: boolean;
+    slackWebhook: boolean;
     email: boolean;
     imessage: boolean;
     telegram: boolean;
@@ -943,6 +958,37 @@ async function sendProactiveMessageNow(
       logger.warn(
         { source, channelId, error, artifactCount: attachments.length },
         'Failed to send proactive message to email recipient',
+      );
+      logger.info({ source, channelId, text }, 'Proactive message fallback');
+    }
+    return;
+  }
+
+  if (isSlackWebhookChannelTarget(channelId)) {
+    const config = getConfigSnapshot().slackWebhook;
+    if (!config.enabled || !hasSlackWebhookTargets()) {
+      logger.info(
+        { source, channelId, text, artifactCount: attachments.length },
+        'Proactive Slack webhook message suppressed: Slack webhook channel is not configured',
+      );
+      return;
+    }
+
+    try {
+      if (attachments.length > 0) {
+        logger.warn(
+          { source, channelId, artifactCount: attachments.length },
+          'Slack webhook channel does not support proactive attachments; dropping artifacts',
+        );
+      }
+      if (text.trim()) {
+        await sendToSlackWebhookTarget(channelId, text);
+      }
+      return;
+    } catch (error) {
+      logger.warn(
+        { source, channelId, error, artifactCount: attachments.length },
+        'Failed to send proactive message to Slack webhook target',
       );
       logger.info({ source, channelId, text }, 'Proactive message fallback');
     }
@@ -2235,6 +2281,31 @@ async function startThreemaIntegration(): Promise<boolean> {
   return true;
 }
 
+async function startSlackWebhookIntegration(): Promise<boolean> {
+  const config = getConfigSnapshot().slackWebhook;
+
+  if (!config.enabled) {
+    logger.info('Slack webhook channel disabled: slackWebhook.enabled=false');
+    return false;
+  }
+  if (!hasSlackWebhookTargets()) {
+    logger.info(
+      'Slack webhook channel disabled: slackWebhook.webhooks.default is not configured',
+    );
+    return false;
+  }
+
+  try {
+    await initSlackWebhook();
+  } catch (error) {
+    logger.warn({ error }, 'Slack webhook channel failed to start');
+    return false;
+  }
+
+  logger.info('Slack webhook channel started inside gateway');
+  return true;
+}
+
 function trimValue(value: string | null | undefined): string {
   return String(value || '').trim();
 }
@@ -2519,6 +2590,30 @@ async function refreshSlackIntegrationForConfigChange(
     );
   });
   await startSlackIntegration();
+}
+
+async function refreshSlackWebhookIntegrationForConfigChange(
+  next: ReturnType<typeof getConfigSnapshot>,
+  prev: ReturnType<typeof getConfigSnapshot>,
+): Promise<void> {
+  if (!hasSlackWebhookConfigChanged(next.slackWebhook, prev.slackWebhook)) {
+    return;
+  }
+
+  logger.info(
+    {
+      enabled: next.slackWebhook.enabled,
+      targets: Object.keys(next.slackWebhook.webhooks).sort(),
+    },
+    'Config changed, restarting Slack webhook channel',
+  );
+  await shutdownSlackWebhook().catch((error) => {
+    logger.debug(
+      { error },
+      'Failed to stop Slack webhook runtime during config-change restart',
+    );
+  });
+  await startSlackWebhookIntegration();
 }
 
 async function startVoiceIntegration(): Promise<boolean> {
@@ -3188,6 +3283,7 @@ async function main(): Promise<void> {
   const msteamsActive = await startMSTeamsIntegration();
   const signalActive = await startSignalIntegration();
   const threemaActive = await startThreemaIntegration();
+  const slackWebhookActive = await startSlackWebhookIntegration();
   const slackActive = await startSlackIntegration();
   const emailActive = await startEmailIntegration();
   const telegramActive = await startTelegramIntegration();
@@ -3240,6 +3336,14 @@ async function main(): Promise<void> {
         'Slack integration restart failed after config change',
       );
     });
+    void refreshSlackWebhookIntegrationForConfigChange(next, prev).catch(
+      (error) => {
+        logger.warn(
+          { error },
+          'Slack webhook channel restart failed after config change',
+        );
+      },
+    );
     void refreshVoiceIntegrationForConfigChange(next, prev).catch((error) => {
       logger.warn(
         { error },
@@ -3329,6 +3433,7 @@ async function main(): Promise<void> {
       signal: signalActive,
       threema: threemaActive,
       slack: slackActive,
+      slackWebhook: slackWebhookActive,
       email: emailActive,
       imessage: imessageActive,
       telegram: telegramActive,

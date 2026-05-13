@@ -40,6 +40,7 @@ const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   msteams: 'Microsoft Teams',
   signal: 'Signal',
   slack: 'Slack',
+  slack_webhook: 'Slack Webhook',
   scheduler: 'Scheduler',
   telegram: 'Telegram',
   threema: 'Threema',

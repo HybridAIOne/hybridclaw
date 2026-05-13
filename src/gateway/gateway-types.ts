@@ -403,6 +403,24 @@ export interface GatewayStatus {
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slackWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+    lastSendResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -846,6 +864,11 @@ export interface GatewayAdminChannelsResponse {
     defaultRequireMention: boolean;
     defaultReplyStyle: RuntimeConfig['slack']['replyStyle'];
   };
+  slackWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
@@ -873,6 +896,14 @@ export type GatewayAdminChannelUpsertRequest =
 export interface GatewayAdminConfigResponse {
   path: string;
   config: RuntimeConfig;
+}
+
+export interface GatewayAdminSlackWebhookTargetRequest {
+  target: string;
+  webhookUrl?: string;
+  defaultUsername?: string;
+  defaultIconEmoji?: string;
+  defaultIconUrl?: string;
 }
 
 export interface GatewayAdminA2AIdentity {

@@ -11,6 +11,7 @@ import { imessageAgentPromptAdapter } from './imessage/prompt-adapter.js';
 import { msteamsAgentPromptAdapter } from './msteams/prompt-adapter.js';
 import { signalAgentPromptAdapter } from './signal/prompt-adapter.js';
 import { slackAgentPromptAdapter } from './slack/prompt-adapter.js';
+import { slackWebhookAgentPromptAdapter } from './slack-webhook/prompt-adapter.js';
 import { telegramAgentPromptAdapter } from './telegram/prompt-adapter.js';
 import { threemaAgentPromptAdapter } from './threema/prompt-adapter.js';
 import { whatsappAgentPromptAdapter } from './whatsapp/prompt-adapter.js';
@@ -62,6 +63,7 @@ function resolveChannelAgentPromptAdapter(params: {
   if (channel.kind === 'imessage') return imessageAgentPromptAdapter;
   if (channel.kind === 'msteams') return msteamsAgentPromptAdapter;
   if (channel.kind === 'signal') return signalAgentPromptAdapter;
+  if (channel.kind === 'slack_webhook') return slackWebhookAgentPromptAdapter;
   if (channel.kind === 'slack') return slackAgentPromptAdapter;
   if (channel.kind === 'telegram') return telegramAgentPromptAdapter;
   if (channel.kind === 'threema') return threemaAgentPromptAdapter;

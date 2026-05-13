@@ -1,5 +1,5 @@
 import readline from 'node:readline/promises';
-
+import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   normalizeEmailAddress,
   normalizeEmailAllowEntry,
@@ -8,6 +8,11 @@ import { normalizeIMessageHandle } from '../channels/imessage/handle.js';
 import { assertLocalIMessageBackendReady } from '../channels/imessage/local-prereqs.js';
 import { normalizeSignalDaemonUrl } from '../channels/signal/api.js';
 import { normalizeSignalRecipient } from '../channels/signal/target.js';
+import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
+import {
+  normalizeSlackWebhookTargetName,
+  normalizeSlackWebhookUrl,
+} from '../channels/slack-webhook/target.js';
 import { normalizeTelegramChatId } from '../channels/telegram/target.js';
 import {
   normalizeThreemaChannelId,
@@ -19,8 +24,10 @@ import {
   type IMessageBackend,
   runtimeConfigPath,
   setRuntimeConfigSecretInput,
+  setRuntimeConfigSlackWebhookSecretInput,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
+import { agentWorkspaceDir } from '../infra/ipc.js';
 import {
   readStoredRuntimeSecret,
   runtimeSecretsPath,
@@ -480,6 +487,107 @@ function parseThreemaSetupArgs(args: string[]): {
     dmPolicy,
     textChunkLimit,
     outboundDelayMs,
+  };
+}
+
+function parseSlackWebhookSetupArgs(args: string[]): {
+  target: string;
+  webhookUrl: string | null;
+  defaultUsername: string | null;
+  defaultIconEmoji: string | null;
+  defaultIconUrl: string | null;
+} {
+  let target = 'default';
+  let webhookUrl: string | null = null;
+  let defaultUsername: string | null = null;
+  let defaultIconEmoji: string | null = null;
+  let defaultIconUrl: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--target') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--target`.');
+      target = next.trim();
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--target=')) {
+      target = arg.slice('--target='.length).trim();
+      continue;
+    }
+    if (arg === '--webhook-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--webhook-url`.');
+      webhookUrl = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--webhook-url=')) {
+      webhookUrl = arg.slice('--webhook-url='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--default-username') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--default-username`.');
+      defaultUsername = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--default-username=')) {
+      defaultUsername = arg.slice('--default-username='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--default-icon-emoji') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--default-icon-emoji`.');
+      defaultIconEmoji = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--default-icon-emoji=')) {
+      defaultIconEmoji =
+        arg.slice('--default-icon-emoji='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--default-icon-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--default-icon-url`.');
+      defaultIconUrl = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--default-icon-url=')) {
+      defaultIconUrl = arg.slice('--default-icon-url='.length).trim() || null;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels slack_webhook setup --webhook-url <url> [--target default]\`.`,
+    );
+  }
+
+  const normalizedTarget = normalizeSlackWebhookTargetName(target);
+  if (!normalizedTarget) {
+    throw new Error(
+      'Invalid Slack webhook target. Use letters, numbers, dots, dashes, or underscores.',
+    );
+  }
+  if (webhookUrl) {
+    normalizeSlackWebhookUrl(
+      webhookUrl,
+      'slackWebhook.webhooks.<target>.webhook_url',
+    );
+  }
+
+  return {
+    target: normalizedTarget,
+    webhookUrl,
+    defaultUsername,
+    defaultIconEmoji,
+    defaultIconUrl,
   };
 }
 
@@ -2013,6 +2121,84 @@ async function configureThreemaChannel(args: string[]): Promise<void> {
   );
 }
 
+async function configureSlackWebhookChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseSlackWebhookSetupArgs(args);
+  const secretName =
+    parsed.target === 'default'
+      ? 'SLACK_WEBHOOK_URL'
+      : `SLACK_WEBHOOK_URL_${parsed.target
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')}`;
+
+  const secretsPath = parsed.webhookUrl
+    ? saveRuntimeSecrets({ [secretName]: parsed.webhookUrl })
+    : runtimeSecretsPath();
+  let policyGrant: ReturnType<
+    typeof allowSlackWebhookInWorkspacePolicy
+  > | null = null;
+  if (parsed.webhookUrl) {
+    setRuntimeConfigSlackWebhookSecretInput(
+      parsed.target,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'cli.channels.slack-webhook.setup-secret-ref',
+        source: 'user',
+      },
+    );
+    policyGrant = allowSlackWebhookInWorkspacePolicy({
+      workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+      webhookUrl: parsed.webhookUrl,
+    });
+  }
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    draft.slackWebhook.enabled = true;
+    const existing = draft.slackWebhook.webhooks[parsed.target] ?? {
+      webhookUrl: '',
+      defaultUsername: '',
+      defaultIconEmoji: '',
+      defaultIconUrl: '',
+    };
+    draft.slackWebhook.webhooks[parsed.target] = {
+      ...existing,
+      defaultUsername: parsed.defaultUsername ?? existing.defaultUsername,
+      defaultIconEmoji: parsed.defaultIconEmoji ?? existing.defaultIconEmoji,
+      defaultIconUrl: parsed.defaultIconUrl ?? existing.defaultIconUrl,
+    };
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (parsed.webhookUrl) {
+    console.log(
+      `Saved Slack webhook URL for "${parsed.target}" to ${secretsPath}.`,
+    );
+    if (policyGrant) {
+      console.log(
+        `${policyGrant.added ? 'Added' : 'Verified'} POST-only Slack webhook network policy grant for ${policyGrant.rule.host} at ${policyGrant.policyPath}.`,
+      );
+    }
+  } else {
+    console.log(`Slack webhook URL unchanged. Secrets path: ${secretsPath}`);
+  }
+  console.log('Slack webhook mode: enabled');
+  console.log(
+    `Configured targets: ${Object.keys(nextConfig.slackWebhook.webhooks)
+      .sort()
+      .join(', ')}`,
+  );
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up Slack webhook settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  console.log(
+    `  Send with: message {"action":"send","to":"slack_webhook:${parsed.target}","content":"message text"}`,
+  );
+}
+
 async function configureIMessageChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseIMessageSetupArgs(args);
@@ -2357,6 +2543,8 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   if (
     channel !== 'telegram' &&
     channel !== 'threema' &&
+    channel !== 'slack_webhook' &&
+    channel !== 'slack-webhook' &&
     channel !== 'signal' &&
     channel !== 'whatsapp' &&
     channel !== 'discord' &&
@@ -2365,7 +2553,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -2395,6 +2583,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
       await configureThreemaChannel(normalized.slice(2));
       return;
     }
+    if (channel === 'slack_webhook' || channel === 'slack-webhook') {
+      await configureSlackWebhookChannel(normalized.slice(2));
+      return;
+    }
     if (channel === 'imessage') {
       await configureIMessageChannel(normalized.slice(2));
       return;
@@ -2415,6 +2607,6 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

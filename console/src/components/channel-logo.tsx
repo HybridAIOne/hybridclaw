@@ -8,6 +8,7 @@ export function ChannelLogo(props: {
     | 'whatsapp'
     | 'email'
     | 'slack'
+    | 'slack_webhook'
     | 'msteams'
     | 'imessage';
 }) {
@@ -115,6 +116,7 @@ export function ChannelLogo(props: {
         </span>
       );
     case 'slack':
+    case 'slack_webhook':
       return (
         <span className="channel-logo channel-logo-compact" aria-hidden="true">
           <svg viewBox="0 0 127 127" aria-hidden="true" focusable="false">

@@ -7,6 +7,7 @@ export type ChannelKind =
   | 'scheduler'
   | 'signal'
   | 'slack'
+  | 'slack_webhook'
   | 'telegram'
   | 'threema'
   | 'tui'
@@ -19,6 +20,7 @@ export const SKILL_CONFIG_CHANNEL_KINDS = [
   'msteams',
   'signal',
   'slack',
+  'slack_webhook',
   'telegram',
   'threema',
   'voice',
@@ -139,6 +141,16 @@ export const SLACK_CAPABILITIES: ChannelCapabilities = Object.freeze({
   attachments: true,
   messageEditing: true,
   maxMessageLength: 12_000,
+});
+
+export const SLACK_WEBHOOK_CAPABILITIES: ChannelCapabilities = Object.freeze({
+  typing: false,
+  reactions: false,
+  threads: false,
+  embeds: true,
+  attachments: false,
+  messageEditing: false,
+  maxMessageLength: 40_000,
 });
 
 export const MSTEAMS_CAPABILITIES: ChannelCapabilities = Object.freeze({
