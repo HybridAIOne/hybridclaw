@@ -8,6 +8,7 @@ import {
   buildGoalContinuationPrompt,
   buildGoalInitialPrompt,
   clearScheduledGoalContinuation,
+  finishGoalContinuationRun,
   GOAL_CONTINUATION_SOURCE,
   isGoalInitialPromptScheduled,
   pauseGoalForAgentBudgetHardStop,
@@ -236,6 +237,43 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
   });
 });
 
+test('post-turn goal subscriber caps assistant response sent to the judge', async () => {
+  registerGoalPostTurnSubscriber();
+  const session = makeSession('judge-cap');
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText: 'ship the patch',
+    maxTurns: 5,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+
+  await emitPostTurnEvent({
+    type: 'post_turn',
+    session,
+    req: {
+      source: GOAL_CONTINUATION_SOURCE,
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+    },
+    result: {
+      status: 'success',
+      result: 'x'.repeat(8_100),
+      toolsUsed: [],
+    },
+    runId: 'turn-cap',
+    createdAt: new Date().toISOString(),
+  });
+
+  expect(judgeGoalCompletion).toHaveBeenCalledWith(
+    expect.objectContaining({
+      assistantResponse: 'x'.repeat(8_000),
+    }),
+  );
+  clearScheduledGoalContinuation(session.id);
+});
+
 test('scheduled continuation re-arms instead of dropping while runner is active', async () => {
   vi.useFakeTimers();
   const session = makeSession('rearm');
@@ -262,8 +300,8 @@ test('scheduled continuation re-arms instead of dropping while runner is active'
   await vi.advanceTimersByTimeAsync(0);
   expect(runHandler).not.toHaveBeenCalled();
 
-  setGoalContinuationRunning(session.id, false);
-  await vi.advanceTimersByTimeAsync(10);
+  finishGoalContinuationRun(session.id);
+  await vi.advanceTimersByTimeAsync(0);
 
   expect(runHandler).toHaveBeenCalledWith(session.id);
   clearScheduledGoalContinuation(session.id);

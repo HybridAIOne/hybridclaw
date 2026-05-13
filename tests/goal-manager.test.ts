@@ -4,6 +4,7 @@ import { beforeEach, expect, test } from 'vitest';
 import { handleGoalCommand } from '../src/goals/goal-command.js';
 import {
   getThreadGoal,
+  MAX_GOAL_TEXT_LENGTH,
   recordThreadGoalTurn,
   resumeThreadGoal,
   setThreadGoal,
@@ -55,6 +56,23 @@ test('persists one thread goal and replaces it on set', () => {
   expect(second.turnsUsed).toBe(0);
   expect(second.targetAgentId).toBe('agent-b');
   expect(getThreadGoal('thread-a')?.maxTurns).toBe(5);
+});
+
+test('caps oversized goal text before persistence', () => {
+  const oversizedGoal = 'x'.repeat(MAX_GOAL_TEXT_LENGTH + 100);
+
+  const goal = setThreadGoal({
+    threadId: 'thread-long',
+    goalText: oversizedGoal,
+    maxTurns: 3,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+
+  expect(goal.goalText).toHaveLength(MAX_GOAL_TEXT_LENGTH);
+  expect(getThreadGoal('thread-long')?.goalText).toHaveLength(
+    MAX_GOAL_TEXT_LENGTH,
+  );
 });
 
 test('tracks turn verdicts and pause/resume lifecycle', () => {

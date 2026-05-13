@@ -8,10 +8,7 @@ import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import { estimateTokenCountFromMessages } from '../session/token-efficiency.js';
 import { emitRuntimeEvent } from '../skills/skill-run-events.js';
 import type { ChatMessage } from '../types/api.js';
-import {
-  enqueueTokenUsage,
-  flushTokenUsageBuffer,
-} from '../usage/token-usage-buffer.js';
+import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 
 export interface GoalJudgeVerdict {
   done: boolean;
@@ -22,14 +19,14 @@ export interface GoalJudgeResult extends GoalJudgeVerdict {
   parseFailure: boolean;
 }
 
-export interface GoalJudgeModelCallParams {
+interface GoalJudgeModelCallParams {
   messages: ChatMessage[];
   maxTokens: number;
   temperature: number;
   timeoutMs: number;
 }
 
-export interface GoalJudgeModelCallResponse {
+interface GoalJudgeModelCallResponse {
   content: string;
   model?: string | null;
   usage?: {
@@ -46,6 +43,7 @@ export interface JudgeGoalCompletionParams {
   threadId?: string | null;
   goalText: string;
   assistantResponse: string;
+  /** @internal Test injection only. Production callers should use the configured goal_judge model. */
   modelCaller?: (
     params: GoalJudgeModelCallParams,
   ) => Promise<GoalJudgeModelCallResponse>;
@@ -142,7 +140,6 @@ async function recordGoalJudgeUsage(params: {
     totalTokens,
     costUsd: usageCostUsd(params.response.usage?.costUsd) ?? 0,
   });
-  await flushTokenUsageBuffer();
 }
 
 async function judgeGoalCompletionDirect(

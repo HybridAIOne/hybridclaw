@@ -1,10 +1,12 @@
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type {
   GatewayCommandRequest,
   GatewayCommandResult,
 } from '../gateway/gateway-types.js';
+import { logger } from '../logger.js';
 import type { Session } from '../types/session.js';
+import { recordGoalAudit } from './goal-audit.js';
 import {
+  DEFAULT_GOAL_MAX_TURNS,
   type GoalSetterActor,
   resolveGoalThreadId,
   resumeThreadGoal,
@@ -13,8 +15,8 @@ import {
 } from './goal-manager.js';
 import {
   clearScheduledGoalContinuation,
+  type GoalContinuationContext,
   getGoalStatusForSession,
-  resolveDefaultGoalMaxTurns,
   scheduleGoalContinuation,
 } from './goal-runtime.js';
 
@@ -36,36 +38,18 @@ function error(title: string, text: string): GatewayCommandResult {
 }
 
 function formatActor(req: GatewayCommandRequest): GoalSetterActor {
+  const userId = req.userId?.trim();
+  if (!userId) {
+    logger.warn(
+      { sessionId: req.sessionId, channelId: req.channelId },
+      'Goal command invoked without user id',
+    );
+  }
   return {
     type: 'user',
-    id: req.userId?.trim() || 'unknown-user',
+    id: userId || 'unknown-user',
     ...(req.username?.trim() ? { name: req.username.trim() } : {}),
   };
-}
-
-function recordGoalCommandAudit(params: {
-  session: Session;
-  type: 'goal.set' | 'goal.paused' | 'goal.completed' | 'goal.cleared';
-  threadId: string;
-  setterActor: unknown;
-  targetAgentId: string | null;
-  turnsUsed: number;
-  maxTurns: number;
-  reason?: string | null;
-}): void {
-  recordAuditEvent({
-    sessionId: params.session.id,
-    runId: makeAuditRunId('goal'),
-    event: {
-      type: params.type,
-      thread_id: params.threadId,
-      setter_actor: params.setterActor,
-      target_agent_id: params.targetAgentId,
-      turns_used: params.turnsUsed,
-      max_turns: params.maxTurns,
-      ...(params.reason ? { reason: params.reason } : {}),
-    },
-  });
 }
 
 function formatGoalStatus(session: Session): GatewayCommandResult {
@@ -86,15 +70,26 @@ function formatGoalStatus(session: Session): GatewayCommandResult {
   );
 }
 
-function parseGoalSetArgs(args: string[]): string {
-  const subcommand = (args[1] || '').trim().toLowerCase();
-  if (!subcommand || subcommand === 'set') {
-    return args
-      .slice(subcommand === 'set' ? 2 : 1)
-      .join(' ')
-      .trim();
-  }
-  return args.slice(1).join(' ').trim();
+function parseGoalSetArgs(args: string[], isExplicitSet: boolean): string {
+  return args
+    .slice(isExplicitSet ? 2 : 1)
+    .join(' ')
+    .trim();
+}
+
+function buildContinuationContext(
+  req: GatewayCommandRequest,
+  session: Session,
+): GoalContinuationContext {
+  return {
+    guildId: req.guildId,
+    userId: req.userId?.trim() || 'goal-user',
+    username: req.username ?? null,
+    chatbotId: session.chatbot_id,
+    model: session.model,
+    enableRag: session.enable_rag === 1,
+    onProactiveMessage: req.onProactiveMessage,
+  };
 }
 
 export async function handleGoalCommand(
@@ -110,20 +105,20 @@ export async function handleGoalCommand(
     subcommand === 'clear' ||
     subcommand === 'cancel';
 
-  if (!subcommand || subcommand === 'set' || !isControlSubcommand) {
-    const goalText = parseGoalSetArgs(context.req.args);
+  if (!isControlSubcommand) {
+    const goalText = parseGoalSetArgs(context.req.args, subcommand === 'set');
     if (!goalText) {
       return error('Usage', 'Usage: `goal <text>` or `goal set <text>`');
     }
     const goal = setThreadGoal({
       threadId,
       goalText,
-      maxTurns: resolveDefaultGoalMaxTurns(),
+      maxTurns: DEFAULT_GOAL_MAX_TURNS,
       setterActor: formatActor(context.req),
       targetAgentId: context.session.agent_id,
     });
-    recordGoalCommandAudit({
-      session: context.session,
+    recordGoalAudit({
+      sessionId: context.session.id,
       type: 'goal.set',
       threadId,
       setterActor: goal.setterActor,
@@ -134,15 +129,7 @@ export async function handleGoalCommand(
     scheduleGoalContinuation({
       session: context.session,
       initialPrompt: true,
-      context: {
-        guildId: context.req.guildId,
-        userId: context.req.userId?.trim() || 'goal-user',
-        username: context.req.username ?? null,
-        chatbotId: context.session.chatbot_id,
-        model: context.session.model,
-        enableRag: context.session.enable_rag === 1,
-        onProactiveMessage: context.req.onProactiveMessage,
-      },
+      context: buildContinuationContext(context.req, context.session),
     });
     return plain(
       `Standing goal set for this thread (${goal.turnsUsed}/${goal.maxTurns}).`,
@@ -162,8 +149,8 @@ export async function handleGoalCommand(
     });
     if (!goal) return info('Goal Status', 'No standing goal is set.');
     clearScheduledGoalContinuation(context.session.id);
-    recordGoalCommandAudit({
-      session: context.session,
+    recordGoalAudit({
+      sessionId: context.session.id,
       type: 'goal.paused',
       threadId,
       setterActor: goal.setterActor,
@@ -182,15 +169,7 @@ export async function handleGoalCommand(
     }
     scheduleGoalContinuation({
       session: context.session,
-      context: {
-        guildId: context.req.guildId,
-        userId: context.req.userId?.trim() || 'goal-user',
-        username: context.req.username ?? null,
-        chatbotId: context.session.chatbot_id,
-        model: context.session.model,
-        enableRag: context.session.enable_rag === 1,
-        onProactiveMessage: context.req.onProactiveMessage,
-      },
+      context: buildContinuationContext(context.req, context.session),
     });
     return plain(`Standing goal resumed (${goal.turnsUsed}/${goal.maxTurns}).`);
   }
@@ -205,8 +184,8 @@ export async function handleGoalCommand(
     });
     if (!goal) return info('Goal Status', 'No standing goal is set.');
     clearScheduledGoalContinuation(context.session.id);
-    recordGoalCommandAudit({
-      session: context.session,
+    recordGoalAudit({
+      sessionId: context.session.id,
       type: 'goal.cleared',
       threadId,
       setterActor: goal.setterActor,

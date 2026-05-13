@@ -2,16 +2,15 @@ import {
   type PostTurnEvent,
   subscribePostTurnEvents,
 } from '../agent/post-turn-events.js';
-import { makeAuditRunId, recordAuditEvent } from '../audit/audit-events.js';
 import type {
   GatewayChatRequest,
   GatewayChatResult,
 } from '../gateway/gateway-types.js';
 import { logger } from '../logger.js';
 import type { Session } from '../types/session.js';
+import { recordGoalAudit } from './goal-audit.js';
 import { judgeGoalCompletion } from './goal-judge.js';
 import {
-  DEFAULT_GOAL_MAX_TURNS,
   GOAL_PARSE_FAILURE_PAUSE_THRESHOLD,
   getActiveThreadGoal,
   getThreadGoal,
@@ -21,6 +20,7 @@ import {
 } from './goal-manager.js';
 
 export const GOAL_CONTINUATION_SOURCE = 'goal-continuation';
+const MAX_GOAL_JUDGE_RESPONSE_CHARS = 8_000;
 
 export interface GoalContinuationContext {
   guildId: string | null;
@@ -37,6 +37,7 @@ const goalContinuationBySession = new Map<
   {
     timer: ReturnType<typeof setTimeout> | null;
     initialPrompt: boolean;
+    pendingAfterRun: boolean;
     running: boolean;
     context: GoalContinuationContext;
   }
@@ -89,6 +90,16 @@ export function setGoalContinuationRunning(
   if (state) state.running = running;
 }
 
+export function finishGoalContinuationRun(sessionId: string): void {
+  const state = goalContinuationBySession.get(sessionId);
+  if (!state) return;
+  state.running = false;
+  if (!state.pendingAfterRun) return;
+  state.pendingAfterRun = false;
+  if (state.timer) clearTimeout(state.timer);
+  armGoalContinuationTimer(sessionId, state, 0);
+}
+
 export function isGoalContinuationRunning(sessionId: string): boolean {
   return goalContinuationBySession.get(sessionId)?.running === true;
 }
@@ -118,6 +129,7 @@ function armGoalContinuationTimer(
   state: {
     timer: ReturnType<typeof setTimeout> | null;
     initialPrompt: boolean;
+    pendingAfterRun: boolean;
     running: boolean;
     context: GoalContinuationContext;
   },
@@ -127,7 +139,7 @@ function armGoalContinuationTimer(
     state.timer = null;
     if (goalContinuationBySession.get(sessionId) !== state) return;
     if (state.running) {
-      armGoalContinuationTimer(sessionId, state, 10);
+      state.pendingAfterRun = true;
       return;
     }
     if (!runGoalContinuationHandler) {
@@ -154,39 +166,22 @@ export function scheduleGoalContinuation(params: {
   const delayMs = Math.max(0, Math.floor(params.delayMs ?? 0));
   const existing = goalContinuationBySession.get(params.session.id);
   if (existing?.timer) clearTimeout(existing.timer);
+  if (existing?.running) {
+    existing.timer = null;
+    existing.initialPrompt = params.initialPrompt === true;
+    existing.pendingAfterRun = true;
+    existing.context = params.context;
+    return;
+  }
   const state = {
     timer: null as ReturnType<typeof setTimeout> | null,
     initialPrompt: params.initialPrompt === true,
-    running: existing?.running === true,
+    pendingAfterRun: false,
+    running: false,
     context: params.context,
   };
   goalContinuationBySession.set(params.session.id, state);
   armGoalContinuationTimer(params.session.id, state, delayMs);
-}
-
-function recordGoalAudit(params: {
-  sessionId: string;
-  type: 'goal.continued' | 'goal.paused' | 'goal.completed' | 'goal.cleared';
-  threadId: string;
-  targetAgentId: string | null;
-  setterActor: unknown;
-  turnsUsed: number;
-  maxTurns: number;
-  reason?: string | null;
-}): void {
-  recordAuditEvent({
-    sessionId: params.sessionId,
-    runId: makeAuditRunId('goal'),
-    event: {
-      type: params.type,
-      thread_id: params.threadId,
-      setter_actor: params.setterActor,
-      target_agent_id: params.targetAgentId,
-      turns_used: params.turnsUsed,
-      max_turns: params.maxTurns,
-      ...(params.reason ? { reason: params.reason } : {}),
-    },
-  });
 }
 
 export function pauseActiveGoalForSession(params: {
@@ -222,10 +217,6 @@ export function pauseGoalForAgentBudgetHardStop(session: Session): void {
     reason: 'agent budget hard-stop',
     verdict: 'agent_budget_hard_stop',
   });
-}
-
-export function resolveDefaultGoalMaxTurns(): number {
-  return DEFAULT_GOAL_MAX_TURNS;
 }
 
 function hasPendingApproval(result: GatewayChatResult): boolean {
@@ -288,7 +279,9 @@ export async function maybeContinueGoalAfterTurn(params: {
     return;
   }
 
-  const assistantResponse = String(params.result.result || '').trim();
+  const assistantResponse = String(params.result.result || '')
+    .trim()
+    .slice(0, MAX_GOAL_JUDGE_RESPONSE_CHARS);
   if (!assistantResponse) return;
 
   const verdict = await judgeGoalCompletion({

@@ -1,3 +1,4 @@
+import { logger } from '../logger.js';
 import { withMemoryDatabase } from '../memory/db.js';
 import type { Session } from '../types/session.js';
 
@@ -44,6 +45,11 @@ interface ThreadGoalRow {
 export const DEFAULT_GOAL_MAX_TURNS = 20;
 export const MAX_GOAL_MAX_TURNS = 64;
 export const GOAL_PARSE_FAILURE_PAUSE_THRESHOLD = 3;
+export const MAX_GOAL_TEXT_LENGTH = 4_000;
+
+const THREAD_GOAL_COLUMNS = `thread_id, goal_text, status, turns_used, max_turns, created_at,
+  last_turn_at, last_verdict, last_reason, paused_reason,
+  consecutive_parse_failures, setter_actor, target_agent_id`;
 
 export function resolveGoalThreadId(session: Session): string {
   return (
@@ -62,7 +68,7 @@ export function normalizeGoalMaxTurns(value: unknown): number {
 }
 
 export function normalizeGoalText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return value.replace(/\s+/g, ' ').trim().slice(0, MAX_GOAL_TEXT_LENGTH);
 }
 
 function serializeSetterActor(actor: GoalSetterActor | null): string | null {
@@ -118,15 +124,31 @@ function mapThreadGoal(row: ThreadGoalRow): ThreadGoal {
   };
 }
 
+function defaultExpectedStatuses(status: ThreadGoalStatus): ThreadGoalStatus[] {
+  switch (status) {
+    case 'paused':
+    case 'done':
+      return ['active'];
+    case 'cleared':
+      return ['active', 'paused', 'done'];
+    case 'active':
+      throw new Error(
+        'Use resumeThreadGoal or pass expectedStatuses when activating a goal.',
+      );
+    default: {
+      const exhaustive: never = status;
+      throw new Error(`Unsupported goal status transition: ${exhaustive}`);
+    }
+  }
+}
+
 export function getThreadGoal(threadId: string): ThreadGoal | null {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return null;
   return withMemoryDatabase((database) => {
     const row = database
       .prepare(
-        `SELECT thread_id, goal_text, status, turns_used, max_turns, created_at,
-                last_turn_at, last_verdict, last_reason, paused_reason,
-                consecutive_parse_failures, setter_actor, target_agent_id
+        `SELECT ${THREAD_GOAL_COLUMNS}
            FROM thread_goals
           WHERE thread_id = ?`,
       )
@@ -148,14 +170,25 @@ export function setThreadGoal(params: {
   targetAgentId: string | null;
 }): ThreadGoal {
   const threadId = params.threadId.trim();
-  const goalText = normalizeGoalText(params.goalText);
+  const normalizedInput = params.goalText.replace(/\s+/g, ' ').trim();
+  const goalText = normalizedInput.slice(0, MAX_GOAL_TEXT_LENGTH);
   if (!threadId) throw new Error('Goal thread id is required.');
   if (!goalText) throw new Error('Goal text is required.');
+  if (normalizedInput.length > MAX_GOAL_TEXT_LENGTH) {
+    logger.warn(
+      {
+        threadId,
+        originalLength: normalizedInput.length,
+        maxLength: MAX_GOAL_TEXT_LENGTH,
+      },
+      'Goal text exceeded maximum length and was truncated',
+    );
+  }
   const maxTurns = normalizeGoalMaxTurns(params.maxTurns);
   const setterActor = serializeSetterActor(params.setterActor);
   const targetAgentId = params.targetAgentId?.trim() || null;
   return withMemoryDatabase((database) => {
-    database
+    const row = database
       .prepare(
         `INSERT INTO thread_goals (
            thread_id, goal_text, status, turns_used, max_turns, created_at,
@@ -176,12 +209,14 @@ export function setThreadGoal(params: {
            paused_reason = NULL,
            consecutive_parse_failures = 0,
            setter_actor = excluded.setter_actor,
-           target_agent_id = excluded.target_agent_id`,
+           target_agent_id = excluded.target_agent_id
+         RETURNING ${THREAD_GOAL_COLUMNS}`,
       )
-      .run(threadId, goalText, maxTurns, setterActor, targetAgentId);
-    const goal = getThreadGoal(threadId);
-    if (!goal) throw new Error('Failed to persist goal.');
-    return goal;
+      .get(threadId, goalText, maxTurns, setterActor, targetAgentId) as
+      | ThreadGoalRow
+      | undefined;
+    if (!row) throw new Error('Failed to persist goal.');
+    return mapThreadGoal(row);
   });
 }
 
@@ -200,14 +235,10 @@ export function updateThreadGoalStatus(params: {
   const expectedStatuses =
     params.expectedStatuses && params.expectedStatuses.length > 0
       ? params.expectedStatuses
-      : params.status === 'cleared'
-        ? (['active', 'paused', 'done'] satisfies ThreadGoalStatus[])
-        : params.status === 'paused' || params.status === 'done'
-          ? (['active'] satisfies ThreadGoalStatus[])
-          : (['paused'] satisfies ThreadGoalStatus[]);
+      : defaultExpectedStatuses(params.status);
   return withMemoryDatabase((database) => {
     const placeholders = expectedStatuses.map(() => '?').join(', ');
-    const result = database
+    const row = database
       .prepare(
         `UPDATE thread_goals
             SET status = ?,
@@ -216,9 +247,10 @@ export function updateThreadGoalStatus(params: {
                 last_reason = ?,
                 consecutive_parse_failures = CASE WHEN ? THEN 0 ELSE consecutive_parse_failures END
           WHERE thread_id = ?
-            AND status IN (${placeholders})`,
+            AND status IN (${placeholders})
+         RETURNING ${THREAD_GOAL_COLUMNS}`,
       )
-      .run(
+      .get(
         params.status,
         params.status,
         reason,
@@ -227,9 +259,8 @@ export function updateThreadGoalStatus(params: {
         params.resetParseFailures === true ? 1 : 0,
         threadId,
         ...expectedStatuses,
-      );
-    if (result.changes === 0) return null;
-    return getThreadGoal(threadId);
+      ) as ThreadGoalRow | undefined;
+    return row ? mapThreadGoal(row) : null;
   });
 }
 
@@ -244,7 +275,7 @@ export function recordThreadGoalTurn(params: {
   const verdict = params.verdict.trim() || 'active';
   const reason = params.reason.trim() || null;
   return withMemoryDatabase((database) => {
-    database
+    const row = database
       .prepare(
         `UPDATE thread_goals
             SET turns_used = turns_used + 1,
@@ -256,10 +287,13 @@ export function recordThreadGoalTurn(params: {
                   ELSE 0
                 END
           WHERE thread_id = ?
-            AND status = 'active'`,
+            AND status = 'active'
+         RETURNING ${THREAD_GOAL_COLUMNS}`,
       )
-      .run(verdict, reason, params.parseFailure === true ? 1 : 0, threadId);
-    return getThreadGoal(threadId);
+      .get(verdict, reason, params.parseFailure === true ? 1 : 0, threadId) as
+      | ThreadGoalRow
+      | undefined;
+    return row ? mapThreadGoal(row) : null;
   });
 }
 
@@ -267,7 +301,7 @@ export function resumeThreadGoal(threadId: string): ThreadGoal | null {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return null;
   return withMemoryDatabase((database) => {
-    const result = database
+    const row = database
       .prepare(
         `UPDATE thread_goals
             SET status = 'active',
@@ -275,10 +309,10 @@ export function resumeThreadGoal(threadId: string): ThreadGoal | null {
                 last_verdict = 'resumed',
                 last_reason = NULL
           WHERE thread_id = ?
-            AND status = 'paused'`,
+            AND status = 'paused'
+         RETURNING ${THREAD_GOAL_COLUMNS}`,
       )
-      .run(normalizedThreadId);
-    if (result.changes === 0) return null;
-    return getThreadGoal(normalizedThreadId);
+      .get(normalizedThreadId) as ThreadGoalRow | undefined;
+    return row ? mapThreadGoal(row) : null;
   });
 }

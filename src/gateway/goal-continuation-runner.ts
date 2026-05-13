@@ -7,6 +7,7 @@ import {
   buildGoalContinuationPrompt,
   buildGoalInitialPrompt,
   clearScheduledGoalContinuation,
+  finishGoalContinuationRun,
   GOAL_CONTINUATION_SOURCE,
   getGoalContinuationContext,
   isGoalContinuationRunning,
@@ -100,9 +101,11 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       });
     }
   } finally {
-    setGoalContinuationRunning(sessionId, false);
+    finishGoalContinuationRun(sessionId);
   }
 }
 
-registerGoalPostTurnSubscriber();
-setGoalContinuationRunHandler(runGoalContinuation);
+export function initializeGoalContinuationRunner(): void {
+  registerGoalPostTurnSubscriber();
+  setGoalContinuationRunHandler(runGoalContinuation);
+}
