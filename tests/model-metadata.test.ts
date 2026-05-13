@@ -1,9 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+import ts from 'typescript';
 import { expect, expectTypeOf, test } from 'vitest';
 import type { ModelOverlay } from '../src/providers/model-metadata.js';
 import {
   getModelOverlay,
+  isCodexFamilyModelId,
   isGpt5ModelId,
-  listStaticModelMetadataModelIds,
+  isLocalLlmModelId,
 } from '../src/providers/model-metadata.js';
 
 const COMPLETE_OVERLAY = {
@@ -12,6 +17,53 @@ const COMPLETE_OVERLAY = {
   execution_policy: 'execute only approved actions',
   narrate_only_retry: true,
 } satisfies ModelOverlay;
+
+function collectStaticModelMetadataIdsFromSource(): string[] {
+  const sourcePath = path.join(
+    process.cwd(),
+    'src/providers/model-metadata.ts',
+  );
+  const source = fs.readFileSync(sourcePath, 'utf-8');
+  const sourceFile = ts.createSourceFile(
+    sourcePath,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let modelIds: string[] | null = null;
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableStatement(node)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === 'STATIC_MODEL_METADATA' &&
+          declaration.initializer &&
+          ts.isObjectLiteralExpression(declaration.initializer)
+        ) {
+          modelIds = declaration.initializer.properties
+            .filter(ts.isPropertyAssignment)
+            .map((property) => {
+              if (ts.isStringLiteralLike(property.name))
+                return property.name.text;
+              if (ts.isIdentifier(property.name)) return property.name.text;
+              throw new Error('Unsupported static model metadata key syntax');
+            });
+          return;
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  if (!modelIds) {
+    throw new Error('STATIC_MODEL_METADATA object not found');
+  }
+  return modelIds;
+}
 
 test('static model metadata entries accept an optional complete overlay', () => {
   type EntryWithOptionalOverlay = {
@@ -101,8 +153,13 @@ test('getModelOverlay returns undefined for blank model ids', () => {
   expect(getModelOverlay('  ')).toBeUndefined();
 });
 
+test('future family matcher predicates are inert skeletons', () => {
+  expect(isCodexFamilyModelId('gpt-5-codex')).toBe(false);
+  expect(isLocalLlmModelId('ollama/qwen3')).toBe(false);
+});
+
 test.each(
-  listStaticModelMetadataModelIds(),
+  collectStaticModelMetadataIdsFromSource(),
 )('getModelOverlay returns undefined for current catalog entry %s', (modelId) => {
   expect(getModelOverlay(modelId)).toBeUndefined();
 });

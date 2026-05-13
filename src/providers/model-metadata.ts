@@ -218,10 +218,6 @@ const STATIC_MODEL_METADATA: Record<string, StaticModelMetadataEntry> = {
   },
 };
 
-const STATIC_MODEL_METADATA_MODEL_IDS = Object.freeze(
-  Object.keys(STATIC_MODEL_METADATA),
-);
-
 export interface StaticModelCatalogMetadata {
   known: boolean;
   contextWindow: number | null;
@@ -288,34 +284,29 @@ export function isGpt5ModelId(modelId: string): boolean {
   return candidatesIncludeGpt5ModelId(collectModelLookupCandidates(modelId));
 }
 
-type ModelOverlayMatcher = (
-  candidates: readonly string[],
-) => ModelOverlay | undefined;
-
-function resolveGpt5ModelOverlay(
-  candidates: readonly string[],
-): ModelOverlay | undefined {
-  if (!candidatesIncludeGpt5ModelId(candidates)) return undefined;
-  return undefined;
+export function isCodexFamilyModelId(_modelId: string): boolean {
+  return false;
 }
 
-function resolveCodexFamilyModelOverlay(
-  _candidates: readonly string[],
-): ModelOverlay | undefined {
-  return undefined;
+export function isLocalLlmModelId(_modelId: string): boolean {
+  return false;
 }
 
-function resolveLocalLlmModelOverlay(
-  _candidates: readonly string[],
-): ModelOverlay | undefined {
-  return undefined;
-}
-
-const MODEL_OVERLAY_MATCHERS: ModelOverlayMatcher[] = [
-  resolveGpt5ModelOverlay,
-  resolveCodexFamilyModelOverlay,
-  resolveLocalLlmModelOverlay,
+const MODEL_OVERLAY_MATCHERS: {
+  matches: (modelId: string) => boolean;
+  overlay: ModelOverlay | undefined;
+}[] = [
+  { matches: isGpt5ModelId, overlay: undefined },
+  { matches: isCodexFamilyModelId, overlay: undefined },
+  { matches: isLocalLlmModelId, overlay: undefined },
 ];
+
+function matchesModelOverlayCandidate(
+  matcher: (modelId: string) => boolean,
+  candidates: readonly string[],
+): boolean {
+  return candidates.some((candidate) => matcher(candidate));
+}
 
 export function getModelOverlay(modelId: string): ModelOverlay | undefined {
   const candidates = collectModelLookupCandidates(modelId);
@@ -323,15 +314,12 @@ export function getModelOverlay(modelId: string): ModelOverlay | undefined {
   if (entry?.model_overlay) return entry.model_overlay;
 
   for (const matcher of MODEL_OVERLAY_MATCHERS) {
-    const overlay = matcher(candidates);
-    if (overlay) return overlay;
+    if (matchesModelOverlayCandidate(matcher.matches, candidates)) {
+      return matcher.overlay;
+    }
   }
 
   return undefined;
-}
-
-export function listStaticModelMetadataModelIds(): readonly string[] {
-  return STATIC_MODEL_METADATA_MODEL_IDS;
 }
 
 export function resolveStaticModelCatalogMetadata(
