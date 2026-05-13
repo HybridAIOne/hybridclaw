@@ -598,6 +598,50 @@ code {
   color: var(--danger);
 }
 
+.skill-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 76px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: lowercase;
+}
+
+.skill-unblock-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-width: 96px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--line));
+  border-radius: 6px;
+  background: var(--panel-bg);
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.skill-unblock-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.skill-unblock-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .tunnel-panel-grid,
 .tunnel-detail-grid {
   display: grid;

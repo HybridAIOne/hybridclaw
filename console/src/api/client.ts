@@ -911,6 +911,17 @@ export function uploadSkillZip(
   });
 }
 
+export function unblockSkill(
+  token: string,
+  skillName: string,
+): Promise<AdminSkillsResponse> {
+  return requestJson<AdminSkillsResponse>('/api/admin/skills/unblock', {
+    token,
+    method: 'POST',
+    body: { name: skillName },
+  });
+}
+
 export function fetchPlugins(token: string): Promise<AdminPluginsResponse> {
   return requestJson<AdminPluginsResponse>('/api/admin/plugins', { token });
 }

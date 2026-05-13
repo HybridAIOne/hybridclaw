@@ -335,6 +335,8 @@ import {
   loadSkillCatalogs,
   resolveManagedCommunitySkillsDir,
   type SkillCatalogEntry,
+  SkillGuardUnblockInputError,
+  unblockGuardedSkill,
 } from '../skills/skills.js';
 import {
   guardSkillDirectory,
@@ -5843,6 +5845,26 @@ export function setGatewayAdminSkillEnabled(input: {
   updateRuntimeConfig((draft) => {
     setRuntimeSkillScopeEnabled(draft, name, input.enabled, channelKind);
   });
+
+  return getGatewayAdminSkills();
+}
+
+export function unblockGatewayAdminSkill(input: {
+  name: string;
+}): GatewayAdminSkillsResponse {
+  const name = String(input.name || '').trim();
+  if (!name) {
+    throw new GatewayRequestError(400, 'Expected non-empty skill `name`.');
+  }
+
+  try {
+    unblockGuardedSkill(name, 'admin-console');
+  } catch (error) {
+    if (!(error instanceof SkillGuardUnblockInputError)) {
+      throw error;
+    }
+    throw new GatewayRequestError(400, error.message);
+  }
 
   return getGatewayAdminSkills();
 }

@@ -9,6 +9,7 @@ import {
   fetchSkills,
   rejectAdaptiveSkillAmendment,
   saveSkillEnabled,
+  unblockSkill,
   uploadSkillZip,
 } from '../api/client';
 import type {
@@ -277,6 +278,20 @@ export function SkillsPage() {
     },
     onError: (error) => {
       toast.error('Toggle failed', getErrorMessage(error));
+    },
+  });
+
+  const unblockMutation = useMutation({
+    mutationFn: (skillName: string) => unblockSkill(auth.token, skillName),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(['skills', auth.token], payload);
+      toast.success(
+        'Skill unblocked',
+        'Scanner bypass marker was recorded for this skill.',
+      );
+    },
+    onError: (error) => {
+      toast.error('Unblock failed', getErrorMessage(error));
     },
   });
 
@@ -881,6 +896,9 @@ export function SkillsPage() {
                       skill.shortDescription?.trim() ||
                       abbreviateDescription(skill.description);
                     const firstGuardFinding = skill.guardFindings?.[0];
+                    const isUnblocking =
+                      unblockMutation.isPending &&
+                      unblockMutation.variables === skill.name;
                     return (
                       <tr key={skill.name}>
                         <td>
@@ -926,40 +944,60 @@ export function SkillsPage() {
                         <td>{skill.tags.join(', ') || 'none'}</td>
                         <td>
                           <div className="row-status-stack">
-                            <BooleanToggle
-                              value={skill.enabled}
-                              ariaLabel={`${skill.name} status`}
-                              size="sm"
-                              disabled={
-                                skill.blocked ||
-                                toggleMutation.isPending ||
-                                (!skill.available && !skill.enabled)
-                              }
-                              trueLabel="active"
-                              falseLabel="inactive"
-                              onChange={(enabled) => {
-                                if (
-                                  skill.blocked ||
-                                  (enabled && !skill.available)
-                                ) {
-                                  return;
-                                }
-                                toggleMutation.mutate({
-                                  name: skill.name,
-                                  enabled,
-                                });
-                              }}
-                            />
                             {skill.blocked ? (
-                              <small className="row-status-note-danger">
-                                blocked: {skill.blockedReason || 'guarded'}
-                              </small>
-                            ) : !skill.available ? (
-                              <small className="row-status-note-danger">
-                                {skill.missing.join(', ') ||
-                                  'missing requirements'}
-                              </small>
-                            ) : null}
+                              <>
+                                <span
+                                  className="skill-blocked-badge"
+                                  role="status"
+                                  aria-label={`${skill.name} is blocked`}
+                                  title={skill.blockedReason || 'guarded'}
+                                >
+                                  blocked
+                                </span>
+                                <small className="row-status-note-danger">
+                                  {skill.blockedReason || 'guarded'}
+                                </small>
+                                <button
+                                  type="button"
+                                  className="skill-unblock-button"
+                                  disabled={unblockMutation.isPending}
+                                  onClick={() =>
+                                    unblockMutation.mutate(skill.name)
+                                  }
+                                >
+                                  {isUnblocking ? 'Unblocking...' : 'Unblock'}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <BooleanToggle
+                                  value={skill.enabled}
+                                  ariaLabel={`${skill.name} status`}
+                                  size="sm"
+                                  disabled={
+                                    toggleMutation.isPending ||
+                                    (!skill.available && !skill.enabled)
+                                  }
+                                  trueLabel="active"
+                                  falseLabel="inactive"
+                                  onChange={(enabled) => {
+                                    if (enabled && !skill.available) {
+                                      return;
+                                    }
+                                    toggleMutation.mutate({
+                                      name: skill.name,
+                                      enabled,
+                                    });
+                                  }}
+                                />
+                                {!skill.available ? (
+                                  <small className="row-status-note-danger">
+                                    {skill.missing.join(', ') ||
+                                      'missing requirements'}
+                                  </small>
+                                ) : null}
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

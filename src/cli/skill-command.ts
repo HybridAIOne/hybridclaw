@@ -84,6 +84,25 @@ export async function handleSkillCommand(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'unblock') {
+    const skillName = normalized[1];
+    if (!skillName || normalized.length !== 2) {
+      printSkillUsage();
+      throw new Error(
+        'Expected exactly one skill name for `hybridclaw skill unblock`.',
+      );
+    }
+
+    const { unblockGuardedSkill } = await import('../skills/skills.js');
+    const result = unblockGuardedSkill(skillName, 'cli');
+    console.log(
+      `Unblocked ${result.skillName} by bypassing future scanner blocks for this installed copy.`,
+    );
+    console.log(`Reason reviewed: ${result.blockedReason}`);
+    console.log(`Marker: ${result.markerPath}`);
+    return;
+  }
+
   if (sub === 'toggle') {
     const { channelKind, remaining } = parseSkillScopeArgs(normalized.slice(1));
     if (remaining.length > 0) {

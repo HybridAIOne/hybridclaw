@@ -288,7 +288,7 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   skill: {
     command:
-      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
+      '/skill config|list|enable <name> [--channel <kind>]|disable <name> [--channel <kind>]|unblock <name>|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>',
     description:
       'Manage skill config, dependencies, health, runs, amendments, and imports',
   },
@@ -2288,6 +2288,25 @@ function buildSlashCommandCatalogDefinitions(
               name: 'channel',
               description:
                 'Optional channel kind to scope the change (e.g. discord, slack)',
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'unblock',
+          description:
+            'Allow a reviewed blocked skill by recording a scanner bypass marker',
+          tuiMenu: {
+            label: '/skill unblock <name>',
+            insertText: '/skill unblock ',
+            aliases: ['/skill unblock <name>'],
+          },
+          options: [
+            {
+              kind: 'string',
+              name: 'name',
+              description: 'Blocked skill name to unblock',
+              required: true,
             },
           ],
         },
