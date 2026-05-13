@@ -48,6 +48,10 @@ capture confirmation. The JWT does not enter the agent context.
 Never call Hermes3000 with `curl` or a raw `Authorization: Bearer ...` header.
 Use `node skills/hermes3000-writing/scripts/hermes3000.cjs ... run ...` for
 live calls so the gateway injects and captures secrets server-side.
+Run these helper commands exactly as documented. Do not add Node permission
+flags such as `--experimental-permission`, and do not rewrite `skills/...`
+paths to `/workspace/skills/...`; the helper needs runtime-provided gateway
+access for secret resolution.
 
 Cloud and chat/TUI users may not have a terminal. Only ask the user to set
 secrets with chat/TUI secret commands; do not ask them to run `node`, `curl`, or
@@ -148,7 +152,9 @@ Represent structure as:
 
 ## Command Contract
 
-Run login and API requests through the gateway-proxied helper:
+Run login and API requests through the gateway-proxied helper. Copy these
+commands exactly, changing only the operation arguments such as title, book id,
+or file paths:
 
 ```bash
 node skills/hermes3000-writing/scripts/hermes3000.cjs --help

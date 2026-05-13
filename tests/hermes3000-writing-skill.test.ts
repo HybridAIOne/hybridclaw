@@ -96,6 +96,8 @@ test('Hermes3000 skill keeps terminal commands agent-side for cloud users', () =
 
   expect(skill).toContain('Cloud and chat/TUI users may not have a terminal');
   expect(skill).toContain('Then the agent, not the user, captures the JWT');
+  expect(skill).toContain('Run these helper commands exactly as documented');
+  expect(skill).toContain('Do not add Node permission');
   expect(skill).toContain('Do not show it to chat/TUI users');
   expect(skill).toContain('/secret set HERMES3000_EMAIL');
   expect(skill).toContain('/secret set HERMES3000_PASSWORD');
