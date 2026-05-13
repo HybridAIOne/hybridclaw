@@ -6,12 +6,12 @@ import { expect, test, vi } from 'vitest';
 import {
   buildConversationContext,
   buildDynamicContextMessage,
-} from '../conversation.js';
-import { buildSystemPromptFromHooks } from '../prompt-hooks.js';
+} from '../src/agent/conversation.js';
+import { buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
 
 const promptHooksPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../prompt-hooks.ts',
+  '../src/agent/prompt-hooks.ts',
 );
 
 test('prompt-hooks source does not call non-stable runtime APIs', () => {
