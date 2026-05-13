@@ -49,21 +49,28 @@ Never call Hermes3000 with `curl` or a raw `Authorization: Bearer ...` header.
 Use `node skills/hermes3000-writing/scripts/hermes3000.cjs ... run ...` for
 live calls so the gateway injects and captures secrets server-side.
 
-Ask the user to set the login inputs once from a local HybridClaw session:
+Cloud and chat/TUI users may not have a terminal. Only ask the user to set
+secrets with chat/TUI secret commands; do not ask them to run `node`, `curl`, or
+`hybridclaw` shell commands. If `HERMES3000_JWT` is missing or blocked, run
+`auth.login` yourself through the helper. The helper does not prompt for email
+or password; it resolves `HERMES3000_EMAIL` and `HERMES3000_PASSWORD` from the
+gateway secret store.
+
+Ask the user to set the login inputs once from chat or TUI:
 
 ```text
 /secret set HERMES3000_EMAIL you@example.com
 /secret set HERMES3000_PASSWORD <password>
 ```
 
-Shell-side equivalent:
+For local operator setup only, the shell-side equivalent is:
 
 ```bash
 hybridclaw secret set HERMES3000_EMAIL you@example.com
 hybridclaw secret set HERMES3000_PASSWORD '<password>'
 ```
 
-Then capture the JWT through the gateway:
+Then the agent, not the user, captures the JWT through the gateway:
 
 ```bash
 node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run auth.login
@@ -117,7 +124,11 @@ Represent structure as:
 
 ## Workflow
 
-1. Authenticate with `run auth.login`; never ask for or print the bearer token.
+1. List or authenticate through the helper. If a live call fails because
+   `HERMES3000_JWT` is missing or blocked, run `run auth.login` yourself. If
+   login fails because `HERMES3000_EMAIL` or `HERMES3000_PASSWORD` is missing,
+   ask the user to set those two secrets with `/secret set ...`. Never ask the
+   user to run terminal commands and never ask for or print the bearer token.
 2. Create or select the book. For a new book, call `POST /books` with `title`
    and `bookType`.
 3. Build planning material. Either draft it yourself from the user's brief or
@@ -148,6 +159,9 @@ Capture the JWT into the secret store:
 ```bash
 node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run auth.login
 ```
+
+This is an agent-side command. Do not show it to chat/TUI users as something
+they need to run.
 
 Create a book:
 

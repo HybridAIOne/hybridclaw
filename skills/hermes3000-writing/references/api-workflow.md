@@ -31,7 +31,7 @@ The response includes `token` and `user`. The JWT is valid for 7 days. Keep it
 private.
 
 In HybridClaw, do not call login in a way that returns `token` to the agent.
-Use the bundled helper's gateway-backed `run` mode:
+Use the bundled helper's gateway-backed `run` mode from the agent runtime:
 
 ```bash
 node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run auth.login
@@ -41,6 +41,11 @@ The helper posts to the HybridClaw gateway proxy. It uses
 `captureResponseFields: [{ "jsonPath": "token", "secretName": "HERMES3000_JWT" }]`
 so the gateway stores the JWT and returns only a capture confirmation.
 Subsequent helper requests use `bearerSecretName: "HERMES3000_JWT"`.
+
+Do not ask chat/TUI users to run this command. If `HERMES3000_JWT` is missing or
+blocked, the agent should run `auth.login`; the user should only be asked to set
+`HERMES3000_EMAIL` and `HERMES3000_PASSWORD` with `/secret set ...` if those
+stored login inputs are missing. The helper does not prompt for credentials.
 
 Do not use `curl` with a raw Hermes3000 `Authorization` header. If a runtime
 does not allow direct helper execution but does expose the built-in
