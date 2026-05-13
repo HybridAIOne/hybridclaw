@@ -88,6 +88,92 @@ describe('config reload integration', () => {
     expect(cfg.ops.healthPort).toBe(7777);
   });
 
+  it('reloadRuntimeConfig accepts SearXNG bearer SecretRefs', () => {
+    writeConfig({
+      web: {
+        search: {
+          searxngBaseUrl: 'https://search.tenant.example',
+          searxngBearerTokenRef: {
+            source: 'store',
+            id: 'SEARXNG_BEARER_TOKEN',
+          },
+        },
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(cfg.web.search.searxngBaseUrl).toBe('https://search.tenant.example');
+    expect(cfg.web.search.searxngBearerTokenRef).toEqual({
+      source: 'store',
+      id: 'SEARXNG_BEARER_TOKEN',
+    });
+  });
+
+  it('reloadRuntimeConfig accepts per-agent SearXNG bearer SecretRefs', () => {
+    writeConfig({
+      agents: {
+        list: [
+          {
+            id: 'research',
+            webSearch: {
+              searxngBaseUrl: 'https://search.research.example',
+              searxngBearerTokenRef: {
+                source: 'store',
+                id: 'RESEARCH_SEARXNG_BEARER_TOKEN',
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const cfg = configMod.reloadRuntimeConfig('test');
+    expect(
+      cfg.agents.list?.find((agent) => agent.id === 'research'),
+    ).toMatchObject({
+      webSearch: {
+        searxngBaseUrl: 'https://search.research.example',
+        searxngBearerTokenRef: {
+          source: 'store',
+          id: 'RESEARCH_SEARXNG_BEARER_TOKEN',
+        },
+      },
+    });
+  });
+
+  it('reloadRuntimeConfig rejects plaintext SearXNG bearer tokens', () => {
+    writeConfig({
+      web: {
+        search: {
+          searxngBearerTokenRef: 'plain-token',
+        },
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      'web.search.searxngBearerTokenRef must use a store SecretRef',
+    );
+  });
+
+  it('reloadRuntimeConfig rejects plaintext per-agent SearXNG bearer tokens', () => {
+    writeConfig({
+      agents: {
+        list: [
+          {
+            id: 'research',
+            webSearch: {
+              searxngBearerTokenRef: 'plain-token',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
+      'agents.list[].webSearch.searxngBearerTokenRef must use a store SecretRef',
+    );
+  });
+
   it('reloadRuntimeConfig normalizes supported Camofox launch options', () => {
     writeConfig({
       browser: {

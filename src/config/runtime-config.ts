@@ -14,11 +14,13 @@ import {
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
   cloneAgentCv,
+  cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
+  normalizeAgentWebSearchConfig,
   resolveSnakeCamelAlias,
   validateAgentOrgChart,
 } from '../agents/agent-types.js';
@@ -63,6 +65,7 @@ import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
   parseSecretInput,
+  parseSecretRefInput,
   resolveSecretInputUnsafe,
   type SecretInput,
   type SecretRef,
@@ -1009,6 +1012,7 @@ export interface RuntimeConfig {
       defaultCount: number;
       cacheTtlMinutes: number;
       searxngBaseUrl: string;
+      searxngBearerTokenRef?: SecretRef;
       tavilySearchDepth: 'basic' | 'advanced';
     };
   };
@@ -2599,6 +2603,13 @@ function normalizeAgentConfig(
   const a2a = Object.hasOwn(value, 'a2a')
     ? normalizeAgentA2AConfig(value.a2a)
     : cloneAgentA2AConfig(fallback?.a2a);
+  const webSearch = Object.hasOwn(value, 'webSearch')
+    ? normalizeAgentWebSearchConfig(
+        value.webSearch,
+        'agents.list[].webSearch',
+        fallback?.webSearch,
+      )
+    : cloneAgentWebSearchConfig(fallback?.webSearch);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2616,6 +2627,7 @@ function normalizeAgentConfig(
     ...(cv ? { cv } : {}),
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
+    ...(webSearch ? { webSearch } : {}),
   };
 }
 
@@ -4780,6 +4792,14 @@ function normalizeBrowserUseCloudApiKeyRef(
   );
 }
 
+function normalizeOptionalSecretRef(
+  value: unknown,
+  path: string,
+): SecretRef | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return parseSecretRefInput(value, path);
+}
+
 const CAMOFOX_MANAGED_LAUNCH_OPTION_KEYS = new Set([
   'headless',
   'timeout',
@@ -5744,6 +5764,10 @@ function normalizeRuntimeConfig(
       required:
         isSecretRefInput(rawThreema.secret) && Boolean(rawThreema.enabled),
     },
+  );
+  const searxngBearerTokenRef = normalizeOptionalSecretRef(
+    rawWebSearch.searxngBearerTokenRef,
+    'web.search.searxngBearerTokenRef',
   );
   const healthPort = normalizeInteger(
     rawOps.healthPort,
@@ -6720,6 +6744,7 @@ function normalizeRuntimeConfig(
           DEFAULT_RUNTIME_CONFIG.web.search.searxngBaseUrl,
           { allowEmpty: true },
         ),
+        ...(searxngBearerTokenRef ? { searxngBearerTokenRef } : {}),
         tavilySearchDepth: normalizeTavilySearchDepth(
           rawWebSearch.tavilySearchDepth,
           DEFAULT_RUNTIME_CONFIG.web.search.tavilySearchDepth,

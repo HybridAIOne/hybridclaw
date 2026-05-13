@@ -38,8 +38,10 @@ import {
   normalizeSecretString,
 } from '../security/secret-normalization.js';
 import {
+  parseSecretRefInput,
   resolveSecretHandleInput,
   resolveSecretInputUnsafe,
+  type SecretRef,
 } from '../security/secret-refs.js';
 
 import {
@@ -73,6 +75,7 @@ type ApiHttpRequestBody = {
   body?: unknown;
   json?: unknown;
   bearerSecretName?: unknown;
+  bearerSecretRef?: unknown;
   secretHeaders?: unknown;
   googleServiceAccount?: unknown;
   replaceSecretPlaceholders?: unknown;
@@ -284,6 +287,26 @@ function setHeaderValue(
     delete headers[existing];
   }
   headers[existing || name] = value;
+}
+
+function hasHeaderValue(
+  headers: Record<string, string>,
+  name: string,
+): boolean {
+  return Object.keys(headers).some(
+    (key) => key.toLowerCase() === name.toLowerCase(),
+  );
+}
+
+function parseBearerSecretRef(value: unknown): SecretRef {
+  try {
+    return parseSecretRefInput(value, 'bearerSecretRef');
+  } catch {
+    throw new GatewayRequestError(
+      400,
+      '`bearerSecretRef` must be a store SecretRef.',
+    );
+  }
 }
 
 function normalizeHttpRequestSecretHeaders(
@@ -974,10 +997,15 @@ export async function handleApiHttpRequest(
   const googleServiceAccount = normalizeGoogleServiceAccountAuth(
     body.googleServiceAccount,
   );
-  if (bearerSecretName && googleServiceAccount) {
+  const authModes = [
+    bearerSecretName ? 'bearerSecretName' : '',
+    body.bearerSecretRef !== undefined ? 'bearerSecretRef' : '',
+    googleServiceAccount ? 'googleServiceAccount' : '',
+  ].filter(Boolean);
+  if (authModes.length > 1) {
     throw new GatewayRequestError(
       400,
-      'Use either bearerSecretName or googleServiceAccount, not both.',
+      'Use only one of bearerSecretName, bearerSecretRef, or googleServiceAccount.',
     );
   }
   if (bearerSecretName) {
@@ -993,6 +1021,31 @@ export async function handleApiHttpRequest(
         'Bearer',
       ),
     );
+  }
+  if (body.bearerSecretRef !== undefined) {
+    const bearerSecretRef = parseBearerSecretRef(body.bearerSecretRef);
+    // SecretRefs cross the F13 rail here: resolveHttpRuleSecret enforces the
+    // host/selector policy and injects the handle into the outbound header.
+    const assignment = await resolveHttpRuleSecret(
+      bearerSecretRef,
+      {
+        ...secretContext,
+        selector: 'Authorization',
+      },
+      'bearerSecretRef',
+      'Authorization',
+      'Bearer',
+    );
+    if (hasHeaderValue(headers, assignment.header)) {
+      logger.warn(
+        {
+          host: secretContext.host,
+          header: assignment.header,
+        },
+        'bearerSecretRef overriding existing outbound HTTP auth header',
+      );
+    }
+    setHeaderValue(headers, assignment.header, assignment.value);
   }
   if (googleServiceAccount) {
     setHeaderValue(

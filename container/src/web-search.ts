@@ -137,6 +137,16 @@ interface SearchExecutionContext {
   engines?: string;
 }
 
+export interface WebSearchGatewayContext {
+  baseUrl?: string;
+  apiToken?: string;
+  sessionId?: string;
+}
+
+interface SearchRuntimeContext {
+  gateway?: WebSearchGatewayContext;
+}
+
 export interface WebSearchExecutionResult {
   query: string;
   provider: SearchProviderName;
@@ -374,6 +384,9 @@ export function getWebSearchConfigFromEnv(
           searxngBaseUrl: String(override.searxngBaseUrl || '').trim(),
         }
       : {}),
+    ...(override?.searxngBearerTokenRef != null
+      ? { searxngBearerTokenRef: override.searxngBearerTokenRef }
+      : {}),
     ...(override?.tavilySearchDepth != null
       ? {
           tavilySearchDepth:
@@ -546,13 +559,39 @@ function sanitizeProviderError(error: unknown): string {
 function buildCacheKey(
   params: NormalizedSearchParams,
   requestedProvider: SearchProviderMode,
+  config: WebSearchConfig,
 ): string {
   const suffix = [params.country || '', params.language || '']
     .filter(Boolean)
     .join(':');
   const categories = params.categories || '';
   const engines = params.engines || '';
-  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+  const searxngPartition = buildSearxngCachePartition(config);
+  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}:${searxngPartition}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+}
+
+function buildSearxngCachePartition(config: WebSearchConfig): string {
+  const includesSearxng =
+    config.provider === 'auto' ||
+    config.provider === 'searxng' ||
+    config.fallbackProviders.includes('searxng');
+  if (!includesSearxng) return '';
+  return stableCacheHash(
+    [
+      config.searxngBaseUrl,
+      config.searxngBearerTokenRef?.source || '',
+      config.searxngBearerTokenRef?.id || '',
+    ].join('\0'),
+  );
+}
+
+function stableCacheHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function mapFreshnessForProvider(
@@ -910,9 +949,69 @@ function createDuckDuckGoProvider(): SearchProvider {
   };
 }
 
+async function fetchViaGatewayBearer(params: {
+  url: string;
+  provider: string;
+  signal: AbortSignal;
+  gateway?: WebSearchGatewayContext;
+  bearerSecretRef: NonNullable<WebSearchConfig['searxngBearerTokenRef']>;
+}): Promise<unknown> {
+  const base = String(params.gateway?.baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!base) {
+    throw new Error(
+      `${params.provider} bearer token requires gateway HTTP proxy`,
+    );
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const apiToken = String(params.gateway?.apiToken || '').trim();
+  if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
+
+  const response = await fetch(`${base}/api/http/request`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      url: params.url,
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': USER_AGENT,
+      },
+      bearerSecretRef: params.bearerSecretRef,
+      maxResponseBytes: MAX_RESPONSE_BYTES,
+      ...(params.gateway?.sessionId
+        ? { sessionId: params.gateway.sessionId }
+        : {}),
+    }),
+    signal: params.signal,
+  });
+  if (!response.ok) throw buildHttpError(response);
+  const proxyPayload = await readJsonResponse(response, params.provider);
+  if (!isRecord(proxyPayload)) {
+    throw new Error(`${params.provider} gateway proxy returned invalid JSON`);
+  }
+  if (proxyPayload.ok === false) {
+    throw new Error(`HTTP ${String(proxyPayload.status || '').trim()}`);
+  }
+  if (proxyPayload.json !== undefined) return proxyPayload.json;
+  if (typeof proxyPayload.body === 'string') {
+    try {
+      return JSON.parse(proxyPayload.body) as unknown;
+    } catch {
+      throw new Error(`${params.provider} returned invalid JSON`);
+    }
+  }
+  throw new Error(`${params.provider} gateway proxy returned no body`);
+}
+
 function createSearxngProvider(
   config: WebSearchConfig,
   context: SearchExecutionContext,
+  runtimeContext: SearchRuntimeContext = {},
 ): SearchProvider {
   const requestContext = buildProviderRequestContext(context);
   return {
@@ -922,24 +1021,33 @@ function createSearxngProvider(
 
       const timeout = createTimeoutSignal(signal, DEFAULT_PROVIDER_TIMEOUT_MS);
       try {
-        const res = await fetch(
-          buildSearxngSearchUrl({
-            baseUrl: config.searxngBaseUrl,
-            query,
-            language: requestContext.language,
-            count,
-            categories: requestContext.categories,
-            engines: requestContext.engines,
-            timeRange: requestContext.searxngTimeRange,
-          }),
-          {
-            headers: {
-              Accept: 'application/json',
-              'User-Agent': USER_AGENT,
-            },
+        const url = buildSearxngSearchUrl({
+          baseUrl: config.searxngBaseUrl,
+          query,
+          language: requestContext.language,
+          count,
+          categories: requestContext.categories,
+          engines: requestContext.engines,
+          timeRange: requestContext.searxngTimeRange,
+        });
+        if (config.searxngBearerTokenRef) {
+          const payload = await fetchViaGatewayBearer({
+            url,
+            provider: 'SearXNG',
             signal: timeout.signal,
+            gateway: runtimeContext.gateway,
+            bearerSecretRef: config.searxngBearerTokenRef,
+          });
+          return parseSearxngSearchResponse(payload);
+        }
+
+        const res = await fetch(url, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': USER_AGENT,
           },
-        );
+          signal: timeout.signal,
+        });
         if (!res.ok) throw buildHttpError(res);
         return parseSearxngSearchResponse(
           await readJsonResponse(res, 'SearXNG'),
@@ -961,6 +1069,7 @@ function createProvider(
   name: SearchProviderName,
   config: WebSearchConfig,
   context: SearchExecutionContext,
+  runtimeContext: SearchRuntimeContext = {},
 ): SearchProvider {
   switch (name) {
     case 'brave':
@@ -972,7 +1081,7 @@ function createProvider(
     case 'duckduckgo':
       return createDuckDuckGoProvider();
     case 'searxng':
-      return createSearxngProvider(config, context);
+      return createSearxngProvider(config, context, runtimeContext);
   }
 }
 
@@ -997,6 +1106,7 @@ function isProviderAvailable(
 export function buildProviderChain(
   config: WebSearchConfig,
   context: SearchExecutionContext = {},
+  runtimeContext: SearchRuntimeContext = {},
 ): SearchProvider[] {
   const mode = normalizeProviderMode(config.provider);
   const seen = new Set<SearchProviderName>();
@@ -1020,12 +1130,15 @@ export function buildProviderChain(
   }
 
   add('duckduckgo');
-  return ordered.map((provider) => createProvider(provider, config, context));
+  return ordered.map((provider) =>
+    createProvider(provider, config, context, runtimeContext),
+  );
 }
 
 export async function searchWeb(
   params: WebSearchParams,
   configOverride?: Partial<WebSearchRuntimeConfig>,
+  runtimeContext: SearchRuntimeContext = {},
 ): Promise<WebSearchExecutionResult> {
   const config = getWebSearchConfigFromEnv(configOverride);
   const normalized = normalizeSearchParams(params, config);
@@ -1034,13 +1147,21 @@ export async function searchWeb(
     ...config,
     provider: requestedProvider,
   };
-  const cacheKey = buildCacheKey(normalized, requestedProvider);
+  const cacheKey = buildCacheKey(
+    normalized,
+    requestedProvider,
+    effectiveConfig,
+  );
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 
   const controller = new AbortController();
   const start = Date.now();
-  const providers = buildProviderChain(effectiveConfig, normalized);
+  const providers = buildProviderChain(
+    effectiveConfig,
+    normalized,
+    runtimeContext,
+  );
   const attemptedProviders: SearchProviderName[] = [];
   const errors: string[] = [];
 
@@ -1099,6 +1220,9 @@ function formatSearchResults(result: WebSearchExecutionResult): string {
 export async function webSearch(
   params: WebSearchParams,
   configOverride?: Partial<WebSearchRuntimeConfig>,
+  runtimeContext: SearchRuntimeContext = {},
 ): Promise<string> {
-  return formatSearchResults(await searchWeb(params, configOverride));
+  return formatSearchResults(
+    await searchWeb(params, configOverride, runtimeContext),
+  );
 }

@@ -3399,6 +3399,13 @@ async function executeToolInternal(
           provider: args.provider,
         },
         currentWebSearchConfig,
+        {
+          gateway: {
+            baseUrl: gatewayBaseUrl,
+            apiToken: gatewayApiToken,
+            sessionId: currentSessionId,
+          },
+        },
       );
     }
 

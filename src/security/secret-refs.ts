@@ -95,6 +95,14 @@ export function parseSecretInput(value: unknown): ParsedSecretInput {
   };
 }
 
+export function parseSecretRefInput(value: unknown, path: string): SecretRef {
+  const parsed = parseSecretInput(value);
+  if (parsed.kind === 'ref') return { ...parsed.ref };
+  throw new Error(
+    `${path} must use a store SecretRef such as \`{ "source": "store", "id": "SECRET_NAME" }\`.`,
+  );
+}
+
 function describeSecretRef(ref: SecretRef): string {
   return `stored secret ${ref.id}`;
 }

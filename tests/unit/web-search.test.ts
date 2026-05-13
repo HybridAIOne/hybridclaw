@@ -342,6 +342,89 @@ describe('SearXNG provider', () => {
     expect(requestUrl.searchParams.has('results')).toBe(false);
   });
 
+  it('routes SearXNG bearer SecretRefs through the gateway HTTP proxy', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          status: 200,
+          json: {
+            results: [
+              {
+                title: 'Private SearXNG Result',
+                url: 'https://example.com/private',
+                content: 'Secret-backed snippet',
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await searchWeb(
+      {
+        query: 'tenant search',
+        provider: 'searxng',
+      },
+      {
+        provider: 'searxng',
+        fallbackProviders: [],
+        defaultCount: 5,
+        cacheTtlMinutes: 5,
+        searxngBaseUrl: 'https://search.tenant.example',
+        searxngBearerTokenRef: {
+          source: 'store',
+          id: 'SEARXNG_BEARER_TOKEN',
+        },
+        tavilySearchDepth: 'advanced',
+      },
+      {
+        gateway: {
+          baseUrl: 'http://127.0.0.1:9090',
+          apiToken: 'gateway-token',
+          sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+        },
+      },
+    );
+
+    expect(result.provider).toBe('searxng');
+    expect(result.results[0]).toMatchObject({
+      title: 'Private SearXNG Result',
+      url: 'https://example.com/private',
+      snippet: 'Secret-backed snippet',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:9090/api/http/request',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer gateway-token',
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      method: 'GET',
+      bearerSecretRef: {
+        source: 'store',
+        id: 'SEARXNG_BEARER_TOKEN',
+      },
+      sessionId: 'agent:main:channel:web:chat:dm:peer:test',
+    });
+    expect(String(body.url)).toContain('https://search.tenant.example/search?');
+  });
+
   it('uses canonical SearXNG category and engine lists for cache keys', async () => {
     process.env.HYBRIDCLAW_WEB_SEARCH_PROVIDER = 'searxng';
     process.env.SEARXNG_BASE_URL = 'https://search.example.com';
@@ -383,6 +466,51 @@ describe('SearXNG provider', () => {
     expect(first.cached).toBeUndefined();
     expect(second.cached).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('partitions SearXNG cache entries by instance identity', async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = new URL(String(url));
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: `Result from ${requestUrl.hostname}`,
+              url: `https://${requestUrl.hostname}/result`,
+              content: 'Partitioned snippet',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await searchWeb(
+      { query: 'tenant cache', provider: 'searxng' },
+      makeConfig({
+        provider: 'searxng',
+        searxngBaseUrl: 'https://search-a.example.com',
+      }),
+    );
+    const second = await searchWeb(
+      { query: 'tenant cache', provider: 'searxng' },
+      makeConfig({
+        provider: 'searxng',
+        searxngBaseUrl: 'https://search-b.example.com',
+      }),
+    );
+
+    expect(first.cached).toBeUndefined();
+    expect(second.cached).toBeUndefined();
+    expect(first.results[0]?.title).toBe('Result from search-a.example.com');
+    expect(second.results[0]?.title).toBe('Result from search-b.example.com');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
