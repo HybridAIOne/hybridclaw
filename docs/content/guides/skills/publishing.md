@@ -1,10 +1,41 @@
 ---
 title: Publishing Skills
-description: Excalidraw diagrams, Manim and avatar video creation, Hermes3000 manuscripts, WordPress publishing, and blog post writing.
+description: Diagram-as-code, Excalidraw diagrams, Manim and avatar video creation, Hermes3000 manuscripts, WordPress publishing, and blog post writing.
 sidebar_position: 8
 ---
 
 # Publishing Skills
+
+## diagram
+
+Create, validate, update, and render diagram-as-code artifacts through the
+native `diagram_create`, `diagram_update`, and `diagram_validate` tools.
+Mermaid is the default format, with PlantUML, Graphviz DOT, and Excalidraw JSON
+available when the diagram shape or user request calls for them.
+
+**Prerequisites** — none for source artifacts and SVG fallback previews. Install
+or configure optional renderers for native exports: `mmdc` for Mermaid,
+`dot` for Graphviz, and `HYBRIDCLAW_PLANTUML_SERVER_URL` for PlantUML.
+
+> 💡 **Tips & Tricks**
+>
+> Pick the diagram type before writing Mermaid syntax: sequence, flowchart,
+> state, ER, class, gantt, git-graph, mindmap, or pie.
+>
+> Run validation before rendering when you write or revise source manually.
+>
+> Use Graphviz for topology graphs, PlantUML for UML-heavy teams, and
+> Excalidraw JSON when editability matters more than a static render.
+
+> 🎯 **Try it yourself**
+>
+> `Create a Mermaid sequence diagram for a user request through gateway, container, and tool execution`
+>
+> `Validate this Mermaid flowchart source and fix any syntax errors before rendering it as SVG`
+>
+> `Create a Graphviz deployment topology for gateway, worker, SQLite, and Discord`
+
+---
 
 ## image-generation
 

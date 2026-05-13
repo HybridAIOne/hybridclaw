@@ -19,6 +19,7 @@ import {
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
+import { runDiagramTool } from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
@@ -3448,6 +3449,36 @@ async function executeToolInternal(
       }
     }
 
+    case 'diagram_create': {
+      try {
+        return await runDiagramTool('create', args);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram_update': {
+      try {
+        return await runDiagramTool('update', args);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram_validate': {
+      try {
+        return await runDiagramTool('validate', args);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'browser_navigate':
     case 'browser_await_two_factor':
     case 'browser_resume_interaction':
@@ -4465,6 +4496,145 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_create',
+      description:
+        'Create and validate diagram-as-code artifacts, then optionally render them. Supports Mermaid, PlantUML, Graphviz DOT, and Excalidraw JSON. Prefer passing explicit source when exact syntax matters; otherwise description/type generates a starter diagram.',
+      parameters: {
+        type: 'object',
+        properties: {
+          description: {
+            type: 'string',
+            description: 'Natural-language diagram description.',
+          },
+          source: {
+            type: 'string',
+            description:
+              'Optional diagram source. Mermaid source may be fenced or raw.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+            description:
+              'Diagram type. Use auto to classify from description or source.',
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+            description: 'Source format. Defaults to mermaid.',
+          },
+          render_to: {
+            type: 'string',
+            enum: ['svg', 'png', 'pdf', 'none'],
+            description:
+              'Rendered artifact target. Defaults to svg except Excalidraw, which defaults to none.',
+          },
+        },
+        required: ['description'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_update',
+      description:
+        'Update an existing diagram source/artifact, validate it, and optionally re-render while preserving type and format. For precise edits, pass the complete updated source after applying the requested change.',
+      parameters: {
+        type: 'object',
+        properties: {
+          artifact_ref: {
+            type: 'string',
+            description:
+              'Existing diagram source artifact path from diagram_create.',
+          },
+          source: {
+            type: 'string',
+            description:
+              'Complete updated source. If omitted, the tool preserves existing source and adds a small update annotation.',
+          },
+          instructions: {
+            type: 'string',
+            description: 'Natural-language update instructions.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+          },
+          render_to: {
+            type: 'string',
+            enum: ['svg', 'png', 'pdf', 'none'],
+          },
+        },
+        required: ['instructions'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_validate',
+      description:
+        'Validate Mermaid, PlantUML, Graphviz DOT, or Excalidraw JSON diagram source without rendering. Returns valid/errors/suggested_fix.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description: 'Diagram source to validate.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+          },
+        },
+        required: ['source'],
       },
     },
   },

@@ -7,10 +7,14 @@ export const ARTIFACT_MIME_TYPES: Record<string, string> = {
   '.docx':
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.gif': 'image/gif',
+  '.dot': 'text/vnd.graphviz',
+  '.excalidraw': 'application/vnd.excalidraw+json',
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.mmd': 'text/vnd.mermaid',
   '.pdf': 'application/pdf',
   '.png': 'image/png',
+  '.puml': 'text/vnd.plantuml',
   '.pptx':
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.svg': 'image/svg+xml',
@@ -27,6 +31,9 @@ const ARTIFACT_DISCOVERY_IGNORED_DIRS = new Set([
 
 export function inferArtifactMimeType(filePath: string): string {
   const normalized = String(filePath || '').replace(/\\/g, '/');
+  if (normalized.toLowerCase().endsWith('.excalidraw.json')) {
+    return 'application/vnd.excalidraw+json';
+  }
   const ext = path.posix.extname(normalized).toLowerCase();
   return ARTIFACT_MIME_TYPES[ext] || 'application/octet-stream';
 }

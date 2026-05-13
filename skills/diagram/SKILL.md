@@ -1,0 +1,111 @@
+---
+name: diagram
+description: Create, validate, update, and render diagram-as-code artifacts with Mermaid-first schema awareness plus PlantUML, Graphviz DOT, and Excalidraw JSON adapters.
+user-invocable: true
+disable-model-invocation: false
+metadata:
+  hybridclaw:
+    category: publishing
+    short_description: "Validated diagram-as-code artifacts."
+    tags:
+      - diagram
+      - mermaid
+      - plantuml
+      - graphviz
+      - excalidraw
+      - visualization
+    related_skills:
+      - excalidraw
+      - manim-video
+      - write-blog-post
+---
+
+# Diagram
+
+Use this skill when the user wants a rendered static diagram, a validated diagram source artifact, or a revision to an existing diagram source.
+
+Default to Mermaid unless the user asks for another format or the shape is a better fit for another adapter:
+
+- Mermaid: sequence, flowchart, state, ER, class, gantt, git-graph, mindmap, and pie diagrams.
+- PlantUML: UML sequence/component/activity/deployment diagrams when the user already uses PlantUML or asks for it.
+- Graphviz DOT: topology, dependency graphs, and layouts where rank/direction control matters.
+- Excalidraw JSON: hand-drawn-style editable sketches when the user asks for an editable canvas.
+
+## Tool Surface
+
+Use the runtime tools directly:
+
+- `diagram_create`: create source, validate it, save source, and optionally render.
+- `diagram_update`: update existing source or source artifact, validate it, save a new source artifact, and optionally render.
+- `diagram_validate`: validate source only; do not render.
+
+The tool output contract is:
+
+```json
+{
+  "source": "...",
+  "source_artifact_ref": "/workspace/.generated-diagrams/diagram-...",
+  "rendered_artifact_ref": "/workspace/.generated-diagrams/diagram-...",
+  "type": "flowchart",
+  "format": "mermaid",
+  "valid": true
+}
+```
+
+## Default Workflow
+
+1. Pick the diagram type before writing syntax. If uncertain, set `type` to `auto`, but prefer an explicit type when the user request clearly names one.
+2. For Mermaid, read [references/mermaid-types.md](references/mermaid-types.md) when you need grammar examples or when the diagram type is not obvious.
+3. Draft complete source yourself when the user needs a specific diagram. Do not rely on the tool's generated starter unless the request is generic.
+4. Call `diagram_validate` before rendering when you wrote or revised source manually.
+5. If validation fails, use the returned `errors` and `suggested_fix`, revise once, then validate again. Make at most 2 fix-up attempts before surfacing the failure with the invalid source artifact.
+6. Call `diagram_create` or `diagram_update` with `render_to` set to `svg` by default. Use `png` or `pdf` only when requested and the adapter can render that target.
+7. Return the source artifact and rendered artifact paths to the user.
+
+## Type Selection
+
+Use these defaults:
+
+| User intent | Type |
+| --- | --- |
+| messages, API call flow, actors, request/response | `sequence` |
+| process, decision tree, pipeline, system flow | `flowchart` |
+| lifecycle, status machine, transitions | `state` |
+| database schema, entities, relationships | `er` |
+| classes, interfaces, inheritance, methods | `class` |
+| timeline, schedule, milestones, roadmap | `gantt` |
+| branches, commits, merges, release train | `git-graph` |
+| brainstorm, taxonomy, concept map, outline | `mindmap` |
+| shares, proportions, percentages | `pie` |
+
+## Mermaid Rules
+
+- Use the canonical header for the selected type.
+- Keep labels short and ASCII-safe unless the user provided exact labels.
+- Quote labels when Mermaid grammar requires it, especially pie chart slices.
+- Avoid unsupported Markdown inside labels.
+- Prefer `flowchart TD` or `flowchart LR`; do not mix both in one source.
+- In `sequenceDiagram`, define participants when names are long or reused.
+- In `gantt`, include `dateFormat` and stable task ids when using dependencies.
+- In `erDiagram`, include cardinality on relationships.
+
+## Update Rules
+
+For `diagram_update`, preserve the existing `type` and `format` unless the user explicitly asks to convert. When the user gives natural-language update instructions:
+
+1. Read the existing source artifact when needed.
+2. Apply the change to the source yourself.
+3. Validate the full updated source.
+4. Call `diagram_update` with the complete updated source, original format/type, and desired `render_to`.
+
+If the user only asks to annotate a diagram and exact placement does not matter, the tool can add a small update annotation when passed only `artifact_ref` plus `instructions`.
+
+## Adapter Notes
+
+- Mermaid and Graphviz use local renderers when available. If a renderer is not installed, SVG requests fall back to source-backed SVG artifacts so the operator still gets an embed-ready file.
+- PlantUML rendering uses `HYBRIDCLAW_PLANTUML_SERVER_URL` or `PLANTUML_SERVER_URL` when configured. Without a server, SVG requests fall back to source-backed SVG artifacts.
+- Excalidraw defaults to `render_to: "none"` because JSON is the editable deliverable. Use `render_to: "svg"` only when a static preview is requested.
+
+## Stakes
+
+Diagram rendering is F8 low stakes: the output is a file artifact the operator chooses to share. Do not treat generated diagrams as authoritative for security, legal, medical, or financial decisions without separate verification.
