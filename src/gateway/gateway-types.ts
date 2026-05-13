@@ -8,6 +8,7 @@ import type {
   AgentTeamStructureSnapshot,
 } from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
+import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
@@ -406,20 +407,8 @@ export interface GatewayStatus {
   slackWebhook?: {
     targetCount: number;
     defaultTargetConfigured: boolean;
-    lastReachabilityResults: Array<{
-      target: string;
-      ok: boolean;
-      at: string;
-      statusCode: number | null;
-      error: string | null;
-    }>;
-    lastSendResults: Array<{
-      target: string;
-      ok: boolean;
-      at: string;
-      statusCode: number | null;
-      error: string | null;
-    }>;
+    lastReachabilityResults: SlackWebhookSendResult[];
+    lastSendResults: SlackWebhookSendResult[];
   };
   telegram?: {
     tokenConfigured: boolean;

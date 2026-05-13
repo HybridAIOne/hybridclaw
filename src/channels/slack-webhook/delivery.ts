@@ -1,8 +1,7 @@
-import { getConfigSnapshot } from '../../config/config.js';
 import { classifyGatewayError } from '../../gateway/gateway-error-utils.js';
-import { chunkMessage } from '../../memory/chunk.js';
 import { withTransportRetry } from '../../utils/transport-retry.js';
-import { formatSlackMrkdwn } from '../slack/delivery.js';
+import { chunkSlackText } from '../slack/delivery.js';
+import { resolveSlackWebhookConfig } from './config.js';
 import {
   parseSlackWebhookChannelTarget,
   SLACK_WEBHOOK_DEFAULT_TARGET,
@@ -12,7 +11,7 @@ const SLACK_WEBHOOK_BLOCK_TEXT_LIMIT = 3_000;
 const SLACK_WEBHOOK_RETRY_MAX_ATTEMPTS = 5;
 const SLACK_WEBHOOK_RETRY_BASE_DELAY_MS = 500;
 const SLACK_WEBHOOK_RETRY_MAX_DELAY_MS = 10_000;
-const slackWebhookOutboundQueues = new Map<string, Promise<void>>();
+const slackWebhookOutboundQueues = new Map<string, Promise<unknown>>();
 const slackWebhookLastResults = new Map<string, SlackWebhookSendResult>();
 const slackWebhookLastReachabilityResults = new Map<
   string,
@@ -23,6 +22,7 @@ export interface SlackWebhookTargetConfig {
   webhookUrl: string;
   defaultUsername: string;
   defaultIconEmoji: string;
+  // Slack still accepts icon_url for legacy/custom webhook integrations.
   defaultIconUrl: string;
 }
 
@@ -58,19 +58,11 @@ export class SlackWebhookApiError extends Error {
   }
 }
 
-function resolveSlackWebhookConfig() {
-  const config = getConfigSnapshot().slackWebhook;
-  if (!config.enabled) {
-    throw new Error('Slack webhook channel is disabled.');
-  }
-  if (!config.webhooks[SLACK_WEBHOOK_DEFAULT_TARGET]?.webhookUrl) {
-    throw new Error('Slack webhook default target is not configured.');
-  }
-  return config;
-}
-
 function resolveSlackWebhookTarget(target: string): SlackWebhookTargetConfig {
-  const config = resolveSlackWebhookConfig();
+  const config = resolveSlackWebhookConfig({
+    requireDefaultTarget: true,
+    requireEnabled: true,
+  });
   const normalizedTarget = target || SLACK_WEBHOOK_DEFAULT_TARGET;
   const webhook = config.webhooks[normalizedTarget];
   if (!webhook?.webhookUrl) {
@@ -89,14 +81,10 @@ function normalizeWebhookText(text: string): string {
 }
 
 export function prepareSlackWebhookTextBlocks(text: string): string[] {
-  const formatted = formatSlackMrkdwn(normalizeWebhookText(text));
-  const chunks = chunkMessage(formatted, {
+  return chunkSlackText(normalizeWebhookText(text), {
     maxChars: SLACK_WEBHOOK_BLOCK_TEXT_LIMIT,
     maxLines: 100,
-  })
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  return chunks.length > 0 ? chunks : ['(no content)'];
+  });
 }
 
 export function buildSlackWebhookPayload(
@@ -105,7 +93,7 @@ export function buildSlackWebhookPayload(
 ): SlackWebhookPayload {
   const chunks = prepareSlackWebhookTextBlocks(text);
   const fallback = chunks.join('\n\n');
-  return {
+  const payload: SlackWebhookPayload = {
     text: fallback,
     blocks: chunks.map((chunk) => ({
       type: 'section',
@@ -114,16 +102,17 @@ export function buildSlackWebhookPayload(
         text: chunk,
       },
     })),
-    ...(targetConfig?.defaultUsername
-      ? { username: targetConfig.defaultUsername }
-      : {}),
-    ...(targetConfig?.defaultIconEmoji
-      ? { icon_emoji: targetConfig.defaultIconEmoji }
-      : {}),
-    ...(targetConfig?.defaultIconUrl
-      ? { icon_url: targetConfig.defaultIconUrl }
-      : {}),
   };
+  if (targetConfig?.defaultUsername) {
+    payload.username = targetConfig.defaultUsername;
+  }
+  if (targetConfig?.defaultIconEmoji) {
+    payload.icon_emoji = targetConfig.defaultIconEmoji;
+  }
+  if (targetConfig?.defaultIconUrl) {
+    payload.icon_url = targetConfig.defaultIconUrl;
+  }
+  return payload;
 }
 
 async function postSlackWebhook(params: {
@@ -185,17 +174,22 @@ function queueSlackWebhookOutboundDelivery<T>(
 ): Promise<T> {
   const previous = slackWebhookOutboundQueues.get(target) ?? Promise.resolve();
   const task = previous.catch(() => {}).then(run);
-  const sentinel = task.then(
-    () => undefined,
-    () => undefined,
-  );
-  slackWebhookOutboundQueues.set(target, sentinel);
-  void sentinel.finally(() => {
-    if (slackWebhookOutboundQueues.get(target) === sentinel) {
-      slackWebhookOutboundQueues.delete(target);
-    }
-  });
+  slackWebhookOutboundQueues.set(target, task);
+  void task
+    .finally(() => {
+      if (slackWebhookOutboundQueues.get(target) === task) {
+        slackWebhookOutboundQueues.delete(target);
+      }
+    })
+    .catch(() => {});
   return task;
+}
+
+function resolveDeliveryTarget(raw: string): string {
+  const parsed =
+    parseSlackWebhookChannelTarget(raw) ||
+    parseSlackWebhookChannelTarget(`slack_webhook:${raw}`);
+  return parsed?.target || SLACK_WEBHOOK_DEFAULT_TARGET;
 }
 
 export async function sendSlackWebhookText(params: {
@@ -203,13 +197,10 @@ export async function sendSlackWebhookText(params: {
   target: string;
   text: string;
 }): Promise<void> {
-  const parsed =
-    parseSlackWebhookChannelTarget(params.target) ||
-    parseSlackWebhookChannelTarget(`slack_webhook:${params.target}`);
-  const target = parsed?.target || SLACK_WEBHOOK_DEFAULT_TARGET;
+  const target = resolveDeliveryTarget(params.target);
+  const webhook = resolveSlackWebhookTarget(target);
 
   await queueSlackWebhookOutboundDelivery(target, async () => {
-    const webhook = resolveSlackWebhookTarget(target);
     const payload = buildSlackWebhookPayload(params.text, webhook);
     try {
       await withTransportRetry(
@@ -249,10 +240,7 @@ export async function pingSlackWebhookTarget(params: {
   signal?: AbortSignal;
   target: string;
 }): Promise<SlackWebhookSendResult> {
-  const parsed =
-    parseSlackWebhookChannelTarget(params.target) ||
-    parseSlackWebhookChannelTarget(`slack_webhook:${params.target}`);
-  const target = parsed?.target || SLACK_WEBHOOK_DEFAULT_TARGET;
+  const target = resolveDeliveryTarget(params.target);
   const webhook = resolveSlackWebhookTarget(target);
   const at = new Date().toISOString();
 
@@ -289,15 +277,11 @@ export async function pingSlackWebhookTarget(params: {
 }
 
 export function getSlackWebhookLastSendResults(): SlackWebhookSendResult[] {
-  return [...slackWebhookLastResults.values()].sort((left, right) =>
-    left.target.localeCompare(right.target),
-  );
+  return [...slackWebhookLastResults.values()];
 }
 
 export function getSlackWebhookLastReachabilityResults(): SlackWebhookSendResult[] {
-  return [...slackWebhookLastReachabilityResults.values()].sort((left, right) =>
-    left.target.localeCompare(right.target),
-  );
+  return [...slackWebhookLastReachabilityResults.values()];
 }
 
 export function clearSlackWebhookRuntimeResults(): void {

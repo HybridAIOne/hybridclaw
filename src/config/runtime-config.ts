@@ -3408,6 +3408,7 @@ function normalizeSlackWebhookTargetConfig(
       fallback?.defaultIconEmoji ?? '',
       { allowEmpty: true },
     ),
+    // Kept for legacy/custom Slack webhook integrations that honor icon_url.
     defaultIconUrl: normalizeString(
       raw.default_icon_url ?? raw.defaultIconUrl,
       fallback?.defaultIconUrl ?? '',
