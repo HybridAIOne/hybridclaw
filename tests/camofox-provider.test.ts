@@ -77,6 +77,7 @@ test('camofox provider launches a persistent profile with stealth launch options
   const provider = new CamofoxProvider({
     dataDir,
     camofox: mock.camofox,
+    stealthPolicy: () => undefined,
     launchOptions: {
       os: 'linux',
       block_webrtc: true,
@@ -120,6 +121,7 @@ test('camofox provider rejects profile hints outside the browser profile root', 
   const provider = new CamofoxProvider({
     dataDir,
     camofox: mock.camofox,
+    stealthPolicy: () => undefined,
   });
 
   await expect(
@@ -136,6 +138,7 @@ test('camofox provider rejects unsafe navigation schemes', async () => {
   const provider = new CamofoxProvider({
     profileRoot: path.join(root, 'browser-profiles'),
     camofox: mock.camofox,
+    stealthPolicy: () => undefined,
   });
 
   const session = await provider.launchSession({});
@@ -152,12 +155,48 @@ test('camofox provider rejects unsafe navigation schemes', async () => {
   expect(mock.page.goto).toHaveBeenCalledWith('about:blank', undefined);
 });
 
+test('camofox provider enforces per-host stealth policy before navigation', async () => {
+  const root = makeTempRoot();
+  const mock = createMockCamofox();
+  const stealthPolicy = vi.fn(({ host }: { host: string }) => {
+    if (host !== 'allowed.example') {
+      throw new Error(`stealth denied for ${host}`);
+    }
+  });
+  const provider = new CamofoxProvider({
+    profileRoot: path.join(root, 'browser-profiles'),
+    camofox: mock.camofox,
+    stealthPolicy,
+  });
+
+  const session = await provider.launchSession({});
+  await expect(session.navigate('https://blocked.example/')).rejects.toThrow(
+    /stealth denied for blocked\.example/u,
+  );
+  await session.navigate('https://allowed.example/');
+
+  expect(stealthPolicy).toHaveBeenCalledWith({
+    host: 'blocked.example',
+    metering: undefined,
+  });
+  expect(stealthPolicy).toHaveBeenCalledWith({
+    host: 'allowed.example',
+    metering: undefined,
+  });
+  expect(mock.page.goto).toHaveBeenCalledTimes(1);
+  expect(mock.page.goto).toHaveBeenCalledWith(
+    'https://allowed.example/',
+    undefined,
+  );
+});
+
 test('camofox provider uses browser secret fill policy for SecretRef values', async () => {
   const root = makeTempRoot();
   const mock = createMockCamofox();
   const provider = new CamofoxProvider({
     profileRoot: path.join(root, 'browser-profiles'),
     camofox: mock.camofox,
+    stealthPolicy: () => undefined,
   });
 
   const session = await provider.launchSession({});
@@ -191,6 +230,7 @@ test('camofox provider enforces launch timeout without forwarding it to Camoufox
     const provider = new CamofoxProvider({
       profileRoot: path.join(root, 'browser-profiles'),
       camofox: { Camoufox },
+      stealthPolicy: () => undefined,
     });
 
     const launch = provider.launchSession({ timeoutMs: 25 });

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hermes3000 Writing"
+  short_description: "Long-form book and whitepaper writing portal."
+  default_prompt: "Use $hermes3000-writing to plan, draft, save, and export a long-form manuscript in Hermes3000."

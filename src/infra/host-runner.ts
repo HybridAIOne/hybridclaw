@@ -13,6 +13,7 @@ import { collectActiveMessageToolChannelKinds } from '../channels/message-tool-a
 import {
   ADDITIONAL_MOUNTS,
   BRAVE_API_KEY,
+  BROWSER_PROVIDER,
   CONTAINER_BINDS,
   CONTAINER_PERSIST_BASH_STATE,
   CONTAINER_TIMEOUT,
@@ -657,6 +658,7 @@ function getOrSpawnHostProcess(
     HYBRIDCLAW_RETRY_BASE_DELAY_MS: String(PROACTIVE_AUTO_RETRY_BASE_DELAY_MS),
     HYBRIDCLAW_RETRY_MAX_DELAY_MS: String(PROACTIVE_AUTO_RETRY_MAX_DELAY_MS),
     HYBRIDCLAW_RALPH_MAX_ITERATIONS: String(PROACTIVE_RALPH_MAX_ITERATIONS),
+    HYBRIDCLAW_BROWSER_PROVIDER: BROWSER_PROVIDER,
     HYBRIDCLAW_WEB_SEARCH_PROVIDER: WEB_SEARCH_PROVIDER,
     HYBRIDCLAW_WEB_SEARCH_FALLBACK_PROVIDERS:
       WEB_SEARCH_FALLBACK_PROVIDERS.join(','),
@@ -1024,6 +1026,7 @@ async function runHostProcessInner(
     baseUrl: input.baseUrl,
     apiKey: input.apiKey,
     requestHeaders: input.requestHeaders,
+    browserProvider: BROWSER_PROVIDER,
     taskModels: input.taskModels,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,

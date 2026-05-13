@@ -1,9 +1,12 @@
 import type { LaunchOptions as CamofoxLaunchOptions } from 'camoufox-js';
+import { assertBrowserNavigationUrl } from '../../container/shared/browser-navigation.js';
+import { assertBrowserStealthAllowed } from '../security/browser-stealth-policy.js';
 import type { SecretHandle } from '../security/secret-handles.js';
 import {
   PlaywrightBrowserSession,
   type PlaywrightContextShape,
   type PlaywrightPageShape,
+  toNavigationOptions,
 } from './playwright-utils.js';
 import {
   resolveBrowserProfileRoot,
@@ -12,6 +15,8 @@ import {
 import type {
   BrowserProvider,
   BrowserSession,
+  BrowserSessionMeteringContext,
+  NavigateOptions,
   SessionOptions,
 } from './provider.js';
 
@@ -27,11 +32,16 @@ export type CamofoxModule = {
 export interface CamofoxProviderOptions {
   /** Test/direct-construction fallback; production config passes profileRoot. */
   dataDir?: string;
+  policyWorkspacePath?: string;
   profileRoot?: string;
   headed?: boolean;
   launchOptions?: CamofoxLaunchOptions;
   camofox?: CamofoxModule;
   secretAudit?: (handle: SecretHandle, reason: string) => void;
+  stealthPolicy?: (context: {
+    host: string;
+    metering?: BrowserSessionMeteringContext;
+  }) => void | Promise<void>;
 }
 
 let camofoxModulePromise: Promise<CamofoxModule> | null = null;
@@ -86,14 +96,42 @@ async function loadCamofoxModule(
   }
 }
 
-class CamofoxSession extends PlaywrightBrowserSession<CamofoxPage> {}
+class CamofoxSession extends PlaywrightBrowserSession<CamofoxPage> {
+  constructor(
+    page: CamofoxPage,
+    secretAudit: ((handle: SecretHandle, reason: string) => void) | undefined,
+    private readonly meteringContext: BrowserSessionMeteringContext | undefined,
+    private readonly stealthPolicy: (context: {
+      host: string;
+      metering?: BrowserSessionMeteringContext;
+    }) => void | Promise<void>,
+  ) {
+    super(page, secretAudit, meteringContext);
+  }
+
+  async navigate(url: string, opts?: NavigateOptions): Promise<void> {
+    const parsed = await assertBrowserNavigationUrl(url);
+    if (parsed.hostname) {
+      await this.stealthPolicy({
+        host: parsed.hostname,
+        metering: this.meteringContext,
+      });
+    }
+    await this.page.goto(parsed.toString(), toNavigationOptions(opts));
+  }
+}
 
 export class CamofoxProvider implements BrowserProvider {
   private readonly profileRoot: string;
+  private readonly policyWorkspacePath: string;
   private readonly contexts = new WeakMap<CamofoxSession, CamofoxContext>();
 
   constructor(private readonly options: CamofoxProviderOptions = {}) {
     this.profileRoot = resolveBrowserProfileRoot(options);
+    this.policyWorkspacePath =
+      options.policyWorkspacePath ||
+      process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT ||
+      process.cwd();
   }
 
   async launchSession(opts: SessionOptions): Promise<BrowserSession> {
@@ -118,6 +156,17 @@ export class CamofoxProvider implements BrowserProvider {
       page,
       this.options.secretAudit,
       opts.metering,
+      this.options.stealthPolicy ||
+        ((policyContext) => {
+          assertBrowserStealthAllowed({
+            workspacePath: this.policyWorkspacePath,
+            context: {
+              host: policyContext.host,
+              agentId: policyContext.metering?.agentId,
+              skillName: policyContext.metering?.skillName,
+            },
+          });
+        }),
     );
     this.contexts.set(session, context);
     return session;

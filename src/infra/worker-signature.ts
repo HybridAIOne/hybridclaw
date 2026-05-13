@@ -22,6 +22,7 @@ export interface WorkerSignatureInput {
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
+  browserProvider?: string;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
@@ -87,6 +88,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
       .replace(/\/+$/g, ''),
     apiKey: String(input.apiKey || ''),
     requestHeaders: normalizedHeaders,
+    browserProvider: String(input.browserProvider || '').trim(),
     taskModels,
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
