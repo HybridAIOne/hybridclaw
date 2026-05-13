@@ -272,12 +272,29 @@ export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
 export function getA2AEnvelope(
   threadId: string,
   envelopeId: string,
+  senderInstanceId?: string,
 ): A2AEnvelope | null {
   const normalizedEnvelopeId = normalizeEnvelopeId(envelopeId);
-  const envelope = readThreadState(threadId).envelopes.find(
+  const normalizedSenderInstanceId =
+    senderInstanceId === undefined
+      ? undefined
+      : normalizeOpaqueId(senderInstanceId, 'sender_instance_id');
+  const matches = readThreadState(threadId).envelopes.filter(
     (entry) => entry.id === normalizedEnvelopeId,
   );
-  return envelope ?? null;
+  if (normalizedSenderInstanceId !== undefined) {
+    return (
+      matches.find(
+        (entry) => entry.sender_instance_id === normalizedSenderInstanceId,
+      ) ?? null
+    );
+  }
+  if (matches.length > 1) {
+    throw new A2AEnvelopeValidationError([
+      `envelope id ${normalizedEnvelopeId} is ambiguous; provide sender_instance_id`,
+    ]);
+  }
+  return matches[0] ?? null;
 }
 
 export function saveA2AEnvelope(

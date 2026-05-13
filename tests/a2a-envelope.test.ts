@@ -641,5 +641,21 @@ describe('A2A envelope persistence', () => {
       sender_instance_id: 'peer-b',
     });
     expect(store.listA2AThreadEnvelopes('thread-1')).toHaveLength(2);
+    expect(store.getA2AEnvelope('thread-1', 'msg-1', 'peer-a')).toMatchObject({
+      id: 'msg-1',
+      sender_instance_id: 'peer-a',
+      content: 'Peer A copy.',
+    });
+    expect(store.getA2AEnvelope('thread-1', 'msg-1', 'peer-b')).toMatchObject({
+      id: 'msg-1',
+      sender_instance_id: 'peer-b',
+      content: 'Peer B copy.',
+    });
+    expect(
+      store.getA2AEnvelope('thread-1', 'msg-1', 'missing-peer'),
+    ).toBeNull();
+    expect(() => store.getA2AEnvelope('thread-1', 'msg-1')).toThrow(
+      'envelope id msg-1 is ambiguous; provide sender_instance_id',
+    );
   });
 });
