@@ -572,6 +572,7 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/export session [sessionId]` | local and chat channels | Export a session snapshot |
 | `/export trace [sessionId|all]` | local and chat channels | Export trace JSONL |
 | `/fullauto [status|off|on [prompt]|prompt]` | local and chat channels | Inspect or control full-auto mode for the session |
+| `/goal [set <text>|status|pause|resume|clear]` | local and chat channels | Persist one standing goal for the thread and continue until judged complete or paused |
 | `/help` or `/h` | local and chat channels | Show slash-command help |
 | `/info` | TUI | Show bot, model, and runtime status together |
 | `/mcp [list|add|toggle|remove|reconnect]` | local and chat channels | Manage runtime MCP servers |
@@ -594,6 +595,25 @@ plugins and explicit skill invocations can add dynamic slash commands; use
 | `/usage [summary|daily|monthly|model ...]` | local and chat channels | Show token/cost usage summaries |
 | `/voice [info|call <e164-number>]` | local TUI/web | Inspect voice setup or place a Twilio outbound call |
 | `/exit`, `/quit`, or `/q` | TUI | Exit the TUI |
+
+### Standing Goals
+
+`/goal <text>` and `/goal set <text>` store one active standing goal for the
+current thread and queue the goal text as the first supervised user-role turn.
+Later continuations are also normal user-role turns tagged internally as
+`goal-continuation`; they do not change the system prompt, tool set, or
+approval policy.
+
+Use `/goal status` to inspect progress, `/goal pause` to stop queueing
+continuations, `/goal resume` to continue, and `/goal clear` to remove the
+stored goal. The default budget is 20 continuation turns. After each
+continuation, a cheap judge checks for strict JSON `{ "done": boolean,
+"reason": string }`; the loop pauses after three malformed judge responses.
+
+High-stakes tool calls inside goal continuations still escalate through the
+same approval flow as ordinary turns. Pending approvals pause the goal without
+counting another turn, and any real user message preempts the loop so the
+operator stays in control.
 
 - local TUI/web sessions also support `/memory inspect [sessionId]` to inspect
   the built-in memory layers for the current or an explicit session id

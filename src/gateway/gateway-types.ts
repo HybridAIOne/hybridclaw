@@ -198,6 +198,7 @@ export interface GatewayCommandRequest {
   args: string[];
   userId?: string | null;
   username?: string | null;
+  onProactiveMessage?: GatewayChatRequest['onProactiveMessage'];
 }
 
 export interface GatewayProactiveMessage {
