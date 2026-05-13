@@ -5,7 +5,11 @@ import {
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
-import type { ModelCatalogProviderFilter } from '../providers/model-catalog.js';
+import { getHybridAIModelDiscoveryLastError } from '../providers/hybridai-discovery.js';
+import type {
+  ModelCatalogProviderFilter,
+  ModelCatalogRefreshFailure,
+} from '../providers/model-catalog.js';
 import { getOpenAICompatProviderLastError } from '../providers/openai-compat-discovery.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import type { GatewayStatus } from './gateway-types.js';
@@ -49,6 +53,9 @@ const PROVIDER_META: Record<
   llamacpp: { label: 'llama.cpp', loginName: null },
   vllm: { label: 'vLLM', loginName: null },
 };
+
+const AUTH_ERROR_RE =
+  /invalid.*api key|api key.*invalid|revoked|unauthorized|authentication|http\s*(401|403)|\b(401|403)\b/i;
 
 export function buildProviderEnableCommand(
   provider: Exclude<ModelCatalogProviderFilter, 'local'>,
@@ -96,6 +103,23 @@ function unauthorized(
   };
 }
 
+function rejectedApiKey(
+  filter: Exclude<ModelCatalogProviderFilter, 'local'>,
+  detail?: string,
+): ProviderDiagnostic {
+  const { label, loginName } = PROVIDER_META[filter];
+  return {
+    kind: 'unauthorized',
+    message: [
+      `${label} rejected the configured API key.`,
+      ...(detail ? [`Last auth error: ${detail}`] : []),
+      'Authorize it first from a terminal:',
+      `  hybridclaw auth login ${loginName ?? filter}`,
+      `Then rerun \`model list ${rerunFilter(filter)}\`.`,
+    ].join('\n'),
+  };
+}
+
 function unreachable(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
   baseUrl: string | null,
@@ -118,6 +142,7 @@ function unreachable(
 export function diagnoseProviderForModels(
   filter: ModelCatalogProviderFilter,
   providerHealth: GatewayStatus['providerHealth'],
+  refreshFailures: ModelCatalogRefreshFailure[] = [],
 ): ProviderDiagnostic | null {
   if (filter === 'local') return null;
 
@@ -126,8 +151,27 @@ export function diagnoseProviderForModels(
   switch (filter) {
     case 'hybridai': {
       if (!getHybridAIAuthStatus().authenticated) return unauthorized(filter);
-      if (providerHealth?.hybridai?.reachable !== true) {
-        return unreachable(filter, config.hybridai.baseUrl);
+      const health = providerHealth?.hybridai;
+      if (health?.reachable !== true) {
+        const refreshFailure = refreshFailures.find(
+          (failure) => failure.provider === 'hybridai',
+        );
+        const detail = health?.error || health?.detail;
+        const discoveryError = getHybridAIModelDiscoveryLastError();
+        const authDetail =
+          [detail, refreshFailure?.error, discoveryError].find(
+            (value) => value && AUTH_ERROR_RE.test(value),
+          ) ?? null;
+        if (authDetail) {
+          return rejectedApiKey(filter, authDetail);
+        }
+        const unreachableDetail =
+          detail || refreshFailure?.error || discoveryError;
+        return unreachable(
+          filter,
+          config.hybridai.baseUrl,
+          unreachableDetail ?? undefined,
+        );
       }
       return null;
     }

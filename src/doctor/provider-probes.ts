@@ -34,6 +34,12 @@ export interface ProviderProbeResult {
   modelCount?: number;
 }
 
+function formatProbeFailure(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : String(error);
+}
+
 export async function probeHybridAI(): Promise<ProviderProbeResult> {
   const auth = getHybridAIAuthStatus();
   if (!auth.authenticated) {
@@ -44,7 +50,15 @@ export async function probeHybridAI(): Promise<ProviderProbeResult> {
   }
 
   const startedAt = Date.now();
-  const bots = await fetchHybridAIBots({ cacheTtlMs: 0 });
+  let bots: Awaited<ReturnType<typeof fetchHybridAIBots>>;
+  try {
+    bots = await fetchHybridAIBots({ cacheTtlMs: 0 });
+  } catch (error) {
+    return {
+      reachable: false,
+      detail: formatProbeFailure(error),
+    };
+  }
   const latencyMs = Date.now() - startedAt;
   return {
     reachable: true,

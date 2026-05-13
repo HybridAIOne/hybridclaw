@@ -19,10 +19,11 @@ async function runProbe(): Promise<HybridAIHealthResult> {
       reachable: result.reachable,
       modelCount: result.modelCount,
       latencyMs: Date.now() - startedAt,
+      ...(!result.reachable && result.detail ? { error: result.detail } : {}),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.warn({ err: error }, 'HybridAI health probe failed');
+    logger.warn({ error: message }, 'HybridAI health probe failed');
     return {
       reachable: false,
       error: message,

@@ -124,6 +124,49 @@ function readHybridAIVisionCapability(
   );
 }
 
+function readHybridAIErrorMessage(payload: unknown): string | null {
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload.trim();
+  }
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (typeof record.message === 'string' && record.message.trim()) {
+    return record.message.trim();
+  }
+  if (typeof record.error === 'string' && record.error.trim()) {
+    return record.error.trim();
+  }
+
+  const nested = record.error;
+  if (!nested || typeof nested !== 'object') {
+    return null;
+  }
+  const nestedRecord = nested as Record<string, unknown>;
+  if (typeof nestedRecord.message === 'string' && nestedRecord.message.trim()) {
+    return nestedRecord.message.trim();
+  }
+  if (typeof nestedRecord.error === 'string' && nestedRecord.error.trim()) {
+    return nestedRecord.error.trim();
+  }
+  return null;
+}
+
+async function readHybridAIErrorResponse(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  if (!text) return `HTTP ${response.status}`;
+  try {
+    return (
+      readHybridAIErrorMessage(JSON.parse(text) as unknown) ||
+      `HTTP ${response.status}`
+    );
+  } catch {
+    return text.trim() || `HTTP ${response.status}`;
+  }
+}
+
 function getDiscoveryEntries(payload: unknown): unknown[] {
   // Observed HybridAI discovery responses in
   // tests/model-catalog.test.ts and tests/gateway-status.test.ts use
@@ -200,6 +243,7 @@ function resolveCachedHybridAIModelKey(
 export interface HybridAIDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
+  getLastError: () => string | null;
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
   getModelVisionCapability: (model: string) => boolean | null;
@@ -236,6 +280,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   const discoveryStore = createDiscoveryStore(
     buildEmptyHybridAIDiscoveryState(),
   );
+  let lastError: string | null = null;
 
   async function fetchHybridAIModels(
     apiKey: string,
@@ -254,12 +299,14 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         break;
       }
       if (candidate.status !== 404) {
-        throw new Error(`HTTP ${candidate.status}`);
+        throw new Error(await readHybridAIErrorResponse(candidate));
       }
       response = candidate;
     }
     if (!response?.ok) {
-      throw new Error(`HTTP ${response?.status ?? 'unknown'}`);
+      throw new Error(
+        response ? await readHybridAIErrorResponse(response) : 'HTTP unknown',
+      );
     }
 
     const payload = (await response.json()) as unknown;
@@ -298,6 +345,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       }
     }
 
+    lastError = null;
     return {
       discoveredModelNames: [...discovered],
       contextWindowByModel: contextWindows,
@@ -324,6 +372,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         error instanceof MissingRequiredEnvVarError &&
         error.envVar === 'HYBRIDAI_API_KEY'
       ) {
+        lastError = null;
         discoveryStore.replaceState(buildEmptyHybridAIDiscoveryState(), {
           skipCache: true,
         });
@@ -337,7 +386,11 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       {
         force: opts?.force,
         onError: (err, staleState) => {
-          logger.warn({ err }, 'HybridAI model discovery failed');
+          lastError =
+            err instanceof Error && err.message.trim()
+              ? err.message.trim()
+              : String(err);
+          logger.warn({ error: lastError }, 'HybridAI model discovery failed');
           return staleState;
         },
       },
@@ -348,6 +401,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   return {
     discoverModels,
     getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
+    getLastError: () => lastError,
     getModelContextWindow: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
@@ -397,6 +451,10 @@ export async function discoverHybridAIModels(opts?: {
 
 export function getDiscoveredHybridAIModelNames(): string[] {
   return defaultHybridAIDiscoveryStore.getModelNames();
+}
+
+export function getHybridAIModelDiscoveryLastError(): string | null {
+  return defaultHybridAIDiscoveryStore.getLastError();
 }
 
 export function getDiscoveredHybridAIModelContextWindow(

@@ -105,6 +105,7 @@ afterEach(() => {
 
 function mockHealthProbes(options?: {
   hybridaiReachable?: boolean;
+  hybridaiError?: string;
   localBackends?: Array<{
     backend: 'ollama' | 'lmstudio' | 'vllm';
     reachable: boolean;
@@ -134,7 +135,7 @@ function mockHealthProbes(options?: {
         reachable,
         latencyMs: 10,
         modelCount: 3,
-        ...(reachable ? {} : { error: 'mocked' }),
+        ...(reachable ? {} : { error: options?.hybridaiError ?? 'mocked' }),
       })),
       peek: vi.fn(() => null),
       invalidate: vi.fn(),
@@ -3087,6 +3088,69 @@ test('model list includes discovered HybridAI models', async () => {
   expect(result.text).toContain('hybridai/gpt-5-ultra');
   expect(result.text).toContain('hybridai/mistral/mistral-small');
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('model list hybridai reports invalid API keys as authorization failures', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  process.env.HYBRIDAI_API_KEY = 'hai-invalid-gateway-status';
+  writeRuntimeConfig(homeDir, (config) => {
+    config.openrouter.enabled = false;
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = false;
+    config.local.backends.vllm.enabled = false;
+  });
+  vi.resetModules();
+  mockHealthProbes({
+    hybridaiReachable: false,
+    hybridaiError: 'unavailable',
+  });
+
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: 'The provided API key is invalid or has been revoked',
+              type: 'authentication_error',
+            },
+          }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${input}`);
+    }),
+  );
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-model-list-hybridai-invalid-key',
+    guildId: null,
+    channelId: 'channel-model-list-hybridai-invalid-key',
+    args: ['model', 'list', 'hybridai'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Available Models (hybridai)');
+  expect(result.text).toContain('HybridAI rejected the configured API key.');
+  expect(result.text).toContain(
+    'Last auth error: The provided API key is invalid or has been revoked',
+  );
+  expect(result.text).toContain('hybridclaw auth login hybridai');
+  expect(result.text).not.toContain(
+    'HybridAI at http://127.0.0.1:5000 is not reachable.',
+  );
 });
 
 test('model set accepts a legacy bare HybridAI model name when discovery exposes a provider family', async () => {
