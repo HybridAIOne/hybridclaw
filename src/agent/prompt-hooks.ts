@@ -34,7 +34,7 @@ import {
   type Skill,
   type SkillInvocation,
 } from '../skills/skills.js';
-import { buildContextPrompt, loadBootstrapFiles } from '../workspace.js';
+import { buildContextPrompt, loadStaticBootstrapFiles } from '../workspace.js';
 import type {
   ExtendedPromptHookName,
   PromptPartName,
@@ -215,10 +215,12 @@ function buildSkillsSection(skillsPrompt: string): string {
 }
 
 function buildBootstrapHook(context: PromptHookContext): string {
-  const contextFiles = loadBootstrapFiles(context.agentId).filter((file) => {
-    const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
-    return part ? isBootstrapPartSelected(part, context) : true;
-  });
+  const contextFiles = loadStaticBootstrapFiles(context.agentId).filter(
+    (file) => {
+      const part = WORKSPACE_FILE_PROMPT_PARTS[file.name];
+      return part ? isBootstrapPartSelected(part, context) : true;
+    },
+  );
   const contextPrompt = buildContextPrompt(contextFiles);
   const skillsPrompt = context.explicitSkillInvocation
     ? ''

@@ -1,3 +1,5 @@
+import os from 'node:os';
+
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   type HistoryOptimizationStats,
@@ -12,6 +14,12 @@ import {
 } from '../skills/skills.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  formatCurrentTime,
+  loadDailyMemoryFile,
+  loadStaticBootstrapFiles,
+  resolveUserTimezoneFromContextFiles,
+} from '../workspace.js';
+import {
   buildSystemPromptFromHooks,
   type PromptMode,
   type PromptPartName,
@@ -24,12 +32,56 @@ interface HistoryMessage {
   content: ChatMessage['content'];
 }
 
-export function buildDynamicContextMessage(now = new Date()): ChatMessage {
-  const lines = [
-    '<context>',
-    `Date (UTC): ${now.toISOString().slice(0, 10)}`,
-    '</context>',
-  ];
+const HOSTNAME = sanitizeDynamicContextValue(os.hostname());
+
+function sanitizeDynamicContextValue(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+interface DynamicContextMessageOptions {
+  agentId?: string;
+  now?: Date;
+}
+
+export function buildDynamicContextMessage(
+  options: Date | DynamicContextMessageOptions = {},
+): ChatMessage {
+  const now = options instanceof Date ? options : options.now || new Date();
+  const agentId = options instanceof Date ? undefined : options.agentId;
+  const lines = ['<context>', `Date (UTC): ${now.toISOString().slice(0, 10)}`];
+
+  if (agentId) {
+    const contextFiles = loadStaticBootstrapFiles(agentId);
+    const userTimezone = resolveUserTimezoneFromContextFiles(contextFiles);
+    lines.push(`Current Date & Time: ${formatCurrentTime(userTimezone, now)}`);
+
+    const dailyMemoryFile = loadDailyMemoryFile(agentId, {
+      now,
+      contextFiles,
+    });
+    if (HOSTNAME) {
+      lines.push(`Host: ${HOSTNAME}`);
+    }
+    lines.push('</context>');
+
+    if (dailyMemoryFile) {
+      lines.push(
+        '',
+        `## Daily Memory (${dailyMemoryFile.name})`,
+        '',
+        dailyMemoryFile.content,
+      );
+    }
+  } else {
+    if (HOSTNAME) {
+      lines.push(`Host: ${HOSTNAME}`);
+    }
+    lines.push('</context>');
+  }
+
   return { role: 'user', content: lines.join('\n') };
 }
 
@@ -113,7 +165,7 @@ export function buildConversationContext(params: {
   const messages: ChatMessage[] = [];
   if (systemPrompt) {
     messages.push({ role: 'system', content: systemPrompt });
-    messages.push(buildDynamicContextMessage());
+    messages.push(buildDynamicContextMessage({ agentId }));
   }
 
   const historyMessages = [...history].reverse().map(
