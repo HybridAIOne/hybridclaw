@@ -174,6 +174,7 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { handleGoalCommand } from '../goals/goal-command.js';
 import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
@@ -397,8 +398,6 @@ import {
 } from './chat-result.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
-import './goal-continuation-runner.js';
-import { handleGoalCommand } from '../goals/goal-command.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -523,6 +522,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -535,6 +535,8 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 
 export { reconnectGatewayAdminTunnel };
+
+initializeGoalContinuationRunner();
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
