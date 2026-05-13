@@ -598,10 +598,6 @@ code {
   color: var(--danger);
 }
 
-.row-status-stack .row-status-note-danger {
-  color: var(--danger);
-}
-
 .skill-blocked-badge {
   display: inline-flex;
   align-items: center;

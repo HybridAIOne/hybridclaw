@@ -1749,6 +1749,13 @@ export interface SkillGuardUnblockResult {
   markerPath: string;
 }
 
+export class SkillGuardUnblockInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SkillGuardUnblockInputError';
+  }
+}
+
 function getDisabledSkillNames(
   channelKind?: SkillConfigChannelKind,
 ): Set<string> {
@@ -1976,7 +1983,7 @@ export function unblockGuardedSkill(
 ): SkillGuardUnblockResult {
   const normalized = skillName.trim().toLowerCase();
   if (!normalized) {
-    throw new Error('Expected non-empty skill name.');
+    throw new SkillGuardUnblockInputError('Expected non-empty skill name.');
   }
 
   const blockedSkill = loadBlockedSkillCatalog().find(
@@ -1987,9 +1994,13 @@ export function unblockGuardedSkill(
       (skill) => skill.name.toLowerCase() === normalized,
     );
     if (existingSkill) {
-      throw new Error(`Skill "${existingSkill.name}" is not blocked.`);
+      throw new SkillGuardUnblockInputError(
+        `Skill "${existingSkill.name}" is not blocked.`,
+      );
     }
-    throw new Error(`Blocked skill "${skillName}" was not found.`);
+    throw new SkillGuardUnblockInputError(
+      `Blocked skill "${skillName}" was not found.`,
+    );
   }
 
   const markerPath = path.join(blockedSkill.baseDir, IMPORT_SOURCE_MARKER);

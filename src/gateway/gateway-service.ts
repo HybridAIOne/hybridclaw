@@ -335,6 +335,7 @@ import {
   loadSkillCatalogs,
   resolveManagedCommunitySkillsDir,
   type SkillCatalogEntry,
+  SkillGuardUnblockInputError,
   unblockGuardedSkill,
 } from '../skills/skills.js';
 import {
@@ -5859,10 +5860,10 @@ export function unblockGatewayAdminSkill(input: {
   try {
     unblockGuardedSkill(name, 'admin-console');
   } catch (error) {
-    throw new GatewayRequestError(
-      400,
-      error instanceof Error ? error.message : String(error),
-    );
+    if (!(error instanceof SkillGuardUnblockInputError)) {
+      throw error;
+    }
+    throw new GatewayRequestError(400, error.message);
   }
 
   return getGatewayAdminSkills();
