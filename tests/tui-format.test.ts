@@ -5,6 +5,7 @@ import {
   formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
   isMutedSkillListLine,
+  isPluginListHeaderLine,
   nextActiveDelegateToolCount,
   parseTuiSectionCards,
   renderTuiEvalResultsPanel,
@@ -38,6 +39,16 @@ test('mutes disabled and install hint lines in the skill list', () => {
   expect(isMutedSkillListLine('      installs: brew (brew)')).toBe(true);
   expect(isMutedSkillListLine('  apple-music [available]')).toBe(false);
   expect(isMutedSkillListLine('Apple:')).toBe(false);
+});
+
+test('identifies only plugin list section headers for accent color', () => {
+  expect(isPluginListHeaderLine('  Plugins')).toBe(true);
+  expect(isPluginListHeaderLine('  Installed')).toBe(true);
+  expect(isPluginListHeaderLine('  Available')).toBe(true);
+  expect(isPluginListHeaderLine('  concierge-router v0.1.0 [home]')).toBe(
+    false,
+  );
+  expect(isPluginListHeaderLine('    name: Concierge Router')).toBe(false);
 });
 
 test('tool activity line preserves emoji and leaves room for terminal repaint', () => {

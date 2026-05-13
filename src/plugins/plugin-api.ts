@@ -8,6 +8,7 @@ import { resolveInstallRoot } from '../infra/install-root.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { getRecentMessages, getSessionById } from '../memory/db.js';
+import { callAuxiliaryModel } from '../providers/auxiliary.js';
 import type { AIProvider } from '../providers/types.js';
 import { readStoredRuntimeSecret } from '../security/runtime-secrets.js';
 import { parseSessionKey } from '../session/session-key.js';
@@ -20,6 +21,7 @@ import type { PluginManager } from './plugin-manager.js';
 import type {
   HybridClawPluginApi,
   MemoryLayerPlugin,
+  PluginAuxiliaryModelRequest,
   PluginCommandDefinition,
   PluginDispatchInboundMessageRequest,
   PluginHookHandlerMap,
@@ -177,6 +179,12 @@ export function createPluginApi(params: {
     },
     getMcpServerConfig(name: string): Readonly<McpServerConfig> | null {
       return params.manager.getMcpServerConfig(name);
+    },
+    callAuxiliaryModel(request: PluginAuxiliaryModelRequest) {
+      return callAuxiliaryModel({
+        ...request,
+        task: request.task || 'skills_hub',
+      });
     },
     async writeConfigValue(key: string, rawValue: string): Promise<void> {
       await writePluginConfigValue(params.pluginId, key, rawValue, {

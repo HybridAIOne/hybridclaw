@@ -9,6 +9,7 @@ export interface MiddlewareRunnerEvent {
   phase: MiddlewarePhase;
   action: MiddlewareDecision['action'];
   reason?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface MiddlewareRunnerOutcome<TContext> {

@@ -14,6 +14,8 @@ export type {
   LoadedPlugin,
   MemoryLayerPlugin,
   PluginAfterToolCallContext,
+  PluginAuxiliaryModelRequest,
+  PluginAuxiliaryModelResult,
   PluginCandidate,
   PluginCommandDefinition,
   PluginCompactionContext,

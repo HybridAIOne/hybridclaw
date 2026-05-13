@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { applyClassifierMiddlewareSync } from '../container/shared/middleware-runner.js';
 import { createConfidentialLeakMiddlewareSkill } from '../src/agent/confidential-middleware.js';
 import { applyClassifierMiddleware } from '../src/agent/middleware.js';
 import { parseConfidentialYaml } from '../src/security/confidential-rules.js';
@@ -82,6 +83,45 @@ describe('agent middleware', () => {
 
     expect(outcome.userContent).toBe('rewritten prompt');
     expect(observedMessages).toEqual(['rewritten prompt']);
+  });
+
+  test('sync middleware runner preserves allow metadata events', () => {
+    const outcome = applyClassifierMiddlewareSync(
+      'routing',
+      [
+        {
+          id: 'routing-hints',
+          routing: () => ({
+            action: 'allow',
+            metadata: {
+              conciergeRouter: {
+                profile: 'balanced',
+              },
+            },
+          }),
+        },
+      ],
+      {
+        sessionId: 'session-1',
+        agentId: 'main',
+        channelId: 'tui',
+        messages: [{ role: 'user', content: 'original prompt' }],
+        userContent: 'original prompt',
+      },
+    );
+
+    expect(outcome.events).toEqual([
+      {
+        skillId: 'routing-hints',
+        phase: 'routing',
+        action: 'allow',
+        metadata: {
+          conciergeRouter: {
+            profile: 'balanced',
+          },
+        },
+      },
+    ]);
   });
 
   test('skips middleware whose predicate does not match the turn', async () => {
@@ -230,8 +270,7 @@ clients:
     expect(outcome.events[0]).toMatchObject({
       skillId: 'confidential-leak',
       action: 'block',
-      reason:
-        'Confidential output matched 1 high client rule (high, 1 match).',
+      reason: 'Confidential output matched 1 high client rule (high, 1 match).',
     });
   });
 

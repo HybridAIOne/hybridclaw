@@ -16,11 +16,17 @@ import {
   unsetPluginConfigValue,
   writePluginConfigValue,
 } from '../plugins/plugin-config.js';
-import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
+import {
+  filterAvailablePluginSummaryList,
+  formatAvailablePluginSummaryList,
+  formatPluginCatalogList,
+  formatPluginSummaryList,
+} from '../plugins/plugin-formatting.js';
 import {
   checkPlugin,
   formatDependencyPlanDetails,
   installPlugin,
+  listInstallablePlugins,
   reinstallPlugin,
   uninstallPlugin,
 } from '../plugins/plugin-install.js';
@@ -39,6 +45,8 @@ import type {
   GatewayAdminPluginsResponse,
   GatewayCommandRequest,
   GatewayCommandResult,
+  GatewayMessageComponents,
+  GatewayModelCatalogEntry,
 } from './gateway-types.js';
 import { rememberPendingApproval } from './pending-approvals.js';
 
@@ -470,6 +478,10 @@ export async function handlePluginGatewayCommand(params: {
   const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
 
   if (sub === 'list') {
+    const scope = parseLowerArg(req.args, 2, { defaultValue: 'all' });
+    if (scope !== 'all' && scope !== 'installed' && scope !== 'available') {
+      return badCommand('Usage', 'Usage: `plugin list [installed|available]`');
+    }
     if (!pluginManager) {
       return badCommand(
         'Plugin Runtime Unavailable',
@@ -478,9 +490,23 @@ export async function handlePluginGatewayCommand(params: {
           : 'Plugin manager failed to initialize.',
       );
     }
+    const installed = pluginManager.listPluginSummary();
+    const available = filterAvailablePluginSummaryList(
+      listInstallablePlugins(),
+      installed,
+    );
+    if (scope === 'installed') {
+      return infoCommand('Plugins', formatPluginSummaryList(installed));
+    }
+    if (scope === 'available') {
+      return infoCommand(
+        'Plugins',
+        formatAvailablePluginSummaryList(available),
+      );
+    }
     return infoCommand(
       'Plugins',
-      formatPluginSummaryList(pluginManager.listPluginSummary()),
+      formatPluginCatalogList({ installed, available }),
     );
   }
 
@@ -600,6 +626,27 @@ export async function handlePluginGatewayCommand(params: {
       return badCommand(
         `Plugin ${sub === 'enable' ? 'Enable' : 'Disable'} Restricted`,
         `\`plugin ${sub}\` writes runtime config and is only available from local TUI/web sessions.`,
+      );
+    }
+    if (!pluginManager) {
+      return badCommand(
+        'Plugin Runtime Unavailable',
+        pluginInitError instanceof Error
+          ? pluginInitError.message
+          : 'Plugin manager failed to initialize.',
+      );
+    }
+    if (
+      !pluginManager
+        .listPluginSummary()
+        .some((summary) => summary.id === pluginId)
+    ) {
+      return badCommand(
+        'Plugin Not Found',
+        [
+          `No discovered plugin has id \`${pluginId}\`.`,
+          'Install it first with `/plugin install <path|plugin-id|npm-spec>`.',
+        ].join('\n'),
       );
     }
 
@@ -904,7 +951,7 @@ export async function handlePluginGatewayCommand(params: {
     if (!pluginId) {
       return badCommand(
         'Usage',
-        'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
+        'Usage: `plugin list [installed|available]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
       );
     }
     try {
@@ -938,7 +985,7 @@ export async function handlePluginGatewayCommand(params: {
 
   return badCommand(
     'Usage',
-    'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
+    'Usage: `plugin list [installed|available]|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
   );
 }
 
@@ -949,7 +996,62 @@ function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
   if (value == null) {
     return { kind: 'plain', text: '' };
   }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const candidate = value as Partial<GatewayCommandResult>;
+    if (
+      (candidate.kind === 'plain' ||
+        candidate.kind === 'info' ||
+        candidate.kind === 'error') &&
+      typeof candidate.text === 'string'
+    ) {
+      return {
+        kind: candidate.kind,
+        text: candidate.text,
+        ...(typeof candidate.title === 'string'
+          ? { title: candidate.title }
+          : {}),
+        ...(isGatewayMessageComponents(candidate.components)
+          ? { components: candidate.components }
+          : {}),
+        ...(isGatewayModelCatalog(candidate.modelCatalog)
+          ? { modelCatalog: candidate.modelCatalog }
+          : {}),
+      };
+    }
+  }
   return { kind: 'plain', text: JSON.stringify(value, null, 2) };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isGatewayMessageComponents(
+  value: unknown,
+): value is GatewayMessageComponents {
+  if (!Array.isArray(value)) return false;
+  return value.every((row) => {
+    if (!isRecord(row) || typeof row.type !== 'number') return false;
+    if (!Array.isArray(row.components)) return false;
+    return row.components.every(
+      (component) => isRecord(component) && typeof component.type === 'number',
+    );
+  });
+}
+
+function isGatewayModelCatalog(
+  value: unknown,
+): value is GatewayModelCatalogEntry[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((entry) => {
+    if (!isRecord(entry)) return false;
+    if (typeof entry.value !== 'string' || !entry.value.trim()) return false;
+    if (typeof entry.label !== 'string' || !entry.label.trim()) return false;
+    if (typeof entry.isFree !== 'boolean') return false;
+    return (
+      entry.recommended === undefined || typeof entry.recommended === 'boolean'
+    );
+  });
 }
 
 export async function tryHandlePluginDefinedGatewayCommand(params: {

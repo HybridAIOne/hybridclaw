@@ -505,7 +505,8 @@ test('parses /concierge profile into gateway args', async () => {
 });
 
 test('parses /plugin list into gateway args', async () => {
-  const { parseCanonicalSlashCommandArgs } = await importCommandRegistry();
+  const { parseCanonicalSlashCommandArgs, mapCanonicalCommandToGatewayArgs } =
+    await importCommandRegistry();
   expect(
     parseCanonicalSlashCommandArgs({
       commandName: 'plugin',
@@ -513,6 +514,16 @@ test('parses /plugin list into gateway args', async () => {
       getSubcommand: () => 'list',
     }),
   ).toEqual(['plugin', 'list']);
+  expect(
+    parseCanonicalSlashCommandArgs({
+      commandName: 'plugin',
+      getString: (name) => (name === 'scope' ? 'available' : null),
+      getSubcommand: () => 'list',
+    }),
+  ).toEqual(['plugin', 'list', 'available']);
+  expect(
+    mapCanonicalCommandToGatewayArgs(['plugin', 'list', 'available']),
+  ).toEqual(['plugin', 'list', 'available']);
 });
 
 test('parses /plugin reload into gateway args', async () => {
