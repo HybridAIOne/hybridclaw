@@ -166,7 +166,6 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request
 Save chapters with UUIDs:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json --uuid
 node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request structure.put \
   --book-id 42 \
   --structure-type chapters \

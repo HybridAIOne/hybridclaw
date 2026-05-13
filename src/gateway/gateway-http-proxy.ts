@@ -3,7 +3,7 @@
  *
  * Handles `POST /api/http/request` — routes outbound HTTP calls with secret
  * placeholder resolution, bearer token injection, auth rule matching, and
- * automatic OAuth2 token capture.
+ * explicit response-field capture.
  */
 
 import { lookup } from 'node:dns/promises';
@@ -22,6 +22,7 @@ import {
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
 import { logger } from '../logger.js';
 import {
+  isReservedNonSecretRuntimeName,
   isRuntimeSecretName,
   readStoredRuntimeSecret,
   saveNamedRuntimeSecrets,
@@ -446,7 +447,7 @@ async function replaceSecretPlaceholders(
 }
 
 const BOUND_DOMAIN_SUFFIX = '_BOUND_DOMAIN';
-const UNBOUND_OAUTH_CAPTURE_JSON_PATHS = new Set(['instance_url']);
+const UNBOUND_CAPTURE_JSON_PATHS = new Set(['instance_url']);
 
 /**
  * Return the exact lowercase hostname for domain binding.
@@ -463,10 +464,10 @@ function extractBaseDomain(hostname: string): string {
 /**
  * Check whether a target URL is allowed for a given bearer secret.
  *
- * When a token is captured via OAuth, the gateway stores a domain binding
- * as `{SECRET_NAME}_BOUND_DOMAIN`.  If a binding exists, the target URL's
- * hostname must match (exact or subdomain).  If no binding exists, any URL
- * is allowed (backward-compatible).
+ * When a captured value is stored as a bearer secret, the gateway stores a
+ * domain binding as `{SECRET_NAME}_BOUND_DOMAIN`. If a binding exists, the
+ * target URL's hostname must match (exact or subdomain). If no binding exists,
+ * any URL is allowed for backward compatibility.
  */
 function assertBearerDomainBinding(secretName: string, targetUrl: URL): void {
   const bindingKey = `${secretName}${BOUND_DOMAIN_SUFFIX}`;
@@ -503,6 +504,12 @@ function normalizeCaptureResponseFields(
       throw new GatewayRequestError(
         400,
         `Invalid secret name in captureResponseFields: ${secretName}`,
+      );
+    }
+    if (isReservedNonSecretRuntimeName(secretName)) {
+      throw new GatewayRequestError(
+        400,
+        `Reserved runtime config name cannot be used in captureResponseFields: ${secretName}`,
       );
     }
     rules.push({ jsonPath, secretName });
@@ -559,9 +566,9 @@ function captureSecretResponseFields(
       secrets[rule.secretName] = value.trim();
       captured[rule.jsonPath] = rule.secretName;
 
-      // Bind captured OAuth secrets by default so future token field names such
+      // Bind captured secrets by default so future token field names such
       // as "access" or "bearer" cannot silently become cross-host credentials.
-      if (!UNBOUND_OAUTH_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
+      if (!UNBOUND_CAPTURE_JSON_PATHS.has(rule.jsonPath)) {
         secrets[`${rule.secretName}${BOUND_DOMAIN_SUFFIX}`] = baseDomain;
       }
     }
@@ -571,8 +578,25 @@ function captureSecretResponseFields(
     return null;
   }
 
-  saveNamedRuntimeSecrets(secrets);
+  try {
+    saveNamedRuntimeSecrets(secrets);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GatewayRequestError(400, message);
+  }
   return captured;
+}
+
+function resolveCaptureResponseFields(value: unknown): CaptureFieldRule[] {
+  if (value === undefined || value === null) return [];
+  const fields = normalizeCaptureResponseFields(value);
+  if (!fields) {
+    throw new GatewayRequestError(
+      400,
+      '`captureResponseFields` must be an array when provided.',
+    );
+  }
+  return fields;
 }
 
 function matchesHttpRequestAuthRulePrefix(
@@ -727,10 +751,9 @@ export async function handleApiHttpRequest(
     agentId: normalizeSecretString(body.agentId),
     skillName: normalizeSecretString(body.skillName),
   };
-  const captureFields =
-    body.captureResponseFields === undefined
-      ? []
-      : (normalizeCaptureResponseFields(body.captureResponseFields) ?? []);
+  const captureFields = resolveCaptureResponseFields(
+    body.captureResponseFields,
+  );
   const rawUrl = replacePlaceholders
     ? await replaceSecretPlaceholdersInString(String(body.url || ''), {
         ...baseSecretContext,

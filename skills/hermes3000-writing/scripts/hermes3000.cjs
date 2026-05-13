@@ -2,7 +2,6 @@
 'use strict';
 
 const fs = require('node:fs');
-const crypto = require('node:crypto');
 
 const DEFAULT_BASE_URL = 'https://hermes3000.ai/api';
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -24,20 +23,6 @@ const COMMAND_ALIASES = new Map([
   ['update-story', 'consistency.update-story'],
   ['stats', 'books.stats'],
   ['export', 'export.download'],
-]);
-
-const COMMANDS = new Set([
-  'auth.login',
-  'books.create',
-  'books.list',
-  'books.get',
-  'structure.put',
-  'ai.generate-text',
-  'content.save',
-  'consistency.chapter-summary',
-  'consistency.update-story',
-  'books.stats',
-  'export.download',
 ]);
 
 function usage() {
@@ -217,9 +202,6 @@ function parseArgs(argv) {
       case '--normseite':
         opts.normseite = true;
         break;
-      case '--uuid':
-        opts.uuid = true;
-        break;
       default:
         fail(`Unknown option: ${arg}`);
     }
@@ -278,8 +260,8 @@ function request(method, url, opts, extra = {}) {
   };
 }
 
-function authenticatedRequest(method, path, opts, extra = {}) {
-  return request(method, `${normalizeBaseUrl(opts.baseUrl)}${path}`, opts, {
+function authenticatedRequest(method, baseUrl, path, opts, extra = {}) {
+  return request(method, `${baseUrl}${path}`, opts, {
     bearerSecretName: JWT_SECRET,
     ...extra,
   });
@@ -288,7 +270,6 @@ function authenticatedRequest(method, path, opts, extra = {}) {
 function buildHttpRequest(opts) {
   const baseUrl = normalizeBaseUrl(opts.baseUrl);
   const op = opts.operation;
-  if (!COMMANDS.has(op)) fail(`Unknown operation: ${op || '(missing)'}`);
 
   switch (op) {
     case 'auth.login':
@@ -303,7 +284,7 @@ function buildHttpRequest(opts) {
         ],
       });
     case 'books.list':
-      return authenticatedRequest('GET', '/books', opts);
+      return authenticatedRequest('GET', baseUrl, '/books', opts);
     case 'books.create': {
       const bookType = validateEnum(
         opts.bookType || 'prose',
@@ -318,10 +299,15 @@ function buildHttpRequest(opts) {
       if (opts.predecessorBookId) {
         json.predecessorBookId = opts.predecessorBookId;
       }
-      return authenticatedRequest('POST', '/books', opts, { json });
+      return authenticatedRequest('POST', baseUrl, '/books', opts, { json });
     }
     case 'books.get':
-      return authenticatedRequest('GET', `/books/${requireBookId(opts)}`, opts);
+      return authenticatedRequest(
+        'GET',
+        baseUrl,
+        `/books/${requireBookId(opts)}`,
+        opts,
+      );
     case 'structure.put': {
       const structureType = validateEnum(
         requireValue(opts.structureType, '--structure-type'),
@@ -331,12 +317,18 @@ function buildHttpRequest(opts) {
       if (opts.content === undefined) {
         fail('--content, --content-file, or --content-json is required.');
       }
-      return authenticatedRequest('PUT', `/books/${requireBookId(opts)}/structure`, opts, {
-        json: {
-          structureType,
-          content: opts.content,
+      return authenticatedRequest(
+        'PUT',
+        baseUrl,
+        `/books/${requireBookId(opts)}/structure`,
+        opts,
+        {
+          json: {
+            structureType,
+            content: opts.content,
+          },
         },
-      });
+      );
     }
     case 'ai.generate-text': {
       const json = {
@@ -345,10 +337,12 @@ function buildHttpRequest(opts) {
       };
       if (opts.chapterId) json.chapterId = opts.chapterId;
       if (opts.context) json.context = opts.context;
-      return authenticatedRequest('POST', '/ai/generate-text', opts, { json });
+      return authenticatedRequest('POST', baseUrl, '/ai/generate-text', opts, {
+        json,
+      });
     }
     case 'content.save': {
-      requireBookId(opts);
+      const bookId = requireBookId(opts);
       if (!opts.chapterUuid && !opts.chapterId) {
         fail('--chapter-uuid or --chapter-id is required.');
       }
@@ -360,7 +354,13 @@ function buildHttpRequest(opts) {
       if (opts.chapterId) json.chapterId = opts.chapterId;
       if (opts.heading) json.heading = opts.heading;
       if (opts.orderIndex !== undefined) json.orderIndex = opts.orderIndex;
-      return authenticatedRequest('POST', `/books/${opts.bookId}/content`, opts, { json });
+      return authenticatedRequest(
+        'POST',
+        baseUrl,
+        `/books/${bookId}/content`,
+        opts,
+        { json },
+      );
     }
     case 'consistency.chapter-summary': {
       const json = {
@@ -379,14 +379,31 @@ function buildHttpRequest(opts) {
       if (opts.lang) {
         json.lang = validateEnum(opts.lang, '--lang', ['de', 'en', 'fr', 'es']);
       }
-      return authenticatedRequest('POST', '/consistency/chapter-summary', opts, { json });
+      return authenticatedRequest(
+        'POST',
+        baseUrl,
+        '/consistency/chapter-summary',
+        opts,
+        { json },
+      );
     }
     case 'consistency.update-story':
-      return authenticatedRequest('POST', '/consistency/update-story', opts, {
-        json: { bookId: requireBookId(opts) },
-      });
+      return authenticatedRequest(
+        'POST',
+        baseUrl,
+        '/consistency/update-story',
+        opts,
+        {
+          json: { bookId: requireBookId(opts) },
+        },
+      );
     case 'books.stats':
-      return authenticatedRequest('GET', `/books/${requireBookId(opts)}/stats`, opts);
+      return authenticatedRequest(
+        'GET',
+        baseUrl,
+        `/books/${requireBookId(opts)}/stats`,
+        opts,
+      );
     case 'export.download': {
       const format = validateEnum(
         requireValue(opts.exportFormat, '--export-format'),
@@ -396,19 +413,17 @@ function buildHttpRequest(opts) {
       const query = opts.normseite ? '?normseite=true' : '';
       return authenticatedRequest(
         'GET',
+        baseUrl,
         `/books/${requireBookId(opts)}/download/${format}${query}`,
         opts,
       );
     }
     default:
-      fail(`Unhandled operation: ${op}`);
+      fail(`Unknown operation: ${op || '(missing)'}`);
   }
 }
 
 function buildOutput(opts) {
-  if (opts.uuid) {
-    return { uuid: crypto.randomUUID() };
-  }
   if (opts.commandGroup !== 'http-request') {
     fail('Expected command group: http-request.');
   }
@@ -417,10 +432,6 @@ function buildOutput(opts) {
     adapter: 'hermes3000',
     operation: opts.operation,
     httpRequest: buildHttpRequest(opts),
-    secrets: {
-      loginInputs: [EMAIL_SECRET, PASSWORD_SECRET],
-      bearerToken: JWT_SECRET,
-    },
   };
 }
 
