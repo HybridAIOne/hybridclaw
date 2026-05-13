@@ -88,6 +88,49 @@ test('tracks turn verdicts and pause/resume lifecycle', () => {
   expect(resumed?.pausedReason).toBeNull();
 });
 
+test('status transitions do not revive terminal goals', () => {
+  setThreadGoal({
+    threadId: 'thread-terminal',
+    goalText: 'triage the queue',
+    maxTurns: 3,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+
+  const done = updateThreadGoalStatus({
+    threadId: 'thread-terminal',
+    status: 'done',
+    reason: 'completed',
+  });
+  expect(done?.status).toBe('done');
+
+  expect(
+    updateThreadGoalStatus({
+      threadId: 'thread-terminal',
+      status: 'paused',
+      reason: 'too late',
+    }),
+  ).toBeNull();
+  expect(resumeThreadGoal('thread-terminal')).toBeNull();
+  expect(getThreadGoal('thread-terminal')?.status).toBe('done');
+
+  const cleared = updateThreadGoalStatus({
+    threadId: 'thread-terminal',
+    status: 'cleared',
+    reason: 'cleared by user',
+  });
+  expect(cleared?.status).toBe('cleared');
+  expect(resumeThreadGoal('thread-terminal')).toBeNull();
+  expect(
+    updateThreadGoalStatus({
+      threadId: 'thread-terminal',
+      status: 'paused',
+      reason: 'still too late',
+    }),
+  ).toBeNull();
+  expect(getThreadGoal('thread-terminal')?.status).toBe('cleared');
+});
+
 test('goal command treats bare text as set', async () => {
   const session: Session = {
     id: 'session-command',

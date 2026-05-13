@@ -976,7 +976,7 @@ async function handleGatewayMessageInner(
         },
       },
     });
-    return {
+    const result: GatewayChatResult = {
       status: 'error',
       result: null,
       toolsUsed: [],
@@ -985,6 +985,8 @@ async function handleGatewayMessageInner(
       provider,
       error,
     };
+    await emitPostTurnForResult(result);
+    return attachSessionIdentity(result);
   }
 
   if (isVersionOnlyQuestion(req.content)) {
@@ -1267,7 +1269,7 @@ async function handleGatewayMessageInner(
         startedAt,
         replaceBuiltInMemory: pluginMemoryBehavior.replacesBuiltInMemory,
       });
-      return attachSessionIdentity({
+      const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
         toolsUsed: [],
@@ -1279,7 +1281,9 @@ async function handleGatewayMessageInner(
           getGatewayAssistantPresentationForMessageAgent(agentId),
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
-      });
+      };
+      await emitPostTurnForResult(result);
+      return attachSessionIdentity(result);
     }
     agentUserContent = preSendOutcome.userContent;
   }
@@ -1663,7 +1667,7 @@ async function handleGatewayMessageInner(
           durationMs,
         });
       }
-      return attachSessionIdentity({
+      const result: GatewayChatResult = {
         status: 'error',
         result: null,
         toolsUsed: output.toolsUsed || [],
@@ -1676,7 +1680,9 @@ async function handleGatewayMessageInner(
         toolExecutions,
         tokenUsage: output.tokenUsage,
         error: errorMessage,
-      });
+      };
+      await emitPostTurnForResult(result);
+      return attachSessionIdentity(result);
     }
 
     const rawResultText =

@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { emitPostTurnEvent } from '../src/agent/post-turn-events.js';
 import { judgeGoalCompletion } from '../src/goals/goal-judge.js';
 import { getThreadGoal, setThreadGoal } from '../src/goals/goal-manager.js';
@@ -13,6 +13,8 @@ import {
   pauseGoalForAgentBudgetHardStop,
   registerGoalPostTurnSubscriber,
   scheduleGoalContinuation,
+  setGoalContinuationRunHandler,
+  setGoalContinuationRunning,
 } from '../src/goals/goal-runtime.js';
 import { initDatabase } from '../src/memory/db.js';
 import type { ToolExecution } from '../src/types/execution.js';
@@ -66,6 +68,10 @@ function makeSession(id: string): Session {
 beforeEach(() => {
   initDatabase({ quiet: true, dbPath: tempDbPath() });
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 test('continuation prompt is a user-turn snapshot and does not replace system prompt', () => {
@@ -150,6 +156,43 @@ test('post-turn goal subscriber pauses on pending approval without spending a tu
   expect(judgeGoalCompletion).not.toHaveBeenCalled();
 });
 
+test('post-turn goal subscriber pauses failed continuation turns', async () => {
+  registerGoalPostTurnSubscriber();
+  const session = makeSession('agent-error');
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText: 'finish the report',
+    maxTurns: 5,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+
+  await emitPostTurnEvent({
+    type: 'post_turn',
+    session,
+    req: {
+      source: GOAL_CONTINUATION_SOURCE,
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+    },
+    result: {
+      status: 'error',
+      result: null,
+      toolsUsed: [],
+      error: 'agent failed',
+    },
+    runId: 'turn-error',
+    createdAt: new Date().toISOString(),
+  });
+
+  const goal = getThreadGoal(session.main_session_key);
+  expect(goal?.status).toBe('paused');
+  expect(goal?.turnsUsed).toBe(0);
+  expect(goal?.pausedReason).toBe('agent failed');
+  expect(judgeGoalCompletion).not.toHaveBeenCalled();
+});
+
 test('post-turn goal subscriber hard-stops at max turns', async () => {
   registerGoalPostTurnSubscriber();
   const session = makeSession('budget');
@@ -191,6 +234,39 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
     goalText: 'ship the patch',
     assistantResponse: 'I completed the first step.',
   });
+});
+
+test('scheduled continuation re-arms instead of dropping while runner is active', async () => {
+  vi.useFakeTimers();
+  const session = makeSession('rearm');
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText: 'ship the patch',
+    maxTurns: 5,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+  const runHandler = vi.fn(async () => undefined);
+  setGoalContinuationRunHandler(runHandler);
+
+  scheduleGoalContinuation({
+    session,
+    context: {
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+    },
+  });
+  setGoalContinuationRunning(session.id, true);
+
+  await vi.advanceTimersByTimeAsync(0);
+  expect(runHandler).not.toHaveBeenCalled();
+
+  setGoalContinuationRunning(session.id, false);
+  await vi.advanceTimersByTimeAsync(10);
+
+  expect(runHandler).toHaveBeenCalledWith(session.id);
+  clearScheduledGoalContinuation(session.id);
 });
 
 test('budget hard-stop hook pauses active goals for R5.3 integration', () => {
