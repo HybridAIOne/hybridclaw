@@ -40,7 +40,7 @@ liveTest(
       initDatabase({ quiet: true, dbPath: path.join(tmpDir, 'usage.db') });
 
       const provider = new BrowserUseCloudProvider({
-        apiKeyRef: { source: 'env', id: 'BROWSER_USE_API_KEY' },
+        apiKeyRef: { source: 'store', id: 'BROWSER_USE_API_KEY' },
         browser: {
           timeoutMinutes: 1,
           proxyCountryCode: null,

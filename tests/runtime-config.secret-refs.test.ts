@@ -7,8 +7,6 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
-const ORIGINAL_TEST_GATEWAY_TOKEN = process.env.TEST_GATEWAY_TOKEN;
-const ORIGINAL_TEST_VLLM_API_KEY = process.env.TEST_VLLM_API_KEY;
 
 function makeTempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-secret-refs-'));
@@ -60,8 +58,6 @@ afterEach(() => {
     'HYBRIDCLAW_DISABLE_CONFIG_WATCHER',
     ORIGINAL_DISABLE_CONFIG_WATCHER,
   );
-  restoreEnvVar('TEST_GATEWAY_TOKEN', ORIGINAL_TEST_GATEWAY_TOKEN);
-  restoreEnvVar('TEST_VLLM_API_KEY', ORIGINAL_TEST_VLLM_API_KEY);
 });
 
 describe('runtime config secret refs', () => {
@@ -105,22 +101,22 @@ describe('runtime config secret refs', () => {
     expect(runtimeConfig.getRuntimeConfig().memory.tokenizer).toBe('porter');
   });
 
-  test('resolves store and env secret refs for targeted config fields', async () => {
+  test('resolves stored secret refs for targeted config fields', async () => {
     const homeDir = makeTempHome();
     const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
     runtimeSecrets.saveRuntimeSecrets({
       WEB_API_TOKEN: 'web-token-from-store',
+      GATEWAY_API_TOKEN: 'gateway-token-from-store',
       EMAIL_PASSWORD: 'email-app-password',
       IMESSAGE_PASSWORD: 'bluebubbles-password',
       TWILIO_AUTH_TOKEN: 'twilio-auth-token',
+      VLLM_API_KEY: 'vllm-token-from-store',
     });
-    process.env.TEST_GATEWAY_TOKEN = 'gateway-token-from-env';
-    process.env.TEST_VLLM_API_KEY = 'vllm-token-from-env';
 
     writeRawRuntimeConfig(homeDir, (config) => {
       const ops = config.ops as Record<string, unknown>;
       ops.webApiToken = { source: 'store', id: 'WEB_API_TOKEN' };
-      ops.gatewayApiToken = '$' + '{TEST_GATEWAY_TOKEN}';
+      ops.gatewayApiToken = { source: 'store', id: 'GATEWAY_API_TOKEN' };
 
       const imessage = config.imessage as Record<string, unknown>;
       imessage.enabled = true;
@@ -143,18 +139,70 @@ describe('runtime config secret refs', () => {
       const backends = local.backends as Record<string, unknown>;
       const vllm = backends.vllm as Record<string, unknown>;
       vllm.enabled = true;
-      vllm.apiKey = { source: 'env', id: 'TEST_VLLM_API_KEY' };
+      vllm.apiKey = { source: 'store', id: 'VLLM_API_KEY' };
     });
 
     const runtimeConfig = await importFreshRuntimeConfig(homeDir);
     const config = runtimeConfig.getRuntimeConfig();
 
     expect(config.ops.webApiToken).toBe('web-token-from-store');
-    expect(config.ops.gatewayApiToken).toBe('gateway-token-from-env');
+    expect(config.ops.gatewayApiToken).toBe('gateway-token-from-store');
     expect(config.email.password).toBe('email-app-password');
     expect(config.imessage.password).toBe('bluebubbles-password');
     expect(config.voice.twilio.authToken).toBe('twilio-auth-token');
-    expect(config.local.backends.vllm.apiKey).toBe('vllm-token-from-env');
+    expect(config.local.backends.vllm.apiKey).toBe('vllm-token-from-store');
+  });
+
+  test('canonicalizes legacy browser cloud env refs to stored refs', async () => {
+    const homeDir = makeTempHome();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const browser = config.browser as Record<string, unknown>;
+      const browserUseCloud = browser.browserUseCloud as Record<
+        string,
+        unknown
+      >;
+      browserUseCloud.apiKeyRef = {
+        source: 'env',
+        id: 'BROWSER_USE_API_KEY',
+      };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(
+      runtimeConfig.getRuntimeConfig().browser.browserUseCloud.apiKeyRef,
+    ).toEqual({
+      source: 'store',
+      id: 'BROWSER_USE_API_KEY',
+    });
+    expect(warn).toHaveBeenCalledWith(
+      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
+    );
+  });
+
+  test('rejects malformed legacy browser cloud env refs clearly', async () => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const browser = config.browser as Record<string, unknown>;
+      const browserUseCloud = browser.browserUseCloud as Record<
+        string,
+        unknown
+      >;
+      browserUseCloud.apiKeyRef = {
+        source: 'env',
+        id: 42,
+      };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfigLoadError()?.message).toBe(
+      'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+    );
+    expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
+      'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+    );
   });
 
   test('preserves secret refs on unrelated config updates', async () => {
@@ -191,13 +239,16 @@ describe('runtime config secret refs', () => {
     });
   });
 
-  test('preserves secret refs even when env-backed resolved values change', async () => {
+  test('preserves stored secret refs even when resolved values change', async () => {
     const homeDir = makeTempHome();
-    process.env.TEST_GATEWAY_TOKEN = 'gateway-token-before';
+    const runtimeSecrets = await importFreshRuntimeSecrets(homeDir);
+    runtimeSecrets.saveRuntimeSecrets({
+      GATEWAY_API_TOKEN: 'gateway-token-before',
+    });
 
     writeRawRuntimeConfig(homeDir, (config) => {
       const ops = config.ops as Record<string, unknown>;
-      ops.gatewayApiToken = { source: 'env', id: 'TEST_GATEWAY_TOKEN' };
+      ops.gatewayApiToken = { source: 'store', id: 'GATEWAY_API_TOKEN' };
     });
 
     const runtimeConfig = await importFreshRuntimeConfig(homeDir);
@@ -205,7 +256,9 @@ describe('runtime config secret refs', () => {
       'gateway-token-before',
     );
 
-    process.env.TEST_GATEWAY_TOKEN = 'gateway-token-after';
+    runtimeSecrets.saveRuntimeSecrets({
+      GATEWAY_API_TOKEN: 'gateway-token-after',
+    });
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.heartbeat.channel = 'ops-alerts';
     });
@@ -219,8 +272,8 @@ describe('runtime config secret refs', () => {
     const ops = stored.ops as Record<string, unknown>;
 
     expect(ops.gatewayApiToken).toEqual({
-      source: 'env',
-      id: 'TEST_GATEWAY_TOKEN',
+      source: 'store',
+      id: 'GATEWAY_API_TOKEN',
     });
   });
 

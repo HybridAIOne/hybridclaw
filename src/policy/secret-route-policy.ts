@@ -4,18 +4,14 @@ import path from 'node:path';
 
 import YAML from 'yaml';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
-import {
-  isGoogleOAuthSecretRef,
-  type RuntimeHttpRequestAuthRuleSecret,
-} from '../config/runtime-config.js';
+import type { RuntimeHttpRequestAuthRuleSecret } from '../config/runtime-config.js';
 import type { SecretRef } from '../security/secret-refs.js';
 import { resolveWorkspacePolicyPath } from './policy-store.js';
 
-const GOOGLE_WORKSPACE_CLI_TOKEN_SECRET = 'GOOGLE_WORKSPACE_CLI_TOKEN';
 const MANAGED_BY_SECRET_ROUTE_FIELD = 'managed_by_secret_route';
 
 type SecretRoutePolicyTarget = {
-  secretSource: 'env' | 'store';
+  secretSource: 'store';
   secretId: string;
 };
 
@@ -84,12 +80,6 @@ export function restoreHttpSecretRoutePolicySnapshot(
 function routePolicyTarget(
   secret: RuntimeHttpRequestAuthRuleSecret,
 ): SecretRoutePolicyTarget | null {
-  if (isGoogleOAuthSecretRef(secret)) {
-    return {
-      secretSource: 'env',
-      secretId: GOOGLE_WORKSPACE_CLI_TOKEN_SECRET,
-    };
-  }
   if (
     secret &&
     typeof secret === 'object' &&

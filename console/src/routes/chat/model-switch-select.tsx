@@ -6,7 +6,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import type { GatewayModelProviderKey } from '../../../../src/gateway/gateway-types.js';
+import type { GatewayModelProviderKey } from '../../../../src/gateway/model-provider-keys.js';
 import type { ChatModel } from '../../api/types';
 import {
   Local as LocalIcon,

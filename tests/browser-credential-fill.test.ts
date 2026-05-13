@@ -7,7 +7,6 @@ import { afterEach, expect, test, vi } from 'vitest';
 let tempRoot = '';
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_MASTER_KEY = process.env.HYBRIDCLAW_MASTER_KEY;
-const ORIGINAL_DATEV_PASSWORD = process.env.DATEV_PASSWORD;
 
 function makeTempRoot(): string {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-browser-fill-'));
@@ -30,6 +29,13 @@ function writeSecretPolicy(root: string, content: string): void {
     content,
     'utf-8',
   );
+}
+
+async function saveDatevPasswordSecret(): Promise<void> {
+  const { saveNamedRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.js'
+  );
+  saveNamedRuntimeSecrets({ DATEV_PASSWORD: 'datev-cleartext-secret' });
 }
 
 function createPage() {
@@ -73,14 +79,13 @@ afterEach(() => {
   }
   restoreEnvVar('HOME', ORIGINAL_HOME);
   restoreEnvVar('HYBRIDCLAW_MASTER_KEY', ORIGINAL_MASTER_KEY);
-  restoreEnvVar('DATEV_PASSWORD', ORIGINAL_DATEV_PASSWORD);
 });
 
 test('browser credential fill enforces skill host selector policy and emits metadata-only audit', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-fill-test-master-key';
-  process.env.DATEV_PASSWORD = 'datev-cleartext-secret';
+  await saveDatevPasswordSecret();
   writeSecretPolicy(
     root,
     [
@@ -91,7 +96,7 @@ test('browser credential fill enforces skill host selector policy and emits meta
       '      action: allow',
       '      when:',
       '        predicate: secret_resolve_allowed',
-      '        source: env',
+      '        source: store',
       '        id: DATEV_PASSWORD',
       '        sink: dom',
       '        skill: invoice-harvester',
@@ -116,7 +121,7 @@ test('browser credential fill enforces skill host selector policy and emits meta
   await fillBrowserField(
     page,
     '#password',
-    { source: 'env', id: 'DATEV_PASSWORD' },
+    { source: 'store', id: 'DATEV_PASSWORD' },
     undefined,
     {
       sessionId: 'session-datev-fill',
@@ -140,7 +145,7 @@ test('browser credential fill enforces skill host selector policy and emits meta
       expect.objectContaining({
         type: 'secret.resolved',
         skill: 'invoice-harvester',
-        secretRef: { source: 'env', id: 'DATEV_PASSWORD' },
+        secretRef: { source: 'store', id: 'DATEV_PASSWORD' },
         sinkKind: 'dom',
         host: 'login.datev.de',
         selector: '#password',
@@ -148,7 +153,7 @@ test('browser credential fill enforces skill host selector policy and emits meta
       expect.objectContaining({
         type: 'browser.credential_filled',
         skill: 'invoice-harvester',
-        secretRef: { source: 'env', id: 'DATEV_PASSWORD' },
+        secretRef: { source: 'store', id: 'DATEV_PASSWORD' },
         host: 'login.datev.de',
         selector: '#password',
       }),
@@ -157,11 +162,11 @@ test('browser credential fill enforces skill host selector policy and emits meta
   expect(JSON.stringify(payloads)).not.toContain('datev-cleartext-secret');
 });
 
-test('browser credential fill blocks SecretRefs outside the skill policy predicate', async () => {
+test('browser credential fill honors explicit deny policy rules', async () => {
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-fill-test-master-key';
-  process.env.DATEV_PASSWORD = 'datev-cleartext-secret';
+  await saveDatevPasswordSecret();
   writeSecretPolicy(
     root,
     [
@@ -171,12 +176,19 @@ test('browser credential fill blocks SecretRefs outside the skill policy predica
       '    - action: allow',
       '      when:',
       '        predicate: secret_resolve_allowed',
-      '        source: env',
+      '        source: store',
       '        id: DATEV_PASSWORD',
       '        sink: dom',
       '        skill: invoice-harvester',
       '        host: "*.datev.de"',
       '        selector: "#password"',
+      '    - action: deny',
+      '      when:',
+      '        predicate: secret_resolve_allowed',
+      '        source: store',
+      '        id: DATEV_PASSWORD',
+      '        sink: dom',
+      '        selector: "#totp"',
       '',
     ].join('\n'),
   );
@@ -195,7 +207,7 @@ test('browser credential fill blocks SecretRefs outside the skill policy predica
     fillBrowserField(
       page,
       '#totp',
-      { source: 'env', id: 'DATEV_PASSWORD' },
+      { source: 'store', id: 'DATEV_PASSWORD' },
       undefined,
       {
         sessionId: 'session-datev-blocked',
@@ -213,7 +225,7 @@ test('browser credential fill fails closed when page host cannot be resolved', a
   const root = makeTempRoot();
   process.env.HOME = root;
   process.env.HYBRIDCLAW_MASTER_KEY = 'browser-fill-test-master-key';
-  process.env.DATEV_PASSWORD = 'datev-cleartext-secret';
+  await saveDatevPasswordSecret();
   writeSecretPolicy(
     root,
     [
@@ -223,7 +235,7 @@ test('browser credential fill fails closed when page host cannot be resolved', a
       '    - action: allow',
       '      when:',
       '        predicate: secret_resolve_allowed',
-      '        source: env',
+      '        source: store',
       '        id: DATEV_PASSWORD',
       '        sink: dom',
       '        skill: invoice-harvester',
@@ -245,7 +257,7 @@ test('browser credential fill fails closed when page host cannot be resolved', a
     fillBrowserField(
       page,
       '#password',
-      { source: 'env', id: 'DATEV_PASSWORD' },
+      { source: 'store', id: 'DATEV_PASSWORD' },
       undefined,
       {
         sessionId: 'session-datev-no-host',

@@ -8157,7 +8157,6 @@ describe('gateway HTTP server', () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
-    writeAllowAllSecretPolicy(homeDir);
 
     vi.doMock('../src/auth/google-auth.js', () => ({
       resolveGoogleWorkspaceRuntimeEnv: vi.fn(async () => ({
@@ -8234,7 +8233,6 @@ describe('gateway HTTP server', () => {
         ],
       };
     });
-    writeAllowAllSecretPolicy(homeDir);
 
     vi.doMock('../src/auth/google-auth.js', () => ({
       resolveGoogleWorkspaceRuntimeEnv: vi.fn(async () => ({
@@ -8292,112 +8290,10 @@ describe('gateway HTTP server', () => {
     expect(JSON.parse(res.body).json).toEqual({ rows: [], rowCount: 0 });
   });
 
-  test('honors secret resolution policy for Google OAuth runtime token injection', async () => {
-    const homeDir = makeTempDocsRoot('hybridclaw-http-google-policy-');
-    process.env.HOME = homeDir;
-    writeRuntimeConfig(homeDir);
-
-    const resolveGoogleWorkspaceRuntimeEnv = vi.fn(async () => ({
-      GOOGLE_WORKSPACE_CLI_TOKEN: 'minted-google-access-token',
-    }));
-    vi.doMock('../src/auth/google-auth.js', () => ({
-      resolveGoogleWorkspaceRuntimeEnv,
-    }));
-    vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '142.250.185.234', family: 4 }]),
-    }));
-    const state = await importFreshHealth({
-      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
-      gatewayApiToken: 'gateway-token',
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/http/request',
-      headers: { authorization: 'Bearer gateway-token' },
-      body: {
-        url: 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport',
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer <secret:GOOGLE_WORKSPACE_CLI_TOKEN>',
-        },
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body).error).toBe(
-      'Secret env:GOOGLE_WORKSPACE_CLI_TOKEN is blocked by secret resolution policy.',
-    );
-    expect(resolveGoogleWorkspaceRuntimeEnv).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test('honors secret resolution policy for Google OAuth URL auth routes', async () => {
-    const homeDir = makeTempDocsRoot('hybridclaw-http-google-route-policy-');
-    process.env.HOME = homeDir;
-    writeRuntimeConfig(homeDir, (config) => {
-      const tools = config.tools as Record<string, unknown>;
-      tools.httpRequest = {
-        authRules: [
-          {
-            urlPrefix: 'https://analyticsdata.googleapis.com/',
-            header: 'Authorization',
-            prefix: 'Bearer',
-            secret: { source: 'google-oauth' },
-          },
-        ],
-      };
-    });
-
-    const resolveGoogleWorkspaceRuntimeEnv = vi.fn(async () => ({
-      GOOGLE_WORKSPACE_CLI_TOKEN: 'minted-google-access-token',
-    }));
-    vi.doMock('../src/auth/google-auth.js', () => ({
-      resolveGoogleWorkspaceRuntimeEnv,
-    }));
-    vi.doMock('node:dns/promises', () => ({
-      lookup: vi.fn(async () => [{ address: '142.250.185.234', family: 4 }]),
-    }));
-    const state = await importFreshHealth({
-      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
-      gatewayApiToken: 'gateway-token',
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const req = makeRequest({
-      method: 'POST',
-      url: '/api/http/request',
-      headers: { authorization: 'Bearer gateway-token' },
-      body: {
-        url: 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport',
-        method: 'POST',
-      },
-    });
-    const res = makeResponse();
-
-    state.handler(req as never, res as never);
-    await settle();
-
-    expect(res.statusCode).toBe(403);
-    expect(JSON.parse(res.body).error).toBe(
-      'Secret env:GOOGLE_WORKSPACE_CLI_TOKEN is blocked by secret resolution policy.',
-    );
-    expect(resolveGoogleWorkspaceRuntimeEnv).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   test('does not substitute a different Google OAuth runtime token name', async () => {
     const homeDir = makeTempDocsRoot('hybridclaw-http-google-exact-token-');
     process.env.HOME = homeDir;
     writeRuntimeConfig(homeDir);
-    writeAllowAllSecretPolicy(homeDir);
 
     const resolveGoogleWorkspaceRuntimeEnv = vi.fn(async () => ({
       GOOGLE_WORKSPACE_CLI_TOKEN: 'minted-google-access-token',
