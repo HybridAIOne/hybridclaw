@@ -1,5 +1,5 @@
-import fs from 'node:fs';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export const CONCIERGE_PENDING_STATE_KEY = 'plugins.concierge-router.pending';
@@ -15,7 +15,9 @@ const BALANCED_RE =
   /\b(can wait a bit|later today|soon but not urgent|not immediately)\b/i;
 
 function normalizeToken(value) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 export function normalizeConciergeProfileName(value) {
@@ -247,69 +249,118 @@ export function resolveConciergeConfig(api) {
         ? plugin.enabled
         : Boolean(legacy.enabled),
     model: String(plugin.model || legacy.model || 'gemini-3-flash').trim(),
+    webhookSecret: String(
+      plugin.webhookSecret || legacy.webhookSecret || '',
+    ).trim(),
     profiles: {
       asap: String(profiles.asap || 'gpt-5').trim(),
       balanced: String(profiles.balanced || 'gpt-5-mini').trim(),
-      noHurry: String(profiles.noHurry || profiles.no_hurry || 'gpt-5-nano')
-        .trim(),
+      noHurry: String(
+        profiles.noHurry || profiles.no_hurry || 'gpt-5-nano',
+      ).trim(),
     },
   };
 }
 
-export function createPendingStore(api) {
+export function resolvePendingStatePath(api) {
   const stateScope = crypto
     .createHash('sha256')
     .update(`${api.runtime.homeDir}\n${api.runtime.cwd}`)
     .digest('hex')
     .slice(0, 16);
-  const statePath = api.resolvePath(
-    path.join('state', `pending-${stateScope}.json`),
+  return path.join(
+    api.runtime.homeDir,
+    '.hybridclaw',
+    'plugin-state',
+    'concierge-router',
+    `pending-${stateScope}.json`,
   );
-  function readAll() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-      return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-    } catch {
-      return {};
+}
+
+export function createPendingStore(api) {
+  const statePath = resolvePendingStatePath(api);
+  let cache = null;
+  let loadPromise = null;
+  let writeQueue = Promise.resolve();
+
+  async function readAll() {
+    if (cache) return cache;
+    if (!loadPromise) {
+      loadPromise = fs
+        .readFile(statePath, 'utf-8')
+        .then((raw) => {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed
+            : {};
+        })
+        .catch(() => ({}));
     }
+    cache = await loadPromise;
+    return cache;
   }
-  function writeAll(value) {
-    fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.writeFileSync(statePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
+
+  async function writeAll(value) {
+    cache = value;
+    const snapshot = structuredClone(value);
+    writeQueue = writeQueue
+      .catch(() => {})
+      .then(async () => {
+        await fs.mkdir(path.dirname(statePath), { recursive: true });
+        const tempPath = `${statePath}.${process.pid}.${Date.now()}.tmp`;
+        await fs.writeFile(
+          tempPath,
+          `${JSON.stringify(snapshot, null, 2)}\n`,
+          'utf-8',
+        );
+        await fs.rename(tempPath, statePath);
+      });
+    return writeQueue;
   }
+
+  function normalizeEntry(entry) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return null;
+    }
+    const originalUserContent =
+      typeof entry.originalUserContent === 'string'
+        ? entry.originalUserContent.trim()
+        : '';
+    if (!originalUserContent) return null;
+    return {
+      originalUserContent,
+      createdAt:
+        typeof entry.createdAt === 'string'
+          ? entry.createdAt
+          : new Date().toISOString(),
+      media: Array.isArray(entry.media) ? entry.media : [],
+      userId: typeof entry.userId === 'string' ? entry.userId.trim() : '',
+      channelId:
+        typeof entry.channelId === 'string' ? entry.channelId.trim() : '',
+      agentId: typeof entry.agentId === 'string' ? entry.agentId.trim() : '',
+      chatbotId:
+        typeof entry.chatbotId === 'string' ? entry.chatbotId.trim() : '',
+    };
+  }
+
   return {
-    get(sessionId) {
-      const entry = readAll()[sessionId];
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-        return null;
-      }
-      const originalUserContent =
-        typeof entry.originalUserContent === 'string'
-          ? entry.originalUserContent.trim()
-          : '';
-      if (!originalUserContent) return null;
-      return {
-        originalUserContent,
-        createdAt:
-          typeof entry.createdAt === 'string'
-            ? entry.createdAt
-            : new Date().toISOString(),
-        media: Array.isArray(entry.media) ? entry.media : [],
-      };
+    async get(sessionId) {
+      const entry = (await readAll())[sessionId];
+      return normalizeEntry(entry);
     },
-    set(sessionId, state) {
-      const all = readAll();
+    async set(sessionId, state) {
+      const all = await readAll();
       all[sessionId] = state;
-      writeAll(all);
+      await writeAll(all);
     },
-    delete(sessionId) {
-      const all = readAll();
+    async delete(sessionId) {
+      const all = await readAll();
       if (!(sessionId in all)) return;
       delete all[sessionId];
-      writeAll(all);
+      await writeAll(all);
     },
-    has(sessionId) {
-      return this.get(sessionId) !== null;
+    async has(sessionId) {
+      return (await this.get(sessionId)) !== null;
     },
   };
 }
@@ -347,7 +398,10 @@ export async function decideConciergeRouting(api, config, params) {
     });
     return parseConciergeDecision(result.content) ?? { kind: 'ask_user' };
   } catch (error) {
-    api.logger.debug({ error, model }, 'Concierge routing fell back to ask_user');
+    api.logger.debug(
+      { error, model },
+      'Concierge routing fell back to ask_user',
+    );
     return { kind: 'ask_user' };
   }
 }

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { createConciergeCommandHandler } from './command.js';
 import {
   buildConciergeChoiceComponents,
@@ -49,6 +50,23 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function timingSafeEquals(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    crypto.timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function isAuthorizedWebhook(req, config) {
+  const secret = String(config.webhookSecret || '').trim();
+  if (!secret) return false;
+  const header = String(req.headers.authorization || '').trim();
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return Boolean(match && timingSafeEquals(match[1], secret));
+}
+
 export default {
   id: 'concierge-router',
   kind: 'middleware',
@@ -61,9 +79,16 @@ export default {
       priority: 0,
       async routing(context) {
         const content = getRoutingText(context);
-        const pendingState = pending.get(context.sessionId);
+        const pendingState = await pending.get(context.sessionId);
 
         if (context.isInteractiveSource && pendingState) {
+          if (pendingState.userId && pendingState.userId !== context.userId) {
+            return {
+              action: 'block',
+              reason:
+                'Only the requesting user can respond to this concierge prompt.',
+            };
+          }
           const chosenProfile = parseConciergeChoice(context.requestContent);
           if (!chosenProfile) {
             return {
@@ -72,7 +97,7 @@ export default {
               metadata: responseMetadata(context),
             };
           }
-          pending.delete(context.sessionId);
+          await pending.delete(context.sessionId);
           return {
             action: 'transform',
             payload: pendingState.originalUserContent,
@@ -82,7 +107,8 @@ export default {
               currentModel: context.currentModel || context.model,
               originalUserContent: pendingState.originalUserContent,
               effectiveUserTurnContent: pendingState.originalUserContent,
-              effectiveUserTurnContentStripped: pendingState.originalUserContent,
+              effectiveUserTurnContentStripped:
+                pendingState.originalUserContent,
               media: cloneMedia(pendingState.media),
             }),
           };
@@ -154,10 +180,14 @@ export default {
           };
         }
 
-        pending.set(context.sessionId, {
+        await pending.set(context.sessionId, {
           originalUserContent: content,
           createdAt: new Date().toISOString(),
           media: cloneMedia(context.media),
+          userId: context.userId || '',
+          channelId: context.channelId || '',
+          agentId: context.agentId || '',
+          chatbotId: context.chatbotId || '',
         });
         return {
           action: 'block',
@@ -185,14 +215,46 @@ export default {
       description: 'Handle concierge urgency button callbacks',
       async handler({ req, res }) {
         try {
+          if (!isAuthorizedWebhook(req, config)) {
+            sendJson(res, 403, {
+              error: 'Concierge webhook authorization failed.',
+            });
+            return;
+          }
           const body = await readJsonBody(req);
           const sessionId = String(body.sessionId || '').trim();
           const profile = parseConciergeChoice(body.profile);
           const userId = String(body.userId || '').trim();
-          const channelId = String(body.channelId || 'web').trim();
+          const rawChannelId =
+            typeof body.channelId === 'string' ? body.channelId.trim() : '';
+          const channelId = rawChannelId || 'web';
           if (!sessionId || !profile || !userId) {
             sendJson(res, 400, {
               error: 'sessionId, userId, and profile are required.',
+            });
+            return;
+          }
+          const pendingState = await pending.get(sessionId);
+          if (!pendingState) {
+            sendJson(res, 409, {
+              error: 'No pending concierge prompt exists for this session.',
+            });
+            return;
+          }
+          if (pendingState.userId && pendingState.userId !== userId) {
+            sendJson(res, 403, {
+              error:
+                'Only the requesting user can respond to this concierge prompt.',
+            });
+            return;
+          }
+          if (
+            pendingState.channelId &&
+            rawChannelId &&
+            pendingState.channelId !== rawChannelId
+          ) {
+            sendJson(res, 403, {
+              error: 'Concierge prompt channel mismatch.',
             });
             return;
           }
@@ -200,15 +262,16 @@ export default {
             sessionId,
             sessionMode: 'resume',
             guildId: typeof body.guildId === 'string' ? body.guildId : null,
-            channelId,
+            channelId: pendingState.channelId || channelId,
             userId,
-            username:
-              typeof body.username === 'string' ? body.username : null,
+            username: typeof body.username === 'string' ? body.username : null,
             content: profile,
             agentId:
-              typeof body.agentId === 'string' ? body.agentId : null,
+              pendingState.agentId ||
+              (typeof body.agentId === 'string' ? body.agentId : null),
             chatbotId:
-              typeof body.chatbotId === 'string' ? body.chatbotId : null,
+              pendingState.chatbotId ||
+              (typeof body.chatbotId === 'string' ? body.chatbotId : null),
           });
           sendJson(res, 200, { ok: true, result });
         } catch (error) {

@@ -180,7 +180,12 @@ export function applyClassifierMiddlewareSync(
       phase,
     });
     if (!decision || decision.action === 'allow') {
-      events.push({ skillId: skill.id, phase, action: 'allow' });
+      events.push({
+        skillId: skill.id,
+        phase,
+        action: 'allow',
+        metadata: decision?.metadata,
+      });
       continue;
     }
     events.push({
@@ -188,6 +193,7 @@ export function applyClassifierMiddlewareSync(
       phase,
       action: decision.action,
       reason: 'reason' in decision ? decision.reason : undefined,
+      metadata: decision.metadata,
     });
     return { context, decision, events };
   }

@@ -378,6 +378,76 @@ test('handleGatewayMessage passes explicit skill middleware manifest into middle
   );
 });
 
+test('handleGatewayMessage stores blocked routing middleware content', async () => {
+  setupHome();
+
+  pluginManagerMock.hasMiddleware.mockImplementationOnce(
+    (phase) => phase === 'routing',
+  );
+  pluginManagerMock.applyMiddleware.mockResolvedValueOnce({
+    userContent: 'rewritten blocked request',
+    resultText: 'blocked by router',
+    blocked: true,
+    events: [
+      {
+        skillId: 'router',
+        phase: 'routing',
+        action: 'block',
+        metadata: {
+          conciergeRouter: {
+            effectiveUserTurnContent: 'rewritten blocked request',
+            media: [
+              {
+                path: '/tmp/rewritten.pdf',
+                url: 'https://example.com/rewritten.pdf',
+                originalUrl: 'https://example.com/rewritten.pdf',
+                mimeType: 'application/pdf',
+                sizeBytes: 2048,
+                filename: 'rewritten.pdf',
+              },
+            ],
+          },
+        },
+      },
+    ],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-routing-blocked-content',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'original request',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('blocked by router');
+  expect(runAgentMock).not.toHaveBeenCalled();
+  const history = memoryService.getConversationHistory(
+    'session-routing-blocked-content',
+    10,
+  );
+  expect(
+    history.some((message) =>
+      message.content.includes('rewritten blocked request'),
+    ),
+  ).toBe(true);
+  expect(
+    history.some((message) => message.content.includes('rewritten.pdf')),
+  ).toBe(true);
+});
+
 test('handleGatewayMessage injects plugin prompt context and forwards plugin tools to the agent', async () => {
   setupHome();
 
@@ -1382,6 +1452,92 @@ test('handleGatewayCommand stringifies non-string plugin command results', async
       2,
     ),
   );
+});
+
+test('handleGatewayCommand omits malformed plugin command decorations', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const handler = vi.fn(async () => ({
+    kind: 'info',
+    title: 'Plugin Result',
+    text: 'structured payload',
+    components: [{ type: 1, components: [{ custom_id: 'missing-type' }] }],
+    modelCatalog: [{ value: 'gpt-5', label: 'GPT-5' }],
+  }));
+  pluginManagerMock.findCommand.mockReturnValue({
+    name: 'qmd',
+    description: 'Show QMD status',
+    handler,
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-command-invalid-decoration',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    args: ['qmd', 'status'],
+  });
+
+  expect(result).toEqual(
+    expect.objectContaining({
+      kind: 'info',
+      title: 'Plugin Result',
+      text: 'structured payload',
+    }),
+  );
+  expect(result.components).toBeUndefined();
+  expect(result.modelCatalog).toBeUndefined();
+});
+
+test('handleGatewayCommand preserves valid plugin command decorations', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const components = [{ type: 1, components: [{ type: 2, label: 'Run' }] }];
+  const modelCatalog = [
+    {
+      value: 'gpt-5',
+      label: 'GPT-5',
+      isFree: false,
+      recommended: true,
+    },
+  ];
+  const handler = vi.fn(async () => ({
+    kind: 'info',
+    title: 'Plugin Result',
+    text: 'structured payload',
+    components,
+    modelCatalog,
+  }));
+  pluginManagerMock.findCommand.mockReturnValue({
+    name: 'qmd',
+    description: 'Show QMD status',
+    handler,
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-command-valid-decoration',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    args: ['qmd', 'status'],
+  });
+
+  expect(result.components).toEqual(components);
+  expect(result.modelCatalog).toEqual(modelCatalog);
 });
 
 test('handleGatewayCommand help continues without plugins when plugin manager init fails', async () => {

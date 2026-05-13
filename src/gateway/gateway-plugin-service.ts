@@ -39,6 +39,8 @@ import type {
   GatewayAdminPluginsResponse,
   GatewayCommandRequest,
   GatewayCommandResult,
+  GatewayMessageComponents,
+  GatewayModelCatalogEntry,
 } from './gateway-types.js';
 import { rememberPendingApproval } from './pending-approvals.js';
 
@@ -963,16 +965,48 @@ function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
         ...(typeof candidate.title === 'string'
           ? { title: candidate.title }
           : {}),
-        ...(candidate.components !== undefined
+        ...(isGatewayMessageComponents(candidate.components)
           ? { components: candidate.components }
           : {}),
-        ...(candidate.modelCatalog !== undefined
+        ...(isGatewayModelCatalog(candidate.modelCatalog)
           ? { modelCatalog: candidate.modelCatalog }
           : {}),
       };
     }
   }
   return { kind: 'plain', text: JSON.stringify(value, null, 2) };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isGatewayMessageComponents(
+  value: unknown,
+): value is GatewayMessageComponents {
+  if (!Array.isArray(value)) return false;
+  return value.every((row) => {
+    if (!isRecord(row) || typeof row.type !== 'number') return false;
+    if (!Array.isArray(row.components)) return false;
+    return row.components.every(
+      (component) => isRecord(component) && typeof component.type === 'number',
+    );
+  });
+}
+
+function isGatewayModelCatalog(
+  value: unknown,
+): value is GatewayModelCatalogEntry[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((entry) => {
+    if (!isRecord(entry)) return false;
+    if (typeof entry.value !== 'string' || !entry.value.trim()) return false;
+    if (typeof entry.label !== 'string' || !entry.label.trim()) return false;
+    if (typeof entry.isFree !== 'boolean') return false;
+    return (
+      entry.recommended === undefined || typeof entry.recommended === 'boolean'
+    );
+  });
 }
 
 export async function tryHandlePluginDefinedGatewayCommand(params: {

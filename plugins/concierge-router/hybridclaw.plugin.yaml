@@ -12,6 +12,8 @@ configSchema:
       type: boolean
     model:
       type: string
+    webhookSecret:
+      type: string
     profiles:
       type: object
       additionalProperties: false

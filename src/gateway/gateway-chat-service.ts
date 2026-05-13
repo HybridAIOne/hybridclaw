@@ -694,9 +694,16 @@ async function handleGatewayMessageInner(
       );
     }
     if (routingOutcome.blocked) {
+      const blockedMedia = normalizeMediaContextItems(
+        routingMetadata?.media ?? media,
+      );
+      const blockedUserContent =
+        routingMetadata?.effectiveUserTurnContent ??
+        routingOutcome.userContent ??
+        effectiveUserTurnContentExpanded;
       const routingUserContent = buildStoredUserTurnContent(
-        userTurnContent,
-        media,
+        blockedUserContent,
+        blockedMedia,
       );
       const resultText =
         routingOutcome.resultText || 'Message blocked by routing middleware.';
