@@ -810,6 +810,46 @@ describe('ChatPage', () => {
     expect(fetchChatHistoryMock.mock.calls.length).toBe(callsBefore);
   });
 
+  it('renders the jump-to-latest chip when scrolled away and clears it on click', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    // Chip is gated on isPinned, which defaults to true — must not appear at
+    // rest even when the scroller has just hydrated.
+    expect(screen.queryByLabelText('Jump to latest message')).toBeNull();
+
+    // jsdom doesn't lay out scrollable content; stub the scroll metrics so the
+    // listener's threshold check sees the user well above the bottom.
+    const scroller = document.querySelector(
+      '[class*="messageArea"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+
+    const chip = await screen.findByLabelText('Jump to latest message');
+    fireEvent.click(chip);
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Jump to latest message')).toBeNull(),
+    );
+  });
+
   it('creates a branch, prefetches its history, then sends the edited message', async () => {
     fetchChatHistoryMock.mockImplementation(
       async (_token, sessionId): Promise<ChatHistoryResponse> => ({

@@ -106,11 +106,14 @@ export function useStickToBottom(): UseStickToBottomReturn {
     // container under the current layout (visualViewport-driven height +
     // position:relative chatMain), so hand-roll an ease-out instead.
     const startTop = el.scrollTop;
-    const target = el.scrollHeight - el.clientHeight;
-    const delta = target - startTop;
-    if (delta <= 0) return;
+    if (el.scrollHeight - el.clientHeight - startTop <= 0) return;
     // performance.now() inside the step (not the rAF `now` arg) is what makes
-    // the jsdom test deterministic — keep it.
+    // the jsdom test deterministic — keep it. The flag is re-set each frame
+    // because every scrollTop write generates a separate scroll event, and the
+    // listener consumes one flag per event; one consequence is that a user
+    // wheel inside the 220ms window can land on a frame where the flag is set
+    // and be swallowed — they'd need to scroll again to unpin. Acceptable for
+    // a 220ms easing.
     const startedAt = performance.now();
     const step = () => {
       const scroller = scrollElRef.current;
@@ -120,8 +123,12 @@ export function useStickToBottom(): UseStickToBottomReturn {
       }
       const t = Math.min(1, (performance.now() - startedAt) / JUMP_DURATION_MS);
       const eased = 1 - (1 - t) ** 3;
+      // Recompute target each frame: stream tokens or an optimistic user
+      // bubble appended after jumpToBottom() was called would otherwise leave
+      // us short of the real bottom for the duration of the ease-out.
+      const target = scroller.scrollHeight - scroller.clientHeight;
       programmaticScrollRef.current = true;
-      scroller.scrollTop = startTop + delta * eased;
+      scroller.scrollTop = startTop + (target - startTop) * eased;
       smoothScrollRafRef.current = t < 1 ? requestAnimationFrame(step) : 0;
     };
     smoothScrollRafRef.current = requestAnimationFrame(step);

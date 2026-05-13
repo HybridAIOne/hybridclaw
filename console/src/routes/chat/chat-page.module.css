@@ -399,11 +399,10 @@ aside[data-state="collapsed"] .chatSidebarContent {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  /* Disable browser scroll anchoring on the container; we let .messageBlock
-     anchor instead so anchors land on message boundaries, not mid-paragraph. */
+  /* useStickToBottom manages scroll position imperatively; disable native
+     anchoring so it doesn't fight the snap-to-bottom on stream growth. */
   overflow-anchor: none;
   padding: 16px 24px 12px;
-  position: relative;
 }
 
 .messageList {
@@ -445,9 +444,6 @@ aside[data-state="collapsed"] .chatSidebarContent {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  /* Let the browser anchor scroll position to message boundaries so content
-     growth above the viewport doesn't tug the user's reading position. */
-  overflow-anchor: auto;
 }
 
 /* Anchored to .chatMain (position: relative) and sits just above the
