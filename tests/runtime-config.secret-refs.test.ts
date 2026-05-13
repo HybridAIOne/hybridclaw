@@ -155,6 +155,7 @@ describe('runtime config secret refs', () => {
 
   test('canonicalizes legacy browser cloud env refs to stored refs', async () => {
     const homeDir = makeTempHome();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     writeRawRuntimeConfig(homeDir, (config) => {
       const browser = config.browser as Record<string, unknown>;
       const browserUseCloud = browser.browserUseCloud as Record<
@@ -175,6 +176,33 @@ describe('runtime config secret refs', () => {
       source: 'store',
       id: 'BROWSER_USE_API_KEY',
     });
+    expect(warn).toHaveBeenCalledWith(
+      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
+    );
+  });
+
+  test('rejects malformed legacy browser cloud env refs clearly', async () => {
+    const homeDir = makeTempHome();
+    writeRawRuntimeConfig(homeDir, (config) => {
+      const browser = config.browser as Record<string, unknown>;
+      const browserUseCloud = browser.browserUseCloud as Record<
+        string,
+        unknown
+      >;
+      browserUseCloud.apiKeyRef = {
+        source: 'env',
+        id: 42,
+      };
+    });
+
+    const runtimeConfig = await importFreshRuntimeConfig(homeDir);
+
+    expect(runtimeConfig.getRuntimeConfigLoadError()?.message).toBe(
+      'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+    );
+    expect(() => runtimeConfig.reloadRuntimeConfig('test')).toThrow(
+      'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+    );
   });
 
   test('preserves secret refs on unrelated config updates', async () => {

@@ -163,6 +163,38 @@ describe('invoice credentials', () => {
     expect(credentials).toEqual({ apiKey: 'rotatable-secret' });
     expect(credentialStore.get).toHaveBeenCalledWith('STRIPE_INVOICE_API_KEY');
   });
+
+  test('requires a credential store for store-backed refs', () => {
+    expect(() =>
+      resolveInvoiceCredentials(
+        'stripe',
+        {
+          apiKey: {
+            source: 'store',
+            id: 'STRIPE_INVOICE_API_KEY',
+          },
+        },
+        { required: ['apiKey'] },
+      ),
+    ).toThrow('Credential store is not configured.');
+  });
+
+  test('rejects unsupported invoice credential sources directly', () => {
+    expect(() =>
+      resolveInvoiceCredentials(
+        'stripe',
+        {
+          apiKey: {
+            source: 'env',
+            id: 'STRIPE_INVOICE_API_KEY',
+          },
+        },
+        { required: ['apiKey'] },
+      ),
+    ).toThrow(
+      'Invalid stripe invoice credential apiKey: source "env" is not supported.',
+    );
+  });
 });
 
 describe('invoice harvester', () => {

@@ -4758,12 +4758,23 @@ function normalizeBrowserUseCloudApiKeyRef(
   if (value === undefined || value === null || value === '') {
     return cloneConfig(fallback);
   }
-  const parsed = parseSecretInput(
-    isRecord(value) && value.source === 'env'
-      ? { source: 'store', id: value.id }
-      : value,
-  );
+  let input = value;
+  if (isRecord(value) && value.source === 'env') {
+    if (typeof value.id !== 'string') {
+      throw new Error(
+        'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+      );
+    }
+    console.warn(
+      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
+    );
+    input = { source: 'store', id: value.id };
+  }
+  const parsed = parseSecretInput(input);
   if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
+  if (parsed.kind === 'invalid') {
+    throw new Error(`browser.browserUseCloud.apiKeyRef ${parsed.reason}.`);
+  }
   throw new Error(
     'browser.browserUseCloud.apiKeyRef must use a stored secret reference such as `{ "source": "store", "id": "BROWSER_USE_API_KEY" }`.',
   );

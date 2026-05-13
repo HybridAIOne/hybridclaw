@@ -104,7 +104,13 @@ function resolveSecretInput(providerId, key, value, opts = {}) {
     }
     return secret;
   }
-  return null;
+  const source =
+    value && typeof value === 'object' && typeof value.source === 'string'
+      ? value.source
+      : 'unknown';
+  throw new Error(
+    `Invalid ${providerId} invoice credential ${key}: source "${source}" is not supported. Use { "source": "store", "id": "SECRET_NAME" }.`,
+  );
 }
 
 async function rotateInvoiceCredentials(providerId, inputs, opts = {}) {
@@ -191,7 +197,7 @@ function isStoreSecretRef(value) {
 }
 
 function readCredentialStore(store, id) {
-  if (!store) return process.env[id] || null;
+  if (!store) throw new Error('Credential store is not configured.');
   if (typeof store.get === 'function')
     return normalizeCredentialStoreResult(store.get(id));
   if (typeof store.read === 'function')
