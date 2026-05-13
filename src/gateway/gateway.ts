@@ -732,6 +732,9 @@ async function handleTextChannelCommand(params: {
     args,
     userId,
     username,
+    onProactiveMessage: async (message) => {
+      await reply(message.text, buildArtifactAttachments(message.artifacts));
+    },
   });
   const text = renderTextChannelCommandResult(result);
   if (result.components !== undefined) {

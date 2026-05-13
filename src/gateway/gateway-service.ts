@@ -174,6 +174,7 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -396,6 +397,8 @@ import {
 } from './chat-result.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
+import './goal-continuation-runner.js';
+import { handleGoalCommand } from '../goals/goal-command.js';
 import {
   buildFullAutoStatusLines,
   disableFullAutoSession,
@@ -9309,6 +9312,10 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'goal': {
+        return await handleGoalCommand({ session, req });
+      }
+
       case 'fullauto': {
         const sub = parseLowerArg(req.args, 1);
         if (!sub) {
@@ -9959,6 +9966,11 @@ export async function handleGatewayCommand(
 
       case 'stop':
       case 'abort': {
+        pauseActiveGoalForSession({
+          session,
+          reason: 'user-interrupted',
+          verdict: 'interrupted',
+        });
         await disableFullAutoSession({ sessionId: session.id });
         const stopped = interruptGatewaySessionExecution(req.sessionId);
         return plainCommand(

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { runAgent } from '../agent/agent.js';
 import { buildConversationContext } from '../agent/conversation.js';
 import type { MiddlewareEvent } from '../agent/middleware.js';
+import { emitPostTurnEvent } from '../agent/post-turn-events.js';
 import type { PromptMode } from '../agent/prompt-hooks.js';
 import {
   type PromptPartName,
@@ -34,6 +35,11 @@ import {
   PROACTIVE_DELEGATION_MAX_PER_TURN,
 } from '../config/config.js';
 import { preprocessContextReferences } from '../context-references/index.js';
+import {
+  clearScheduledGoalContinuation,
+  isGoalContinuationSource,
+  pauseActiveGoalForSession,
+} from '../goals/goal-runtime.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
 import { logger } from '../logger.js';
 import { prependAudioTranscriptionsToUserContent } from '../media/audio-transcription.js';
@@ -533,6 +539,41 @@ async function handleGatewayMessageInner(
     (channelType ? getChannel(channelType) : undefined) ||
     getChannelByContextId(req.channelId) ||
     undefined;
+  const emitPostTurnForResult = async (
+    result: GatewayChatResult,
+  ): Promise<void> => {
+    await emitPostTurnEvent({
+      type: 'post_turn',
+      session,
+      req: {
+        source: req.source,
+        guildId: req.guildId,
+        userId: req.userId,
+        username: req.username,
+        chatbotId: req.chatbotId,
+        model: req.model,
+        enableRag: req.enableRag,
+        onProactiveMessage: req.onProactiveMessage,
+      },
+      channelType,
+      result,
+      runId,
+      createdAt: new Date().toISOString(),
+    });
+  };
+  if (
+    source !== 'fullauto' &&
+    !isGoalContinuationSource(source) &&
+    channelType !== 'scheduler' &&
+    channelType !== 'heartbeat'
+  ) {
+    clearScheduledGoalContinuation(req.sessionId);
+    pauseActiveGoalForSession({
+      session,
+      reason: 'user-message',
+      verdict: 'preempted',
+    });
+  }
   const autoApproveTools = req.autoApproveTools === true;
   if (session.agent_id !== agentId) {
     const reboundExpiryEvaluation = await prepareSessionAutoReset({
@@ -781,7 +822,7 @@ async function handleGatewayMessageInner(
         ...autoTitleParams(),
         userContent: routingUserContent,
       });
-      return attachSessionIdentity({
+      const result: GatewayChatResult = {
         status: 'success',
         result: resultText,
         agentId,
@@ -794,7 +835,9 @@ async function handleGatewayMessageInner(
           getGatewayAssistantPresentationForMessageAgent(agentId),
         userMessageId: storedTurn.userMessageId,
         assistantMessageId: storedTurn.assistantMessageId,
-      });
+      };
+      await emitPostTurnForResult(result);
+      return attachSessionIdentity(result);
     }
     if (routingMetadata) {
       model = resolvePluginRoutingModel({
@@ -978,6 +1021,7 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    await emitPostTurnForResult(result);
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: req.content,
@@ -1807,6 +1851,7 @@ async function handleGatewayMessageInner(
       assistantMessageId: storedTurn.assistantMessageId,
     };
     maybeScheduleFullAutoAfterSuccess({ session, req, result });
+    await emitPostTurnForResult(result);
     maybeAutoTitleSession({
       ...autoTitleParams(),
       userContent: storedUserContent,
@@ -1883,7 +1928,14 @@ async function handleGatewayMessageInner(
         durationMs,
       });
     }
-    return attachSessionIdentity({
+    if (isGoalContinuationSource(source)) {
+      pauseActiveGoalForSession({
+        session,
+        reason: req.abortSignal?.aborted ? 'user-interrupted' : 'gateway error',
+        verdict: req.abortSignal?.aborted ? 'interrupted' : 'error',
+      });
+    }
+    const result = attachSessionIdentity({
       status: 'error',
       result: null,
       toolsUsed: [],
@@ -1894,6 +1946,8 @@ async function handleGatewayMessageInner(
       toolExecutions: undefined,
       error: errorMsg,
     });
+    await emitPostTurnForResult(result);
+    return result;
   } finally {
     activeGatewayRequest.release();
   }

@@ -1008,6 +1008,7 @@ export interface RuntimeConfig {
     session_search: RuntimeAuxiliaryModelPolicyConfig;
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
     eval_judge: RuntimeAuxiliaryModelPolicyConfig;
+    goal_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
@@ -1687,6 +1688,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     eval_judge: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    goal_judge: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -5817,6 +5823,9 @@ function normalizeRuntimeConfig(
   const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
     ? rawAuxiliaryModels.eval_judge
     : {};
+  const rawGoalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.goal_judge)
+    ? rawAuxiliaryModels.goal_judge
+    : {};
   const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
     ? rawAuxiliaryModels.mcp
     : {};
@@ -6781,6 +6790,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawEvalJudgeAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      goal_judge: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawGoalJudgeAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.provider,
+        ),
+        model: normalizeString(
+          rawGoalJudgeAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawGoalJudgeAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },

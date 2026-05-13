@@ -268,6 +268,7 @@ test('wraps panel rows for very narrow terminals and defaults provider to Hybrid
     '│ /exit                      │',
     '│ /export                    │',
     '│ /fullauto                  │',
+    '│ /goal                      │',
     '│ /help                      │',
     '│ /info                      │',
     '│ /mcp                       │',

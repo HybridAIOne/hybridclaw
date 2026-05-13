@@ -1,7 +1,9 @@
 import { logger } from '../logger.js';
 import type { SkillExecutionOutcome } from '../skills/adaptive-skills-types.js';
 import {
+  type RuntimeEventPayload,
   type SkillRunEvent,
+  subscribeRuntimeEvents,
   subscribeSkillRunEvents,
 } from '../skills/skill-run-events.js';
 import {
@@ -69,6 +71,44 @@ export interface RegisterJudgeSubscriberInput {
   maxQueueSize?: number;
 }
 
+export interface GoalJudgeEvent extends RuntimeEventPayload {
+  type: 'goal_judge';
+  request_id: string;
+  session_id: string;
+  agent_id: string;
+  thread_id: string | null;
+  goal_text: string;
+  assistant_response: string;
+  created_at: string;
+}
+
+export type GoalJudgeSubscriberFilter =
+  | ((event: GoalJudgeEvent) => boolean)
+  | {
+      agentId?: JudgeSubscriberStringMatcher;
+      sessionId?: JudgeSubscriberStringMatcher;
+    };
+
+export interface GoalJudgeSubscriberSinkPayload {
+  subscriberId: string;
+  event: GoalJudgeEvent;
+  judgedAt: string;
+}
+
+export type GoalJudgeSubscriberSink = (
+  payload: GoalJudgeSubscriberSinkPayload,
+) => unknown | Promise<unknown>;
+
+export interface RegisterGoalJudgeSubscriberInput {
+  id?: string;
+  filter?: GoalJudgeSubscriberFilter;
+  sink: GoalJudgeSubscriberSink;
+  /** Debounce window for bursty goal_judge events; useful in tests and low-latency consumers. */
+  debounceMs?: number;
+  /** Per-subscriber bounded backlog to prevent judge work from growing without limit. */
+  maxQueueSize?: number;
+}
+
 interface ActiveJudgeSubscriber {
   id: string;
   input: RegisterJudgeSubscriberInput;
@@ -81,11 +121,24 @@ interface ActiveJudgeSubscriber {
   stopped: boolean;
 }
 
+interface ActiveGoalJudgeSubscriber {
+  id: string;
+  input: RegisterGoalJudgeSubscriberInput;
+  debounceMs: number;
+  maxQueueSize: number;
+  pending: GoalJudgeEvent[];
+  timer: NodeJS.Timeout | null;
+  work: Promise<void>;
+  unsubscribe: () => void;
+  stopped: boolean;
+}
+
 const DEFAULT_DEBOUNCE_MS = 250;
 const DEFAULT_MAX_QUEUE_SIZE = 100;
 const MAX_IDLE_FLUSH_ITERATIONS = 100;
 
 const activeSubscribers = new Set<ActiveJudgeSubscriber>();
+const activeGoalJudgeSubscribers = new Set<ActiveGoalJudgeSubscriber>();
 let nextSubscriberNumber = 1;
 
 export function registerJudgeSubscriber(
@@ -127,9 +180,50 @@ export function registerJudgeSubscriber(
   };
 }
 
+export function registerGoalJudgeSubscriber(
+  input: RegisterGoalJudgeSubscriberInput,
+): () => void {
+  const id = normalizeSubscriberId(input.id);
+  const maxQueueSize = normalizePositiveInteger(
+    input.maxQueueSize,
+    DEFAULT_MAX_QUEUE_SIZE,
+    'Goal judge subscriber maxQueueSize',
+  );
+  const debounceMs = normalizeDebounceMs(input.debounceMs);
+  const subscriber: ActiveGoalJudgeSubscriber = {
+    id,
+    input,
+    debounceMs,
+    maxQueueSize,
+    pending: [],
+    timer: null,
+    work: Promise.resolve(),
+    unsubscribe: () => {},
+    stopped: false,
+  };
+
+  subscriber.unsubscribe = subscribeRuntimeEvents((event) => {
+    if (event.type !== 'goal_judge') return;
+    enqueueGoalJudgeSubscriberEvent(subscriber, event as GoalJudgeEvent);
+  });
+  activeGoalJudgeSubscribers.add(subscriber);
+
+  return () => {
+    subscriber.stopped = true;
+    subscriber.unsubscribe();
+    if (subscriber.timer) clearTimeout(subscriber.timer);
+    subscriber.timer = null;
+    subscriber.pending = [];
+    activeGoalJudgeSubscribers.delete(subscriber);
+  };
+}
+
 export async function waitForJudgeSubscribersIdle(): Promise<void> {
   for (const subscriber of activeSubscribers) {
     await flushJudgeSubscriber(subscriber);
+  }
+  for (const subscriber of activeGoalJudgeSubscribers) {
+    await flushGoalJudgeSubscriber(subscriber);
   }
 }
 
@@ -167,11 +261,52 @@ function enqueueJudgeSubscriberEvent(
   scheduleJudgeSubscriberDrain(subscriber);
 }
 
+function enqueueGoalJudgeSubscriberEvent(
+  subscriber: ActiveGoalJudgeSubscriber,
+  event: GoalJudgeEvent,
+): void {
+  if (
+    subscriber.stopped ||
+    !matchesGoalJudgeSubscriberFilter(subscriber, event)
+  ) {
+    return;
+  }
+
+  if (subscriber.pending.length >= subscriber.maxQueueSize) {
+    logger.warn(
+      {
+        subscriberId: subscriber.id,
+        sessionId: event.session_id,
+        requestId: event.request_id,
+        maxQueueSize: subscriber.maxQueueSize,
+      },
+      'Goal judge subscriber queue full, dropping goal_judge event',
+    );
+    return;
+  }
+
+  subscriber.pending.push(event);
+  scheduleGoalJudgeSubscriberDrain(subscriber);
+}
+
 function scheduleJudgeSubscriberDrain(subscriber: ActiveJudgeSubscriber): void {
   if (subscriber.timer) clearTimeout(subscriber.timer);
   subscriber.timer = setTimeout(() => {
     subscriber.timer = null;
     void drainJudgeSubscriber(subscriber);
+  }, subscriber.debounceMs);
+  if (typeof subscriber.timer.unref === 'function') {
+    subscriber.timer.unref();
+  }
+}
+
+function scheduleGoalJudgeSubscriberDrain(
+  subscriber: ActiveGoalJudgeSubscriber,
+): void {
+  if (subscriber.timer) clearTimeout(subscriber.timer);
+  subscriber.timer = setTimeout(() => {
+    subscriber.timer = null;
+    void drainGoalJudgeSubscriber(subscriber);
   }, subscriber.debounceMs);
   if (typeof subscriber.timer.unref === 'function') {
     subscriber.timer.unref();
@@ -199,6 +334,27 @@ async function flushJudgeSubscriber(
   }
 }
 
+async function flushGoalJudgeSubscriber(
+  subscriber: ActiveGoalJudgeSubscriber,
+): Promise<void> {
+  let iterations = 0;
+  while (!subscriber.stopped) {
+    iterations += 1;
+    if (iterations > MAX_IDLE_FLUSH_ITERATIONS) {
+      throw new Error(
+        `Goal judge subscriber ${subscriber.id} did not become idle after ${MAX_IDLE_FLUSH_ITERATIONS} flush iterations.`,
+      );
+    }
+    if (subscriber.timer) clearTimeout(subscriber.timer);
+    subscriber.timer = null;
+    if (subscriber.pending.length === 0) {
+      await subscriber.work;
+      if (subscriber.pending.length === 0) return;
+    }
+    await drainGoalJudgeSubscriber(subscriber);
+  }
+}
+
 function drainJudgeSubscriber(
   subscriber: ActiveJudgeSubscriber,
 ): Promise<void> {
@@ -214,6 +370,26 @@ function drainJudgeSubscriber(
       logger.warn(
         { subscriberId: subscriber.id, error },
         'Judge subscriber drain failed',
+      );
+    });
+  return subscriber.work;
+}
+
+function drainGoalJudgeSubscriber(
+  subscriber: ActiveGoalJudgeSubscriber,
+): Promise<void> {
+  subscriber.work = subscriber.work
+    .then(async () => {
+      const events = subscriber.pending.splice(0, subscriber.pending.length);
+      for (const event of events) {
+        if (subscriber.stopped) break;
+        await runGoalJudgeSubscriberEvent(subscriber, event);
+      }
+    })
+    .catch((error) => {
+      logger.warn(
+        { subscriberId: subscriber.id, error },
+        'Goal judge subscriber drain failed',
       );
     });
   return subscriber.work;
@@ -257,6 +433,31 @@ async function runJudgeSubscriberEvent(
         error,
       },
       'Judge subscriber failed for skill_run event',
+    );
+  }
+}
+
+async function runGoalJudgeSubscriberEvent(
+  subscriber: ActiveGoalJudgeSubscriber,
+  event: GoalJudgeEvent,
+): Promise<void> {
+  try {
+    if (subscriber.stopped) return;
+    const judgedAt = new Date().toISOString();
+    await subscriber.input.sink({
+      subscriberId: subscriber.id,
+      event,
+      judgedAt,
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        subscriberId: subscriber.id,
+        sessionId: event.session_id,
+        requestId: event.request_id,
+        error,
+      },
+      'Goal judge subscriber failed for goal_judge event',
     );
   }
 }
@@ -312,6 +513,28 @@ function matchesJudgeSubscriberFilter(
   if (
     filter.outcome !== undefined &&
     !matchesOutcome(filter.outcome, event.outcome)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function matchesGoalJudgeSubscriberFilter(
+  subscriber: ActiveGoalJudgeSubscriber,
+  event: GoalJudgeEvent,
+): boolean {
+  const filter = subscriber.input.filter;
+  if (!filter) return true;
+  if (typeof filter === 'function') return filter(event);
+  if (
+    filter.agentId !== undefined &&
+    !matchesString(filter.agentId, event.agent_id)
+  ) {
+    return false;
+  }
+  if (
+    filter.sessionId !== undefined &&
+    !matchesString(filter.sessionId, event.session_id)
   ) {
     return false;
   }
