@@ -822,6 +822,16 @@ test('handleGatewayCommand updates plugin config from a local TUI/web session an
   );
 
   initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'qmd-memory',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: 'session-plugin-config-set',
@@ -886,6 +896,16 @@ test('handleGatewayCommand reports rollback reload failures when disabling a plu
   );
 
   initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'qmd-memory',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
   const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
   reloadPluginManagerMock
     .mockRejectedValueOnce(new Error('reload exploded'))
@@ -924,6 +944,48 @@ test('handleGatewayCommand reports rollback reload failures when disabling a plu
         'Plugin runtime reload failed: rollback reload exploded.',
     }),
     'Plugin runtime rollback reload failed',
+  );
+});
+
+test('handleGatewayCommand rejects enable for undiscovered plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'concierge-router',
+      source: 'project',
+      enabled: true,
+      commands: ['concierge'],
+      tools: [],
+      hooks: [],
+    },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-enable-missing',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'enable', 'concierge-routing'],
+  });
+
+  expect(setPluginEnabledMock).not.toHaveBeenCalled();
+  expect(reloadPluginManagerMock).not.toHaveBeenCalled();
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Not Found');
+  expect(result.text).toContain(
+    'No discovered plugin has id `concierge-routing`.',
+  );
+  expect(result.text).toContain(
+    'Install it first with `/plugin install <path|plugin-id|npm-spec>`.',
   );
 });
 

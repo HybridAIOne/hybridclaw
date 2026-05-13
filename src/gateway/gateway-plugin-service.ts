@@ -604,6 +604,27 @@ export async function handlePluginGatewayCommand(params: {
         `\`plugin ${sub}\` writes runtime config and is only available from local TUI/web sessions.`,
       );
     }
+    if (!pluginManager) {
+      return badCommand(
+        'Plugin Runtime Unavailable',
+        pluginInitError instanceof Error
+          ? pluginInitError.message
+          : 'Plugin manager failed to initialize.',
+      );
+    }
+    if (
+      !pluginManager
+        .listPluginSummary()
+        .some((summary) => summary.id === pluginId)
+    ) {
+      return badCommand(
+        'Plugin Not Found',
+        [
+          `No discovered plugin has id \`${pluginId}\`.`,
+          'Install it first with `/plugin install <path|plugin-id|npm-spec>`.',
+        ].join('\n'),
+      );
+    }
 
     const enabled = sub === 'enable';
     const previousConfig = getRuntimeConfig();
