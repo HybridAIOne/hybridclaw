@@ -1259,6 +1259,99 @@ async function callGatewayPluginTool(
   return rawText;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isPlainRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return '';
+}
+
+function extractGoogleRpcReason(error: Record<string, unknown>): string {
+  const details = Array.isArray(error.details) ? error.details : [];
+  for (const detail of details) {
+    if (!isPlainRecord(detail)) continue;
+    const reason = firstString(detail.reason);
+    if (reason) return reason;
+  }
+  return '';
+}
+
+function extractGoogleRpcMetadata(
+  error: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const details = Array.isArray(error.details) ? error.details : [];
+  for (const detail of details) {
+    if (!isPlainRecord(detail) || !isPlainRecord(detail.metadata)) continue;
+    return detail.metadata;
+  }
+  return undefined;
+}
+
+function summarizeGatewayHttpFailure(
+  parsed: Record<string, unknown>,
+): Record<string, unknown> {
+  const bodyText = typeof parsed.body === 'string' ? parsed.body.trim() : '';
+  const bodyJson =
+    isPlainRecord(parsed.json) || Array.isArray(parsed.json)
+      ? parsed.json
+      : bodyText
+        ? parseJsonRecord(bodyText)
+        : null;
+  const upstreamError =
+    isPlainRecord(bodyJson) && isPlainRecord(bodyJson.error)
+      ? bodyJson.error
+      : isPlainRecord(parsed.error)
+        ? parsed.error
+        : null;
+  const upstreamReason = upstreamError
+    ? firstString(
+        upstreamError.reason,
+        extractGoogleRpcReason(upstreamError),
+        upstreamError.status,
+      )
+    : '';
+  const upstreamMessage = upstreamError
+    ? firstString(upstreamError.message, parsed.statusText)
+    : firstString(parsed.error, bodyText, parsed.statusText);
+  const result: Record<string, unknown> = {
+    ok: false,
+    status: parsed.status,
+    statusText: parsed.statusText,
+    url: parsed.url,
+    error: upstreamMessage || 'Upstream HTTP request failed.',
+  };
+  if (upstreamReason) result.reason = upstreamReason;
+  if (upstreamError) {
+    const metadata = extractGoogleRpcMetadata(upstreamError);
+    result.upstreamError = {
+      code: upstreamError.code,
+      status: upstreamError.status,
+      reason: upstreamReason || undefined,
+      message: upstreamMessage || undefined,
+      ...(metadata ? { metadata } : {}),
+      details: upstreamError.details,
+    };
+  } else if (bodyText) {
+    result.body = bodyText;
+  }
+  return result;
+}
+
 async function callGatewayHttpRequest(
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -1312,6 +1405,12 @@ async function callGatewayHttpRequest(
         ? parsed.error
         : rawText || `HTTP ${response.status}`;
     return failTool(`Error: ${errorText}`);
+  }
+
+  if (parsed && parsed.ok === false) {
+    return failTool(
+      JSON.stringify(summarizeGatewayHttpFailure(parsed), null, 2),
+    );
   }
 
   if (parsed) return JSON.stringify(parsed, null, 2);
