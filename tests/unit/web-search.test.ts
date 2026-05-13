@@ -467,6 +467,51 @@ describe('SearXNG provider', () => {
     expect(second.cached).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('partitions SearXNG cache entries by instance identity', async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = new URL(String(url));
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: `Result from ${requestUrl.hostname}`,
+              url: `https://${requestUrl.hostname}/result`,
+              content: 'Partitioned snippet',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const first = await searchWeb(
+      { query: 'tenant cache', provider: 'searxng' },
+      makeConfig({
+        provider: 'searxng',
+        searxngBaseUrl: 'https://search-a.example.com',
+      }),
+    );
+    const second = await searchWeb(
+      { query: 'tenant cache', provider: 'searxng' },
+      makeConfig({
+        provider: 'searxng',
+        searxngBaseUrl: 'https://search-b.example.com',
+      }),
+    );
+
+    expect(first.cached).toBeUndefined();
+    expect(second.cached).toBeUndefined();
+    expect(first.results[0]?.title).toBe('Result from search-a.example.com');
+    expect(second.results[0]?.title).toBe('Result from search-b.example.com');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('cache behavior', () => {

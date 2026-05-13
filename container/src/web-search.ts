@@ -559,13 +559,39 @@ function sanitizeProviderError(error: unknown): string {
 function buildCacheKey(
   params: NormalizedSearchParams,
   requestedProvider: SearchProviderMode,
+  config: WebSearchConfig,
 ): string {
   const suffix = [params.country || '', params.language || '']
     .filter(Boolean)
     .join(':');
   const categories = params.categories || '';
   const engines = params.engines || '';
-  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+  const searxngPartition = buildSearxngCachePartition(config);
+  return `search:${params.query}:${params.count}:${requestedProvider}:${params.freshness || ''}:${categories}:${engines}:${searxngPartition}${suffix ? `:${suffix}` : ''}`.toLowerCase();
+}
+
+function buildSearxngCachePartition(config: WebSearchConfig): string {
+  const includesSearxng =
+    config.provider === 'auto' ||
+    config.provider === 'searxng' ||
+    config.fallbackProviders.includes('searxng');
+  if (!includesSearxng) return '';
+  return stableCacheHash(
+    [
+      config.searxngBaseUrl,
+      config.searxngBearerTokenRef?.source || '',
+      config.searxngBearerTokenRef?.id || '',
+    ].join('\0'),
+  );
+}
+
+function stableCacheHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function mapFreshnessForProvider(
@@ -923,7 +949,7 @@ function createDuckDuckGoProvider(): SearchProvider {
   };
 }
 
-async function fetchGatewayHttpJson(params: {
+async function fetchViaGatewayBearer(params: {
   url: string;
   provider: string;
   signal: AbortSignal;
@@ -963,8 +989,8 @@ async function fetchGatewayHttpJson(params: {
     }),
     signal: params.signal,
   });
-  const proxyPayload = await readJsonResponse(response, params.provider);
   if (!response.ok) throw buildHttpError(response);
+  const proxyPayload = await readJsonResponse(response, params.provider);
   if (!isRecord(proxyPayload)) {
     throw new Error(`${params.provider} gateway proxy returned invalid JSON`);
   }
@@ -1005,7 +1031,7 @@ function createSearxngProvider(
           timeRange: requestContext.searxngTimeRange,
         });
         if (config.searxngBearerTokenRef) {
-          const payload = await fetchGatewayHttpJson({
+          const payload = await fetchViaGatewayBearer({
             url,
             provider: 'SearXNG',
             signal: timeout.signal,
@@ -1121,7 +1147,11 @@ export async function searchWeb(
     ...config,
     provider: requestedProvider,
   };
-  const cacheKey = buildCacheKey(normalized, requestedProvider);
+  const cacheKey = buildCacheKey(
+    normalized,
+    requestedProvider,
+    effectiveConfig,
+  );
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, cached: true };
 

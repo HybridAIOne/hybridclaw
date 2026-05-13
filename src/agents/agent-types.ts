@@ -1,4 +1,7 @@
-import { parseSecretInput, type SecretRef } from '../security/secret-refs.js';
+import {
+  parseSecretRefInput,
+  type SecretRef,
+} from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
 import {
   normalizeTrimmedString,
@@ -151,13 +154,10 @@ export function normalizeAgentWebSearchConfig(
     raw.searxngBearerTokenRef !== undefined &&
     raw.searxngBearerTokenRef !== ''
   ) {
-    const parsed = parseSecretInput(raw.searxngBearerTokenRef);
-    if (parsed.kind !== 'ref') {
-      throw new Error(
-        `${path}.searxngBearerTokenRef must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR_NAME}\`.`,
-      );
-    }
-    searxngBearerTokenRef = parsed.ref;
+    searxngBearerTokenRef = parseSecretRefInput(
+      raw.searxngBearerTokenRef,
+      `${path}.searxngBearerTokenRef`,
+    );
   } else if (!Object.hasOwn(raw, 'searxngBearerTokenRef')) {
     searxngBearerTokenRef = fallback?.searxngBearerTokenRef
       ? { ...fallback.searxngBearerTokenRef }

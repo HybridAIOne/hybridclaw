@@ -65,6 +65,7 @@ import type { SecretHandle } from '../security/secret-handles.js';
 import {
   isSecretRefInput,
   parseSecretInput,
+  parseSecretRefInput,
   resolveSecretInputUnsafe,
   type SecretInput,
   type SecretRef,
@@ -4796,11 +4797,7 @@ function normalizeOptionalSecretRef(
   path: string,
 ): SecretRef | undefined {
   if (value === undefined || value === null || value === '') return undefined;
-  const parsed = parseSecretInput(value);
-  if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
-  throw new Error(
-    `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR_NAME}\`.`,
-  );
+  return parseSecretRefInput(value, path);
 }
 
 const CAMOFOX_MANAGED_LAUNCH_OPTION_KEYS = new Set([

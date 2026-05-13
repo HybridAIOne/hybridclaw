@@ -1,3 +1,4 @@
+import { getAgentById } from '../agents/agent-registry.js';
 import {
   BRAVE_API_KEY,
   PERPLEXITY_API_KEY,
@@ -10,15 +11,12 @@ import {
   WEB_SEARCH_SEARXNG_BEARER_TOKEN_REF,
   WEB_SEARCH_TAVILY_SEARCH_DEPTH,
 } from '../config/config.js';
-import { getRuntimeConfig } from '../config/runtime-config.js';
 import type { WebSearchConfig } from '../types/container.js';
 
 export function resolveWebSearchRuntimeConfig(
   agentId?: string,
 ): WebSearchConfig {
-  const agentWebSearch = getRuntimeConfig().agents.list?.find(
-    (agent) => agent.id === agentId,
-  )?.webSearch;
+  const agentWebSearch = agentId ? getAgentById(agentId)?.webSearch : undefined;
   const searxngBaseUrl =
     agentWebSearch?.searxngBaseUrl || WEB_SEARCH_SEARXNG_BASE_URL;
   const searxngBearerTokenRef =
