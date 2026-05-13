@@ -46,13 +46,28 @@ export function useStickToBottom(): UseStickToBottomReturn {
     setIsPinnedState(next);
   }, []);
 
+  // Performs a programmatic scrollTop write, but only sets the
+  // `programmaticScrollRef` flag when the assignment will actually move the
+  // scroller. A no-op assignment (already at the clamped target) doesn't fire
+  // a `scroll` event in most browsers, which would leave the flag stuck `true`
+  // and cause the next user scroll to be swallowed.
+  const programmaticScrollTo = useCallback(
+    (scroller: HTMLDivElement, target: number) => {
+      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const clamped = Math.max(0, Math.min(target, maxTop));
+      if (clamped === scroller.scrollTop) return;
+      programmaticScrollRef.current = true;
+      scroller.scrollTop = clamped;
+    },
+    [],
+  );
+
   const snapIfPinned = useCallback(() => {
     const scroller = scrollElRef.current;
     if (!scroller || !pinnedRef.current) return;
     if (scroller.scrollHeight <= scroller.clientHeight) return;
-    programmaticScrollRef.current = true;
-    scroller.scrollTop = scroller.scrollHeight;
-  }, []);
+    programmaticScrollTo(scroller, scroller.scrollHeight);
+  }, [programmaticScrollTo]);
 
   const scrollRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -102,18 +117,28 @@ export function useStickToBottom(): UseStickToBottomReturn {
       smoothScrollRafRef.current = 0;
     }
     setPinned(true);
+    // Honor prefers-reduced-motion: this is a JS-driven animation and isn't
+    // covered by CSS @media rules, so check explicitly and fall back to an
+    // instant snap.
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      programmaticScrollTo(el, el.scrollHeight);
+      return;
+    }
     // Chrome's native scrollTo({behavior:'smooth'}) is a no-op on this
     // container under the current layout (visualViewport-driven height +
     // position:relative chatMain), so hand-roll an ease-out instead.
     const startTop = el.scrollTop;
     if (el.scrollHeight - el.clientHeight - startTop <= 0) return;
     // performance.now() inside the step (not the rAF `now` arg) is what makes
-    // the jsdom test deterministic — keep it. The flag is re-set each frame
-    // because every scrollTop write generates a separate scroll event, and the
-    // listener consumes one flag per event; one consequence is that a user
-    // wheel inside the 220ms window can land on a frame where the flag is set
-    // and be swallowed — they'd need to scroll again to unpin. Acceptable for
-    // a 220ms easing.
+    // the jsdom test deterministic — keep it. programmaticScrollTo skips the
+    // flag when the write is a no-op so the listener never gets stuck; one
+    // consequence is that a user wheel inside the 220ms window can land on a
+    // frame where a real (non-no-op) write set the flag and be swallowed —
+    // they'd need to scroll again to unpin. Acceptable for a 220ms easing.
     const startedAt = performance.now();
     const step = () => {
       const scroller = scrollElRef.current;
@@ -127,12 +152,11 @@ export function useStickToBottom(): UseStickToBottomReturn {
       // bubble appended after jumpToBottom() was called would otherwise leave
       // us short of the real bottom for the duration of the ease-out.
       const target = scroller.scrollHeight - scroller.clientHeight;
-      programmaticScrollRef.current = true;
-      scroller.scrollTop = startTop + (target - startTop) * eased;
+      programmaticScrollTo(scroller, startTop + (target - startTop) * eased);
       smoothScrollRafRef.current = t < 1 ? requestAnimationFrame(step) : 0;
     };
     smoothScrollRafRef.current = requestAnimationFrame(step);
-  }, [setPinned]);
+  }, [setPinned, programmaticScrollTo]);
 
   const resetToBottom = useCallback(() => {
     // Pin must flip even when the scroller is currently unmounted — e.g. on
@@ -142,9 +166,8 @@ export function useStickToBottom(): UseStickToBottomReturn {
     setPinned(true);
     const el = scrollElRef.current;
     if (!el) return;
-    programmaticScrollRef.current = true;
-    el.scrollTop = el.scrollHeight;
-  }, [setPinned]);
+    programmaticScrollTo(el, el.scrollHeight);
+  }, [setPinned, programmaticScrollTo]);
 
   useEffect(() => {
     return () => {

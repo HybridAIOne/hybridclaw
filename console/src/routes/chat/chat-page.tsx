@@ -383,11 +383,10 @@ export function ChatPage() {
 
   // Reset pin state and instantly snap to the latest message on session
   // switch so a long history doesn't crawl by under a smooth animation.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only resets on session change, not on every history hydration.
   useEffect(() => {
     if (!sessionId) return;
     resetToBottom();
-  }, [sessionId]);
+  }, [sessionId, resetToBottom]);
 
   const handleEditSave = useCallback(
     async (msg: ChatMessage, newContent: string) => {

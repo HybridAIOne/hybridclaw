@@ -85,7 +85,7 @@ describe('useStickToBottom', () => {
     globalThis.ResizeObserver = originalRO;
   });
 
-  it('stays pinned and snaps scrollTop to scrollHeight when content grows', () => {
+  it('stays pinned and snaps scrollTop to maxScrollTop when content grows', () => {
     const { scroller, getHook } = renderHarness();
     configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
 
@@ -95,7 +95,10 @@ describe('useStickToBottom', () => {
       fireResize();
     });
 
-    expect(scroller.scrollTop).toBe(800);
+    // Clamped to scrollHeight - clientHeight, mirroring the browser's own
+    // clamp. Writing scrollHeight directly is a no-op in browsers (stays at
+    // maxScrollTop), which would leave the programmatic-scroll flag stuck.
+    expect(scroller.scrollTop).toBe(700);
     expect(getHook().isPinned).toBe(true);
   });
 
@@ -153,7 +156,7 @@ describe('useStickToBottom', () => {
       getHook().resetToBottom();
     });
 
-    expect(scroller.scrollTop).toBe(800);
+    expect(scroller.scrollTop).toBe(700);
     expect(getHook().isPinned).toBe(true);
   });
 
@@ -237,7 +240,37 @@ describe('useStickToBottom', () => {
     act(() => {
       getHook().scrollRef(scroller);
     });
-    expect(scroller.scrollTop).toBe(800);
+    expect(scroller.scrollTop).toBe(700);
+  });
+
+  it('does not leave the programmatic-scroll flag stuck when a write is a no-op', () => {
+    // Regression: a no-op scrollTop assignment (target already equals current)
+    // doesn't fire a scroll event, so the old code left the flag set and
+    // swallowed the next user scroll, blocking unpin.
+    const { scroller, getHook } = renderHarness();
+    configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
+
+    // Park the scroller at the bottom with a clean flag state by dispatching
+    // a real scroll event (which the listener consumes).
+    act(() => {
+      scroller.scrollTop = 700;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(getHook().isPinned).toBe(true);
+
+    act(() => {
+      // resetToBottom while already at the bottom: a no-op write. The old
+      // code would set the flag without a subsequent scroll event to clear it.
+      getHook().resetToBottom();
+    });
+
+    // The user now scrolls up past the threshold — must unpin, not be
+    // swallowed by a leftover programmatic flag.
+    act(() => {
+      scroller.scrollTop = 200;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(getHook().isPinned).toBe(false);
   });
 
   it('scrollRef snaps to bottom when attached after content already overflows', () => {
@@ -254,6 +287,6 @@ describe('useStickToBottom', () => {
       getHook().scrollRef(scroller);
     });
 
-    expect(scroller.scrollTop).toBe(800);
+    expect(scroller.scrollTop).toBe(700);
   });
 });
