@@ -7,11 +7,19 @@ export interface ModelCapabilityFlags {
   reasoning: boolean;
 }
 
-interface StaticModelMetadataEntry {
+export interface ModelOverlay {
+  tool_discipline: string;
+  completion_contract: string;
+  execution_policy: string;
+  narrate_only_retry: boolean;
+}
+
+export interface StaticModelMetadataEntry {
   contextWindow: number | null;
   maxTokens?: number | null;
   capabilities: ModelCapabilityFlags;
   sources: string[];
+  model_overlay?: ModelOverlay;
 }
 
 const MODEL_METADATA_SOURCES = {
@@ -221,6 +229,26 @@ const EMPTY_CAPABILITIES: ModelCapabilityFlags = {
   reasoning: false,
 };
 
+const GPT5_MODEL_IDS = new Set([
+  'gpt-5',
+  'gpt-5-codex',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'gpt-5-pro',
+  'gpt-5.1',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+]);
+
+const MODEL_OVERLAY_MATCHERS: {
+  matches: (modelId: string) => boolean;
+  overlay: ModelOverlay | undefined;
+}[] = [
+  { matches: isGpt5ModelId, overlay: undefined },
+  { matches: isCodexFamilyModelId, overlay: undefined },
+  { matches: isLocalLlmModelId, overlay: undefined },
+];
+
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
@@ -244,6 +272,31 @@ function findStaticModelMetadataEntry(
   }
 
   return null;
+}
+
+export function isGpt5ModelId(modelId: string): boolean {
+  return collectModelLookupCandidates(modelId).some((candidate) =>
+    GPT5_MODEL_IDS.has(candidate),
+  );
+}
+
+export function isCodexFamilyModelId(_modelId: string): boolean {
+  return false;
+}
+
+export function isLocalLlmModelId(_modelId: string): boolean {
+  return false;
+}
+
+export function getModelOverlay(modelId: string): ModelOverlay | undefined {
+  const entry = findStaticModelMetadataEntry(modelId);
+  if (entry?.model_overlay) return entry.model_overlay;
+
+  for (const matcher of MODEL_OVERLAY_MATCHERS) {
+    if (matcher.matches(modelId)) return matcher.overlay;
+  }
+
+  return undefined;
 }
 
 export function resolveStaticModelCatalogMetadata(
