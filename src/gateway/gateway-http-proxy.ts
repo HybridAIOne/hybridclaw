@@ -304,7 +304,7 @@ function parseBearerSecretRef(value: unknown): SecretRef {
   } catch {
     throw new GatewayRequestError(
       400,
-      '`bearerSecretRef` must be an env/store SecretRef.',
+      '`bearerSecretRef` must be a store SecretRef.',
     );
   }
 }

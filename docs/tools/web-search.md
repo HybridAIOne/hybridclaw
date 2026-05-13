@@ -92,6 +92,6 @@ If `provider` is set explicitly, the tool uses that provider first, then `fallba
 
 - Search responses are cached for 5 minutes by default.
 - API keys are read from environment variables only.
-- SearXNG bearer tokens must use env/store SecretRefs and are injected through the gateway HTTP proxy so they do not enter the LLM context.
+- SearXNG bearer tokens must use store SecretRefs and are injected through the gateway HTTP proxy so they do not enter the LLM context.
 - Result URLs are validated before they are returned.
 - Provider errors are aggregated without echoing secrets.

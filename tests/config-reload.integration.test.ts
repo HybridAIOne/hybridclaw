@@ -151,7 +151,7 @@ describe('config reload integration', () => {
     });
 
     expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
-      'web.search.searxngBearerTokenRef must use an env/store secret reference',
+      'web.search.searxngBearerTokenRef must use a store SecretRef',
     );
   });
 
@@ -170,7 +170,7 @@ describe('config reload integration', () => {
     });
 
     expect(() => configMod.reloadRuntimeConfig('test')).toThrow(
-      'agents.list[].webSearch.searxngBearerTokenRef must use an env/store secret reference',
+      'agents.list[].webSearch.searxngBearerTokenRef must use a store SecretRef',
     );
   });
 

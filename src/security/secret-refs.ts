@@ -99,7 +99,7 @@ export function parseSecretRefInput(value: unknown, path: string): SecretRef {
   const parsed = parseSecretInput(value);
   if (parsed.kind === 'ref') return { ...parsed.ref };
   throw new Error(
-    `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`\${ENV_VAR_NAME}\`.`,
+    `${path} must use a store SecretRef such as \`{ "source": "store", "id": "SECRET_NAME" }\`.`,
   );
 }
 
