@@ -104,6 +104,8 @@ saved revision history directly.
   `browser.camofox.*` configure persistent profile roots and headed mode;
   `browser.browserUseCloud.*` configures the managed Browser Use Cloud
   passthrough and reads `BROWSER_USE_API_KEY` through the configured SecretRef.
+  Camofox stealth mode is deny-by-default per host; allow it from the
+  workspace policy with `browser.stealth.rules`.
 - `ops.healthHost` and `ops.healthPort` for the gateway HTTP bind address and
   port; the default is loopback on `127.0.0.1:9090`
 - `observability.*` for HybridAI audit-event forwarding, ingest batching, and
@@ -158,7 +160,7 @@ saved revision history directly.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short"
-- `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
+- `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; reviewed scanner bypass markers are created by `hybridclaw skill unblock <name>` or the Admin Skills page for one installed copy; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
 - `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
 - `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
 - `auxiliaryModels.session_title` controls optional AI-generated session
@@ -326,10 +328,14 @@ credential checks run.
 
 ## Security Notes
 
-- selected secret-bearing config fields support SecretRefs such as `{ "source": "store", "id": "SECRET_NAME" }` instead of plaintext values
+- selected secret-bearing config fields support store-backed SecretRefs such as
+  `{ "source": "store", "id": "SECRET_NAME" }` instead of plaintext values;
+  new configuration should not use env-backed SecretRefs
 - current built-in SecretRef surfaces include `ops.webApiToken`,
   `ops.gatewayApiToken`, `email.password`, `imessage.password`,
-  `voice.twilio.authToken`, and `local.backends.vllm.apiKey`
+  `voice.twilio.authToken`, `local.backends.vllm.apiKey`,
+  `browser.browserUseCloud.apiKeyRef`, `web.search.searxngBearerTokenRef`, and
+  per-agent `agents.list[].webSearch.searxngBearerTokenRef`
 - `mcpServers.*.env` and `mcpServers.*.headers` are currently stored in plain
   text in `config.json`
 - In `host` sandbox mode, the agent can access the user home directory, the

@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+## [0.18.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.18.0) - 2026-05-13
+
+### Added
+
+- **GA4 reporting skill**: Bundled `ga4` adds production Google Analytics 4
+  Data API reporting, request planning/review, gateway-injected bearer auth,
+  service-account support, traffic-source, landing-page, time-series, revenue,
+  session, and key-event reports, plus eval scenarios.
+- **Hermes3000 long-form writing skill**: Bundled `hermes3000-writing` can
+  authenticate through the gateway secret rail, manage portal-backed book
+  projects, draft and revise chapters, update consistency memory, and export
+  DOCX/PDF/EPUB/HTML deliverables without exposing JWTs to the agent context.
+- **Video-from-script skill**: Bundled `video.from-script` turns approved
+  avatar, voice, and script briefs into HeyGen MP4 jobs with planning, guarded
+  async render start, status polling, optional download, and credit-spend
+  approval gates.
+- **Firecrawl self-host adapter**: The Firecrawl skill now supports
+  self-hosted Firecrawl origins alongside managed API mode, including optional
+  self-host auth for scrape, crawl, map, and extraction workflows.
+- **Per-agent authenticated SearXNG search**: Agents can bind their own
+  SearXNG base URL and bearer-token SecretRef, with bearer injection routed
+  through the gateway HTTP proxy so tokens stay out of model context.
+- **Reviewed skill unblock controls**: Blocked skills now appear in CLI, web,
+  and gateway skill listings, and local operators can run `skill unblock` or
+  use the Admin Skills page to record a reviewed scanner-bypass marker for an
+  installed copy.
+- **Browser stealth host policy**: Camofox stealth browsing is deny-by-default
+  unless workspace policy explicitly allowlists the target host with
+  `browser.stealth.rules`.
+- **Node version guardrails**: Source checkouts now include `.node-version`,
+  `.nvmrc`, and a `check:node` preflight so local builds and tests fail fast
+  when they are not running on Node.js 22.
+
+### Changed
+
+- **SecretRef handling is store-first**: Runtime SecretRefs now accept the
+  encrypted `store` source for new configuration. Legacy Browser Use Cloud
+  env-backed refs are canonicalized to stored SecretRefs, and malformed legacy
+  refs produce explicit configuration errors.
+- **HybridAI auth diagnostics are clearer**: Provider discovery, health, bot
+  lookup, and doctor output distinguish auth, configuration, and remote service
+  failures more cleanly.
+- **Web chat scrolling respects user position**: The chat UI now sticks to the
+  bottom only when appropriate, preserves pinned scroll position while users
+  read older content, and exposes a jump-to-latest affordance.
+- **Console model-provider typing is narrower**: The chat model switcher no
+  longer shares broader gateway provider types that were not part of the
+  console UI contract.
+- **Trace-judge live CI is less brittle**: Main-branch CI no longer blocks on
+  missing trace-judge live secrets.
+
+### Fixed
+
+- **SearXNG bearer leakage risk**: SearXNG bearer values are no longer exposed
+  through runtime env forwarding; configured SecretRefs are resolved only by
+  the gateway proxy at request time.
+- **Camofox navigation scope**: Stealth browser sessions now enforce both safe
+  navigation schemes and host allowlisting before visiting a URL.
+- **Browser credential fills**: SecretRef-backed browser fills require a
+  resolvable page URL and calling skill name so host, selector, skill, and
+  agent policy can be evaluated.
+
 ## [0.17.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.17.0) - 2026-05-12
 
 ### Added

@@ -33,8 +33,8 @@ For production package requirements see
 | Apple | apple-calendar, apple-music, apple-passwords | [Apple Skills](./apple.md) |
 | Productivity | feature-planning, project-manager, trello | [Productivity Skills](./productivity.md) |
 | Memory & Knowledge | llm-wiki, notion, obsidian, personality, zettelkasten | [Memory & Knowledge Skills](./memory-knowledge.md) |
-| Publishing | excalidraw, image-generation, manim-video, video-generation, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
-| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, firecrawl, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
+| Publishing | excalidraw, hermes3000-writing, image-generation, manim-video, video-generation, video.from-script, wordpress, write-blog-post | [Publishing Skills](./publishing.md) |
+| Integrations & Utilities | 1password, stripe, download-platform-invoices, airtable, fastbill, firecrawl, ga4, google-ads, heygen, sokosumi, gog, google-workspace, current-time, hybridclaw-help, iss-position, search.web, search.news, search.images | [Integrations & Utilities](./integrations.md) |
 
 ## Evaluating Example Prompts
 

@@ -1,6 +1,6 @@
 ---
 title: Integrations & Utilities
-description: 1Password, Stripe, Sokosumi, Google Workspace, and utility skills.
+description: 1Password, Stripe, Google Ads, GA4, Firecrawl, Sokosumi, Google Workspace, and utility skills.
 sidebar_position: 9
 ---
 
@@ -207,6 +207,60 @@ hybridclaw secret set GOOGLEADS_LOGIN_CUSTOMER_ID "<manager-customer-id-without-
 
 ---
 
+## ga4
+
+Run production Google Analytics 4 Data API reports with reviewable request
+planning and gateway-injected bearer auth.
+
+**Prerequisites** — authorize Google OAuth with
+`https://www.googleapis.com/auth/analytics.readonly` and enable the Google
+Analytics Admin API and Google Analytics Data API in the same Google Cloud
+project. For unattended jobs, store service-account email/private-key secrets
+and use the service-account options documented in the skill.
+
+```bash
+hybridclaw auth login google \
+  --client-id "<client-id>" \
+  --client-secret "<client-secret>" \
+  --account you@example.com \
+  --scopes "https://www.googleapis.com/auth/analytics.readonly"
+
+hybridclaw secret route add https://analyticsadmin.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret route add https://analyticsdata.googleapis.com/ google-oauth Authorization Bearer
+hybridclaw secret set GA4_PROPERTY_ID "<numeric-property-id>"
+```
+
+> 💡 **Tips & Tricks**
+>
+> Start with `report-plan` for natural-language analyst questions, then review
+> the emitted Data API request JSON before live execution.
+>
+> Keep GA4 reporting read-only. Property access changes, admin mutations,
+> key-event edits, and tag changes are outside this skill.
+>
+> Use stored defaults such as `GA4_PROPERTY_ID` for recurring reports so
+> scheduled jobs stay self-contained.
+
+> 🎯 **Try it yourself**
+>
+> `Show sessions, users, key events, and revenue for the last 7 days by default channel group`
+>
+> `Compare organic landing pages this week against the prior week and flag pages with falling conversions`
+>
+> `Build a GA4 runReport request for daily sessions and revenue over the last 30 days, then review it before execution`
+
+**Troubleshooting**
+
+- **`SERVICE_DISABLED`** — enable Google Analytics Admin API and Google
+  Analytics Data API in the OAuth client project, then retry after a few
+  minutes.
+- **`PERMISSION_DENIED`** — grant the authorized Google account Viewer or
+  Analyst access to the GA4 property.
+- **`insufficient authentication scopes`** — rerun `hybridclaw auth login
+  google` with the analytics readonly scope.
+
+---
+
 ## airtable
 
 Search Airtable bases and tables, read records and computed fields, and prepare
@@ -300,6 +354,10 @@ request.
 >
 > Use Firecrawl for public unauthenticated web ingestion.
 >
+> Use self-host mode when crawled content must stay on your own Firecrawl
+> infrastructure. Keep the self-host base URL reachable by the gateway, not
+> only by the agent container.
+>
 > Use browser automation instead when a task needs login, interaction, form
 > filling, visual inspection, or client-side state.
 >
@@ -321,7 +379,9 @@ Search through the configured self-hosted SearXNG instance for current
 information, source discovery, news, or image result discovery.
 
 **Prerequisites** — a reachable SearXNG instance configured with
-`web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`.
+`web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`. Authenticated SearXNG
+instances must use store-backed bearer SecretRefs; plaintext bearer tokens are
+rejected.
 
 > 💡 **Tips & Tricks**
 >
@@ -333,6 +393,10 @@ information, source discovery, news, or image result discovery.
 >
 > Use hosted search providers only when the user explicitly asks to leave the
 > self-hosted SearXNG path.
+>
+> Configure `agents.list[].webSearch.searxngBaseUrl` and
+> `agents.list[].webSearch.searxngBearerTokenRef` when one agent should use a
+> tenant-specific SearXNG instance.
 
 > 🎯 **Try it yourself**
 >
