@@ -15,6 +15,12 @@ export function readPositiveInteger(value: unknown): number | null {
   return Math.floor(parsed);
 }
 
+export function formatUnknownError(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : String(error);
+}
+
 export function createDiscoveryStore<T>(initialState: T, ttlMs = 3_600_000) {
   let state = initialState;
   let discoveredAtMs = 0;

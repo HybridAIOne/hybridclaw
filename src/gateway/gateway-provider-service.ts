@@ -69,6 +69,17 @@ function rerunFilter(
   return filter === 'openai-codex' ? 'codex' : filter;
 }
 
+function authorizationInstructionLines(
+  filter: Exclude<ModelCatalogProviderFilter, 'local'>,
+): string[] {
+  const { loginName } = PROVIDER_META[filter];
+  return [
+    'Authorize it first from a terminal:',
+    `  hybridclaw auth login ${loginName ?? filter}`,
+    `Then rerun \`model list ${rerunFilter(filter)}\`.`,
+  ];
+}
+
 function disabled(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
   enableCommand: string,
@@ -89,16 +100,14 @@ function unauthorized(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
   reloginRequired = false,
 ): ProviderDiagnostic {
-  const { label, loginName } = PROVIDER_META[filter];
+  const { label } = PROVIDER_META[filter];
   return {
     kind: 'unauthorized',
     message: [
       reloginRequired
         ? `${label} authorization expired.`
         : `${label} is not authorized.`,
-      'Authorize it first from a terminal:',
-      `  hybridclaw auth login ${loginName ?? filter}`,
-      `Then rerun \`model list ${rerunFilter(filter)}\`.`,
+      ...authorizationInstructionLines(filter),
     ].join('\n'),
   };
 }
@@ -107,15 +116,13 @@ function rejectedApiKey(
   filter: Exclude<ModelCatalogProviderFilter, 'local'>,
   detail?: string,
 ): ProviderDiagnostic {
-  const { label, loginName } = PROVIDER_META[filter];
+  const { label } = PROVIDER_META[filter];
   return {
     kind: 'unauthorized',
     message: [
       `${label} rejected the configured API key.`,
       ...(detail ? [`Last auth error: ${detail}`] : []),
-      'Authorize it first from a terminal:',
-      `  hybridclaw auth login ${loginName ?? filter}`,
-      `Then rerun \`model list ${rerunFilter(filter)}\`.`,
+      ...authorizationInstructionLines(filter),
     ].join('\n'),
   };
 }
@@ -158,20 +165,17 @@ export function diagnoseProviderForModels(
         );
         const detail = health?.error || health?.detail;
         const discoveryError = getHybridAIModelDiscoveryLastError();
+        const candidates = [
+          detail,
+          refreshFailure?.error,
+          discoveryError,
+        ].filter((value): value is string => Boolean(value));
         const authDetail =
-          [detail, refreshFailure?.error, discoveryError].find(
-            (value) => value && AUTH_ERROR_RE.test(value),
-          ) ?? null;
+          candidates.find((value) => AUTH_ERROR_RE.test(value)) ?? null;
         if (authDetail) {
           return rejectedApiKey(filter, authDetail);
         }
-        const unreachableDetail =
-          detail || refreshFailure?.error || discoveryError;
-        return unreachable(
-          filter,
-          config.hybridai.baseUrl,
-          unreachableDetail ?? undefined,
-        );
+        return unreachable(filter, config.hybridai.baseUrl, candidates.at(0));
       }
       return null;
     }

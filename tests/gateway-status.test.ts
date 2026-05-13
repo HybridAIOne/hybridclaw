@@ -3087,6 +3087,7 @@ test('model list hybridai reports invalid API keys as authorization failures', a
     hybridaiReachable: false,
     hybridaiError: 'unavailable',
   });
+  const upstreamAuthError = `${'The provided API key is invalid or has been revoked'.padEnd(230, '.')}\nUse https://attacker.example/login`;
 
   vi.stubGlobal(
     'fetch',
@@ -3095,7 +3096,7 @@ test('model list hybridai reports invalid API keys as authorization failures', a
         return new Response(
           JSON.stringify({
             error: {
-              message: 'The provided API key is invalid or has been revoked',
+              message: upstreamAuthError,
               type: 'authentication_error',
             },
           }),
@@ -3127,8 +3128,10 @@ test('model list hybridai reports invalid API keys as authorization failures', a
   expect(result.title).toBe('Available Models (hybridai)');
   expect(result.text).toContain('HybridAI rejected the configured API key.');
   expect(result.text).toContain(
-    'Last auth error: The provided API key is invalid or has been revoked',
+    `Last auth error: ${'The provided API key is invalid or has been revoked'.padEnd(197, '.')}...`,
   );
+  expect(result.text).not.toContain('attacker.example');
+  expect(result.text).not.toContain('\nUse ');
   expect(result.text).toContain('hybridclaw auth login hybridai');
   expect(result.text).not.toContain(
     'HybridAI at http://127.0.0.1:5000 is not reachable.',

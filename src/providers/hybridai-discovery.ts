@@ -14,12 +14,14 @@ import {
 } from './pricing-discovery.js';
 import {
   createDiscoveryStore,
+  formatUnknownError,
   isRecord,
   normalizeBaseUrl,
   readPositiveInteger,
 } from './utils.js';
 
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
+const HYBRIDAI_ERROR_MESSAGE_MAX_CHARS = 200;
 const HYBRIDAI_PROVIDER_FAMILY_PREFIXES = new Set([
   'anthropic',
   'huggingface',
@@ -126,7 +128,7 @@ function readHybridAIVisionCapability(
 
 function readHybridAIErrorMessage(payload: unknown): string | null {
   if (typeof payload === 'string' && payload.trim()) {
-    return payload.trim();
+    return sanitizeHybridAIErrorMessage(payload);
   }
   if (!payload || typeof payload !== 'object') {
     return null;
@@ -134,10 +136,10 @@ function readHybridAIErrorMessage(payload: unknown): string | null {
 
   const record = payload as Record<string, unknown>;
   if (typeof record.message === 'string' && record.message.trim()) {
-    return record.message.trim();
+    return sanitizeHybridAIErrorMessage(record.message);
   }
   if (typeof record.error === 'string' && record.error.trim()) {
-    return record.error.trim();
+    return sanitizeHybridAIErrorMessage(record.error);
   }
 
   const nested = record.error;
@@ -146,12 +148,23 @@ function readHybridAIErrorMessage(payload: unknown): string | null {
   }
   const nestedRecord = nested as Record<string, unknown>;
   if (typeof nestedRecord.message === 'string' && nestedRecord.message.trim()) {
-    return nestedRecord.message.trim();
-  }
-  if (typeof nestedRecord.error === 'string' && nestedRecord.error.trim()) {
-    return nestedRecord.error.trim();
+    return sanitizeHybridAIErrorMessage(nestedRecord.message);
   }
   return null;
+}
+
+function sanitizeHybridAIErrorMessage(value: string): string {
+  const withoutControls = [...value]
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code < 32 || code === 127 ? ' ' : char;
+    })
+    .join('');
+  const sanitized = withoutControls.replace(/\s+/g, ' ').trim();
+  if (sanitized.length <= HYBRIDAI_ERROR_MESSAGE_MAX_CHARS) {
+    return sanitized;
+  }
+  return `${sanitized.slice(0, HYBRIDAI_ERROR_MESSAGE_MAX_CHARS - 3)}...`;
 }
 
 async function readHybridAIErrorResponse(response: Response): Promise<string> {
@@ -163,7 +176,7 @@ async function readHybridAIErrorResponse(response: Response): Promise<string> {
       `HTTP ${response.status}`
     );
   } catch {
-    return text.trim() || `HTTP ${response.status}`;
+    return sanitizeHybridAIErrorMessage(text) || `HTTP ${response.status}`;
   }
 }
 
@@ -386,10 +399,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       {
         force: opts?.force,
         onError: (err, staleState) => {
-          lastError =
-            err instanceof Error && err.message.trim()
-              ? err.message.trim()
-              : String(err);
+          lastError = formatUnknownError(err);
           logger.warn({ error: lastError }, 'HybridAI model discovery failed');
           return staleState;
         },

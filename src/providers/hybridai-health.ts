@@ -1,6 +1,7 @@
 import { probeHybridAI } from '../doctor/provider-probes.js';
 import { logger } from '../logger.js';
 import { createOnDemandProbe } from './on-demand-probe.js';
+import { formatUnknownError } from './utils.js';
 
 const PROBE_TTL_MS = 30_000;
 
@@ -15,14 +16,17 @@ async function runProbe(): Promise<HybridAIHealthResult> {
   const startedAt = Date.now();
   try {
     const result = await probeHybridAI();
-    return {
+    const health: HybridAIHealthResult = {
       reachable: result.reachable,
       modelCount: result.modelCount,
       latencyMs: Date.now() - startedAt,
-      ...(!result.reachable && result.detail ? { error: result.detail } : {}),
     };
+    if (!result.reachable && result.detail) {
+      health.error = result.detail;
+    }
+    return health;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatUnknownError(error);
     logger.warn({ error: message }, 'HybridAI health probe failed');
     return {
       reachable: false,
