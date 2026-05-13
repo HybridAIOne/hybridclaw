@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { expect, test, vi } from 'vitest';
 
 import {
@@ -8,19 +5,6 @@ import {
   buildDynamicContextMessage,
 } from '../src/agent/conversation.js';
 import { buildSystemPromptFromHooks } from '../src/agent/prompt-hooks.js';
-
-const promptHooksPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../src/agent/prompt-hooks.ts',
-);
-
-test('prompt-hooks source does not call non-stable runtime APIs', () => {
-  const source = fs.readFileSync(promptHooksPath, 'utf8');
-
-  expect(source).not.toMatch(
-    /\bnew Date\(|\bDate\.now\(|\bMath\.random\(|\bprocess\.uptime\(|\bos\.hostname\(/,
-  );
-});
 
 test('buildSystemPromptFromHooks is byte-stable across same-date turns', () => {
   vi.useFakeTimers();

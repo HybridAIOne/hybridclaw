@@ -1,4 +1,3 @@
-import os from 'node:os';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   type HistoryOptimizationStats,
@@ -25,18 +24,10 @@ interface HistoryMessage {
   content: ChatMessage['content'];
 }
 
-function sanitizeDynamicContextValue(value: string): string {
-  return value
-    .replaceAll('\0', '')
-    .replace(/[\r\n]+/g, ' ')
-    .trim();
-}
-
 export function buildDynamicContextMessage(now = new Date()): ChatMessage {
   const lines = [
     '<context>',
     `Date (UTC): ${now.toISOString().slice(0, 10)}`,
-    `Host: ${sanitizeDynamicContextValue(os.hostname())}`,
     '</context>',
   ];
   return { role: 'user', content: lines.join('\n') };

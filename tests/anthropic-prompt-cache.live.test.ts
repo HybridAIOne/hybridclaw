@@ -40,7 +40,6 @@ liveTest(
       enableRag: false,
       requestHeaders: {
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'fine-grained-tool-streaming-2025-05-14',
       },
       tools: [],
       maxTokens: 16,
