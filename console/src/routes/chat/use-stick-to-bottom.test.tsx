@@ -178,4 +178,82 @@ describe('useStickToBottom', () => {
     await new Promise((resolve) => setTimeout(resolve, 350));
     expect(scroller.scrollTop).toBe(700);
   });
+
+  it('jumpToBottom retargets each frame when scrollHeight grows mid-animation', async () => {
+    // Reproduces the bug fixed in review #1: handleSendMessage appends the
+    // user bubble after jumpToBottom is called, so the easing must track the
+    // moving bottom rather than the snapshot taken at click time.
+    const { scroller, getHook } = renderHarness();
+    const metrics = { scrollHeight: 800, clientHeight: 100 };
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => metrics.scrollHeight,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => metrics.clientHeight,
+    });
+
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(getHook().isPinned).toBe(false);
+
+    act(() => {
+      getHook().jumpToBottom();
+    });
+    // Grow the content while the rAF easing is in flight.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    metrics.scrollHeight = 1200;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    // Must land at the *new* bottom, not the 700 that was the bottom at click.
+    expect(scroller.scrollTop).toBe(1100);
+  });
+
+  it('resetToBottom flips pin even when no scroller is attached so a later attach snaps', () => {
+    // Mirrors the session-switch path: the .messageArea unmounts mid-fetch,
+    // so resetToBottom must update pinnedRef now and let scrollRef's
+    // snap-on-attach do the actual scroll when the new element mounts.
+    const { scroller, getHook } = renderHarness();
+    configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
+
+    // Unpin the user.
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(getHook().isPinned).toBe(false);
+
+    // Detach (as React does on conditional unmount), then call resetToBottom.
+    act(() => {
+      getHook().scrollRef(null);
+      getHook().resetToBottom();
+    });
+    expect(getHook().isPinned).toBe(true);
+
+    // Re-attach: snap-on-attach fires now that pinned is true again.
+    act(() => {
+      getHook().scrollRef(scroller);
+    });
+    expect(scroller.scrollTop).toBe(800);
+  });
+
+  it('scrollRef snaps to bottom when attached after content already overflows', () => {
+    // Children mount before parents, so on hydrate contentRef fires its
+    // initial ResizeObserver callback while scrollElRef is still null. The
+    // safety belt: scrollRef must snap-on-attach if we're still pinned.
+    const { scroller, getHook } = renderHarness();
+    configureScroller(scroller, { scrollHeight: 800, clientHeight: 100 });
+    expect(getHook().isPinned).toBe(true);
+
+    // Re-attach the scroller to the same element — invokes scrollRef again
+    // and exercises the snap-on-attach path without needing a remount.
+    act(() => {
+      getHook().scrollRef(scroller);
+    });
+
+    expect(scroller.scrollTop).toBe(800);
+  });
 });

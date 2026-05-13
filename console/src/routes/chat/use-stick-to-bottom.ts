@@ -135,11 +135,15 @@ export function useStickToBottom(): UseStickToBottomReturn {
   }, [setPinned]);
 
   const resetToBottom = useCallback(() => {
+    // Pin must flip even when the scroller is currently unmounted — e.g. on
+    // session switch the .messageArea remounts mid-fetch, so the actual scroll
+    // happens later via scrollRef's snap-on-attach. Without this flip the new
+    // session would inherit the previous session's unpinned state.
+    setPinned(true);
     const el = scrollElRef.current;
     if (!el) return;
     programmaticScrollRef.current = true;
     el.scrollTop = el.scrollHeight;
-    setPinned(true);
   }, [setPinned]);
 
   useEffect(() => {

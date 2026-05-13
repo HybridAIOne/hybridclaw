@@ -850,6 +850,95 @@ describe('ChatPage', () => {
     );
   });
 
+  it('re-pins to the latest when the user sends a message while scrolled up', async () => {
+    fetchChatHistoryMock.mockResolvedValue({
+      sessionId: 'session-a',
+      history: [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+    });
+
+    renderChatPage();
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    const scroller = document.querySelector(
+      '[class*="messageArea"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(
+      await screen.findByLabelText('Jump to latest message'),
+    ).not.toBeNull();
+
+    const input = screen.getByLabelText('Message input');
+    fireEvent.input(input, { target: { value: 'follow up' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith('follow up', []),
+    );
+    // Send re-pins by calling jumpToBottom() before stream dispatch; the chip
+    // must clear so the user lands on their own message.
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Jump to latest message')).toBeNull(),
+    );
+  });
+
+  it('clears the jump-to-latest chip across session switches even if the user was unpinned', async () => {
+    fetchChatHistoryMock.mockImplementation(
+      async (_token, sessionId): Promise<ChatHistoryResponse> => ({
+        sessionId,
+        history:
+          sessionId === 'session-b'
+            ? [{ id: 201, role: 'assistant', content: 'Opened session B' }]
+            : [{ id: 101, role: 'assistant', content: 'Opened session A' }],
+      }),
+    );
+
+    renderChatPage();
+    expect(await screen.findByText('Opened session A')).not.toBeNull();
+
+    // Unpin in session A by scrolling away from the bottom.
+    const scroller = document.querySelector(
+      '[class*="messageArea"]',
+    ) as HTMLDivElement;
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(scroller, 'clientHeight', {
+      configurable: true,
+      get: () => 200,
+    });
+    act(() => {
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+    });
+    expect(
+      await screen.findByLabelText('Jump to latest message'),
+    ).not.toBeNull();
+
+    fireEvent.click(
+      screen.getByText('Session B').closest('button') as HTMLButtonElement,
+    );
+
+    // After session-b history loads, the session-change effect + the scrollRef
+    // safety-belt snap together leave us pinned, so the chip must be gone.
+    expect(await screen.findByText('Opened session B')).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Jump to latest message')).toBeNull(),
+    );
+  });
+
   it('creates a branch, prefetches its history, then sends the edited message', async () => {
     fetchChatHistoryMock.mockImplementation(
       async (_token, sessionId): Promise<ChatHistoryResponse> => ({
