@@ -1,0 +1,24 @@
+id: concierge-router
+name: Concierge Router
+version: 0.1.0
+description: Routes interactive turns by urgency before model selection.
+kind: middleware
+entrypoint: src/index.js
+configSchema:
+  type: object
+  additionalProperties: false
+  properties:
+    enabled:
+      type: boolean
+    model:
+      type: string
+    profiles:
+      type: object
+      additionalProperties: false
+      properties:
+        asap:
+          type: string
+        balanced:
+          type: string
+        noHurry:
+          type: string

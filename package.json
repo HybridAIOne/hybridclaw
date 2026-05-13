@@ -38,6 +38,7 @@
     "presets/",
     "templates/",
     "docs/",
+    "plugins/concierge-router/",
     "container/Dockerfile",
     "container/.dockerignore",
     "container/package.json",

@@ -41,7 +41,6 @@ import {
   type ApprovalPresentation,
   getApprovalVisibleText,
 } from '../../gateway/approval-presentation.js';
-import { parseConciergeChoiceCustomId } from '../../gateway/concierge-choice.js';
 import type { GatewayChatApprovalEvent } from '../../gateway/gateway-types.js';
 import { claimPendingApprovalByApprovalId } from '../../gateway/pending-approvals.js';
 import { parseResetConfirmationCustomId } from '../../gateway/reset-confirmation.js';
@@ -51,11 +50,7 @@ import {
 } from '../../gateway/show-mode.js';
 import { agentWorkspaceDir } from '../../infra/ipc.js';
 import { logger } from '../../logger.js';
-import {
-  getMemoryValue,
-  getSessionById,
-  resolveSessionIdCompat,
-} from '../../memory/db.js';
+import { getSessionById, resolveSessionIdCompat } from '../../memory/db.js';
 import { getAvailableModelChoices } from '../../providers/model-catalog.js';
 import { recordSkillFeedback } from '../../skills/skills-observation.js';
 import type { MediaContextItem } from '../../types/container.js';
@@ -251,15 +246,23 @@ const conversationExchangeByKey = new Map<
   { count: number; lastAtMs: number }
 >();
 
-function hasPendingConciergeState(sessionId: string): boolean {
-  const raw = getMemoryValue(sessionId, 'gateway.concierge.pending');
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
-  const originalUserContent =
-    typeof (raw as { originalUserContent?: unknown }).originalUserContent ===
-    'string'
-      ? (raw as { originalUserContent: string }).originalUserContent.trim()
-      : '';
-  return originalUserContent.length > 0;
+function parseConciergeChoiceCustomId(
+  customId: string,
+): { profile: string; sessionId: string; userId: string } | null {
+  const match = customId.match(
+    /^concierge:(asap|balanced|no_hurry):(\d{16,22}):(.+)$/,
+  );
+  if (!match) return null;
+  const [, profile, userId, encodedSessionId] = match;
+  try {
+    return {
+      profile,
+      userId,
+      sessionId: decodeURIComponent(encodedSessionId),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function setDiscordPresence(userId: string, data: CachedDiscordPresence): void {
@@ -1602,16 +1605,6 @@ export async function initDiscord(
           content: 'Only the requesting user can respond.',
           ...interactionVisibility,
         });
-        return;
-      }
-      if (!hasPendingConciergeState(parsed.sessionId)) {
-        await interaction.reply({
-          content: 'This concierge prompt has expired or was already handled.',
-          ...interactionVisibility,
-        });
-        await disableApprovalButtons(
-          interaction.message as DiscordMessage,
-        ).catch(() => {});
         return;
       }
       const sourceMessage = interaction.message as DiscordMessage;

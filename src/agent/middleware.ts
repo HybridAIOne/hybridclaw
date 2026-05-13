@@ -1,5 +1,6 @@
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
+import type { MediaContextItem } from '../types/container.js';
 import type { ToolExecution } from '../types/execution.js';
 
 export type {
@@ -26,10 +27,18 @@ export interface AgentTurnContext {
   userId?: string;
   agentId: string;
   channelId: string;
+  source?: string;
+  channelType?: string;
   model?: string;
+  currentModel?: string;
+  chatbotId?: string;
+  isInteractiveSource?: boolean;
+  explicitModelPinned?: boolean;
   workspacePath?: string;
   messages: ChatMessage[];
+  requestContent?: string;
   userContent: string;
+  media?: MediaContextItem[];
   resultText?: string;
   toolExecutions?: ToolExecution[];
   skill?: {
@@ -49,6 +58,7 @@ export interface MiddlewareEvent {
   before?: string;
   after?: string;
   route?: EscalationRoute;
+  metadata?: Record<string, unknown>;
 }
 
 export interface MiddlewareOutcome {
@@ -173,7 +183,12 @@ export async function applyClassifierMiddleware(
       },
     );
     if (!decision || decision.action === 'allow') {
-      events.push({ skillId: skill.id, phase, action: 'allow' });
+      events.push({
+        skillId: skill.id,
+        phase,
+        action: 'allow',
+        metadata: decision?.metadata,
+      });
       continue;
     }
     if (decision.action === 'warn') {
@@ -182,6 +197,7 @@ export async function applyClassifierMiddleware(
         phase,
         action: 'warn',
         reason: decision.reason,
+        metadata: decision.metadata,
       });
       continue;
     }
@@ -211,6 +227,7 @@ export async function applyClassifierMiddleware(
         reason: decision.reason,
         before: eventText(before),
         after: eventText(decision.payload),
+        metadata: decision.metadata,
       });
       continue;
     }
@@ -223,6 +240,7 @@ export async function applyClassifierMiddleware(
       before: eventText(before),
       after: eventText(decision.reason),
       route: decision.action === 'escalate' ? decision.route : undefined,
+      metadata: decision.metadata,
     });
     return {
       userContent,

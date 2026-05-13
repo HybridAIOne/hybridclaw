@@ -5,16 +5,34 @@ const { setupHome } = setupGatewayTest({
   tempHomePrefix: 'hybridclaw-gateway-concierge-command-',
 });
 
+function enableConciergePlugin(
+  updateRuntimeConfig: typeof import('../src/config/runtime-config.js').updateRuntimeConfig,
+): void {
+  updateRuntimeConfig((draft) => {
+    draft.plugins.list = [
+      {
+        id: 'concierge-router',
+        enabled: true,
+        path: './plugins/concierge-router',
+        config: {},
+      },
+    ];
+  });
+}
+
 test('concierge info reports config and on/off toggles persisted runtime state', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getRuntimeConfig, updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
   initDatabase({ quiet: true });
+  enableConciergePlugin(updateRuntimeConfig);
 
   const info = await handleGatewayCommand({
     sessionId: 'session-concierge-command-info',
@@ -39,7 +57,7 @@ test('concierge info reports config and on/off toggles persisted runtime state',
 
   expect(enabled.kind).toBe('plain');
   expect(enabled.text).toContain('Concierge routing enabled');
-  expect(getRuntimeConfig().routing.concierge.enabled).toBe(true);
+  expect(getRuntimeConfig().plugins.list[0]?.config.enabled).toBe(true);
 
   const disabled = await handleGatewayCommand({
     sessionId: 'session-concierge-command-info',
@@ -50,7 +68,7 @@ test('concierge info reports config and on/off toggles persisted runtime state',
 
   expect(disabled.kind).toBe('plain');
   expect(disabled.text).toContain('Concierge routing disabled');
-  expect(getRuntimeConfig().routing.concierge.enabled).toBe(false);
+  expect(getRuntimeConfig().plugins.list[0]?.config.enabled).toBe(false);
 });
 
 test('concierge command updates the decision model and profile mappings', async () => {
@@ -92,12 +110,15 @@ test('concierge command updates the decision model and profile mappings', async 
   }));
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getRuntimeConfig, updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
   initDatabase({ quiet: true });
+  enableConciergePlugin(updateRuntimeConfig);
 
   const modelResult = await handleGatewayCommand({
     sessionId: 'session-concierge-command-model',
@@ -108,7 +129,7 @@ test('concierge command updates the decision model and profile mappings', async 
 
   expect(modelResult.kind).toBe('plain');
   expect(modelResult.text).toContain('Concierge decision model set');
-  expect(getRuntimeConfig().routing.concierge.model).toBe('hybridai/gpt-5');
+  expect(getRuntimeConfig().plugins.list[0]?.config.model).toBe('gpt-5');
 
   const profileResult = await handleGatewayCommand({
     sessionId: 'session-concierge-command-model',
@@ -119,20 +140,23 @@ test('concierge command updates the decision model and profile mappings', async 
 
   expect(profileResult.kind).toBe('plain');
   expect(profileResult.text).toContain('Concierge profile `no_hurry` set');
-  expect(getRuntimeConfig().routing.concierge.profiles.noHurry).toBe(
-    'hybridai/gpt-5-mini',
-  );
+  expect(
+    (getRuntimeConfig().plugins.list[0]?.config.profiles as { noHurry?: string })
+      .noHurry,
+  ).toBe('gpt-5-mini');
 });
 
 test('concierge command rejects unknown profile names', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
+  const { updateRuntimeConfig } = await import('../src/config/runtime-config.ts');
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
   initDatabase({ quiet: true });
+  enableConciergePlugin(updateRuntimeConfig);
 
   const result = await handleGatewayCommand({
     sessionId: 'session-concierge-command-invalid',
@@ -147,42 +171,43 @@ test('concierge command rejects unknown profile names', async () => {
   );
 });
 
-test('concierge command rejects unknown model names', async () => {
+test('concierge command accepts raw model names in plugin config', async () => {
   setupHome();
 
   const { initDatabase } = await import('../src/memory/db.ts');
-  const { getRuntimeConfig } = await import('../src/config/runtime-config.ts');
+  const { getRuntimeConfig, updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.ts'
+  );
   const { handleGatewayCommand } = await import(
     '../src/gateway/gateway-service.ts'
   );
 
   initDatabase({ quiet: true });
+  enableConciergePlugin(updateRuntimeConfig);
 
-  const invalidDecisionModel = await handleGatewayCommand({
+  const decisionModel = await handleGatewayCommand({
     sessionId: 'session-concierge-command-unknown-model',
     guildId: null,
     channelId: 'web',
     args: ['concierge', 'model', 'definitely-not-a-real-model'],
   });
 
-  expect(invalidDecisionModel.kind).toBe('error');
-  expect(invalidDecisionModel.text).toContain(
-    '`definitely-not-a-real-model` is not in the available models list.',
+  expect(decisionModel.kind).toBe('plain');
+  expect(getRuntimeConfig().plugins.list[0]?.config.model).toBe(
+    'definitely-not-a-real-model',
   );
-  expect(getRuntimeConfig().routing.concierge.model).toBe('gemini-3-flash');
 
-  const invalidProfileModel = await handleGatewayCommand({
+  const profileModel = await handleGatewayCommand({
     sessionId: 'session-concierge-command-unknown-model',
     guildId: null,
     channelId: 'web',
     args: ['concierge', 'profile', 'balanced', 'definitely-not-a-real-model'],
   });
 
-  expect(invalidProfileModel.kind).toBe('error');
-  expect(invalidProfileModel.text).toContain(
-    '`definitely-not-a-real-model` is not in the available models list.',
-  );
-  expect(getRuntimeConfig().routing.concierge.profiles.balanced).toBe(
-    'gpt-5-mini',
-  );
+  expect(profileModel.kind).toBe('plain');
+  expect(
+    (getRuntimeConfig().plugins.list[0]?.config.profiles as {
+      balanced?: string;
+    }).balanced,
+  ).toBe('definitely-not-a-real-model');
 });

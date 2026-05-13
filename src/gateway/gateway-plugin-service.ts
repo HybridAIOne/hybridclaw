@@ -949,6 +949,29 @@ function normalizePluginCommandResult(value: unknown): GatewayCommandResult {
   if (value == null) {
     return { kind: 'plain', text: '' };
   }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const candidate = value as Partial<GatewayCommandResult>;
+    if (
+      (candidate.kind === 'plain' ||
+        candidate.kind === 'info' ||
+        candidate.kind === 'error') &&
+      typeof candidate.text === 'string'
+    ) {
+      return {
+        kind: candidate.kind,
+        text: candidate.text,
+        ...(typeof candidate.title === 'string'
+          ? { title: candidate.title }
+          : {}),
+        ...(candidate.components !== undefined
+          ? { components: candidate.components }
+          : {}),
+        ...(candidate.modelCatalog !== undefined
+          ? { modelCatalog: candidate.modelCatalog }
+          : {}),
+      };
+    }
+  }
   return { kind: 'plain', text: JSON.stringify(value, null, 2) };
 }
 

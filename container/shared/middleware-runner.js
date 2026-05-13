@@ -6,6 +6,11 @@ function safeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function safeMetadata(value) {
+  if (!isObjectRecord(value)) return undefined;
+  return value;
+}
+
 function warn(options, meta, message) {
   if (typeof options?.warn === 'function') {
     options.warn(meta, message);
@@ -34,19 +39,49 @@ export function normalizeMiddlewareDecision(value, options = {}) {
 
   switch (value.action) {
     case 'allow':
-      return { action: 'allow' };
+      return {
+        action: 'allow',
+        ...(safeMetadata(value.metadata)
+          ? { metadata: safeMetadata(value.metadata) }
+          : {}),
+      };
     case 'block': {
       const reason = safeText(value.reason);
-      return reason ? { action: 'block', reason } : null;
+      return reason
+        ? {
+            action: 'block',
+            reason,
+            ...(safeMetadata(value.metadata)
+              ? { metadata: safeMetadata(value.metadata) }
+              : {}),
+          }
+        : null;
     }
     case 'warn': {
       const reason = safeText(value.reason);
-      return reason ? { action: 'warn', reason } : null;
+      return reason
+        ? {
+            action: 'warn',
+            reason,
+            ...(safeMetadata(value.metadata)
+              ? { metadata: safeMetadata(value.metadata) }
+              : {}),
+          }
+        : null;
     }
     case 'transform': {
       const payload = safeText(value.payload);
       const reason = safeText(value.reason);
-      return reason ? { action: 'transform', payload, reason } : null;
+      return reason
+        ? {
+            action: 'transform',
+            payload,
+            reason,
+            ...(safeMetadata(value.metadata)
+              ? { metadata: safeMetadata(value.metadata) }
+              : {}),
+          }
+        : null;
     }
     case 'escalate': {
       const reason = safeText(value.reason);
@@ -57,7 +92,14 @@ export function normalizeMiddlewareDecision(value, options = {}) {
           value.route === 'approval_request' ||
           value.route === 'policy_denial')
       ) {
-        return { action: 'escalate', route: value.route, reason };
+        return {
+          action: 'escalate',
+          route: value.route,
+          reason,
+          ...(safeMetadata(value.metadata)
+            ? { metadata: safeMetadata(value.metadata) }
+            : {}),
+        };
       }
       break;
     }
