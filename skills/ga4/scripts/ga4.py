@@ -34,7 +34,8 @@ EVAL_SCENARIOS_PATH = SKILL_DIR / "evals" / "scenarios.json"
 AMBIGUOUS_QUARTER_RE = re.compile(r"\bq[1-4]\b", re.IGNORECASE)
 EXPLICIT_YEAR_RE = re.compile(r"\b20[0-9]{2}\b")
 ADMIN_MUTATION_RE = re.compile(
-    r"\b(admin|access|permission|grant|give|add user|remove user|delete property|create property|tag|key event change|mark.*key event)\b",
+    r"\b(admin access|grant access|grant permission|add user|remove user|delete property|"
+    r"create property|change tag|change key event|mark .*key event)\b",
     re.IGNORECASE,
 )
 
@@ -107,13 +108,7 @@ def with_cost(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_intent_text(value: str) -> str:
-    return (
-        value.lower()
-        .replace("\u00e4", "ae")
-        .replace("\u00f6", "oe")
-        .replace("\u00fc", "ue")
-        .replace("\u00df", "ss")
-    )
+    return value.lower()
 
 
 def normalize_property_id(value: str | None) -> str:
@@ -123,8 +118,6 @@ def normalize_property_id(value: str | None) -> str:
     normalized = re.sub(r"[^0-9]", "", raw)
     if not normalized:
         raise ConfigError("Missing GA4 property id.")
-    if not re.fullmatch(r"[0-9]+", normalized):
-        raise ConfigError("GA4 property id must be numeric.")
     return normalized
 
 
@@ -137,7 +130,8 @@ def normalize_api_version(value: str | None) -> str:
 
 def resolve_bearer_secret_name(args: argparse.Namespace) -> str:
     value = (
-        getattr(args, "bearer_secret_name", "") or os.environ.get("GA4_BEARER_SECRET_NAME", "")
+        getattr(args, "bearer_secret_name", "")
+        or os.environ.get("GA4_BEARER_SECRET_NAME", "")
     ).strip()
     return value or DEFAULT_BEARER_SECRET_NAME
 
@@ -159,7 +153,11 @@ def resolve_gateway_token() -> str:
 
 
 def is_local_gateway_url(value: str) -> bool:
-    return value.startswith("http://127.") or value.startswith("http://localhost")
+    return (
+        value.startswith("http://127.")
+        or value.startswith("http://localhost")
+        or value.startswith("http://[::1]")
+    )
 
 
 def make_gateway_config(args: argparse.Namespace) -> GatewayConfig:
@@ -176,15 +174,19 @@ def make_gateway_config(args: argparse.Namespace) -> GatewayConfig:
         raise ConfigError(
             "Refusing unauthenticated remote gateway URL. Set HYBRIDCLAW_GATEWAY_TOKEN or use a local 127.0.0.1/localhost gateway."
         )
+    if not is_local_gateway_url(config.base_url) and config.base_url.startswith(
+        "http://"
+    ):
+        raise ConfigError("Remote gateway URL must use HTTPS.")
     return config
 
 
 def ga4_url(api_version: str, property_id: str, suffix: str) -> str:
-    return f"{GA4_BASE_URL}/{api_version}/properties/{property_id}:{suffix}"
-
-
-def ga4_metadata_url(api_version: str, property_id: str) -> str:
-    return f"{GA4_BASE_URL}/{api_version}/properties/{property_id}/metadata"
+    base_url = f"{GA4_BASE_URL}/{api_version}/properties/{property_id}"
+    if not suffix:
+        return base_url
+    separator = "" if suffix.startswith("/") else ":"
+    return f"{base_url}{separator}{suffix}"
 
 
 def build_http_request(
@@ -276,7 +278,7 @@ def string_filter(field_name: str, value: str) -> dict[str, Any]:
     }
 
 
-def date_ranges_for_intent(text: str) -> list[dict[str, str]]:
+def date_ranges_for_intent(text: str) -> tuple[list[dict[str, str]], bool]:
     compare = any(
         phrase in text
         for phrase in (
@@ -291,25 +293,36 @@ def date_ranges_for_intent(text: str) -> list[dict[str, str]]:
         )
     )
     if compare:
-        return [
-            {"name": "current_period", "startDate": "7daysAgo", "endDate": "yesterday"},
-            {"name": "prior_period", "startDate": "14daysAgo", "endDate": "8daysAgo"},
-        ]
-    if "yesterday" in text or "gestern" in text:
-        return [{"startDate": "yesterday", "endDate": "yesterday"}]
+        return (
+            [
+                {
+                    "name": "current_period",
+                    "startDate": "7daysAgo",
+                    "endDate": "yesterday",
+                },
+                {
+                    "name": "prior_period",
+                    "startDate": "14daysAgo",
+                    "endDate": "8daysAgo",
+                },
+            ],
+            False,
+        )
+    if "yesterday" in text:
+        return ([{"startDate": "yesterday", "endDate": "yesterday"}], False)
     if "today" in text or "current" in text or "realtime" in text:
-        return [{"startDate": "today", "endDate": "today"}]
+        return ([{"startDate": "today", "endDate": "today"}], False)
     if "90 days" in text or "past 90" in text:
-        return [{"startDate": "90daysAgo", "endDate": "yesterday"}]
+        return ([{"startDate": "90daysAgo", "endDate": "yesterday"}], False)
     if "last month" in text or "previous month" in text:
-        return [{"startDate": "30daysAgo", "endDate": "yesterday"}]
+        return ([{"startDate": "30daysAgo", "endDate": "yesterday"}], False)
     if "this month" in text:
-        return [{"startDate": "firstDayOfMonth", "endDate": "yesterday"}]
+        return ([{"startDate": "firstDayOfMonth", "endDate": "yesterday"}], False)
     if "this week" in text:
-        return [{"startDate": "7daysAgo", "endDate": "yesterday"}]
+        return ([{"startDate": "7daysAgo", "endDate": "yesterday"}], False)
     if "last 7" in text or "past 7" in text or "last week" in text:
-        return [{"startDate": "7daysAgo", "endDate": "yesterday"}]
-    return [{"startDate": "30daysAgo", "endDate": "yesterday"}]
+        return ([{"startDate": "7daysAgo", "endDate": "yesterday"}], False)
+    return ([{"startDate": "30daysAgo", "endDate": "yesterday"}], True)
 
 
 def metrics_for_intent(text: str) -> list[str]:
@@ -324,7 +337,7 @@ def metrics_for_intent(text: str) -> list[str]:
         metrics.append("transactions")
     if "items purchased" in text:
         metrics.append("itemsPurchased")
-    if "event count" in text or "events" in text and "key event" not in text:
+    if ("event count" in text or "events" in text) and "key event" not in text:
         metrics.append("eventCount")
     if "bounce" in text:
         metrics.append("bounceRate")
@@ -364,7 +377,9 @@ def dimensions_for_intent(text: str) -> list[str]:
         dims.append("itemCategory")
     if "item name" in text or "items purchased" in text:
         dims.append("itemName")
-    if not dims and any(phrase in text for phrase in ("compare", "vs", "trend")):
+    if not dims and (
+        "compare" in text or "trend" in text or re.search(r"\bvs\b", text)
+    ):
         dims.append("date")
     return list(dict.fromkeys(dims))
 
@@ -420,8 +435,9 @@ def build_report_plan(intent: str, limit: int = DEFAULT_LIMIT) -> dict[str, Any]
 
     metrics = metrics_for_intent(text)
     dims = dimensions_for_intent(text)
+    date_ranges, date_range_inferred = date_ranges_for_intent(text)
     report: dict[str, Any] = {
-        "dateRanges": date_ranges_for_intent(text),
+        "dateRanges": date_ranges,
         "metrics": [metric(name) for name in metrics],
         "limit": limit,
         "keepEmptyRows": False,
@@ -441,6 +457,7 @@ def build_report_plan(intent: str, limit: int = DEFAULT_LIMIT) -> dict[str, Any]
         {
             "command": "report-plan",
             "intent": intent,
+            "dateRangeInferred": date_range_inferred,
             "requiresClarification": False,
             "request": report,
             "review": review,
@@ -523,7 +540,11 @@ def review_report_request(report: dict[str, Any]) -> dict[str, Any]:
 def prompt_template(intent: str, report: dict[str, Any] | None = None) -> dict[str, Any]:
     planned = build_report_plan(intent) if report is None else None
     request_payload = report or planned["request"]
-    review = review_report_request(request_payload)
+    review = (
+        planned["review"]
+        if planned is not None
+        else review_report_request(request_payload)
+    )
     return with_cost(
         {
             "templateFamily": "R21.5 GA4 analyst query review",
@@ -532,14 +553,6 @@ def prompt_template(intent: str, report: dict[str, Any] | None = None) -> dict[s
                 "question": intent,
                 "deterministicReview": review,
                 "request": request_payload,
-                "schemaCache": json.dumps(
-                    {
-                        "dimensions": sorted(KNOWN_DIMENSIONS),
-                        "metrics": sorted(KNOWN_METRICS),
-                        "defaultLimit": DEFAULT_LIMIT,
-                    },
-                    sort_keys=True,
-                ),
             },
         }
     )
@@ -600,12 +613,12 @@ def eval_scenarios() -> dict[str, Any]:
 
 def emit(payload: Any, output_format: str) -> None:
     if output_format == "json":
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        print(json.dumps(payload, indent=2))
         return
     if isinstance(payload, str):
         print(payload)
     else:
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        print(json.dumps(payload, indent=2))
 
 
 def command_report_plan(args: argparse.Namespace) -> dict[str, Any]:
@@ -658,7 +671,7 @@ def command_metadata_request(args: argparse.Namespace) -> dict[str, Any]:
     property_id = normalize_property_id(args.property_id)
     api_version = normalize_api_version(args.api_version)
     http_request = build_http_request(
-        url=ga4_metadata_url(api_version, property_id),
+        url=ga4_url(api_version, property_id, "/metadata"),
         method="GET",
         bearer_secret_name=resolve_bearer_secret_name(args),
         timeout_ms=args.timeout_ms,
@@ -695,7 +708,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gateway-url", default="")
     parser.add_argument("--gateway-token", default=None)
     parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS)
-    parser.add_argument("--api-version", default=DEFAULT_API_VERSION)
     parser.add_argument("--bearer-secret-name", default="")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -723,6 +735,7 @@ def build_parser() -> argparse.ArgumentParser:
         "http-request", help="Build an http_request payload for GA4 runReport."
     )
     http_request.add_argument("property_id")
+    http_request.add_argument("--api-version", default=DEFAULT_API_VERSION)
     http_request.add_argument("--request-json", required=True)
     http_request.add_argument("--max-response-bytes", type=int, default=None)
     http_request.set_defaults(func=command_http_request)
@@ -731,6 +744,7 @@ def build_parser() -> argparse.ArgumentParser:
         "metadata-request", help="Build an http_request payload for GA4 metadata."
     )
     metadata.add_argument("property_id")
+    metadata.add_argument("--api-version", default=DEFAULT_API_VERSION)
     metadata.add_argument("--max-response-bytes", type=int, default=None)
     metadata.set_defaults(func=command_metadata_request)
 
@@ -738,6 +752,7 @@ def build_parser() -> argparse.ArgumentParser:
         "run-report", help="Run a GA4 report through the HybridClaw gateway proxy."
     )
     run_report.add_argument("property_id")
+    run_report.add_argument("--api-version", default=DEFAULT_API_VERSION)
     run_report.add_argument("--request-json", required=True)
     run_report.add_argument("--max-response-bytes", type=int, default=None)
     run_report.set_defaults(func=command_run_report)

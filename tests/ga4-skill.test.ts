@@ -21,6 +21,34 @@ const scenariosPath = path.join(
 );
 const skillPath = path.join(process.cwd(), 'skills', 'ga4', 'SKILL.md');
 
+function ga4Rows() {
+  return {
+    rows: [
+      {
+        dimensionValues: [{ value: '20260511' }],
+        metricValues: [{ value: '42' }],
+      },
+    ],
+    rowCount: 1,
+  };
+}
+
+function gatewayEnvelope(
+  json: unknown,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(json),
+    json,
+    ...overrides,
+  };
+}
+
 function runHelper(args: string[]) {
   return spawnSync('python3', [helperPath, ...args], {
     encoding: 'utf-8',
@@ -63,6 +91,7 @@ function runHelperAsync(args: string[], timeoutMs = 10_000) {
 
 async function withMockGateway(
   run: (gatewayUrl: string, captured: unknown[]) => Promise<void>,
+  responsePayload: Record<string, unknown> = gatewayEnvelope(ga4Rows()),
 ) {
   const captured: unknown[] = [];
   const server = http.createServer((req, res) => {
@@ -74,33 +103,7 @@ async function withMockGateway(
     req.on('end', () => {
       captured.push(JSON.parse(body));
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          ok: true,
-          status: 200,
-          statusText: 'OK',
-          url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            rows: [
-              {
-                dimensionValues: [{ value: '20260511' }],
-                metricValues: [{ value: '42' }],
-              },
-            ],
-            rowCount: 1,
-          }),
-          json: {
-            rows: [
-              {
-                dimensionValues: [{ value: '20260511' }],
-                metricValues: [{ value: '42' }],
-              },
-            ],
-            rowCount: 1,
-          },
-        }),
-      );
+      res.end(JSON.stringify(responsePayload));
     });
   });
 
@@ -171,6 +174,19 @@ test('GA4 helper plans organic key-event comparison reports', () => {
   expect(payload.costMeasurement.system).toBe('UsageTotals');
 });
 
+test('GA4 helper does not add eventCount for key event count wording', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'report-plan',
+    'Show key event count by channel last week',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.request.metrics).toEqual([{ name: 'keyEvents' }]);
+});
+
 test('GA4 helper plans landing-page revenue and session reports', () => {
   const result = runHelper([
     '--format',
@@ -208,6 +224,22 @@ test('GA4 helper plans time-series sessions by date', () => {
   ]);
 });
 
+test('GA4 helper marks inferred fallback date ranges', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'report-plan',
+    'Show sessions by channel',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.dateRangeInferred).toBe(true);
+  expect(payload.request.dateRanges).toEqual([
+    { startDate: '30daysAgo', endDate: 'yesterday' },
+  ]);
+});
+
 test('GA4 helper requires explicit dates for ambiguous quarter reports', () => {
   const result = runHelper([
     '--format',
@@ -237,6 +269,33 @@ test('GA4 helper blocks unsupported Admin API mutation requests', () => {
   expect(payload.review.findings).toContain(
     'Admin or access mutation requested.',
   );
+});
+
+test('GA4 helper does not block ordinary access or give-me reporting wording', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'report-plan',
+    'Give me a page tag performance breakdown by channel last week',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.requiresClarification).toBe(false);
+  expect(payload.review.allowed).toBe(true);
+});
+
+test('GA4 helper does not infer date dimensions from vs inside words', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    'report-plan',
+    'Show revs by country last week',
+  ]);
+
+  expect(result.status).toBe(0);
+  const payload = JSON.parse(result.stdout);
+  expect(payload.request.dimensions).toEqual([{ name: 'country' }]);
 });
 
 test('GA4 helper reviews request JSON before execution', () => {
@@ -368,59 +427,77 @@ test('GA4 helper sends live reports through the gateway with bearer handle only'
 });
 
 test('GA4 helper fails closed when gateway reports upstream failure', async () => {
-  const captured: unknown[] = [];
-  const server = http.createServer((req, res) => {
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      captured.push(JSON.parse(body));
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
+  await withMockGateway(
+    async (gatewayUrl, captured) => {
+      const result = await runHelperAsync([
+        '--format',
+        'json',
+        '--gateway-url',
+        gatewayUrl,
+        'run-report',
+        '123456789',
+        '--request-json',
         JSON.stringify({
-          ok: false,
-          status: 403,
-          statusText: 'Forbidden',
-          url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
-          headers: { 'content-type': 'application/json' },
-          body: '{"error":{"message":"Permission denied"}}',
-          json: { error: { message: 'Permission denied' } },
+          dateRanges: [{ startDate: '7daysAgo', endDate: 'yesterday' }],
+          metrics: [{ name: 'sessions' }],
         }),
+      ]);
+
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain(
+        'Gateway proxy upstream request failed with status 403',
       );
-    });
-  });
+      expect(result.stderr).toContain('Permission denied');
+      expect(captured).toHaveLength(1);
+    },
+    gatewayEnvelope(
+      { error: { message: 'Permission denied' } },
+      { ok: false, status: 403, statusText: 'Forbidden' },
+    ),
+  );
+});
 
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const address = server.address();
-    if (!address || typeof address !== 'object') {
-      throw new Error('Expected server address.');
-    }
-    const result = await runHelperAsync([
-      '--format',
-      'json',
-      '--gateway-url',
-      `http://127.0.0.1:${address.port}`,
-      'run-report',
-      '123456789',
-      '--request-json',
-      JSON.stringify({
-        dateRanges: [{ startDate: '7daysAgo', endDate: 'yesterday' }],
-        metrics: [{ name: 'sessions' }],
-      }),
-    ]);
+test('GA4 helper refuses plaintext remote gateway URLs even with a token', () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    '--gateway-url',
+    'http://gateway.example.com',
+    '--gateway-token',
+    'test-token',
+    'run-report',
+    '123456789',
+    '--request-json',
+    JSON.stringify({
+      dateRanges: [{ startDate: '7daysAgo', endDate: 'yesterday' }],
+      metrics: [{ name: 'sessions' }],
+    }),
+  ]);
 
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain(
-      'Gateway proxy upstream request failed with status 403',
-    );
-    expect(result.stderr).toContain('Permission denied');
-    expect(captured).toHaveLength(1);
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
+  expect(result.status).toBe(2);
+  expect(result.stderr).toContain('Remote gateway URL must use HTTPS');
+});
+
+test('GA4 helper treats IPv6 loopback gateways as local', async () => {
+  const result = runHelper([
+    '--format',
+    'json',
+    '--gateway-url',
+    'http://[::1]:9090',
+    'run-report',
+    '123456789',
+    '--request-json',
+    JSON.stringify({
+      dateRanges: [{ startDate: '7daysAgo', endDate: 'yesterday' }],
+      metrics: [{ name: 'sessions' }],
+    }),
+  ]);
+
+  expect(result.status).toBe(2);
+  expect(result.stderr).toContain('Cannot reach gateway at http://[::1]:9090');
+  expect(result.stderr).not.toContain(
+    'Refusing unauthenticated remote gateway',
+  );
 });
 
 test('GA4 helper refuses unauthenticated remote gateway URLs', () => {
