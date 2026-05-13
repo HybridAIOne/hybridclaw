@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
+  A2A_LOCAL_INSTANCE_ID,
   type A2AEnvelopeDuplicateError,
   A2AEnvelopeValidationError,
   classifyA2AAgentId,
@@ -71,7 +72,7 @@ describe('A2A envelope schema', () => {
       id: 'msg-1',
       sender_agent_id: 'researcher',
       recipient_agent_id: 'charly@benedikt@local-dev',
-      sender_instance_id: 'local',
+      sender_instance_id: A2A_LOCAL_INSTANCE_ID,
       thread_id: 'thread-1',
       parent_message_id: 'msg-0',
       intent: 'handoff',
@@ -157,7 +158,7 @@ describe('A2A envelope schema', () => {
     expect(envelope).toMatchObject({
       id: 'msg-local-1',
       sender_agent_id: 'main',
-      sender_instance_id: 'local',
+      sender_instance_id: A2A_LOCAL_INSTANCE_ID,
       recipient_agent_id: 'writer',
     });
   });
@@ -479,7 +480,7 @@ describe('A2A envelope persistence', () => {
     expect(store.listA2AThreadEnvelopes('thread-local-legacy')).toEqual([
       {
         ...legacyState.envelopes[0],
-        sender_instance_id: 'local',
+        sender_instance_id: A2A_LOCAL_INSTANCE_ID,
       },
     ]);
     expect(
@@ -641,7 +642,7 @@ describe('A2A envelope persistence', () => {
       sender_instance_id: 'peer-b',
     });
     expect(store.listA2AThreadEnvelopes('thread-1')).toHaveLength(2);
-    expect(store.getA2AEnvelope('thread-1', 'msg-1', 'peer-a')).toMatchObject({
+    expect(store.getA2AEnvelope('thread-1', 'msg-1', 'PEER-A')).toMatchObject({
       id: 'msg-1',
       sender_instance_id: 'peer-a',
       content: 'Peer A copy.',
@@ -654,6 +655,9 @@ describe('A2A envelope persistence', () => {
     expect(
       store.getA2AEnvelope('thread-1', 'msg-1', 'missing-peer'),
     ).toBeNull();
+    expect(() =>
+      store.getA2AEnvelope('thread-1', 'msg-1', 'bad instance'),
+    ).toThrow('sender_instance_id must be a canonical instance id');
     expect(() => store.getA2AEnvelope('thread-1', 'msg-1')).toThrow(
       'envelope id msg-1 is ambiguous; provide sender_instance_id',
     );

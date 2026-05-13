@@ -274,19 +274,6 @@ function validateDelegationInstanceMatch(
   }
 }
 
-function validateMatchingInstanceIds(
-  leftField: 'sender_instance_id' | 'source_instance_id',
-  leftValue: string | undefined,
-  rightField: 'sender_instance_id' | 'source_instance_id',
-  rightValue: string | undefined,
-  issues: string[],
-): void {
-  if (leftValue === undefined || rightValue === undefined) return;
-  if (leftValue !== rightValue) {
-    issues.push(`${leftField} must match ${rightField}`);
-  }
-}
-
 function validateDelegationFieldSet(
   sourceInstanceId: string | undefined,
   targetInstanceId: string | undefined,
@@ -401,6 +388,7 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
   const senderInstanceId =
     explicitSenderInstanceId ??
     senderAgent.instanceId ??
+    // Legacy local-only envelopes predate explicit federation metadata.
     (senderAgent.kind === 'local' ? A2A_LOCAL_INSTANCE_ID : undefined);
 
   validateOpaqueId('id', id, issues);
@@ -447,13 +435,13 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     senderAgent.instanceId,
     issues,
   );
-  validateMatchingInstanceIds(
-    'source_instance_id',
-    sourceInstanceId,
-    'sender_instance_id',
-    senderInstanceId,
-    issues,
-  );
+  if (
+    sourceInstanceId !== undefined &&
+    senderInstanceId !== undefined &&
+    sourceInstanceId !== senderInstanceId
+  ) {
+    issues.push('source_instance_id must match sender_instance_id');
+  }
   validateDelegationInstanceMatch(
     'target_instance_id',
     targetInstanceId,

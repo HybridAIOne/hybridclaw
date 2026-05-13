@@ -6,6 +6,7 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isAgentIdentityComponent } from '../identity/agent-id.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeDuplicateError,
@@ -53,6 +54,16 @@ function normalizeThreadId(threadId: string): string {
 
 function normalizeEnvelopeId(envelopeId: string): string {
   return normalizeOpaqueId(envelopeId, 'id');
+}
+
+function normalizeSenderInstanceId(senderInstanceId: string): string {
+  const normalized = senderInstanceId.trim().toLowerCase();
+  if (!isAgentIdentityComponent(normalized)) {
+    throw new A2AEnvelopeValidationError([
+      'sender_instance_id must be a canonical instance id',
+    ]);
+  }
+  return normalized;
 }
 
 function a2aEnvelopeIdempotencyKey(envelope: A2AEnvelope): string {
@@ -278,7 +289,7 @@ export function getA2AEnvelope(
   const normalizedSenderInstanceId =
     senderInstanceId === undefined
       ? undefined
-      : normalizeOpaqueId(senderInstanceId, 'sender_instance_id');
+      : normalizeSenderInstanceId(senderInstanceId);
   const matches = readThreadState(threadId).envelopes.filter(
     (entry) => entry.id === normalizedEnvelopeId,
   );

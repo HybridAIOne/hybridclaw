@@ -61,10 +61,10 @@ export function resolveA2AEnvelopeAgentIds(envelope: unknown): A2AEnvelope {
   const recipientAgentId = resolveA2AAgentId(
     normalizedEnvelope.recipient_agent_id,
   );
-  return validateA2AEnvelope({
+  return {
     ...normalizedEnvelope,
     sender_agent_id: senderAgentId,
     recipient_agent_id: recipientAgentId,
     sender_instance_id: parseAgentIdentity(senderAgentId).instanceId,
-  });
+  };
 }
