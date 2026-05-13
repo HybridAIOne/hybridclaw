@@ -335,17 +335,6 @@ async function resolveGoogleOAuthTokenOrThrow(
     );
   }
 
-  assertSecretResolveAllowed({
-    sessionId: context.sessionId,
-    agentId: context.agentId,
-    skillName: context.skillName,
-    secretSource: 'env',
-    secretId: secretName,
-    sinkKind: 'http',
-    host: context.host,
-    selector: context.selector,
-  });
-
   const runtimeEnv = await resolveGoogleWorkspaceRuntimeEnv();
   const token = normalizeSecretString(runtimeEnv[secretName]);
   if (!token) {
@@ -358,7 +347,7 @@ async function resolveGoogleOAuthTokenOrThrow(
   const auditContext = {
     sessionId: context.sessionId,
     skillName: context.skillName,
-    secretSource: 'env' as const,
+    secretSource: 'google-oauth' as const,
     secretId: secretName,
     sinkKind: 'http' as const,
     host: context.host,

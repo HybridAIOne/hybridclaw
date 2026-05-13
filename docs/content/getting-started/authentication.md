@@ -364,9 +364,7 @@ Current built-in SecretRef surfaces include:
 - `imessage.password`
 - `local.backends.vllm.apiKey`
 
-Use `{ "source": "store", "id": "SECRET_NAME" }`,
-`{ "source": "env", "id": "ENV_VAR" }`, or `${ENV_VAR}` shorthand in those
-fields.
+Use `{ "source": "store", "id": "SECRET_NAME" }` in those fields.
 
 Legacy aliases are still supported, for example:
 

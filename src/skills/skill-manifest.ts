@@ -21,7 +21,7 @@ export type SkillManifestCredentialKind =
   | 'header';
 
 export interface SkillManifestSecretRef {
-  source: 'env' | 'store';
+  source: 'store';
   id: string;
 }
 

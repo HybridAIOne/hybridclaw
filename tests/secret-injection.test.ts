@@ -14,12 +14,12 @@ describe('SecretRef', () => {
     const { hardenSecretRef } = await import('../src/security/secret-refs.js');
 
     const ref = hardenSecretRef({
-      source: 'env',
+      source: 'store',
       id: 'HYBRIDCLAW_TEST_SECRET',
     });
 
     expect(ref).toMatchObject({
-      source: 'env',
+      source: 'store',
       id: 'HYBRIDCLAW_TEST_SECRET',
     });
     expect(Object.keys(ref).sort()).toEqual(['id', 'source']);
@@ -33,7 +33,12 @@ describe('SecretRef', () => {
 
 describe('SecretHandle', () => {
   test('blocks accidental coercion and JSON serialization', async () => {
-    process.env.HYBRIDCLAW_TEST_SECRET = 'super-secret-value';
+    vi.doMock('../src/security/runtime-secrets.js', () => ({
+      isRuntimeSecretName: (value: string) =>
+        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
+      readStoredRuntimeSecret: (name: string) =>
+        name === 'HYBRIDCLAW_TEST_SECRET' ? 'super-secret-value' : null,
+    }));
     const { resolveSecretHandleInput } = await import(
       '../src/security/secret-refs.js'
     );
@@ -43,7 +48,7 @@ describe('SecretHandle', () => {
 
     const audit = vi.fn();
     const handle = resolveSecretHandleInput(
-      { source: 'env', id: 'HYBRIDCLAW_TEST_SECRET' },
+      { source: 'store', id: 'HYBRIDCLAW_TEST_SECRET' },
       {
         path: 'test.secret',
         required: true,
@@ -67,7 +72,12 @@ describe('SecretHandle', () => {
   });
 
   test('resolved secret refs return handles and HTTP header injection audits', async () => {
-    process.env.HYBRIDCLAW_TEST_SECRET = 'header-secret-value';
+    vi.doMock('../src/security/runtime-secrets.js', () => ({
+      isRuntimeSecretName: (value: string) =>
+        /^[A-Z][A-Z0-9_]{0,127}$/.test(value),
+      readStoredRuntimeSecret: (name: string) =>
+        name === 'HYBRIDCLAW_TEST_SECRET' ? 'header-secret-value' : null,
+    }));
     const { resolveSecretInput } = await import(
       '../src/security/secret-refs.js'
     );
@@ -76,7 +86,7 @@ describe('SecretHandle', () => {
     );
 
     const resolved = resolveSecretInput(
-      { source: 'env', id: 'HYBRIDCLAW_TEST_SECRET' },
+      { source: 'store', id: 'HYBRIDCLAW_TEST_SECRET' },
       {
         path: 'test.header',
         required: true,
