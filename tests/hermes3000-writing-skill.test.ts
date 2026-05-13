@@ -1,6 +1,11 @@
-import { spawnSync } from 'node:child_process';
+import {
+  execFile as execFileWithCallback,
+  spawnSync,
+} from 'node:child_process';
 import fs from 'node:fs';
+import { createServer } from 'node:http';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { expect, test } from 'vitest';
 
@@ -19,11 +24,51 @@ const skillPath = path.join(
   'hermes3000-writing',
   'SKILL.md',
 );
+const execFile = promisify(execFileWithCallback);
 
 function runHelper(args: string[]) {
   return spawnSync('node', [helperPath, ...args], {
     encoding: 'utf-8',
   });
+}
+
+async function withMockGateway(
+  run: (gatewayUrl: string, captured: unknown[]) => Promise<void>,
+  gatewayResponse: Record<string, unknown> = {
+    ok: true,
+    status: 200,
+    captured: {
+      token: 'HERMES3000_JWT',
+    },
+  },
+) {
+  const captured: unknown[] = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      captured.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(gatewayResponse));
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    server.close();
+    throw new Error('Expected TCP server address.');
+  }
+  try {
+    await run(`http://127.0.0.1:${address.port}`, captured);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 }
 
 test('Hermes3000 skill declares the stored JWT credential', () => {
@@ -70,6 +115,89 @@ test('Hermes3000 helper emits login capture request without raw credentials', ()
     },
   });
   expect(result.stdout).not.toContain('Bearer ');
+});
+
+test('Hermes3000 helper run mode proxies login through gateway without raw credentials', async () => {
+  await withMockGateway(async (gatewayUrl, captured) => {
+    const result = await execFile(
+      'node',
+      [
+        helperPath,
+        '--format',
+        'json',
+        '--gateway-url',
+        gatewayUrl,
+        '--gateway-token',
+        'gateway-token',
+        'run',
+        'auth.login',
+      ],
+      { encoding: 'utf-8' },
+    );
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      status: 200,
+      captured: {
+        token: 'HERMES3000_JWT',
+      },
+    });
+    expect(result.stdout).not.toContain('Bearer ');
+    expect(captured).toEqual([
+      expect.objectContaining({
+        url: 'https://hermes3000.ai/api/auth/login',
+        method: 'POST',
+        json: {
+          email: '<secret:HERMES3000_EMAIL>',
+          password: '<secret:HERMES3000_PASSWORD>',
+        },
+        replaceSecretPlaceholders: true,
+        captureResponseFields: [
+          { jsonPath: 'token', secretName: 'HERMES3000_JWT' },
+        ],
+      }),
+    ]);
+  });
+});
+
+test('Hermes3000 helper run mode refuses uncaptured login tokens', async () => {
+  await withMockGateway(
+    async (gatewayUrl) => {
+      try {
+        await execFile(
+          'node',
+          [
+            helperPath,
+            '--format',
+            'json',
+            '--gateway-url',
+            gatewayUrl,
+            'run',
+            'auth.login',
+          ],
+          { encoding: 'utf-8' },
+        );
+        throw new Error(
+          'Expected helper to fail when auth token is uncaptured.',
+        );
+      } catch (error) {
+        expect(error).toMatchObject({
+          stdout: '',
+          stderr: expect.stringContaining(
+            'Gateway did not capture token into HERMES3000_JWT.',
+          ),
+        });
+        expect(String(error)).not.toContain('raw-token-that-must-not-print');
+      }
+    },
+    {
+      ok: true,
+      status: 200,
+      json: {
+        token: 'raw-token-that-must-not-print',
+      },
+    },
+  );
 });
 
 test('Hermes3000 helper emits authenticated create-book request', () => {

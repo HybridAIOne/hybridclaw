@@ -31,16 +31,21 @@ The response includes `token` and `user`. The JWT is valid for 7 days. Keep it
 private.
 
 In HybridClaw, do not call login in a way that returns `token` to the agent.
-Use the bundled helper:
+Use the bundled helper's gateway-backed `run` mode:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request auth.login
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run auth.login
 ```
 
-Pass only the emitted `httpRequest` to `http_request`. It uses
+The helper posts to the HybridClaw gateway proxy. It uses
 `captureResponseFields: [{ "jsonPath": "token", "secretName": "HERMES3000_JWT" }]`
 so the gateway stores the JWT and returns only a capture confirmation.
 Subsequent helper requests use `bearerSecretName: "HERMES3000_JWT"`.
+
+Do not use `curl` with a raw Hermes3000 `Authorization` header. If a runtime
+does not allow direct helper execution but does expose the built-in
+`http_request` tool, use the helper's `http-request` mode and pass only the
+emitted `httpRequest` object to that tool.
 
 ## Core Book Workflow
 

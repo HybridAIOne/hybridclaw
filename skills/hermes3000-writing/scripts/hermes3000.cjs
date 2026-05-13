@@ -4,8 +4,10 @@
 const fs = require('node:fs');
 
 const DEFAULT_BASE_URL = 'https://hermes3000.ai/api';
+const DEFAULT_GATEWAY_URL = 'http://127.0.0.1:9090';
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 4_000_000;
+const GATEWAY_TIMEOUT_BUFFER_MS = 5_000;
 const SKILL_NAME = 'hermes3000-writing';
 const EMAIL_SECRET = 'HERMES3000_EMAIL';
 const PASSWORD_SECRET = 'HERMES3000_PASSWORD';
@@ -29,9 +31,15 @@ function usage() {
   return `
 Hermes3000 writing skill helper
 
-Build gateway-proxied http_request payloads for the Hermes3000 API.
+Run Hermes3000 API calls through the HybridClaw gateway proxy, or build the
+equivalent http_request payload for runtimes that expose the http_request tool.
 
 Usage:
+  node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] run auth.login
+  node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] run books.list
+  node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] run books.create --title "Draft" --book-type prose
+  node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] run ai.generate-text --book-id 42 --chapter-id "Chapter 1" --prompt "Write the opening scene"
+
   node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] http-request auth.login
   node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] http-request books.create --title "Draft" --book-type prose
   node skills/hermes3000-writing/scripts/hermes3000.cjs [--format json] http-request books.list
@@ -48,6 +56,8 @@ Usage:
 Global options:
   --format json|pretty       Output JSON or pretty-printed JSON. Default: pretty.
   --base-url <url>           Hermes3000 API base URL. Default: ${DEFAULT_BASE_URL}
+  --gateway-url <url>        HybridClaw gateway base URL. Default: HYBRIDCLAW_GATEWAY_URL, GATEWAY_BASE_URL, or ${DEFAULT_GATEWAY_URL}
+  --gateway-token <token>    Gateway API token. Default: HYBRIDCLAW_GATEWAY_TOKEN or GATEWAY_API_TOKEN.
   --timeout-ms <ms>          Gateway request timeout. Default: ${DEFAULT_TIMEOUT_MS}
   --max-response-bytes <n>   Gateway response cap. Default: ${DEFAULT_MAX_RESPONSE_BYTES}
 
@@ -55,6 +65,7 @@ Secret contract:
   auth.login resolves <secret:${EMAIL_SECRET}> and <secret:${PASSWORD_SECRET}> in the gateway.
   auth.login captures response field "token" into ${JWT_SECRET}.
   Other operations use bearerSecretName: "${JWT_SECRET}".
+  Never use curl with a raw Authorization header for Hermes3000.
 `.trim();
 }
 
@@ -105,6 +116,12 @@ function parseArgs(argv) {
         break;
       case '--base-url':
         opts.baseUrl = readValue();
+        break;
+      case '--gateway-url':
+        opts.gatewayUrl = readValue();
+        break;
+      case '--gateway-token':
+        opts.gatewayToken = readValue();
         break;
       case '--timeout-ms':
         opts.timeoutMs = parseInteger(readValue(), '--timeout-ms', 1, 600_000);
@@ -230,6 +247,28 @@ function normalizeBaseUrl(raw) {
     fail('--base-url must use http or https.');
   }
   return url.toString().replace(/\/+$/, '');
+}
+
+function resolveGatewayUrl(raw) {
+  const value =
+    raw ||
+    process.env.HYBRIDCLAW_GATEWAY_URL ||
+    process.env.GATEWAY_BASE_URL ||
+    DEFAULT_GATEWAY_URL;
+  const url = new URL(value);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    fail('--gateway-url must use http or https.');
+  }
+  return url.toString().replace(/\/+$/, '');
+}
+
+function resolveGatewayToken(raw) {
+  return (
+    raw ||
+    process.env.HYBRIDCLAW_GATEWAY_TOKEN ||
+    process.env.GATEWAY_API_TOKEN ||
+    ''
+  );
 }
 
 function requireBookId(opts) {
@@ -424,15 +463,83 @@ function buildHttpRequest(opts) {
 }
 
 function buildOutput(opts) {
-  if (opts.commandGroup !== 'http-request') {
-    fail('Expected command group: http-request.');
-  }
   return {
     command: 'http-request',
     adapter: 'hermes3000',
     operation: opts.operation,
     httpRequest: buildHttpRequest(opts),
   };
+}
+
+async function gatewayRequest(opts) {
+  const gatewayUrl = `${resolveGatewayUrl(opts.gatewayUrl)}/api/http/request`;
+  const headers = { 'Content-Type': 'application/json' };
+  const token = resolveGatewayToken(opts.gatewayToken);
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    opts.timeoutMs + GATEWAY_TIMEOUT_BUFFER_MS,
+  );
+  let response;
+  try {
+    response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(buildHttpRequest(opts)),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    fail(
+      `Cannot reach HybridClaw gateway at ${gatewayUrl}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const text = await response.text();
+  let envelope;
+  try {
+    envelope = text ? JSON.parse(text) : {};
+  } catch {
+    fail(`Gateway returned non-JSON response: ${text.slice(0, 200)}`);
+  }
+  if (!response.ok) {
+    fail(
+      `Gateway request failed with HTTP ${response.status}: ${text.slice(0, 500)}`,
+    );
+  }
+  if (!envelope || typeof envelope !== 'object') {
+    fail('Gateway response is not a JSON object.');
+  }
+  if (!envelope.ok) {
+    fail(
+      `${envelope.status || '?'} response from Hermes3000 for ${opts.operation}: ${
+        envelope.body || envelope.statusText || 'request failed'
+      }`,
+    );
+  }
+  if (opts.operation === 'auth.login') {
+    if (
+      envelope.captured &&
+      typeof envelope.captured === 'object' &&
+      envelope.captured.token === JWT_SECRET
+    ) {
+      return envelope;
+    }
+    fail(`Gateway did not capture token into ${JWT_SECRET}.`);
+  }
+  if (envelope.captured) return envelope;
+  if (envelope.json !== undefined) return envelope.json;
+  if (!envelope.body) return {};
+  try {
+    return JSON.parse(envelope.body);
+  } catch {
+    return { body: envelope.body };
+  }
 }
 
 function printOutput(value, format) {
@@ -445,17 +552,28 @@ function printOutput(value, format) {
   }
 }
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     console.log(usage());
     return;
   }
-  printOutput(buildOutput(opts), opts.format);
+  if (opts.commandGroup === 'run') {
+    printOutput(await gatewayRequest(opts), opts.format);
+    return;
+  }
+  if (opts.commandGroup === 'http-request') {
+    printOutput(buildOutput(opts), opts.format);
+    return;
+  }
+  fail('Expected command group: run or http-request.');
 }
 
 try {
-  main();
+  void main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

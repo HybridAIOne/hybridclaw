@@ -39,11 +39,15 @@ For endpoint details, request shapes, and examples, read
 
 ## Secret Refs
 
-The bundled helper builds `http_request` payloads for the HybridClaw gateway
-proxy. Login credentials are sent as `<secret:NAME>` placeholders; the gateway
-resolves them server-side, captures the returned Hermes3000 JWT into
-`HERMES3000_JWT`, and returns only a capture confirmation. The JWT does not
-enter the agent context.
+The bundled helper sends all live Hermes3000 calls through the HybridClaw
+gateway proxy, matching the Salesforce skill pattern. Login credentials are
+sent as `<secret:NAME>` placeholders; the gateway resolves them server-side,
+captures the returned Hermes3000 JWT into `HERMES3000_JWT`, and returns only a
+capture confirmation. The JWT does not enter the agent context.
+
+Never call Hermes3000 with `curl` or a raw `Authorization: Bearer ...` header.
+Use `node skills/hermes3000-writing/scripts/hermes3000.cjs ... run ...` for
+live calls so the gateway injects and captures secrets server-side.
 
 Ask the user to set the login inputs once from a local HybridClaw session:
 
@@ -59,16 +63,15 @@ hybridclaw secret set HERMES3000_EMAIL you@example.com
 hybridclaw secret set HERMES3000_PASSWORD '<password>'
 ```
 
-Then build the gateway-proxied login request:
+Then capture the JWT through the gateway:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request auth.login
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run auth.login
 ```
 
-Pass only the emitted `httpRequest` object to the built-in `http_request` tool.
 On success, the gateway stores `HERMES3000_JWT`. Subsequent helper operations
-set `bearerSecretName: "HERMES3000_JWT"` so the gateway injects the bearer
-token server-side.
+set `bearerSecretName: "HERMES3000_JWT"` internally so the gateway injects the
+bearer token server-side.
 
 ## Operating Rules
 
@@ -114,7 +117,7 @@ Represent structure as:
 
 ## Workflow
 
-1. Authenticate with Hermes3000 and keep the bearer token private.
+1. Authenticate with `run auth.login`; never ask for or print the bearer token.
 2. Create or select the book. For a new book, call `POST /books` with `title`
    and `bookType`.
 3. Build planning material. Either draft it yourself from the user's brief or
@@ -134,7 +137,7 @@ Represent structure as:
 
 ## Command Contract
 
-Build login and API requests with the helper:
+Run login and API requests through the gateway-proxied helper:
 
 ```bash
 node skills/hermes3000-writing/scripts/hermes3000.cjs --help
@@ -143,13 +146,13 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --help
 Capture the JWT into the secret store:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request auth.login
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run auth.login
 ```
 
 Create a book:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request books.create \
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run books.create \
   --title "Working Title" \
   --book-type prose
 ```
@@ -157,7 +160,7 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request
 Save a Markdown structure element:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request structure.put \
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run structure.put \
   --book-id 42 \
   --structure-type plot \
   --content-file plot.md
@@ -166,7 +169,7 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request
 Save chapters with UUIDs:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request structure.put \
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run structure.put \
   --book-id 42 \
   --structure-type chapters \
   --content-json '[{"id":"550e8400-e29b-41d4-a716-446655440000","title":"Chapter 1","summary":"Opening movement."}]'
@@ -175,12 +178,12 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request
 Generate and save chapter text:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request ai.generate-text \
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run ai.generate-text \
   --book-id 42 \
   --chapter-id "Chapter 1" \
   --prompt "Write the opening scene."
 
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request content.save \
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run content.save \
   --book-id 42 \
   --chapter-uuid 550e8400-e29b-41d4-a716-446655440000 \
   --content-file chapter-1.html
@@ -189,7 +192,7 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request
 Build consistency memory and export:
 
 ```bash
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request consistency.chapter-summary \
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run consistency.chapter-summary \
   --book-id 42 \
   --chapter-id "Chapter 1" \
   --chapter-uuid 550e8400-e29b-41d4-a716-446655440000 \
@@ -197,8 +200,8 @@ node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request
   --narrative-order 0 \
   --lang en
 
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request consistency.update-story --book-id 42
-node skills/hermes3000-writing/scripts/hermes3000.cjs --format json http-request export.download --book-id 42 --export-format docx
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run consistency.update-story --book-id 42
+node skills/hermes3000-writing/scripts/hermes3000.cjs --format json run export.download --book-id 42 --export-format docx
 ```
 
 ## Writing Guidance
