@@ -327,13 +327,17 @@ function makeWebhookResponse(): import('node:http').ServerResponse & {
 test('handleGatewayMessage passes explicit skill middleware manifest into middleware context', async () => {
   setupHome();
 
-  pluginManagerMock.hasMiddleware.mockReturnValueOnce(true);
-  pluginManagerMock.applyMiddleware.mockImplementationOnce(async (context) => ({
-    userContent: context.userContent,
-    resultText: '',
-    blocked: false,
-    events: [],
-  }));
+  pluginManagerMock.hasMiddleware
+    .mockImplementationOnce((phase) => phase === 'pre_send')
+    .mockImplementationOnce((phase) => phase === 'pre_send');
+  pluginManagerMock.applyMiddleware.mockImplementationOnce(
+    async (_phase, context) => ({
+      userContent: context.userContent,
+      resultText: '',
+      blocked: false,
+      events: [],
+    }),
+  );
   runAgentMock.mockResolvedValue({
     status: 'success',
     result: 'agent result',
