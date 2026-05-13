@@ -79,6 +79,7 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       content: initialPrompt
         ? buildGoalInitialPrompt(goal.goalText)
         : buildGoalContinuationPrompt(goal.goalText),
+      agentId: goal.targetAgentId ?? session.agent_id,
       chatbotId: context.chatbotId ?? session.chatbot_id,
       model: context.model ?? session.model,
       enableRag: context.enableRag ?? session.enable_rag === 1,

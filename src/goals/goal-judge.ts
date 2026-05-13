@@ -105,9 +105,15 @@ export function parseGoalJudgeVerdict(content: string): GoalJudgeVerdict {
   };
 }
 
-function usageNumber(value: number | null | undefined): number | null {
+function usageTokenCount(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
+    : null;
+}
+
+function usageCostUsd(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
     : null;
 }
 
@@ -120,11 +126,12 @@ async function recordGoalJudgeUsage(params: {
 }): Promise<void> {
   if (!isDatabaseInitialized()) return;
   const inputTokens =
-    usageNumber(params.response.usage?.inputTokens) ??
+    usageTokenCount(params.response.usage?.inputTokens) ??
     estimateTokenCountFromMessages(params.messages);
-  const outputTokens = usageNumber(params.response.usage?.outputTokens) ?? 0;
+  const outputTokens =
+    usageTokenCount(params.response.usage?.outputTokens) ?? 0;
   const totalTokens =
-    usageNumber(params.response.usage?.totalTokens) ??
+    usageTokenCount(params.response.usage?.totalTokens) ??
     inputTokens + outputTokens;
   enqueueTokenUsage({
     sessionId: params.sessionId,
@@ -133,7 +140,7 @@ async function recordGoalJudgeUsage(params: {
     inputTokens,
     outputTokens,
     totalTokens,
-    costUsd: usageNumber(params.response.usage?.costUsd) ?? 0,
+    costUsd: usageCostUsd(params.response.usage?.costUsd) ?? 0,
   });
   await flushTokenUsageBuffer();
 }

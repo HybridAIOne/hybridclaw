@@ -113,6 +113,35 @@ export function clearScheduledGoalContinuation(sessionId: string): void {
   goalContinuationBySession.delete(sessionId);
 }
 
+function armGoalContinuationTimer(
+  sessionId: string,
+  state: {
+    timer: ReturnType<typeof setTimeout> | null;
+    initialPrompt: boolean;
+    running: boolean;
+    context: GoalContinuationContext;
+  },
+  delayMs: number,
+): void {
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    if (goalContinuationBySession.get(sessionId) !== state) return;
+    if (state.running) {
+      armGoalContinuationTimer(sessionId, state, 10);
+      return;
+    }
+    if (!runGoalContinuationHandler) {
+      logger.error(
+        { sessionId },
+        'Goal continuation runner has not been configured',
+      );
+      return;
+    }
+    void runGoalContinuationHandler(sessionId);
+  }, delayMs);
+  if (typeof state.timer.unref === 'function') state.timer.unref();
+}
+
 export function scheduleGoalContinuation(params: {
   session: Session;
   context: GoalContinuationContext;
@@ -132,18 +161,7 @@ export function scheduleGoalContinuation(params: {
     context: params.context,
   };
   goalContinuationBySession.set(params.session.id, state);
-  state.timer = setTimeout(() => {
-    state.timer = null;
-    if (!runGoalContinuationHandler) {
-      logger.error(
-        { sessionId: params.session.id },
-        'Goal continuation runner has not been configured',
-      );
-      return;
-    }
-    void runGoalContinuationHandler(params.session.id);
-  }, delayMs);
-  if (typeof state.timer.unref === 'function') state.timer.unref();
+  armGoalContinuationTimer(params.session.id, state, delayMs);
 }
 
 function recordGoalAudit(params: {
@@ -257,6 +275,15 @@ export async function maybeContinueGoalAfterTurn(params: {
       session: params.session,
       reason: 'pending approval',
       verdict: 'paused',
+    });
+    return;
+  }
+
+  if (params.result.status === 'error') {
+    pauseActiveGoalForSession({
+      session: params.session,
+      reason: params.result.error || 'gateway error',
+      verdict: 'error',
     });
     return;
   }

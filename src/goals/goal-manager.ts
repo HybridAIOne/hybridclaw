@@ -191,13 +191,23 @@ export function updateThreadGoalStatus(params: {
   reason?: string | null;
   verdict?: string | null;
   resetParseFailures?: boolean;
+  expectedStatuses?: ThreadGoalStatus[];
 }): ThreadGoal | null {
   const threadId = params.threadId.trim();
   if (!threadId) return null;
   const reason = params.reason?.trim() || null;
   const verdict = params.verdict?.trim() || params.status;
+  const expectedStatuses =
+    params.expectedStatuses && params.expectedStatuses.length > 0
+      ? params.expectedStatuses
+      : params.status === 'cleared'
+        ? (['active', 'paused', 'done'] satisfies ThreadGoalStatus[])
+        : params.status === 'paused' || params.status === 'done'
+          ? (['active'] satisfies ThreadGoalStatus[])
+          : (['paused'] satisfies ThreadGoalStatus[]);
   return withMemoryDatabase((database) => {
-    database
+    const placeholders = expectedStatuses.map(() => '?').join(', ');
+    const result = database
       .prepare(
         `UPDATE thread_goals
             SET status = ?,
@@ -205,7 +215,8 @@ export function updateThreadGoalStatus(params: {
                 last_verdict = ?,
                 last_reason = ?,
                 consecutive_parse_failures = CASE WHEN ? THEN 0 ELSE consecutive_parse_failures END
-          WHERE thread_id = ?`,
+          WHERE thread_id = ?
+            AND status IN (${placeholders})`,
       )
       .run(
         params.status,
@@ -215,7 +226,9 @@ export function updateThreadGoalStatus(params: {
         reason,
         params.resetParseFailures === true ? 1 : 0,
         threadId,
+        ...expectedStatuses,
       );
+    if (result.changes === 0) return null;
     return getThreadGoal(threadId);
   });
 }
@@ -254,7 +267,7 @@ export function resumeThreadGoal(threadId: string): ThreadGoal | null {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return null;
   return withMemoryDatabase((database) => {
-    database
+    const result = database
       .prepare(
         `UPDATE thread_goals
             SET status = 'active',
@@ -265,6 +278,7 @@ export function resumeThreadGoal(threadId: string): ThreadGoal | null {
             AND status = 'paused'`,
       )
       .run(normalizedThreadId);
+    if (result.changes === 0) return null;
     return getThreadGoal(normalizedThreadId);
   });
 }
