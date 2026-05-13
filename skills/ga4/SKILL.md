@@ -74,9 +74,13 @@ scheduled reporting, ETL, and monitoring.
 
 ## Auth Contract
 
-The skill consumes a bearer secret handle and does not mint tokens itself.
-Tenant config decides whether that handle resolves to delegated-user OAuth
-or to a service-account access token.
+The skill supports two auth modes without exposing tokens or private keys to
+the model:
+
+- delegated-user OAuth through a bearer secret handle
+- Google service-account JWT bearer exchange through the gateway
+
+Tenant config decides which mode to use.
 
 Default delegated-user OAuth handle:
 
@@ -93,23 +97,33 @@ hybridclaw auth status google
 For delegated OAuth, use the default `bearerSecretName:
 "GOOGLE_WORKSPACE_CLI_TOKEN"` or a `google-oauth` URL auth route.
 
-For service-account automation, configure the tenant runtime so the selected
-handle resolves to a short-lived service-account bearer token, then call the
-helper with `--bearer-secret-name <handle>` or set:
+For service-account automation, store the service-account `client_email` and
+PEM `private_key` as encrypted runtime secrets. The gateway reads those named
+secrets, signs the JWT assertion server-side, exchanges it for a short-lived
+Google access token, and injects that token into the GA4 request.
 
 ```bash
-hybridclaw secret set GA4_BEARER_SECRET_NAME "<tenant-service-account-handle>"
+hybridclaw secret set GA4_SERVICE_ACCOUNT_EMAIL "<client-email>"
+hybridclaw secret set GA4_SERVICE_ACCOUNT_PRIVATE_KEY '<pem-private-key>'
 ```
 
 Do not paste OAuth access tokens, refresh tokens, service-account private keys,
 or downloaded JSON key files into the prompt. Real credentials stay in the
-HybridClaw secret runtime and are injected server-side by the gateway.
+HybridClaw secret runtime and are used server-side by the gateway.
 
 Optional stored defaults:
 
 ```bash
 hybridclaw secret set GA4_PROPERTY_ID "<numeric-property-id>"
 hybridclaw secret set GA4_BEARER_SECRET_NAME "GOOGLE_WORKSPACE_CLI_TOKEN"
+```
+
+For unattended service-account jobs, set environment defaults in the tenant
+runtime:
+
+```bash
+GA4_SERVICE_ACCOUNT_EMAIL_SECRET=GA4_SERVICE_ACCOUNT_EMAIL
+GA4_SERVICE_ACCOUNT_PRIVATE_KEY_SECRET=GA4_SERVICE_ACCOUNT_PRIVATE_KEY
 ```
 
 ## Command Contract
@@ -135,11 +149,12 @@ python3 skills/ga4/scripts/ga4.py --format json run-report 123456789 \
   --request-json '{"dateRanges":[{"startDate":"7daysAgo","endDate":"yesterday"}],"metrics":[{"name":"sessions"}]}'
 ```
 
-Use service-account auth by choosing a different bearer handle:
+Use service-account auth by choosing the stored service-account secret names:
 
 ```bash
 python3 skills/ga4/scripts/ga4.py --format json http-request 123456789 \
-  --bearer-secret-name GA4_SERVICE_ACCOUNT_ACCESS_TOKEN \
+  --google-service-account-email-secret GA4_SERVICE_ACCOUNT_EMAIL \
+  --google-service-account-private-key-secret GA4_SERVICE_ACCOUNT_PRIVATE_KEY \
   --request-json '{"dateRanges":[{"startDate":"7daysAgo","endDate":"yesterday"}],"metrics":[{"name":"sessions"}]}'
 ```
 

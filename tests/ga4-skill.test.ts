@@ -360,6 +360,7 @@ test('GA4 helper builds http_request payloads with delegated OAuth handle by def
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
   expect(payload.propertyId).toBe('123456789');
+  expect(payload.auth.mode).toBe('bearer');
   expect(payload.auth.bearerSecretName).toBe('GOOGLE_WORKSPACE_CLI_TOKEN');
   expect(payload.httpRequest).toMatchObject({
     url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport',
@@ -371,27 +372,32 @@ test('GA4 helper builds http_request payloads with delegated OAuth handle by def
   });
 });
 
-test('GA4 helper can select a service-account bearer handle', () => {
+test('GA4 helper can select gateway service-account auth', () => {
   const result = runHelper([
     '--format',
     'json',
-    '--bearer-secret-name',
-    'GA4_SERVICE_ACCOUNT_ACCESS_TOKEN',
+    '--google-service-account-email-secret',
+    'GA4_SERVICE_ACCOUNT_EMAIL',
+    '--google-service-account-private-key-secret',
+    'GA4_SERVICE_ACCOUNT_PRIVATE_KEY',
     'metadata-request',
     '123456789',
   ]);
 
   expect(result.status).toBe(0);
   const payload = JSON.parse(result.stdout);
-  expect(payload.auth.bearerSecretName).toBe(
-    'GA4_SERVICE_ACCOUNT_ACCESS_TOKEN',
-  );
+  expect(payload.auth.mode).toBe('google-service-account');
   expect(payload.httpRequest).toMatchObject({
     url: 'https://analyticsdata.googleapis.com/v1beta/properties/123456789/metadata',
     method: 'GET',
-    bearerSecretName: 'GA4_SERVICE_ACCOUNT_ACCESS_TOKEN',
+    googleServiceAccount: {
+      clientEmailSecretName: 'GA4_SERVICE_ACCOUNT_EMAIL',
+      privateKeySecretName: 'GA4_SERVICE_ACCOUNT_PRIVATE_KEY',
+      scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+    },
     skillName: 'ga4',
   });
+  expect(payload.httpRequest).not.toHaveProperty('bearerSecretName');
 });
 
 test('GA4 helper sends live reports through the gateway with bearer handle only', async () => {

@@ -4097,6 +4097,39 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description:
               'Name of a stored secret to inject as `Authorization: Bearer <secret>`.',
           },
+          googleServiceAccount: {
+            type: 'object',
+            description:
+              'Google service-account JWT-bearer auth for googleapis.com requests. The gateway reads the named stored secrets, signs the JWT server-side, exchanges it for a short-lived access token, and injects it as Authorization without exposing the private key or token.',
+            properties: {
+              clientEmailSecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the Google service-account client_email.',
+              },
+              privateKeySecretName: {
+                type: 'string',
+                description:
+                  'Stored secret name containing the Google service-account PEM private_key.',
+              },
+              scopes: {
+                type: 'array',
+                description:
+                  'OAuth scopes for the service-account token exchange.',
+                items: { type: 'string' },
+              },
+              subjectSecretName: {
+                type: 'string',
+                description:
+                  'Optional stored secret name containing the domain-wide delegation subject user.',
+              },
+            },
+            required: [
+              'clientEmailSecretName',
+              'privateKeySecretName',
+              'scopes',
+            ],
+          },
           secretHeaders: {
             type: 'array',
             description:

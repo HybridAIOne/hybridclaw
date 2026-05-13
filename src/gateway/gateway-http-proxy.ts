@@ -6,6 +6,7 @@
  * automatic OAuth2 token capture.
  */
 
+import { createSign } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import net from 'node:net';
@@ -59,6 +60,8 @@ const REDIRECT_RESPONSE_STATUS_MIN = 300;
 const REDIRECT_RESPONSE_STATUS_MAX = 399;
 const GOOGLE_WORKSPACE_CLI_TOKEN_SECRET = 'GOOGLE_WORKSPACE_CLI_TOKEN';
 const GOG_ACCESS_TOKEN_SECRET = 'GOG_ACCESS_TOKEN';
+const GOOGLE_SERVICE_ACCOUNT_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_SERVICE_ACCOUNT_JWT_TTL_SECONDS = 3600;
 
 type CaptureFieldRule = { jsonPath: string; secretName: string };
 
@@ -70,6 +73,7 @@ type ApiHttpRequestBody = {
   json?: unknown;
   bearerSecretName?: unknown;
   secretHeaders?: unknown;
+  googleServiceAccount?: unknown;
   replaceSecretPlaceholders?: unknown;
   captureResponseFields?: unknown;
   timeoutMs?: unknown;
@@ -83,6 +87,13 @@ type ApiHttpRequestSecretHeaderBody = {
   name?: unknown;
   secretName?: unknown;
   prefix?: unknown;
+};
+
+type GoogleServiceAccountAuthRule = {
+  clientEmailSecretName: string;
+  privateKeySecretName: string;
+  scopes: string[];
+  subjectSecretName?: string;
 };
 
 type SecretResolveContext = {
@@ -398,6 +409,125 @@ async function resolveHttpSecretOrThrow(
   });
 }
 
+function base64UrlJson(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function signGoogleServiceAccountJwt(params: {
+  clientEmail: string;
+  privateKey: string;
+  scopes: string[];
+  subject?: string;
+}): string {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload: Record<string, unknown> = {
+    iss: params.clientEmail,
+    scope: params.scopes.join(' '),
+    aud: GOOGLE_SERVICE_ACCOUNT_TOKEN_URL,
+    iat: issuedAt,
+    exp: issuedAt + GOOGLE_SERVICE_ACCOUNT_JWT_TTL_SECONDS,
+  };
+  if (params.subject) payload.sub = params.subject;
+
+  const signingInput = [
+    base64UrlJson({ alg: 'RS256', typ: 'JWT' }),
+    base64UrlJson(payload),
+  ].join('.');
+  const signer = createSign('RSA-SHA256');
+  signer.update(signingInput);
+  signer.end();
+  const signature = signer.sign(params.privateKey).toString('base64url');
+  return `${signingInput}.${signature}`;
+}
+
+async function acquireGoogleServiceAccountAccessToken(
+  rule: GoogleServiceAccountAuthRule,
+  context: SecretResolveContext,
+): Promise<string> {
+  if (!isGoogleApisHost(context.host)) {
+    throw new GatewayRequestError(
+      403,
+      'Google service-account auth can only be used for googleapis.com requests.',
+    );
+  }
+
+  const clientEmail = await resolveHttpSecretOrThrow(
+    rule.clientEmailSecretName,
+    {
+      ...context,
+      selector: 'googleServiceAccount.clientEmail',
+    },
+  );
+  const privateKey = await resolveHttpSecretOrThrow(rule.privateKeySecretName, {
+    ...context,
+    selector: 'googleServiceAccount.privateKey',
+  });
+  const subject = rule.subjectSecretName
+    ? await resolveHttpSecretOrThrow(rule.subjectSecretName, {
+        ...context,
+        selector: 'googleServiceAccount.subject',
+      })
+    : '';
+  const assertion = signGoogleServiceAccountJwt({
+    clientEmail,
+    privateKey,
+    scopes: rule.scopes,
+    subject,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(GOOGLE_SERVICE_ACCOUNT_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+    });
+  } catch (error) {
+    throw new GatewayRequestError(
+      502,
+      `Google service-account token exchange failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const responseText = await response.text();
+  let responseJson: unknown;
+  try {
+    responseJson = JSON.parse(responseText) as unknown;
+  } catch {
+    responseJson = undefined;
+  }
+  if (!response.ok) {
+    throw new GatewayRequestError(
+      502,
+      `Google service-account token exchange returned ${response.status}: ${responseText}`,
+    );
+  }
+  const accessToken =
+    responseJson &&
+    typeof responseJson === 'object' &&
+    typeof (responseJson as Record<string, unknown>).access_token === 'string'
+      ? String((responseJson as Record<string, unknown>).access_token).trim()
+      : '';
+  if (!accessToken) {
+    throw new GatewayRequestError(
+      502,
+      'Google service-account token exchange did not return access_token.',
+    );
+  }
+
+  rememberResolvedSecretForLeakScan({
+    sessionId: normalizeSecretSessionId(context.sessionId),
+    secretId: 'GOOGLE_SERVICE_ACCOUNT_ACCESS_TOKEN',
+    value: accessToken,
+  });
+  return accessToken;
+}
+
 async function replaceSecretPlaceholdersInString(
   value: string,
   context: SecretResolveContext,
@@ -508,6 +638,72 @@ function normalizeCaptureResponseFields(
     rules.push({ jsonPath, secretName });
   }
   return rules;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeGoogleServiceAccountAuth(
+  value: unknown,
+): GoogleServiceAccountAuthRule | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount must be an object.',
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const clientEmailSecretName =
+    typeof record.clientEmailSecretName === 'string'
+      ? record.clientEmailSecretName.trim()
+      : '';
+  const privateKeySecretName =
+    typeof record.privateKeySecretName === 'string'
+      ? record.privateKeySecretName.trim()
+      : '';
+  const subjectSecretName =
+    typeof record.subjectSecretName === 'string'
+      ? record.subjectSecretName.trim()
+      : '';
+  const scopes = normalizeStringArray(record.scopes);
+
+  if (!clientEmailSecretName || !isRuntimeSecretName(clientEmailSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.clientEmailSecretName must be a valid secret name.',
+    );
+  }
+  if (!privateKeySecretName || !isRuntimeSecretName(privateKeySecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.privateKeySecretName must be a valid secret name.',
+    );
+  }
+  if (subjectSecretName && !isRuntimeSecretName(subjectSecretName)) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.subjectSecretName must be a valid secret name.',
+    );
+  }
+  if (scopes.length === 0) {
+    throw new GatewayRequestError(
+      400,
+      'googleServiceAccount.scopes must include at least one scope.',
+    );
+  }
+
+  return {
+    clientEmailSecretName,
+    privateKeySecretName,
+    scopes,
+    ...(subjectSecretName ? { subjectSecretName } : {}),
+  };
 }
 
 function extractBindingDomainFromResponse(
@@ -766,6 +962,15 @@ export async function handleApiHttpRequest(
     typeof body.bearerSecretName === 'string'
       ? body.bearerSecretName.trim()
       : '';
+  const googleServiceAccount = normalizeGoogleServiceAccountAuth(
+    body.googleServiceAccount,
+  );
+  if (bearerSecretName && googleServiceAccount) {
+    throw new GatewayRequestError(
+      400,
+      'Use either bearerSecretName or googleServiceAccount, not both.',
+    );
+  }
   if (bearerSecretName) {
     assertBearerDomainBinding(bearerSecretName, url);
     setHeaderValue(
@@ -776,6 +981,19 @@ export async function handleApiHttpRequest(
           ...secretContext,
           selector: 'Authorization',
         }),
+        'Bearer',
+      ),
+    );
+  }
+  if (googleServiceAccount) {
+    setHeaderValue(
+      headers,
+      'Authorization',
+      withAuthPrefix(
+        await acquireGoogleServiceAccountAccessToken(
+          googleServiceAccount,
+          secretContext,
+        ),
         'Bearer',
       ),
     );

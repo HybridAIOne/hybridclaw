@@ -28,6 +28,7 @@ MAX_REVIEWED_LIMIT = 100_000
 GATEWAY_TIMEOUT_BUFFER_S = 5
 GA4_BASE_URL = "https://analyticsdata.googleapis.com"
 DEFAULT_BEARER_SECRET_NAME = "GOOGLE_WORKSPACE_CLI_TOKEN"
+DEFAULT_GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"
 SKILL_DIR = Path(__file__).resolve().parent.parent
 EVAL_SCENARIOS_PATH = SKILL_DIR / "evals" / "scenarios.json"
 
@@ -136,6 +137,35 @@ def resolve_bearer_secret_name(args: argparse.Namespace) -> str:
     return value or DEFAULT_BEARER_SECRET_NAME
 
 
+def resolve_google_service_account(args: argparse.Namespace) -> dict[str, Any] | None:
+    client_email_secret = (
+        getattr(args, "google_service_account_email_secret", "")
+        or os.environ.get("GA4_SERVICE_ACCOUNT_EMAIL_SECRET", "")
+    ).strip()
+    private_key_secret = (
+        getattr(args, "google_service_account_private_key_secret", "")
+        or os.environ.get("GA4_SERVICE_ACCOUNT_PRIVATE_KEY_SECRET", "")
+    ).strip()
+    subject_secret = (
+        getattr(args, "google_service_account_subject_secret", "")
+        or os.environ.get("GA4_SERVICE_ACCOUNT_SUBJECT_SECRET", "")
+    ).strip()
+    if not client_email_secret and not private_key_secret:
+        return None
+    if not client_email_secret or not private_key_secret:
+        raise ConfigError(
+            "Google service-account auth requires both client email and private key secret names."
+        )
+    auth: dict[str, Any] = {
+        "clientEmailSecretName": client_email_secret,
+        "privateKeySecretName": private_key_secret,
+        "scopes": [DEFAULT_GA4_SCOPE],
+    }
+    if subject_secret:
+        auth["subjectSecretName"] = subject_secret
+    return auth
+
+
 def resolve_gateway_url() -> str:
     return (
         os.environ.get("HYBRIDCLAW_GATEWAY_URL", "").strip()
@@ -194,6 +224,7 @@ def build_http_request(
     url: str,
     method: str,
     bearer_secret_name: str,
+    google_service_account: dict[str, Any] | None = None,
     timeout_ms: int,
     json_payload: dict[str, Any] | None = None,
     max_response_bytes: int | None = None,
@@ -202,14 +233,29 @@ def build_http_request(
         "url": url,
         "method": method,
         "timeoutMs": timeout_ms,
-        "bearerSecretName": bearer_secret_name,
         "skillName": "ga4",
     }
+    if google_service_account:
+        payload["googleServiceAccount"] = google_service_account
+    else:
+        payload["bearerSecretName"] = bearer_secret_name
     if json_payload is not None:
         payload["json"] = json_payload
     if max_response_bytes is not None:
         payload["maxResponseBytes"] = max_response_bytes
     return payload
+
+
+def auth_summary(http_request: dict[str, Any]) -> dict[str, Any]:
+    if "googleServiceAccount" in http_request:
+        return {
+            "mode": "google-service-account",
+            "googleServiceAccount": http_request["googleServiceAccount"],
+        }
+    return {
+        "mode": "bearer",
+        "bearerSecretName": http_request["bearerSecretName"],
+    }
 
 
 def gateway_request(gw: GatewayConfig, payload: dict[str, Any]) -> Any:
@@ -652,6 +698,7 @@ def command_http_request(args: argparse.Namespace) -> dict[str, Any]:
         url=ga4_url(api_version, property_id, "runReport"),
         method="POST",
         bearer_secret_name=resolve_bearer_secret_name(args),
+        google_service_account=resolve_google_service_account(args),
         timeout_ms=args.timeout_ms,
         json_payload=report,
         max_response_bytes=args.max_response_bytes,
@@ -660,7 +707,7 @@ def command_http_request(args: argparse.Namespace) -> dict[str, Any]:
         {
             "command": "http-request",
             "propertyId": property_id,
-            "auth": {"bearerSecretName": http_request["bearerSecretName"]},
+            "auth": auth_summary(http_request),
             "review": review,
             "httpRequest": http_request,
         }
@@ -674,6 +721,7 @@ def command_metadata_request(args: argparse.Namespace) -> dict[str, Any]:
         url=ga4_url(api_version, property_id, "/metadata"),
         method="GET",
         bearer_secret_name=resolve_bearer_secret_name(args),
+        google_service_account=resolve_google_service_account(args),
         timeout_ms=args.timeout_ms,
         max_response_bytes=args.max_response_bytes,
     )
@@ -681,7 +729,7 @@ def command_metadata_request(args: argparse.Namespace) -> dict[str, Any]:
         {
             "command": "metadata-request",
             "propertyId": property_id,
-            "auth": {"bearerSecretName": http_request["bearerSecretName"]},
+            "auth": auth_summary(http_request),
             "httpRequest": http_request,
         }
     )
@@ -709,6 +757,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gateway-token", default=None)
     parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS)
     parser.add_argument("--bearer-secret-name", default="")
+    parser.add_argument("--google-service-account-email-secret", default="")
+    parser.add_argument("--google-service-account-private-key-secret", default="")
+    parser.add_argument("--google-service-account-subject-secret", default="")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     report_plan = subparsers.add_parser(
