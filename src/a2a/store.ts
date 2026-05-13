@@ -280,6 +280,11 @@ export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
   });
 }
 
+/**
+ * Looks up a persisted envelope by the federation idempotency tuple.
+ * Callers may omit senderInstanceId only when the envelope id is unique
+ * within the thread; ambiguous federated ids fail fast.
+ */
 export function getA2AEnvelope(
   threadId: string,
   envelopeId: string,

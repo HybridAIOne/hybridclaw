@@ -110,6 +110,11 @@ explicit field remain valid and hydrate with compatibility
 the derived instance from `sender_agent_id`. Neither migration path rewrites
 thread state just to add the derived field.
 
+Lookup APIs that address a single persisted envelope should use the same tuple.
+`getA2AEnvelope(threadId, envelopeId)` remains valid while the ID is unique
+within a thread, but callers must pass `sender_instance_id` when a federated
+thread can contain the same envelope ID from multiple sender instances.
+
 Delegation fields are a strict overlay on the federation base:
 `source_instance_id`, `target_instance_id`, and `delegation_token` are provided
 together for delegated handoffs. `source_instance_id` must match
