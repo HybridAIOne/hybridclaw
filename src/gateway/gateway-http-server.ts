@@ -198,6 +198,7 @@ import {
   saveGatewayAdminPolicyDefault,
   saveGatewayAdminPolicyRule,
   setGatewayAdminSkillEnabled,
+  unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
   uploadGatewayAdminSkillZip,
   upsertGatewayAdminA2ATrustPeer,
@@ -3917,6 +3918,28 @@ async function handleApiAdminSkills(
   );
 }
 
+async function handleApiAdminSkillUnblock(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const method = req.method || 'GET';
+  if (method !== 'POST') {
+    sendJson(res, 405, { error: `Method ${method} is not allowed.` });
+    return;
+  }
+
+  const body = (await readJsonBody(req)) as {
+    name?: unknown;
+  };
+  sendJson(
+    res,
+    200,
+    unblockGatewayAdminSkill({
+      name: String(body.name || ''),
+    }),
+  );
+}
+
 function handleApiAdminAgentScoreboard(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminAgentScoreboard());
 }
@@ -4761,6 +4784,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/skills') {
             await handleApiAdminSkills(req, res);
+            return;
+          }
+          if (pathname === '/api/admin/skills/unblock') {
+            await handleApiAdminSkillUnblock(req, res);
             return;
           }
           if (pathname === '/api/admin/skills/upload') {

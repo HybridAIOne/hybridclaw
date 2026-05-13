@@ -1740,6 +1740,15 @@ export interface BlockedSkillCatalogEntry extends SkillCandidate {
   guardFindings: SkillGuardFinding[];
 }
 
+export interface SkillGuardUnblockResult {
+  skillName: string;
+  skillDir: string;
+  source: SkillSource;
+  blockedReason: string;
+  guardFindingsCount: number;
+  markerPath: string;
+}
+
 function getDisabledSkillNames(
   channelKind?: SkillConfigChannelKind,
 ): Set<string> {
@@ -1948,6 +1957,60 @@ function wasGuardSkippedAtImport(baseDir: string): boolean {
   } catch {
     return false;
   }
+}
+
+function readImportSourceMarker(baseDir: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(path.join(baseDir, IMPORT_SOURCE_MARKER), 'utf-8'),
+    ) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function unblockGuardedSkill(
+  skillName: string,
+  actor = 'system',
+): SkillGuardUnblockResult {
+  const normalized = skillName.trim().toLowerCase();
+  if (!normalized) {
+    throw new Error('Expected non-empty skill name.');
+  }
+
+  const blockedSkill = loadBlockedSkillCatalog().find(
+    (skill) => skill.name.toLowerCase() === normalized,
+  );
+  if (!blockedSkill) {
+    const existingSkill = loadSkillCatalog().find(
+      (skill) => skill.name.toLowerCase() === normalized,
+    );
+    if (existingSkill) {
+      throw new Error(`Skill "${existingSkill.name}" is not blocked.`);
+    }
+    throw new Error(`Blocked skill "${skillName}" was not found.`);
+  }
+
+  const markerPath = path.join(blockedSkill.baseDir, IMPORT_SOURCE_MARKER);
+  const marker = readImportSourceMarker(blockedSkill.baseDir);
+  if (typeof marker.kind !== 'string') {
+    marker.kind = blockedSkill.source;
+  }
+  marker.guardSkipped = true;
+  marker.guardSkippedAt = new Date().toISOString();
+  marker.guardSkippedBy = actor.trim() || 'system';
+  marker.guardSkippedReason = blockedSkill.blockedReason;
+  fs.writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`);
+
+  return {
+    skillName: blockedSkill.name,
+    skillDir: blockedSkill.baseDir,
+    source: blockedSkill.source,
+    blockedReason: blockedSkill.blockedReason,
+    guardFindingsCount: blockedSkill.guardFindings.length,
+    markerPath,
+  };
 }
 
 function filterGuardedSkillCandidates(

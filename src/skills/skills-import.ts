@@ -8,7 +8,11 @@ import { resolveInstallPath } from '../infra/install-root.js';
 import { expandHomePath } from '../utils/path.js';
 import { SkillImportError } from './skill-errors.js';
 import { normalizeImportedSkillRelativePath } from './skill-import-commons.js';
-import type { SkillGuardDecision, SkillGuardVerdict } from './skills-guard.js';
+import type {
+  SkillGuardDecision,
+  SkillGuardFinding,
+  SkillGuardVerdict,
+} from './skills-guard.js';
 import { guardSkillDirectory } from './skills-guard.js';
 import {
   type GitHubSkillImportSource,
@@ -66,6 +70,28 @@ export interface ImportSkillOptions {
   replaceExisting?: boolean;
   skipGuard?: boolean;
   validateSkillFile?: (skillFilePath: string, skillName: string) => void;
+}
+
+function formatGuardFindingLocation(finding: SkillGuardFinding): string {
+  return finding.line > 0 ? `${finding.file}:${finding.line}` : finding.file;
+}
+
+function formatGuardFindingsForError(findings: SkillGuardFinding[]): string {
+  if (findings.length === 0) {
+    return '';
+  }
+  const visibleFindings = findings.slice(0, 5);
+  const lines = visibleFindings.map(
+    (finding) =>
+      `- ${finding.severity}/${finding.category}: ${finding.description} (${formatGuardFindingLocation(finding)})`,
+  );
+  const hiddenCount = findings.length - visibleFindings.length;
+  if (hiddenCount > 0) {
+    lines.push(
+      `- ... ${hiddenCount} more finding${hiddenCount === 1 ? '' : 's'}`,
+    );
+  }
+  return `\nFindings:\n${lines.join('\n')}`;
 }
 
 function resolveManagedCommunitySkillsDir(
@@ -692,8 +718,14 @@ export async function importSkill(
         } else {
           overrideHint = ' To install anyway, re-run with --force.';
         }
+        const findingDetails = formatGuardFindingsForError(
+          guardDecision.result.findings,
+        );
+        const formattedOverrideHint = findingDetails
+          ? `\n${overrideHint.trimStart()}`
+          : overrideHint;
         throw new SkillImportError(
-          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${overrideHint}`,
+          `Imported skill "${skillName}" was blocked by the security scanner: ${guardDecision.reason}.${findingDetails}${formattedOverrideHint}`,
         );
       }
     } else {

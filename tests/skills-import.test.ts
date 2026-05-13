@@ -1065,6 +1065,52 @@ description: Docs helper.
     expect(fs.existsSync(path.join(result.skillDir, 'SKILL.md'))).toBe(true);
   });
 
+  test('includes scanner findings when a caution verdict blocks import', async () => {
+    const skillName = 'test-community-skill';
+    const tempPackagedRoot = createPackagedSkillRoot(skillName);
+    vi.doMock('../src/infra/install-root.js', () => ({
+      resolveInstallPath: () => tempPackagedRoot,
+    }));
+    vi.doMock('../src/skills/skills-guard.js', () => ({
+      guardSkillDirectory: () => ({
+        allowed: false,
+        reason: 'blocked (community source + caution verdict, 1 finding(s))',
+        result: {
+          skillName,
+          skillPath: '/tmp/mock-skill',
+          sourceTag: 'community',
+          trustLevel: 'community',
+          verdict: 'caution',
+          findings: [
+            {
+              patternId: 'mock_pattern',
+              severity: 'medium',
+              category: 'structural',
+              file: 'data/schedule.json',
+              line: 0,
+              match: 'mock',
+              description: 'file is 508KB (limit: 256KB)',
+            },
+          ],
+          scannedAt: '2026-03-24T00:00:00.000Z',
+          summary: 'mock caution',
+          fromCache: false,
+        },
+      }),
+    }));
+
+    const { importSkill } = await import('../src/skills/skills-import.ts');
+
+    await expect(importSkill(`official/${skillName}`)).rejects.toThrow(
+      [
+        `Imported skill "${skillName}" was blocked by the security scanner: blocked (community source + caution verdict, 1 finding(s)).`,
+        'Findings:',
+        '- medium/structural: file is 508KB (limit: 256KB) (data/schedule.json)',
+        'To install anyway, re-run with --force.',
+      ].join('\n'),
+    );
+  });
+
   test('does not allow force to override a dangerous verdict during import', async () => {
     const skillName = 'test-community-skill';
     const tempPackagedRoot = createPackagedSkillRoot(skillName);
@@ -1103,9 +1149,10 @@ description: Docs helper.
 
     await expect(
       importSkill(`official/${skillName}`, { force: true }),
-    ).rejects.toThrow(
-      'Dangerous verdicts cannot be overridden with --force. To install anyway, re-run with --skip-skill-scan.',
-    );
+    ).rejects.toThrow(`Imported skill "${skillName}" was blocked by the security scanner: blocked (community source + dangerous verdict, 2 finding(s)).
+Findings:
+- critical/exfiltration: mock finding (SKILL.md:1)
+Dangerous verdicts cannot be overridden with --force. To install anyway, re-run with --skip-skill-scan.`);
   });
 
   test('rejects symlinked packaged skill content', async () => {

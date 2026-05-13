@@ -3,6 +3,7 @@ import {
   AUTH_REQUIRED_EVENT,
   buildWebCommandRequestBody,
   setRuntimeSecret,
+  unblockSkill,
   uploadSkillZip,
 } from './client';
 
@@ -133,6 +134,34 @@ describe('client command helpers', () => {
         body: file,
       }),
     );
+  });
+
+  it('posts skill unblock requests', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ skills: [] }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+
+    await unblockSkill('test-token', 'rp26-schedule');
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/admin/skills/unblock',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      name: 'rp26-schedule',
+    });
   });
 
   it('dispatches auth-required when skill zip upload returns 401', async () => {

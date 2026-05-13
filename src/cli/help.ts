@@ -155,7 +155,7 @@ Interactive slash commands inside TUI:
   /secret list   /secret set <name> <value>   /secret show <name>   /secret unset <name>   /secret route ...
   /sessions [active|clear-active]
   /show [all|thinking|tools|none]
-  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
+  /skill config|list|inspect <name>|inspect --all|runs <name>|install <skill> <dependency>|learn <name> [--apply|--reject|--rollback]|history <name>|unblock <name>|sync [--skip-skill-scan] <source>|import [--force] [--skip-skill-scan] <source>
   /status
   /stop
   /usage [summary|daily|monthly|model [daily|monthly] [agentId]]
@@ -600,6 +600,7 @@ Commands:
   hybridclaw skill enable <skill-name> [--channel <kind>]
   hybridclaw skill disable <skill-name> [--channel <kind>]
   hybridclaw skill toggle [--channel <kind>]
+  hybridclaw skill unblock <skill-name>
   hybridclaw skill inspect <skill-name>
   hybridclaw skill inspect --all
   hybridclaw skill runs <skill-name>
@@ -630,6 +631,7 @@ Notes:
   - \`runs\` shows recent execution observations for one skill.
   - \`learn\` stages, applies, rejects, or rolls back skill amendments.
   - \`history\` shows amendment versions for one skill, not execution runs.
+  - \`unblock\` records a scanner bypass marker for a reviewed blocked skill.
   - \`sync\` is a convenience alias for \`import --force\` when you want to refresh an installed skill from the source without changing the source syntax.
   - \`import\` installs a skill from a local directory or .zip file, a packaged community skill with \`official/<skill-name>\`, or imports a community skill from \`skills-sh/<owner>/<repo>/<skill>\`, \`clawhub/<skill-slug>\`, \`lobehub/<agent-id>\`, \`claude-marketplace/<skill>[@<marketplace>]\`, \`well-known:https://example.com/docs\`, or an explicit GitHub repo/path into \`~/.hybridclaw/skills\`.
   - Examples: \`./my-skill\`, \`/path/to/skill\`, \`~/skills/my-skill\`, \`./my-skill.zip\`, \`official/himalaya\`, \`skills-sh/anthropics/skills/brand-guidelines\`, \`clawhub/brand-voice\`, \`lobehub/github-issue-helper\`, \`claude-marketplace/brand-guidelines@anthropic-agent-skills\`, \`well-known:https://mintlify.com/docs\`, \`anthropics/skills/skills/brand-guidelines\`.
