@@ -16,11 +16,17 @@ import {
   unsetPluginConfigValue,
   writePluginConfigValue,
 } from '../plugins/plugin-config.js';
-import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
+import {
+  filterAvailablePluginSummaryList,
+  formatAvailablePluginSummaryList,
+  formatPluginCatalogList,
+  formatPluginSummaryList,
+} from '../plugins/plugin-formatting.js';
 import {
   checkPlugin,
   formatDependencyPlanDetails,
   installPlugin,
+  listInstallablePlugins,
   reinstallPlugin,
   uninstallPlugin,
 } from '../plugins/plugin-install.js';
@@ -472,6 +478,10 @@ export async function handlePluginGatewayCommand(params: {
   const sub = parseLowerArg(req.args, 1, { defaultValue: 'list' });
 
   if (sub === 'list') {
+    const scope = parseLowerArg(req.args, 2, { defaultValue: 'all' });
+    if (scope !== 'all' && scope !== 'installed' && scope !== 'available') {
+      return badCommand('Usage', 'Usage: `plugin list [installed|available]`');
+    }
     if (!pluginManager) {
       return badCommand(
         'Plugin Runtime Unavailable',
@@ -480,9 +490,23 @@ export async function handlePluginGatewayCommand(params: {
           : 'Plugin manager failed to initialize.',
       );
     }
+    const installed = pluginManager.listPluginSummary();
+    const available = filterAvailablePluginSummaryList(
+      listInstallablePlugins(),
+      installed,
+    );
+    if (scope === 'installed') {
+      return infoCommand('Plugins', formatPluginSummaryList(installed));
+    }
+    if (scope === 'available') {
+      return infoCommand(
+        'Plugins',
+        formatAvailablePluginSummaryList(available),
+      );
+    }
     return infoCommand(
       'Plugins',
-      formatPluginSummaryList(pluginManager.listPluginSummary()),
+      formatPluginCatalogList({ installed, available }),
     );
   }
 
@@ -927,7 +951,7 @@ export async function handlePluginGatewayCommand(params: {
     if (!pluginId) {
       return badCommand(
         'Usage',
-        'Usage: `plugin list|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
+        'Usage: `plugin list [installed|available]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|uninstall <plugin-id>`',
       );
     }
     try {
@@ -961,7 +985,7 @@ export async function handlePluginGatewayCommand(params: {
 
   return badCommand(
     'Usage',
-    'Usage: `plugin list|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
+    'Usage: `plugin list [installed|available]|config <plugin-id> [key] [value|--unset]|enable <plugin-id>|disable <plugin-id>|install <path|plugin-id|npm-spec> [--yes]|reinstall <path|plugin-id|npm-spec> [--yes]|check <plugin-id>|reload|uninstall <plugin-id>`',
   );
 }
 

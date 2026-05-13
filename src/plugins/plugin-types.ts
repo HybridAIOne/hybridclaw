@@ -111,6 +111,16 @@ export interface PluginCandidate {
   config: Record<string, unknown>;
 }
 
+export interface PluginAvailableSummary {
+  id: string;
+  name?: string;
+  version?: string;
+  description?: string;
+  source: 'bundled' | 'project';
+  dir: string;
+  installSource: string;
+}
+
 export interface PluginRuntime {
   readonly cwd: string;
   readonly homeDir: string;

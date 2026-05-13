@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   getRuntimeConfig,
   type RuntimeConfig,
@@ -28,11 +29,17 @@ import {
 } from './plugin-dependencies.js';
 import { loadPluginManifest, PluginManager } from './plugin-manager.js';
 import type {
+  PluginAvailableSummary,
   PluginBinaryRequirement,
   PluginManifest,
 } from './plugin-types.js';
 
 const MANIFEST_FILE_NAME = 'hybridclaw.plugin.yaml';
+const PACKAGE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+);
 
 interface PluginCommand {
   command: string;
@@ -221,18 +228,81 @@ function resolveProjectPluginDir(input: string, cwd: string): string | null {
   if (!pluginId || looksLikeLocalPath(pluginId)) {
     return null;
   }
-  const candidate = path.join(cwd, 'plugins', pluginId);
-  if (!fs.existsSync(candidate)) {
-    return null;
+  for (const root of listPluginCatalogRoots(cwd)) {
+    const candidate = path.join(root.dir, pluginId);
+    if (!fs.existsSync(candidate)) {
+      continue;
+    }
+    if (!fs.statSync(candidate).isDirectory()) {
+      continue;
+    }
+    const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
+    if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+      continue;
+    }
+    return candidate;
   }
-  if (!fs.statSync(candidate).isDirectory()) {
-    return null;
+  return null;
+}
+
+function listPluginCatalogRoots(cwd: string): Array<{
+  dir: string;
+  source: PluginAvailableSummary['source'];
+}> {
+  const roots = [
+    {
+      dir: path.join(cwd, 'plugins'),
+      source: 'project' as const,
+    },
+    {
+      dir: path.join(PACKAGE_ROOT, 'plugins'),
+      source: 'bundled' as const,
+    },
+  ];
+  const seen = new Set<string>();
+  return roots.filter((root) => {
+    const resolved = path.resolve(root.dir);
+    if (seen.has(resolved)) return false;
+    seen.add(resolved);
+    return true;
+  });
+}
+
+export function listInstallablePlugins(options?: {
+  cwd?: string;
+}): PluginAvailableSummary[] {
+  const cwd = options?.cwd || process.cwd();
+  const discovered = new Map<string, PluginAvailableSummary>();
+  for (const root of listPluginCatalogRoots(cwd)) {
+    if (!fs.existsSync(root.dir)) continue;
+    const entries = fs
+      .readdirSync(root.dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const pluginDir = path.join(root.dir, entry.name);
+      const manifestPath = path.join(pluginDir, MANIFEST_FILE_NAME);
+      if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
+        continue;
+      }
+      try {
+        const manifest = loadPluginManifest(manifestPath);
+        if (discovered.has(manifest.id)) continue;
+        discovered.set(manifest.id, {
+          id: manifest.id,
+          name: manifest.name,
+          version: manifest.version,
+          description: manifest.description,
+          source: root.source,
+          dir: pluginDir,
+          installSource: manifest.id,
+        });
+      } catch {}
+    }
   }
-  const manifestPath = path.join(candidate, MANIFEST_FILE_NAME);
-  if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) {
-    return null;
-  }
-  return candidate;
+  return [...discovered.values()].sort((left, right) =>
+    left.id.localeCompare(right.id),
+  );
 }
 
 function resolvePluginSource(input: string, cwd: string): PluginSource {

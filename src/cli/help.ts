@@ -656,7 +656,7 @@ export function printPluginUsage(): void {
   console.log(`Usage: hybridclaw plugin <command>
 
 Commands:
-  hybridclaw plugin list
+  hybridclaw plugin list [installed|available]
   hybridclaw plugin config <plugin-id> [key] [value|--unset]
   hybridclaw plugin enable <plugin-id>
   hybridclaw plugin disable <plugin-id>
@@ -667,6 +667,7 @@ Commands:
 
 Examples:
   hybridclaw plugin list
+  hybridclaw plugin list available
   hybridclaw plugin config qmd-memory searchMode query
   hybridclaw plugin disable qmd-memory
   hybridclaw plugin enable qmd-memory
@@ -681,8 +682,8 @@ Examples:
 Notes:
   - Plugins install into \`~/.hybridclaw/plugins/<plugin-id>\`.
   - Valid plugins in \`~/.hybridclaw/plugins/\` or \`./.hybridclaw/plugins/\` auto-discover at runtime.
-  - Bare plugin ids resolve to \`./plugins/<plugin-id>\` when that directory exists in the current project.
-  - \`list\` shows discovered plugin status, source, description, commands, tools, hooks, and load errors.
+  - Bare plugin ids resolve to bundled plugins or \`./plugins/<plugin-id>\`; project-local plugins take priority.
+  - \`list\` shows discovered plugin status plus installable bundled/project plugins; use \`installed\` or \`available\` to filter.
   - \`config\` edits top-level \`plugins.list[].config\` keys in ${runtimeConfigPath()}.
   - \`enable\` and \`disable\` manage the top-level \`plugins.list[].enabled\` override in ${runtimeConfigPath()}.
   - \`install\` validates \`hybridclaw.plugin.yaml\` and can install declared Node.js and pip dependencies, but dependency installation requires approval.

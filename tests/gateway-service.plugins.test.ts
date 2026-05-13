@@ -10,7 +10,9 @@ const {
   shutdownPluginManagerMock,
   setPluginInboundMessageDispatcherMock,
   checkPluginMock,
+  formatDependencyPlanDetailsMock,
   installPluginMock,
+  listInstallablePluginsMock,
   pluginDependencyApprovalRequiredError,
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
@@ -88,6 +90,7 @@ const {
       externalDependencies: [],
       configuredRequiredBins: [],
     })),
+    formatDependencyPlanDetailsMock: vi.fn(() => 'npm packages: demo'),
     installPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -104,6 +107,7 @@ const {
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
+    listInstallablePluginsMock: vi.fn(() => []),
     readPluginConfigEntryMock: vi.fn((pluginId: string) => ({
       pluginId,
       configPath: '/tmp/config.json',
@@ -225,7 +229,9 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
 
 vi.mock('../src/plugins/plugin-install.js', () => ({
   checkPlugin: checkPluginMock,
+  formatDependencyPlanDetails: formatDependencyPlanDetailsMock,
   installPlugin: installPluginMock,
+  listInstallablePlugins: listInstallablePluginsMock,
   PluginDependencyApprovalRequiredError: pluginDependencyApprovalRequiredError,
   reinstallPlugin: reinstallPluginMock,
   uninstallPlugin: uninstallPluginMock,
@@ -265,7 +271,9 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.applyOutputGuards.mockClear();
     shutdownPluginManagerMock.mockClear();
     checkPluginMock.mockClear();
+    formatDependencyPlanDetailsMock.mockClear();
     installPluginMock.mockClear();
+    listInstallablePluginsMock.mockClear();
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
     reinstallPluginMock.mockClear();
@@ -763,6 +771,26 @@ test('handleGatewayCommand lists plugin summaries', async () => {
       hooks: [],
     },
   ]);
+  listInstallablePluginsMock.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      name: 'Demo Plugin',
+      version: '1.0.0',
+      description: 'Already installed',
+      source: 'project',
+      dir: '/tmp/project/plugins/demo-plugin',
+      installSource: 'demo-plugin',
+    },
+    {
+      id: 'available-plugin',
+      name: 'Available Plugin',
+      version: '0.1.0',
+      description: 'Available plugin for testing',
+      source: 'bundled',
+      dir: '/tmp/package/plugins/available-plugin',
+      installSource: 'available-plugin',
+    },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: 'session-plugin-list',
@@ -772,17 +800,74 @@ test('handleGatewayCommand lists plugin summaries', async () => {
   });
 
   expect(pluginManagerMock.listPluginSummary).toHaveBeenCalled();
+  expect(listInstallablePluginsMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Plugins');
+  expect(result.text).toContain('Installed\n');
   expect(result.text).toContain('demo-plugin v1.0.0 [project]');
   expect(result.text).toContain('description: Demo plugin for testing');
   expect(result.text).toContain('commands: /demo_status');
   expect(result.text).toContain('tools: demo_echo');
   expect(result.text).toContain('broken-plugin [home]');
   expect(result.text).toContain('error: register exploded');
+  expect(result.text).toContain('Available\n');
+  expect(result.text).toContain('available-plugin v0.1.0 [bundled]');
+  expect(result.text).toContain('description: Available plugin for testing');
+  expect(result.text).toContain('install: /plugin install available-plugin');
+  expect(result.text).not.toContain('description: Already installed');
+});
+
+test('handleGatewayCommand filters plugin list to available plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
+  listInstallablePluginsMock.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      source: 'project',
+      dir: '/tmp/project/plugins/demo-plugin',
+      installSource: 'demo-plugin',
+    },
+    {
+      id: 'available-plugin',
+      source: 'bundled',
+      dir: '/tmp/package/plugins/available-plugin',
+      installSource: 'available-plugin',
+    },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-list-available',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'list', 'available'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('available-plugin [bundled]');
+  expect(result.text).toContain('install: /plugin install available-plugin');
+  expect(result.text).not.toContain('demo-plugin [home]');
 });
 
 test('handleGatewayCommand shows plugin config overrides', async () => {
@@ -1628,7 +1713,7 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   }
   expect(result.title).toBe('HybridClaw Commands');
   expect(result.text).toContain(
-    '`/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]`: Manage installed plugins',
+    '`/plugin [list [installed|available]|enable|disable|config|install|reinstall|reload|uninstall]`: Manage installed and available plugins',
   );
   expect(result.text).toContain(
     '`/auth status <provider>`: Show local provider auth and config status',

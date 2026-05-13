@@ -1,7 +1,15 @@
 import readline from 'node:readline/promises';
 import { runtimeConfigPath } from '../config/runtime-config.js';
-import { formatPluginSummaryList } from '../plugins/plugin-formatting.js';
-import { formatDependencyPlanDetails } from '../plugins/plugin-install.js';
+import {
+  filterAvailablePluginSummaryList,
+  formatAvailablePluginSummaryList,
+  formatPluginCatalogList,
+  formatPluginSummaryList,
+} from '../plugins/plugin-formatting.js';
+import {
+  formatDependencyPlanDetails,
+  listInstallablePlugins,
+} from '../plugins/plugin-install.js';
 import { normalizeArgs } from './common.js';
 import { isHelpRequest, printPluginUsage } from './help.js';
 
@@ -241,18 +249,33 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
   const sub = normalized[0].toLowerCase();
   if (sub === 'list') {
-    if (normalized.length !== 1) {
+    const scope = (normalized[1] || 'all').toLowerCase();
+    if (
+      normalized.length > 2 ||
+      (scope !== 'all' && scope !== 'installed' && scope !== 'available')
+    ) {
       printPluginUsage();
-      throw new Error(
-        'Unexpected extra arguments for `hybridclaw plugin list`.',
-      );
+      throw new Error('Usage: `hybridclaw plugin list [installed|available]`.');
     }
 
     const { ensurePluginManagerInitialized } = await import(
       '../plugins/plugin-manager.js'
     );
     const manager = await ensurePluginManagerInitialized();
-    console.log(formatPluginSummaryList(manager.listPluginSummary()));
+    const installed = manager.listPluginSummary();
+    const available = filterAvailablePluginSummaryList(
+      listInstallablePlugins(),
+      installed,
+    );
+    if (scope === 'installed') {
+      console.log(formatPluginSummaryList(installed));
+      return;
+    }
+    if (scope === 'available') {
+      console.log(formatAvailablePluginSummaryList(available));
+      return;
+    }
+    console.log(formatPluginCatalogList({ installed, available }));
     return;
   }
 
@@ -565,6 +588,6 @@ export async function handlePluginCommand(args: string[]): Promise<void> {
 
   printPluginUsage();
   throw new Error(
-    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin enable <plugin-id>\`, \`hybridclaw plugin disable <plugin-id>\`, \`hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]\`, \`hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]\`, \`hybridclaw plugin check <plugin-id>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
+    `Unknown plugin subcommand: ${sub}. Use \`hybridclaw plugin list [installed|available]\`, \`hybridclaw plugin config <plugin-id> [key] [value|--unset]\`, \`hybridclaw plugin enable <plugin-id>\`, \`hybridclaw plugin disable <plugin-id>\`, \`hybridclaw plugin install <path|plugin-id|npm-spec> [--yes]\`, \`hybridclaw plugin reinstall <path|plugin-id|npm-spec> [--yes]\`, \`hybridclaw plugin check <plugin-id>\`, or \`hybridclaw plugin uninstall <plugin-id>\`.`,
   );
 }
