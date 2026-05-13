@@ -299,6 +299,10 @@ export function getModelOverlay(modelId: string): ModelOverlay | undefined {
   return undefined;
 }
 
+export function listStaticModelMetadataModelIds(): string[] {
+  return Object.keys(STATIC_MODEL_METADATA);
+}
+
 export function resolveStaticModelCatalogMetadata(
   modelName: string,
 ): StaticModelCatalogMetadata {

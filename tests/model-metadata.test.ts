@@ -8,6 +8,7 @@ import {
   isCodexFamilyModelId,
   isGpt5ModelId,
   isLocalLlmModelId,
+  listStaticModelMetadataModelIds,
 } from '../src/providers/model-metadata.js';
 
 const COMPLETE_OVERLAY = {
@@ -16,40 +17,6 @@ const COMPLETE_OVERLAY = {
   execution_policy: 'execute only approved actions',
   narrate_only_retry: true,
 } satisfies ModelOverlay;
-
-const CURRENT_STATIC_MODEL_IDS = [
-  'gpt-4.1',
-  'gpt-4.1-mini',
-  'gpt-4.1-nano',
-  'gpt-5',
-  'gpt-5-chat-latest',
-  'gpt-5-codex',
-  'gpt-5-mini',
-  'gpt-5-nano',
-  'gpt-5-pro',
-  'gpt-5.1',
-  'gpt-5.1-chat-latest',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5.1-codex-mini',
-  'gpt-5.2',
-  'gpt-5.2-chat-latest',
-  'gpt-5.2-codex',
-  'gpt-5.2-pro',
-  'gpt-5.3-codex',
-  'gpt-5.3-codex-spark',
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.4-nano',
-  'gpt-5.5',
-  'gpt-5.5-pro',
-  'claude-haiku-4-5',
-  'claude-opus-4-1',
-  'claude-opus-4-6',
-  'claude-sonnet-4',
-  'claude-sonnet-4-5',
-  'claude-sonnet-4-6',
-];
 
 test('static model metadata entries accept an optional complete overlay', () => {
   const entryWithoutOverlay = {
@@ -117,7 +84,7 @@ test('future family matcher skeletons are inert', () => {
 });
 
 test.each(
-  CURRENT_STATIC_MODEL_IDS,
+  listStaticModelMetadataModelIds(),
 )('getModelOverlay returns undefined for current catalog entry %s', (modelId) => {
   expect(getModelOverlay(modelId)).toBeUndefined();
 });
