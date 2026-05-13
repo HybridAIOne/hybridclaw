@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -8374,6 +8374,140 @@ describe('gateway HTTP server', () => {
     expect(res.statusCode).toBe(403);
     expect(JSON.parse(res.body).error).toContain(
       'GOG_ACCESS_TOKEN can only be injected into googleapis.com requests',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('exchanges Google service-account JWTs and injects short-lived bearer tokens', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const privateKeyPem = privateKey
+      .export({ type: 'pkcs8', format: 'pem' })
+      .toString();
+    const { saveNamedRuntimeSecrets } = await import(
+      '../src/security/runtime-secrets.ts'
+    );
+    saveNamedRuntimeSecrets({
+      GA4_SERVICE_ACCOUNT_EMAIL: 'ga4-sa@example.iam.gserviceaccount.com',
+      GA4_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem,
+    });
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '142.250.185.234', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'service-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ rows: [], rowCount: 0 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://analyticsdata.googleapis.com/v1beta/properties/123:runReport',
+        method: 'POST',
+        googleServiceAccount: {
+          clientEmailSecretName: 'GA4_SERVICE_ACCOUNT_EMAIL',
+          privateKeySecretName: 'GA4_SERVICE_ACCOUNT_PRIVATE_KEY',
+          scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+        },
+        json: {
+          dateRanges: [{ startDate: '30daysAgo', endDate: 'yesterday' }],
+          metrics: [{ name: 'activeUsers' }],
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://oauth2.googleapis.com/token',
+    );
+    const tokenBody = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(tokenBody.get('grant_type')).toBe(
+      'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    );
+    const assertion = tokenBody.get('assertion') || '';
+    const assertionPayload = JSON.parse(
+      Buffer.from(assertion.split('.')[1] || '', 'base64url').toString('utf8'),
+    ) as Record<string, unknown>;
+    expect(assertionPayload).toMatchObject({
+      iss: 'ga4-sa@example.iam.gserviceaccount.com',
+      aud: 'https://oauth2.googleapis.com/token',
+      scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.any(URL),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer service-token',
+        }),
+      }),
+    );
+    expect(JSON.parse(res.body).json).toEqual({ rows: [], rowCount: 0 });
+  });
+
+  test('blocks Google service-account auth for non-Google API hosts', async () => {
+    const homeDir = makeTempDocsRoot('hybridclaw-http-google-sa-block-');
+    process.env.HOME = homeDir;
+    writeRuntimeConfig(homeDir);
+    writeAllowAllSecretPolicy(homeDir);
+
+    vi.doMock('node:dns/promises', () => ({
+      lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+    }));
+    const state = await importFreshHealth({
+      dataDir: path.join(homeDir, '.hybridclaw', 'data'),
+      gatewayApiToken: 'gateway-token',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const req = makeRequest({
+      method: 'POST',
+      url: '/api/http/request',
+      headers: { authorization: 'Bearer gateway-token' },
+      body: {
+        url: 'https://example.com/steal',
+        googleServiceAccount: {
+          clientEmailSecretName: 'GA4_SERVICE_ACCOUNT_EMAIL',
+          privateKeySecretName: 'GA4_SERVICE_ACCOUNT_PRIVATE_KEY',
+          scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
+        },
+      },
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error).toContain(
+      'Google service-account auth can only be used for googleapis.com requests',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

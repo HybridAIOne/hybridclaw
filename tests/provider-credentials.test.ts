@@ -26,14 +26,29 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test('resolves provider credentials in the gateway layer', async () => {
+test('resolves provider credentials from the encrypted runtime secret store', async () => {
   process.env.HOME = fs.mkdtempSync(
     path.join(os.tmpdir(), 'hybridclaw-provider-credentials-'),
   );
-  process.env.OPENAI_API_KEY = 'openai-test-key';
-  process.env.GOOGLE_API_KEY = 'google-test-key';
-  process.env.XAI_API_KEY = 'xai-test-key';
-  process.env.BFL_API_KEY = 'bfl-test-key';
+  process.env.OPENAI_API_KEY = 'env-openai-key';
+  process.env.GOOGLE_API_KEY = 'env-google-key';
+  process.env.XAI_API_KEY = 'env-xai-key';
+  process.env.BFL_API_KEY = 'env-bfl-key';
+  vi.resetModules();
+
+  const { saveNamedRuntimeSecrets } = await import(
+    '../src/security/runtime-secrets.js'
+  );
+  saveNamedRuntimeSecrets({
+    OPENAI_API_KEY: 'store-openai-key',
+    GOOGLE_API_KEY: 'store-google-key',
+    XAI_API_KEY: 'store-xai-key',
+    BLACK_FOREST_LABS_API_KEY: 'store-bfl-key',
+    OPENAI_IMAGE_MODEL: 'store-openai-image-model',
+    GEMINI_IMAGE_MODEL: 'store-gemini-image-model',
+    XAI_IMAGE_MODEL: 'store-xai-image-model',
+    BFL_IMAGE_MODEL: 'store-bfl-image-model',
+  });
   vi.resetModules();
 
   const { resolveProviderCredentials } = await import(
@@ -41,8 +56,33 @@ test('resolves provider credentials in the gateway layer', async () => {
   );
   const credentials = resolveProviderCredentials();
 
-  expect(credentials.openai?.apiKey).toBe('openai-test-key');
-  expect(credentials.gemini?.apiKey).toBe('google-test-key');
-  expect(credentials.xai?.apiKey).toBe('xai-test-key');
-  expect(credentials.bfl?.apiKey).toBe('bfl-test-key');
+  expect(credentials.openai?.apiKey).toBe('store-openai-key');
+  expect(credentials.gemini?.apiKey).toBe('store-google-key');
+  expect(credentials.xai?.apiKey).toBe('store-xai-key');
+  expect(credentials.bfl?.apiKey).toBe('store-bfl-key');
+  expect(credentials.openai?.imageModel).toBe('store-openai-image-model');
+  expect(credentials.gemini?.imageModel).toBe('store-gemini-image-model');
+  expect(credentials.xai?.imageModel).toBe('store-xai-image-model');
+  expect(credentials.bfl?.imageModel).toBe('store-bfl-image-model');
+});
+
+test('ignores provider credentials that only exist in process env', async () => {
+  process.env.HOME = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-provider-credentials-empty-'),
+  );
+  process.env.OPENAI_API_KEY = 'env-openai-key';
+  process.env.GOOGLE_API_KEY = 'env-google-key';
+  process.env.XAI_API_KEY = 'env-xai-key';
+  process.env.BFL_API_KEY = 'env-bfl-key';
+  vi.resetModules();
+
+  const { resolveProviderCredentials } = await import(
+    '../src/providers/provider-credentials.js'
+  );
+  const credentials = resolveProviderCredentials();
+
+  expect(credentials.openai).toBeUndefined();
+  expect(credentials.gemini).toBeUndefined();
+  expect(credentials.xai).toBeUndefined();
+  expect(credentials.bfl).toBeUndefined();
 });

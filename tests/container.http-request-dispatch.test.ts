@@ -64,6 +64,82 @@ describe.sequential('container http_request dispatch', () => {
     );
   });
 
+  test('surfaces upstream JSON error details before headers for proxied failures', async () => {
+    const { executeToolWithMetadata, setGatewayContext } = await import(
+      '../container/src/tools.js'
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          ok: false,
+          status: 403,
+          statusText: 'Forbidden',
+          url: 'https://analyticsdata.googleapis.com/v1beta/properties/537331984:runReport',
+          headers: {
+            'content-type': 'application/json; charset=UTF-8',
+          },
+          body: JSON.stringify({
+            error: {
+              code: 403,
+              message:
+                'Google Analytics Data API has not been used in project 54329896720 before or it is disabled.',
+              status: 'PERMISSION_DENIED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                  reason: 'SERVICE_DISABLED',
+                  domain: 'googleapis.com',
+                  metadata: {
+                    service: 'analyticsdata.googleapis.com',
+                    activationUrl:
+                      'https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview?project=54329896720',
+                  },
+                },
+              ],
+            },
+          }),
+          json: {
+            error: {
+              code: 403,
+              message:
+                'Google Analytics Data API has not been used in project 54329896720 before or it is disabled.',
+              status: 'PERMISSION_DENIED',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                  reason: 'SERVICE_DISABLED',
+                  domain: 'googleapis.com',
+                  metadata: {
+                    service: 'analyticsdata.googleapis.com',
+                    activationUrl:
+                      'https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview?project=54329896720',
+                  },
+                },
+              ],
+            },
+          },
+        }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    setGatewayContext('http://127.0.0.1:9000', 'token-123', 'web', []);
+
+    const result = await executeToolWithMetadata(
+      'http_request',
+      JSON.stringify({
+        url: 'https://analyticsdata.googleapis.com/v1beta/properties/537331984:runReport',
+        method: 'POST',
+        bearerSecretName: 'GOOGLE_WORKSPACE_CLI_TOKEN',
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('"reason": "SERVICE_DISABLED"');
+    expect(result.output).toContain('Google Analytics Data API');
+    expect(result.output).not.toContain('"headers"');
+  });
+
   test('automatically adds gateway auth to proxied gateway requests', async () => {
     const { executeTool, setGatewayContext } = await import(
       '../container/src/tools.js'

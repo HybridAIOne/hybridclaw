@@ -225,7 +225,7 @@ export function listVideoGenerationProviders(
       active: active === 'openai',
       missing: ready.has('openai')
         ? null
-        : 'Set OPENAI_API_KEY or use an openai-codex model with credentials.',
+        : 'Store OPENAI_API_KEY with `/secret set OPENAI_API_KEY <key>`, or use an openai-codex model with credentials.',
       default_model: DEFAULT_OPENAI_VIDEO_MODEL,
     },
     {
@@ -235,7 +235,7 @@ export function listVideoGenerationProviders(
       active: active === 'gemini',
       missing: ready.has('gemini')
         ? null
-        : 'Set GEMINI_API_KEY/GOOGLE_API_KEY or use a configured gemini model.',
+        : 'Store GEMINI_API_KEY or GOOGLE_API_KEY with `/secret set ...`, or use a configured gemini model.',
       default_model: DEFAULT_GEMINI_VIDEO_MODEL,
     },
   ];
@@ -545,7 +545,7 @@ export async function runVideoGenerate(
   const candidates = buildProviderCandidates(context);
   if (candidates.length === 0) {
     throw new Error(
-      'video_generate is not configured: set OPENAI_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, or use a configured openai-codex/gemini model.',
+      'video_generate is not configured: store OPENAI_API_KEY or GEMINI_API_KEY/GOOGLE_API_KEY with `hybridclaw secret set`, or use a configured openai-codex/gemini model.',
     );
   }
 
