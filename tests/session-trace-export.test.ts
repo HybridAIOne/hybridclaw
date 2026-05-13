@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import { setupGatewayTest } from './helpers/gateway-test-setup.js';
 
@@ -262,6 +262,176 @@ test('exports an opentraces/ATIF-compatible JSONL trace from stored session data
       error: null,
     },
   ]);
+});
+
+test('trace export keeps consecutive buildConversationContext system prompts byte-identical', async () => {
+  setupHome();
+  vi.useFakeTimers();
+
+  try {
+    const {
+      getOrCreateSession,
+      getSessionById,
+      getSessionUsageTotals,
+      getStructuredAuditForSession,
+      initDatabase,
+      storeMessage,
+      updateSessionModel,
+    } = await import('../src/memory/db.ts');
+    const { recordAuditEvent } = await import('../src/audit/audit-events.ts');
+    const { buildConversationContext } = await import(
+      '../src/agent/conversation.ts'
+    );
+    const { exportSessionTraceAtifJsonl } = await import(
+      '../src/session/session-trace-export.ts'
+    );
+
+    initDatabase({ quiet: true });
+    const session = getOrCreateSession(
+      'session-trace-static-prefix',
+      null,
+      'channel-trace-static-prefix',
+    );
+    updateSessionModel(session.id, 'gpt-5-nano');
+    storeMessage(session.id, 'user-1', 'alice', 'user', 'First turn');
+    storeMessage(session.id, 'assistant', null, 'assistant', 'First answer');
+    storeMessage(session.id, 'user-1', 'alice', 'user', 'Second turn');
+    storeMessage(session.id, 'assistant', null, 'assistant', 'Second answer');
+
+    const buildPromptAt = (iso: string): string => {
+      vi.setSystemTime(new Date(iso));
+      const { messages } = buildConversationContext({
+        agentId: session.agent_id,
+        history: [],
+        currentUserContent: 'Trace prefix stability',
+        runtimeInfo: {
+          model: 'openai-codex/gpt-5.4',
+          channelType: 'discord',
+          channelId: 'channel-trace-static-prefix',
+          guildId: null,
+          workspacePath: '/workspace/trace-static-prefix',
+        },
+      });
+      const systemMessage = messages[0];
+      if (systemMessage?.role !== 'system') {
+        throw new Error(
+          'Expected buildConversationContext to emit a system message.',
+        );
+      }
+      return String(systemMessage.content || '');
+    };
+
+    const firstSystemPrompt = buildPromptAt('2026-05-13T12:00:00.000Z');
+    const secondSystemPrompt = buildPromptAt('2026-05-13T12:01:00.000Z');
+    expect(secondSystemPrompt).toBe(firstSystemPrompt);
+
+    for (const [index, systemPrompt] of [
+      firstSystemPrompt,
+      secondSystemPrompt,
+    ].entries()) {
+      const runId = `turn_trace_static_prefix_${index + 1}`;
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.start',
+          turnIndex: index + 1,
+          userInput: index === 0 ? 'First turn' : 'Second turn',
+          username: 'alice',
+          source: 'gateway.chat',
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'agent.start',
+          provider: 'hybridai',
+          model: 'gpt-5-nano',
+          systemPrompt,
+          promptMessages: 3,
+          scheduledTaskCount: 0,
+        },
+      });
+      recordAuditEvent({
+        sessionId: session.id,
+        runId,
+        event: {
+          type: 'turn.end',
+          turnIndex: index + 1,
+          finishReason: 'completed',
+        },
+      });
+    }
+
+    const refreshedSession = getSessionById(session.id);
+    if (!refreshedSession) {
+      throw new Error('Expected refreshed session to exist');
+    }
+
+    const exported = await exportSessionTraceAtifJsonl({
+      agentId: refreshedSession.agent_id,
+      session: refreshedSession,
+      messages: [
+        {
+          id: 1,
+          session_id: session.id,
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'First turn',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 2,
+          session_id: session.id,
+          user_id: 'assistant',
+          username: null,
+          role: 'assistant',
+          content: 'First answer',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 3,
+          session_id: session.id,
+          user_id: 'user-1',
+          username: 'alice',
+          role: 'user',
+          content: 'Second turn',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 4,
+          session_id: session.id,
+          user_id: 'assistant',
+          username: null,
+          role: 'assistant',
+          content: 'Second answer',
+          created_at: new Date().toISOString(),
+        },
+      ],
+      auditEntries: getStructuredAuditForSession(session.id),
+      usageTotals: getSessionUsageTotals(session.id),
+    });
+
+    expect(exported).not.toBeNull();
+    const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+    const record = JSON.parse(raw) as Record<string, unknown>;
+    const systemPrompts = record.system_prompts as Record<string, string>;
+    const systemPromptHashes = Object.keys(systemPrompts);
+    expect(systemPromptHashes).toHaveLength(1);
+    const agentStepHashes = (
+      (record.steps as Array<Record<string, unknown>>) || []
+    )
+      .map((step) => step.system_prompt_hash)
+      .filter(Boolean);
+    expect(agentStepHashes).toEqual([
+      systemPromptHashes[0],
+      systemPromptHashes[0],
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('trace export fills repository, dependencies, security, and attribution from workspace context', async () => {

@@ -37,11 +37,14 @@ export default defineConfig({
         test: {
           ...sharedTestConfig,
           name: 'unit',
-          include: ['tests/**/*.test.ts'],
+          include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
           exclude: [
             'tests/**/*.integration.test.ts',
             'tests/**/*.e2e.test.ts',
             'tests/**/*.live.test.ts',
+            'src/**/*.integration.test.ts',
+            'src/**/*.e2e.test.ts',
+            'src/**/*.live.test.ts',
             ...sharedExclude,
           ],
         },

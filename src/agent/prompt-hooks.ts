@@ -1,4 +1,3 @@
-import os from 'node:os';
 import type { ChannelInfo, ChannelKind } from '../channels/channel.js';
 import {
   getChannelByContextId,
@@ -595,7 +594,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     '## Runtime Metadata',
     `HybridClaw version: v${APP_VERSION}`,
     'HybridClaw Documentation: [/docs/](/docs/)',
-    `Date (UTC): ${new Date().toISOString().slice(0, 10)}`,
     modelSentence,
     runtimeInfo.channelId?.trim()
       ? `Channel ID: ${runtimeInfo.channelId.trim()}`
@@ -603,7 +601,6 @@ function buildRuntimeHook(context: PromptHookContext): string {
     `Guild ID: ${guildLabel}`,
     `Node: ${process.version}`,
     `OS: ${process.platform} (${process.arch})`,
-    `Host: ${os.hostname()}`,
     `Workspace: ${workspaceLabel}`,
     `When asked for your version, answer briefly as: "HybridClaw v${APP_VERSION}".`,
     'Only provide more runtime details when the user explicitly asks for them.',

@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import {
   type HistoryOptimizationStats,
@@ -22,6 +23,23 @@ import { mergeBlockedToolNames } from './tool-policy.js';
 interface HistoryMessage {
   role: string;
   content: ChatMessage['content'];
+}
+
+function sanitizeDynamicContextValue(value: string): string {
+  return value
+    .replaceAll('\0', '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+}
+
+export function buildDynamicContextMessage(now = new Date()): ChatMessage {
+  const lines = [
+    '<context>',
+    `Date (UTC): ${now.toISOString().slice(0, 10)}`,
+    `Host: ${sanitizeDynamicContextValue(os.hostname())}`,
+    '</context>',
+  ];
+  return { role: 'user', content: lines.join('\n') };
 }
 
 function resolvePreviousUserContent(history: HistoryMessage[]): string | null {
@@ -104,6 +122,7 @@ export function buildConversationContext(params: {
   const messages: ChatMessage[] = [];
   if (systemPrompt) {
     messages.push({ role: 'system', content: systemPrompt });
+    messages.push(buildDynamicContextMessage());
   }
 
   const historyMessages = [...history].reverse().map(
