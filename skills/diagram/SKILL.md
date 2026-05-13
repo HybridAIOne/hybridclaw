@@ -57,7 +57,8 @@ The tool output includes these fields:
 
 On validation failure, `success` and `valid` are false and `errors` plus
 `suggested_fix` may be present. When `render_to` is `"none"`,
-`rendered_artifact_ref` is `null`.
+`rendered_artifact_ref` is `null`. Invalid source is still saved with
+`source_artifact_valid: false` so the operator can inspect or repair it.
 
 ## Default Workflow
 
@@ -110,8 +111,9 @@ If the user only asks to annotate a diagram and exact placement does not matter,
 ## Adapter Notes
 
 - Mermaid and Graphviz use local renderers when available. If a renderer is not installed, SVG requests fall back to source-backed SVG artifacts so the operator still gets an embed-ready file.
-- PlantUML rendering uses `HYBRIDCLAW_PLANTUML_SERVER_URL` or `PLANTUML_SERVER_URL` when configured. Without a server, SVG requests fall back to source-backed SVG artifacts.
+- PlantUML rendering uses `HYBRIDCLAW_PLANTUML_SERVER_URL` or `PLANTUML_SERVER_URL` when configured. Without a server, SVG requests fall back to source-backed SVG artifacts. Operators are responsible for pointing this setting only at a trusted PlantUML server with appropriate network egress controls.
 - Excalidraw defaults to `render_to: "none"` because JSON is the editable deliverable. Use `render_to: "svg"` only when a static preview is requested.
+- Local Mermaid and Graphviz renders use short-lived OS temp directories. Normal tool completion removes them; process-level termination such as SIGKILL may leave temporary source copies for the OS temp cleaner.
 
 ## Stakes
 

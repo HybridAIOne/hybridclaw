@@ -16,6 +16,8 @@ available when the diagram shape or user request calls for them.
 **Prerequisites** — none for source artifacts and SVG fallback previews. Install
 or configure optional renderers for native exports: `mmdc` for Mermaid,
 `dot` for Graphviz, and `HYBRIDCLAW_PLANTUML_SERVER_URL` for PlantUML.
+Only point the PlantUML setting at a trusted server with appropriate network
+egress controls.
 
 > 💡 **Tips & Tricks**
 >

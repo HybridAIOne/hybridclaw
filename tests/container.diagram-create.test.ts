@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const ORIGINAL_WORKSPACE_ROOT = process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
 const ORIGINAL_WORKSPACE_DISPLAY_ROOT =
   process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT;
+const ORIGINAL_PLANTUML_SERVER_URL = process.env.HYBRIDCLAW_PLANTUML_SERVER_URL;
+const ORIGINAL_LEGACY_PLANTUML_SERVER_URL = process.env.PLANTUML_SERVER_URL;
 
 let workspaceRoot = '';
 
@@ -32,6 +34,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   if (ORIGINAL_WORKSPACE_ROOT == null) {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
@@ -43,6 +46,17 @@ afterEach(() => {
     process.env.HYBRIDCLAW_AGENT_WORKSPACE_DISPLAY_ROOT =
       ORIGINAL_WORKSPACE_DISPLAY_ROOT;
   }
+  if (ORIGINAL_PLANTUML_SERVER_URL == null) {
+    delete process.env.HYBRIDCLAW_PLANTUML_SERVER_URL;
+  } else {
+    process.env.HYBRIDCLAW_PLANTUML_SERVER_URL = ORIGINAL_PLANTUML_SERVER_URL;
+  }
+  if (ORIGINAL_LEGACY_PLANTUML_SERVER_URL == null) {
+    delete process.env.PLANTUML_SERVER_URL;
+  } else {
+    process.env.PLANTUML_SERVER_URL = ORIGINAL_LEGACY_PLANTUML_SERVER_URL;
+  }
+  vi.unstubAllGlobals();
   vi.resetModules();
   fs.rmSync(workspaceRoot, { recursive: true, force: true });
 });
@@ -170,6 +184,30 @@ describe('diagram tools', () => {
     expect(parsed.errors).toEqual([]);
   });
 
+  test('sanitizes Mermaid-sensitive label characters in generated skeletons', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        description: 'deploy [canary] {region|us}',
+        type: 'flowchart',
+        format: 'mermaid',
+        render_to: 'none',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      success: boolean;
+      valid: boolean;
+      source: string;
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.success).toBe(true);
+    expect(parsed.valid).toBe(true);
+    expect(parsed.source).toContain('A[deploy canary regionus]');
+  });
+
   test('creates non-Mermaid source artifacts through all adapters', async () => {
     const { executeToolWithMetadata } = await loadTools();
     const cases = [
@@ -203,6 +241,38 @@ describe('diagram tools', () => {
       expect(parsed.rendered_artifact_ref).toBeNull();
       expect(fs.existsSync(hostPath(parsed.source_artifact_ref))).toBe(true);
     }
+  });
+
+  test('PlantUML server rendering has a timeout', async () => {
+    vi.useFakeTimers();
+    process.env.HYBRIDCLAW_PLANTUML_SERVER_URL = 'https://plantuml.test';
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata } = await loadTools();
+
+    const resultPromise = executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        description: 'sequence diagram for timeout',
+        type: 'sequence',
+        format: 'plantuml',
+        render_to: 'svg',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    const result = await resultPromise;
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'PlantUML server request timed out after 15000ms',
+    );
   });
 
   test('updates an existing diagram artifact while preserving type and format', async () => {
@@ -309,6 +379,52 @@ describe('diagram tools', () => {
     expect(parsed.success).toBe(false);
     expect(parsed.valid).toBe(false);
     expect(parsed.errors.join('\n')).toContain('not valid JSON');
+  });
+
+  test('missing artifact_ref fails instead of generating a skeleton', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_update',
+      JSON.stringify({
+        artifact_ref: '/workspace/missing.mmd',
+        instructions: 'add retry path',
+        format: 'mermaid',
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain(
+      'artifact_ref not found or unreadable: /workspace/missing.mmd',
+    );
+  });
+
+  test('failed validation marks persisted source artifacts as invalid', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        source: 'flowchart TD\n  A[Start',
+        type: 'flowchart',
+        format: 'mermaid',
+        render_to: 'none',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      success: boolean;
+      valid: boolean;
+      source_artifact_valid: boolean;
+      warnings: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.success).toBe(false);
+    expect(parsed.valid).toBe(false);
+    expect(parsed.source_artifact_valid).toBe(false);
+    expect(parsed.warnings).toContain(
+      'Source artifact was saved for debugging but did not validate.',
+    );
   });
 
   test('diagram tool schemas allow source-only create and update calls', async () => {

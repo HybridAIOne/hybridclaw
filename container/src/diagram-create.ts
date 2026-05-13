@@ -1,8 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { deflateRawSync } from 'node:zlib';
 import {
   resolveWorkspacePath,
@@ -51,6 +52,9 @@ interface NormalizedDiagramRequest {
 }
 
 const OUTPUT_DIR = '.generated-diagrams';
+const EXTERNAL_RENDER_TIMEOUT_MS = 60_000;
+const PLANTUML_FETCH_TIMEOUT_MS = 15_000;
+const execFileAsync = promisify(execFile);
 const SOURCE_EXTENSIONS: Record<DiagramFormat, string> = {
   mermaid: '.mmd',
   plantuml: '.puml',
@@ -89,13 +93,7 @@ function readStringValue(value: unknown): string {
 }
 
 function readSourceValue(args: Record<string, unknown>): string {
-  return (
-    readStringValue(args.source) ||
-    readStringValue(args.updated_source) ||
-    readStringValue(args.updatedSource) ||
-    readStringValue(args.diagram_source) ||
-    readStringValue(args.diagramSource)
-  );
+  return readStringValue(args.source);
 }
 
 function normalizeFormat(value: unknown): DiagramFormat {
@@ -361,7 +359,7 @@ function validateDiagramSource(
 
 function safeLabel(value: string, fallback: string): string {
   const words = value
-    .replace(/[`"'<>]/g, '')
+    .replace(/[`"'<>[\]{}|]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
     .split(' ')
@@ -422,33 +420,17 @@ function buildExcalidrawSource(description: string): string {
       source: 'hybridclaw',
       elements: [
         {
-          id: 'diagram-box',
-          type: 'rectangle',
-          x: 120,
-          y: 120,
-          width: 260,
-          height: 90,
-          strokeColor: '#1e1e1e',
-          backgroundColor: '#d0ebff',
-          fillStyle: 'solid',
-          roundness: { type: 3 },
-          boundElements: [{ id: 'diagram-label', type: 'text' }],
-        },
-        {
           id: 'diagram-label',
           type: 'text',
-          x: 140,
-          y: 150,
-          width: 220,
-          height: 30,
+          x: 120,
+          y: 120,
+          width: 360,
+          height: 32,
           text: label,
           originalText: label,
-          fontSize: 20,
+          fontSize: 24,
           fontFamily: 1,
           strokeColor: '#1e1e1e',
-          textAlign: 'center',
-          verticalAlign: 'middle',
-          containerId: 'diagram-box',
         },
       ],
       appState: { viewBackgroundColor: '#ffffff' },
@@ -482,6 +464,57 @@ function loadArtifactSource(ref: string): string | null {
   return fs.readFileSync(resolved, 'utf-8');
 }
 
+function annotatePlantUml(source: string, note: string): string {
+  return source.replace(
+    /@enduml\s*$/i,
+    `note as UpdateNote\n  ${note}\nend note\n@enduml`,
+  );
+}
+
+function annotateGraphviz(source: string, note: string): string {
+  return source.replace(/\}\s*$/, `  update [label="${note}"];\n}`);
+}
+
+function annotateExcalidraw(source: string, note: string): string {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(stripFence(source)) as Record<string, unknown>;
+  } catch {
+    return source;
+  }
+  const elements = Array.isArray(parsed.elements) ? parsed.elements : [];
+  parsed.elements = [
+    ...elements,
+    {
+      id: `update-${randomUUID().slice(0, 8)}`,
+      type: 'text',
+      x: 120,
+      y: 240,
+      width: 360,
+      height: 24,
+      text: note,
+      originalText: note,
+      fontSize: 18,
+      fontFamily: 1,
+      strokeColor: '#1e1e1e',
+    },
+  ];
+  return JSON.stringify(parsed, null, 2);
+}
+
+function annotateMermaid(
+  source: string,
+  type: MermaidDiagramType,
+  note: string,
+): string {
+  if (type === 'sequence') return `${source}\n  %% Update: ${note}`;
+  if (type === 'mindmap') return `${source}\n    ${note}`;
+  if (type === 'pie') return `${source}\n  "${note}" : 1`;
+  if (type === 'gantt') return `${source}\n  ${note} : 1d`;
+  if (type === 'git-graph') return `${source}\n  commit id: "${note}"`;
+  return `${source}\n  %% Update: ${note}`;
+}
+
 function appendInstructionAnnotation(
   source: string,
   format: DiagramFormat,
@@ -490,45 +523,65 @@ function appendInstructionAnnotation(
 ): string {
   const note = safeLabel(instructions, 'Updated');
   if (!instructions) return source;
-  if (format === 'plantuml')
-    return source.replace(
-      /@enduml\s*$/i,
-      `note as UpdateNote\n  ${note}\nend note\n@enduml`,
-    );
-  if (format === 'graphviz')
-    return source.replace(/\}\s*$/, `  update [label="${note}"];\n}`);
-  if (format === 'excalidraw') {
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(stripFence(source)) as Record<string, unknown>;
-    } catch {
-      return source;
-    }
-    const elements = Array.isArray(parsed.elements) ? parsed.elements : [];
-    parsed.elements = [
-      ...elements,
-      {
-        id: `update-${randomUUID().slice(0, 8)}`,
-        type: 'text',
-        x: 120,
-        y: 240,
-        width: 360,
-        height: 24,
-        text: note,
-        originalText: note,
-        fontSize: 18,
-        fontFamily: 1,
-        strokeColor: '#1e1e1e',
-      },
-    ];
-    return JSON.stringify(parsed, null, 2);
+  if (format === 'plantuml') return annotatePlantUml(source, note);
+  if (format === 'graphviz') return annotateGraphviz(source, note);
+  if (format === 'excalidraw') return annotateExcalidraw(source, note);
+  return annotateMermaid(source, type, note);
+}
+
+function readArtifactRef(args: Record<string, unknown>): string {
+  return readStringValue(args.artifact_ref);
+}
+
+function resolveLoadedSource(
+  sourceFromArgs: string,
+  artifactRef: string,
+): string {
+  if (sourceFromArgs) return sourceFromArgs;
+  if (!artifactRef) return '';
+  const loaded = loadArtifactSource(artifactRef);
+  if (loaded === null) {
+    throw new Error(`artifact_ref not found or unreadable: ${artifactRef}`);
   }
-  if (type === 'sequence') return `${source}\n  %% Update: ${note}`;
-  if (type === 'mindmap') return `${source}\n    ${note}`;
-  if (type === 'pie') return `${source}\n  "${note}" : 1`;
-  if (type === 'gantt') return `${source}\n  ${note} : 1d`;
-  if (type === 'git-graph') return `${source}\n  commit id: "${note}"`;
-  return `${source}\n  %% Update: ${note}`;
+  return loaded;
+}
+
+function resolveRequestType(params: {
+  requestedType: DiagramType;
+  format: DiagramFormat;
+  source: string;
+  description: string;
+}): { type: MermaidDiagramType; sourceType: MermaidDiagramType | null } {
+  const inferredType =
+    params.format === 'mermaid' && params.source
+      ? inferMermaidType(params.source)
+      : null;
+  if (params.requestedType === 'auto') {
+    return {
+      type:
+        inferredType ||
+        classifyDiagramType(params.description || params.source),
+      sourceType: inferredType,
+    };
+  }
+  return { type: params.requestedType, sourceType: inferredType };
+}
+
+function buildTypeOverrideWarning(
+  format: DiagramFormat,
+  source: string,
+  type: MermaidDiagramType,
+  sourceType: MermaidDiagramType | null,
+): { type: MermaidDiagramType; warning: string | null } {
+  if (format !== 'mermaid') return { type, warning: null };
+  const resolvedSourceType = sourceType || inferMermaidType(source);
+  if (!resolvedSourceType || resolvedSourceType === type) {
+    return { type, warning: null };
+  }
+  return {
+    type: resolvedSourceType,
+    warning: `type "${type}" was overridden by Mermaid source header "${resolvedSourceType}".`,
+  };
 }
 
 function normalizeRequest(
@@ -539,26 +592,19 @@ function normalizeRequest(
   const instructions = readStringValue(args.instructions);
   const format = normalizeFormat(args.format);
   const sourceFromArgs = readSourceValue(args);
-  const artifactRef =
-    readStringValue(args.artifact_ref) ||
-    readStringValue(args.artifactRef) ||
-    readStringValue(args.existing_diagram_artifact_ref);
-  const loadedSource =
-    sourceFromArgs ||
-    (artifactRef ? loadArtifactSource(artifactRef) : '') ||
-    '';
+  const artifactRef = readArtifactRef(args);
+  const loadedSource = resolveLoadedSource(sourceFromArgs, artifactRef);
   const requestedType = normalizeDiagramType(
     args.type,
     description || loadedSource,
   );
-  const inferredType =
-    format === 'mermaid' && loadedSource
-      ? inferMermaidType(loadedSource)
-      : null;
-  const type =
-    requestedType === 'auto'
-      ? inferredType || classifyDiagramType(description || loadedSource)
-      : requestedType;
+  const resolvedType = resolveRequestType({
+    requestedType,
+    format,
+    source: loadedSource,
+    description,
+  });
+  let type = resolvedType.type;
   const renderTo = normalizeRenderTarget(
     args.render_to ?? args.renderTo,
     format,
@@ -572,24 +618,14 @@ function normalizeRequest(
       source = appendInstructionAnnotation(source, format, type, instructions);
     }
   }
-  if (format === 'mermaid') {
-    const sourceType = inferMermaidType(source);
-    if (sourceType && sourceType !== type) {
-      warnings.push(
-        `type "${type}" was overridden by Mermaid source header "${sourceType}".`,
-      );
-      return {
-        description,
-        instructions,
-        type: sourceType,
-        requestedType,
-        format,
-        renderTo,
-        source,
-        warnings,
-      };
-    }
-  }
+  const generatedSource = !loadedSource && source;
+  const sourceType =
+    generatedSource && format === 'mermaid'
+      ? inferMermaidType(source)
+      : resolvedType.sourceType;
+  const override = buildTypeOverrideWarning(format, source, type, sourceType);
+  type = override.type;
+  if (override.warning) warnings.push(override.warning);
   return {
     description,
     instructions,
@@ -638,32 +674,38 @@ interface ExternalRenderResult {
   detail: string;
 }
 
-function runExternalRenderer(
+async function runExternalRenderer(
   command: string,
   args: string[],
   inputPath: string,
   outputPath: string,
-): ExternalRenderResult {
-  const result = spawnSync(command, args, {
-    cwd: path.dirname(inputPath),
-    encoding: 'utf-8',
-    timeout: 60_000,
-  });
-  if (result.error) {
-    const nodeError = result.error as NodeJS.ErrnoException;
+): Promise<ExternalRenderResult> {
+  try {
+    await execFileAsync(command, args, {
+      cwd: path.dirname(inputPath),
+      encoding: 'utf-8',
+      timeout: EXTERNAL_RENDER_TIMEOUT_MS,
+    });
+  } catch (err) {
+    const nodeError = err as NodeJS.ErrnoException & {
+      stdout?: string;
+      stderr?: string;
+    };
     return {
       data: null,
       unavailable: nodeError.code === 'ENOENT',
-      detail: nodeError.message,
+      detail:
+        [nodeError.stderr, nodeError.stdout]
+          .filter(Boolean)
+          .join('\n')
+          .trim() || nodeError.message,
     };
   }
-  if (result.status !== 0 || !fs.existsSync(outputPath)) {
+  if (!fs.existsSync(outputPath)) {
     return {
       data: null,
       unavailable: false,
-      detail:
-        [result.stderr, result.stdout].filter(Boolean).join('\n').trim() ||
-        `${command} exited with status ${result.status ?? 'unknown'}`,
+      detail: `${command} completed without creating ${path.basename(outputPath)}`,
     };
   }
   return {
@@ -673,70 +715,93 @@ function runExternalRenderer(
   };
 }
 
-function renderMermaid(
-  source: string,
-  target: DiagramRenderTarget,
-): { data: Buffer; warnings: string[] } {
-  if (target === 'none') return { data: Buffer.alloc(0), warnings: [] };
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-diagram-'));
+async function renderWithExternalCommand(params: {
+  source: string;
+  target: Exclude<DiagramRenderTarget, 'none'>;
+  tempPrefix: string;
+  inputExtension: string;
+  command: string;
+  args: (inputPath: string, outputPath: string) => string[];
+  rendererName: string;
+  fallbackLabel: string;
+  missingMessage: string;
+}): Promise<{ data: Buffer; warnings: string[] }> {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), params.tempPrefix));
   try {
-    const inputPath = path.join(tempDir, 'diagram.mmd');
-    const outputPath = path.join(tempDir, `diagram.${target}`);
-    fs.writeFileSync(inputPath, stripFence(source), 'utf-8');
-    const rendered = runExternalRenderer(
-      'mmdc',
-      ['-i', inputPath, '-o', outputPath, '--quiet', '-b', 'transparent'],
+    const inputPath = path.join(tempDir, `diagram.${params.inputExtension}`);
+    const outputPath = path.join(tempDir, `diagram.${params.target}`);
+    fs.writeFileSync(inputPath, stripFence(params.source), 'utf-8');
+    const rendered = await runExternalRenderer(
+      params.command,
+      params.args(inputPath, outputPath),
       inputPath,
       outputPath,
     );
     if (rendered.data) return { data: rendered.data, warnings: [] };
-    if (rendered.unavailable && target === 'svg') {
+    if (rendered.unavailable && params.target === 'svg') {
       return {
-        data: renderSourceSvg(source, 'Mermaid diagram source'),
-        warnings: ['mmdc was unavailable; emitted source-backed SVG fallback.'],
+        data: renderSourceSvg(params.source, params.fallbackLabel),
+        warnings: [
+          `${params.rendererName} was unavailable; emitted source-backed SVG fallback.`,
+        ],
       };
     }
     if (!rendered.unavailable) {
-      throw new Error(`Mermaid renderer failed: ${rendered.detail}`);
+      throw new Error(
+        `${params.rendererName} renderer failed: ${rendered.detail}`,
+      );
     }
-    throw new Error(`Mermaid ${target} rendering requires mmdc.`);
+    throw new Error(params.missingMessage);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
+function renderMermaid(
+  source: string,
+  target: Exclude<DiagramRenderTarget, 'none'>,
+): Promise<{ data: Buffer; warnings: string[] }> {
+  return renderWithExternalCommand({
+    source,
+    target,
+    tempPrefix: 'hybridclaw-diagram-',
+    inputExtension: 'mmd',
+    command: 'mmdc',
+    args: (inputPath, outputPath) => [
+      '-i',
+      inputPath,
+      '-o',
+      outputPath,
+      '--quiet',
+      '-b',
+      'transparent',
+    ],
+    rendererName: 'mmdc',
+    fallbackLabel: 'Mermaid diagram source',
+    missingMessage: `Mermaid ${target} rendering requires mmdc.`,
+  });
+}
+
 function renderGraphviz(
   source: string,
-  target: DiagramRenderTarget,
-): { data: Buffer; warnings: string[] } {
-  if (target === 'none') return { data: Buffer.alloc(0), warnings: [] };
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-dot-'));
-  try {
-    const inputPath = path.join(tempDir, 'diagram.dot');
-    const outputPath = path.join(tempDir, `diagram.${target}`);
-    fs.writeFileSync(inputPath, stripFence(source), 'utf-8');
-    const rendered = runExternalRenderer(
-      'dot',
-      [`-T${target}`, inputPath, '-o', outputPath],
+  target: Exclude<DiagramRenderTarget, 'none'>,
+): Promise<{ data: Buffer; warnings: string[] }> {
+  return renderWithExternalCommand({
+    source,
+    target,
+    tempPrefix: 'hybridclaw-dot-',
+    inputExtension: 'dot',
+    command: 'dot',
+    args: (inputPath, outputPath) => [
+      `-T${target}`,
       inputPath,
+      '-o',
       outputPath,
-    );
-    if (rendered.data) return { data: rendered.data, warnings: [] };
-    if (rendered.unavailable && target === 'svg') {
-      return {
-        data: renderSourceSvg(source, 'Graphviz DOT source'),
-        warnings: [
-          'Graphviz dot was unavailable; emitted source-backed SVG fallback.',
-        ],
-      };
-    }
-    if (!rendered.unavailable) {
-      throw new Error(`Graphviz renderer failed: ${rendered.detail}`);
-    }
-    throw new Error(`Graphviz ${target} rendering requires the dot binary.`);
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
+    ],
+    rendererName: 'Graphviz dot',
+    fallbackLabel: 'Graphviz DOT source',
+    missingMessage: `Graphviz ${target} rendering requires the dot binary.`,
+  });
 }
 
 const PLANTUML_ALPHABET =
@@ -759,9 +824,8 @@ function encodePlantUml(source: string): string {
 
 async function renderPlantUml(
   source: string,
-  target: DiagramRenderTarget,
+  target: Exclude<DiagramRenderTarget, 'none'>,
 ): Promise<{ data: Buffer; warnings: string[] }> {
-  if (target === 'none') return { data: Buffer.alloc(0), warnings: [] };
   if (target !== 'svg' && target !== 'png') {
     throw new Error('PlantUML rendering supports svg or png.');
   }
@@ -781,12 +845,26 @@ async function renderPlantUml(
       'PlantUML rendering requires HYBRIDCLAW_PLANTUML_SERVER_URL or PLANTUML_SERVER_URL.',
     );
   }
-  const response = await fetch(
-    `${baseUrl.replace(/\/+$/, '')}/${target}/${encodePlantUml(source)}`,
-  );
-  if (!response.ok)
-    throw new Error(`PlantUML server returned ${response.status}.`);
-  return { data: Buffer.from(await response.arrayBuffer()), warnings: [] };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PLANTUML_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(
+      `${baseUrl.replace(/\/+$/, '')}/${target}/${encodePlantUml(source)}`,
+      { signal: controller.signal },
+    );
+    if (!response.ok)
+      throw new Error(`PlantUML server returned ${response.status}.`);
+    return { data: Buffer.from(await response.arrayBuffer()), warnings: [] };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(
+        `PlantUML server request timed out after ${PLANTUML_FETCH_TIMEOUT_MS}ms.`,
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function renderDiagram(
@@ -794,13 +872,14 @@ async function renderDiagram(
 ): Promise<{ data: Buffer; warnings: string[] }> {
   if (request.renderTo === 'none')
     return { data: Buffer.alloc(0), warnings: [] };
+  const renderTo = request.renderTo;
   if (request.format === 'mermaid')
-    return renderMermaid(request.source, request.renderTo);
+    return renderMermaid(request.source, renderTo);
   if (request.format === 'graphviz')
-    return renderGraphviz(request.source, request.renderTo);
+    return renderGraphviz(request.source, renderTo);
   if (request.format === 'plantuml')
-    return renderPlantUml(request.source, request.renderTo);
-  if (request.renderTo === 'svg') {
+    return renderPlantUml(request.source, renderTo);
+  if (renderTo === 'svg') {
     return {
       data: renderSourceSvg(request.source, 'Excalidraw JSON source'),
       warnings: [
@@ -875,9 +954,13 @@ export async function runDiagramTool(
         suggested_fix: validation.suggested_fix,
         source: request.source,
         source_artifact_ref: sourceArtifact.path,
+        source_artifact_valid: false,
         type: request.type,
         format: request.format,
-        warnings: request.warnings,
+        warnings: [
+          ...request.warnings,
+          'Source artifact was saved for debugging but did not validate.',
+        ],
       },
       null,
       2,
