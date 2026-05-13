@@ -45,9 +45,9 @@ calls fall back to the same token automatically. Set a separate
 `ops.gatewayApiToken` only when you want the CLI or TUI to use a different
 bearer token than the browser surfaces.
 
-If you prefer env-backed or store-backed secrets for long-lived setups, use the
-SecretRef support described in [Configuration](../reference/configuration.md)
-instead of storing plaintext tokens in `config.json`.
+If you prefer SecretRefs for long-lived setups, use store-backed SecretRef
+support described in [Configuration](../reference/configuration.md) instead of
+storing plaintext tokens in `config.json`.
 
 ### Troubleshooting: Console unavailable on a public URL
 

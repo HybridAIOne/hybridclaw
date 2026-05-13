@@ -41,6 +41,11 @@ The `browser-use` category verifies the Playwright Chromium install used by
 local browser automation. With `--fix`, HybridClaw offers the lazy Chromium
 install remediation when the browser runtime is missing.
 
+The `providers` category checks configured model providers, including
+HybridAI discovery and bot-health calls. Auth failures, missing chatbot
+configuration, and upstream service errors are reported separately so setup
+problems do not look like generic provider outages.
+
 ## Resource Hygiene
 
 `doctor` includes a resource hygiene maintenance pass that detects stale

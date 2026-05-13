@@ -170,6 +170,28 @@ Examples:
 - `hybridclaw policy preset add github`
 - `hybridclaw policy default allow`
 
+## Browser Stealth Policy
+
+Camofox stealth mode is host-allowlisted separately from normal browser
+navigation. The default decision is deny. Add a workspace policy rule before
+using stealth browsing against a host:
+
+```yaml
+browser:
+  stealth:
+    rules:
+      - action: allow
+        when:
+          predicate: browser_stealth_allowed
+          host: example.com
+```
+
+The `browser_stealth_allowed` predicate accepts `host`, `skillName`, and
+`agentId`. Host matching uses the same site-scoped pattern behavior as network
+policy, so `example.com` also covers `login.example.com`. This does not grant
+network access by itself; normal navigation and tool approval rules still
+apply.
+
 ## General Policy Engine
 
 The network policy runtime is implemented as a consumer of the shared policy

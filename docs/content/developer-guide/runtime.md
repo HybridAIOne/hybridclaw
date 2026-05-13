@@ -84,9 +84,11 @@ Core details:
   owner-only `~/.hybridclaw/credentials.master.key` fallback.
 - The encrypted secret store accepts both built-in runtime secret keys and
   named secrets created through `/secret set <NAME> <VALUE>`.
-- Selected runtime config fields can use SecretRefs (`store` or `env`) instead
-  of plaintext values, and `tools.httpRequest.authRules[]` binds URL prefixes
-  to gateway-injected secret headers for the `http_request` tool.
+- Selected runtime config fields can use store-backed SecretRefs instead of
+  plaintext values, and `tools.httpRequest.authRules[]` binds URL prefixes to
+  gateway-injected secret headers for the `http_request` tool. New
+  configuration should use `{ "source": "store", "id": "SECRET_NAME" }`;
+  legacy Browser Use Cloud env refs are migrated to stored refs.
 - Some settings still require restart, such as bind host and port.
 - Default HybridAI chatbot is configured via `hybridai.defaultChatbotId`.
 - Agents are configured under `agents.defaults` and `agents.list`. Sessions bind
@@ -126,6 +128,7 @@ Common advanced areas:
 - Memory compaction and consolidation: `sessionCompaction.*`, `memory.*`
 - Session continuity and DM isolation: `sessionRouting.*`
 - Skill availability: `skills.disabled`, `skills.channelDisabled.*`
+- Browser stealth allowlisting: workspace `browser.stealth.rules`
 - Adaptive skill observation/amendment loop: `adaptiveSkills.*`
 - Proactive runtime: `proactive.*`, including
   `proactive.delegation.model` for a dedicated delegate model

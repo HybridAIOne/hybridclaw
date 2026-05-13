@@ -18,6 +18,9 @@ Most of these playbooks use one or more of these capabilities:
 - current web research with `web_search`
 - file-grounded work from pasted notes, CSV exports, and uploaded documents
 - optional office outputs such as `.docx`, `.xlsx`, `.pptx`, and PDF
+- GA4 and Google Ads read-only reporting through gateway-injected Google auth
+- publishing skills for images, prompt videos, avatar videos, and long-form
+  writing projects
 
 Important for every scheduled workflow:
 

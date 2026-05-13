@@ -1,6 +1,6 @@
 ---
 title: Publishing Skills
-description: Excalidraw diagrams, Manim video creation, WordPress publishing, and blog post writing.
+description: Excalidraw diagrams, Manim and avatar video creation, Hermes3000 manuscripts, WordPress publishing, and blog post writing.
 sidebar_position: 8
 ---
 
@@ -63,6 +63,36 @@ credential in the runtime environment or encrypted secret store.
 
 ---
 
+## video.from-script
+
+Render approved avatar, voice, and script briefs into HeyGen MP4 videos with
+async job polling and guarded credit-spend approval.
+
+**Prerequisites** — store `HEYGEN_API_KEY` in HybridClaw encrypted runtime
+secrets. Use the lower-level [`heygen`](./integrations.md#heygen) skill for
+avatar, voice, and asset discovery.
+
+> 💡 **Tips & Tricks**
+>
+> Use this when the script is final and the avatar/voice choices are known. Use
+> `video-generation` for prompt-to-video providers such as Sora or Veo.
+>
+> Prefer `start` plus later `status` polling for long HeyGen renders. Use
+> `render --wait` only when the user wants the agent to stay with the job.
+>
+> Run public marketing, sales, onboarding, or training scripts through
+> `brand-voice` before starting a credit-consuming render.
+
+> 🎯 **Try it yourself**
+>
+> `Plan a 60-second avatar video from this approved onboarding script using avatar avatar_123 and voice voice_123`
+>
+> `Start a HeyGen render for this approved sales follow-up script and return the job id`
+>
+> `Check the status of HeyGen job video_123 and download the MP4 if it is complete`
+
+---
+
 ## manim-video
 
 Plan, script, render, and stitch Manim Community Edition videos for animated
@@ -110,6 +140,38 @@ math explanations, algorithm walkthroughs, and 3Blue1Brown-style explainers.
   `-ql` first to catch issues before high-quality rendering.
 - **Slow renders** — use `-ql` during development. Only render at `-qh` for
   final output.
+
+---
+
+## hermes3000-writing
+
+Plan, draft, revise, and export durable long-form writing projects through the
+Hermes3000 portal API.
+
+**Prerequisites** — store `HERMES3000_EMAIL` and `HERMES3000_PASSWORD` in
+HybridClaw encrypted runtime secrets. The skill captures and reuses
+`HERMES3000_JWT` through gateway secret injection; the JWT is not printed or
+returned to the agent.
+
+> 💡 **Tips & Tricks**
+>
+> Use this for books, long reads, whitepapers, chapter outlines, world-building,
+> consistency memory, and portal-managed exports.
+>
+> Keep author control explicit: confirm premise, audience, language, target
+> length, genre or format, tone, and export format before creating durable
+> portal content.
+>
+> Save accepted chapter drafts and update consistency memory before moving on
+> to the next chapter.
+
+> 🎯 **Try it yourself**
+>
+> `Create a Hermes3000 project plan for a 12-chapter nonfiction book about secure local AI operations`
+>
+> `Draft chapter 1 for the selected Hermes3000 project, then save it and update consistency memory`
+>
+> `Export the selected Hermes3000 manuscript as DOCX after checking chapter consistency`
 
 ---
 

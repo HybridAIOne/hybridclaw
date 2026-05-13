@@ -110,6 +110,8 @@ Once the gateway is running, open HybridClaw locally:
 - Web Chat shows live context-window usage, accepts `/context`, and lets you
   switch the active agent and model from the composer; active agent switching is
   preserved across session reloads and UI route changes
+- Web Chat keeps scrolling pinned when you read older messages and shows a
+  jump-to-latest affordance when new output arrives below the current viewport
 - Web Chat accepts `/btw <question>` side questions while a primary run is
   active, so you can ask an ephemeral follow-up without interrupting the
   current run
@@ -196,6 +198,9 @@ Once the gateway is running, open HybridClaw locally:
 - `hybridclaw skill install <source>`, `skill upgrade`, `skill revisions`, and
   `skill rollback` manage packaged business skills with manifests, audit
   events, and snapshots.
+- `hybridclaw skill list blocked` and `hybridclaw skill unblock <name>` let
+  local operators review scanner-blocked skills and record a bypass marker for
+  the installed copy when the finding has been accepted.
 - The bundled tutorials cover owner, GTM, marketing, sales, DevRel, content,
   invoicing, webinar, and release-launch workflows that can run from the TUI,
   web chat, or connected channels.
@@ -225,8 +230,11 @@ Once the gateway is running, open HybridClaw locally:
   encrypted runtime secret store and are passed into host or container agent
   runtimes from the active config.
 - Web search can also target a self-hosted SearXNG instance through
-  `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`; bundled `search.web`,
-  `search.news`, and `search.images` skills prefer that sovereign search path.
+  `web.search.searxngBaseUrl` or `SEARXNG_BASE_URL`; authenticated instances
+  use store-backed SearXNG bearer SecretRefs, and agents can override the
+  global SearXNG base URL and bearer SecretRef for tenant-specific search.
+  Bundled `search.web`, `search.news`, and `search.images` skills prefer that
+  sovereign search path.
 - Google OAuth credentials for Workspace skills live in the encrypted runtime
   secret store; agent runtimes receive short-lived access tokens for `gog` and
   `gws` instead of long-lived refresh tokens.
@@ -245,7 +253,8 @@ Once the gateway is running, open HybridClaw locally:
 - Bundled skills include API-backed Google Workspace workflows (`gog`, `gws`),
   Salesforce inspection, GitHub issue queue processing (`gh-issues`),
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
-  FastBill, Firecrawl, Google Ads, HeyGen, natural-language warehouse SQL
+  FastBill, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
+  HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
   (`warehouse-sql`), brand-voice drafting, and editable Excalidraw diagram
   creation.
 - Native media tools generate images and videos through configured providers,
@@ -254,8 +263,8 @@ Once the gateway is running, open HybridClaw locally:
   skills.
 - Browser automation can use local persistent Playwright profiles, Camofox
   profiles, or Browser Use Cloud sessions with encrypted `BROWSER_USE_API_KEY`
-  storage, usage metering, shared navigation guards, and SecretRef-gated
-  credential fills.
+  storage, usage metering, shared navigation guards, SecretRef-gated credential
+  fills, and deny-by-default host allowlisting for Camofox stealth mode.
 - The repo-shipped `brand-voice` plugin can flag, rewrite, or block final
   responses that violate configured voice rules before they reach users.
 - Built-in office skills handle longer PDF creation flows cleanly: the bundled
