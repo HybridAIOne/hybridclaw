@@ -165,7 +165,7 @@ async function fetchHybridAIBotManagementPayload(
     });
   } catch (error) {
     logger.warn(
-      { err: error, url },
+      { error: formatTransportFailure(error), url },
       'HybridAI bot fetch failed before receiving a response',
     );
     throw new HybridAIBotFetchError({

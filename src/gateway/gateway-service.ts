@@ -8782,14 +8782,14 @@ export async function handleGatewayCommand(
           listModifierArg === 'full';
         const needsAvailableModels =
           sub === 'list' || sub === 'default' || sub === 'set';
-        if (needsAvailableModels) {
-          await refreshAvailableModelCatalogs({
-            includeHybridAI:
-              sub !== 'list' ||
-              !providerFilterArg ||
-              providerFilter === 'hybridai',
-          });
-        }
+        const modelCatalogRefreshResult = needsAvailableModels
+          ? await refreshAvailableModelCatalogs({
+              includeHybridAI:
+                sub !== 'list' ||
+                !providerFilterArg ||
+                providerFilter === 'hybridai',
+            })
+          : null;
         const gatewayStatus = needsAvailableModels
           ? await getGatewayStatusForModelSubcommand(sub)
           : null;
@@ -8821,6 +8821,7 @@ export async function handleGatewayCommand(
             const diagnostic = diagnoseProviderForModels(
               providerFilter,
               gatewayStatus.providerHealth,
+              modelCatalogRefreshResult?.failures,
             );
             if (diagnostic) {
               return infoCommand(

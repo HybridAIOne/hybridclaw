@@ -26,7 +26,11 @@ import { CODEX_CLIENT_VERSION } from '../providers/codex-constants.js';
 import { fetchHybridAIBots } from '../providers/hybridai-bots.js';
 import { readApiKeyForOpenAICompatProvider } from '../providers/openai-compat-remote.js';
 import { buildOpenRouterAttributionHeaders } from '../providers/openrouter-utils.js';
-import { isRecord, normalizeBaseUrl } from '../providers/utils.js';
+import {
+  formatUnknownError,
+  isRecord,
+  normalizeBaseUrl,
+} from '../providers/utils.js';
 
 export interface ProviderProbeResult {
   reachable: boolean;
@@ -44,7 +48,15 @@ export async function probeHybridAI(): Promise<ProviderProbeResult> {
   }
 
   const startedAt = Date.now();
-  const bots = await fetchHybridAIBots({ cacheTtlMs: 0 });
+  let bots: Awaited<ReturnType<typeof fetchHybridAIBots>>;
+  try {
+    bots = await fetchHybridAIBots({ cacheTtlMs: 0 });
+  } catch (error) {
+    return {
+      reachable: false,
+      detail: formatUnknownError(error),
+    };
+  }
   const latencyMs = Date.now() - startedAt;
   return {
     reachable: true,
