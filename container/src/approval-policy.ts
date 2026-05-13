@@ -4,6 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
 import YAML from 'yaml';
+import { isAllowedHostlessBrowserNavigationUrl } from '../shared/browser-navigation.js';
+import {
+  type BrowserStealthPolicyAccessEvaluation,
+  type BrowserStealthPolicyState,
+  evaluateBrowserStealthPolicyAccess,
+  readBrowserStealthPolicyStateFromDocument,
+} from '../shared/browser-stealth-policy.js';
 import type { ClassifierMiddlewareSkill } from '../shared/middleware-contract.js';
 import { applyClassifierMiddlewareSync } from '../shared/middleware-runner.js';
 import type {
@@ -130,6 +137,7 @@ export interface ApprovalPolicyConfig {
   networkDefault: NetworkPolicyAction;
   networkRules: NetworkRule[];
   networkPresets: string[];
+  browserStealthRules: BrowserStealthPolicyState['rules'];
   workspaceFence: boolean;
   maxPendingApprovals: number;
   approvalTimeoutSecs: number;
@@ -153,6 +161,7 @@ export interface ClassifiedAction {
   promotableRed: boolean;
   stickyYellow: boolean;
   hardDeny?: boolean;
+  explicitApprovalRequired?: boolean;
 }
 
 export interface PendingApproval {
@@ -362,6 +371,7 @@ export const DEFAULT_POLICY: ApprovalPolicyConfig = {
   networkDefault: DEFAULT_NETWORK_DEFAULT,
   networkRules: DEFAULT_NETWORK_RULES,
   networkPresets: [],
+  browserStealthRules: [],
   workspaceFence: true,
   maxPendingApprovals: 3,
   approvalTimeoutSecs: 120,
@@ -691,6 +701,8 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
   const approval = asRecord(document.approval);
   const autonomy = asRecord(document.autonomy);
   const audit = asRecord(document.audit);
+  const browserStealthState =
+    readBrowserStealthPolicyStateFromDocument(document);
   const pinnedRed = Array.isArray(approval.pinned_red)
     ? approval.pinned_red
         .map((rule) => normalizeApprovalRule(rule))
@@ -715,6 +727,7 @@ export function parsePolicyYaml(raw: string): Partial<ApprovalPolicyConfig> {
       paths: [...rule.paths],
     })),
     networkPresets: [...networkState.presets],
+    browserStealthRules: browserStealthState.rules,
     workspaceFence: normalizeBooleanValue(
       approval.workspace_fence,
       DEFAULT_POLICY.workspaceFence,
@@ -806,6 +819,9 @@ export function loadPolicyFromDisk(policyPath: string): ApprovalPolicyConfig {
         })),
     networkPresets: Array.isArray(filePolicy.networkPresets)
       ? [...filePolicy.networkPresets]
+      : [],
+    browserStealthRules: Array.isArray(filePolicy.browserStealthRules)
+      ? filePolicy.browserStealthRules.map((rule) => ({ ...rule }))
       : [],
     workspaceFence:
       typeof filePolicy.workspaceFence === 'boolean'
@@ -911,6 +927,21 @@ function parseUrlNetworkTarget(rawUrl: string): {
   } catch {
     return null;
   }
+}
+
+function isAllowedHostlessBrowserNavigation(rawUrl: string): boolean {
+  try {
+    return isAllowedHostlessBrowserNavigationUrl(new URL(rawUrl));
+  } catch {
+    return false;
+  }
+}
+
+function isBrowserStealthRequested(): boolean {
+  return (
+    normalizeText(process.env.HYBRIDCLAW_BROWSER_PROVIDER).toLowerCase() ===
+    'camofox'
+  );
 }
 
 function inferBashHttpMethod(command: string): string {
@@ -1822,6 +1853,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
     if (
       context.helpers.isFullAutoEnabled() &&
       !context.outOfBoundByAutonomy &&
+      !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
         context.params.toolName,
         classified.actionKey,
@@ -1884,6 +1916,7 @@ export const approvalRules: Record<ApprovalRuleName, ApprovalRule> = {
       context.decision === 'auto' &&
       context.helpers.isFullAutoEnabled() &&
       !context.outOfBoundByAutonomy &&
+      !classified.explicitApprovalRequired &&
       !context.helpers.shouldNeverAutoApprove(
         context.params.toolName,
         classified.actionKey,
@@ -2171,6 +2204,23 @@ export class TrustedAgentApprovalRuntime {
       method: params.method,
       path: params.path,
       agentId: params.agentId || this.getCurrentAgentId(),
+    });
+  }
+
+  private evaluateBrowserStealthAccess(params: {
+    host: string;
+    skillName?: string;
+    agentId?: string;
+  }): BrowserStealthPolicyAccessEvaluation {
+    return evaluateBrowserStealthPolicyAccess({
+      state: {
+        rules: this.loadedPolicy.browserStealthRules,
+      },
+      context: {
+        host: params.host,
+        skillName: params.skillName,
+        agentId: params.agentId || this.getCurrentAgentId(),
+      },
     });
   }
 
@@ -2629,6 +2679,26 @@ export class TrustedAgentApprovalRuntime {
     };
   }
 
+  private classifyGenericBrowserAction(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): ClassifiedAction {
+    return {
+      tier: 'yellow',
+      actionKey: toolName.toLowerCase(),
+      intent: `run ${toolName}`,
+      consequenceIfDenied:
+        'I will continue without browser/vision interaction.',
+      reason: 'this action interacts with external runtime state',
+      commandPreview: normalizePreview(JSON.stringify(args)),
+      pathHints: [],
+      hostHints: [],
+      writeIntent: false,
+      promotableRed: false,
+      stickyYellow: false,
+    };
+  }
+
   private classifyAction(
     toolName: string,
     args: Record<string, unknown>,
@@ -2831,6 +2901,82 @@ export class TrustedAgentApprovalRuntime {
       });
     }
 
+    if (lowerTool === 'browser_navigate' && isBrowserStealthRequested()) {
+      const rawUrl = normalizeText(args.url);
+      const target = parseUrlNetworkTarget(rawUrl);
+      if (!target && isAllowedHostlessBrowserNavigation(rawUrl)) {
+        return this.classifyGenericBrowserAction(toolName, args);
+      }
+      if (!target) {
+        return {
+          tier: 'red',
+          actionKey: 'browser_stealth:unknown-host',
+          intent: 'activate stealth browser mode for an unknown host',
+          consequenceIfDenied:
+            'I will avoid stealth browser mode and use the standard browser path only.',
+          reason: 'stealth browser mode requires a valid target host',
+          commandPreview: normalizePreview(rawUrl),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: true,
+          hardDeny: true,
+          explicitApprovalRequired: true,
+        };
+      }
+
+      const networkClassification = this.classifyNetworkTargets({
+        targets: [{ ...target, method: 'GET' }],
+        intent: `access ${normalizeHostScope(target.host)}`,
+        consequenceIfDenied:
+          'I will avoid contacting that host and use existing local context only.',
+        commandPreview: normalizePreview(rawUrl),
+      });
+      if (networkClassification.hardDeny) return networkClassification;
+
+      const stealthAccess = this.evaluateBrowserStealthAccess({
+        host: target.host,
+        skillName: normalizeText(args.skillName || args.skill),
+      });
+      const hostScope = normalizeHostScope(target.host);
+      if (stealthAccess.decision !== 'allow') {
+        return {
+          tier: 'red',
+          actionKey: `browser_stealth:${hostScope}`,
+          intent: `activate stealth browser mode for ${hostScope}`,
+          consequenceIfDenied:
+            'I will use the standard browser path or avoid that host.',
+          reason: 'browser stealth mode is not allowlisted for this host',
+          commandPreview: normalizePreview(rawUrl),
+          pathHints: [],
+          hostHints: [hostScope],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: true,
+          hardDeny: true,
+          explicitApprovalRequired: true,
+        };
+      }
+
+      return {
+        tier: 'red',
+        actionKey: `browser_stealth:${hostScope}`,
+        intent: `activate stealth browser mode for ${hostScope}`,
+        consequenceIfDenied:
+          'I will use the standard browser path or avoid that host.',
+        reason:
+          'stealth browser mode requires explicit operator opt-in for this host',
+        commandPreview: normalizePreview(rawUrl),
+        pathHints: [],
+        hostHints: [hostScope],
+        writeIntent: false,
+        promotableRed: false,
+        stickyYellow: true,
+        explicitApprovalRequired: true,
+      };
+    }
+
     if (
       lowerTool === 'web_fetch' ||
       lowerTool === 'web_extract' ||
@@ -2839,6 +2985,13 @@ export class TrustedAgentApprovalRuntime {
     ) {
       const rawUrl = normalizeText(args.url);
       const target = parseUrlNetworkTarget(rawUrl);
+      if (
+        lowerTool === 'browser_navigate' &&
+        !target &&
+        isAllowedHostlessBrowserNavigation(rawUrl)
+      ) {
+        return this.classifyGenericBrowserAction(toolName, args);
+      }
       if (!target) {
         return {
           tier: 'yellow',
@@ -2974,20 +3127,7 @@ export class TrustedAgentApprovalRuntime {
     }
 
     if (lowerTool.startsWith('browser_')) {
-      return {
-        tier: 'yellow',
-        actionKey: lowerTool,
-        intent: `run ${toolName}`,
-        consequenceIfDenied:
-          'I will continue without browser/vision interaction.',
-        reason: 'this action interacts with external runtime state',
-        commandPreview: normalizePreview(JSON.stringify(args)),
-        pathHints: [],
-        hostHints: [],
-        writeIntent: false,
-        promotableRed: false,
-        stickyYellow: false,
-      };
+      return this.classifyGenericBrowserAction(toolName, args);
     }
 
     if (lowerTool.includes('__')) {
