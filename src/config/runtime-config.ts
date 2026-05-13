@@ -1241,7 +1241,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     },
     browserUseCloud: {
       apiKeyRef: {
-        source: 'env',
+        source: 'store',
         id: 'BROWSER_USE_API_KEY',
       },
       baseUrl: '',
@@ -2271,7 +2271,7 @@ function normalizeRuntimeSkillDeclaredCredentialManifests(
     });
     if (
       !kind ||
-      (secretRefSource !== 'env' && secretRefSource !== 'store') ||
+      secretRefSource !== 'store' ||
       !secretRefId ||
       !scope ||
       !howToObtain ||
@@ -4589,7 +4589,7 @@ function normalizeHttpRequestAuthRuleSecret(
   }
   if (parsed.kind === 'plain') {
     throw new Error(
-      `${path} must use an env/store secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\`, \`\${ENV_VAR}\`, or \`{ "source": "google-oauth" }\``,
+      `${path} must use a stored secret reference such as \`{ "source": "store", "id": "SECRET_NAME" }\` or \`{ "source": "google-oauth" }\``,
     );
   }
   return cloneConfig(parsed.ref);
@@ -4758,10 +4758,25 @@ function normalizeBrowserUseCloudApiKeyRef(
   if (value === undefined || value === null || value === '') {
     return cloneConfig(fallback);
   }
-  const parsed = parseSecretInput(value);
+  let input = value;
+  if (isRecord(value) && value.source === 'env') {
+    if (typeof value.id !== 'string') {
+      throw new Error(
+        'browser.browserUseCloud.apiKeyRef legacy env ref id must be a string.',
+      );
+    }
+    console.warn(
+      '[runtime-config] migrating browser.browserUseCloud.apiKeyRef legacy env SecretRef to stored SecretRef',
+    );
+    input = { source: 'store', id: value.id };
+  }
+  const parsed = parseSecretInput(input);
   if (parsed.kind === 'ref') return cloneConfig(parsed.ref);
+  if (parsed.kind === 'invalid') {
+    throw new Error(`browser.browserUseCloud.apiKeyRef ${parsed.reason}.`);
+  }
   throw new Error(
-    'browser.browserUseCloud.apiKeyRef must use an env/store secret reference such as `{ "source": "env", "id": "BROWSER_USE_API_KEY" }`.',
+    'browser.browserUseCloud.apiKeyRef must use a stored secret reference such as `{ "source": "store", "id": "BROWSER_USE_API_KEY" }`.',
   );
 }
 
@@ -7189,9 +7204,11 @@ function loadRuntimeConfigFromSources(
   try {
     syncRuntimeConfigRevisionState(CONFIG_PATH, syncMeta, observedFile);
   } catch (err) {
-    console.warn(
-      `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    if (process.env.HYBRIDCLAW_DEBUG_CONFIG_REVISION_SYNC === '1') {
+      console.warn(
+        `[runtime-config] revision sync failed while loading config: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
   const rawContainer = isRecord(diskPatch.container) ? diskPatch.container : {};
   currentConfigSource = cloneConfig(diskSource);
