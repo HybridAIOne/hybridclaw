@@ -163,7 +163,7 @@ test('camofox provider uses browser secret fill policy for SecretRef values', as
   const session = await provider.launchSession({});
   await expect(
     session.fill('#password', {
-      source: 'env',
+      source: 'store',
       id: 'TEST_BROWSER_PASSWORD',
     }),
   ).rejects.toThrow(/SessionOptions\.metering\.skillName/u);

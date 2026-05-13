@@ -503,24 +503,6 @@ test('secret route add supports Google OAuth runtime auth rules', async () => {
       secret: { source: 'google-oauth' },
     },
   ]);
-  expect(readMainAgentPolicy(homeDir)).toMatchObject({
-    secret: {
-      rules: [
-        {
-          when: {
-            predicate: 'secret_resolve_allowed',
-            id: 'GOOGLE_WORKSPACE_CLI_TOKEN',
-            source: 'env',
-            sink: 'http',
-            host: 'analyticsdata.googleapis.com',
-            selector: 'Authorization',
-            agent: 'main',
-          },
-          action: 'allow',
-        },
-      ],
-    },
-  });
 });
 
 test('secret route add rejects Google OAuth routes for non-Google APIs', async () => {

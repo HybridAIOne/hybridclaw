@@ -20,7 +20,7 @@ export type SecretPolicyDecision = 'allow' | 'deny';
 export interface SecretPolicyContext {
   agentId?: string;
   skillName?: string;
-  secretSource: 'env' | 'store';
+  secretSource: 'store';
   secretId: string;
   sinkKind: SecretSinkKind;
   host?: string;

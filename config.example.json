@@ -28,7 +28,7 @@
     },
     "browserUseCloud": {
       "apiKeyRef": {
-        "source": "env",
+        "source": "store",
         "id": "BROWSER_USE_API_KEY"
       },
       "baseUrl": "",
