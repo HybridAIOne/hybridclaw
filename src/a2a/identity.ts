@@ -2,6 +2,7 @@ import { findAgentConfig, listAgents } from '../agents/agent-registry.js';
 import { type AgentConfig, DEFAULT_AGENT_ID } from '../agents/agent-types.js';
 import {
   formatAgentIdentity,
+  parseAgentIdentity,
   resolveLocalInstanceId,
   slugifyAgentIdentityComponent,
 } from '../identity/agent-id.js';
@@ -56,11 +57,14 @@ export function resolveA2AAgentId(agentId: string): string {
 
 export function resolveA2AEnvelopeAgentIds(envelope: unknown): A2AEnvelope {
   const normalizedEnvelope = validateA2AEnvelope(envelope);
+  const senderAgentId = resolveA2AAgentId(normalizedEnvelope.sender_agent_id);
+  const recipientAgentId = resolveA2AAgentId(
+    normalizedEnvelope.recipient_agent_id,
+  );
   return {
     ...normalizedEnvelope,
-    sender_agent_id: resolveA2AAgentId(normalizedEnvelope.sender_agent_id),
-    recipient_agent_id: resolveA2AAgentId(
-      normalizedEnvelope.recipient_agent_id,
-    ),
+    sender_agent_id: senderAgentId,
+    recipient_agent_id: recipientAgentId,
+    sender_instance_id: parseAgentIdentity(senderAgentId).instanceId,
   };
 }

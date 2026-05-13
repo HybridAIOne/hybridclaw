@@ -14,6 +14,7 @@ function sampleA2AEnvelope(id: string, intent: 'chat' | 'handoff' = 'chat') {
     id,
     sender_agent_id: 'main',
     recipient_agent_id: 'remote@team@peer-instance',
+    sender_instance_id: 'local',
     thread_id: 'thread-a2a',
     intent,
     content: `A2A payload ${id}`,

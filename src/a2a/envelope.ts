@@ -14,6 +14,7 @@ export const A2A_ENVELOPE_INTENTS = [
   'ack',
   'policy.update',
 ] as const;
+export const A2A_LOCAL_INSTANCE_ID = 'local';
 
 export type A2AEnvelopeIntent = (typeof A2A_ENVELOPE_INTENTS)[number];
 export type A2AAgentIdKind = 'local' | 'canonical';
@@ -28,6 +29,7 @@ export interface A2AEnvelope {
   id: string;
   sender_agent_id: string;
   recipient_agent_id: string;
+  sender_instance_id?: string;
   source_instance_id?: string;
   target_instance_id?: string;
   thread_id: string;
@@ -48,6 +50,7 @@ export interface A2AEnvelopeAuditSummary {
   threadId: string | null;
   senderAgentId: string | null;
   recipientAgentId: string | null;
+  senderInstanceId: string | null;
   sourceInstanceId: string | null;
   targetInstanceId: string | null;
   delegation: boolean;
@@ -81,6 +84,7 @@ const A2A_ENVELOPE_FIELDS = new Set([
   'id',
   'sender_agent_id',
   'recipient_agent_id',
+  'sender_instance_id',
   'source_instance_id',
   'target_instance_id',
   'thread_id',
@@ -230,7 +234,7 @@ function validateAgentId(
 }
 
 function validateInstanceId(
-  field: 'source_instance_id' | 'target_instance_id',
+  field: 'sender_instance_id' | 'source_instance_id' | 'target_instance_id',
   value: string | undefined,
   issues: string[],
 ): void {
@@ -253,7 +257,10 @@ function requireCanonicalAgentIdForDelegation(
 }
 
 function validateDelegationInstanceMatch(
-  instanceField: 'source_instance_id' | 'target_instance_id',
+  instanceField:
+    | 'sender_instance_id'
+    | 'source_instance_id'
+    | 'target_instance_id',
   instanceId: string | undefined,
   agentField: 'sender_agent_id' | 'recipient_agent_id',
   agentInstanceId: string | undefined,
@@ -345,6 +352,11 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     'target_instance_id',
     issues,
   );
+  const rawSenderInstanceId = readOptionalTrimmedString(
+    value,
+    'sender_instance_id',
+    issues,
+  );
   const threadId = readRequiredTrimmedString(value, 'thread_id', issues);
   const parentMessageId = readOptionalTrimmedString(
     value,
@@ -369,6 +381,15 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     rawTargetInstanceId === undefined
       ? undefined
       : normalizeInstanceId(rawTargetInstanceId);
+  const explicitSenderInstanceId =
+    rawSenderInstanceId === undefined
+      ? undefined
+      : normalizeInstanceId(rawSenderInstanceId);
+  const senderInstanceId =
+    explicitSenderInstanceId ??
+    senderAgent.instanceId ??
+    // Legacy local-only envelopes predate explicit federation metadata.
+    (senderAgent.kind === 'local' ? A2A_LOCAL_INSTANCE_ID : undefined);
 
   validateOpaqueId('id', id, issues);
   validateOpaqueId('thread_id', threadId, issues);
@@ -387,6 +408,7 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
   );
   validateInstanceId('source_instance_id', sourceInstanceId, issues);
   validateInstanceId('target_instance_id', targetInstanceId, issues);
+  validateInstanceId('sender_instance_id', senderInstanceId, issues);
   validateOpaqueId('delegation_token', delegationToken, issues, {
     noun: 'token',
     maxLength: DELEGATION_TOKEN_MAX_LENGTH,
@@ -400,12 +422,26 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     issues,
   );
   validateDelegationInstanceMatch(
+    'sender_instance_id',
+    senderInstanceId,
+    'sender_agent_id',
+    senderAgent.instanceId,
+    issues,
+  );
+  validateDelegationInstanceMatch(
     'source_instance_id',
     sourceInstanceId,
     'sender_agent_id',
     senderAgent.instanceId,
     issues,
   );
+  if (
+    sourceInstanceId !== undefined &&
+    senderInstanceId !== undefined &&
+    sourceInstanceId !== senderInstanceId
+  ) {
+    issues.push('source_instance_id must match sender_instance_id');
+  }
   validateDelegationInstanceMatch(
     'target_instance_id',
     targetInstanceId,
@@ -431,6 +467,7 @@ export function validateA2AEnvelope(value: unknown): A2AEnvelope {
     content,
     created_at: createdAt,
   };
+  if (senderInstanceId) envelope.sender_instance_id = senderInstanceId;
   if (sourceInstanceId) envelope.source_instance_id = sourceInstanceId;
   if (targetInstanceId) envelope.target_instance_id = targetInstanceId;
   if (parentMessageId) envelope.parent_message_id = parentMessageId;
@@ -470,6 +507,7 @@ export function summarizeA2AEnvelopeForAudit(
     threadId: envelope.thread_id,
     senderAgentId: envelope.sender_agent_id,
     recipientAgentId: envelope.recipient_agent_id,
+    senderInstanceId: envelope.sender_instance_id ?? null,
     sourceInstanceId: envelope.source_instance_id ?? null,
     targetInstanceId: envelope.target_instance_id ?? null,
     delegation: Boolean(envelope.delegation_token),
