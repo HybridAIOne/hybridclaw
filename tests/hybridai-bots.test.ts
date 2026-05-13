@@ -165,7 +165,7 @@ test('fetchHybridAIBots logs and preserves nested transport failure details', as
   );
   expect(warn).toHaveBeenCalledWith(
     expect.objectContaining({
-      err: expect.any(TypeError),
+      error: 'fetch failed (connect ECONNREFUSED 127.0.0.1:5000)',
       url: expect.stringContaining('/api/v1/bot-management/bots'),
     }),
     'HybridAI bot fetch failed before receiving a response',

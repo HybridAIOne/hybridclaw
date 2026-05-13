@@ -14,12 +14,14 @@ import {
 } from './pricing-discovery.js';
 import {
   createDiscoveryStore,
+  formatUnknownError,
   isRecord,
   normalizeBaseUrl,
   readPositiveInteger,
 } from './utils.js';
 
 const HYBRIDAI_DISCOVERY_PATHS = ['/models', '/v1/models'] as const;
+const HYBRIDAI_ERROR_MESSAGE_MAX_CHARS = 200;
 const HYBRIDAI_PROVIDER_FAMILY_PREFIXES = new Set([
   'anthropic',
   'huggingface',
@@ -124,6 +126,60 @@ function readHybridAIVisionCapability(
   );
 }
 
+function readHybridAIErrorMessage(payload: unknown): string | null {
+  if (typeof payload === 'string' && payload.trim()) {
+    return sanitizeHybridAIErrorMessage(payload);
+  }
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (typeof record.message === 'string' && record.message.trim()) {
+    return sanitizeHybridAIErrorMessage(record.message);
+  }
+  if (typeof record.error === 'string' && record.error.trim()) {
+    return sanitizeHybridAIErrorMessage(record.error);
+  }
+
+  const nested = record.error;
+  if (!nested || typeof nested !== 'object') {
+    return null;
+  }
+  const nestedRecord = nested as Record<string, unknown>;
+  if (typeof nestedRecord.message === 'string' && nestedRecord.message.trim()) {
+    return sanitizeHybridAIErrorMessage(nestedRecord.message);
+  }
+  return null;
+}
+
+function sanitizeHybridAIErrorMessage(value: string): string {
+  const withoutControls = [...value]
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code < 32 || code === 127 ? ' ' : char;
+    })
+    .join('');
+  const sanitized = withoutControls.replace(/\s+/g, ' ').trim();
+  if (sanitized.length <= HYBRIDAI_ERROR_MESSAGE_MAX_CHARS) {
+    return sanitized;
+  }
+  return `${sanitized.slice(0, HYBRIDAI_ERROR_MESSAGE_MAX_CHARS - 3)}...`;
+}
+
+async function readHybridAIErrorResponse(response: Response): Promise<string> {
+  const text = await response.text().catch(() => '');
+  if (!text) return `HTTP ${response.status}`;
+  try {
+    return (
+      readHybridAIErrorMessage(JSON.parse(text) as unknown) ||
+      `HTTP ${response.status}`
+    );
+  } catch {
+    return sanitizeHybridAIErrorMessage(text) || `HTTP ${response.status}`;
+  }
+}
+
 function getDiscoveryEntries(payload: unknown): unknown[] {
   // Observed HybridAI discovery responses in
   // tests/model-catalog.test.ts and tests/gateway-status.test.ts use
@@ -200,6 +256,7 @@ function resolveCachedHybridAIModelKey(
 export interface HybridAIDiscoveryStore {
   discoverModels: (opts?: { force?: boolean }) => Promise<string[]>;
   getModelNames: () => string[];
+  getLastError: () => string | null;
   getModelContextWindow: (model: string) => number | null;
   getModelMaxTokens: (model: string) => number | null;
   getModelVisionCapability: (model: string) => boolean | null;
@@ -236,6 +293,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   const discoveryStore = createDiscoveryStore(
     buildEmptyHybridAIDiscoveryState(),
   );
+  let lastError: string | null = null;
 
   async function fetchHybridAIModels(
     apiKey: string,
@@ -254,12 +312,14 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         break;
       }
       if (candidate.status !== 404) {
-        throw new Error(`HTTP ${candidate.status}`);
+        throw new Error(await readHybridAIErrorResponse(candidate));
       }
       response = candidate;
     }
     if (!response?.ok) {
-      throw new Error(`HTTP ${response?.status ?? 'unknown'}`);
+      throw new Error(
+        response ? await readHybridAIErrorResponse(response) : 'HTTP unknown',
+      );
     }
 
     const payload = (await response.json()) as unknown;
@@ -298,6 +358,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       }
     }
 
+    lastError = null;
     return {
       discoveredModelNames: [...discovered],
       contextWindowByModel: contextWindows,
@@ -324,6 +385,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
         error instanceof MissingRequiredEnvVarError &&
         error.envVar === 'HYBRIDAI_API_KEY'
       ) {
+        lastError = null;
         discoveryStore.replaceState(buildEmptyHybridAIDiscoveryState(), {
           skipCache: true,
         });
@@ -337,7 +399,8 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
       {
         force: opts?.force,
         onError: (err, staleState) => {
-          logger.warn({ err }, 'HybridAI model discovery failed');
+          lastError = formatUnknownError(err);
+          logger.warn({ error: lastError }, 'HybridAI model discovery failed');
           return staleState;
         },
       },
@@ -348,6 +411,7 @@ export function createHybridAIDiscoveryStore(): HybridAIDiscoveryStore {
   return {
     discoverModels,
     getModelNames: () => [...discoveryStore.getState().discoveredModelNames],
+    getLastError: () => lastError,
     getModelContextWindow: (model: string) => {
       const state = discoveryStore.getState();
       const normalized = resolveCachedHybridAIModelKey(
@@ -397,6 +461,10 @@ export async function discoverHybridAIModels(opts?: {
 
 export function getDiscoveredHybridAIModelNames(): string[] {
   return defaultHybridAIDiscoveryStore.getModelNames();
+}
+
+export function getHybridAIModelDiscoveryLastError(): string | null {
+  return defaultHybridAIDiscoveryStore.getLastError();
 }
 
 export function getDiscoveredHybridAIModelContextWindow(
