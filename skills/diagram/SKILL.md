@@ -39,18 +39,25 @@ Use the runtime tools directly:
 - `diagram_update`: update existing source or source artifact, validate it, save a new source artifact, and optionally render.
 - `diagram_validate`: validate source only; do not render.
 
-The tool output contract is:
+The tool output includes these fields:
 
 ```json
 {
+  "success": true,
+  "valid": true,
   "source": "...",
   "source_artifact_ref": "/workspace/.generated-diagrams/diagram-...",
   "rendered_artifact_ref": "/workspace/.generated-diagrams/diagram-...",
   "type": "flowchart",
   "format": "mermaid",
-  "valid": true
+  "artifacts": [],
+  "warnings": []
 }
 ```
+
+On validation failure, `success` and `valid` are false and `errors` plus
+`suggested_fix` may be present. When `render_to` is `"none"`,
+`rendered_artifact_ref` is `null`.
 
 ## Default Workflow
 

@@ -4504,7 +4504,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'diagram_create',
       description:
-        'Create and validate diagram-as-code artifacts, then optionally render them. Supports Mermaid, PlantUML, Graphviz DOT, and Excalidraw JSON. Prefer passing explicit source when exact syntax matters; otherwise description/type generates a starter diagram.',
+        'Create and validate diagram-as-code artifacts, then optionally render them. Supports Mermaid, PlantUML, Graphviz DOT, and Excalidraw JSON. Provide source to render exact syntax, or description/type to generate a starter diagram.',
       parameters: {
         type: 'object',
         properties: {
@@ -4546,7 +4546,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               'Rendered artifact target. Defaults to svg except Excalidraw, which defaults to none.',
           },
         },
-        required: ['description'],
+        required: [],
       },
     },
   },
@@ -4555,7 +4555,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: 'diagram_update',
       description:
-        'Update an existing diagram source/artifact, validate it, and optionally re-render while preserving type and format. For precise edits, pass the complete updated source after applying the requested change.',
+        'Update an existing diagram source/artifact, validate it, and optionally re-render while preserving type and format. Provide artifact_ref or complete source; instructions are optional when source already contains the intended update.',
       parameters: {
         type: 'object',
         properties: {
@@ -4597,7 +4597,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             enum: ['svg', 'png', 'pdf', 'none'],
           },
         },
-        required: ['instructions'],
+        required: [],
       },
     },
   },

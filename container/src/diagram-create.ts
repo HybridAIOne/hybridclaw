@@ -179,7 +179,7 @@ export function classifyDiagramType(description: string): MermaidDiagramType {
 
 function stripFence(source: string): string {
   const trimmed = source.trim();
-  const match = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```$/);
+  const match = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\r?\n([\s\S]*?)\r?\n```$/);
   return (match?.[1] || trimmed).trim();
 }
 
@@ -204,12 +204,15 @@ function hasBalancedDelimiters(source: string): boolean {
   const pairs: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
   const stack: string[] = [];
   let quote: string | null = null;
+  let escaped = false;
   for (const char of source) {
-    if ((char === '"' || char === "'") && stack.at(-1) !== '\\') {
+    if ((char === '"' || char === "'") && !escaped) {
       quote = quote === char ? null : quote || char;
       continue;
     }
+    escaped = char === '\\' && !escaped;
     if (quote) continue;
+    escaped = false;
     if (char === '(' || char === '[' || char === '{') stack.push(char);
     if (char === ')' || char === ']' || char === '}') {
       if (stack.pop() !== pairs[char]) return false;
@@ -495,7 +498,12 @@ function appendInstructionAnnotation(
   if (format === 'graphviz')
     return source.replace(/\}\s*$/, `  update [label="${note}"];\n}`);
   if (format === 'excalidraw') {
-    const parsed = JSON.parse(stripFence(source)) as Record<string, unknown>;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(stripFence(source)) as Record<string, unknown>;
+    } catch {
+      return source;
+    }
     const elements = Array.isArray(parsed.elements) ? parsed.elements : [];
     parsed.elements = [
       ...elements,
@@ -515,7 +523,7 @@ function appendInstructionAnnotation(
     ];
     return JSON.stringify(parsed, null, 2);
   }
-  if (type === 'sequence') return `${source}\n  Note over User,System: ${note}`;
+  if (type === 'sequence') return `${source}\n  %% Update: ${note}`;
   if (type === 'mindmap') return `${source}\n    ${note}`;
   if (type === 'pie') return `${source}\n  "${note}" : 1`;
   if (type === 'gantt') return `${source}\n  ${note} : 1d`;

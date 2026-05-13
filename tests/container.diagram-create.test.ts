@@ -148,6 +148,28 @@ describe('diagram tools', () => {
     expect(parsed.suggested_fix).toContain('flowchart TD');
   });
 
+  test('accepts CRLF fenced source and escaped quotes during validation', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_validate',
+      JSON.stringify({
+        source:
+          '```mermaid\r\nflowchart TD\r\n  A["He said \\"ready\\""] --> B[Done]\r\n```',
+        type: 'flowchart',
+        format: 'mermaid',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      valid: boolean;
+      errors: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.valid).toBe(true);
+    expect(parsed.errors).toEqual([]);
+  });
+
   test('creates non-Mermaid source artifacts through all adapters', async () => {
     const { executeToolWithMetadata } = await loadTools();
     const cases = [
@@ -222,5 +244,83 @@ describe('diagram tools', () => {
     expect(updated.type).toBe('flowchart');
     expect(updated.format).toBe('mermaid');
     expect(updated.source).toContain('Update: add retry queue');
+  });
+
+  test('sequence update annotations do not invent participants', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+    const create = await executeToolWithMetadata(
+      'diagram_create',
+      JSON.stringify({
+        source:
+          'sequenceDiagram\n  participant Client\n  participant API\n  Client->>API: Request',
+        type: 'sequence',
+        format: 'mermaid',
+        render_to: 'none',
+      }),
+    );
+    const created = JSON.parse(create.output) as {
+      source_artifact_ref: string;
+    };
+
+    const update = await executeToolWithMetadata(
+      'diagram_update',
+      JSON.stringify({
+        artifact_ref: created.source_artifact_ref,
+        instructions: 'add retry note',
+        type: 'sequence',
+        format: 'mermaid',
+        render_to: 'none',
+      }),
+    );
+    const updated = JSON.parse(update.output) as {
+      success: boolean;
+      valid: boolean;
+      source: string;
+    };
+
+    expect(update.isError).toBe(false);
+    expect(updated.success).toBe(true);
+    expect(updated.valid).toBe(true);
+    expect(updated.source).toContain('%% Update: add retry note');
+    expect(updated.source).not.toContain('Note over User,System');
+  });
+
+  test('invalid Excalidraw update artifacts return structured validation failures', async () => {
+    const sourcePath = path.join(workspaceRoot, 'bad.excalidraw.json');
+    fs.writeFileSync(sourcePath, '{not json', 'utf-8');
+    const { executeToolWithMetadata } = await loadTools();
+
+    const update = await executeToolWithMetadata(
+      'diagram_update',
+      JSON.stringify({
+        artifact_ref: '/workspace/bad.excalidraw.json',
+        instructions: 'add label',
+        format: 'excalidraw',
+        render_to: 'none',
+      }),
+    );
+    const parsed = JSON.parse(update.output) as {
+      success: boolean;
+      valid: boolean;
+      errors: string[];
+    };
+
+    expect(update.isError).toBe(false);
+    expect(parsed.success).toBe(false);
+    expect(parsed.valid).toBe(false);
+    expect(parsed.errors.join('\n')).toContain('not valid JSON');
+  });
+
+  test('diagram tool schemas allow source-only create and update calls', async () => {
+    const { TOOL_DEFINITIONS } = await loadTools();
+    const requiredByName = new Map(
+      TOOL_DEFINITIONS.map((tool) => [
+        tool.function.name,
+        tool.function.parameters.required,
+      ]),
+    );
+
+    expect(requiredByName.get('diagram_create')).toEqual([]);
+    expect(requiredByName.get('diagram_update')).toEqual([]);
   });
 });
