@@ -241,6 +241,16 @@ approval:
     );
   });
 
+  test('parsePolicyYaml reads implicit delay switch with default off', () => {
+    expect(parsePolicyYaml('').implicitDelayEnabled).toBe(false);
+    expect(
+      parsePolicyYaml(`
+approval:
+  implicit_delay_enabled: true
+`).implicitDelayEnabled,
+    ).toBe(true);
+  });
+
   test('parsePolicyYaml falls back to default rule order when dependencies are misordered', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -1093,7 +1103,10 @@ autonomy:
 
   test('non-input browser tools skip the implicit interruption delay', () => {
     const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
+      writeTempPolicy(`
+approval:
+  implicit_delay_enabled: true
+`),
     );
 
     const evaluation = runtime.evaluateToolCall({
@@ -1108,9 +1121,29 @@ autonomy:
     expect(runtime.formatYellowNarration(evaluation)).toBe('run browser_click');
   });
 
-  test('input-like browser tools keep the implicit interruption delay', () => {
+  test('input-like browser tools skip the implicit interruption delay by default', () => {
     const runtime = new TrustedAgentApprovalRuntime(
       '/tmp/hybridclaw-missing-policy.yaml',
+    );
+
+    const evaluation = runtime.evaluateToolCall({
+      toolName: 'browser_type',
+      argsJson: JSON.stringify({ ref: '@e9', text: 'search term' }),
+      latestUserPrompt: 'Type into the search box',
+    });
+
+    expect(evaluation.tier).toBe('yellow');
+    expect(evaluation.decision).toBe('implicit');
+    expect(evaluation.implicitDelayMs).toBeUndefined();
+    expect(runtime.formatYellowNarration(evaluation)).toBe('run browser_type');
+  });
+
+  test('input-like browser tools keep the implicit interruption delay when enabled', () => {
+    const runtime = new TrustedAgentApprovalRuntime(
+      writeTempPolicy(`
+approval:
+  implicit_delay_enabled: true
+`),
     );
 
     const evaluation = runtime.evaluateToolCall({
@@ -1129,7 +1162,10 @@ autonomy:
 
   test('voice channel skips the implicit interruption delay for yellow actions', () => {
     const runtime = new TrustedAgentApprovalRuntime(
-      '/tmp/hybridclaw-missing-policy.yaml',
+      writeTempPolicy(`
+approval:
+  implicit_delay_enabled: true
+`),
     );
 
     const evaluation = runtime.evaluateToolCall({
@@ -2164,7 +2200,9 @@ network:
 
     const evaluation = runtime.evaluateToolCall({
       toolName: 'web_fetch',
-      argsJson: JSON.stringify({ url: 'https://hybridaione.github.io/hybridclaw/docs/' }),
+      argsJson: JSON.stringify({
+        url: 'https://hybridaione.github.io/hybridclaw/docs/',
+      }),
       latestUserPrompt: 'Open the HybridClaw docs',
     });
 
