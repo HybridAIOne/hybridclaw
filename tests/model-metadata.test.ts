@@ -1,13 +1,8 @@
 import { expect, expectTypeOf, test } from 'vitest';
-import type {
-  ModelOverlay,
-  StaticModelMetadataEntry,
-} from '../src/providers/model-metadata.js';
+import type { ModelOverlay } from '../src/providers/model-metadata.js';
 import {
   getModelOverlay,
-  isCodexFamilyModelId,
   isGpt5ModelId,
-  isLocalLlmModelId,
   listStaticModelMetadataModelIds,
 } from '../src/providers/model-metadata.js';
 
@@ -19,6 +14,19 @@ const COMPLETE_OVERLAY = {
 } satisfies ModelOverlay;
 
 test('static model metadata entries accept an optional complete overlay', () => {
+  type EntryWithOptionalOverlay = {
+    contextWindow: number | null;
+    maxTokens?: number | null;
+    capabilities: {
+      vision: boolean;
+      tools: boolean;
+      jsonMode: boolean;
+      reasoning: boolean;
+    };
+    sources: string[];
+    model_overlay?: ModelOverlay;
+  };
+
   const entryWithoutOverlay = {
     contextWindow: 400_000,
     capabilities: {
@@ -28,16 +36,16 @@ test('static model metadata entries accept an optional complete overlay', () => 
       reasoning: true,
     },
     sources: ['test-source'],
-  } satisfies StaticModelMetadataEntry;
+  } satisfies EntryWithOptionalOverlay;
 
   const entryWithOverlay = {
     ...entryWithoutOverlay,
     model_overlay: COMPLETE_OVERLAY,
-  } satisfies StaticModelMetadataEntry;
+  } satisfies EntryWithOptionalOverlay;
 
   expect(entryWithoutOverlay).not.toHaveProperty('model_overlay');
   expect(entryWithOverlay.model_overlay).toEqual(COMPLETE_OVERLAY);
-  expectTypeOf<StaticModelMetadataEntry['model_overlay']>().toEqualTypeOf<
+  expectTypeOf<EntryWithOptionalOverlay['model_overlay']>().toEqualTypeOf<
     ModelOverlay | undefined
   >();
 });
@@ -78,9 +86,19 @@ test.each([
   expect(isGpt5ModelId(modelId)).toBe(true);
 });
 
-test('future family matcher skeletons are inert', () => {
-  expect(isCodexFamilyModelId('gpt-5-codex')).toBe(false);
-  expect(isLocalLlmModelId('ollama/qwen3')).toBe(false);
+test.each([
+  '',
+  '  ',
+  'gpt-5.2',
+  'gpt-5.3-codex',
+  'gpt-5.5-pro',
+])('isGpt5ModelId rejects non-overlay GPT-5 family input %s', (modelId) => {
+  expect(isGpt5ModelId(modelId)).toBe(false);
+});
+
+test('getModelOverlay returns undefined for blank model ids', () => {
+  expect(getModelOverlay('')).toBeUndefined();
+  expect(getModelOverlay('  ')).toBeUndefined();
 });
 
 test.each(
