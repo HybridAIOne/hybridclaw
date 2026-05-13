@@ -46,6 +46,17 @@ describe('Slack webhook channel', () => {
     expect(
       target.normalizeSlackWebhookChannelTarget('slack_webhook:bad/name'),
     ).toBeNull();
+    expect(
+      target.normalizeSlackWebhookUrl(
+        'https://user:pass@hooks.slack.com/services/T000/B000/SECRET?debug=1#frag',
+      ),
+    ).toBe('https://hooks.slack.com/services/T000/B000/SECRET');
+    expect(target.slackWebhookSecretNameForTarget('default')).toBe(
+      'SLACK_WEBHOOK_URL',
+    );
+    expect(target.slackWebhookSecretNameForTarget('ops-team')).not.toBe(
+      target.slackWebhookSecretNameForTarget('ops_team'),
+    );
 
     const secretUrl = 'https://example.com/services/T000/B000/SECRET';
     expect(() => target.normalizeSlackWebhookUrl(secretUrl)).toThrow(

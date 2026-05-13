@@ -16,6 +16,17 @@ export function normalizeSlackWebhookTargetName(
   return normalized;
 }
 
+export function slackWebhookSecretNameForTarget(targetName: string): string {
+  const target = normalizeSlackWebhookTargetName(targetName);
+  if (!target) {
+    throw new Error(`Invalid Slack webhook target name: ${targetName}`);
+  }
+  if (target === SLACK_WEBHOOK_DEFAULT_TARGET) return 'SLACK_WEBHOOK_URL';
+  return `SLACK_WEBHOOK_URL_TARGET_${Buffer.from(target, 'utf-8')
+    .toString('hex')
+    .toUpperCase()}`;
+}
+
 export function normalizeSlackWebhookChannelTarget(
   value?: string | null,
 ): string | null {

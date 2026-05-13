@@ -92,6 +92,7 @@ import {
   normalizeSlackWebhookTargetName,
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
+  slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
 import {
   createTwilioOutboundCall,
@@ -4931,13 +4932,6 @@ function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
   return redacted;
 }
 
-function slackWebhookSecretName(target: string): string {
-  if (target === SLACK_WEBHOOK_DEFAULT_TARGET) return 'SLACK_WEBHOOK_URL';
-  return `SLACK_WEBHOOK_URL_${target
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '_')}`;
-}
-
 export function getGatewayAdminConfig(): GatewayAdminConfigResponse {
   return {
     path: runtimeConfigPath(),
@@ -4992,7 +4986,7 @@ export function saveGatewayAdminSlackWebhookTarget(
       webhookUrl,
       `slackWebhook.webhooks.${target}.webhook_url`,
     );
-    const secretName = slackWebhookSecretName(target);
+    const secretName = slackWebhookSecretNameForTarget(target);
     saveNamedRuntimeSecrets({ [secretName]: normalizedUrl });
     refreshRuntimeSecretsFromEnv();
     setRuntimeConfigSlackWebhookSecretInput(

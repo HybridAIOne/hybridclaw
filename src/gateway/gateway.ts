@@ -325,7 +325,25 @@ function hasSlackWebhookConfigChanged(
   next: ReturnType<typeof getConfigSnapshot>['slackWebhook'],
   prev: ReturnType<typeof getConfigSnapshot>['slackWebhook'],
 ): boolean {
-  return JSON.stringify(next) !== JSON.stringify(prev);
+  if (next.enabled !== prev.enabled) return true;
+  const nextTargets = Object.keys(next.webhooks);
+  const prevTargets = Object.keys(prev.webhooks);
+  if (!equalStringSets(nextTargets, prevTargets)) return true;
+
+  for (const target of nextTargets) {
+    const nextWebhook = next.webhooks[target];
+    const prevWebhook = prev.webhooks[target];
+    if (!nextWebhook || !prevWebhook) return true;
+    if (
+      nextWebhook.webhookUrl !== prevWebhook.webhookUrl ||
+      nextWebhook.defaultUsername !== prevWebhook.defaultUsername ||
+      nextWebhook.defaultIconEmoji !== prevWebhook.defaultIconEmoji ||
+      nextWebhook.defaultIconUrl !== prevWebhook.defaultIconUrl
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function hasVoiceConfigChanged(

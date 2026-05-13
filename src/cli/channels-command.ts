@@ -12,6 +12,8 @@ import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/po
 import {
   normalizeSlackWebhookTargetName,
   normalizeSlackWebhookUrl,
+  SLACK_WEBHOOK_DEFAULT_TARGET,
+  slackWebhookSecretNameForTarget,
 } from '../channels/slack-webhook/target.js';
 import { normalizeTelegramChatId } from '../channels/telegram/target.js';
 import {
@@ -576,7 +578,7 @@ function parseSlackWebhookSetupArgs(args: string[]): {
     );
   }
   if (webhookUrl) {
-    normalizeSlackWebhookUrl(
+    webhookUrl = normalizeSlackWebhookUrl(
       webhookUrl,
       'slackWebhook.webhooks.<target>.webhook_url',
     );
@@ -2124,12 +2126,19 @@ async function configureThreemaChannel(args: string[]): Promise<void> {
 async function configureSlackWebhookChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseSlackWebhookSetupArgs(args);
-  const secretName =
-    parsed.target === 'default'
-      ? 'SLACK_WEBHOOK_URL'
-      : `SLACK_WEBHOOK_URL_${parsed.target
-          .toUpperCase()
-          .replace(/[^A-Z0-9]+/g, '_')}`;
+  const currentConfig = getRuntimeConfig();
+  const currentTarget = currentConfig.slackWebhook.webhooks[parsed.target];
+  if (!parsed.webhookUrl && !currentTarget?.webhookUrl) {
+    throw new Error('Slack webhook URL is required for a new target.');
+  }
+  if (
+    parsed.target !== SLACK_WEBHOOK_DEFAULT_TARGET &&
+    !currentConfig.slackWebhook.webhooks[SLACK_WEBHOOK_DEFAULT_TARGET]
+      ?.webhookUrl
+  ) {
+    throw new Error('Configure the default Slack webhook target first.');
+  }
+  const secretName = slackWebhookSecretNameForTarget(parsed.target);
 
   const secretsPath = parsed.webhookUrl
     ? saveRuntimeSecrets({ [secretName]: parsed.webhookUrl })
@@ -2156,7 +2165,9 @@ async function configureSlackWebhookChannel(args: string[]): Promise<void> {
   }
 
   const nextConfig = updateRuntimeConfig((draft) => {
-    draft.slackWebhook.enabled = true;
+    if (parsed.target === SLACK_WEBHOOK_DEFAULT_TARGET) {
+      draft.slackWebhook.enabled = true;
+    }
     const existing = draft.slackWebhook.webhooks[parsed.target] ?? {
       webhookUrl: '',
       defaultUsername: '',

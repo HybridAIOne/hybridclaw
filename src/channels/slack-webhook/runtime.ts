@@ -2,7 +2,7 @@ import { getConfigSnapshot } from '../../config/config.js';
 import { SLACK_WEBHOOK_CAPABILITIES } from '../channel.js';
 import { registerChannel, unregisterChannel } from '../channel-registry.js';
 import {
-  clearSlackWebhookLastSendResults,
+  clearSlackWebhookRuntimeResults,
   getSlackWebhookLastReachabilityResults,
   getSlackWebhookLastSendResults,
   pingSlackWebhookTarget,
@@ -89,6 +89,6 @@ export async function shutdownSlackWebhook(): Promise<void> {
   shutdownController?.abort();
   shutdownController = null;
   unregisterChannel('slack_webhook');
-  clearSlackWebhookLastSendResults();
+  clearSlackWebhookRuntimeResults();
   runtimeInitialized = false;
 }

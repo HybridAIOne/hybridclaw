@@ -300,7 +300,7 @@ export function getSlackWebhookLastReachabilityResults(): SlackWebhookSendResult
   );
 }
 
-export function clearSlackWebhookLastSendResults(): void {
+export function clearSlackWebhookRuntimeResults(): void {
   slackWebhookLastResults.clear();
   slackWebhookLastReachabilityResults.clear();
 }
