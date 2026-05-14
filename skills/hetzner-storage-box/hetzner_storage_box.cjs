@@ -1,28 +1,26 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('node:fs');
 const path = require('node:path');
+const {
+  COST_MEASUREMENT,
+  assertNoUnexpectedArgs,
+  commandEvalScenarios: buildEvalScenarios,
+  die,
+  parseInteger,
+  popBoolean,
+  popFlag,
+  requireGrant,
+  requireText,
+  runMain,
+  validateOperation,
+} = require('../hetzner-shared.cjs');
 
 const API_BASE = 'https://api.hetzner.com/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
 const WEBDAV_AUTH_SECRET = 'HETZNER_STORAGE_BOX_BASIC_AUTH';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
-
-const COST_MEASUREMENT = {
-  system: 'UsageTotals',
-  source: 'HybridClaw usage_events',
-  scope: 'per assistant run/session',
-  fields: [
-    'total_input_tokens',
-    'total_output_tokens',
-    'total_tokens',
-    'total_cost_usd',
-    'call_count',
-    'total_tool_calls',
-  ],
-};
 
 const OPERATION_TIERS = {
   'list-storage-boxes': 'green',
@@ -42,53 +40,38 @@ const OPERATION_TIERS = {
   'delete-snapshot': 'red',
   'delete-path': 'red',
 };
-
-function die(message, code = 2) {
-  process.stderr.write(`${message}\n`);
-  process.exit(code);
-}
-
-function printJson(payload) {
-  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
-}
-
-function popFlag(args, name, fallback = undefined) {
-  const index = args.indexOf(name);
-  if (index === -1) return fallback;
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith('--')) {
-    die(`${name} requires a value.`);
-  }
-  args.splice(index, 2);
-  return value;
-}
-
-function popBoolean(args, name) {
-  const index = args.indexOf(name);
-  if (index === -1) return false;
-  args.splice(index, 1);
-  return true;
-}
-
-function parseInteger(raw, label) {
-  if (!/^\d+$/.test(String(raw ?? ''))) {
-    die(`${label} must be a positive integer.`);
-  }
-  return Number.parseInt(raw, 10);
-}
-
-function requireText(value, label) {
-  const normalized = String(value ?? '').trim();
-  if (!normalized) die(`${label} is required.`);
-  return normalized;
-}
+const API_OPERATIONS = new Set([
+  'list-storage-boxes',
+  'get-storage-box',
+  'list-snapshots',
+  'create-snapshot',
+  'delete-snapshot',
+  'create-storage-box',
+  'update-storage-box',
+  'delete-storage-box',
+]);
+const WEBDAV_OPERATIONS = new Set([
+  'list-files',
+  'download-file',
+  'upload-text',
+  'archive-text',
+  'create-directory',
+  'delete-path',
+]);
 
 function cleanWebdavPath(rawPath) {
   const normalized = requireText(rawPath, '--path').replace(/\\/g, '/');
-  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
+  if (
+    [...normalized].some((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint < 32 || codePoint === 127;
+    })
+  ) {
     die('--path must not contain control characters.');
   }
-  const segments = normalized.split('/').filter((segment) => segment.length > 0);
+  const segments = normalized
+    .split('/')
+    .filter((segment) => segment.length > 0);
   if (segments.some((segment) => segment === '..')) {
     die('--path must not contain parent directory segments.');
   }
@@ -96,30 +79,17 @@ function cleanWebdavPath(rawPath) {
 }
 
 function encodeWebdavPath(webdavPath) {
-  return webdavPath
-    .split('/')
-    .map((segment, index) => (index === 0 ? '' : encodeURIComponent(segment)))
-    .join('/');
+  return `/${webdavPath.slice(1).split('/').map(encodeURIComponent).join('/')}`;
 }
 
 function normalizeHost(rawHost) {
   const host = requireText(rawHost, '--host').toLowerCase();
   if (!/^[a-z0-9-]+\.your-storagebox\.de$/.test(host)) {
-    die('--host must be a Hetzner Storage Box host like u00000.your-storagebox.de.');
-  }
-  return host;
-}
-
-function requireGrant(args, operation) {
-  if (OPERATION_TIERS[operation] === 'green') return false;
-  const granted = popBoolean(args, '--operator-grant');
-  if (!granted) {
     die(
-      `Refusing Hetzner Storage Box ${operation} without --operator-grant. ` +
-        'Run plan/read first and get an explicit operator grant.',
+      '--host must be a Hetzner Storage Box host like u00000.your-storagebox.de.',
     );
   }
-  return true;
+  return host;
 }
 
 function buildApiRequest(operation, { url, method = 'GET', json }) {
@@ -140,7 +110,10 @@ function buildApiRequest(operation, { url, method = 'GET', json }) {
   return payload;
 }
 
-function buildWebdavRequest(operation, { host, path: webdavPath, method, body }) {
+function buildWebdavRequest(
+  operation,
+  { host, path: webdavPath, method, body },
+) {
   const payload = {
     command: 'webdav-request',
     operation,
@@ -163,7 +136,8 @@ function buildWebdavRequest(operation, { host, path: webdavPath, method, body })
   if (body !== undefined) payload.httpRequest.body = body;
   if (operation === 'list-files') {
     payload.httpRequest.headers = { Depth: '1' };
-    payload.httpRequest.body = '<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>';
+    payload.httpRequest.body =
+      '<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>';
   }
   return payload;
 }
@@ -171,23 +145,38 @@ function buildWebdavRequest(operation, { host, path: webdavPath, method, body })
 function buildPlan(text) {
   const normalized = text.toLowerCase();
   let operation = 'list-storage-boxes';
-  if (/\b(files?|folder|directory|archive)\b/.test(normalized) && /\b(list|show|inspect)\b/.test(normalized)) {
+  if (
+    /\b(files?|folder|directory|archive)\b/.test(normalized) &&
+    /\b(list|show|inspect)\b/.test(normalized)
+  ) {
     operation = 'list-files';
-  } else if (/\b(download|get)\b/.test(normalized) && /\b(file|manifest|invoice)\b/.test(normalized)) {
+  } else if (
+    /\b(download|get)\b/.test(normalized) &&
+    /\b(file|manifest|invoice)\b/.test(normalized)
+  ) {
     operation = 'download-file';
   } else if (/\b(public link|share)\b/.test(normalized)) {
     operation = 'share-public-link';
-  } else if (/\b(snapshot)\b/.test(normalized) && /\b(delete|remove|destroy)\b/.test(normalized)) {
+  } else if (
+    /\b(snapshot)\b/.test(normalized) &&
+    /\b(delete|remove|destroy)\b/.test(normalized)
+  ) {
     operation = 'delete-snapshot';
   } else if (/\b(snapshot)\b/.test(normalized)) {
     operation = 'create-snapshot';
   } else if (/\b(archive|upload)\b/.test(normalized)) {
     operation = 'archive-text';
-  } else if (/\b(delete|remove|destroy)\b/.test(normalized) && /\b(file|path|folder|directory)\b/.test(normalized)) {
+  } else if (
+    /\b(delete|remove|destroy)\b/.test(normalized) &&
+    /\b(file|path|folder|directory)\b/.test(normalized)
+  ) {
     operation = 'delete-path';
   } else if (/\b(delete|remove|destroy)\b/.test(normalized)) {
     operation = 'delete-storage-box';
-  } else if (/\b(create|order|new)\b/.test(normalized) && /\bbox\b/.test(normalized)) {
+  } else if (
+    /\b(create|order|new)\b/.test(normalized) &&
+    /\bbox\b/.test(normalized)
+  ) {
     operation = 'create-storage-box';
   } else if (/\b(update|change|enable|disable)\b/.test(normalized)) {
     operation = 'update-storage-box';
@@ -212,38 +201,54 @@ function buildPlan(text) {
 function commandHttpRequest(args) {
   const operation = args.shift();
   if (!operation) die('http-request requires an operation.');
-  requireGrant(args, operation);
+  validateOperation(operation, API_OPERATIONS, 'Hetzner Storage Box API');
+  requireGrant(args, operation, OPERATION_TIERS, 'Hetzner Storage Box');
 
+  let payload;
   switch (operation) {
     case 'list-storage-boxes':
-      return buildApiRequest(operation, { url: `${API_BASE}/storage_boxes` });
+      payload = buildApiRequest(operation, {
+        url: `${API_BASE}/storage_boxes`,
+      });
+      break;
     case 'get-storage-box': {
       const boxId = parseInteger(popFlag(args, '--box-id'), '--box-id');
-      return buildApiRequest(operation, {
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes/${boxId}`,
       });
+      break;
     }
     case 'list-snapshots': {
       const boxId = parseInteger(popFlag(args, '--box-id'), '--box-id');
-      return buildApiRequest(operation, {
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes/${boxId}/snapshots`,
       });
+      break;
     }
     case 'create-snapshot': {
       const boxId = parseInteger(popFlag(args, '--box-id'), '--box-id');
-      return buildApiRequest(operation, {
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes/${boxId}/snapshots`,
         method: 'POST',
-        json: { description: popFlag(args, '--description', 'snapshot') },
+        json: {
+          description: popFlag(args, '--description', 'snapshot', {
+            allowDashValue: true,
+          }),
+        },
       });
+      break;
     }
     case 'delete-snapshot': {
       const boxId = parseInteger(popFlag(args, '--box-id'), '--box-id');
-      const snapshotId = parseInteger(popFlag(args, '--snapshot-id'), '--snapshot-id');
-      return buildApiRequest(operation, {
+      const snapshotId = parseInteger(
+        popFlag(args, '--snapshot-id'),
+        '--snapshot-id',
+      );
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes/${boxId}/snapshots/${snapshotId}`,
         method: 'DELETE',
       });
+      break;
     }
     case 'create-storage-box': {
       const product = requireText(popFlag(args, '--product'), '--product');
@@ -252,11 +257,12 @@ function commandHttpRequest(args) {
       const json = { product };
       if (location) json.location = location;
       if (name) json.name = name;
-      return buildApiRequest(operation, {
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes`,
         method: 'POST',
         json,
       });
+      break;
     }
     case 'update-storage-box': {
       const boxId = parseInteger(popFlag(args, '--box-id'), '--box-id');
@@ -273,132 +279,134 @@ function commandHttpRequest(args) {
       if (Object.keys(json).length === 0) {
         die('update-storage-box requires at least one setting flag.');
       }
-      return buildApiRequest(operation, {
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes/${boxId}`,
         method: 'PUT',
         json,
       });
+      break;
     }
     case 'delete-storage-box': {
       const boxId = parseInteger(popFlag(args, '--box-id'), '--box-id');
-      return buildApiRequest(operation, {
+      payload = buildApiRequest(operation, {
         url: `${API_BASE}/storage_boxes/${boxId}`,
         method: 'DELETE',
       });
+      break;
     }
     default:
       die(`Unknown Hetzner Storage Box API operation: ${operation}`);
   }
+  assertNoUnexpectedArgs(args);
+  return payload;
 }
 
 function commandWebdavRequest(args) {
   const operation = args.shift();
   if (!operation) die('webdav-request requires an operation.');
-  requireGrant(args, operation);
+  validateOperation(operation, WEBDAV_OPERATIONS, 'Hetzner Storage Box WebDAV');
+  requireGrant(args, operation, OPERATION_TIERS, 'Hetzner Storage Box');
   const host = normalizeHost(popFlag(args, '--host'));
   const webdavPath = cleanWebdavPath(popFlag(args, '--path'));
 
+  let payload;
   switch (operation) {
     case 'list-files':
-      return buildWebdavRequest(operation, {
+      payload = buildWebdavRequest(operation, {
         host,
         path: webdavPath,
         method: 'PROPFIND',
       });
+      break;
     case 'download-file':
-      return buildWebdavRequest(operation, {
+      payload = buildWebdavRequest(operation, {
         host,
         path: webdavPath,
         method: 'GET',
       });
+      break;
     case 'upload-text':
     case 'archive-text':
-      return buildWebdavRequest(operation, {
+      payload = buildWebdavRequest(operation, {
         host,
         path: webdavPath,
         method: 'PUT',
-        body: requireText(popFlag(args, '--body'), '--body'),
+        body: requireText(
+          popFlag(args, '--body', undefined, { allowDashValue: true }),
+          '--body',
+        ),
       });
+      break;
     case 'create-directory':
-      return buildWebdavRequest(operation, {
+      payload = buildWebdavRequest(operation, {
         host,
         path: webdavPath,
         method: 'MKCOL',
       });
+      break;
     case 'delete-path':
-      return buildWebdavRequest(operation, {
+      payload = buildWebdavRequest(operation, {
         host,
         path: webdavPath,
         method: 'DELETE',
       });
+      break;
     default:
       die(`Unknown Hetzner Storage Box WebDAV operation: ${operation}`);
   }
+  assertNoUnexpectedArgs(args);
+  return payload;
 }
 
 function commandPublicUrl(args) {
   const host = normalizeHost(popFlag(args, '--host'));
   const webdavPath = cleanWebdavPath(popFlag(args, '--path'));
+  assertNoUnexpectedArgs(args);
   return {
     command: 'public-url',
     operation: 'public-url',
     stakesTier: OPERATION_TIERS['public-url'],
     url: `https://${host}${encodeWebdavPath(webdavPath)}`,
-    note:
-      'This only constructs a URL for an already public Storage Box path; it does not change permissions.',
+    note: 'This only constructs a URL for an already public Storage Box path; it does not change permissions.',
     costMeasurement: COST_MEASUREMENT,
   };
 }
 
 function commandSharePublicLink(args) {
   const alreadyPublic = popBoolean(args, '--already-public');
-  if (!alreadyPublic) {
-    requireGrant(args, 'share-public-link');
-  }
+  requireGrant(
+    args,
+    'share-public-link',
+    OPERATION_TIERS,
+    'Hetzner Storage Box',
+  );
   const host = normalizeHost(popFlag(args, '--host'));
   const webdavPath = cleanWebdavPath(popFlag(args, '--path'));
   const expiresAt = popFlag(args, '--expires-at');
+  assertNoUnexpectedArgs(args);
   return {
     command: 'share-public-link',
     operation: 'share-public-link',
     stakesTier: OPERATION_TIERS['share-public-link'],
-    requiresOperatorAction: !alreadyPublic,
+    requiresOperatorAction: true,
     publicUrl: `https://${host}${encodeWebdavPath(webdavPath)}`,
     expiresAt: expiresAt || null,
     operatorChecklist: alreadyPublic
-      ? []
+      ? [
+          'Confirm the Storage Box path is already public and intended to remain shareable.',
+        ]
       : [
           'Confirm the Storage Box path is intended to be public.',
           'Enable public HTTPS/WebDAV serving or publish the file through the operator-approved web front end.',
           'Record the intended expiration or retention date.',
         ],
-    note:
-      'Storage Box file access is credentialed by default; this helper only emits a public-link handoff after explicit grant unless --already-public is used.',
+    note: 'Storage Box file access is credentialed by default; this helper only emits a public-link handoff after explicit grant.',
     costMeasurement: COST_MEASUREMENT,
   };
 }
 
 function commandEvalScenarios() {
-  const scenarios = JSON.parse(fs.readFileSync(EVAL_SCENARIOS_PATH, 'utf-8'));
-  const categories = {};
-  let failed = 0;
-  for (const scenario of scenarios) {
-    categories[scenario.category] = (categories[scenario.category] || 0) + 1;
-    if (
-      !scenario.expectedOperation ||
-      !scenario.expectedTier ||
-      scenario.costMeasurement?.system !== 'UsageTotals'
-    ) {
-      failed += 1;
-    }
-  }
-  return {
-    command: 'eval-scenarios',
-    scenarioCount: scenarios.length,
-    failed,
-    categories,
-    costMeasurement: COST_MEASUREMENT,
-  };
+  return buildEvalScenarios(EVAL_SCENARIOS_PATH);
 }
 
 function showHelp() {
@@ -436,36 +444,14 @@ Sharing operations:
 `);
 }
 
-function main() {
-  const args = process.argv.slice(2);
-  if (args.includes('--help') || args.length === 0) {
-    showHelp();
-    return;
-  }
-  const format = popFlag(args, '--format', 'text');
-  const command = args.shift();
-  let payload;
-  if (command === 'plan') {
-    payload = buildPlan(args.join(' '));
-  } else if (command === 'http-request') {
-    payload = commandHttpRequest(args);
-  } else if (command === 'webdav-request') {
-    payload = commandWebdavRequest(args);
-  } else if (command === 'public-url') {
-    payload = commandPublicUrl(args);
-  } else if (command === 'share-public-link') {
-    payload = commandSharePublicLink(args);
-  } else if (command === 'eval-scenarios') {
-    payload = commandEvalScenarios();
-  } else {
-    die(`Unknown command: ${command}`);
-  }
-
-  if (format === 'json') {
-    printJson(payload);
-  } else {
-    process.stdout.write(`${JSON.stringify(payload)}\n`);
-  }
-}
-
-main();
+runMain({
+  showHelp,
+  buildPlan,
+  handlers: {
+    'http-request': commandHttpRequest,
+    'webdav-request': commandWebdavRequest,
+    'public-url': commandPublicUrl,
+    'share-public-link': commandSharePublicLink,
+    'eval-scenarios': commandEvalScenarios,
+  },
+});

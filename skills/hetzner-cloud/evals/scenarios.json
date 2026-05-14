@@ -69,7 +69,7 @@
     "id": "cloud-09",
     "category": "write-cleanup",
     "prompt": "Tear down the demo VPS on Monday morning.",
-    "expectedOperation": "delete-server",
+    "expectedOperation": "delete-vps",
     "expectedTier": "red",
     "costMeasurement": { "system": "UsageTotals" }
   },

@@ -1,27 +1,26 @@
 #!/usr/bin/env node
 'use strict';
 
-const fs = require('node:fs');
 const path = require('node:path');
+const {
+  COST_MEASUREMENT,
+  appendQuery,
+  assertNoUnexpectedArgs,
+  commandEvalScenarios: buildEvalScenarios,
+  die,
+  parseInteger,
+  popBoolean,
+  popFlag,
+  popRepeatedFlag,
+  requireGrant,
+  runMain,
+  validateOperation,
+} = require('../hetzner-shared.cjs');
 
 const API_BASE = 'https://api.hetzner.cloud/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const TOKEN_SECRET = 'HETZNER_API_TOKEN';
 const EVAL_SCENARIOS_PATH = path.join(__dirname, 'evals', 'scenarios.json');
-
-const COST_MEASUREMENT = {
-  system: 'UsageTotals',
-  source: 'HybridClaw usage_events',
-  scope: 'per assistant run/session',
-  fields: [
-    'total_input_tokens',
-    'total_output_tokens',
-    'total_tokens',
-    'total_cost_usd',
-    'call_count',
-    'total_tool_calls',
-  ],
-};
 
 const OPERATION_TIERS = {
   'list-servers': 'green',
@@ -41,7 +40,6 @@ const OPERATION_TIERS = {
   'detach-volume': 'amber',
   'attach-network': 'amber',
   'detach-network': 'amber',
-  'rebuild-server': 'red',
   'restore-snapshot': 'red',
   'delete-server': 'red',
   'delete-vps': 'red',
@@ -49,55 +47,7 @@ const OPERATION_TIERS = {
   'destroy-snapshot': 'red',
   'delete-volume': 'red',
 };
-
-function die(message, code = 2) {
-  process.stderr.write(`${message}\n`);
-  process.exit(code);
-}
-
-function printJson(payload) {
-  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
-}
-
-function popFlag(args, name, fallback = undefined) {
-  const index = args.indexOf(name);
-  if (index === -1) return fallback;
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith('--')) {
-    die(`${name} requires a value.`);
-  }
-  args.splice(index, 2);
-  return value;
-}
-
-function popRepeatedFlag(args, name) {
-  const values = [];
-  let index = args.indexOf(name);
-  while (index !== -1) {
-    const value = args[index + 1];
-    if (value === undefined || value.startsWith('--')) {
-      die(`${name} requires a value.`);
-    }
-    values.push(value);
-    args.splice(index, 2);
-    index = args.indexOf(name);
-  }
-  return values;
-}
-
-function popBoolean(args, name) {
-  const index = args.indexOf(name);
-  if (index === -1) return false;
-  args.splice(index, 1);
-  return true;
-}
-
-function parseInteger(raw, label) {
-  if (!/^\d+$/.test(String(raw ?? ''))) {
-    die(`${label} must be a positive integer.`);
-  }
-  return Number.parseInt(raw, 10);
-}
+const HTTP_OPERATIONS = new Set(Object.keys(OPERATION_TIERS));
 
 function parseLabels(values) {
   const labels = {};
@@ -114,28 +64,6 @@ function parseLabels(values) {
     labels[key] = labelValue;
   }
   return labels;
-}
-
-function appendQuery(url, params) {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue;
-    query.set(key, String(value));
-  }
-  const text = query.toString();
-  return text ? `${url}?${text}` : url;
-}
-
-function requireGrant(args, operation) {
-  if (OPERATION_TIERS[operation] === 'green') return false;
-  const granted = popBoolean(args, '--operator-grant');
-  if (!granted) {
-    die(
-      `Refusing Hetzner Cloud ${operation} without --operator-grant. ` +
-        'Run plan/read first and get an explicit operator grant.',
-    );
-  }
-  return true;
 }
 
 function buildHttpRequest(operation, { url, method = 'GET', json }) {
@@ -163,31 +91,70 @@ function buildPlan(text) {
     operation = 'list-prices';
   } else if (/\b(server types?|plans?|sizes?)\b/.test(normalized)) {
     operation = 'list-server-types';
-  } else if (/\b(locations?|datacenters?|falkenstein|fsn1|nuremberg|nbg1|helsinki|hel1)\b/.test(normalized)) {
+  } else if (
+    /\b(locations?|datacenters?|falkenstein|fsn1|nuremberg|nbg1|helsinki|hel1)\b/.test(
+      normalized,
+    ) &&
+    /\b(list|show|find|which|available|can i use)\b/.test(normalized)
+  ) {
     operation = 'list-locations';
-  } else if (/\b(network|private ip|subnet)\b/.test(normalized) && /\b(list|show|find)\b/.test(normalized)) {
+  } else if (
+    /\b(network|private ip|subnet)\b/.test(normalized) &&
+    /\b(list|show|find)\b/.test(normalized)
+  ) {
     operation = 'list-networks';
-  } else if (/\b(network|private ip|subnet)\b/.test(normalized) && /\b(detach|remove)\b/.test(normalized)) {
+  } else if (
+    /\b(network|private ip|subnet)\b/.test(normalized) &&
+    /\b(detach|remove)\b/.test(normalized)
+  ) {
     operation = 'detach-network';
-  } else if (/\b(network|private ip|subnet)\b/.test(normalized) && /\b(attach|configure|connect)\b/.test(normalized)) {
+  } else if (
+    /\b(network|private ip|subnet)\b/.test(normalized) &&
+    /\b(attach|configure|connect)\b/.test(normalized)
+  ) {
     operation = 'attach-network';
-  } else if (/\b(volume|disk)\b/.test(normalized) && /\b(list|show|find)\b/.test(normalized)) {
+  } else if (
+    /\b(volume|disk)\b/.test(normalized) &&
+    /\b(list|show|find)\b/.test(normalized)
+  ) {
     operation = 'list-volumes';
-  } else if (/\b(volume|disk)\b/.test(normalized) && /\b(create|add|new)\b/.test(normalized)) {
+  } else if (
+    /\b(volume|disk)\b/.test(normalized) &&
+    /\b(create|add|new)\b/.test(normalized)
+  ) {
     operation = 'create-volume';
-  } else if (/\b(volume|disk)\b/.test(normalized) && /\b(delete|destroy|remove)\b/.test(normalized)) {
+  } else if (
+    /\b(volume|disk)\b/.test(normalized) &&
+    /\b(delete|destroy|remove)\b/.test(normalized)
+  ) {
     operation = 'delete-volume';
-  } else if (/\b(volume|disk)\b/.test(normalized) && /\b(detach|unmount)\b/.test(normalized)) {
+  } else if (
+    /\b(volume|disk)\b/.test(normalized) &&
+    /\b(detach|unmount)\b/.test(normalized)
+  ) {
     operation = 'detach-volume';
-  } else if (/\b(create|spin up|provision|launch|new vps|sandbox)\b/.test(normalized)) {
+  } else if (
+    /\b(create|spin up|provision|launch|new vps|sandbox)\b/.test(normalized)
+  ) {
     operation = 'create-server';
-  } else if (/\b(snapshot|backup image)\b/.test(normalized) && /\b(delete|remove|destroy)\b/.test(normalized)) {
+  } else if (
+    /\b(snapshot|backup image)\b/.test(normalized) &&
+    /\b(delete|remove|destroy)\b/.test(normalized)
+  ) {
     operation = 'destroy-snapshot';
   } else if (/\b(snapshot|pre-deploy|before deploy)\b/.test(normalized)) {
     operation = 'create-snapshot';
-  } else if (/\b(rebuild|restore|rollback)\b/.test(normalized)) {
+  } else if (/\b(restore|rollback)\b/.test(normalized)) {
     operation = 'restore-snapshot';
-  } else if (/\b(attach|mount)\b/.test(normalized) && /\b(volume|disk)\b/.test(normalized)) {
+  } else if (
+    /\bvps\b/.test(normalized) &&
+    /\b(delete|destroy|tear down|remove)\b/.test(normalized)
+  ) {
+    operation = 'delete-vps';
+  } else if (
+    /\b(attach|mount)\b/.test(normalized) &&
+    /\b(volume|disk)\b/.test(normalized)
+  ) {
     operation = 'attach-volume';
   } else if (/\b(delete|destroy|tear down|remove)\b/.test(normalized)) {
     operation = 'delete-server';
@@ -198,7 +165,8 @@ function buildPlan(text) {
     operation,
     stakesTier: tier,
     requiresEscalation: tier !== 'green',
-    requiredGrant: tier === 'green' ? null : `approve-hetzner-cloud-${operation}`,
+    requiredGrant:
+      tier === 'green' ? null : `approve-hetzner-cloud-${operation}`,
     secretPolicy: {
       bearerSecretName: TOKEN_SECRET,
       modelSeesToken: false,
@@ -210,8 +178,10 @@ function buildPlan(text) {
 function commandHttpRequest(args) {
   const operation = args.shift();
   if (!operation) die('http-request requires an operation.');
-  requireGrant(args, operation);
+  validateOperation(operation, HTTP_OPERATIONS, 'Hetzner Cloud');
+  requireGrant(args, operation, OPERATION_TIERS, 'Hetzner Cloud');
 
+  let payload;
   switch (operation) {
     case 'list-servers': {
       const url = appendQuery(`${API_BASE}/servers`, {
@@ -219,40 +189,56 @@ function commandHttpRequest(args) {
         name: popFlag(args, '--name'),
         sort: popFlag(args, '--sort'),
       });
-      return buildHttpRequest(operation, { url });
+      payload = buildHttpRequest(operation, { url });
+      break;
     }
     case 'get-server': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
-      return buildHttpRequest(operation, {
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers/${serverId}`,
       });
+      break;
     }
     case 'list-server-types':
-      return buildHttpRequest(operation, { url: `${API_BASE}/server_types` });
+      payload = buildHttpRequest(operation, {
+        url: `${API_BASE}/server_types`,
+      });
+      break;
     case 'list-locations':
-      return buildHttpRequest(operation, { url: `${API_BASE}/locations` });
+      payload = buildHttpRequest(operation, { url: `${API_BASE}/locations` });
+      break;
     case 'list-images': {
       const url = appendQuery(`${API_BASE}/images`, {
         type: popFlag(args, '--type'),
         label_selector: popFlag(args, '--label-selector'),
       });
-      return buildHttpRequest(operation, { url });
+      payload = buildHttpRequest(operation, { url });
+      break;
     }
     case 'list-prices':
-      return buildHttpRequest(operation, { url: `${API_BASE}/pricing` });
+      payload = buildHttpRequest(operation, { url: `${API_BASE}/pricing` });
+      break;
     case 'list-volumes': {
       const url = appendQuery(`${API_BASE}/volumes`, {
         label_selector: popFlag(args, '--label-selector'),
         name: popFlag(args, '--name'),
         sort: popFlag(args, '--sort'),
       });
-      return buildHttpRequest(operation, { url });
+      payload = buildHttpRequest(operation, { url });
+      break;
     }
     case 'get-volume': {
-      const volumeId = parseInteger(popFlag(args, '--volume-id'), '--volume-id');
-      return buildHttpRequest(operation, {
+      const volumeId = parseInteger(
+        popFlag(args, '--volume-id'),
+        '--volume-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/volumes/${volumeId}`,
       });
+      break;
     }
     case 'list-networks': {
       const url = appendQuery(`${API_BASE}/networks`, {
@@ -260,13 +246,18 @@ function commandHttpRequest(args) {
         name: popFlag(args, '--name'),
         sort: popFlag(args, '--sort'),
       });
-      return buildHttpRequest(operation, { url });
+      payload = buildHttpRequest(operation, { url });
+      break;
     }
     case 'get-network': {
-      const networkId = parseInteger(popFlag(args, '--network-id'), '--network-id');
-      return buildHttpRequest(operation, {
+      const networkId = parseInteger(
+        popFlag(args, '--network-id'),
+        '--network-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/networks/${networkId}`,
       });
+      break;
     }
     case 'create-server': {
       const name = popFlag(args, '--name');
@@ -291,16 +282,22 @@ function commandHttpRequest(args) {
       if (datacenter) json.datacenter = datacenter;
       if (sshKeys.length > 0) json.ssh_keys = sshKeys;
       if (networks.length > 0) json.networks = networks;
-      return buildHttpRequest(operation, {
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers`,
         method: 'POST',
         json,
       });
+      break;
     }
     case 'create-snapshot': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
-      const description = popFlag(args, '--description', 'snapshot');
-      return buildHttpRequest(operation, {
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
+      const description = popFlag(args, '--description', 'snapshot', {
+        allowDashValue: true,
+      });
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers/${serverId}/actions/create_image`,
         method: 'POST',
         json: {
@@ -309,6 +306,7 @@ function commandHttpRequest(args) {
           labels: parseLabels(popRepeatedFlag(args, '--label')),
         },
       });
+      break;
     }
     case 'create-volume': {
       const name = popFlag(args, '--name');
@@ -323,121 +321,133 @@ function commandHttpRequest(args) {
       const server = popFlag(args, '--server-id');
       if (location) json.location = location;
       if (server) json.server = parseInteger(server, '--server-id');
-      return buildHttpRequest(operation, {
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/volumes`,
         method: 'POST',
         json,
       });
-    }
-    case 'rebuild-server': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
-      const image = popFlag(args, '--image');
-      if (!image) die('rebuild-server requires --image.');
-      return buildHttpRequest(operation, {
-        url: `${API_BASE}/servers/${serverId}/actions/rebuild`,
-        method: 'POST',
-        json: { image },
-      });
+      break;
     }
     case 'restore-snapshot': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
       const snapshotId =
         popFlag(args, '--snapshot-id') || popFlag(args, '--image-id');
       if (!snapshotId) die('restore-snapshot requires --snapshot-id.');
-      return buildHttpRequest(operation, {
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers/${serverId}/actions/rebuild`,
         method: 'POST',
         json: { image: parseInteger(snapshotId, '--snapshot-id') },
       });
+      break;
     }
     case 'attach-volume': {
-      const volumeId = parseInteger(popFlag(args, '--volume-id'), '--volume-id');
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
+      const volumeId = parseInteger(
+        popFlag(args, '--volume-id'),
+        '--volume-id',
+      );
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
       const automount = popBoolean(args, '--automount');
-      return buildHttpRequest(operation, {
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/volumes/${volumeId}/actions/attach`,
         method: 'POST',
         json: { server: serverId, automount },
       });
+      break;
     }
     case 'detach-volume': {
-      const volumeId = parseInteger(popFlag(args, '--volume-id'), '--volume-id');
-      return buildHttpRequest(operation, {
+      const volumeId = parseInteger(
+        popFlag(args, '--volume-id'),
+        '--volume-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/volumes/${volumeId}/actions/detach`,
         method: 'POST',
         json: {},
       });
+      break;
     }
     case 'attach-network': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
-      const networkId = parseInteger(popFlag(args, '--network-id'), '--network-id');
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
+      const networkId = parseInteger(
+        popFlag(args, '--network-id'),
+        '--network-id',
+      );
       const json = { network: networkId };
       const ip = popFlag(args, '--ip');
       if (ip) json.ip = ip;
-      return buildHttpRequest(operation, {
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers/${serverId}/actions/attach_to_network`,
         method: 'POST',
         json,
       });
+      break;
     }
     case 'detach-network': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
-      const networkId = parseInteger(popFlag(args, '--network-id'), '--network-id');
-      return buildHttpRequest(operation, {
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
+      const networkId = parseInteger(
+        popFlag(args, '--network-id'),
+        '--network-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers/${serverId}/actions/detach_from_network`,
         method: 'POST',
         json: { network: networkId },
       });
+      break;
     }
     case 'delete-server':
     case 'delete-vps': {
-      const serverId = parseInteger(popFlag(args, '--server-id'), '--server-id');
-      return buildHttpRequest(operation, {
+      const serverId = parseInteger(
+        popFlag(args, '--server-id'),
+        '--server-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/servers/${serverId}`,
         method: 'DELETE',
       });
+      break;
     }
     case 'delete-snapshot':
     case 'destroy-snapshot': {
       const imageId = parseInteger(popFlag(args, '--image-id'), '--image-id');
-      return buildHttpRequest(operation, {
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/images/${imageId}`,
         method: 'DELETE',
       });
+      break;
     }
     case 'delete-volume': {
-      const volumeId = parseInteger(popFlag(args, '--volume-id'), '--volume-id');
-      return buildHttpRequest(operation, {
+      const volumeId = parseInteger(
+        popFlag(args, '--volume-id'),
+        '--volume-id',
+      );
+      payload = buildHttpRequest(operation, {
         url: `${API_BASE}/volumes/${volumeId}`,
         method: 'DELETE',
       });
+      break;
     }
     default:
       die(`Unknown Hetzner Cloud operation: ${operation}`);
   }
+  assertNoUnexpectedArgs(args);
+  return payload;
 }
 
 function commandEvalScenarios() {
-  const scenarios = JSON.parse(fs.readFileSync(EVAL_SCENARIOS_PATH, 'utf-8'));
-  const categories = {};
-  let failed = 0;
-  for (const scenario of scenarios) {
-    categories[scenario.category] = (categories[scenario.category] || 0) + 1;
-    if (
-      !scenario.expectedOperation ||
-      !scenario.expectedTier ||
-      scenario.costMeasurement?.system !== 'UsageTotals'
-    ) {
-      failed += 1;
-    }
-  }
-  return {
-    command: 'eval-scenarios',
-    scenarioCount: scenarios.length,
-    failed,
-    categories,
-    costMeasurement: COST_MEASUREMENT,
-  };
+  return buildEvalScenarios(EVAL_SCENARIOS_PATH);
 }
 
 function showHelp() {
@@ -465,7 +475,6 @@ Write operations require --operator-grant:
   create-volume --name name --size-gb 10 [--location fsn1] [--server-id id] [--label key=value]
   create-snapshot --server-id id [--description text] [--label key=value]
   restore-snapshot --server-id id --snapshot-id id
-  rebuild-server --server-id id --image image
   attach-volume --volume-id id --server-id id [--automount]
   detach-volume --volume-id id
   attach-network --server-id id --network-id id [--ip 10.0.0.2]
@@ -478,30 +487,11 @@ Write operations require --operator-grant:
 `);
 }
 
-function main() {
-  const args = process.argv.slice(2);
-  if (args.includes('--help') || args.length === 0) {
-    showHelp();
-    return;
-  }
-  const format = popFlag(args, '--format', 'text');
-  const command = args.shift();
-  let payload;
-  if (command === 'plan') {
-    payload = buildPlan(args.join(' '));
-  } else if (command === 'http-request') {
-    payload = commandHttpRequest(args);
-  } else if (command === 'eval-scenarios') {
-    payload = commandEvalScenarios();
-  } else {
-    die(`Unknown command: ${command}`);
-  }
-
-  if (format === 'json') {
-    printJson(payload);
-  } else {
-    process.stdout.write(`${JSON.stringify(payload)}\n`);
-  }
-}
-
-main();
+runMain({
+  showHelp,
+  buildPlan,
+  handlers: {
+    'http-request': commandHttpRequest,
+    'eval-scenarios': commandEvalScenarios,
+  },
+});

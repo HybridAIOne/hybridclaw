@@ -252,7 +252,7 @@ SOQL rows with a bundled Python helper. Read-only by default.
 
 Operate Hetzner infrastructure with three bundled skills:
 
-- `hetzner-cloud` — VPS inventory, server types, locations, prices, provisioning, volumes, snapshots, rebuilds, and guarded deletes.
+- `hetzner-cloud` — VPS inventory, server types, locations, prices, provisioning, volumes, snapshots, restores, and guarded deletes.
 - `hetzner-dns` — DNS zones and records, including guarded A, AAAA, CNAME, TXT, add/remove/update/delete flows.
 - `hetzner-storage-box` — Storage Box inventory, snapshots, WebDAV file list/download/upload/archive flows, and public URL preparation.
 

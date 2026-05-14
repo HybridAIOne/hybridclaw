@@ -13,7 +13,7 @@ credentials:
       source: store
       id: HETZNER_API_TOKEN
     scope: "api.hetzner.cloud/v1"
-    how_to_obtain: "Create a Hetzner Console API token for the target project with read-only scope for inventory work or read-write scope only when provisioning, snapshotting, rebuilding, or deleting resources."
+    how_to_obtain: "Create a Hetzner Console API token for the target project with read-only scope for inventory work or read-write scope only when provisioning, snapshotting, restoring, or deleting resources."
 metadata:
   hybridclaw:
     category: infrastructure
@@ -45,7 +45,6 @@ metadata:
         - attach-network
         - detach-network
       red:
-        - rebuild-server
         - restore-snapshot
         - delete-server
         - delete-vps
@@ -72,7 +71,7 @@ inspection, cost estimates, and snapshot lifecycle work.
 2. Use `plan` for natural-language requests before building any write request.
 3. Use the helper to produce `http_request` payloads; pass only the emitted
    `httpRequest` object to the built-in `http_request` tool.
-4. Require an explicit operator grant before any create, rebuild, restore,
+4. Require an explicit operator grant before any create, restore,
    attach, detach, snapshot, network, volume, or delete request. Pass
    `--operator-grant` only after that grant.
 5. Prefer labels for project ownership (`project=acme`, `env=demo`) and include
@@ -131,8 +130,7 @@ node skills/hetzner-cloud/hetzner_cloud.cjs --format json http-request delete-se
 ## Working Rules
 
 - Treat `delete-server`, `delete-vps`, `delete-snapshot`,
-  `destroy-snapshot`, `delete-volume`, `restore-snapshot`, and
-  `rebuild-server` as red-risk actions. Stop unless the operator grants the
+  `destroy-snapshot`, `delete-volume`, and `restore-snapshot` as red-risk actions. Stop unless the operator grants the
   exact target id.
 - Use read-only tokens for inventory and cost reporting. Ask for read-write
   tokens only for the requested mutation window.

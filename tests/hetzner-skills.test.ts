@@ -130,6 +130,34 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     '10.0.0.12',
     '--operator-grant',
   ]);
+  const dashPrefixedDescription = runHelper(
+    'hetzner-cloud',
+    'hetzner_cloud.cjs',
+    [
+      '--format',
+      'json',
+      'http-request',
+      'create-snapshot',
+      '--server-id',
+      '123456',
+      '--description',
+      '--pre-deploy',
+      '--operator-grant',
+    ],
+  );
+  const unknownOperation = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'destroy-everything',
+  ]);
+  const unknownArg = runHelper('hetzner-cloud', 'hetzner_cloud.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'list-servers',
+    '--typo-flag',
+  ]);
 
   expect(read.status).toBe(0);
   expect(JSON.parse(read.stdout).httpRequest).toMatchObject({
@@ -170,6 +198,15 @@ test('Hetzner Cloud helper emits gateway-backed reads and guarded writes', () =>
     url: 'https://api.hetzner.cloud/v1/servers/123456/actions/attach_to_network',
     json: { network: 555, ip: '10.0.0.12' },
   });
+  expect(dashPrefixedDescription.status).toBe(0);
+  expect(JSON.parse(dashPrefixedDescription.stdout).httpRequest.json).toMatchObject({
+    description: '--pre-deploy',
+  });
+  expect(unknownOperation.status).not.toBe(0);
+  expect(unknownOperation.stderr).toContain('Unknown Hetzner Cloud operation');
+  expect(unknownOperation.stderr).not.toContain('--operator-grant');
+  expect(unknownArg.status).not.toBe(0);
+  expect(unknownArg.stderr).toContain('Unexpected arguments: --typo-flag');
 });
 
 test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
@@ -198,6 +235,21 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
     '--record-id',
     'record123',
   ]);
+  const dashPrefixedTxt = runHelper('hetzner-dns', 'hetzner_dns.cjs', [
+    '--format',
+    'json',
+    'http-request',
+    'create-rrset',
+    '--zone-id',
+    'zone123',
+    '--name',
+    'txt',
+    '--type',
+    'TXT',
+    '--record',
+    '--spf-fragment',
+    '--operator-grant',
+  ]);
 
   expect(create.status).toBe(0);
   const payload = JSON.parse(create.stdout);
@@ -222,6 +274,10 @@ test('Hetzner DNS helper builds RRset requests and protects deletes', () => {
   });
   expect(deleteWithoutGrant.status).not.toBe(0);
   expect(deleteWithoutGrant.stderr).toContain('--operator-grant');
+  expect(dashPrefixedTxt.status).toBe(0);
+  expect(JSON.parse(dashPrefixedTxt.stdout).httpRequest.json.value).toBe(
+    '--spf-fragment',
+  );
 });
 
 test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', () => {
@@ -282,6 +338,20 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
       '/archives/q4.zip',
     ],
   );
+  const shareAlreadyPublicWithoutGrant = runHelper(
+    'hetzner-storage-box',
+    'hetzner_storage_box.cjs',
+    [
+      '--format',
+      'json',
+      'share-public-link',
+      '--already-public',
+      '--host',
+      'u00000.your-storagebox.de',
+      '--path',
+      '/archives/q4.zip',
+    ],
+  );
   const shareWithGrant = runHelper(
     'hetzner-storage-box',
     'hetzner_storage_box.cjs',
@@ -295,6 +365,38 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
       '/archives/q4.zip',
       '--expires-at',
       '2026-06-30',
+      '--operator-grant',
+    ],
+  );
+  const shareAlreadyPublicWithGrant = runHelper(
+    'hetzner-storage-box',
+    'hetzner_storage_box.cjs',
+    [
+      '--format',
+      'json',
+      'share-public-link',
+      '--already-public',
+      '--host',
+      'u00000.your-storagebox.de',
+      '--path',
+      '/archives/q4.zip',
+      '--operator-grant',
+    ],
+  );
+  const dashPrefixedBody = runHelper(
+    'hetzner-storage-box',
+    'hetzner_storage_box.cjs',
+    [
+      '--format',
+      'json',
+      'webdav-request',
+      'archive-text',
+      '--host',
+      'u00000.your-storagebox.de',
+      '--path',
+      '/archives/flags.txt',
+      '--body',
+      '--manifest-start',
       '--operator-grant',
     ],
   );
@@ -325,6 +427,8 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
   expect(deleteWithoutGrant.stderr).toContain('--operator-grant');
   expect(shareWithoutGrant.status).not.toBe(0);
   expect(shareWithoutGrant.stderr).toContain('--operator-grant');
+  expect(shareAlreadyPublicWithoutGrant.status).not.toBe(0);
+  expect(shareAlreadyPublicWithoutGrant.stderr).toContain('--operator-grant');
   expect(shareWithGrant.status).toBe(0);
   expect(JSON.parse(shareWithGrant.stdout)).toMatchObject({
     operation: 'share-public-link',
@@ -333,6 +437,73 @@ test('Hetzner Storage Box helper separates API bearer and WebDAV secret auth', (
     publicUrl: 'https://u00000.your-storagebox.de/archives/q4.zip',
     expiresAt: '2026-06-30',
   });
+  expect(shareAlreadyPublicWithGrant.status).toBe(0);
+  expect(JSON.parse(shareAlreadyPublicWithGrant.stdout)).toMatchObject({
+    requiresOperatorAction: true,
+    operatorChecklist: [
+      'Confirm the Storage Box path is already public and intended to remain shareable.',
+    ],
+  });
+  expect(dashPrefixedBody.status).toBe(0);
+  expect(JSON.parse(dashPrefixedBody.stdout).httpRequest.body).toBe(
+    '--manifest-start',
+  );
+});
+
+test('Hetzner plan classifiers route representative prompts', () => {
+  const cases = [
+    {
+      skill: skills[0],
+      prompt: 'Spin up a sandboxed VPS in Falkenstein for Friday demo.',
+      operation: 'create-server',
+      tier: 'amber',
+    },
+    {
+      skill: skills[0],
+      prompt: 'Delete the temporary demo VPS.',
+      operation: 'delete-vps',
+      tier: 'red',
+    },
+    {
+      skill: skills[1],
+      prompt: 'Change the demo A record to the new IPv4 address.',
+      operation: 'update-rrset',
+      tier: 'amber',
+    },
+    {
+      skill: skills[1],
+      prompt: 'List Hetzner DNS zones available in this project.',
+      operation: 'list-zones',
+      tier: 'green',
+    },
+    {
+      skill: skills[2],
+      prompt: 'Share the archived invoice bundle via public link.',
+      operation: 'share-public-link',
+      tier: 'amber',
+    },
+    {
+      skill: skills[2],
+      prompt: 'List files in the archive folder.',
+      operation: 'list-files',
+      tier: 'green',
+    },
+  ];
+
+  for (const testCase of cases) {
+    const result = runHelper(testCase.skill.name, testCase.skill.helper, [
+      '--format',
+      'json',
+      'plan',
+      testCase.prompt,
+    ]);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      operation: testCase.operation,
+      stakesTier: testCase.tier,
+      costMeasurement: { system: 'UsageTotals' },
+    });
+  }
 });
 
 test('Hetzner eval suites cover 30 UsageTotals scenarios', () => {
