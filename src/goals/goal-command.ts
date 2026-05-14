@@ -4,10 +4,12 @@ import type {
 } from '../gateway/gateway-types.js';
 import { logger } from '../logger.js';
 import type { Session } from '../types/session.js';
+import { flushTokenUsageBuffer } from '../usage/token-usage-buffer.js';
 import { recordGoalAudit } from './goal-audit.js';
 import {
   DEFAULT_GOAL_MAX_TURNS,
   type GoalSetterActor,
+  getThreadGoalUsage,
   resolveGoalThreadId,
   resumeThreadGoal,
   setThreadGoal,
@@ -37,6 +39,41 @@ function error(title: string, text: string): GatewayCommandResult {
   return { kind: 'error', title, text };
 }
 
+function parseGoalTimestamp(raw: string | null | undefined): number | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  const parsed = Date.parse(
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(value)
+      ? `${value.replace(' ', 'T')}Z`
+      : value,
+  );
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function formatGoalDuration(startRaw: string, endRaw: string | null): string {
+  const start = parseGoalTimestamp(startRaw);
+  if (start == null) return 'unknown';
+  const end = parseGoalTimestamp(endRaw) ?? Date.now();
+  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+function formatGoalInteger(value: number): string {
+  return Math.max(0, Math.floor(value)).toLocaleString('en-US');
+}
+
+function formatGoalSpend(costUsd: number): string {
+  if (!Number.isFinite(costUsd) || costUsd <= 0) return '$0.0000';
+  if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
+  return `$${costUsd.toFixed(2)}`;
+}
+
 function formatActor(req: GatewayCommandRequest): GoalSetterActor {
   const userId = req.userId?.trim();
   if (!userId) {
@@ -57,12 +94,23 @@ function formatGoalStatus(session: Session): GatewayCommandResult {
   if (!goal || goal.status === 'cleared') {
     return info('Goal Status', 'No standing goal is set for this thread.');
   }
+  const usage = getThreadGoalUsage({ sessionId: session.id, goal });
+  const durationEnd =
+    goal.status === 'active' ? null : goal.lastTurnAt || session.last_active;
+  const status =
+    goal.status === 'done'
+      ? 'achieved'
+      : goal.status === 'active'
+        ? 'active'
+        : 'paused';
   return info(
     'Goal Status',
     [
-      `Status: ${goal.status}`,
-      `Turns: ${goal.turnsUsed}/${goal.maxTurns}`,
-      `Goal: ${goal.goalText}`,
+      `Status: ${status}`,
+      `Condition: ${goal.goalText}`,
+      `Elapsed: ${formatGoalDuration(goal.createdAt, durationEnd)}`,
+      `Turns evaluated: ${goal.turnsUsed}/${goal.maxTurns}`,
+      `Tokens: ${formatGoalInteger(usage.inputTokens)} in / ${formatGoalInteger(usage.outputTokens)} out (${formatGoalInteger(usage.totalTokens)} total, ~${formatGoalSpend(usage.costUsd)})`,
       ...(goal.lastVerdict ? [`Last verdict: ${goal.lastVerdict}`] : []),
       ...(goal.lastReason ? [`Last reason: ${goal.lastReason}`] : []),
       ...(goal.pausedReason ? [`Paused reason: ${goal.pausedReason}`] : []),
@@ -75,6 +123,17 @@ function parseGoalSetArgs(args: string[], isExplicitSet: boolean): string {
     .slice(isExplicitSet ? 2 : 1)
     .join(' ')
     .trim();
+}
+
+function isClearSubcommand(subcommand: string): boolean {
+  return (
+    subcommand === 'clear' ||
+    subcommand === 'cancel' ||
+    subcommand === 'stop' ||
+    subcommand === 'off' ||
+    subcommand === 'reset' ||
+    subcommand === 'none'
+  );
 }
 
 function buildContinuationContext(
@@ -98,12 +157,12 @@ export async function handleGoalCommand(
   const subcommand = (context.req.args[1] || '').trim().toLowerCase();
   const threadId = resolveGoalThreadId(context.session);
   const isControlSubcommand =
+    !subcommand ||
     subcommand === 'status' ||
     subcommand === 'info' ||
     subcommand === 'pause' ||
     subcommand === 'resume' ||
-    subcommand === 'clear' ||
-    subcommand === 'cancel';
+    isClearSubcommand(subcommand);
 
   if (!isControlSubcommand) {
     const goalText = parseGoalSetArgs(context.req.args, subcommand === 'set');
@@ -134,7 +193,10 @@ export async function handleGoalCommand(
     return plain(`Standing goal set for this thread (max ${goal.maxTurns}).`);
   }
 
-  if (subcommand === 'status' || subcommand === 'info') {
+  if (!subcommand || subcommand === 'status' || subcommand === 'info') {
+    await flushTokenUsageBuffer().catch((error) => {
+      logger.debug({ error }, 'Goal status token usage flush failed');
+    });
     return formatGoalStatus(context.session);
   }
 
@@ -172,7 +234,7 @@ export async function handleGoalCommand(
     return plain(`Standing goal resumed (${goal.turnsUsed}/${goal.maxTurns}).`);
   }
 
-  if (subcommand === 'clear' || subcommand === 'cancel') {
+  if (isClearSubcommand(subcommand)) {
     const goal = updateThreadGoalStatus({
       threadId,
       status: 'cleared',
@@ -197,6 +259,6 @@ export async function handleGoalCommand(
 
   return error(
     'Usage',
-    'Usage: `goal <text>|set <text>|status|pause|resume|clear`',
+    'Usage: `goal [text|set <text>|status|pause|resume|clear]`',
   );
 }

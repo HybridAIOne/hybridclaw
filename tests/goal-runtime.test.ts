@@ -17,7 +17,7 @@ import {
   setGoalContinuationRunHandler,
   setGoalContinuationRunning,
 } from '../src/goals/goal-runtime.js';
-import { initDatabase } from '../src/memory/db.js';
+import { initDatabase, storeMessage } from '../src/memory/db.js';
 import type { ToolExecution } from '../src/types/execution.js';
 import type { Session } from '../src/types/session.js';
 
@@ -76,51 +76,42 @@ afterEach(() => {
 });
 
 test('continuation prompt is a user-turn snapshot and does not replace system prompt', () => {
-  expect(buildGoalInitialPrompt('finish the report')).toBe(
-    [
-      '[Starting standing goal]',
-      'Goal: finish the report',
-      '',
-      'This is supervised step 1.',
-      'Use this as a fresh goal start; do not infer goal progress from earlier chat.',
-      'If the goal is an ordered sequence, produce only the first item for this step.',
-      '',
-      'Start working toward this goal. Take the first concrete step. If you',
-      'believe the goal is complete, state so explicitly and stop. If you are',
-      'blocked, say so clearly and stop.',
-    ].join('\n'),
-  );
-  expect(buildGoalContinuationPrompt('finish the report')).toBe(
+  expect(buildGoalInitialPrompt('finish the report')).toBe('finish the report');
+  expect(buildGoalContinuationPrompt({ goalText: 'finish the report' })).toBe(
     [
       '[Continuing toward your standing goal]',
       'Goal: finish the report',
       '',
-      'Continue working toward this goal. Take the next concrete step. If you',
-      'believe the goal is complete, state so explicitly and stop. If you are',
-      'blocked, say so clearly and stop.',
+      'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
     ].join('\n'),
   );
 });
 
-test('continuation prompt can carry supervised step progress', () => {
-  expect(
-    buildGoalContinuationPrompt('count from 1 to 4', {
-      turnsUsed: 2,
-      maxTurns: 20,
-    }),
-  ).toBe(
+test('continuation prompt stays stable and does not inject progress hints', () => {
+  expect(buildGoalContinuationPrompt({ goalText: 'count from 1 to 4' })).toBe(
     [
       '[Continuing toward your standing goal]',
       'Goal: count from 1 to 4',
       '',
-      'Progress: 2 supervised turn(s) have already been used for this goal.',
-      'This is supervised step 3 of at most 20.',
-      'Use this progress snapshot as authoritative; do not infer goal progress from earlier chat.',
-      'Do not repeat completed steps. If the goal is an ordered sequence, produce the next item for this step.',
+      'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
+    ].join('\n'),
+  );
+});
+
+test('continuation prompt carries evaluator reason as next-turn guidance', () => {
+  expect(
+    buildGoalContinuationPrompt({
+      goalText: 'all auth tests pass',
+      reason: 'npm test still reports one failing auth case',
+    }),
+  ).toBe(
+    [
+      '[Continuing toward your standing goal]',
+      'Goal: all auth tests pass',
       '',
-      'Continue working toward this goal. Take the next concrete step. If you',
-      'believe the goal is complete, state so explicitly and stop. If you are',
-      'blocked, say so clearly and stop.',
+      'Evaluator says the condition is not met yet: npm test still reports one failing auth case',
+      '',
+      'Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.',
     ].join('\n'),
   );
 });
@@ -271,6 +262,69 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
       threadId: session.main_session_key,
       goalText: 'ship the patch',
       assistantResponse: 'I completed the first step.',
+    }),
+  );
+});
+
+test('post-turn goal subscriber sends conversation context to judge', async () => {
+  registerGoalPostTurnSubscriber();
+  const session = makeSession('judge-context');
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText: 'all auth tests pass',
+    maxTurns: 5,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+  storeMessage(
+    session.id,
+    'user_a',
+    'User A',
+    'user',
+    '/goal all auth tests pass',
+    'agent-a',
+  );
+  storeMessage(
+    session.id,
+    'assistant',
+    null,
+    'assistant',
+    'I ran npm test and one auth test failed.',
+    'agent-a',
+  );
+
+  await emitPostTurnEvent({
+    type: 'post_turn',
+    session,
+    req: {
+      source: GOAL_CONTINUATION_SOURCE,
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+    },
+    result: {
+      status: 'success',
+      result: 'I fixed the failing assertion and reran npm test.',
+      toolsUsed: [],
+    },
+    runId: 'turn-context',
+    createdAt: new Date().toISOString(),
+  });
+  clearScheduledGoalContinuation(session.id);
+
+  expect(judgeGoalCompletion).toHaveBeenCalledWith(
+    expect.objectContaining({
+      conversationContext: expect.stringContaining(
+        'User: /goal all auth tests pass',
+      ),
+      assistantResponse: 'I fixed the failing assertion and reran npm test.',
+    }),
+  );
+  expect(judgeGoalCompletion).toHaveBeenCalledWith(
+    expect.objectContaining({
+      conversationContext: expect.stringContaining(
+        'Assistant: I fixed the failing assertion and reran npm test.',
+      ),
     }),
   );
 });

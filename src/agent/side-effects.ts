@@ -5,6 +5,7 @@ import type { ContainerOutput } from '../types/container.js';
 import type { DelegationSideEffect } from '../types/side-effects.js';
 
 interface SideEffectHandlers {
+  allowSchedules?: boolean;
   onDelegation?: (effect: DelegationSideEffect) => void;
 }
 
@@ -14,7 +15,8 @@ export function processSideEffects(
   channelId: string,
   handlers: SideEffectHandlers = {},
 ): void {
-  const schedules = output.sideEffects?.schedules;
+  const schedules =
+    handlers.allowSchedules === false ? [] : output.sideEffects?.schedules;
   const delegations = output.sideEffects?.delegations || [];
   if ((!schedules || schedules.length === 0) && delegations.length === 0)
     return;

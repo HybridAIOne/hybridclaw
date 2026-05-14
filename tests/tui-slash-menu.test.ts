@@ -43,7 +43,7 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/approve session [approval_id]');
   expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
-  expect(labels).toContain('/goal <set|status|pause|resume|clear>');
+  expect(labels).toContain('/goal [condition|status|pause|resume|clear]');
   expect(labels).toContain('/goal set <text>');
   expect(labels).toContain('/goal status');
   expect(labels).toContain('/goal pause');
@@ -101,7 +101,7 @@ test('ranks goal entries for goal slash menu queries', () => {
 
   expect(labels).toEqual(
     expect.arrayContaining([
-      '/goal <set|status|pause|resume|clear>',
+      '/goal [condition|status|pause|resume|clear]',
       '/goal set <text>',
       '/goal status',
     ]),

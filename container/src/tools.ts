@@ -106,6 +106,7 @@ type ScheduledTaskInfo = {
 let pendingSchedules: ScheduleSideEffect[] = [];
 let pendingDelegations: DelegationSideEffect[] = [];
 let injectedTasks: ScheduledTaskInfo[] = [];
+let scheduleSideEffectsEnabled = true;
 let currentSessionId = '';
 let gatewayBaseUrl = '';
 let gatewayApiToken = '';
@@ -754,6 +755,10 @@ export function setScheduledTasks(
   tasks: ScheduledTaskInfo[] | undefined,
 ): void {
   injectedTasks = tasks || [];
+}
+
+export function setScheduleSideEffectsEnabled(enabled: boolean): void {
+  scheduleSideEffectsEnabled = enabled;
 }
 
 export function setSessionContext(sessionId: string): void {
@@ -3601,6 +3606,11 @@ async function executeToolInternal(
       }
 
       if (action === 'add') {
+        if (!scheduleSideEffectsEnabled) {
+          return failTool(
+            'Error: scheduled task creation is disabled for this run.',
+          );
+        }
         const promptInput =
           readStringValue(args.prompt) ||
           readStringValue(args.message) ||
@@ -3666,6 +3676,11 @@ async function executeToolInternal(
       }
 
       if (action === 'remove') {
+        if (!scheduleSideEffectsEnabled) {
+          return failTool(
+            'Error: scheduled task removal is disabled for this run.',
+          );
+        }
         if (!args.taskId) return failTool('Error: taskId is required');
         pendingSchedules.push({ action: 'remove', taskId: args.taskId });
         return `Scheduled removal of task #${args.taskId}`;

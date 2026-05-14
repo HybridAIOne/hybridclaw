@@ -140,7 +140,7 @@ Interactive slash commands inside TUI:
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
-  /goal [set <text>|status|pause|resume|clear]
+  /goal [condition|status|pause|resume|clear]
   /help
   /info
   /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>

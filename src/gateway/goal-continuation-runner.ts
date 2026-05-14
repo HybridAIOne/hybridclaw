@@ -22,10 +22,6 @@ import { handleGatewayMessage } from './gateway-chat-service.js';
 
 const MAX_QUEUED_GOAL_MESSAGES = 100;
 
-function formatGoalStepLabel(turnsUsed: number, maxTurns: number): string {
-  return `step ${turnsUsed + 1}, max ${maxTurns}`;
-}
-
 async function emitGoalMessage(params: {
   channelId: string;
   context: ReturnType<typeof getGoalContinuationContext>;
@@ -68,13 +64,6 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
   setGoalContinuationRunning(sessionId, true);
   try {
     const initialPrompt = isGoalInitialPromptScheduled(sessionId);
-    await emitGoalMessage({
-      channelId: session.channel_id,
-      context,
-      text: initialPrompt
-        ? `Starting standing goal (${formatGoalStepLabel(goal.turnsUsed, goal.maxTurns)})`
-        : `Continuing toward goal (${formatGoalStepLabel(goal.turnsUsed, goal.maxTurns)})`,
-    });
     const result = await handleGatewayMessage({
       sessionId,
       guildId: context.guildId,
@@ -82,10 +71,10 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       userId: context.userId,
       username: context.username,
       content: initialPrompt
-        ? buildGoalInitialPrompt(goal.goalText, { maxTurns: goal.maxTurns })
-        : buildGoalContinuationPrompt(goal.goalText, {
-            turnsUsed: goal.turnsUsed,
-            maxTurns: goal.maxTurns,
+        ? buildGoalInitialPrompt(goal.goalText)
+        : buildGoalContinuationPrompt({
+            goalText: goal.goalText,
+            reason: goal.lastReason,
           }),
       agentId: goal.targetAgentId ?? session.agent_id,
       chatbotId: context.chatbotId ?? session.chatbot_id,
