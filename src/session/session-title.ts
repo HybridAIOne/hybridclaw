@@ -75,6 +75,27 @@ export async function generateSessionTitle(
   return normalizeSessionTitle(result.content);
 }
 
+function isTransientTitleGenerationError(err: unknown): boolean {
+  const messages: string[] = [];
+  if (err instanceof Error) {
+    messages.push(err.name, err.message);
+    const cause = err.cause;
+    if (cause instanceof Error) {
+      messages.push(cause.name, cause.message);
+    }
+  } else {
+    messages.push(String(err));
+  }
+  const normalized = messages.join(' ').toLowerCase();
+  return (
+    normalized.includes('fetch failed') ||
+    normalized.includes('headers timeout') ||
+    normalized.includes('headers_time') ||
+    normalized.includes('timeout') ||
+    normalized.includes('abort')
+  );
+}
+
 export interface MaybeAutoTitleSessionParams
   extends GenerateSessionTitleParams {
   isFirstTurn: boolean;
@@ -92,7 +113,10 @@ export function maybeAutoTitleSession(
       if (!title) return;
       setSessionTitle(params.sessionId, title);
     } catch (err) {
-      logger.warn(
+      const log = isTransientTitleGenerationError(err)
+        ? logger.debug.bind(logger)
+        : logger.warn.bind(logger);
+      log(
         { sessionId: params.sessionId, err },
         'Session title auto-update failed',
       );

@@ -136,7 +136,7 @@ let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
 
-export const DATABASE_SCHEMA_VERSION = 31;
+export const DATABASE_SCHEMA_VERSION = 32;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -482,6 +482,10 @@ function agentA2ANeedMigration(database: Database.Database): boolean {
 
 function boardCardsNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'board_cards');
+}
+
+function threadGoalsNeedMigration(database: Database.Database): boolean {
+  return !tableExists(database, 'thread_goals');
 }
 
 function messageAgentIdentityNeedMigration(
@@ -2382,6 +2386,31 @@ function migrateV31(database: Database.Database): void {
   );
 }
 
+function migrateV32(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS thread_goals (
+      thread_id TEXT PRIMARY KEY,
+      goal_text TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'done', 'cleared')),
+      turns_used INTEGER NOT NULL DEFAULT 0,
+      max_turns INTEGER NOT NULL DEFAULT 20,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      last_turn_at TEXT,
+      last_verdict TEXT,
+      last_reason TEXT,
+      paused_reason TEXT,
+      consecutive_parse_failures INTEGER NOT NULL DEFAULT 0,
+      setter_actor TEXT,
+      target_agent_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_thread_goals_status
+      ON thread_goals(status);
+    CREATE INDEX IF NOT EXISTS idx_thread_goals_target_agent
+      ON thread_goals(target_agent_id, status);
+  `);
+  recordMigration(database, 32, 'Persist per-thread standing goal state');
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2454,6 +2483,9 @@ function runMigrations(
   }
   if (currentVersion < 31 || boardCardsNeedMigration(database)) {
     migrateV31(database);
+  }
+  if (currentVersion < 32 || threadGoalsNeedMigration(database)) {
+    migrateV32(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);

@@ -5,11 +5,13 @@ import {
   getPendingSideEffects,
   resetSideEffects,
   setScheduledTasks,
+  setScheduleSideEffectsEnabled,
 } from '../container/src/tools.js';
 
 describe.sequential('container cron tool', () => {
   afterEach(() => {
     resetSideEffects();
+    setScheduleSideEffectsEnabled(true);
     setScheduledTasks(undefined);
   });
 
@@ -57,5 +59,21 @@ describe.sequential('container cron tool', () => {
 
     expect(result).toContain('ops@example.com');
     expect(result).toContain('#16');
+  });
+
+  test('blocks schedule creation when side effects are disabled', async () => {
+    setScheduleSideEffectsEnabled(false);
+
+    const result = await executeTool(
+      'cron',
+      JSON.stringify({
+        action: 'add',
+        every: 1800,
+        prompt: 'Write a short operational update email.',
+      }),
+    );
+
+    expect(result).toContain('scheduled task creation is disabled');
+    expect(getPendingSideEffects()).toBeUndefined();
   });
 });

@@ -74,6 +74,7 @@ export interface ContainerInput {
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
+  scheduleSideEffectsEnabled?: boolean;
   skipContainerSystemPrompt?: boolean;
   streamTextDeltas?: boolean;
   debugModelResponses?: boolean;

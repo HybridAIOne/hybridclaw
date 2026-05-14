@@ -174,6 +174,8 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { handleGoalCommand } from '../goals/goal-command.js';
+import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -520,6 +522,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -532,6 +535,8 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 
 export { reconnectGatewayAdminTunnel };
+
+initializeGoalContinuationRunner();
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -9309,6 +9314,10 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'goal': {
+        return await handleGoalCommand({ session, req });
+      }
+
       case 'fullauto': {
         const sub = parseLowerArg(req.args, 1);
         if (!sub) {
@@ -9959,6 +9968,11 @@ export async function handleGatewayCommand(
 
       case 'stop':
       case 'abort': {
+        pauseActiveGoalForSession({
+          session,
+          reason: 'user-interrupted',
+          verdict: 'interrupted',
+        });
         await disableFullAutoSession({ sessionId: session.id });
         const stopped = interruptGatewaySessionExecution(req.sessionId);
         return plainCommand(
