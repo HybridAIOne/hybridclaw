@@ -252,6 +252,7 @@ const DISCORD_MEDIA_CACHE_DIR = path.resolve(
 );
 const MAX_MEDIA_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HYBRIDAI_LOGIN_PATH = '/login?context=hybridclaw&next=/admin_api_keys';
+const LOCAL_TOKEN_BOOTSTRAP_PARAM = '__hybridclaw_token_bootstrapped';
 
 const SITE_MIME_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -753,13 +754,26 @@ function extractHostnameFromHostHeader(
 }
 
 function isLocalWebSessionAllowed(req: IncomingMessage): boolean {
+  return (
+    !WEB_API_TOKEN && isLoopbackHost(HEALTH_HOST) && isLoopbackWebRequest(req)
+  );
+}
+
+function isLoopbackWebRequest(req: IncomingMessage): boolean {
   const requestHost = extractHostnameFromHostHeader(req.headers.host);
   return (
-    !WEB_API_TOKEN &&
-    isLoopbackHost(HEALTH_HOST) &&
     isLoopbackSocketAddress(req.socket.remoteAddress) &&
     !hasForwardingHeaders(req) &&
     Boolean(requestHost && isLoopbackHost(requestHost))
+  );
+}
+
+function shouldBootstrapLocalWebToken(req: IncomingMessage, url: URL): boolean {
+  return (
+    Boolean(WEB_API_TOKEN) &&
+    isConsoleSpaPath(url.pathname) &&
+    !url.searchParams.has(LOCAL_TOKEN_BOOTSTRAP_PARAM) &&
+    isLoopbackWebRequest(req)
   );
 }
 
@@ -851,6 +865,39 @@ function dispatchWebhookRoute(
 function sendText(res: ServerResponse, statusCode: number, text: string): void {
   res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(text);
+}
+
+function sendWebTokenBootstrap(
+  res: ServerResponse,
+  params: {
+    redirectTo: string;
+    userId?: string;
+  },
+): void {
+  const escapedToken = escapeInlineScriptValue(WEB_API_TOKEN);
+  const escapedRedirect = escapeInlineScriptValue(params.redirectTo);
+  const escapedUserId = escapeInlineScriptValue(params.userId || '');
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(
+    `<!DOCTYPE html><html><body><script>` +
+      `localStorage.setItem('hybridclaw_token',${escapedToken});` +
+      `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
+      `window.location.replace(${escapedRedirect});` +
+      `</script></body></html>`,
+  );
+}
+
+function sendLocalWebTokenBootstrap(res: ServerResponse, url: URL): void {
+  const redirectUrl = new URL(url);
+  redirectUrl.searchParams.set(LOCAL_TOKEN_BOOTSTRAP_PARAM, '1');
+  sendWebTokenBootstrap(res, {
+    redirectTo: `${redirectUrl.pathname}${redirectUrl.search}`,
+  });
 }
 
 function sendRedirect(
@@ -4482,35 +4529,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
         // token prompt.  The token never appears in the URL (avoiding
         // leaks via browser history, referrer headers, or server logs).
         if (WEB_API_TOKEN) {
-          // Escape for safe inline-script embedding: JSON.stringify handles
-          // JS-level escaping, then replace `<` to prevent the HTML parser
-          // from closing the <script> block early (e.g. a token containing
-          // "</script>").
-          const escaped = JSON.stringify(WEB_API_TOKEN).replace(
-            /</g,
-            '\\u003c',
-          );
-          const escapedRedirect = JSON.stringify(redirectTo).replace(
-            /</g,
-            '\\u003c',
-          );
-          const escapedUserId = JSON.stringify(
-            normalizeOptionalString(payload.sub) || '',
-          ).replace(/</g, '\\u003c');
-          res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'Content-Security-Policy':
-              "default-src 'none'; script-src 'unsafe-inline'",
-            'X-Content-Type-Options': 'nosniff',
+          sendWebTokenBootstrap(res, {
+            redirectTo,
+            userId: normalizeOptionalString(payload.sub) || undefined,
           });
-          res.end(
-            `<!DOCTYPE html><html><body><script>` +
-              `localStorage.setItem('hybridclaw_token',${escaped});` +
-              `if (${escapedUserId}) localStorage.setItem('hybridclaw_user_id',${escapedUserId});` +
-              `window.location.replace(${escapedRedirect});` +
-              `</script></body></html>`,
-          );
         } else {
           sendRedirect(res, 302, redirectTo);
         }
@@ -5014,6 +5036,11 @@ export function startGatewayHttpServer(): GatewayHttpServer {
     }
 
     if (requiresSessionAuth(pathname) && !ensureSessionAuth(req, res)) {
+      return;
+    }
+
+    if (shouldBootstrapLocalWebToken(req, url)) {
+      sendLocalWebTokenBootstrap(res, url);
       return;
     }
 
