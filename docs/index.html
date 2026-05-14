@@ -1689,14 +1689,14 @@
 </section>
 
 <script>
-function switchQsTab(tab) {
+window.switchQsTab = (tab) => {
   document.querySelectorAll('.qs-tab').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
   document.querySelectorAll('.qs-panel').forEach((panel) => {
     panel.classList.toggle('active', panel.id === `qs-${tab}`);
   });
-}
+};
 </script>
 
 <div class="glow-divider"></div>
