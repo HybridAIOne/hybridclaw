@@ -155,6 +155,9 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
     '../src/browser/managed-cloud-provider.js'
   );
   initDatabase({ quiet: true, dbPath: path.join(root, 'usage.db') });
+  await saveManagedBrowserSecrets({
+    MANAGED_BROWSER_POOL_TOKEN: 'pool-token',
+  });
 
   const mock = createMockPlaywright();
   const fetchMock = vi
@@ -190,6 +193,7 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
     );
   const provider = new ManagedCloudBrowserProvider({
     endpointUrl: 'https://managed-browser.example',
+    poolTokenRef: { source: 'store', id: 'MANAGED_BROWSER_POOL_TOKEN' },
     fetch: fetchMock,
     playwright: mock.playwright,
     pricing: {
@@ -217,6 +221,9 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
     'https://managed-browser.example/leases',
     expect.objectContaining({
       method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer pool-token',
+      }),
       body: JSON.stringify({
         tenantId: 'tenant-a',
         agentId: 'agent-managed',
@@ -247,6 +254,9 @@ test('managed cloud browser provider leases, navigates, screenshots, audits, met
   );
   expect(mock.connectOverCDP).toHaveBeenCalledWith(
     'wss://pool.example/lease-1',
+    {
+      headers: { Authorization: 'Bearer pool-token' },
+    },
   );
   expect(mock.page.goto).toHaveBeenCalledWith(
     'https://allowed.example/',

@@ -22,6 +22,7 @@ sudo mkdir -p /srv/hybridclaw/managed-browser/data
 sudo cp infra/managed-browser/tenants.example.yaml \
   /srv/hybridclaw/managed-browser/tenants.yaml
 
+export MANAGED_BROWSER_POOL_TOKEN=replace-with-a-random-token
 docker compose \
   -f infra/managed-browser/docker-compose.yml \
   -f infra/managed-browser/hetzner.compose.yml \
@@ -35,3 +36,5 @@ hybridclaw browser-pool doctor
 The tenant file is deny-by-default. Add only the hosts each tenant needs. The
 guard evaluates the tenant policy before opening upstream proxy connections,
 so denied HTTPS `CONNECT` targets are rejected before DNS or TCP egress.
+Set `browser.managedCloud.poolTokenRef` to a SecretRef containing the same token
+when the client connects to a token-protected pool.

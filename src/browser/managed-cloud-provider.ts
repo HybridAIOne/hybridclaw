@@ -103,7 +103,10 @@ type ManagedCloudBrowser = {
 
 export type ManagedCloudPlaywrightModule = {
   chromium: {
-    connectOverCDP(endpointURL: string): Promise<ManagedCloudBrowser>;
+    connectOverCDP(
+      endpointURL: string,
+      options?: { headers?: Record<string, string> },
+    ): Promise<ManagedCloudBrowser>;
   };
 };
 
@@ -420,7 +423,13 @@ export class ManagedCloudBrowserProvider implements BrowserProvider {
     let browser: ManagedCloudBrowser | null = null;
     try {
       const playwright = await loadPlaywright(this.options.playwright);
-      browser = await playwright.chromium.connectOverCDP(lease.cdpUrl);
+      const authHeaders = this.authHeaders();
+      browser =
+        Object.keys(authHeaders).length > 0
+          ? await playwright.chromium.connectOverCDP(lease.cdpUrl, {
+              headers: authHeaders,
+            })
+          : await playwright.chromium.connectOverCDP(lease.cdpUrl);
       const context = browser.contexts()[0];
       if (!context) {
         throw new Error(

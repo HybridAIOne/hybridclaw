@@ -10,26 +10,9 @@ services:
       MANAGED_BROWSER_STATE_PATH: /data/leases.json
       MANAGED_BROWSER_AUDIT_PATH: /data/audit.jsonl
       MANAGED_BROWSER_POLICY_PATH: /config/tenants.yaml
-      MANAGED_BROWSER_GUARD_PROXY: http://navigation-guard:8888
+      MANAGED_BROWSER_POOL_TOKEN: ${MANAGED_BROWSER_POOL_TOKEN:?set MANAGED_BROWSER_POOL_TOKEN}
     ports:
       - "${MANAGED_BROWSER_PORT:-8787}:8787"
-    volumes:
-      - managed-browser-data:/data
-      - ./tenants.example.yaml:/config/tenants.yaml:ro
-    depends_on:
-      - navigation-guard
-    restart: unless-stopped
-
-  navigation-guard:
-    build:
-      context: ../..
-      dockerfile: infra/managed-browser/Dockerfile
-    command: ["npm", "run", "guard"]
-    environment:
-      MANAGED_BROWSER_GUARD_HOST: 0.0.0.0
-      MANAGED_BROWSER_GUARD_PORT: 8888
-      MANAGED_BROWSER_POLICY_PATH: /config/tenants.yaml
-      MANAGED_BROWSER_AUDIT_PATH: /data/audit.jsonl
     volumes:
       - managed-browser-data:/data
       - ./tenants.example.yaml:/config/tenants.yaml:ro

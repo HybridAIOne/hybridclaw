@@ -38,7 +38,10 @@ export function evaluateTenantNavigation(params) {
   const context = {
     host: parsed.hostname,
     port,
-    method: 'GET',
+    method:
+      String(params.method || '')
+        .trim()
+        .toUpperCase() || 'GET',
     path: `${parsed.pathname || '/'}${parsed.search || ''}`,
     agentId: params.agentId,
   };

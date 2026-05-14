@@ -22,7 +22,7 @@ function readHeaderContext(req) {
   return tenantId && agentId ? { tenantId, agentId } : null;
 }
 
-function assertAllowed({ policyPath, context, url }) {
+function assertAllowed({ policyPath, context, url, method }) {
   if (!context?.tenantId || !context?.agentId) {
     throw new Error('missing tenant guard context');
   }
@@ -31,11 +31,57 @@ function assertAllowed({ policyPath, context, url }) {
     tenantId: context.tenantId,
     agentId: context.agentId,
     url,
+    method,
   });
   if (decision.verdict !== 'allow') {
     throw new Error(decision.reason || 'navigation denied');
   }
   return decision;
+}
+
+function parseConnectTarget(authority) {
+  const raw = String(authority || '').trim();
+  if (!raw) throw new Error('invalid CONNECT target');
+
+  let host = '';
+  let rawPort = '';
+  if (raw.startsWith('[')) {
+    const hostEnd = raw.indexOf(']');
+    if (hostEnd <= 1) throw new Error('invalid CONNECT target');
+    host = raw.slice(1, hostEnd);
+    const rest = raw.slice(hostEnd + 1);
+    if (!rest) {
+      rawPort = '443';
+    } else if (rest.startsWith(':')) {
+      rawPort = rest.slice(1);
+    } else {
+      throw new Error('invalid CONNECT target');
+    }
+  } else {
+    const parts = raw.split(':');
+    if (parts.length > 2) throw new Error('invalid CONNECT target');
+    host = parts[0] || '';
+    rawPort = parts[1] ?? '443';
+  }
+
+  const port = Number.parseInt(rawPort, 10);
+  if (
+    !host ||
+    !rawPort ||
+    !Number.isInteger(port) ||
+    String(port) !== rawPort ||
+    port < 1 ||
+    port > 65_535
+  ) {
+    throw new Error('invalid CONNECT port');
+  }
+
+  const urlHost = host.includes(':') ? `[${host}]` : host;
+  return {
+    host,
+    port,
+    url: `https://${urlHost}${port === 443 ? '' : `:${port}`}/`,
+  };
 }
 
 function forwardHttpRequest(req, res, target) {
@@ -74,6 +120,7 @@ export function createGuardProxyServer({
         policyPath,
         context: fixedContext || resolveContext(req),
         url: target.toString(),
+        method: req.method,
       });
       if (target.protocol !== 'http:') {
         send(res, 501, 'HTTP proxy only accepts CONNECT for HTTPS targets');
@@ -86,13 +133,13 @@ export function createGuardProxyServer({
   });
 
   server.on('connect', (req, clientSocket, head) => {
-    const [host, rawPort] = String(req.url || '').split(':');
-    const port = Number.parseInt(rawPort || '443', 10);
+    let target;
     try {
+      target = parseConnectTarget(req.url);
       assertAllowed({
         policyPath,
         context: fixedContext || resolveContext(req),
-        url: `https://${host}/`,
+        url: target.url,
       });
     } catch (error) {
       clientSocket.write(
@@ -102,7 +149,7 @@ export function createGuardProxyServer({
       return;
     }
 
-    const upstream = net.connect(port, host, () => {
+    const upstream = net.connect(target.port, target.host, () => {
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head.length > 0) upstream.write(head);
       upstream.pipe(clientSocket);

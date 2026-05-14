@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 import { createGuardProxyServer } from './guard-proxy.js';
 import { evaluateTenantNavigation, readTenantPolicyFile } from './policy.js';
@@ -22,15 +23,19 @@ const auditPath =
 const policyPath =
   process.env.MANAGED_BROWSER_POLICY_PATH ||
   path.join(process.cwd(), 'tenants.example.yaml');
+const poolToken = process.env.MANAGED_BROWSER_POOL_TOKEN || '';
 
 const leases = new Map();
 const lostLeases = [];
+let stateLoaded = false;
 
 function appendAudit(event) {
   appendAuditLine(auditPath, event);
 }
 
 function loadState() {
+  if (stateLoaded) return;
+  stateLoaded = true;
   lostLeases.push(...loadLostLeases({ statePath, auditPath, nodeId }));
 }
 
@@ -86,6 +91,36 @@ function sendJson(res, status, payload) {
     'Content-Length': Buffer.byteLength(body),
   });
   res.end(body);
+}
+
+function timingSafeStringEqual(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+export function isAuthorizedRequest(req, expectedToken = poolToken) {
+  if (!expectedToken) return true;
+  const raw = req.headers?.authorization;
+  const authorization = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof authorization !== 'string') return false;
+  const [scheme, token] = authorization.trim().split(/\s+/u);
+  return (
+    scheme?.toLowerCase() === 'bearer' &&
+    typeof token === 'string' &&
+    timingSafeStringEqual(token, expectedToken)
+  );
+}
+
+function requireAuthorized(req, res) {
+  if (isAuthorizedRequest(req)) return true;
+  res.writeHead(401, {
+    'Content-Type': 'application/json',
+    'WWW-Authenticate': 'Bearer',
+  });
+  res.end(JSON.stringify({ error: 'unauthorized' }));
+  return false;
 }
 
 function listen(server, listenHost = '127.0.0.1', listenPort = 0) {
@@ -156,6 +191,14 @@ async function launchChromiumLease({ tenantId, agentId }) {
   }
 }
 
+export function scheduleLeaseExpiry(lease, release = releaseLease) {
+  const delayMs = Math.max(0, lease.expiresAtMs - Date.now());
+  lease.expiryTimer = setTimeout(() => {
+    release(lease.leaseId, 'expired').catch(() => undefined);
+  }, delayMs);
+  lease.expiryTimer.unref?.();
+}
+
 async function closeChromiumLease(lease) {
   lease.chrome.kill('SIGTERM');
   await new Promise((resolve) => {
@@ -188,6 +231,7 @@ async function createLease(body, publicHost) {
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
   const expiresAt = new Date(startedAtMs + ttlSeconds * 1000).toISOString();
+  const expiresAtMs = startedAtMs + ttlSeconds * 1000;
   const lease = {
     leaseId,
     tenantId,
@@ -196,9 +240,11 @@ async function createLease(body, publicHost) {
     startedAt,
     startedAtMs,
     expiresAt,
+    expiresAtMs,
     ...browserRuntime,
   };
   leases.set(leaseId, lease);
+  scheduleLeaseExpiry(lease);
   saveState();
   appendAudit({
     type: 'browser.session_started',
@@ -229,6 +275,7 @@ function checkNavigation(lease, body) {
     tenantId: lease.tenantId,
     agentId: lease.agentId,
     url,
+    method: body.method,
   });
   appendAudit({
     type: 'browser.navigation',
@@ -245,10 +292,11 @@ function checkNavigation(lease, body) {
   return verdict;
 }
 
-async function releaseLease(leaseId) {
+async function releaseLease(leaseId, reason = 'released') {
   const lease = leases.get(leaseId);
   if (!lease) return { leaseId, endedAt: new Date().toISOString(), costUsd: 0 };
   leases.delete(leaseId);
+  if (lease.expiryTimer) clearTimeout(lease.expiryTimer);
   saveState();
   await closeChromiumLease(lease);
   const endedAtMs = Date.now();
@@ -262,6 +310,7 @@ async function releaseLease(leaseId) {
     leaseId,
     nodeId,
     endedAt,
+    reason,
     costUsd,
   });
   return { leaseId, endedAt, costUsd };
@@ -288,6 +337,8 @@ async function route(req, res) {
     });
     return;
   }
+
+  if (!requireAuthorized(req, res)) return;
 
   if (req.method === 'POST' && url.pathname === '/leases') {
     sendJson(
@@ -325,53 +376,72 @@ async function route(req, res) {
   sendJson(res, 404, { error: 'not found' });
 }
 
-loadState();
-
-const server = http.createServer((req, res) => {
-  route(req, res).catch((error) => {
-    sendJson(res, 500, {
-      error: error instanceof Error ? error.message : String(error),
+export function createManagedBrowserPoolServer() {
+  const server = http.createServer((req, res) => {
+    route(req, res).catch((error) => {
+      sendJson(res, 500, {
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   });
-});
 
-server.on('upgrade', (req, clientSocket, head) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'local'}`);
-  const match = url.pathname.match(/^\/cdp\/([^/]+)$/);
-  if (!match) {
-    clientSocket.destroy();
-    return;
-  }
-  const lease = leases.get(decodeURIComponent(match[1]));
-  if (!lease) {
-    clientSocket.destroy();
-    return;
-  }
-
-  const upstream = net.connect(lease.cdpInternalPort, '127.0.0.1', () => {
-    const headers = Object.entries(req.headers)
-      .filter(([key]) => key.toLowerCase() !== 'host')
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\r\n');
-    upstream.write(
-      `${req.method} ${lease.cdpInternalPath} HTTP/${req.httpVersion}\r\nHost: 127.0.0.1:${lease.cdpInternalPort}\r\n${headers}\r\n\r\n`,
+  server.on('upgrade', (req, clientSocket, head) => {
+    if (!isAuthorizedRequest(req)) {
+      clientSocket.destroy();
+      return;
+    }
+    const url = new URL(
+      req.url || '/',
+      `http://${req.headers.host || 'local'}`,
     );
-    if (head.length > 0) upstream.write(head);
-    upstream.pipe(clientSocket);
-    clientSocket.pipe(upstream);
-  });
-  upstream.on('error', () => {
-    clientSocket.destroy();
-  });
-});
+    const match = url.pathname.match(/^\/cdp\/([^/]+)$/);
+    if (!match) {
+      clientSocket.destroy();
+      return;
+    }
+    const lease = leases.get(decodeURIComponent(match[1]));
+    if (!lease) {
+      clientSocket.destroy();
+      return;
+    }
 
-server.listen(port, host, () => {
-  console.log(`managed browser pool listening on http://${host}:${port}`);
-});
+    const upstream = net.connect(lease.cdpInternalPort, '127.0.0.1', () => {
+      const headers = Object.entries(req.headers)
+        .filter(([key]) => key.toLowerCase() !== 'host')
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\r\n');
+      upstream.write(
+        `${req.method} ${lease.cdpInternalPath} HTTP/${req.httpVersion}\r\nHost: 127.0.0.1:${lease.cdpInternalPort}\r\n${headers}\r\n\r\n`,
+      );
+      if (head.length > 0) upstream.write(head);
+      upstream.pipe(clientSocket);
+      clientSocket.pipe(upstream);
+    });
+    upstream.on('error', () => {
+      clientSocket.destroy();
+    });
+  });
 
-process.on('SIGTERM', async () => {
-  for (const leaseId of [...leases.keys()]) {
-    await releaseLease(leaseId).catch(() => undefined);
-  }
-  server.close(() => process.exit(0));
-});
+  return server;
+}
+
+export function startManagedBrowserPoolServer() {
+  loadState();
+  const server = createManagedBrowserPoolServer();
+  server.listen(port, host, () => {
+    console.log(`managed browser pool listening on http://${host}:${port}`);
+  });
+
+  process.on('SIGTERM', async () => {
+    for (const leaseId of [...leases.keys()]) {
+      await releaseLease(leaseId).catch(() => undefined);
+    }
+    server.close(() => process.exit(0));
+  });
+
+  return server;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  startManagedBrowserPoolServer();
+}

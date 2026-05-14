@@ -15,11 +15,3 @@ services:
     labels:
       hybridaione.deployment: hetzner
       hybridaione.region: ${HETZNER_REGION:-fsn1}
-
-  navigation-guard:
-    volumes:
-      - /srv/hybridclaw/managed-browser/data:/data
-      - /srv/hybridclaw/managed-browser/tenants.yaml:/config/tenants.yaml:ro
-    labels:
-      hybridaione.deployment: hetzner
-      hybridaione.region: ${HETZNER_REGION:-fsn1}

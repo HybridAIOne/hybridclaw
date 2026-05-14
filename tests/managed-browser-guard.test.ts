@@ -3,7 +3,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 
 let tempRoot = '';
 
@@ -25,7 +25,7 @@ function writeTenantPolicy(root: string): string {
       '        - action: allow',
       '          host: allowed.example',
       '          port: 443',
-      '          methods: ["*"]',
+      '          methods: ["GET"]',
       '          paths: ["/**"]',
       '          agent: "*"',
       '  tenant-b:',
@@ -60,10 +60,12 @@ function listen(server: net.Server): Promise<number> {
   });
 }
 
-function sendConnect(port: number, host: string): Promise<string> {
+function sendConnect(port: number, authority: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = net.connect(port, '127.0.0.1', () => {
-      socket.write(`CONNECT ${host}:443 HTTP/1.1\r\nHost: ${host}:443\r\n\r\n`);
+      socket.write(
+        `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`,
+      );
     });
     let raw = '';
     socket.setEncoding('utf-8');
@@ -103,6 +105,18 @@ test('managed browser guard rejects cross-tenant URLs and unknown hosts before p
       policyPath,
       tenantId: 'tenant-a',
       agentId: 'agent-a',
+      url: 'https://allowed.example/path',
+      method: 'POST',
+    }),
+  ).toMatchObject({
+    verdict: 'deny',
+    reason: 'host is not allowed for this tenant',
+  });
+  expect(
+    evaluateTenantNavigation({
+      policyPath,
+      tenantId: 'tenant-a',
+      agentId: 'agent-a',
       url: 'https://tenant-b.example/private',
     }),
   ).toMatchObject({
@@ -134,11 +148,69 @@ test('managed browser guard proxy denies CONNECT before opening an upstream sock
   });
   const port = await listen(server);
 
-  const response = await sendConnect(port, 'tenant-b.example');
+  const response = await sendConnect(port, 'tenant-b.example:443');
   await new Promise<void>((resolve) => server.close(() => resolve()));
 
   expect(response).toContain('HTTP/1.1 403 Forbidden');
   expect(response).toContain('URL is in another tenant allowlist scope');
+});
+
+test('managed browser guard proxy validates CONNECT ports before upstream connect', async () => {
+  const root = makeTempRoot();
+  const policyPath = writeTenantPolicy(root);
+  const { createGuardProxyServer } = await import(
+    '../infra/managed-browser/guard-proxy.js'
+  );
+  const server = createGuardProxyServer({
+    policyPath,
+    fixedContext: { tenantId: 'tenant-a', agentId: 'agent-a' },
+  });
+  const port = await listen(server);
+
+  const deniedPort = await sendConnect(port, 'allowed.example:444');
+  const invalidPort = await sendConnect(port, 'allowed.example:not-a-port');
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+
+  expect(deniedPort).toContain('HTTP/1.1 403 Forbidden');
+  expect(deniedPort).toContain('host is not allowed for this tenant');
+  expect(invalidPort).toContain('HTTP/1.1 403 Forbidden');
+  expect(invalidPort).toContain('invalid CONNECT port');
+});
+
+test('managed browser pool validates bearer tokens and schedules TTL cleanup', async () => {
+  const { isAuthorizedRequest, scheduleLeaseExpiry } = await import(
+    '../infra/managed-browser/server.js'
+  );
+
+  expect(
+    isAuthorizedRequest(
+      { headers: { authorization: 'Bearer pool-token' } },
+      'pool-token',
+    ),
+  ).toBe(true);
+  expect(
+    isAuthorizedRequest(
+      { headers: { authorization: 'Bearer wrong-token' } },
+      'pool-token',
+    ),
+  ).toBe(false);
+  expect(isAuthorizedRequest({ headers: {} }, 'pool-token')).toBe(false);
+
+  let releaseExpiry: (() => void) | null = null;
+  const expired = new Promise<void>((resolve) => {
+    releaseExpiry = resolve;
+  });
+  const release = vi.fn(async () => {
+    releaseExpiry?.();
+  });
+  const lease = {
+    leaseId: 'lease-expiring',
+    expiresAtMs: Date.now() + 10,
+  };
+  scheduleLeaseExpiry(lease, release);
+  await expired;
+
+  expect(release).toHaveBeenCalledWith('lease-expiring', 'expired');
 });
 
 test('managed browser pool warm restart records lost active leases', async () => {

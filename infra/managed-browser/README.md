@@ -7,6 +7,7 @@ shared guard path for every leased Chromium worker.
 ## Run
 
 ```bash
+export MANAGED_BROWSER_POOL_TOKEN=replace-with-a-random-token
 docker compose -f infra/managed-browser/docker-compose.yml up --build
 hybridclaw config set browser.provider managed-cloud
 hybridclaw config set browser.managedCloud.endpointUrl http://127.0.0.1:8787
@@ -30,6 +31,10 @@ deployment recipe. The Hetzner overlay is
   `CONNECT`, so denied hosts are blocked before DNS or TCP egress.
 - `DELETE /leases/:leaseId` releases the worker and records
   `browser.session_ended`.
+
+When `MANAGED_BROWSER_POOL_TOKEN` is set, all non-health API and CDP requests
+must include `Authorization: Bearer <token>`. The Compose recipe requires this
+token because it publishes the lease API on a host port.
 
 If the process restarts with active leases in `MANAGED_BROWSER_STATE_PATH`, they
 are surfaced as `browser.session_lost` events on startup instead of being

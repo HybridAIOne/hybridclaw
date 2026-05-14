@@ -103,7 +103,8 @@ saved revision history directly.
   include `local`, `camofox`, `managed-cloud`, and `browser-use-cloud`.
   `browser.local.*` and `browser.camofox.*` configure persistent profile roots
   and headed mode; `browser.managedCloud.*` points at an operator-run
-  HybridClaw browser pool with shared navigation-guard enforcement; and
+  HybridClaw browser pool with navigation-guard enforcement and optional
+  `poolTokenRef` bearer authentication; and
   `browser.browserUseCloud.*` configures the Browser Use Cloud passthrough and
   reads `BROWSER_USE_API_KEY` through the configured SecretRef. Camofox stealth
   mode is deny-by-default per host; allow it from the workspace policy with
