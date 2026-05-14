@@ -429,6 +429,7 @@ function configuredAgentForDatabase(agent: AgentConfig): AgentConfig {
     cv: cloneAgentCv(agent.cv),
     escalationTarget: agent.escalationTarget,
     a2a: cloneAgentA2AConfig(agent.a2a),
+    budget: cloneAgentBudgetConfig(agent.budget),
     webSearch: cloneAgentWebSearchConfig(agent.webSearch),
   };
 }

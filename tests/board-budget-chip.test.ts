@@ -8,9 +8,11 @@ let tmpDir: string;
 let originalDataDir: string | undefined;
 let originalHome: string | undefined;
 
-function currentBillingWindow(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+const FIXED_NOW = new Date('2026-05-14T12:00:00.000Z');
+const FIXED_BILLING_WINDOW = '2026-05';
+
+async function flushUsageNotifications(): Promise<void> {
+  await Promise.resolve();
 }
 
 async function loadBudgetContext() {
@@ -41,9 +43,12 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-budget-chip-'));
   originalDataDir = process.env.HYBRIDCLAW_DATA_DIR;
   originalHome = process.env.HOME;
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   if (originalDataDir === undefined) delete process.env.HYBRIDCLAW_DATA_DIR;
   else process.env.HYBRIDCLAW_DATA_DIR = originalDataDir;
   if (originalHome === undefined) delete process.env.HOME;
@@ -52,14 +57,14 @@ afterEach(() => {
 });
 
 describe.sequential('board budget chips', () => {
-  test('clears invalid budget config values instead of keeping stale fallback state', async () => {
+  test('preserves fallback for invalid budget config values', async () => {
     const { normalizeAgentBudgetConfig } = await import(
       '../src/agents/agent-types.js'
     );
 
     expect(
       normalizeAgentBudgetConfig(42, { cap: 10, currency: 'USD' }),
-    ).toBeUndefined();
+    ).toEqual({ cap: 10, currency: 'USD' });
     expect(
       normalizeAgentBudgetConfig(undefined, { cap: 10, currency: 'USD' }),
     ).toEqual({ cap: 10, currency: 'USD' });
@@ -152,7 +157,9 @@ describe.sequential('board budget chips', () => {
       costUsd: 2,
     });
 
-    const billingWindow = currentBillingWindow();
+    await flushUsageNotifications();
+
+    const billingWindow = FIXED_BILLING_WINDOW;
     const emittedAfterUsageWrites = events.length;
     const first = budgetModule.getBoardBudgetSummaries();
     const second = budgetModule.getBoardBudgetSummaries();
@@ -165,6 +172,7 @@ describe.sequential('board budget chips', () => {
       totalTokens: 15,
       costUsd: 1,
     });
+    await flushUsageNotifications();
     unsubscribe();
 
     expect(first.budgets).toEqual([

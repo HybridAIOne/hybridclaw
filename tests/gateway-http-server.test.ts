@@ -1563,7 +1563,7 @@ async function importFreshHealth(options?: {
     ],
     suspendedSessions: [],
   }));
-  const getGatewayAdminBoardBudgets = vi.fn(() => ({
+  const getBoardBudgetSummaries = vi.fn(() => ({
     budgets: [
       {
         agentId: 'main',
@@ -1675,6 +1675,9 @@ async function importFreshHealth(options?: {
     resolveAgentConfig,
     resolveAgentWorkspaceId,
   }));
+  vi.doMock('../src/board/budget-chip.js', () => ({
+    getBoardBudgetSummaries,
+  }));
   vi.doMock('../src/agent/executor.js', () => ({
     stopSessionExecution,
   }));
@@ -1706,7 +1709,6 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
     getGatewayAdminEmailMessage,
-    getGatewayAdminBoardBudgets,
     getGatewayAdminJobsContext,
     getGatewayAdminMcp,
     getGatewayAdminModels,
@@ -1850,7 +1852,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
-    getGatewayAdminBoardBudgets,
+    getBoardBudgetSummaries,
     getGatewayAdminTools,
     startTerminalSession,
     stopTerminalSession,
@@ -5640,14 +5642,14 @@ describe('gateway HTTP server', () => {
   test('returns board budget summaries for authorized API requests', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
-      url: '/api/admin/board/budgets?agentId=main&agentIds=agent-a,agent-b',
+      url: '/api/admin/board/budgets?agentId=main&agentId=agent-a&agentId=agent-b',
     });
     const res = makeResponse();
 
     state.handler(req as never, res as never);
     await settle();
 
-    expect(state.getGatewayAdminBoardBudgets).toHaveBeenCalledWith({
+    expect(state.getBoardBudgetSummaries).toHaveBeenCalledWith({
       agentIds: ['main', 'agent-a', 'agent-b'],
     });
     expect(res.statusCode).toBe(200);

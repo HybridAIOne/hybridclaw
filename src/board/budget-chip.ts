@@ -1,25 +1,26 @@
-import { resolveAgentConfig } from '../agents/agent-registry.js';
-import type { AgentBudgetConfig } from '../agents/agent-types.js';
+import type {
+  AgentBudgetConfig,
+  AgentBudgetCurrency,
+} from '../agents/agent-types.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
-  monthlySpendEur,
-  monthlySpendUsd,
+  hasBudgetSoftWarnMarker,
+  monthlySpendUsdByAgent,
   recordBudgetSoftWarnMarker,
   subscribeUsageRecords,
 } from '../memory/db.js';
+import { MODEL_METADATA_USD_TO_EUR } from '../providers/model-metadata.js';
 import {
   emitRuntimeEvent,
   type RuntimeEventPayload,
 } from '../skills/skill-run-events.js';
 import { listActiveCardAgentOwnerIds } from './card-store.js';
 
-export type BoardBudgetCurrency = 'USD' | 'EUR';
-
 export interface BoardBudgetSummary {
   agentId: string;
   used: number;
   cap: number;
-  currency: BoardBudgetCurrency;
+  currency: AgentBudgetCurrency;
   percent: number;
 }
 
@@ -33,7 +34,7 @@ export interface BudgetSoftWarnEvent extends RuntimeEventPayload {
   billing_window: string;
   used: number;
   cap: number;
-  currency: BoardBudgetCurrency;
+  currency: AgentBudgetCurrency;
   percent: number;
   created_at: string;
   source: 'board_budget_chip';
@@ -71,25 +72,22 @@ function budgetConfigByAgent(): Map<string, AgentBudgetConfig> {
   return budgets;
 }
 
-function resolveBudgetConfig(
-  agentId: string,
-  configuredBudgets: Map<string, AgentBudgetConfig>,
-): AgentBudgetConfig | undefined {
-  return configuredBudgets.get(agentId) ?? resolveAgentConfig(agentId).budget;
-}
-
-function spendFor(agentId: string, currency: BoardBudgetCurrency): number {
+function spendForCurrency(
+  monthlySpendUsd: number,
+  currency: AgentBudgetCurrency,
+): number {
   return currency === 'EUR'
-    ? monthlySpendEur(agentId)
-    : monthlySpendUsd(agentId);
+    ? monthlySpendUsd / MODEL_METADATA_USD_TO_EUR.usdPerEur
+    : monthlySpendUsd;
 }
 
 function buildBudgetSummary(
   agentId: string,
   budget: AgentBudgetConfig,
+  monthlySpendUsd: number,
 ): BoardBudgetSummary {
   const currency = budget.currency;
-  const used = spendFor(agentId, currency);
+  const used = spendForCurrency(monthlySpendUsd, currency);
   const percent = budget.cap > 0 ? (used / budget.cap) * 100 : 0;
   return {
     agentId,
@@ -107,13 +105,20 @@ export function maybeEmitBudgetSoftWarnForAgent(
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) return;
 
-  const budget = resolveBudgetConfig(normalizedAgentId, budgetConfigByAgent());
+  const budget = budgetConfigByAgent().get(normalizedAgentId);
   if (!budget || budget.cap <= 0) return;
-  const summary = buildBudgetSummary(normalizedAgentId, budget);
+  const billingWindow = billingWindowFor(now);
+  if (hasBudgetSoftWarnMarker(normalizedAgentId, billingWindow)) return;
+
+  const spendByAgent = monthlySpendUsdByAgent([normalizedAgentId], now);
+  const summary = buildBudgetSummary(
+    normalizedAgentId,
+    budget,
+    spendByAgent.get(normalizedAgentId) ?? 0,
+  );
   if (summary.percent < SOFT_WARN_THRESHOLD) return;
 
   const emittedAt = now.toISOString();
-  const billingWindow = billingWindowFor(now);
   const recorded = recordBudgetSoftWarnMarker({
     agentId: summary.agentId,
     billingWindow,
@@ -152,12 +157,20 @@ export function getBoardBudgetSummaries(options?: {
     options?.agentIds?.length ? options.agentIds : activeBoardCardAgentIds(),
   );
   const configuredBudgets = budgetConfigByAgent();
+  const budgetedAgentEntries = agentIds
+    .map((agentId) => [agentId, configuredBudgets.get(agentId)] as const)
+    .filter((entry): entry is readonly [string, AgentBudgetConfig] =>
+      Boolean(entry[1] && entry[1].cap > 0),
+    );
+  const spendByAgent = monthlySpendUsdByAgent(
+    budgetedAgentEntries.map(([agentId]) => agentId),
+  );
   const budgets: BoardBudgetSummary[] = [];
 
-  for (const agentId of agentIds) {
-    const budget = resolveBudgetConfig(agentId, configuredBudgets);
-    if (!budget || budget.cap <= 0) continue;
-    budgets.push(buildBudgetSummary(agentId, budget));
+  for (const [agentId, budget] of budgetedAgentEntries) {
+    budgets.push(
+      buildBudgetSummary(agentId, budget, spendByAgent.get(agentId) ?? 0),
+    );
   }
 
   return { budgets };

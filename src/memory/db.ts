@@ -3567,6 +3567,8 @@ export interface BudgetSoftWarnMarkerEntry {
   percent: number;
 }
 
+export type MonthlySpendUsdByAgent = Map<string, number>;
+
 type NormalizedUsageEventRow = {
   id: string;
   sessionId: string;
@@ -3641,11 +3643,17 @@ function notifyUsageRecords(agentIds: Iterable<string>): void {
   );
   if (normalizedAgentIds.length === 0) return;
 
+  queueMicrotask(() => {
+    notifyUsageRecordSubscribers(normalizedAgentIds);
+  });
+}
+
+function notifyUsageRecordSubscribers(agentIds: string[]): void {
   let subscriberIndex = 0;
   for (const subscriber of usageRecordSubscribers) {
     subscriberIndex += 1;
     try {
-      subscriber(normalizedAgentIds);
+      subscriber(agentIds);
     } catch (error) {
       logger.warn(
         {
@@ -3656,6 +3664,26 @@ function notifyUsageRecords(agentIds: Iterable<string>): void {
       );
     }
   }
+}
+
+export function hasBudgetSoftWarnMarker(
+  agentId: string,
+  billingWindow: string,
+): boolean {
+  const normalizedAgentId = agentId.trim();
+  const normalizedBillingWindow = billingWindow.trim();
+  if (!normalizedAgentId || !normalizedBillingWindow) return false;
+  const row = queryOne<{ agent_id: string }, [string, string]>(
+    db,
+    `SELECT agent_id
+     FROM budget_soft_warn_events
+     WHERE agent_id = ?
+       AND billing_window = ?
+     LIMIT 1`,
+    normalizedAgentId,
+    normalizedBillingWindow,
+  );
+  return Boolean(row);
 }
 
 export function recordBudgetSoftWarnMarker(
@@ -3925,6 +3953,40 @@ export function monthlySpendUsd(agentId: string): number {
 
 export function monthlySpendEur(agentId: string): number {
   return monthlySpendUsd(agentId) / MODEL_METADATA_USD_TO_EUR.usdPerEur;
+}
+
+export function monthlySpendUsdByAgent(
+  agentIds: string[],
+  now = new Date(),
+): MonthlySpendUsdByAgent {
+  const normalizedAgentIds = Array.from(
+    new Set(agentIds.map((agentId) => agentId.trim()).filter(Boolean)),
+  );
+  const spendByAgent = new Map<string, number>();
+  if (normalizedAgentIds.length === 0) return spendByAgent;
+
+  const placeholders = normalizedAgentIds.map(() => '?').join(', ');
+  const monthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  ).toISOString();
+  const rows = queryAll<
+    { agent_id: string; total_cost_usd: number | null },
+    unknown[]
+  >(
+    db,
+    `SELECT agent_id,
+            COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd
+     FROM usage_events
+     WHERE timestamp >= ?
+       AND agent_id IN (${placeholders})
+     GROUP BY agent_id`,
+    monthStart,
+    ...normalizedAgentIds,
+  );
+  for (const row of rows) {
+    spendByAgent.set(row.agent_id, normalizeUsageCost(row.total_cost_usd));
+  }
+  return spendByAgent;
 }
 
 export function getSessionUsageTotals(sessionId: string): UsageTotals {

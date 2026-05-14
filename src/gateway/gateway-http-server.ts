@@ -18,6 +18,7 @@ import {
   resolveSnakeCamelAlias,
 } from '../agents/agent-types.js';
 import { getHybridAIApiKey } from '../auth/hybridai-auth.js';
+import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import {
   type DiscordToolActionRequest,
   normalizeDiscordToolAction,
@@ -161,7 +162,6 @@ import {
   getGatewayAdminAgents,
   getGatewayAdminApprovals,
   getGatewayAdminAudit,
-  getGatewayAdminBoardBudgets,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
   getGatewayAdminEmailFolder,
@@ -2283,10 +2283,8 @@ function handleApiAdminJobsContext(res: ServerResponse): void {
 }
 
 function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
-  const values = [
-    ...url.searchParams.getAll('agentId'),
-    ...url.searchParams.getAll('agentIds').flatMap((value) => value.split(',')),
-  ]
+  const values = url.searchParams
+    .getAll('agentId')
     .map((value) => value.trim())
     .filter(Boolean);
   return values.length > 0 ? values : undefined;
@@ -2296,7 +2294,7 @@ function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
   sendJson(
     res,
     200,
-    getGatewayAdminBoardBudgets({
+    getBoardBudgetSummaries({
       agentIds: parseBoardBudgetAgentIds(url),
     }),
   );
