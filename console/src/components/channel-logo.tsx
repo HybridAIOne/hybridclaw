@@ -1,6 +1,7 @@
 export function ChannelLogo(props: {
   kind:
     | 'discord'
+    | 'discord_webhook'
     | 'telegram'
     | 'threema'
     | 'signal'
@@ -14,6 +15,7 @@ export function ChannelLogo(props: {
 }) {
   switch (props.kind) {
     case 'discord':
+    case 'discord_webhook':
       return (
         <span className="channel-logo" aria-hidden="true">
           <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">

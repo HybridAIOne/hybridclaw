@@ -254,6 +254,7 @@ export interface BuildMemoryPromptParams {
   session: Session;
   query: string;
   semanticLimit?: number;
+  includeSemanticRecall?: boolean;
   touchSemanticRecall?: boolean;
 }
 
@@ -833,20 +834,24 @@ export class MemoryService {
       (summaryConfidence == null ||
         summaryConfidence >= this.config.summaryDiscardThreshold);
 
-    const semanticLimit = Math.max(
-      1,
-      Math.min(
-        Math.floor(params.semanticLimit || this.config.semanticRecallLimit),
-        this.resolveSemanticPromptHardCap(),
-      ),
-    );
-    const semanticMemories = this.recallSemanticMemories({
-      sessionId: params.session.id,
-      query: params.query,
-      limit: semanticLimit,
-      minConfidence: this.config.semanticMinConfidence,
-      touch: params.touchSemanticRecall,
-    });
+    const semanticMemories =
+      params.includeSemanticRecall === false
+        ? []
+        : this.recallSemanticMemories({
+            sessionId: params.session.id,
+            query: params.query,
+            limit: Math.max(
+              1,
+              Math.min(
+                Math.floor(
+                  params.semanticLimit || this.config.semanticRecallLimit,
+                ),
+                this.resolveSemanticPromptHardCap(),
+              ),
+            ),
+            minConfidence: this.config.semanticMinConfidence,
+            touch: params.touchSemanticRecall,
+          });
     const citationIndex: MemoryCitation[] = semanticMemories.map(
       (memory, i) => ({
         ref: `[mem:${i + 1}]`,

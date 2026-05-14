@@ -83,6 +83,24 @@ export interface GatewayStatus {
       error: string | null;
     }>;
   };
+  discordWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+    lastSendResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -433,6 +451,11 @@ export interface AdminChannelsResponse {
     targetCount: number;
     defaultTargetConfigured: boolean;
   };
+  discordWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
@@ -462,6 +485,7 @@ export interface AdminConfig {
   };
   channelInstructions: {
     discord: string;
+    discord_webhook: string;
     msteams: string;
     slack: string;
     slack_webhook: string;
@@ -584,6 +608,17 @@ export interface AdminConfig {
         defaultUsername: string;
         defaultIconEmoji: string;
         defaultIconUrl: string;
+      }
+    >;
+  };
+  discordWebhook: {
+    enabled: boolean;
+    webhooks: Record<
+      string,
+      {
+        webhookUrl: string;
+        defaultUsername: string;
+        defaultAvatarUrl: string;
       }
     >;
   };

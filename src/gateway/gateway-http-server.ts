@@ -193,6 +193,7 @@ import {
   revokeGatewayAdminA2ATrustPeer,
   saveGatewayAdminAgentMarkdownFile,
   saveGatewayAdminConfig,
+  saveGatewayAdminDiscordWebhookTarget,
   saveGatewayAdminModels,
   saveGatewayAdminPolicyDefault,
   saveGatewayAdminPolicyRule,
@@ -207,6 +208,7 @@ import {
 } from './gateway-service.js';
 import type {
   GatewayAdminA2ATrustUpsertRequest,
+  GatewayAdminDiscordWebhookTargetRequest,
   GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
@@ -3008,6 +3010,21 @@ async function handleApiAdminSlackWebhookTargets(
   sendJson(res, 200, saveGatewayAdminSlackWebhookTarget(body));
 }
 
+async function handleApiAdminDiscordWebhookTargets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as
+    | GatewayAdminDiscordWebhookTargetRequest
+    | undefined;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    sendJson(res, 400, { error: 'Expected Discord webhook target object.' });
+    return;
+  }
+
+  sendJson(res, 200, saveGatewayAdminDiscordWebhookTarget(body));
+}
+
 async function handleApiAdminA2ATrust(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4716,6 +4733,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'POST' || method === 'PUT')
           ) {
             await handleApiAdminSlackWebhookTargets(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/discord-webhook-targets' &&
+            (method === 'POST' || method === 'PUT')
+          ) {
+            await handleApiAdminDiscordWebhookTargets(req, res);
             return;
           }
           if (

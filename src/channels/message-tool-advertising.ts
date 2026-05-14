@@ -16,6 +16,8 @@ export {
 const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
   discord:
     'Discord: send/read messages, upload files, inspect members/channels, react, edit, pin, and manage threads.',
+  discord_webhook:
+    'Discord webhook: send outbound-only messages to configured Discord Incoming Webhook targets.',
   email: 'Email: send email and read ingested email thread history.',
   imessage: 'iMessage: send messages to explicit iMessage handles.',
   msteams:

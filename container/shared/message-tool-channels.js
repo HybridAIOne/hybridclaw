@@ -1,5 +1,6 @@
 export const MESSAGE_TOOL_CHANNEL_KINDS = [
   'discord',
+  'discord_webhook',
   'email',
   'imessage',
   'msteams',
@@ -14,6 +15,7 @@ export const MESSAGE_TOOL_CHANNEL_KINDS = [
 
 export const MESSAGE_TOOL_CHANNEL_LABELS = Object.freeze({
   discord: 'Discord',
+  discord_webhook: 'Discord webhook',
   email: 'email',
   imessage: 'iMessage',
   msteams: 'Microsoft Teams',

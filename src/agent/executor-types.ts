@@ -33,6 +33,7 @@ export interface ExecutorRequest {
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];
+  scheduleSideEffectsEnabled?: boolean;
   scheduledTasks?: ScheduledTask[];
   allowedTools?: string[];
   blockedTools?: string[];

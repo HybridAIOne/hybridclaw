@@ -92,6 +92,7 @@ import {
   setPluginTools,
   setProviderCredentials,
   setScheduledTasks,
+  setScheduleSideEffectsEnabled,
   setSessionContext,
   setTaskModelPolicies,
   setWebSearchConfig,
@@ -1760,6 +1761,9 @@ async function main(): Promise<void> {
   await syncMcpConfig(firstInput.mcpServers);
   resetSideEffects();
   setScheduledTasks(firstInput.scheduledTasks);
+  setScheduleSideEffectsEnabled(
+    firstInput.scheduleSideEffectsEnabled !== false,
+  );
   setSessionContext(firstInput.sessionId);
   setPersistentBashStateEnabled(firstInput.persistBashState !== false);
   setPluginTools(firstInput.pluginTools);
@@ -1932,6 +1936,7 @@ async function main(): Promise<void> {
     await syncMcpConfig(input.mcpServers);
     resetSideEffects();
     setScheduledTasks(input.scheduledTasks);
+    setScheduleSideEffectsEnabled(input.scheduleSideEffectsEnabled !== false);
     setSessionContext(input.sessionId);
     setPersistentBashStateEnabled(input.persistBashState !== false);
     setPluginTools(input.pluginTools);

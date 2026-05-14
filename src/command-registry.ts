@@ -96,6 +96,7 @@ const REGISTERED_TEXT_COMMAND_NAMES = new Set([
   'eval',
   'channel',
   'ralph',
+  'goal',
   'mcp',
   'plugin',
   'voice',
@@ -242,6 +243,10 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   fullauto: {
     command: '/fullauto [status|off|on [prompt]|prompt]',
     description: 'Enable or inspect session full-auto mode',
+  },
+  goal: {
+    command: '/goal [condition|status|pause|resume|clear]',
+    description: 'Set a completion condition and keep working until it is met',
   },
   help: {
     command: '/help',
@@ -479,6 +484,11 @@ export function mapCanonicalCommandToGatewayArgs(
       return parts.length > 1
         ? ['ralph', ...parts.slice(1)]
         : ['ralph', 'info'];
+
+    case 'goal':
+      return parts.length > 1
+        ? ['goal', ...parts.slice(1)]
+        : ['goal', 'status'];
 
     case 'mcp':
       return parts.length > 1 ? ['mcp', ...parts.slice(1)] : ['mcp', 'list'];
@@ -1795,6 +1805,51 @@ function buildSlashCommandCatalogDefinitions(
       ],
     },
     {
+      name: 'goal',
+      description:
+        'Set a completion condition and keep working until it is met',
+      tuiMenu: {
+        label: '/goal [condition|status|pause|resume|clear]',
+        insertText: '/goal ',
+      },
+      options: [
+        {
+          kind: 'subcommand',
+          name: 'set',
+          description: 'Set a standing goal and start working on it',
+          options: [
+            {
+              kind: 'string',
+              name: 'text',
+              description:
+                'Completion condition, ideally with a measurable end state',
+              required: true,
+            },
+          ],
+        },
+        {
+          kind: 'subcommand',
+          name: 'status',
+          description: 'Show standing goal status',
+        },
+        {
+          kind: 'subcommand',
+          name: 'pause',
+          description: 'Pause the standing goal',
+        },
+        {
+          kind: 'subcommand',
+          name: 'resume',
+          description: 'Resume the standing goal',
+        },
+        {
+          kind: 'subcommand',
+          name: 'clear',
+          description: 'Clear the standing goal',
+        },
+      ],
+    },
+    {
       name: 'mcp',
       description: 'Manage configured MCP servers',
       options: [
@@ -3057,6 +3112,23 @@ export function parseCanonicalSlashCommandArgs(
           true,
         );
         return iterations ? ['ralph', 'set', iterations] : null;
+      }
+      return null;
+    }
+
+    case 'goal': {
+      const subcommand = normalizeSubcommand(interaction);
+      if (
+        subcommand === 'status' ||
+        subcommand === 'pause' ||
+        subcommand === 'resume' ||
+        subcommand === 'clear'
+      ) {
+        return ['goal', subcommand];
+      }
+      if (subcommand === 'set') {
+        const text = normalizeStringOption(interaction, 'text', true);
+        return text ? ['goal', 'set', text] : null;
       }
       return null;
     }

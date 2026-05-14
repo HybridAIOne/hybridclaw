@@ -140,6 +140,7 @@ Interactive slash commands inside TUI:
   /exit
   /export session [sessionId]   /export trace [sessionId|all]
   /fullauto [status|off|on [prompt]|prompt]
+  /goal [condition|status|pause|resume|clear]
   /help
   /info
   /mcp list   /mcp add <name> <json>   /mcp toggle <name>   /mcp remove <name>   /mcp reconnect <name>
@@ -287,7 +288,9 @@ Commands:
   hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
   hybridclaw channels slack manifest [--format <yaml|json>]
   hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+  hybridclaw channels discord_webhook setup --webhook-url <https://discord.com/api/webhooks/...> [--target default] [--default-username <name>] [--default-avatar-url <url>]
   hybridclaw channels slack_webhook setup --webhook-url <https://hooks.slack.com/services/...> [--target default] [--default-username <name>] [--default-icon-emoji <:emoji:>] [--default-icon-url <url>]
+  hybridclaw channel add discord_webhook --webhook-url <https://discord.com/api/webhooks/...> [--target default]
   hybridclaw channel add slack_webhook --webhook-url <https://hooks.slack.com/services/...> [--target default]
   hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
   hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
@@ -316,6 +319,7 @@ Notes:
   - Email inbound is explicit-opt-in: when email \`allowFrom\` is empty, inbound email is ignored.
   - Microsoft Teams setup lives under \`hybridclaw auth login msteams\` because it needs app credentials instead of a channel pairing flow.
   - Slack setup lives under \`hybridclaw auth login slack\` because it needs a bot token plus an app token for Socket Mode.
+  - Discord webhook setup stores each full webhook URL as an encrypted runtime secret and configures outbound-only delivery.
   - Slack webhook setup stores each full webhook URL as an encrypted runtime secret and configures outbound-only delivery.
   - \`hybridclaw channels slack manifest\` prints a Slack app manifest fragment for HybridClaw slash commands.
   - \`hybridclaw channels slack register-commands\` updates an existing Slack app manifest through Slack's app manifest API.

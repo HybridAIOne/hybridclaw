@@ -625,6 +625,25 @@ export function saveSlackWebhookTarget(
   });
 }
 
+export function saveDiscordWebhookTarget(
+  token: string,
+  payload: {
+    target: string;
+    webhookUrl?: string;
+    defaultUsername?: string;
+    defaultAvatarUrl?: string;
+  },
+): Promise<AdminConfigResponse> {
+  return requestJson<AdminConfigResponse>(
+    '/api/admin/discord-webhook-targets',
+    {
+      token,
+      method: 'PUT',
+      body: payload,
+    },
+  );
+}
+
 export function startSignalLink(
   token: string,
   options: { cliPath?: string; deviceName?: string },

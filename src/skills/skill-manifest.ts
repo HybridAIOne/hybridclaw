@@ -56,6 +56,7 @@ export interface SkillManifestParseOptions {
 
 export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
   'discord',
+  'discord_webhook',
   'email',
   'imessage',
   'msteams',

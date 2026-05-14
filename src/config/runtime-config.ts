@@ -33,6 +33,11 @@ import {
   normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
 import {
+  DISCORD_WEBHOOK_DEFAULT_TARGET,
+  normalizeDiscordWebhookTargetName,
+  normalizeDiscordWebhookUrl,
+} from '../channels/discord-webhook/target.js';
+import {
   normalizeSlackWebhookTargetName,
   normalizeSlackWebhookUrl,
   SLACK_WEBHOOK_DEFAULT_TARGET,
@@ -138,6 +143,7 @@ const DEFAULT_VOICE_CHANNEL_INSTRUCTIONS = [
 ].join('\n');
 const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   discord: '',
+  discord_webhook: '',
   msteams: '',
   signal: '',
   slack: '',
@@ -579,6 +585,17 @@ export interface RuntimeSlackWebhookConfig {
   webhooks: Record<string, RuntimeSlackWebhookTargetConfig>;
 }
 
+export interface RuntimeDiscordWebhookTargetConfig {
+  webhookUrl: string;
+  defaultUsername: string;
+  defaultAvatarUrl: string;
+}
+
+export interface RuntimeDiscordWebhookConfig {
+  enabled: boolean;
+  webhooks: Record<string, RuntimeDiscordWebhookTargetConfig>;
+}
+
 export interface RuntimeTelegramConfig {
   enabled: boolean;
   botToken: string;
@@ -655,6 +672,7 @@ export interface RuntimeEmailConfig {
 
 export interface RuntimeChannelInstructionsConfig {
   discord: string;
+  discord_webhook: string;
   msteams: string;
   signal: string;
   slack: string;
@@ -912,6 +930,7 @@ export interface RuntimeConfig {
     maxConcurrentPerChannel: number;
     guilds: Record<string, RuntimeDiscordGuildConfig>;
   };
+  discordWebhook: RuntimeDiscordWebhookConfig;
   msteams: RuntimeMSTeamsConfig;
   signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
@@ -1008,6 +1027,7 @@ export interface RuntimeConfig {
     session_search: RuntimeAuxiliaryModelPolicyConfig;
     skills_hub: RuntimeAuxiliaryModelPolicyConfig;
     eval_judge: RuntimeAuxiliaryModelPolicyConfig;
+    goal_judge: RuntimeAuxiliaryModelPolicyConfig;
     mcp: RuntimeAuxiliaryModelPolicyConfig;
     flush_memories: RuntimeAuxiliaryModelPolicyConfig;
     session_title: RuntimeAuxiliaryModelPolicyConfig;
@@ -1450,6 +1470,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     enabled: false,
     webhooks: {},
   },
+  discordWebhook: {
+    enabled: false,
+    webhooks: {},
+  },
   telegram: {
     enabled: false,
     botToken: '',
@@ -1687,6 +1711,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       maxTokens: 0,
     },
     eval_judge: {
+      provider: 'auto',
+      model: '',
+      maxTokens: 0,
+    },
+    goal_judge: {
       provider: 'auto',
       model: '',
       maxTokens: 0,
@@ -3429,6 +3458,94 @@ function resolveSlackWebhookSecretInput(value: unknown, path: string): unknown {
   });
 }
 
+function resolveDiscordWebhookSecretInput(
+  value: unknown,
+  path: string,
+): unknown {
+  return resolveSecretInputUnsafe(value, {
+    path,
+    reason: `resolve runtime config secret ${path}`,
+    audit: (handle, reason) =>
+      auditConfiguredSecretUnsafeEscape(handle, reason, path),
+  });
+}
+
+function normalizeDiscordWebhookTargetConfig(
+  value: unknown,
+  fallback: RuntimeDiscordWebhookTargetConfig | undefined,
+  targetName: string,
+): RuntimeDiscordWebhookTargetConfig | null {
+  const raw = isRecord(value) ? value : {};
+  const path = `discordWebhook.webhooks.${targetName}.webhook_url`;
+  const rawWebhookUrl = raw.webhook_url ?? raw.webhookUrl;
+  const resolvedWebhookUrl =
+    rawWebhookUrl === undefined
+      ? fallback?.webhookUrl
+      : resolveDiscordWebhookSecretInput(rawWebhookUrl, path);
+  const webhookUrl = normalizeDiscordWebhookUrl(resolvedWebhookUrl, path);
+
+  return {
+    webhookUrl,
+    defaultUsername: normalizeString(
+      raw.default_username ?? raw.defaultUsername,
+      fallback?.defaultUsername ?? '',
+      { allowEmpty: true },
+    ),
+    defaultAvatarUrl: normalizeString(
+      raw.default_avatar_url ?? raw.defaultAvatarUrl,
+      fallback?.defaultAvatarUrl ?? '',
+      { allowEmpty: true },
+    ),
+  };
+}
+
+function normalizeDiscordWebhookConfig(
+  value: unknown,
+  fallback: RuntimeDiscordWebhookConfig,
+): RuntimeDiscordWebhookConfig {
+  const raw = isRecord(value) ? value : {};
+  const enabled = normalizeBoolean(raw.enabled, fallback.enabled);
+  const rawWebhooks = isRecord(raw.webhooks) ? raw.webhooks : {};
+  const fallbackWebhooks = fallback.webhooks || {};
+  const webhooks: RuntimeDiscordWebhookConfig['webhooks'] = {};
+  const targetNames = new Set([
+    ...Object.keys(fallbackWebhooks),
+    ...Object.keys(rawWebhooks),
+  ]);
+
+  for (const rawName of targetNames) {
+    const targetName = normalizeDiscordWebhookTargetName(rawName);
+    if (!targetName) {
+      if (enabled) {
+        throw new Error(`Invalid Discord webhook target name: ${rawName}`);
+      }
+      continue;
+    }
+    const rawTarget = rawWebhooks[rawName];
+    const fallbackTarget = fallbackWebhooks[targetName];
+    if (rawTarget === undefined && !fallbackTarget) continue;
+    try {
+      const normalized = normalizeDiscordWebhookTargetConfig(
+        rawTarget,
+        fallbackTarget,
+        targetName,
+      );
+      if (normalized) webhooks[targetName] = normalized;
+    } catch (error) {
+      if (enabled || rawTarget !== undefined) throw error;
+    }
+  }
+
+  if (enabled && !webhooks[DISCORD_WEBHOOK_DEFAULT_TARGET]?.webhookUrl) {
+    throw new Error('discordWebhook.webhooks.default.webhook_url is required.');
+  }
+
+  return {
+    enabled,
+    webhooks,
+  };
+}
+
 function normalizeSlackWebhookTargetConfig(
   value: unknown,
   fallback: RuntimeSlackWebhookTargetConfig | undefined,
@@ -3587,6 +3704,11 @@ function normalizeChannelInstructionsConfig(
     discord: normalizeString(raw.discord, fallback.discord, {
       allowEmpty: true,
     }),
+    discord_webhook: normalizeString(
+      raw.discord_webhook ?? raw.discordWebhook,
+      fallback.discord_webhook,
+      { allowEmpty: true },
+    ),
     msteams: normalizeString(raw.msteams, fallback.msteams, {
       allowEmpty: true,
     }),
@@ -4690,6 +4812,45 @@ function preserveSlackWebhookSecretInputs(
   }
 }
 
+function preserveDiscordWebhookSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceDiscordWebhook = isRecord(source.discordWebhook)
+    ? source.discordWebhook
+    : isRecord(source.discord_webhook)
+      ? source.discord_webhook
+      : null;
+  const sourceWebhooks =
+    sourceDiscordWebhook && isRecord(sourceDiscordWebhook.webhooks)
+      ? sourceDiscordWebhook.webhooks
+      : null;
+  if (!sourceWebhooks) return;
+
+  const serializableDiscordWebhook = isRecord(serializable.discordWebhook)
+    ? serializable.discordWebhook
+    : {};
+  serializable.discordWebhook = serializableDiscordWebhook;
+  const serializableWebhooks = isRecord(serializableDiscordWebhook.webhooks)
+    ? serializableDiscordWebhook.webhooks
+    : {};
+  serializableDiscordWebhook.webhooks = serializableWebhooks;
+
+  for (const [rawTargetName, rawConfig] of Object.entries(sourceWebhooks)) {
+    if (!isRecord(rawConfig)) continue;
+    const sourceValue = rawConfig.webhook_url ?? rawConfig.webhookUrl;
+    if (!isSecretRefInput(sourceValue)) continue;
+    const targetName = normalizeDiscordWebhookTargetName(rawTargetName);
+    if (!targetName) continue;
+    const targetConfig = isRecord(serializableWebhooks[targetName])
+      ? serializableWebhooks[targetName]
+      : {};
+    serializableWebhooks[targetName] = targetConfig;
+    targetConfig.webhook_url = cloneConfig(sourceValue);
+    delete targetConfig.webhookUrl;
+  }
+}
+
 function preserveSecretInputs(
   serializable: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -4700,6 +4861,7 @@ function preserveSecretInputs(
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
   preserveSlackWebhookSecretInputs(serializable, source);
+  preserveDiscordWebhookSecretInputs(serializable, source);
 }
 
 function resolveConfiguredSecretInput(
@@ -5764,6 +5926,11 @@ function normalizeRuntimeConfig(
     ? raw.channelInstructions
     : {};
   const rawDiscord = isRecord(raw.discord) ? raw.discord : {};
+  const rawDiscordWebhook = isRecord(raw.discordWebhook)
+    ? raw.discordWebhook
+    : isRecord((raw as Record<string, unknown>).discord_webhook)
+      ? (raw as Record<string, unknown>).discord_webhook
+      : {};
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
@@ -5816,6 +5983,9 @@ function normalizeRuntimeConfig(
     : {};
   const rawEvalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.eval_judge)
     ? rawAuxiliaryModels.eval_judge
+    : {};
+  const rawGoalJudgeAuxiliaryModel = isRecord(rawAuxiliaryModels.goal_judge)
+    ? rawAuxiliaryModels.goal_judge
     : {};
   const rawMcpAuxiliaryModel = isRecord(rawAuxiliaryModels.mcp)
     ? rawAuxiliaryModels.mcp
@@ -6385,6 +6555,10 @@ function normalizeRuntimeConfig(
         DEFAULT_RUNTIME_CONFIG.discord.guilds,
       ),
     },
+    discordWebhook: normalizeDiscordWebhookConfig(
+      rawDiscordWebhook,
+      DEFAULT_RUNTIME_CONFIG.discordWebhook,
+    ),
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
     signal: normalizeSignalConfig(rawSignal, DEFAULT_RUNTIME_CONFIG.signal),
     slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
@@ -6781,6 +6955,22 @@ function normalizeRuntimeConfig(
         maxTokens: normalizeInteger(
           rawEvalJudgeAuxiliaryModel.maxTokens,
           DEFAULT_RUNTIME_CONFIG.auxiliaryModels.eval_judge.maxTokens,
+          { min: 0, max: 1_000_000 },
+        ),
+      },
+      goal_judge: {
+        provider: normalizeAuxiliaryProviderSelection(
+          rawGoalJudgeAuxiliaryModel.provider,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.provider,
+        ),
+        model: normalizeString(
+          rawGoalJudgeAuxiliaryModel.model,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.model,
+          { allowEmpty: true },
+        ),
+        maxTokens: normalizeInteger(
+          rawGoalJudgeAuxiliaryModel.maxTokens,
+          DEFAULT_RUNTIME_CONFIG.auxiliaryModels.goal_judge.maxTokens,
           { min: 0, max: 1_000_000 },
         ),
       },
@@ -7935,6 +8125,47 @@ export function setRuntimeConfigSlackWebhookSecretInput(
   draftSource.slackWebhook = slackWebhook;
   const webhooks = isRecord(slackWebhook.webhooks) ? slackWebhook.webhooks : {};
   slackWebhook.webhooks = webhooks;
+  const targetConfig = isRecord(webhooks[normalizedTarget])
+    ? webhooks[normalizedTarget]
+    : {};
+  webhooks[normalizedTarget] = targetConfig;
+  targetConfig.webhook_url = value;
+  delete targetConfig.webhookUrl;
+  return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function setRuntimeConfigDiscordWebhookSecretInput(
+  targetName: string,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalizedTarget = normalizeDiscordWebhookTargetName(targetName);
+  if (!normalizedTarget) {
+    throw new Error(`Invalid Discord webhook target name: ${targetName}`);
+  }
+
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-discord-webhook-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] Discord webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  const discordWebhook = isRecord(draftSource.discordWebhook)
+    ? draftSource.discordWebhook
+    : {};
+  draftSource.discordWebhook = discordWebhook;
+  const webhooks = isRecord(discordWebhook.webhooks)
+    ? discordWebhook.webhooks
+    : {};
+  discordWebhook.webhooks = webhooks;
   const targetConfig = isRecord(webhooks[normalizedTarget])
     ? webhooks[normalizedTarget]
     : {};

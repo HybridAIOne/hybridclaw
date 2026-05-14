@@ -584,6 +584,53 @@ test('channels discord setup stores the token and allowlisted guild users', asyn
   expect(secrets.DISCORD_TOKEN).toBe('discord-token-123');
 });
 
+test('channels discord_webhook setup hot-loads without restart instructions', async () => {
+  const homeDir = makeTempHome();
+  const cli = await importFreshCli(homeDir);
+  const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+  await cli.main([
+    'channels',
+    'discord_webhook',
+    'setup',
+    '--webhook-url',
+    'https://discord.com/api/webhooks/123456789012345678/TOKEN',
+  ]);
+
+  const config = readRuntimeConfig(homeDir);
+  const policy = readMainAgentPolicy(homeDir);
+  const output = logSpy.mock.calls
+    .map(([message]) => String(message))
+    .join('\n');
+
+  expect(config.discordWebhook.enabled).toBe(true);
+  expect(
+    (
+      config.discordWebhook.webhooks.default as unknown as {
+        webhook_url?: unknown;
+      }
+    )?.webhook_url,
+  ).toEqual({ source: 'store', id: 'DISCORD_WEBHOOK_URL' });
+  expect(output).toContain(
+    'Gateway hot-loads Discord webhook settings automatically.',
+  );
+  expect(output).toContain('hybridclaw gateway status');
+  expect(output).not.toContain('hybridclaw gateway restart');
+  expect(policy).toMatchObject({
+    network: {
+      rules: expect.arrayContaining([
+        expect.objectContaining({
+          action: 'allow',
+          host: 'discord.com',
+          methods: ['POST'],
+          paths: ['/api/webhooks/**'],
+          managed_by_preset: 'discord_webhook',
+        }),
+      ]),
+    },
+  });
+});
+
 test('channels slack manifest prints the slash-command manifest fragment', async () => {
   const homeDir = makeTempHome();
   const cli = await importFreshCli(homeDir);

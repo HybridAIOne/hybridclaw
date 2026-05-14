@@ -43,6 +43,12 @@ test('builds canonical, choice-based, and TUI-only slash menu entries', () => {
   expect(labels).toContain('/approve session [approval_id]');
   expect(labels).toContain('/approve all [approval_id]');
   expect(labels).toContain('/fullauto on [prompt]');
+  expect(labels).toContain('/goal [condition|status|pause|resume|clear]');
+  expect(labels).toContain('/goal set <text>');
+  expect(labels).toContain('/goal status');
+  expect(labels).toContain('/goal pause');
+  expect(labels).toContain('/goal resume');
+  expect(labels).toContain('/goal clear');
   expect(labels).toContain('/bot list');
   expect(labels).toContain('/agent install <source>');
   expect(labels).toContain('/plugin install <path|plugin-id|npm-spec>');
@@ -87,6 +93,19 @@ test('keeps /model submenu entries in alphabetical order', () => {
     '/model select',
     '/model set <name>',
   ]);
+});
+
+test('ranks goal entries for goal slash menu queries', () => {
+  const ranked = rankTuiSlashMenuEntries(buildTuiSlashMenuEntries(), '/goal');
+  const labels = ranked.slice(0, 6).map((entry) => entry.label);
+
+  expect(labels).toEqual(
+    expect.arrayContaining([
+      '/goal [condition|status|pause|resume|clear]',
+      '/goal set <text>',
+      '/goal status',
+    ]),
+  );
 });
 
 test('does not duplicate concierge slash menu entries', () => {

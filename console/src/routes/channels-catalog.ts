@@ -3,6 +3,7 @@ import { pluralize } from '../lib/format';
 
 export type ChannelKind =
   | 'discord'
+  | 'discord_webhook'
   | 'slack'
   | 'signal'
   | 'telegram'
@@ -24,6 +25,7 @@ export interface ChannelCatalogItem {
 
 interface ChannelCatalogOptions {
   discordTokenConfigured?: boolean;
+  discordWebhookDefaultConfigured?: boolean;
   slackBotTokenConfigured?: boolean;
   slackAppTokenConfigured?: boolean;
   slackWebhookDefaultConfigured?: boolean;
@@ -293,7 +295,39 @@ function describeSlackWebhook(
 
   return {
     kind: 'slack_webhook',
-    label: 'Incoming Webhook',
+    label: 'Slack Incoming Webhook',
+    summary:
+      targetCount > 0
+        ? `${pluralize(targetCount, 'webhook target')} · outbound only`
+        : 'No webhook targets configured yet',
+    statusTone,
+    statusLabel:
+      statusTone === 'active'
+        ? 'active'
+        : statusTone === 'configured'
+          ? 'configured'
+          : 'available',
+  };
+}
+
+function describeDiscordWebhook(
+  config: AdminConfig,
+  options: ChannelCatalogOptions,
+): ChannelCatalogItem {
+  const targetCount = Object.keys(config.discordWebhook.webhooks).length;
+  const active =
+    config.discordWebhook.enabled &&
+    options.discordWebhookDefaultConfigured === true;
+  const configured = active || config.discordWebhook.enabled || targetCount > 0;
+  const statusTone = active
+    ? 'active'
+    : configured
+      ? 'configured'
+      : 'available';
+
+  return {
+    kind: 'discord_webhook',
+    label: 'Discord Incoming Webhook',
     summary:
       targetCount > 0
         ? `${pluralize(targetCount, 'webhook target')} · outbound only`
@@ -456,6 +490,7 @@ export function buildChannelCatalog(
 ): ChannelCatalogItem[] {
   return [
     describeDiscord(config, options),
+    describeDiscordWebhook(config, options),
     describeSlack(config, options),
     describeSlackWebhook(config, options),
     describeTelegram(config, options),

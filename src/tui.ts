@@ -90,7 +90,13 @@ import {
   resolveTuiHistoryFetchLimit,
 } from './tui-history.js';
 import { TuiMultilineInputController } from './tui-input.js';
-import { proactiveBadgeLabel, proactiveSourceSuffix } from './tui-proactive.js';
+import {
+  isGoalContinuationSource,
+  normalizeGoalContinuationText,
+  proactiveBadgeLabel,
+  proactiveInlineLabel,
+  proactiveSourceSuffix,
+} from './tui-proactive.js';
 import {
   buildTuiExitSummaryLines,
   buildTuiUnavailableExitSummaryLines,
@@ -3125,12 +3131,15 @@ function prepareProactiveRegularMessageOutput(
   rl: readline.Interface,
   hasDelegateStatus: boolean,
   promptVisible: boolean,
+  options: { leadingBlank?: boolean } = {},
 ): void {
   if (!hasDelegateStatus && promptVisible) {
     clearPromptBlockForDelegateStatus();
     resetReadlinePromptRows(rl);
   }
-  console.log();
+  if (options.leadingBlank !== false) {
+    console.log();
+  }
 }
 
 function renderProactiveRegularMessage(
@@ -3138,9 +3147,21 @@ function renderProactiveRegularMessage(
 ): boolean {
   if (handleDelegateStreamMessage(message)) return true;
 
+  if (isGoalContinuationSource(message.source)) {
+    console.log(formatTuiOutput(normalizeGoalContinuationText(message.text)));
+    return false;
+  }
+
   const badge = proactiveBadgeLabel(message.source);
+  const inlineLabel = proactiveInlineLabel(message.source);
   const suffix = proactiveSourceSuffix(message.source);
   const sourceSuffix = suffix ? ` ${MUTED}${suffix}${RESET}` : '';
+  if (inlineLabel) {
+    console.log(
+      `  ${GOLD}${inlineLabel}:${RESET} ${formatTuiOutput(message.text)}${sourceSuffix}`,
+    );
+    return false;
+  }
   if (badge === 'delegate') {
     console.log(`${formatTuiOutput(message.text)}${sourceSuffix}`);
     return false;
@@ -3152,16 +3173,22 @@ function renderProactiveRegularMessage(
   return false;
 }
 
-function renderProactiveRegularMessages(
-  messages: GatewayProactiveMessage[],
-): boolean {
+function renderProactiveRegularMessages(messages: GatewayProactiveMessage[]): {
+  sawDelegateStreamMessage: boolean;
+} {
   let sawDelegateStreamMessage = false;
+  let previousWasGoalContinuation = false;
   for (const message of messages) {
+    const isGoalMessage = isGoalContinuationSource(message.source);
+    if (isGoalMessage && previousWasGoalContinuation) {
+      console.log();
+    }
     if (renderProactiveRegularMessage(message)) {
       sawDelegateStreamMessage = true;
     }
+    previousWasGoalContinuation = isGoalMessage;
   }
-  return sawDelegateStreamMessage;
+  return { sawDelegateStreamMessage };
 }
 
 function restorePromptAfterProactiveMessages(
@@ -3219,14 +3246,18 @@ async function pollProactiveMessages(
       return;
     }
 
+    const onlyGoalContinuationMessages = regularMessages.every((message) =>
+      isGoalContinuationSource(message.source),
+    );
     prepareProactiveRegularMessageOutput(
       rl,
       Boolean(latestDelegateStatus),
       promptVisible,
+      { leadingBlank: !onlyGoalContinuationMessages },
     );
-    const sawDelegateStreamMessage =
+    const { sawDelegateStreamMessage } =
       renderProactiveRegularMessages(regularMessages);
-    if (!delegateStreamActive) {
+    if (!delegateStreamActive && !onlyGoalContinuationMessages) {
       console.log();
     }
     restorePromptAfterProactiveMessages(

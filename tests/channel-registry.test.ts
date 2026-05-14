@@ -28,7 +28,7 @@ test('registerChannel and getChannel return registered channel info', async () =
   });
 });
 
-test('getChannelByContextId resolves Discord, WhatsApp, Telegram, Threema, Slack webhook, iMessage, email, and Teams ids', async () => {
+test('getChannelByContextId resolves Discord, webhook, WhatsApp, Telegram, Threema, iMessage, email, and Teams ids', async () => {
   const { getChannelByContextId } = await importFreshChannelRegistryModules();
 
   expect(getChannelByContextId('1475079601968648386')?.kind).toBe('discord');
@@ -41,6 +41,9 @@ test('getChannelByContextId resolves Discord, WhatsApp, Telegram, Threema, Slack
   expect(getChannelByContextId('threema:ABCDEFGH')?.kind).toBe('threema');
   expect(getChannelByContextId('slack_webhook:ops')?.kind).toBe(
     'slack_webhook',
+  );
+  expect(getChannelByContextId('discord_webhook:ops')?.kind).toBe(
+    'discord_webhook',
   );
   expect(getChannelByContextId('imessage:+14155551212')?.kind).toBe('imessage');
   expect(getChannelByContextId('imessage:peer@example.com')?.kind).toBe(

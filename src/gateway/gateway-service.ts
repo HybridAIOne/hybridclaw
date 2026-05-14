@@ -76,6 +76,14 @@ import {
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
+import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
+import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
+import {
+  DISCORD_WEBHOOK_DEFAULT_TARGET,
+  discordWebhookSecretNameForTarget,
+  normalizeDiscordWebhookTargetName,
+  normalizeDiscordWebhookUrl,
+} from '../channels/discord-webhook/target.js';
 import {
   deleteLiveAdminEmailMessage,
   fetchLiveAdminEmailFolder,
@@ -161,6 +169,7 @@ import {
   resolveDefaultAgentId,
   runtimeConfigPath,
   saveRuntimeConfig,
+  setRuntimeConfigDiscordWebhookSecretInput,
   setRuntimeConfigSlackWebhookSecretInput,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
@@ -174,6 +183,8 @@ import {
 import { checkConfigFile } from '../doctor/checks/config.js';
 import { summarizeCounts } from '../doctor/utils.js';
 import { GatewayRequestError } from '../errors/gateway-request-error.js';
+import { handleGoalCommand } from '../goals/goal-command.js';
+import { pauseActiveGoalForSession } from '../goals/goal-runtime.js';
 import { resolveContainerImageStatus } from '../infra/container-setup.js';
 import { stopSessionHostProcess } from '../infra/host-runner.js';
 import { agentWorkspaceDir } from '../infra/ipc.js';
@@ -473,6 +484,7 @@ import {
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
   type GatewayAdminDeleteSessionResult,
+  type GatewayAdminDiscordWebhookTargetRequest,
   type GatewayAdminEmailDeleteResponse,
   type GatewayAdminEmailFolderResponse,
   type GatewayAdminEmailMailboxResponse,
@@ -520,6 +532,7 @@ import {
   parseAuditPayload,
   resolveWorkspaceRelativePath,
 } from './gateway-utils.js';
+import { initializeGoalContinuationRunner } from './goal-continuation-runner.js';
 import { listSuspendedSessions } from './interactive-escalation.js';
 import { listPendingApprovals } from './pending-approvals.js';
 import { isDiscordChannelId } from './proactive-delivery.js';
@@ -532,6 +545,8 @@ import {
 import { handleSkillCommand } from './skill-commands.js';
 
 export { reconnectGatewayAdminTunnel };
+
+initializeGoalContinuationRunner();
 
 const BOT_CACHE_TTL = 300_000; // 5 minutes
 const TRACE_EXPORT_ALL_SESSION_LIMIT = 1_000;
@@ -3873,6 +3888,16 @@ export async function getGatewayStatus(
     appTokenConfigured: Boolean(slackAppCredential.value),
     appTokenSource: slackAppCredential.source,
   } as NonNullable<GatewayStatus['slack']>;
+  const discordWebhookRuntimeStatus = getDiscordWebhookStatus();
+  const discordWebhook = {
+    targetCount: discordWebhookRuntimeStatus.targets.length,
+    defaultTargetConfigured: Boolean(
+      runtimeConfig.discordWebhook.webhooks.default?.webhookUrl,
+    ),
+    lastReachabilityResults:
+      discordWebhookRuntimeStatus.lastReachabilityResults,
+    lastSendResults: discordWebhookRuntimeStatus.lastSendResults,
+  } as NonNullable<GatewayStatus['discordWebhook']>;
   const slackWebhookRuntimeStatus = getSlackWebhookStatus();
   const slackWebhook = {
     targetCount: slackWebhookRuntimeStatus.targets.length,
@@ -3949,6 +3974,7 @@ export async function getGatewayStatus(
       jobs: getSchedulerStatus(),
     },
     discord,
+    discordWebhook,
     signal: {
       enabled: runtimeConfig.signal.enabled,
       daemonUrlConfigured: Boolean(runtimeConfig.signal.daemonUrl.trim()),
@@ -4866,6 +4892,13 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
         runtimeConfig.slackWebhook.webhooks.default?.webhookUrl,
       ),
     },
+    discordWebhook: {
+      enabled: runtimeConfig.discordWebhook.enabled,
+      targetCount: Object.keys(runtimeConfig.discordWebhook.webhooks).length,
+      defaultTargetConfigured: Boolean(
+        runtimeConfig.discordWebhook.webhooks.default?.webhookUrl,
+      ),
+    },
     msteams: {
       enabled: runtimeConfig.msteams.enabled,
       groupPolicy: runtimeConfig.msteams.groupPolicy,
@@ -4943,6 +4976,9 @@ function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
   for (const webhook of Object.values(redacted.slackWebhook.webhooks)) {
     webhook.webhookUrl = '';
   }
+  for (const webhook of Object.values(redacted.discordWebhook.webhooks)) {
+    webhook.webhookUrl = '';
+  }
   return redacted;
 }
 
@@ -4965,9 +5001,109 @@ export function saveGatewayAdminConfig(
       incoming.webhookUrl = currentWebhook.webhookUrl;
     }
   }
+  for (const [target, currentWebhook] of Object.entries(
+    current.discordWebhook.webhooks,
+  )) {
+    const incoming = next.discordWebhook.webhooks[target];
+    if (incoming && !String(incoming.webhookUrl || '').trim()) {
+      incoming.webhookUrl = currentWebhook.webhookUrl;
+    }
+  }
   return {
     path: runtimeConfigPath(),
     config: redactGatewayAdminConfigSecrets(saveRuntimeConfig(next)),
+  };
+}
+
+export function saveGatewayAdminDiscordWebhookTarget(
+  input: GatewayAdminDiscordWebhookTargetRequest,
+): GatewayAdminConfigResponse {
+  const target = normalizeDiscordWebhookTargetName(input.target);
+  if (!target) {
+    throw new Error(
+      'Invalid Discord webhook target. Use letters, numbers, dots, dashes, or underscores.',
+    );
+  }
+
+  const webhookUrl = String(input.webhookUrl || '').trim();
+  const current = getRuntimeConfig();
+  const existing = current.discordWebhook.webhooks[target];
+  if (!webhookUrl && !existing?.webhookUrl) {
+    throw new Error('Discord webhook URL is required for a new target.');
+  }
+  if (
+    target !== DISCORD_WEBHOOK_DEFAULT_TARGET &&
+    !current.discordWebhook.webhooks[DISCORD_WEBHOOK_DEFAULT_TARGET]?.webhookUrl
+  ) {
+    throw new Error('Configure the default Discord webhook target first.');
+  }
+
+  let policyMessageHost: string | null = null;
+  if (webhookUrl) {
+    const normalizedUrl = normalizeDiscordWebhookUrl(
+      webhookUrl,
+      `discordWebhook.webhooks.${target}.webhook_url`,
+    );
+    const secretName = discordWebhookSecretNameForTarget(target);
+    saveNamedRuntimeSecrets({ [secretName]: normalizedUrl });
+    refreshRuntimeSecretsFromEnv();
+    setRuntimeConfigDiscordWebhookSecretInput(
+      target,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'admin.discord-webhook.target-secret-ref',
+        source: 'user',
+      },
+    );
+    const policy = allowDiscordWebhookInWorkspacePolicy({
+      workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+      webhookUrl: normalizedUrl,
+    });
+    policyMessageHost = policy.rule.host;
+  }
+
+  const saved = updateRuntimeConfig(
+    (draft) => {
+      draft.discordWebhook.enabled =
+        target === DISCORD_WEBHOOK_DEFAULT_TARGET
+          ? true
+          : draft.discordWebhook.enabled;
+      const nextTarget = draft.discordWebhook.webhooks[target] ?? {
+        webhookUrl: existing?.webhookUrl || '',
+        defaultUsername: '',
+        defaultAvatarUrl: '',
+      };
+      draft.discordWebhook.webhooks[target] = {
+        ...nextTarget,
+        defaultUsername:
+          input.defaultUsername !== undefined
+            ? String(input.defaultUsername || '').trim()
+            : nextTarget.defaultUsername,
+        defaultAvatarUrl:
+          input.defaultAvatarUrl !== undefined
+            ? String(input.defaultAvatarUrl || '').trim()
+            : nextTarget.defaultAvatarUrl,
+      };
+    },
+    {
+      route: `admin.discord-webhook.target:${target}`,
+      source: 'user',
+    },
+  );
+
+  if (policyMessageHost) {
+    logger.info(
+      { target, host: policyMessageHost },
+      'Discord webhook network policy grant verified',
+    );
+  }
+
+  return {
+    path: runtimeConfigPath(),
+    config: redactGatewayAdminConfigSecrets(saved),
   };
 }
 
@@ -9309,6 +9445,10 @@ export async function handleGatewayCommand(
         );
       }
 
+      case 'goal': {
+        return await handleGoalCommand({ session, req });
+      }
+
       case 'fullauto': {
         const sub = parseLowerArg(req.args, 1);
         if (!sub) {
@@ -9959,6 +10099,11 @@ export async function handleGatewayCommand(
 
       case 'stop':
       case 'abort': {
+        pauseActiveGoalForSession({
+          session,
+          reason: 'user-interrupted',
+          verdict: 'interrupted',
+        });
         await disableFullAutoSession({ sessionId: session.id });
         const stopped = interruptGatewaySessionExecution(req.sessionId);
         return plainCommand(

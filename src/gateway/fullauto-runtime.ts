@@ -247,7 +247,7 @@ export function scheduleFullAutoContinuation(params: {
   }, delayMs);
 }
 
-function hasPendingApproval(result: GatewayChatResult): boolean {
+export function hasPendingApproval(result: GatewayChatResult): boolean {
   return (result.toolExecutions || []).some(
     (execution) => execution.approvalDecision === 'required',
   );
