@@ -65,11 +65,14 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     }
     const tarball = path.join(tempDir, tarballName);
 
-    execSync(`npm install -g "${tarball}" --prefix "${npmPrefix()}"`, {
-      encoding: 'utf-8',
-      timeout: 120_000,
-      env: { ...process.env, HOME: tempDir },
-    });
+    execSync(
+      `npm --min-release-age=0 install -g "${tarball}" --prefix "${npmPrefix()}"`,
+      {
+        encoding: 'utf-8',
+        timeout: 120_000,
+        env: { ...process.env, HOME: tempDir },
+      },
+    );
 
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),
