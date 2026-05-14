@@ -274,8 +274,7 @@ test('post-turn goal subscriber caps assistant response sent to the judge', asyn
   clearScheduledGoalContinuation(session.id);
 });
 
-test('scheduled continuation re-arms instead of dropping while runner is active', async () => {
-  vi.useFakeTimers();
+test('scheduled continuation queues a direct rerun while runner is active', () => {
   const session = makeSession('rearm');
   setThreadGoal({
     threadId: session.main_session_key,
@@ -295,16 +294,63 @@ test('scheduled continuation re-arms instead of dropping while runner is active'
       username: 'User A',
     },
   });
-  setGoalContinuationRunning(session.id, true);
+  expect(runHandler).toHaveBeenCalledWith(session.id);
 
-  await vi.advanceTimersByTimeAsync(0);
+  runHandler.mockClear();
+  setGoalContinuationRunning(session.id, true);
+  scheduleGoalContinuation({
+    session,
+    context: {
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+    },
+  });
   expect(runHandler).not.toHaveBeenCalled();
 
   finishGoalContinuationRun(session.id);
-  await vi.advanceTimersByTimeAsync(0);
 
   expect(runHandler).toHaveBeenCalledWith(session.id);
   clearScheduledGoalContinuation(session.id);
+});
+
+test('post-turn goal subscriber pauses if a goal continuation was interrupted', async () => {
+  registerGoalPostTurnSubscriber();
+  const session = makeSession('interrupted');
+  const controller = new AbortController();
+  controller.abort();
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText: 'ship the patch',
+    maxTurns: 5,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+
+  await emitPostTurnEvent({
+    type: 'post_turn',
+    session,
+    req: {
+      source: GOAL_CONTINUATION_SOURCE,
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+      abortSignal: controller.signal,
+    },
+    result: {
+      status: 'success',
+      result: 'This was interrupted while finishing.',
+      toolsUsed: [],
+    },
+    runId: 'turn-interrupted',
+    createdAt: new Date().toISOString(),
+  });
+
+  const goal = getThreadGoal(session.main_session_key);
+  expect(goal?.status).toBe('paused');
+  expect(goal?.turnsUsed).toBe(0);
+  expect(goal?.pausedReason).toBe('user-interrupted');
+  expect(judgeGoalCompletion).not.toHaveBeenCalled();
 });
 
 test('budget hard-stop hook pauses active goals for R5.3 integration', () => {

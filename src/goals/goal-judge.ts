@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   type GoalJudgeEvent,
-  registerGoalJudgeSubscriber,
+  registerJudgeSubscriber,
 } from '../evals/judge-subscriber.js';
 import { isDatabaseInitialized } from '../memory/db.js';
 import { callAuxiliaryModel } from '../providers/auxiliary.js';
@@ -206,19 +206,21 @@ function resolveGoalJudgeRequest(
 export function ensureGoalJudgeSubscriberRegistered(): void {
   if (goalJudgeSubscriberRegistered) return;
   goalJudgeSubscriberRegistered = true;
-  registerGoalJudgeSubscriber({
+  registerJudgeSubscriber({
     id: GOAL_JUDGE_SUBSCRIBER_ID,
+    runtimeEventType: 'goal_judge',
     debounceMs: 0,
     maxQueueSize: 100,
-    sink: async ({ event }) => {
+    runtimeSink: async ({ event }) => {
+      const goalEvent = event as GoalJudgeEvent;
       const result = await judgeGoalCompletionDirect({
-        sessionId: event.session_id,
-        agentId: event.agent_id,
-        threadId: event.thread_id,
-        goalText: event.goal_text,
-        assistantResponse: event.assistant_response,
+        sessionId: goalEvent.session_id,
+        agentId: goalEvent.agent_id,
+        threadId: goalEvent.thread_id,
+        goalText: goalEvent.goal_text,
+        assistantResponse: goalEvent.assistant_response,
       });
-      resolveGoalJudgeRequest(event.request_id, result);
+      resolveGoalJudgeRequest(goalEvent.request_id, result);
     },
   });
 }

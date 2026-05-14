@@ -45,6 +45,7 @@ import {
   type FullAutoRuntimeState,
   getFullAutoRuntimeState,
   getOrCreateFullAutoRuntimeState,
+  hasPendingApproval,
   invalidateFullAutoRuntimeState,
   isCurrentFullAutoRuntimeState,
   isFullAutoEnabled,
@@ -678,12 +679,6 @@ function describeFullAutoRuntimeState(sessionId: string): string {
   if (state.running) return 'running';
   if (state.timer) return 'scheduled';
   return 'armed';
-}
-
-function hasPendingApproval(result: GatewayChatResult): boolean {
-  return (result.toolExecutions || []).some(
-    (execution) => execution.approvalDecision === 'required',
-  );
 }
 
 function startFullAutoWatchdog(params: {
