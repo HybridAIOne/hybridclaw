@@ -83,6 +83,7 @@ function buildGoalJudgeMessages(params: {
         'Be conservative: if there is any meaningful next step, set done to false.',
         'Do not return done true until every explicit completion condition in the goal is satisfied.',
         'If the latest response is an intermediate numbered or counting step and the goal names a later final step, set done to false.',
+        'If the latest response reaches the requested final step and explicitly says the goal is complete, set done to true.',
         'Do not mark the goal done only because the assistant says it will continue later or is blocked.',
       ].join('\n'),
     },
@@ -94,6 +95,26 @@ function buildGoalJudgeMessages(params: {
       }),
     },
   ];
+}
+
+function inferExplicitGoalCompletion(
+  assistantResponse: string,
+): GoalJudgeResult | null {
+  const normalized = assistantResponse
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+  if (
+    /\b(?:the\s+)?goal\s+(?:is\s+)?(?:already\s+)?completed?\b/.test(normalized)
+  ) {
+    return {
+      done: true,
+      reason: 'assistant explicitly stated the goal is complete',
+      parseFailure: false,
+    };
+  }
+  return null;
 }
 
 export function parseGoalJudgeVerdict(content: string): GoalJudgeVerdict {
@@ -185,6 +206,11 @@ async function callGoalJudgeAuxiliaryModel(
 async function judgeGoalCompletionDirect(
   params: JudgeGoalCompletionParams,
 ): Promise<GoalJudgeResult> {
+  const explicitCompletion = inferExplicitGoalCompletion(
+    params.assistantResponse,
+  );
+  if (explicitCompletion) return explicitCompletion;
+
   const messages = buildGoalJudgeMessages({
     goalText: params.goalText,
     assistantResponse: params.assistantResponse,

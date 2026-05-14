@@ -44,6 +44,25 @@ test('goal judge fails open on malformed model output', async () => {
   expect(verdict.parseFailure).toBe(true);
 });
 
+test('goal judge treats explicit completion statements as terminal', async () => {
+  const modelCaller = vi.fn();
+  const verdict = await judgeGoalCompletion({
+    sessionId: 'session-complete',
+    agentId: 'agent-a',
+    goalText:
+      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
+    assistantResponse: '4\n\nGoal complete.',
+    modelCaller,
+  });
+
+  expect(verdict).toEqual({
+    done: true,
+    reason: 'assistant explicitly stated the goal is complete',
+    parseFailure: false,
+  });
+  expect(modelCaller).not.toHaveBeenCalled();
+});
+
 test('goal judge retries without structured response format on empty local output', async () => {
   mocks.callAuxiliaryModel
     .mockRejectedValueOnce(new Error('goal_judge returned an empty response.'))
