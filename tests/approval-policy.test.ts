@@ -1061,10 +1061,20 @@ autonomy:
       argsJson: JSON.stringify({ action: 'list' }),
       latestUserPrompt: 'Which video providers are configured?',
     });
+    const audioList = runtime.evaluateToolCall({
+      toolName: 'audio_transcribe',
+      argsJson: JSON.stringify({ action: 'list' }),
+      latestUserPrompt: 'Which speech-to-text providers are configured?',
+    });
     const imageGenerate = runtime.evaluateToolCall({
       toolName: 'image_generate',
       argsJson: JSON.stringify({ prompt: 'A cinematic product image' }),
       latestUserPrompt: 'Generate an image',
+    });
+    const audioTranscribe = runtime.evaluateToolCall({
+      toolName: 'audio_transcribe',
+      argsJson: JSON.stringify({ audio: '/workspace/clip.wav' }),
+      latestUserPrompt: 'Transcribe this clip',
     });
     const videoGenerate = runtime.evaluateToolCall({
       toolName: 'video_generate',
@@ -1074,8 +1084,12 @@ autonomy:
 
     expect(imageList.tier).toBe('green');
     expect(videoList.tier).toBe('green');
+    expect(audioList.tier).toBe('green');
     expect(imageGenerate.tier).toBe('yellow');
     expect(imageGenerate.implicitDelayMs).toBeUndefined();
+    expect(audioTranscribe.tier).toBe('yellow');
+    expect(audioTranscribe.implicitDelayMs).toBeUndefined();
+    expect(audioTranscribe.reason).toContain('audio transcription may call');
     expect(videoGenerate.tier).toBe('yellow');
     expect(videoGenerate.implicitDelayMs).toBeUndefined();
     expect(videoGenerate.reason).toContain('video generation may call');

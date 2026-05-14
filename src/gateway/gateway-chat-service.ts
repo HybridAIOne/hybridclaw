@@ -42,6 +42,7 @@ import {
   createFreshSessionInstance,
   getTasksForSession,
   logAudit,
+  storeSemanticMemory,
 } from '../memory/db.js';
 import {
   type BuildMemoryPromptResult,
@@ -133,6 +134,51 @@ import {
 } from './show-mode.js';
 
 const MAX_HISTORY_MESSAGES = 40;
+
+function parseToolResultObject(result: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(result) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSpeechTranscriptsToScopedMemory(params: {
+  sessionId: string;
+  skillName: string | null;
+  toolExecutions: Array<{ name: string; result: string; isError?: boolean }>;
+}): void {
+  const scope = params.skillName?.startsWith('speech.')
+    ? `skill:${params.skillName}`
+    : 'skill:speech-to-text';
+  for (const execution of params.toolExecutions) {
+    if (execution.name !== 'audio_transcribe' || execution.isError) continue;
+    const payload = parseToolResultObject(execution.result);
+    if (!payload || payload.success !== true) continue;
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    if (!text) continue;
+    storeSemanticMemory({
+      sessionId: params.sessionId,
+      role: 'assistant',
+      source: 'audio_transcribe',
+      scope,
+      content: text,
+      confidence: 0.95,
+      metadata: {
+        provider: payload.provider,
+        model: payload.model,
+        language: payload.language,
+        duration_sec: payload.duration_sec,
+        cost_usd: payload.cost_usd,
+        segments: payload.segments,
+        artifacts: payload.artifacts,
+      },
+    });
+  }
+}
 
 function formatEscalationRouteNotice(
   approval: PendingApproval,
@@ -1343,6 +1389,11 @@ async function handleGatewayMessageInner(
       explicitSkillName,
       toolExecutions,
       skills,
+    });
+    persistSpeechTranscriptsToScopedMemory({
+      sessionId: req.sessionId,
+      skillName: observedSkillName,
+      toolExecutions,
     });
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,

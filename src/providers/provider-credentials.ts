@@ -35,6 +35,7 @@ function optionalSecretConfig(
 function providerConfig(params: {
   apiKey: string;
   baseUrl?: string;
+  audioModel?: string;
   imageModel?: string;
   videoModel?: string;
 }): ProviderCredential | undefined {
@@ -43,6 +44,7 @@ function providerConfig(params: {
   return {
     apiKey,
     ...(params.baseUrl ? { baseUrl: params.baseUrl } : {}),
+    ...(params.audioModel ? { audioModel: params.audioModel } : {}),
     ...(params.imageModel ? { imageModel: params.imageModel } : {}),
     ...(params.videoModel ? { videoModel: params.videoModel } : {}),
   };
@@ -55,6 +57,7 @@ export function resolveProviderCredentials(): ProviderCredentials {
     openai: providerConfig({
       apiKey: readSecretValue(secrets, ['OPENAI_API_KEY']),
       baseUrl: optionalSecretConfig(secrets, ['OPENAI_BASE_URL']),
+      audioModel: optionalSecretConfig(secrets, ['OPENAI_AUDIO_MODEL']),
       imageModel: optionalSecretConfig(secrets, ['OPENAI_IMAGE_MODEL']),
       videoModel: optionalSecretConfig(secrets, ['OPENAI_VIDEO_MODEL']),
     }),
@@ -76,6 +79,16 @@ export function resolveProviderCredentials(): ProviderCredentials {
       ]),
       baseUrl: optionalSecretConfig(secrets, ['BFL_BASE_URL']),
       imageModel: optionalSecretConfig(secrets, ['BFL_IMAGE_MODEL']),
+    }),
+    deepgram: providerConfig({
+      apiKey: readSecretValue(secrets, ['DEEPGRAM_API_KEY']),
+      baseUrl: optionalSecretConfig(secrets, ['DEEPGRAM_BASE_URL']),
+      audioModel: optionalSecretConfig(secrets, ['DEEPGRAM_AUDIO_MODEL']),
+    }),
+    assemblyai: providerConfig({
+      apiKey: readSecretValue(secrets, ['ASSEMBLYAI_API_KEY']),
+      baseUrl: optionalSecretConfig(secrets, ['ASSEMBLYAI_BASE_URL']),
+      audioModel: optionalSecretConfig(secrets, ['ASSEMBLYAI_AUDIO_MODEL']),
     }),
   };
 }

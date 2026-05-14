@@ -1017,6 +1017,7 @@ async function runHostProcessInner(
     requestHeaders: input.requestHeaders,
     browserProvider: BROWSER_PROVIDER,
     taskModels: input.taskModels,
+    providerCredentials: input.providerCredentials,
     workspacePathOverride: params.workspacePathOverride,
     workspaceDisplayRootOverride: params.workspaceDisplayRootOverride,
     bashProxy: params.bashProxy,

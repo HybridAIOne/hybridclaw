@@ -8,6 +8,10 @@ interface MediaUsageEventInput {
   toolExecutions: ToolExecution[];
 }
 
+const OPENAI_WHISPER_COST_USD_PER_SECOND = 0.006 / 60;
+const DEEPGRAM_NOVA3_COST_USD_PER_SECOND = 0.0077 / 60;
+const ASSEMBLYAI_UNIVERSAL_COST_USD_PER_SECOND = 0.21 / 3600;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -163,6 +167,67 @@ function buildVideoUsageEvent(params: {
   };
 }
 
+function buildAudioUsageEvent(params: {
+  sessionId: string;
+  agentId: string;
+  auditRunId: string;
+  payload: Record<string, unknown>;
+}): TokenUsageEvent | null {
+  if (params.payload.success !== true) return null;
+  const provider = readString(params.payload.provider);
+  const model = readString(params.payload.model);
+  if (!model) return null;
+  const usage = isRecord(params.payload.usage) ? params.payload.usage : {};
+  const audioSeconds = readNumber(
+    params.payload.duration_sec ??
+      params.payload.durationSec ??
+      usage.audio_seconds ??
+      usage.audioSeconds,
+  );
+  if (audioSeconds == null) return null;
+  const explicitCostUsd = readCostUsd(
+    params.payload.cost_usd ?? params.payload.costUsd ?? usage.cost_usd,
+  );
+  const costUsd =
+    explicitCostUsd ??
+    estimateAudioCostUsd({
+      provider,
+      model,
+      audioSeconds,
+    });
+  return {
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    model: mediaModelName(provider, model),
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    toolCalls: 0,
+    ...(costUsd != null ? { costUsd } : {}),
+    auditRunId: params.auditRunId,
+  };
+}
+
+function estimateAudioCostUsd(params: {
+  provider: string;
+  model: string;
+  audioSeconds: number;
+}): number | undefined {
+  const provider = params.provider.toLowerCase();
+  const model = params.model.toLowerCase();
+  let rate: number | undefined;
+  if (provider === 'openai') {
+    rate = OPENAI_WHISPER_COST_USD_PER_SECOND;
+  } else if (provider === 'deepgram' && model.includes('nova')) {
+    rate = DEEPGRAM_NOVA3_COST_USD_PER_SECOND;
+  } else if (provider === 'assemblyai') {
+    rate = ASSEMBLYAI_UNIVERSAL_COST_USD_PER_SECOND;
+  }
+  return rate == null
+    ? undefined
+    : Number((params.audioSeconds * rate).toFixed(6));
+}
+
 export function buildMediaGenerationUsageEvents(
   input: MediaUsageEventInput,
 ): TokenUsageEvent[] {
@@ -179,6 +244,9 @@ export function buildMediaGenerationUsageEvents(
     };
     if (execution.name === 'image_generate') {
       const event = buildImageUsageEvent(params);
+      if (event) events.push(event);
+    } else if (execution.name === 'audio_transcribe') {
+      const event = buildAudioUsageEvent(params);
       if (event) events.push(event);
     } else if (execution.name === 'video_generate') {
       const event = buildVideoUsageEvent(params);
