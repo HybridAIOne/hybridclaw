@@ -18,6 +18,9 @@ import {
 const NPM_E2E = process.env.HYBRIDCLAW_RUN_NPM_E2E === '1';
 const STARTUP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 5_000;
+const BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT = Date.parse(
+  '2026-05-20T08:35:12.000Z',
+);
 
 let tempDir: string;
 let gatewayProcess: ChildProcess | null = null;
@@ -44,6 +47,35 @@ function installedCliPath(): string {
   );
 }
 
+function npmMinReleaseAgeArg(): string {
+  // Baileys 7.0.0-rc11 was published on 2026-05-13T08:35:11Z. The bypass is
+  // only needed until npm's seven-day age gate can see that pinned version.
+  return Date.now() < BAILEYS_RC11_MIN_RELEASE_AGE_EXPIRES_AT
+    ? '--min-release-age=0 '
+    : '';
+}
+
+function verifyPnpmInstallBlocksExoticSubdeps(tarball: string): void {
+  const pnpmHome = path.join(tempDir, 'pnpm-home');
+  const pnpmGlobalDir = path.join(tempDir, 'pnpm-global');
+  fs.mkdirSync(pnpmHome, { recursive: true });
+  fs.mkdirSync(pnpmGlobalDir, { recursive: true });
+
+  execSync(
+    `npx --yes pnpm@10.23.0 add -g "${tarball}" --config.block-exotic-subdeps=true --global-dir "${pnpmGlobalDir}" --dir "${tempDir}"`,
+    {
+      encoding: 'utf-8',
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        HOME: tempDir,
+        PATH: `${pnpmHome}${path.delimiter}${process.env.PATH ?? ''}`,
+        PNPM_HOME: pnpmHome,
+      },
+    },
+  );
+}
+
 describe.skipIf(!NPM_E2E)('npm install user journey', () => {
   beforeAll(async () => {
     HOST_PORT = await getAvailablePort(9198);
@@ -65,11 +97,16 @@ describe.skipIf(!NPM_E2E)('npm install user journey', () => {
     }
     const tarball = path.join(tempDir, tarballName);
 
-    execSync(`npm install -g "${tarball}" --prefix "${npmPrefix()}"`, {
-      encoding: 'utf-8',
-      timeout: 120_000,
-      env: { ...process.env, HOME: tempDir },
-    });
+    verifyPnpmInstallBlocksExoticSubdeps(tarball);
+
+    execSync(
+      `npm ${npmMinReleaseAgeArg()}install -g "${tarball}" --prefix "${npmPrefix()}"`,
+      {
+        encoding: 'utf-8',
+        timeout: 120_000,
+        env: { ...process.env, HOME: tempDir },
+      },
+    );
 
     fs.writeFileSync(
       path.join(dataDir(), 'config.json'),

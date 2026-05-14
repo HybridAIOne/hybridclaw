@@ -296,6 +296,8 @@ hybridclaw secret route remove <url-prefix> [header]
 hybridclaw channels discord setup [--token <token>] [--allow-user-id <snowflake>]... [--prefix <prefix>]
 hybridclaw channels slack manifest [--format <yaml|json>]
 hybridclaw channels slack register-commands [--app-id <A...>] [--config-token <xoxe-...>]
+hybridclaw channels slack_webhook setup --webhook-url <https://hooks.slack.com/services/...> [--target default] [--default-username <name>] [--default-icon-emoji <:emoji:>] [--default-icon-url <url>]
+hybridclaw channel add slack_webhook --webhook-url <https://hooks.slack.com/services/...> [--target default]
 hybridclaw channels telegram setup [--token <token>] [--allow-from <user-id|@username|*>]... [--group-allow-from <user-id|@username|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--poll-interval-ms <ms>] [--text-chunk-limit <chars>] [--media-max-mb <mb>] [--require-mention|--no-require-mention]
 hybridclaw channels signal setup [--daemon-url <url>] --account <+E164|uuid> [--allow-from <+E164|uuid|*>]... [--group-allow-from <+E164|uuid|*>]... [--dm-policy <open|allowlist|disabled>] [--group-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--reconnect-interval-ms <ms>] [--outbound-delay-ms <ms>]
 hybridclaw channels threema setup --identity <gateway-id> [--secret <gateway-secret>] [--api-base-url <url>] [--allow-from <threema-target|*>]... [--dm-policy <open|allowlist|disabled>] [--text-chunk-limit <chars>] [--outbound-delay-ms <ms>]
@@ -308,10 +310,12 @@ hybridclaw auth login msteams [--app-id <id>|--client-id <id>] [--app-password <
 hybridclaw auth login slack [--bot-token <xoxb...>] [--app-token <xapp...>]
 ```
 
-Microsoft Teams and Slack setup use `auth login` instead of `channels setup`
-because they need app credentials rather than a local pairing flow. Threema
-uses Gateway Basic mode for outbound text delivery. For the step-by-step setup
-guides, see [Channels: Overview](../channels/overview.md) and
+Microsoft Teams and full Slack setup use `auth login` instead of
+`channels setup` because they need app credentials rather than a local pairing
+flow. Slack Incoming Webhook setup is outbound-only and stores each webhook URL
+as an encrypted runtime secret. Threema uses Gateway Basic mode for outbound
+text delivery. For the step-by-step setup guides, see
+[Channels: Overview](../channels/overview.md) and
 [Connect Your First Channel](../getting-started/first-channel.md).
 Twilio voice is configured through `/admin/channels` or direct `voice.*`
 config keys, then inspected or used for outbound dialing with
