@@ -51,6 +51,9 @@
       "whatsapp": [],
       "email": []
     },
+    "speechToText": {
+      "defaultProvider": "auto"
+    },
     "installed": []
   },
   "tools": {

@@ -184,15 +184,21 @@ export type { WebSearchConfig } from '../shared/web-search-config.js';
 export interface ProviderCredential {
   apiKey?: string;
   baseUrl?: string;
+  audioModel?: string;
   imageModel?: string;
   videoModel?: string;
 }
 
 export interface ProviderCredentials {
+  speechToText?: {
+    defaultProvider?: string;
+  };
   openai?: ProviderCredential;
   gemini?: ProviderCredential;
   xai?: ProviderCredential;
   bfl?: ProviderCredential;
+  deepgram?: ProviderCredential;
+  assemblyai?: ProviderCredential;
 }
 
 export interface ContainerInput {

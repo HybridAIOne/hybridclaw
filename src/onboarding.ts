@@ -113,6 +113,7 @@ const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 
 type TerminalTheme = 'dark' | 'light';
+type SpeechToTextProvider = 'openai' | 'deepgram' | 'assemblyai';
 
 interface ThemePalette {
   muted: string;
@@ -623,6 +624,79 @@ async function promptYesNo(
   if (raw === 'y' || raw === 'yes') return true;
   if (raw === 'n' || raw === 'no') return false;
   return defaultYes;
+}
+
+const SPEECH_TO_TEXT_SECRET_BY_PROVIDER: Record<SpeechToTextProvider, string> =
+  {
+    openai: 'OPENAI_API_KEY',
+    deepgram: 'DEEPGRAM_API_KEY',
+    assemblyai: 'ASSEMBLYAI_API_KEY',
+  };
+
+const SPEECH_TO_TEXT_LABEL_BY_PROVIDER: Record<SpeechToTextProvider, string> = {
+  openai: 'OpenAI',
+  deepgram: 'Deepgram',
+  assemblyai: 'AssemblyAI',
+};
+
+function resolveSpeechToTextOnboardingProvider(): SpeechToTextProvider | null {
+  const config = getRuntimeConfig();
+  const provider = config.skills.speechToText.defaultProvider;
+  if (
+    provider !== 'openai' &&
+    provider !== 'deepgram' &&
+    provider !== 'assemblyai'
+  ) {
+    return null;
+  }
+  const disabledSkills = new Set(config.skills.disabled);
+  if (
+    disabledSkills.has('speech.transcribe') &&
+    disabledSkills.has('speech.detect-language')
+  ) {
+    return null;
+  }
+  return provider;
+}
+
+function hasRuntimeSecret(secretName: string): boolean {
+  return (
+    Boolean((process.env[secretName] || '').trim()) ||
+    Boolean(readStoredRuntimeSecret(secretName))
+  );
+}
+
+async function maybeRunSpeechToTextProviderOnboarding(
+  rl: readline.Interface,
+): Promise<void> {
+  const provider = resolveSpeechToTextOnboardingProvider();
+  if (!provider) return;
+  const secretName = SPEECH_TO_TEXT_SECRET_BY_PROVIDER[provider];
+  if (hasRuntimeSecret(secretName)) return;
+
+  const label = SPEECH_TO_TEXT_LABEL_BY_PROVIDER[provider];
+  const shouldConfigure = await promptYesNo(
+    rl,
+    `Configure ${label} speech-to-text credentials now?`,
+    true,
+    ICON_KEYBOARD,
+  );
+  if (!shouldConfigure) {
+    printInfo(
+      `${label} speech-to-text is enabled as the default provider, but ${secretName} is not configured.`,
+    );
+    return;
+  }
+
+  const apiKey = await promptRequired(
+    rl,
+    `${label} API key for speech-to-text: `,
+    ICON_KEY,
+    true,
+  );
+  saveRuntimeSecrets({ [secretName]: apiKey });
+  refreshRuntimeSecretsFromEnv();
+  printSuccess(`${label} speech-to-text credentials saved.`);
 }
 
 async function chooseDefaultBot(
@@ -1565,6 +1639,7 @@ export async function ensureRuntimeCredentials(
     !needsSecurityAcceptance &&
     (hasRequiredCredentials || !requireCredentials)
   ) {
+    if (rl) await maybeRunSpeechToTextProviderOnboarding(rl);
     await maybeBackfillDefaultHybridAIChatbotId({
       authMethod: currentAuth,
       existingKey,
@@ -1695,6 +1770,8 @@ export async function ensureRuntimeCredentials(
                 ? !!refreshedExistingHuggingFaceKey
                 : !!refreshedExistingKey;
 
+    await maybeRunSpeechToTextProviderOnboarding(rl);
+
     if (refreshedProviderIsLocal && !options.preferredAuth) {
       printSuccess(
         'Security trust model accepted and the active model provider is local. No remote credentials are required.',
@@ -1725,6 +1802,7 @@ export async function ensureRuntimeCredentials(
     }
     if (authMethod === 'openai-codex') {
       await runCodexOnboarding({ rl, commandLabel });
+      await maybeRunSpeechToTextProviderOnboarding(rl);
       return;
     }
     if (authMethod === 'anthropic') {
@@ -1736,6 +1814,7 @@ export async function ensureRuntimeCredentials(
           readStoredRuntimeSecret('ANTHROPIC_API_KEY') ||
           '',
       });
+      await maybeRunSpeechToTextProviderOnboarding(rl);
       return;
     }
     if (authMethod === 'openrouter') {
@@ -1744,6 +1823,7 @@ export async function ensureRuntimeCredentials(
         commandLabel,
         existingKey: refreshedExistingOpenRouterKey,
       });
+      await maybeRunSpeechToTextProviderOnboarding(rl);
       return;
     }
     if (authMethod === 'mistral') {
@@ -1752,6 +1832,7 @@ export async function ensureRuntimeCredentials(
         commandLabel,
         existingKey: refreshedExistingMistralKey,
       });
+      await maybeRunSpeechToTextProviderOnboarding(rl);
       return;
     }
     if (authMethod === 'huggingface') {
@@ -1760,6 +1841,7 @@ export async function ensureRuntimeCredentials(
         commandLabel,
         existingKey: refreshedExistingHuggingFaceKey,
       });
+      await maybeRunSpeechToTextProviderOnboarding(rl);
       return;
     }
 
@@ -1773,6 +1855,7 @@ export async function ensureRuntimeCredentials(
       commandLabel,
       existingKey: refreshedExistingKey,
     });
+    await maybeRunSpeechToTextProviderOnboarding(rl);
   } finally {
     rl?.close();
   }

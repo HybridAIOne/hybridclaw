@@ -12,6 +12,7 @@ import {
   currentDateStampInTimezone,
   readUserTimezoneFile,
 } from '../shared/workspace-time.js';
+import { runAudioTranscribe } from './audio-transcribe.js';
 import {
   BROWSER_TOOL_DEFINITIONS,
   executeBrowserTool,
@@ -816,7 +817,8 @@ export function setModelContext(
 export function setProviderCredentials(
   credentials?: ProviderCredentials,
 ): void {
-  currentProviderCredentials = credentials ? { ...credentials } : {};
+  if (!credentials) return;
+  currentProviderCredentials = { ...credentials };
 }
 
 export function setTaskModelPolicies(taskModels?: TaskModelPolicies): void {
@@ -3492,6 +3494,24 @@ async function executeToolInternal(
       }
     }
 
+    case 'audio_transcribe': {
+      try {
+        return await runAudioTranscribe(args, {
+          provider: currentModelProvider,
+          baseUrl: currentModelBaseUrl,
+          apiKey: currentModelApiKey,
+          model: currentModelName,
+          requestHeaders: currentModelHeaders,
+          media: currentMediaContext,
+          providerCredentials: currentProviderCredentials,
+        });
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'video_generate': {
       try {
         return await runVideoGenerate(args, {
@@ -4518,6 +4538,65 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           count: {
             type: 'number',
             description: 'Number of images to generate, capped at 4.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'audio_transcribe',
+      description:
+        'Transcribe an audio attachment, local audio file, or HTTPS audio URL with a configured speech-to-text provider. Use action="list" to inspect provider readiness.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list', 'detect-language'],
+            description:
+              'Use "list" to show configured speech-to-text providers, or "detect-language" to identify the dominant spoken language.',
+          },
+          provider: {
+            type: 'string',
+            description:
+              'Optional provider override: auto, openai, whisper, deepgram, or assemblyai.',
+          },
+          audio: {
+            type: 'string',
+            description:
+              'Audio path, attachment filename/ref, or HTTPS URL. If omitted, exactly one current audio attachment is used.',
+          },
+          audio_url: {
+            type: 'string',
+            description: 'Alias for audio when passing an HTTPS audio URL.',
+          },
+          path: {
+            type: 'string',
+            description: 'Alias for audio when passing a local audio path.',
+          },
+          language: {
+            type: 'string',
+            description:
+              'Optional ISO language hint. Omit for provider language detection.',
+          },
+          prompt: {
+            type: 'string',
+            description:
+              'Optional transcription prompt/context for names, terms, or style.',
+          },
+          timestamps: {
+            type: 'string',
+            enum: ['segment', 'word', 'none'],
+            description:
+              'Timestamp granularity. Segment is the default; word requests word-level timestamps when the provider supports them.',
+          },
+          diarization: {
+            type: 'boolean',
+            description:
+              'Request speaker labels when supported by the selected provider.',
           },
         },
         required: [],

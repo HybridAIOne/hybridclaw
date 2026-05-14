@@ -108,3 +108,35 @@ test('computeWorkerSignature changes when auxiliary task routing changes', () =>
     }),
   ).not.toBe(baseline);
 });
+
+test('computeWorkerSignature changes when provider credentials change', () => {
+  const baseline = computeWorkerSignature({
+    agentId: 'main',
+    provider: 'openai-codex',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: 'main-secret',
+    requestHeaders: {},
+    providerCredentials: {
+      openai: {
+        apiKey: 'provider-secret',
+        audioModel: 'whisper-1',
+      },
+    },
+  });
+
+  expect(
+    computeWorkerSignature({
+      agentId: 'main',
+      provider: 'openai-codex',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'main-secret',
+      requestHeaders: {},
+      providerCredentials: {
+        openai: {
+          apiKey: 'provider-secret',
+          audioModel: 'gpt-4o-mini-transcribe',
+        },
+      },
+    }),
+  ).not.toBe(baseline);
+});

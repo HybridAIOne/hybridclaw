@@ -35,15 +35,21 @@ export type { WebSearchConfig } from '../../container/shared/web-search-config.j
 export interface ProviderCredential {
   apiKey?: string;
   baseUrl?: string;
+  audioModel?: string;
   imageModel?: string;
   videoModel?: string;
 }
 
 export interface ProviderCredentials {
+  speechToText?: {
+    defaultProvider?: string;
+  };
   openai?: ProviderCredential;
   gemini?: ProviderCredential;
   xai?: ProviderCredential;
   bfl?: ProviderCredential;
+  deepgram?: ProviderCredential;
+  assemblyai?: ProviderCredential;
 }
 
 export interface ContainerInput {

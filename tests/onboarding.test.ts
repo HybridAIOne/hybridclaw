@@ -10,6 +10,7 @@ const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_DISABLE_CONFIG_WATCHER =
   process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER;
 const ORIGINAL_HYBRIDAI_API_KEY = process.env.HYBRIDAI_API_KEY;
+const ORIGINAL_DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 const ORIGINAL_STDIN_IS_TTY = process.stdin.isTTY;
 const ORIGINAL_STDOUT_IS_TTY = process.stdout.isTTY;
 const ORIGINAL_CWD = process.cwd();
@@ -141,6 +142,8 @@ afterEach(() => {
   vi.doUnmock('node:readline/promises');
   vi.doUnmock('../src/security/runtime-secrets.ts');
   vi.doUnmock('../src/security/runtime-secrets-bootstrap.ts');
+  vi.doUnmock('../src/utils/secret-prompt.js');
+  vi.doUnmock('../src/utils/secret-prompt.ts');
   vi.doUnmock('../src/migration/agent-home-migration.js');
   vi.resetModules();
   if (ORIGINAL_HOME === undefined) {
@@ -158,6 +161,11 @@ afterEach(() => {
     delete process.env.HYBRIDAI_API_KEY;
   } else {
     process.env.HYBRIDAI_API_KEY = ORIGINAL_HYBRIDAI_API_KEY;
+  }
+  if (ORIGINAL_DEEPGRAM_API_KEY === undefined) {
+    delete process.env.DEEPGRAM_API_KEY;
+  } else {
+    process.env.DEEPGRAM_API_KEY = ORIGINAL_DEEPGRAM_API_KEY;
   }
   Object.defineProperty(process.stdin, 'isTTY', {
     value: ORIGINAL_STDIN_IS_TTY,
@@ -652,6 +660,95 @@ test('interactive onboarding lets users skip remote auth for local models', asyn
     'hybridclaw auth login local llamacpp --base-url http://127.0.0.1:8081',
   );
   expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+test('interactive onboarding prompts for configured speech-to-text provider credentials', async () => {
+  const homeDir = makeTempHome();
+  writeRuntimeConfig(homeDir, (config) => {
+    config.local.backends.ollama.enabled = false;
+    config.local.backends.lmstudio.enabled = true;
+    config.local.backends.lmstudio.baseUrl = 'http://127.0.0.1:1234/v1';
+    config.local.backends.vllm.enabled = false;
+    config.hybridai.defaultModel = 'lmstudio/qwen/qwen3.5-9b';
+    config.skills.speechToText = { defaultProvider: 'deepgram' };
+  });
+
+  process.env.HOME = homeDir;
+  process.env.HYBRIDCLAW_DISABLE_CONFIG_WATCHER = '1';
+  delete process.env.HYBRIDAI_API_KEY;
+  delete process.env.DEEPGRAM_API_KEY;
+  process.chdir(homeDir);
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: true,
+    configurable: true,
+  });
+
+  const answers = ['y'];
+  vi.doMock('node:readline/promises', () => ({
+    default: {
+      createInterface: () => ({
+        question: vi.fn(async (prompt: string) => {
+          const answer = answers.shift();
+          if (answer === undefined) {
+            throw new Error(`Unexpected onboarding prompt: ${prompt}`);
+          }
+          return answer;
+        }),
+        close: vi.fn(),
+      }),
+    },
+  }));
+  vi.doMock('../src/utils/secret-prompt.js', () => ({
+    promptForSecretInput: vi.fn(async () => 'dg-test-key'),
+  }));
+  vi.doMock('../src/security/runtime-secrets.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets.ts')
+    >('../src/security/runtime-secrets.ts');
+    return {
+      ...actual,
+      loadRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.loadRuntimeSecrets(targetHomeDir ?? homeDir, homeDir),
+    };
+  });
+  vi.doMock('../src/security/runtime-secrets-bootstrap.ts', async () => {
+    const actual = await vi.importActual<
+      typeof import('../src/security/runtime-secrets-bootstrap.ts')
+    >('../src/security/runtime-secrets-bootstrap.ts');
+    return {
+      ...actual,
+      bootstrapRuntimeSecrets: (targetHomeDir?: string) =>
+        actual.bootstrapRuntimeSecrets(targetHomeDir ?? homeDir),
+    };
+  });
+  vi.resetModules();
+
+  const runtimeConfig = await import('../src/config/runtime-config.ts');
+  runtimeConfig.acceptSecurityTrustModel({
+    acceptedAt: '2026-03-10T10:00:00.000Z',
+    acceptedBy: 'test',
+  });
+
+  const lines: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((value) => String(value)).join(' '));
+  });
+  const onboarding = await import('../src/onboarding.ts');
+  await onboarding.ensureRuntimeCredentials({
+    commandName: 'hybridclaw onboarding',
+  });
+
+  const runtimeSecrets = await import('../src/security/runtime-secrets.ts');
+  expect(runtimeSecrets.readStoredRuntimeSecret('DEEPGRAM_API_KEY')).toBe(
+    'dg-test-key',
+  );
+  expect(lines.join('\n')).toContain(
+    'Deepgram speech-to-text credentials saved.',
+  );
 });
 
 test('interactive HybridAI onboarding defaults the saved bot to the account chatbot id', async () => {

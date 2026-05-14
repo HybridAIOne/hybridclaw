@@ -146,4 +146,66 @@ describe('media generation usage accounting', () => {
       }),
     );
   });
+
+  test('builds an audio transcription usage event from duration and cost', () => {
+    const events = buildMediaGenerationUsageEvents({
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      auditRunId: 'run-1',
+      toolExecutions: [
+        {
+          name: 'audio_transcribe',
+          arguments: '{}',
+          result: JSON.stringify({
+            success: true,
+            provider: 'openai',
+            model: 'whisper-1',
+            text: 'Hello world.',
+            duration_sec: 12.5,
+            cost_usd: 0.00125,
+          }),
+          durationMs: 100,
+        },
+      ],
+    });
+
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        model: 'openai/whisper-1',
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        costUsd: 0.00125,
+      }),
+    );
+  });
+
+  test('estimates non-OpenAI audio transcription cost when provider omits it', () => {
+    const events = buildMediaGenerationUsageEvents({
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      auditRunId: 'run-1',
+      toolExecutions: [
+        {
+          name: 'audio_transcribe',
+          arguments: '{}',
+          result: JSON.stringify({
+            success: true,
+            provider: 'assemblyai',
+            model: 'universal',
+            text: 'Hello world.',
+            duration_sec: 60,
+          }),
+          durationMs: 100,
+        },
+      ],
+    });
+
+    expect(events[0]).toEqual(
+      expect.objectContaining({
+        model: 'assemblyai/universal',
+        costUsd: 0.0035,
+      }),
+    );
+  });
 });

@@ -808,6 +808,16 @@ export interface RuntimeSkillAutonomyConfig {
   rules: RuntimeSkillAutonomyRule[];
 }
 
+export type RuntimeSpeechToTextProvider =
+  | 'auto'
+  | 'openai'
+  | 'deepgram'
+  | 'assemblyai';
+
+export interface RuntimeSpeechToTextSkillConfig {
+  defaultProvider: RuntimeSpeechToTextProvider;
+}
+
 export interface RuntimeSkillCredentialManifest {
   id: string;
   env?: string;
@@ -864,6 +874,7 @@ export interface RuntimeConfig {
     channelDisabled?: Partial<Record<SkillConfigChannelKind, string[]>>;
     externalDiscovered: string[];
     autonomy: RuntimeSkillAutonomyConfig;
+    speechToText: RuntimeSpeechToTextSkillConfig;
     installed: RuntimeInstalledSkillManifest[];
   };
   tools: {
@@ -1286,6 +1297,9 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     autonomy: {
       defaultLevel: 'confirm-each',
       rules: [],
+    },
+    speechToText: {
+      defaultProvider: 'auto',
     },
     installed: [],
   },
@@ -2235,6 +2249,39 @@ function normalizeSkillLifecycleStatus(
   return normalized === 'disabled' || normalized === 'uninstalled'
     ? normalized
     : 'enabled';
+}
+
+function normalizeSpeechToTextProvider(
+  value: unknown,
+  fallback: RuntimeSpeechToTextProvider,
+): RuntimeSpeechToTextProvider {
+  const normalized = normalizeString(value, fallback, {
+    allowEmpty: false,
+  }).toLowerCase();
+  if (
+    normalized === 'openai' ||
+    normalized === 'whisper' ||
+    normalized === 'openai-whisper'
+  ) {
+    return 'openai';
+  }
+  if (normalized === 'deepgram' || normalized === 'assemblyai') {
+    return normalized;
+  }
+  return fallback;
+}
+
+function normalizeSpeechToTextSkillConfig(
+  value: unknown,
+  fallback: RuntimeSpeechToTextSkillConfig,
+): RuntimeSpeechToTextSkillConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    defaultProvider: normalizeSpeechToTextProvider(
+      raw.defaultProvider ?? raw.default_provider,
+      fallback.defaultProvider,
+    ),
+  };
 }
 
 function normalizeRuntimeSkillCredentialManifests(
@@ -5702,6 +5749,7 @@ function normalizeRuntimeConfig(
   const rawBrowser = isRecord(raw.browser) ? raw.browser : {};
   const rawAgents = isRecord(raw.agents) ? raw.agents : {};
   const rawSkills = isRecord(raw.skills) ? raw.skills : {};
+  const rawSkillsRecord = rawSkills as Record<string, unknown>;
   const rawPlugins = isRecord(raw.plugins) ? raw.plugins : {};
   const rawAdaptiveSkills = isRecord(raw.adaptiveSkills)
     ? raw.adaptiveSkills
@@ -6109,6 +6157,10 @@ function normalizeRuntimeConfig(
       autonomy: normalizeSkillAutonomyConfig(
         rawSkills.autonomy,
         DEFAULT_RUNTIME_CONFIG.skills.autonomy,
+      ),
+      speechToText: normalizeSpeechToTextSkillConfig(
+        rawSkills.speechToText ?? rawSkillsRecord.speech_to_text,
+        DEFAULT_RUNTIME_CONFIG.skills.speechToText,
       ),
       installed: normalizeRuntimeInstalledSkillManifests(rawSkills.installed),
     },

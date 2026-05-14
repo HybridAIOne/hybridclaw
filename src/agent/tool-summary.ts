@@ -64,6 +64,10 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: ['vision_analyze'],
   },
   {
+    label: 'Audio Transcription',
+    tools: ['audio_transcribe'],
+  },
+  {
     label: 'Image Generation',
     tools: ['image_generate'],
   },

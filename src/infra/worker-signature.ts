@@ -1,3 +1,4 @@
+import type { ProviderCredentials } from '../types/container.js';
 import { TASK_MODEL_KEYS, type TaskModelKey } from '../types/models.js';
 
 interface WorkerSignatureTaskModel {
@@ -24,6 +25,7 @@ export interface WorkerSignatureInput {
   requestHeaders: Record<string, string> | undefined;
   browserProvider?: string;
   taskModels?: Partial<Record<TaskModelKey, WorkerSignatureTaskModel>>;
+  providerCredentials?: ProviderCredentials;
   workspacePathOverride?: string;
   workspaceDisplayRootOverride?: string;
   bashProxy?:
@@ -70,6 +72,40 @@ function normalizeTaskModel(
   };
 }
 
+function normalizeProviderCredentials(
+  credentials: ProviderCredentials | undefined,
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+  if (credentials?.speechToText) {
+    normalized.speechToText = {
+      defaultProvider: String(credentials.speechToText.defaultProvider || '')
+        .trim()
+        .toLowerCase(),
+    };
+  }
+  for (const provider of [
+    'openai',
+    'gemini',
+    'xai',
+    'bfl',
+    'deepgram',
+    'assemblyai',
+  ] as const) {
+    const credential = credentials?.[provider];
+    if (!credential) continue;
+    normalized[provider] = {
+      apiKey: String(credential.apiKey || ''),
+      baseUrl: String(credential.baseUrl || '')
+        .trim()
+        .replace(/\/+$/g, ''),
+      audioModel: String(credential.audioModel || '').trim(),
+      imageModel: String(credential.imageModel || '').trim(),
+      videoModel: String(credential.videoModel || '').trim(),
+    };
+  }
+  return normalized;
+}
+
 export function computeWorkerSignature(input: WorkerSignatureInput): string {
   const normalizedHeaders = normalizeHeaders(input.requestHeaders);
   const taskModels = Object.fromEntries(
@@ -90,6 +126,9 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     requestHeaders: normalizedHeaders,
     browserProvider: String(input.browserProvider || '').trim(),
     taskModels,
+    providerCredentials: normalizeProviderCredentials(
+      input.providerCredentials,
+    ),
     workspacePathOverride: String(input.workspacePathOverride || '').trim(),
     workspaceDisplayRootOverride: String(
       input.workspaceDisplayRootOverride || '',

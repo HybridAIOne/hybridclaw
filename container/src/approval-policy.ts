@@ -344,7 +344,11 @@ const IMPLICIT_DELAY_BROWSER_INPUT_TOOLS = new Set([
   'browser_secret_type',
   'browser_upload',
 ]);
-const NO_IMPLICIT_DELAY_TOOLS = new Set(['image_generate', 'video_generate']);
+const NO_IMPLICIT_DELAY_TOOLS = new Set([
+  'audio_transcribe',
+  'image_generate',
+  'video_generate',
+]);
 const MAX_PROMPT_CHARS = 1_200;
 const MAX_COMMAND_PREVIEW_CHARS = 160;
 const SCRATCH_ROOTS = Array.from(
@@ -3069,6 +3073,53 @@ export class TrustedAgentApprovalRuntime {
         commandPreview: normalizePreview(JSON.stringify(args)),
         pathHints: [],
         hostHints: [],
+        writeIntent: true,
+        promotableRed: false,
+        stickyYellow: true,
+      };
+    }
+
+    if (lowerTool === 'audio_transcribe') {
+      const action = normalizeText(args.action).toLowerCase();
+      if (action === 'list') {
+        return {
+          tier: 'green',
+          actionKey: lowerTool,
+          intent: 'list speech-to-text providers',
+          consequenceIfDenied:
+            'I will continue without checking speech-to-text provider readiness.',
+          reason: 'this action only reports local provider readiness',
+          commandPreview: normalizePreview(JSON.stringify(args)),
+          pathHints: [],
+          hostHints: [],
+          writeIntent: false,
+          promotableRed: false,
+          stickyYellow: false,
+        };
+      }
+      const rawAudio =
+        normalizeText(args.audio) ||
+        normalizeText(args.audio_url) ||
+        normalizeText(args.path);
+      let hostHints: string[] = [];
+      try {
+        const parsed = rawAudio ? new URL(rawAudio) : null;
+        hostHints = parsed?.hostname
+          ? [normalizeHostScope(parsed.hostname)]
+          : [];
+      } catch {
+        hostHints = [];
+      }
+      return {
+        tier: 'yellow',
+        actionKey: lowerTool,
+        intent: 'transcribe audio media',
+        consequenceIfDenied: 'I will continue without transcribing the audio.',
+        reason:
+          'audio transcription may call a configured external provider and writes transcript artifacts into the workspace',
+        commandPreview: normalizePreview(JSON.stringify(args)),
+        pathHints: rawAudio ? [rawAudio] : [],
+        hostHints,
         writeIntent: true,
         promotableRed: false,
         stickyYellow: true,

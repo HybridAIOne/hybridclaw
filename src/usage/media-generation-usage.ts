@@ -1,3 +1,4 @@
+import { estimateAudioTranscriptionCostUsd } from '../../container/shared/audio-transcription-pricing.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageEvent } from './token-usage-buffer.js';
 
@@ -163,6 +164,47 @@ function buildVideoUsageEvent(params: {
   };
 }
 
+function buildAudioUsageEvent(params: {
+  sessionId: string;
+  agentId: string;
+  auditRunId: string;
+  payload: Record<string, unknown>;
+}): TokenUsageEvent | null {
+  if (params.payload.success !== true) return null;
+  const provider = readString(params.payload.provider);
+  const model = readString(params.payload.model);
+  if (!model) return null;
+  const usage = isRecord(params.payload.usage) ? params.payload.usage : {};
+  const audioSeconds = readNumber(
+    params.payload.duration_sec ??
+      params.payload.durationSec ??
+      usage.audio_seconds ??
+      usage.audioSeconds,
+  );
+  if (audioSeconds == null) return null;
+  const explicitCostUsd = readCostUsd(
+    params.payload.cost_usd ?? params.payload.costUsd ?? usage.cost_usd,
+  );
+  const costUsd =
+    explicitCostUsd ??
+    estimateAudioTranscriptionCostUsd({
+      provider,
+      model,
+      audioSeconds,
+    });
+  return {
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    model: mediaModelName(provider, model),
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    toolCalls: 0,
+    ...(costUsd != null ? { costUsd } : {}),
+    auditRunId: params.auditRunId,
+  };
+}
+
 export function buildMediaGenerationUsageEvents(
   input: MediaUsageEventInput,
 ): TokenUsageEvent[] {
@@ -179,6 +221,9 @@ export function buildMediaGenerationUsageEvents(
     };
     if (execution.name === 'image_generate') {
       const event = buildImageUsageEvent(params);
+      if (event) events.push(event);
+    } else if (execution.name === 'audio_transcribe') {
+      const event = buildAudioUsageEvent(params);
       if (event) events.push(event);
     } else if (execution.name === 'video_generate') {
       const event = buildVideoUsageEvent(params);
