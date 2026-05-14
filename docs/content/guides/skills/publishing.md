@@ -9,7 +9,7 @@ sidebar_position: 8
 ## diagram
 
 Create, validate, update, and render diagram-as-code artifacts through the
-native `diagram.create`, `diagram.update`, and `diagram.validate` tools.
+native `diagram_create`, `diagram_update`, and `diagram_validate` tools.
 Mermaid is the default format, with PlantUML, Graphviz DOT, and Excalidraw JSON
 available when the diagram shape or user request calls for them.
 

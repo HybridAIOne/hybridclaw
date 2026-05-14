@@ -5,9 +5,6 @@ import {
 import type { ToolExecution } from '../types/execution.js';
 
 const DIAGRAM_TOOL_NAMES = new Set([
-  'diagram.create',
-  'diagram.update',
-  'diagram.validate',
   'diagram_create',
   'diagram_update',
   'diagram_validate',

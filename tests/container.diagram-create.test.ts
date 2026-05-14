@@ -114,11 +114,11 @@ describe('diagram tools', () => {
     }
   });
 
-  test('dotted diagram tool aliases execute and remain schema-visible', async () => {
+  test('diagram tool names are schema-visible', async () => {
     const { executeToolWithMetadata, TOOL_DEFINITIONS } = await loadTools();
 
     const result = await executeToolWithMetadata(
-      'diagram.create',
+      'diagram_create',
       JSON.stringify({
         description: 'request pipeline',
         type: 'flowchart',
@@ -134,11 +134,11 @@ describe('diagram tools', () => {
     expect(result.isError).toBe(false);
     expect(parsed.success).toBe(true);
     expect(parsed.type).toBe('flowchart');
-    expect(TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual(
+    const advertisedToolNames = TOOL_DEFINITIONS.map(
+      (tool) => tool.function.name,
+    );
+    expect(advertisedToolNames).toEqual(
       expect.arrayContaining([
-        'diagram.create',
-        'diagram.update',
-        'diagram.validate',
         'diagram_create',
         'diagram_update',
         'diagram_validate',
@@ -638,7 +638,15 @@ describe('diagram tools', () => {
 
     expect(requiredByName.get('diagram_create')).toEqual([]);
     expect(requiredByName.get('diagram_update')).toEqual([]);
-    expect(requiredByName.get('diagram.create')).toEqual([]);
-    expect(requiredByName.get('diagram.update')).toEqual([]);
+  });
+
+  test('advertised tool names are OpenAI-compatible function names', async () => {
+    const { TOOL_DEFINITIONS } = await loadTools();
+
+    expect(
+      TOOL_DEFINITIONS.map((tool) => tool.function.name).filter(
+        (name) => !/^[A-Za-z0-9_-]+$/.test(name),
+      ),
+    ).toEqual([]);
   });
 });

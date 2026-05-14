@@ -3534,7 +3534,6 @@ async function executeToolInternal(
       }
     }
 
-    case 'diagram.create':
     case 'diagram_create': {
       try {
         return await runDiagramTool(
@@ -3549,7 +3548,6 @@ async function executeToolInternal(
       }
     }
 
-    case 'diagram.update':
     case 'diagram_update': {
       try {
         return await runDiagramTool(
@@ -3564,7 +3562,6 @@ async function executeToolInternal(
       }
     }
 
-    case 'diagram.validate':
     case 'diagram_validate': {
       try {
         return await runDiagramTool('validate', args);
@@ -4940,24 +4937,3 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
-
-const DIAGRAM_TOOL_ALIASES: Record<string, string> = {
-  diagram_create: 'diagram.create',
-  diagram_update: 'diagram.update',
-  diagram_validate: 'diagram.validate',
-};
-
-for (const [legacyName, aliasName] of Object.entries(DIAGRAM_TOOL_ALIASES)) {
-  const tool = TOOL_DEFINITIONS.find(
-    (definition) => definition.function.name === legacyName,
-  );
-  if (!tool) continue;
-  TOOL_DEFINITIONS.push({
-    ...tool,
-    function: {
-      ...tool.function,
-      name: aliasName,
-      description: `${tool.function.description} Alias of ${legacyName}.`,
-    },
-  });
-}

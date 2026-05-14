@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.19.2](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.2) - 2026-05-14
+
+### Fixed
+
+- **Diagram tool names**: Renamed the advertised diagram runtime tools to
+  `diagram_create`, `diagram_update`, and `diagram_validate` everywhere so
+  OpenAI-compatible providers accept the tool schema instead of rejecting
+  dotted function names.
+
 ## [0.19.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.1) - 2026-05-14
 
 ### Fixed
@@ -31,7 +40,7 @@
   encrypted SecretRef storage, CLI/Admin setup, message chunking, doctor/status
   visibility, and managed POST-only network policy grants.
 - **Diagram-as-code runtime and bundled skill**: Added the `diagram` skill plus
-  native `diagram.create`, `diagram.update`, and `diagram.validate` tools for
+  native `diagram_create`, `diagram_update`, and `diagram_validate` tools for
   validated Mermaid-first diagrams, with PlantUML, Graphviz DOT, and Excalidraw
   JSON adapters, source/rendered artifact persistence, SVG fallbacks, and
   diagram runtime events.

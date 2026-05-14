@@ -6,7 +6,7 @@ function buildToolExecution(
   overrides: Partial<ToolExecution> = {},
 ): ToolExecution {
   return {
-    name: 'diagram.create',
+    name: 'diagram_create',
     arguments: '{}',
     result: JSON.stringify({
       runtime_events: [
@@ -47,7 +47,7 @@ describe('diagram runtime events', () => {
           }),
         }),
         buildToolExecution({
-          name: 'diagram.validate',
+          name: 'diagram_validate',
           isError: true,
         }),
       ],
@@ -58,7 +58,7 @@ describe('diagram runtime events', () => {
         type: 'diagram.rendered',
         session_id: 'session-a',
         run_id: 'run-a',
-        tool_name: 'diagram.create',
+        tool_name: 'diagram_create',
         created_at: '2026-05-14T08:00:00.000Z',
         artifact_ref: '/workspace/.generated-diagrams/skills/diagram/a.svg',
       }),

@@ -652,7 +652,7 @@ function normalizeRequest(
   let source = loadedSource || buildSource(format, type, description);
   if (action === 'update') {
     if (!source)
-      throw new Error('diagram.update requires source or artifact_ref.');
+      throw new Error('diagram_update requires source or artifact_ref.');
     if (!sourceFromArgs && instructions) {
       source = appendInstructionAnnotation(source, format, type, instructions);
     }
