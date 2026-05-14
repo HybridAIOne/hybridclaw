@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.19.1](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.1) - 2026-05-14
+
+### Fixed
+
+- **Release npm signature verification**: The npm publish workflow now uses
+  the repo's signature-audit wrapper so the temporary Baileys release-age
+  bypass is applied consistently before publishing.
+
 ## [0.19.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.0) - 2026-05-14
 
 ### Added
