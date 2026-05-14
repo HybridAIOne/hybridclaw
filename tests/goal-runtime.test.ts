@@ -89,6 +89,28 @@ test('continuation prompt is a user-turn snapshot and does not replace system pr
   );
 });
 
+test('continuation prompt can carry supervised step progress', () => {
+  expect(
+    buildGoalContinuationPrompt('count from 1 to 4', {
+      turnsUsed: 2,
+      maxTurns: 20,
+    }),
+  ).toBe(
+    [
+      '[Continuing toward your standing goal]',
+      'Goal: count from 1 to 4',
+      '',
+      'Progress: 2 supervised turn(s) have already been used for this goal.',
+      'This is supervised step 3 of at most 20.',
+      'Do not repeat completed steps. If the goal is an ordered sequence, produce the next item for this step.',
+      '',
+      'Continue working toward this goal. Take the next concrete step. If you',
+      'believe the goal is complete, state so explicitly and stop. If you are',
+      'blocked, say so clearly and stop.',
+    ].join('\n'),
+  );
+});
+
 test('set can schedule the raw goal text as the first supervised turn', () => {
   const session = makeSession('initial');
   setThreadGoal({
