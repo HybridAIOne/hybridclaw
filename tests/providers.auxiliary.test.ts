@@ -842,6 +842,111 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
   );
 });
 
+test('host auxiliary caller falls back to openrouter when a configured task model call times out', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    baseUrl: 'https://hybrid.example',
+    apiKey: 'hybrid-key',
+    requestHeaders: {},
+    isLocal: false,
+    model: 'hybridai/anthropic/claude-haiku-4-5',
+    chatbotId: 'bot_123',
+    maxTokens: 1_200,
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'openrouter' as const,
+    apiKey: 'openrouter-key',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: false,
+    contextWindow: 200_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+    },
+  }));
+
+  const fetchMock = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new DOMException(
+        'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
+    )
+    .mockImplementationOnce(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe('anthropic/claude-haiku-4-5');
+        expect(body.max_tokens).toBe(1_200);
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                  content: 'Recovered after provider timeout.',
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    agentId: 'main',
+    maxTokens: 1_200,
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'openrouter',
+    model: 'openrouter/anthropic/claude-haiku-4-5',
+    content: 'Recovered after provider timeout.',
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    'https://hybrid.example/v1/chat/completions',
+  );
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith(
+    expect.objectContaining({
+      model: 'openrouter/anthropic/claude-haiku-4-5',
+    }),
+  );
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'cv_narration',
+      primaryProvider: 'hybridai',
+      fallbackProvider: 'openrouter',
+      modelHint: 'hybridai/anthropic/claude-haiku-4-5',
+      primaryError: expect.any(DOMException),
+    }),
+    'Auxiliary provider call failed; using OpenRouter fallback',
+  );
+});
+
 test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hints', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'hybridai/anthropic/claude-haiku-4-5',

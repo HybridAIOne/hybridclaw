@@ -68,4 +68,26 @@ describe('logger formatting', () => {
       'Worker failed {"error":{"type":"Error","message":"kapow","stack":"Error: kapow',
     );
   });
+
+  it('serializes DOMException errors without DOM constant fields', () => {
+    const [line] = renderLogLines((logger) => {
+      logger.warn(
+        {
+          error: new DOMException(
+            'The operation was aborted due to timeout',
+            'TimeoutError',
+          ),
+        },
+        'Request timed out',
+      );
+    });
+
+    expect(line).toContain(
+      'Request timed out {"error":{"type":"DOMException","message":"The operation was aborted due to timeout"',
+    );
+    expect(line).toContain('"name":"TimeoutError"');
+    expect(line).toContain('"code":23');
+    expect(line).not.toContain('INDEX_SIZE_ERR');
+    expect(line).not.toContain('DATA_CLONE_ERR');
+  });
 });

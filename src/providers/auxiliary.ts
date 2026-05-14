@@ -363,6 +363,7 @@ async function withOpenRouterFallback(
   primaryError: unknown,
   modelHint?: string,
   primaryProvider?: RuntimeProvider,
+  logMessage = 'Auxiliary provider resolution failed; using OpenRouter fallback',
 ): Promise<AuxiliaryTextCallContext> {
   if (
     params.provider === 'openrouter' ||
@@ -390,7 +391,7 @@ async function withOpenRouterFallback(
           modelHint: modelHint?.trim() || undefined,
           primaryError,
         },
-        'Auxiliary provider resolution failed; using OpenRouter fallback',
+        logMessage,
       );
       return fallback;
     }
@@ -1019,6 +1020,39 @@ async function callAuxiliaryTextProvider(
   return callHybridAITextModel(context, messages, options);
 }
 
+async function callAuxiliaryTextProviderWithFallback(
+  params: AuxiliaryModelCallParams,
+  context: AuxiliaryTextCallContext,
+  messages: ChatMessage[],
+  options: AuxiliaryRequestOptions,
+): Promise<{
+  context: AuxiliaryTextCallContext;
+  response: AuxiliaryTextResponse;
+}> {
+  try {
+    return {
+      context,
+      response: await callAuxiliaryTextProvider(context, messages, options),
+    };
+  } catch (error) {
+    const fallbackContext = await withOpenRouterFallback(
+      params,
+      error,
+      context.model,
+      context.provider,
+      'Auxiliary provider call failed; using OpenRouter fallback',
+    );
+    return {
+      context: fallbackContext,
+      response: await callAuxiliaryTextProvider(
+        fallbackContext,
+        messages,
+        options,
+      ),
+    };
+  }
+}
+
 export async function callAuxiliaryModel(
   params: AuxiliaryModelCallParams,
 ): Promise<{
@@ -1028,9 +1062,10 @@ export async function callAuxiliaryModel(
   usage?: AuxiliaryModelUsage;
 }> {
   const options = buildRequestOptions(params);
-  const context = await resolveTextCallContext(params);
-  const response = await callAuxiliaryTextProvider(
-    context,
+  const initialContext = await resolveTextCallContext(params);
+  const { context, response } = await callAuxiliaryTextProviderWithFallback(
+    params,
+    initialContext,
     Array.isArray(params.messages) ? params.messages : [],
     options,
   );
