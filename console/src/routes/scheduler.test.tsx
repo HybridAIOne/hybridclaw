@@ -129,6 +129,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
     },
     channelInstructions: {
       discord: '',
+      discord_webhook: '',
       msteams: '',
       slack: '',
       slack_webhook: '',
@@ -158,6 +159,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       mediaMaxMb: 20,
     },
     slackWebhook: {
+      enabled: false,
+      webhooks: {},
+    },
+    discordWebhook: {
       enabled: false,
       webhooks: {},
     },
@@ -323,6 +328,11 @@ function makeChannelsResponse(
       defaultReplyStyle: 'thread',
     },
     slackWebhook: {
+      enabled: false,
+      targetCount: 0,
+      defaultTargetConfigured: false,
+    },
+    discordWebhook: {
       enabled: false,
       targetCount: 0,
       defaultTargetConfigured: false,

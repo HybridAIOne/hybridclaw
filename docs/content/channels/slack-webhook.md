@@ -23,10 +23,9 @@ hybridclaw channel add slack_webhook \
   --webhook-url https://hooks.slack.com/services/T00000000/B00000000/SECRET
 ```
 
-Restart the gateway after setup:
+The gateway hot-loads Slack webhook config changes. After setup, confirm status with:
 
 ```bash
-hybridclaw gateway restart --foreground
 hybridclaw gateway status
 ```
 
