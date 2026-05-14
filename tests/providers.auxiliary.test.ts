@@ -1006,6 +1006,103 @@ test('host auxiliary caller falls back remotely when a configured task model cal
   );
 });
 
+test('host auxiliary caller preserves resolved task max tokens on provider-call fallback', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    provider: 'hybridai' as const,
+    baseUrl: 'https://hybrid.example',
+    apiKey: 'hybrid-key',
+    requestHeaders: {},
+    isLocal: false,
+    model: 'hybridai/anthropic/claude-haiku-4-5',
+    chatbotId: 'bot_123',
+    maxTokens: 1_200,
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      if (model.startsWith('openrouter/') || model.startsWith('gemini/')) {
+        throw new Error('Provider is not configured.');
+      }
+      expect(model).toBe('anthropic/claude-haiku-4-5');
+      return {
+        provider: 'anthropic' as const,
+        apiKey: 'anthropic-key',
+        baseUrl: 'https://api.anthropic.com/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 200_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new DOMException(
+        'The operation was aborted due to timeout',
+        'TimeoutError',
+      ),
+    )
+    .mockImplementationOnce(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(input).toBe('https://api.anthropic.com/v1/messages');
+        const body = JSON.parse(String(init?.body || '{}')) as Record<
+          string,
+          unknown
+        >;
+        expect(body.model).toBe('claude-haiku-4-5');
+        expect(body.max_tokens).toBe(1_200);
+        return new Response(
+          JSON.stringify({
+            content: [
+              {
+                type: 'text',
+                text: 'Recovered with configured task max tokens.',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'cv_narration',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Write one CV entry.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'anthropic',
+    model: 'anthropic/claude-haiku-4-5',
+    content: 'Recovered with configured task max tokens.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledWith(
+    expect.objectContaining({
+      model: 'anthropic/claude-haiku-4-5',
+    }),
+  );
+});
+
 test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter fallback is unavailable', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',

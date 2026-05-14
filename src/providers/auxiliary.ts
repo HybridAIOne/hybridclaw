@@ -352,6 +352,7 @@ async function resolveRemoteFallbackContext(params: {
   modelHint?: string;
   primaryProvider?: RuntimeProvider;
   logMessage?: string;
+  maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext> {
   const errors: string[] = [];
   for (const candidate of REMOTE_AUXILIARY_FALLBACKS) {
@@ -362,6 +363,7 @@ async function resolveRemoteFallbackContext(params: {
         agentId: params.params.agentId,
         enableRag: false,
         maxTokens:
+          normalizeMaxTokens(params.maxTokens) ??
           normalizeMaxTokens(params.params.maxTokens) ??
           normalizeMaxTokens(params.params.fallbackMaxTokens),
         expectedProvider: candidate.provider,
@@ -395,6 +397,7 @@ async function withAuxiliaryFallbackChain(
   primaryProvider?: RuntimeProvider,
   remoteLogMessage = 'Auxiliary provider resolution failed; using remote fallback',
   localLogMessage = 'Auxiliary provider resolution failed; using local model fallback',
+  maxTokens?: number,
 ): Promise<AuxiliaryTextCallContext> {
   const localFallback = await resolveLocalFallbackContext({
     params,
@@ -402,6 +405,7 @@ async function withAuxiliaryFallbackChain(
     modelHint,
     primaryProvider,
     logMessage: localLogMessage,
+    maxTokens,
   });
   if (localFallback) return localFallback;
 
@@ -412,6 +416,7 @@ async function withAuxiliaryFallbackChain(
       modelHint,
       primaryProvider,
       logMessage: remoteLogMessage,
+      maxTokens,
     });
   } catch (fallbackError) {
     throw new Error(
@@ -472,6 +477,7 @@ async function resolveLocalFallbackContext(params: {
   modelHint?: string;
   primaryProvider?: RuntimeProvider;
   logMessage?: string;
+  maxTokens?: number;
 }): Promise<AuxiliaryTextCallContext | null> {
   const candidates: Array<{
     model: string;
@@ -523,6 +529,7 @@ async function resolveLocalFallbackContext(params: {
         chatbotId: params.params.fallbackChatbotId,
         enableRag: params.params.fallbackEnableRag ?? false,
         maxTokens:
+          normalizeMaxTokens(params.maxTokens) ??
           normalizeMaxTokens(params.params.maxTokens) ??
           normalizeMaxTokens(params.params.fallbackMaxTokens),
         expectedProvider: candidate.expectedProvider,
@@ -1274,6 +1281,7 @@ async function callAuxiliaryTextProviderWithFallback(
       context.provider,
       'Auxiliary provider call failed; using remote fallback',
       'Auxiliary provider call failed; using local model fallback',
+      context.maxTokens,
     );
     return {
       context: fallbackContext,
