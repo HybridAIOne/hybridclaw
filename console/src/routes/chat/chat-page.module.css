@@ -149,6 +149,19 @@
   padding: 0;
 }
 
+.sessionItemRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s;
+}
+
+.sessionItemRow:hover,
+.sessionItemRow:focus-within {
+  background: var(--chat-hover-bg);
+}
+
 .sessionItem {
   appearance: none;
   width: 100%;
@@ -160,15 +173,11 @@
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.12s;
   overflow: hidden;
   text-align: left;
   font: inherit;
   color: inherit;
-}
-
-.sessionItem:hover {
-  background: var(--chat-hover-bg);
+  min-width: 0;
 }
 
 .sessionItemPending {
@@ -210,6 +219,55 @@
 .sessionItemActive .sessionTitle,
 .sessionItemActive .sessionSnippet {
   color: var(--primary);
+}
+
+.sessionDeleteButton {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.sessionItemRow:hover .sessionDeleteButton,
+.sessionItemRow:focus-within .sessionDeleteButton {
+  opacity: 1;
+}
+
+.sessionDeleteButton:hover,
+.sessionDeleteButton:focus-visible {
+  background: var(--danger-soft);
+  color: var(--danger);
+  opacity: 1;
+}
+
+.sessionDeleteButton:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.sessionDeleteIcon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+}
+
+@media (hover: none) {
+  .sessionDeleteButton {
+    opacity: 1;
+  }
 }
 
 .sidebarSearchWrap {
