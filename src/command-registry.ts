@@ -267,8 +267,8 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
   },
   plugin: {
     command:
-      '/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]',
-    description: 'Manage installed plugins',
+      '/plugin [list [installed|available]|enable|disable|config|install|reinstall|reload|uninstall]',
+    description: 'Manage installed and available plugins',
   },
   ralph: {
     command: '/ralph [info|on|off|set n]',
@@ -485,7 +485,10 @@ export function mapCanonicalCommandToGatewayArgs(
 
     case 'plugin': {
       const sub = (parts[1] || '').trim().toLowerCase();
-      if (!sub || sub === 'list') return ['plugin', 'list'];
+      if (!sub || sub === 'list') {
+        const scope = (parts[2] || '').trim().toLowerCase();
+        return scope ? ['plugin', 'list', scope] : ['plugin', 'list'];
+      }
       if (sub === 'enable' || sub === 'disable') {
         const pluginId = (parts[2] || '').trim();
         return pluginId ? ['plugin', sub, pluginId] : ['plugin', sub];
@@ -1530,7 +1533,19 @@ function buildSlashCommandCatalogDefinitions(
           kind: 'subcommand',
           name: 'list',
           description:
-            'List discovered plugins, descriptions, commands, tools, hooks, and load errors',
+            'List installed and available plugins, or filter to one section',
+          options: [
+            {
+              kind: 'string',
+              name: 'scope',
+              description: 'Optional list section',
+              required: false,
+              choices: [
+                { name: 'installed', value: 'installed' },
+                { name: 'available', value: 'available' },
+              ],
+            },
+          ],
         },
         {
           kind: 'subcommand',
@@ -3067,7 +3082,10 @@ export function parseCanonicalSlashCommandArgs(
 
     case 'plugin': {
       const subcommand = normalizeSubcommand(interaction);
-      if (subcommand === 'list') return ['plugin', 'list'];
+      if (subcommand === 'list') {
+        const scope = normalizeStringOption(interaction, 'scope', false);
+        return scope ? ['plugin', 'list', scope] : ['plugin', 'list'];
+      }
       if (subcommand === 'enable' || subcommand === 'disable') {
         const pluginId = normalizeStringOption(interaction, 'id', true);
         return pluginId ? ['plugin', subcommand, pluginId] : null;

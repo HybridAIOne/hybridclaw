@@ -10,7 +10,9 @@ const {
   shutdownPluginManagerMock,
   setPluginInboundMessageDispatcherMock,
   checkPluginMock,
+  formatDependencyPlanDetailsMock,
   installPluginMock,
+  listInstallablePluginsMock,
   pluginDependencyApprovalRequiredError,
   readPluginConfigEntryMock,
   readPluginConfigValueMock,
@@ -88,6 +90,7 @@ const {
       externalDependencies: [],
       configuredRequiredBins: [],
     })),
+    formatDependencyPlanDetailsMock: vi.fn(() => 'npm packages: demo'),
     installPluginMock: vi.fn(async (source: string) => ({
       pluginId: 'demo-plugin',
       pluginDir: '/tmp/.hybridclaw/plugins/demo-plugin',
@@ -104,6 +107,7 @@ const {
       requiresEnv: ['DEMO_PLUGIN_TOKEN'],
       requiredConfigKeys: ['workspaceId'],
     })),
+    listInstallablePluginsMock: vi.fn(() => []),
     readPluginConfigEntryMock: vi.fn((pluginId: string) => ({
       pluginId,
       configPath: '/tmp/config.json',
@@ -225,7 +229,9 @@ vi.mock('../src/plugins/plugin-manager.js', () => ({
 
 vi.mock('../src/plugins/plugin-install.js', () => ({
   checkPlugin: checkPluginMock,
+  formatDependencyPlanDetails: formatDependencyPlanDetailsMock,
   installPlugin: installPluginMock,
+  listInstallablePlugins: listInstallablePluginsMock,
   PluginDependencyApprovalRequiredError: pluginDependencyApprovalRequiredError,
   reinstallPlugin: reinstallPluginMock,
   uninstallPlugin: uninstallPluginMock,
@@ -265,7 +271,9 @@ const { setupHome } = setupGatewayTest({
     pluginManagerMock.applyOutputGuards.mockClear();
     shutdownPluginManagerMock.mockClear();
     checkPluginMock.mockClear();
+    formatDependencyPlanDetailsMock.mockClear();
     installPluginMock.mockClear();
+    listInstallablePluginsMock.mockClear();
     readPluginConfigEntryMock.mockClear();
     readPluginConfigValueMock.mockClear();
     reinstallPluginMock.mockClear();
@@ -327,13 +335,17 @@ function makeWebhookResponse(): import('node:http').ServerResponse & {
 test('handleGatewayMessage passes explicit skill middleware manifest into middleware context', async () => {
   setupHome();
 
-  pluginManagerMock.hasMiddleware.mockReturnValueOnce(true);
-  pluginManagerMock.applyMiddleware.mockImplementationOnce(async (context) => ({
-    userContent: context.userContent,
-    resultText: '',
-    blocked: false,
-    events: [],
-  }));
+  pluginManagerMock.hasMiddleware
+    .mockImplementationOnce((phase) => phase === 'pre_send')
+    .mockImplementationOnce((phase) => phase === 'pre_send');
+  pluginManagerMock.applyMiddleware.mockImplementationOnce(
+    async (_phase, context) => ({
+      userContent: context.userContent,
+      resultText: '',
+      blocked: false,
+      events: [],
+    }),
+  );
   runAgentMock.mockResolvedValue({
     status: 'success',
     result: 'agent result',
@@ -372,6 +384,76 @@ test('handleGatewayMessage passes explicit skill middleware manifest into middle
       },
     }),
   );
+});
+
+test('handleGatewayMessage stores blocked routing middleware content', async () => {
+  setupHome();
+
+  pluginManagerMock.hasMiddleware.mockImplementationOnce(
+    (phase) => phase === 'routing',
+  );
+  pluginManagerMock.applyMiddleware.mockResolvedValueOnce({
+    userContent: 'rewritten blocked request',
+    resultText: 'blocked by router',
+    blocked: true,
+    events: [
+      {
+        skillId: 'router',
+        phase: 'routing',
+        action: 'block',
+        metadata: {
+          conciergeRouter: {
+            effectiveUserTurnContent: 'rewritten blocked request',
+            media: [
+              {
+                path: '/tmp/rewritten.pdf',
+                url: 'https://example.com/rewritten.pdf',
+                originalUrl: 'https://example.com/rewritten.pdf',
+                mimeType: 'application/pdf',
+                sizeBytes: 2048,
+                filename: 'rewritten.pdf',
+              },
+            ],
+          },
+        },
+      },
+    ],
+  });
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayMessage } = await import(
+    '../src/gateway/gateway-chat-service.ts'
+  );
+  const { memoryService } = await import('../src/memory/memory-service.ts');
+
+  initDatabase({ quiet: true });
+
+  const result = await handleGatewayMessage({
+    sessionId: 'session-routing-blocked-content',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    content: 'original request',
+    model: 'test-model',
+    chatbotId: 'bot-1',
+  });
+
+  expect(result.status).toBe('success');
+  expect(result.result).toBe('blocked by router');
+  expect(runAgentMock).not.toHaveBeenCalled();
+  const history = memoryService.getConversationHistory(
+    'session-routing-blocked-content',
+    10,
+  );
+  expect(
+    history.some((message) =>
+      message.content.includes('rewritten blocked request'),
+    ),
+  ).toBe(true);
+  expect(
+    history.some((message) => message.content.includes('rewritten.pdf')),
+  ).toBe(true);
 });
 
 test('handleGatewayMessage injects plugin prompt context and forwards plugin tools to the agent', async () => {
@@ -689,6 +771,26 @@ test('handleGatewayCommand lists plugin summaries', async () => {
       hooks: [],
     },
   ]);
+  listInstallablePluginsMock.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      name: 'Demo Plugin',
+      version: '1.0.0',
+      description: 'Already installed',
+      source: 'project',
+      dir: '/tmp/project/plugins/demo-plugin',
+      installSource: 'demo-plugin',
+    },
+    {
+      id: 'available-plugin',
+      name: 'Available Plugin',
+      version: '0.1.0',
+      description: 'Available plugin for testing',
+      source: 'bundled',
+      dir: '/tmp/package/plugins/available-plugin',
+      installSource: 'available-plugin',
+    },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: 'session-plugin-list',
@@ -698,17 +800,74 @@ test('handleGatewayCommand lists plugin summaries', async () => {
   });
 
   expect(pluginManagerMock.listPluginSummary).toHaveBeenCalled();
+  expect(listInstallablePluginsMock).toHaveBeenCalled();
   expect(result.kind).toBe('info');
   if (result.kind !== 'info') {
     throw new Error(`Unexpected result kind: ${result.kind}`);
   }
   expect(result.title).toBe('Plugins');
+  expect(result.text).toContain('Installed\n');
   expect(result.text).toContain('demo-plugin v1.0.0 [project]');
   expect(result.text).toContain('description: Demo plugin for testing');
   expect(result.text).toContain('commands: /demo_status');
   expect(result.text).toContain('tools: demo_echo');
   expect(result.text).toContain('broken-plugin [home]');
   expect(result.text).toContain('error: register exploded');
+  expect(result.text).toContain('Available\n');
+  expect(result.text).toContain('available-plugin v0.1.0 [bundled]');
+  expect(result.text).toContain('description: Available plugin for testing');
+  expect(result.text).toContain('install: /plugin install available-plugin');
+  expect(result.text).not.toContain('description: Already installed');
+});
+
+test('handleGatewayCommand filters plugin list to available plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
+  listInstallablePluginsMock.mockReturnValue([
+    {
+      id: 'demo-plugin',
+      source: 'project',
+      dir: '/tmp/project/plugins/demo-plugin',
+      installSource: 'demo-plugin',
+    },
+    {
+      id: 'available-plugin',
+      source: 'bundled',
+      dir: '/tmp/package/plugins/available-plugin',
+      installSource: 'available-plugin',
+    },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-list-available',
+    guildId: null,
+    channelId: 'web',
+    args: ['plugin', 'list', 'available'],
+  });
+
+  expect(result.kind).toBe('info');
+  if (result.kind !== 'info') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.text).toContain('available-plugin [bundled]');
+  expect(result.text).toContain('install: /plugin install available-plugin');
+  expect(result.text).not.toContain('demo-plugin [home]');
 });
 
 test('handleGatewayCommand shows plugin config overrides', async () => {
@@ -748,6 +907,16 @@ test('handleGatewayCommand updates plugin config from a local TUI/web session an
   );
 
   initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'qmd-memory',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
 
   const result = await handleGatewayCommand({
     sessionId: 'session-plugin-config-set',
@@ -812,6 +981,16 @@ test('handleGatewayCommand reports rollback reload failures when disabling a plu
   );
 
   initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'qmd-memory',
+      source: 'home',
+      enabled: true,
+      commands: [],
+      tools: [],
+      hooks: [],
+    },
+  ]);
   const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
   reloadPluginManagerMock
     .mockRejectedValueOnce(new Error('reload exploded'))
@@ -850,6 +1029,48 @@ test('handleGatewayCommand reports rollback reload failures when disabling a plu
         'Plugin runtime reload failed: rollback reload exploded.',
     }),
     'Plugin runtime rollback reload failed',
+  );
+});
+
+test('handleGatewayCommand rejects enable for undiscovered plugins', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  pluginManagerMock.listPluginSummary.mockReturnValueOnce([
+    {
+      id: 'concierge-router',
+      source: 'project',
+      enabled: true,
+      commands: ['concierge'],
+      tools: [],
+      hooks: [],
+    },
+  ]);
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-enable-missing',
+    guildId: null,
+    channelId: 'tui',
+    args: ['plugin', 'enable', 'concierge-routing'],
+  });
+
+  expect(setPluginEnabledMock).not.toHaveBeenCalled();
+  expect(reloadPluginManagerMock).not.toHaveBeenCalled();
+  expect(result.kind).toBe('error');
+  if (result.kind !== 'error') {
+    throw new Error(`Unexpected result kind: ${result.kind}`);
+  }
+  expect(result.title).toBe('Plugin Not Found');
+  expect(result.text).toContain(
+    'No discovered plugin has id `concierge-routing`.',
+  );
+  expect(result.text).toContain(
+    'Install it first with `/plugin install <path|plugin-id|npm-spec>`.',
   );
 });
 
@@ -1380,6 +1601,92 @@ test('handleGatewayCommand stringifies non-string plugin command results', async
   );
 });
 
+test('handleGatewayCommand omits malformed plugin command decorations', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const handler = vi.fn(async () => ({
+    kind: 'info',
+    title: 'Plugin Result',
+    text: 'structured payload',
+    components: [{ type: 1, components: [{ custom_id: 'missing-type' }] }],
+    modelCatalog: [{ value: 'gpt-5', label: 'GPT-5' }],
+  }));
+  pluginManagerMock.findCommand.mockReturnValue({
+    name: 'qmd',
+    description: 'Show QMD status',
+    handler,
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-command-invalid-decoration',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    args: ['qmd', 'status'],
+  });
+
+  expect(result).toEqual(
+    expect.objectContaining({
+      kind: 'info',
+      title: 'Plugin Result',
+      text: 'structured payload',
+    }),
+  );
+  expect(result.components).toBeUndefined();
+  expect(result.modelCatalog).toBeUndefined();
+});
+
+test('handleGatewayCommand preserves valid plugin command decorations', async () => {
+  setupHome();
+
+  const { initDatabase } = await import('../src/memory/db.ts');
+  const { handleGatewayCommand } = await import(
+    '../src/gateway/gateway-service.ts'
+  );
+
+  initDatabase({ quiet: true });
+  const components = [{ type: 1, components: [{ type: 2, label: 'Run' }] }];
+  const modelCatalog = [
+    {
+      value: 'gpt-5',
+      label: 'GPT-5',
+      isFree: false,
+      recommended: true,
+    },
+  ];
+  const handler = vi.fn(async () => ({
+    kind: 'info',
+    title: 'Plugin Result',
+    text: 'structured payload',
+    components,
+    modelCatalog,
+  }));
+  pluginManagerMock.findCommand.mockReturnValue({
+    name: 'qmd',
+    description: 'Show QMD status',
+    handler,
+  });
+
+  const result = await handleGatewayCommand({
+    sessionId: 'session-plugin-command-valid-decoration',
+    guildId: null,
+    channelId: 'web',
+    userId: 'user-42',
+    username: 'alice',
+    args: ['qmd', 'status'],
+  });
+
+  expect(result.components).toEqual(components);
+  expect(result.modelCatalog).toEqual(modelCatalog);
+});
+
 test('handleGatewayCommand help continues without plugins when plugin manager init fails', async () => {
   setupHome();
 
@@ -1406,7 +1713,7 @@ test('handleGatewayCommand help continues without plugins when plugin manager in
   }
   expect(result.title).toBe('HybridClaw Commands');
   expect(result.text).toContain(
-    '`/plugin [list|enable|disable|config|install|reinstall|reload|uninstall]`: Manage installed plugins',
+    '`/plugin [list [installed|available]|enable|disable|config|install|reinstall|reload|uninstall]`: Manage installed and available plugins',
   );
   expect(result.text).toContain(
     '`/auth status <provider>`: Show local provider auth and config status',

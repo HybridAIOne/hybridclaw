@@ -385,7 +385,6 @@ import {
   normalizePlaceholderToolReply,
   normalizeSilentMessageSendReply,
 } from './chat-result.js';
-import { handleConciergeCommand } from './concierge-commands.js';
 import { buildContextUsageSnapshot } from './context-usage.js';
 import { getCoworkerLivenessSummary } from './coworker-liveness.js';
 import {
@@ -8259,37 +8258,6 @@ export async function handleGatewayCommand(
     };
   }
 
-  async function resolveValidatedRuntimeModelName(
-    rawModelName: string,
-  ): Promise<
-    { ok: true; model: string } | { ok: false; result: GatewayCommandResult }
-  > {
-    const normalizedModelName = resolveDisplayedModelName(
-      normalizeHybridAIModelForRuntime(rawModelName),
-    );
-    await refreshAvailableModelCatalogs({
-      includeHybridAI: resolveModelProvider(normalizedModelName) === 'hybridai',
-    });
-    const catalogModels = getAvailableModelList();
-    const resolvedModelName = resolveRequestedCatalogModelName(
-      rawModelName,
-      catalogModels,
-    );
-    if (
-      catalogModels.length > 0 &&
-      !catalogModels.includes(resolvedModelName)
-    ) {
-      return {
-        ok: false,
-        result: badCommand(
-          'Unknown Model',
-          `\`${rawModelName}\` is not in the available models list.`,
-        ),
-      };
-    }
-    return { ok: true, model: resolvedModelName };
-  }
-
   const result = await (async (): Promise<GatewayCommandResult> => {
     switch (cmd) {
       case 'help': {
@@ -9014,16 +8982,6 @@ export async function handleGatewayCommand(
           'Usage',
           'Usage: `model list [provider] [more]|set <name>|clear|default [name]|info`',
         );
-      }
-
-      case 'concierge': {
-        return await handleConciergeCommand({
-          args: req.args,
-          badCommand,
-          infoCommand: (title, text) => infoCommand(title, text),
-          plainCommand,
-          resolveValidatedRuntimeModelName,
-        });
       }
 
       case 'rag': {

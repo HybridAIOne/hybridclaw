@@ -82,11 +82,12 @@ describe('A2A webhook outbound adapter', () => {
       intent: 'chat',
       recipient_agent_id: 'remote@team@peer-instance',
       sender_agent_id: 'main',
+      sender_instance_id: 'local',
       thread_id: 'thread-webhook',
       version: '1',
     });
     expect(receivedBodies[0]).toBe(
-      '{"content":"Webhook payload msg-webhook-1","created_at":"2026-05-01T10:00:00.000Z","id":"msg-webhook-1","intent":"chat","recipient_agent_id":"remote@team@peer-instance","sender_agent_id":"main","thread_id":"thread-webhook","version":"1"}',
+      '{"content":"Webhook payload msg-webhook-1","created_at":"2026-05-01T10:00:00.000Z","id":"msg-webhook-1","intent":"chat","recipient_agent_id":"remote@team@peer-instance","sender_agent_id":"main","sender_instance_id":"local","thread_id":"thread-webhook","version":"1"}',
     );
     expect(
       webhook.verifyWebhookSignature({

@@ -1314,6 +1314,15 @@ export function isMutedSkillListLine(line: string): boolean {
   return /\[disabled\]/i.test(line) || /^\s*installs:/i.test(line);
 }
 
+export function isPluginListHeaderLine(line: string): boolean {
+  const normalized = line.trim();
+  return (
+    normalized === 'Plugins' ||
+    normalized === 'Installed' ||
+    normalized === 'Available'
+  );
+}
+
 function printGatewayCommandResult(result: GatewayCommandResult): void {
   if (result.kind === 'error') {
     const prefix = result.title ? `${result.title}: ` : '';
@@ -1331,6 +1340,27 @@ function printGatewayCommandResult(result: GatewayCommandResult): void {
     for (const line of formatTuiOutput(rendered).split('\n')) {
       const color = isMutedSkillListLine(line) ? MUTED : GOLD;
       console.log(`${color}${line}${RESET}`);
+    }
+    console.log();
+    return;
+  }
+  if (result.title === 'Plugins') {
+    clearTuiSlashMenu();
+    console.log();
+    for (const line of formatTuiTitledCommandBlock(
+      result.title,
+      result.text,
+      terminalColumns(),
+    )) {
+      if (!line) {
+        console.log();
+        continue;
+      }
+      if (isPluginListHeaderLine(line)) {
+        console.log(`${GOLD}${line}${RESET}`);
+      } else {
+        console.log(line);
+      }
     }
     console.log();
     return;

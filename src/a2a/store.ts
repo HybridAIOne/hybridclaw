@@ -6,6 +6,7 @@ import {
   syncRuntimeAssetRevisionState,
 } from '../config/runtime-config-revisions.js';
 import { DEFAULT_RUNTIME_HOME_DIR } from '../config/runtime-paths.js';
+import { isAgentIdentityComponent } from '../identity/agent-id.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeDuplicateError,
@@ -53,6 +54,20 @@ function normalizeThreadId(threadId: string): string {
 
 function normalizeEnvelopeId(envelopeId: string): string {
   return normalizeOpaqueId(envelopeId, 'id');
+}
+
+function normalizeSenderInstanceId(senderInstanceId: string): string {
+  const normalized = senderInstanceId.trim().toLowerCase();
+  if (!isAgentIdentityComponent(normalized)) {
+    throw new A2AEnvelopeValidationError([
+      'sender_instance_id must be a canonical instance id',
+    ]);
+  }
+  return normalized;
+}
+
+function a2aEnvelopeIdempotencyKey(envelope: A2AEnvelope): string {
+  return `${envelope.id}\u0000${envelope.sender_instance_id ?? ''}`;
 }
 
 export function a2aThreadAssetPath(threadId: string): string {
@@ -111,18 +126,21 @@ function parsePersistedThreadState(
   }
 
   const envelopes: A2AEnvelope[] = [];
-  const seenEnvelopeIds = new Set<string>();
+  const seenEnvelopeKeys = new Set<string>();
   if (Array.isArray(rawEnvelopes)) {
     rawEnvelopes.forEach((entry, index) => {
       try {
         const envelope = validateA2AEnvelope(entry);
+        const idempotencyKey = a2aEnvelopeIdempotencyKey(envelope);
         if (envelope.thread_id !== expectedThreadId) {
           issues.push(`envelopes[${index}] belongs to ${envelope.thread_id}`);
         }
-        if (seenEnvelopeIds.has(envelope.id)) {
-          issues.push(`duplicate envelope id: ${envelope.id}`);
+        if (seenEnvelopeKeys.has(idempotencyKey)) {
+          issues.push(
+            `duplicate envelope id/sender_instance_id: ${envelope.id}`,
+          );
         }
-        seenEnvelopeIds.add(envelope.id);
+        seenEnvelopeKeys.add(idempotencyKey);
         envelopes.push(envelope);
       } catch (error) {
         if (error instanceof A2AEnvelopeValidationError) {
@@ -262,15 +280,37 @@ export function listA2AInboxEnvelopes(agentId: string): A2AEnvelope[] {
   });
 }
 
+/**
+ * Looks up a persisted envelope by the federation idempotency tuple.
+ * Callers may omit senderInstanceId only when the envelope id is unique
+ * within the thread; ambiguous federated ids fail fast.
+ */
 export function getA2AEnvelope(
   threadId: string,
   envelopeId: string,
+  senderInstanceId?: string,
 ): A2AEnvelope | null {
   const normalizedEnvelopeId = normalizeEnvelopeId(envelopeId);
-  const envelope = readThreadState(threadId).envelopes.find(
+  const normalizedSenderInstanceId =
+    senderInstanceId === undefined
+      ? undefined
+      : normalizeSenderInstanceId(senderInstanceId);
+  const matches = readThreadState(threadId).envelopes.filter(
     (entry) => entry.id === normalizedEnvelopeId,
   );
-  return envelope ?? null;
+  if (normalizedSenderInstanceId !== undefined) {
+    return (
+      matches.find(
+        (entry) => entry.sender_instance_id === normalizedSenderInstanceId,
+      ) ?? null
+    );
+  }
+  if (matches.length > 1) {
+    throw new A2AEnvelopeValidationError([
+      `envelope id ${normalizedEnvelopeId} is ambiguous; provide sender_instance_id`,
+    ]);
+  }
+  return matches[0] ?? null;
 }
 
 export function saveA2AEnvelope(
@@ -279,7 +319,13 @@ export function saveA2AEnvelope(
 ): A2AEnvelope {
   const normalizedEnvelope = resolveA2AEnvelopeAgentIds(envelope);
   const state = readThreadState(normalizedEnvelope.thread_id);
-  if (state.envelopes.some((entry) => entry.id === normalizedEnvelope.id)) {
+  if (
+    state.envelopes.some(
+      (entry) =>
+        a2aEnvelopeIdempotencyKey(entry) ===
+        a2aEnvelopeIdempotencyKey(normalizedEnvelope),
+    )
+  ) {
     throw new A2AEnvelopeDuplicateError(
       normalizedEnvelope.id,
       normalizedEnvelope.thread_id,

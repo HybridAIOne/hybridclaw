@@ -148,6 +148,7 @@ spend across active models.
 
 ## Concierge Routing
 
+- Concierge routing is provided by the `concierge-router` middleware plugin.
 - `/concierge on|off` toggles the global concierge router that can ask users
   about urgency before long-running requests
 - `/concierge model [name]` shows or sets the small decision model used for

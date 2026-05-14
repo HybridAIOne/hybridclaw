@@ -817,6 +817,7 @@ export class PluginManager {
   private middlewares: RegisteredMiddleware[] = [];
   private hasPreSendMiddleware = false;
   private hasPostReceiveMiddleware = false;
+  private hasRoutingMiddleware = false;
   private tools = new Map<string, RegisteredTool>();
   private services: RegisteredService[] = [];
   private inboundWebhooks = new Map<string, RegisteredInboundWebhook>();
@@ -1337,9 +1338,13 @@ export class PluginManager {
     if (!middlewareId) {
       throw new Error('Plugin middleware is missing `id`.');
     }
-    if (!middleware.pre_send && !middleware.post_receive) {
+    if (
+      !middleware.routing &&
+      !middleware.pre_send &&
+      !middleware.post_receive
+    ) {
       throw new Error(
-        'Plugin middleware must define `pre_send` or `post_receive`.',
+        'Plugin middleware must define `routing`, `pre_send`, or `post_receive`.',
       );
     }
     this.middlewares.push({
@@ -1500,6 +1505,9 @@ export class PluginManager {
   }
 
   private recomputeMiddlewareFlags(): void {
+    this.hasRoutingMiddleware = this.middlewares.some((entry) =>
+      Boolean(entry.middleware.routing),
+    );
     this.hasPreSendMiddleware = this.middlewares.some((entry) =>
       Boolean(entry.middleware.pre_send),
     );
@@ -1901,11 +1909,15 @@ export class PluginManager {
 
   hasMiddleware(phase?: MiddlewarePhase): boolean {
     if (!phase) {
-      return this.hasPreSendMiddleware || this.hasPostReceiveMiddleware;
+      return (
+        this.hasRoutingMiddleware ||
+        this.hasPreSendMiddleware ||
+        this.hasPostReceiveMiddleware
+      );
     }
-    return phase === 'pre_send'
-      ? this.hasPreSendMiddleware
-      : this.hasPostReceiveMiddleware;
+    if (phase === 'routing') return this.hasRoutingMiddleware;
+    if (phase === 'pre_send') return this.hasPreSendMiddleware;
+    return this.hasPostReceiveMiddleware;
   }
 
   private wrapPluginMiddlewareHandler(
@@ -2090,6 +2102,7 @@ export class PluginManager {
       id: `${entry.pluginId}:${entry.middleware.id}`,
       priority: entry.middleware.priority,
       predicate: this.wrapPluginMiddlewarePredicate(entry),
+      routing: this.wrapPluginMiddlewareHandler(entry, 'routing'),
       pre_send: this.wrapPluginMiddlewareHandler(entry, 'pre_send'),
       post_receive: this.wrapPluginMiddlewareHandler(entry, 'post_receive'),
     }));

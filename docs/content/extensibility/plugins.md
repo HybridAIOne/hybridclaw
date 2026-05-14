@@ -15,6 +15,7 @@ Use the CLI to install a plugin from a local directory or npm package:
 
 ```bash
 hybridclaw plugin list
+hybridclaw plugin list available
 hybridclaw plugin config example-plugin workspaceId workspace-a
 hybridclaw plugin install ./plugins/example-plugin
 hybridclaw plugin install ./plugins/gbrain
@@ -31,6 +32,7 @@ hybridclaw plugin uninstall example-plugin
 From a local TUI/web session you can also run:
 
 ```text
+/plugin list available
 /plugin config example-plugin workspaceId workspace-a
 /plugin install ./plugins/example-plugin
 /plugin reinstall ./plugins/example-plugin
@@ -51,8 +53,11 @@ The reinstall command:
 - preserves existing `plugins.list[]` overrides
 - reloads cleanly after code changes from the TUI/web flow
 
-`hybridclaw plugin list` shows discovered plugins with source, enabled state,
-registered tools/hooks, and any load error.
+`hybridclaw plugin list` shows installed/discovered plugins first, then
+installable bundled or project-local plugins. Use `hybridclaw plugin list
+installed` or `hybridclaw plugin list available` to show only one section.
+When installing by bare plugin id, project-local plugins in `./plugins/` take
+priority over bundled plugins with the same id.
 The embedded admin console also exposes the same discovery snapshot at
 `/admin/plugins` for browser-based inspection.
 
@@ -284,13 +289,16 @@ plugins can call `api.dispatchInboundMessage(...)`. That runs the same gateway
 turn pipeline used by built-in channels and returns the standard gateway chat
 result so the plugin can deliver the reply through its own transport.
 
-Classifier middleware uses one decision shape for both inbound prompt
-preparation and outbound response inspection:
+Classifier middleware uses one decision shape for routing, inbound prompt
+preparation, and outbound response inspection:
 
 ```ts
 api.registerMiddleware({
   id: 'classifier-demo',
   priority: 100,
+  async routing(context) {
+    return { action: 'allow' };
+  },
   async pre_send(context) {
     return { action: 'allow' };
   },
@@ -309,6 +317,9 @@ api.registerMiddleware({
 
 Middleware decisions are `allow`, `warn`, `block`, `transform`, or `escalate`.
 The manager runs middleware in ascending `priority` order, then by `id`.
+The `routing` phase runs before model/provider selection and may attach
+decision `metadata` for gateway routing hints. Ordinary `pre_send` middleware
+runs after prompt assembly and should remain the default for prompt edits.
 Legacy `registerOutputGuard(...)` plugins are adapted into `post_receive`
 middleware for compatibility. `post_receive` contexts include final response
 text and the turn's `toolExecutions`, including F8 stakes metadata populated by
