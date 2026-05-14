@@ -122,6 +122,18 @@ test('HubSpot helper plans reads and guarded writes offline', () => {
     'plan',
     'Move Acme Renewal deal to contractsent',
   ]);
+  const dealStageRead = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Read the current deal stage for Q3 Renewal',
+  ]);
+  const lifecycleRead = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Read the lifecycle stage for contact Priya Shah',
+  ]);
   const lifecycle = runHelper([
     '--format',
     'json',
@@ -143,6 +155,8 @@ test('HubSpot helper plans reads and guarded writes offline', () => {
 
   expect(read.status).toBe(0);
   expect(stage.status).toBe(0);
+  expect(dealStageRead.status).toBe(0);
+  expect(lifecycleRead.status).toBe(0);
   expect(lifecycle.status).toBe(0);
   expect(note.status).toBe(0);
   expect(task.status).toBe(0);
@@ -151,11 +165,24 @@ test('HubSpot helper plans reads and guarded writes offline', () => {
     object: 'deals',
     stakesTier: 'green',
   });
-  expect(JSON.parse(stage.stdout).actions[0]).toMatchObject({
+  const stageAction = JSON.parse(stage.stdout).actions[0];
+  expect(stageAction).toMatchObject({
     action: 'update-deal-stage',
+    deal: 'Acme Renewal',
+    stage: 'contractsent',
     stakesTier: 'amber',
     requiredGrant: 'approve-hubspot-deal-stage-update',
   });
+  expect(JSON.parse(dealStageRead.stdout).actions).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ action: 'update-deal-stage' }),
+    ]),
+  );
+  expect(JSON.parse(lifecycleRead.stdout).actions).not.toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ action: 'update-lifecycle-stage' }),
+    ]),
+  );
   expect(JSON.parse(lifecycle.stdout).actions[0]).toMatchObject({
     action: 'update-lifecycle-stage',
     object: 'contacts',
@@ -177,6 +204,34 @@ test('HubSpot helper plans reads and guarded writes offline', () => {
       }),
     ]),
   );
+});
+
+test('HubSpot helper extracts deal stage updates without capturing filler words', () => {
+  const stageAfterObject = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Set the Q3 Renewal deal stage to presentationscheduled',
+  ]);
+  const stageForDeal = runHelper([
+    '--format',
+    'json',
+    'plan',
+    'Change the deal stage for Northwind Expansion to decisionmakerboughtin',
+  ]);
+
+  expect(stageAfterObject.status).toBe(0);
+  expect(stageForDeal.status).toBe(0);
+  expect(JSON.parse(stageAfterObject.stdout).actions[0]).toMatchObject({
+    action: 'update-deal-stage',
+    deal: 'Q3 Renewal',
+    stage: 'presentationscheduled',
+  });
+  expect(JSON.parse(stageForDeal.stdout).actions[0]).toMatchObject({
+    action: 'update-deal-stage',
+    deal: 'Northwind Expansion',
+    stage: 'decisionmakerboughtin',
+  });
 });
 
 test('HubSpot helper emits gateway-minted OAuth read requests', () => {
@@ -257,6 +312,19 @@ test('HubSpot helper validates internal stage options from saved metadata', () =
     '--value',
     'contractsent',
   ]);
+  const labelWrite = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'update-deal-stage',
+    '123456',
+    '--stage',
+    'Contract sent',
+    '--properties-file',
+    dealPropertiesPath,
+    '--grant',
+    'approve-hubspot-deal-stage-update',
+  ]);
   const invalid = runHelper([
     '--format',
     'json',
@@ -272,11 +340,15 @@ test('HubSpot helper validates internal stage options from saved metadata', () =
   ]);
 
   expect(valid.status).toBe(0);
+  expect(labelWrite.status).toBe(0);
   expect(JSON.parse(valid.stdout)).toMatchObject({
     command: 'validate-option',
     propertyName: 'dealstage',
     value: 'contractsent',
     ok: true,
+  });
+  expect(JSON.parse(labelWrite.stdout).httpRequest.json).toEqual({
+    properties: { dealstage: 'contractsent' },
   });
   expect(invalid.status).not.toBe(0);
   expect(invalid.stderr).toContain('Invalid dealstage value');
@@ -390,6 +462,42 @@ test('HubSpot helper builds note and task association payloads', () => {
       },
     ],
   });
+});
+
+test('HubSpot helper rejects partial note and task associations', () => {
+  const note = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'create-note',
+    '--body',
+    'Legal review started',
+    '--associate-object',
+    'deals',
+    '--grant',
+    'approve-hubspot-note-create',
+  ]);
+  const task = runHelper([
+    '--format',
+    'json',
+    'http-request',
+    'create-task',
+    '--subject',
+    'Send pricing',
+    '--associate-id',
+    '987654',
+    '--grant',
+    'approve-hubspot-task-create',
+  ]);
+
+  expect(note.status).not.toBe(0);
+  expect(task.status).not.toBe(0);
+  expect(note.stderr).toContain(
+    '--associate-object and --associate-id must be provided together',
+  );
+  expect(task.stderr).toContain(
+    '--associate-object and --associate-id must be provided together',
+  );
 });
 
 test('HubSpot helper eval suite covers 30 scenarios and UsageTotals', () => {

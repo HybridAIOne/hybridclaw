@@ -382,14 +382,15 @@ function buildUpdateDealStageRequest(args) {
     'operator-grant': 'boolean',
   });
   const id = assertRecordId(positional[0], 'deal id');
-  const stage = String(flags.stage || positional.slice(1).join(' ')).trim();
+  let stage = String(flags.stage || positional.slice(1).join(' ')).trim();
   if (!stage) throw new Error('update-deal-stage requires --stage.');
   if (flags['properties-file']) {
-    validatePropertyOptionFromFile({
+    const validated = validatePropertyOptionFromFile({
       filePath: flags['properties-file'],
       propertyName: 'dealstage',
       value: stage,
     });
+    stage = validated.value;
   }
   const requiredGrant = requireGrant(flags, 'update-deal-stage');
   return wrap(
@@ -417,14 +418,15 @@ function buildUpdateLifecycleStageRequest(args) {
   });
   const object = normalizeObject(positional[0]);
   const id = assertRecordId(positional[1]);
-  const stage = String(flags.stage || positional.slice(2).join(' ')).trim();
+  let stage = String(flags.stage || positional.slice(2).join(' ')).trim();
   if (!stage) throw new Error('update-lifecycle-stage requires --stage.');
   if (flags['properties-file']) {
-    validatePropertyOptionFromFile({
+    const validated = validatePropertyOptionFromFile({
       filePath: flags['properties-file'],
       propertyName: 'lifecyclestage',
       value: stage,
     });
+    stage = validated.value;
   }
   const requiredGrant = requireGrant(flags, 'update-lifecycle-stage');
   return wrap(
@@ -444,7 +446,12 @@ function buildAssociation(
   associatedId,
   overrideTypeId,
 ) {
-  if (!associatedObject || !associatedId) return undefined;
+  if (!associatedObject && !associatedId) return undefined;
+  if (!associatedObject || !associatedId) {
+    throw new Error(
+      '--associate-object and --associate-id must be provided together.',
+    );
+  }
   const object = normalizeActivityObject(associatedObject);
   const associationTypeId =
     overrideTypeId === undefined
@@ -597,27 +604,26 @@ function planNaturalLanguage(statement) {
     });
   }
 
-  const stageMatch = text.match(
-    /(?:move|update|set|change)\s+(.+?)\s+(?:deal|opportunity).*?(?:to|stage)\s+["']?([^"']+?)["']?$/i,
-  );
-  if (stageMatch || lower.includes('deal stage')) {
+  const stageMatch = extractDealStageUpdate(text);
+  if (stageMatch) {
     actions.push({
       action: 'update-deal-stage',
-      deal: stageMatch?.[1]?.trim() || '',
-      stage: stageMatch?.[2]?.trim() || '',
+      deal: stageMatch.deal,
+      stage: stageMatch.stage,
       stakesTier: 'amber',
       requiresEscalation: true,
       requiredGrant: WRITE_GRANTS['update-deal-stage'],
     });
   }
 
-  if (lower.includes('lifecycle')) {
+  const lifecycleStage = /\b(?:move|update|set|change)\b/i.test(text)
+    ? extractAfter(lower, ['lifecycle stage to ', 'lifecycle to ', 'to '])
+    : '';
+  if (lifecycleStage && lower.includes('lifecycle')) {
     actions.push({
       action: 'update-lifecycle-stage',
       object: readObject || 'contacts',
-      stage:
-        extractAfter(lower, ['lifecycle stage to ', 'lifecycle to ', 'to ']) ||
-        '',
+      stage: lifecycleStage,
       stakesTier: 'amber',
       requiresEscalation: true,
       requiredGrant: WRITE_GRANTS['update-lifecycle-stage'],
@@ -664,6 +670,23 @@ function planNaturalLanguage(statement) {
   };
 }
 
+function extractDealStageUpdate(text) {
+  const patterns = [
+    /^(?:move|update|set|change)\s+(?:the\s+)?(?:deal|opportunity)(?:\s+stage)?\s+for\s+(.+?)\s+to\s+["']?([^"']+?)["']?(?:\s+and\b.*)?$/i,
+    /^(?:move|update|set|change)\s+(?:the\s+)?(.+?)\s+(?:deal|opportunity)(?:\s+stage)?\s+to\s+["']?([^"']+?)["']?(?:\s+and\b.*)?$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        deal: match[1].trim(),
+        stage: match[2].trim(),
+      };
+    }
+  }
+  return null;
+}
+
 function validatePropertyOptionFromFile({ filePath, propertyName, value }) {
   const resolved = path.resolve(String(filePath || ''));
   const payload = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
@@ -701,10 +724,11 @@ function validatePropertyOption({ propertyPayload, propertyName, value }) {
       `Invalid ${normalizedProperty} value "${normalizedValue}". Valid internal values include: ${values.join(', ') || '(none found)'}.`,
     );
   }
+  const internalValue = String(match.value || '').trim();
   return {
     propertyName: normalizedProperty,
-    value: normalizedValue,
-    label: String(match.label || '').trim() || normalizedValue,
+    value: internalValue || normalizedValue,
+    label: String(match.label || '').trim() || internalValue || normalizedValue,
     ok: true,
   };
 }
