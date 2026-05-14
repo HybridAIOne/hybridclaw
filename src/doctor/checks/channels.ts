@@ -15,6 +15,10 @@ export async function checkChannels(): Promise<DiagResult[]> {
   const config = getConfigSnapshot();
   const telegram = config.telegram;
   const threema = config.threema;
+  const slackWebhook = config.slackWebhook ?? {
+    enabled: false,
+    webhooks: {},
+  };
   const segments: string[] = [];
   const severities: DiagResult['severity'][] = [];
 
@@ -72,6 +76,33 @@ export async function checkChannels(): Promise<DiagResult[]> {
     }
   }
 
+  if (slackWebhook.enabled) {
+    const targetCount = Object.keys(slackWebhook.webhooks).length;
+    if (slackWebhook.webhooks.default?.webhookUrl) {
+      segments.push(
+        `Slack webhook configured (${targetCount} target${targetCount === 1 ? '' : 's'})`,
+      );
+      const { checkSlackWebhookReachability } = await import(
+        '../../channels/slack-webhook/runtime.js'
+      );
+      const reachabilityResults = await checkSlackWebhookReachability();
+      const failed = reachabilityResults.filter((result) => !result.ok);
+      if (failed.length > 0) {
+        segments.push(
+          `Slack webhook reachability failed (${failed
+            .map((result) => result.target)
+            .join(', ')})`,
+        );
+        severities.push('error');
+      } else if (reachabilityResults.length > 0) {
+        segments.push('Slack webhook reachability ok');
+      }
+    } else {
+      segments.push('Slack webhook default target missing');
+      severities.push('error');
+    }
+  }
+
   const whatsapp = await getWhatsAppAuthStatus();
   const whatsappExpected =
     config.whatsapp.dmPolicy !== 'disabled' ||
@@ -89,7 +120,7 @@ export async function checkChannels(): Promise<DiagResult[]> {
         'channels',
         'Channels',
         'ok',
-        'No external channels enabled (Discord, Teams, Telegram, Threema, Email, and WhatsApp are all intentionally disabled)',
+        'No external channels enabled (Discord, Teams, Telegram, Threema, Slack webhook, Email, and WhatsApp are all intentionally disabled)',
       ),
     ];
   }

@@ -79,6 +79,7 @@ import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js'
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
+import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -112,6 +113,7 @@ import {
   normalizeDelegationEffect,
   normalizeMediaContextItems,
   prepareSessionAutoReset,
+  readDynamicContextMessage,
   readSystemPromptMessage,
   recordSuccessfulTurn,
   resolveCanonicalContextScope,
@@ -1330,6 +1332,7 @@ async function handleGatewayMessageInner(
         scheduledTaskCount: scheduledTasks.length,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
+        dynamicContext: readDynamicContextMessage(messages),
       },
     });
     if (pluginManager) {
@@ -1396,6 +1399,11 @@ async function handleGatewayMessageInner(
     persistSpeechTranscriptsToScopedMemory({
       sessionId: req.sessionId,
       skillName: observedSkillName,
+      toolExecutions,
+    });
+    emitDiagramRuntimeEventsForToolExecutions({
+      sessionId: req.sessionId,
+      runId,
       toolExecutions,
     });
     emitToolExecutionAuditEvents({

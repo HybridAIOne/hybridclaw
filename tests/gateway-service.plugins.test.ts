@@ -514,7 +514,7 @@ test('handleGatewayMessage injects plugin prompt context and forwards plugin too
       ],
       messages: expect.arrayContaining([
         expect.objectContaining({
-          role: 'system',
+          role: 'user',
           content: expect.stringContaining('plugin-memory-context'),
         }),
       ]),
@@ -652,9 +652,21 @@ test('handleGatewayMessage lets a plugin memory layer replace built-in memory', 
       | { messages?: Array<{ role: string; content: string }> }
       | undefined
   )?.messages?.find((message) => message.role === 'system');
-  expect(systemMessage?.content).toContain('## Session Summary');
-  expect(systemMessage?.content).toContain('mempalace-memory-context');
+  const dynamicContextMessage = (
+    runAgentMock.mock.calls[0]?.[0] as
+      | { messages?: Array<{ role: string; content: string }> }
+      | undefined
+  )?.messages?.find(
+    (message) =>
+      message.role === 'user' &&
+      message.content.includes('mempalace-memory-context'),
+  );
+  expect(systemMessage?.content).not.toContain('## Session Summary');
+  expect(systemMessage?.content).not.toContain('mempalace-memory-context');
   expect(systemMessage?.content).not.toContain('## Retrieved Context');
+  expect(dynamicContextMessage?.content).toContain('## Session Summary');
+  expect(dynamicContextMessage?.content).toContain('mempalace-memory-context');
+  expect(dynamicContextMessage?.content).not.toContain('## Retrieved Context');
 
   const history = memoryService.getConversationHistory(sessionId, 10);
   expect(history.map((message) => message.role)).toEqual(['assistant', 'user']);
