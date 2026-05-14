@@ -228,13 +228,15 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
   expect(goal?.status).toBe('paused');
   expect(goal?.turnsUsed).toBe(1);
   expect(goal?.pausedReason).toBe('turn budget reached');
-  expect(judgeGoalCompletion).toHaveBeenCalledWith({
-    sessionId: session.id,
-    agentId: 'agent-a',
-    threadId: session.main_session_key,
-    goalText: 'ship the patch',
-    assistantResponse: 'I completed the first step.',
-  });
+  expect(judgeGoalCompletion).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId: session.id,
+      agentId: 'agent-a',
+      threadId: session.main_session_key,
+      goalText: 'ship the patch',
+      assistantResponse: 'I completed the first step.',
+    }),
+  );
 });
 
 test('post-turn goal subscriber caps assistant response sent to the judge', async () => {

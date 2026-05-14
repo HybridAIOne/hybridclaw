@@ -43,6 +43,7 @@ export interface JudgeGoalCompletionParams {
   threadId?: string | null;
   goalText: string;
   assistantResponse: string;
+  fallbackModel?: string | null;
   /** @internal Test injection only. Production callers should use the configured goal_judge model. */
   modelCaller?: (
     params: GoalJudgeModelCallParams,
@@ -156,11 +157,13 @@ function isEmptyGoalJudgeResponseError(error: unknown): boolean {
 
 async function callGoalJudgeAuxiliaryModel(
   messages: ChatMessage[],
+  fallbackModel?: string | null,
 ): Promise<GoalJudgeModelCallResponse> {
   try {
     return await callAuxiliaryModel({
       task: 'goal_judge',
       messages,
+      fallbackModel: fallbackModel?.trim() || undefined,
       maxTokens: GOAL_JUDGE_MAX_TOKENS,
       temperature: 0,
       timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
@@ -171,6 +174,7 @@ async function callGoalJudgeAuxiliaryModel(
     return await callAuxiliaryModel({
       task: 'goal_judge',
       messages,
+      fallbackModel: fallbackModel?.trim() || undefined,
       maxTokens: GOAL_JUDGE_MAX_TOKENS,
       temperature: 0,
       timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
@@ -194,7 +198,7 @@ async function judgeGoalCompletionDirect(
           temperature: 0,
           timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
         })
-      : await callGoalJudgeAuxiliaryModel(messages);
+      : await callGoalJudgeAuxiliaryModel(messages, params.fallbackModel);
     try {
       await recordGoalJudgeUsage({
         sessionId: params.sessionId,
@@ -246,6 +250,7 @@ export function ensureGoalJudgeSubscriberRegistered(): void {
         threadId: goalEvent.thread_id,
         goalText: goalEvent.goal_text,
         assistantResponse: goalEvent.assistant_response,
+        fallbackModel: goalEvent.fallback_model,
       });
       resolveGoalJudgeRequest(goalEvent.request_id, result);
     },
@@ -269,6 +274,7 @@ export async function judgeGoalCompletion(
     thread_id: params.threadId ?? null,
     goal_text: params.goalText,
     assistant_response: params.assistantResponse,
+    fallback_model: params.fallbackModel?.trim() || null,
     created_at: new Date().toISOString(),
   };
 

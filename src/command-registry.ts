@@ -1807,6 +1807,10 @@ function buildSlashCommandCatalogDefinitions(
     {
       name: 'goal',
       description: 'Set or inspect a persistent standing goal for this thread',
+      tuiMenu: {
+        label: '/goal <set|status|pause|resume|clear>',
+        insertText: '/goal ',
+      },
       options: [
         {
           kind: 'subcommand',
