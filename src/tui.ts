@@ -2857,12 +2857,15 @@ function prepareProactiveRegularMessageOutput(
   rl: readline.Interface,
   hasDelegateStatus: boolean,
   promptVisible: boolean,
+  options: { leadingBlank?: boolean } = {},
 ): void {
   if (!hasDelegateStatus && promptVisible) {
     clearPromptBlockForDelegateStatus();
     resetReadlinePromptRows(rl);
   }
-  console.log();
+  if (options.leadingBlank !== false) {
+    console.log();
+  }
 }
 
 function renderProactiveRegularMessage(
@@ -2898,14 +2901,11 @@ function renderProactiveRegularMessage(
 
 function renderProactiveRegularMessages(messages: GatewayProactiveMessage[]): {
   sawDelegateStreamMessage: boolean;
-  onlyGoalContinuationMessages: boolean;
 } {
   let sawDelegateStreamMessage = false;
   let previousWasGoalContinuation = false;
-  let onlyGoalContinuationMessages = messages.length > 0;
   for (const message of messages) {
     const isGoalMessage = isGoalContinuationSource(message.source);
-    if (!isGoalMessage) onlyGoalContinuationMessages = false;
     if (isGoalMessage && previousWasGoalContinuation) {
       console.log();
     }
@@ -2914,7 +2914,7 @@ function renderProactiveRegularMessages(messages: GatewayProactiveMessage[]): {
     }
     previousWasGoalContinuation = isGoalMessage;
   }
-  return { sawDelegateStreamMessage, onlyGoalContinuationMessages };
+  return { sawDelegateStreamMessage };
 }
 
 function restorePromptAfterProactiveMessages(
@@ -2972,12 +2972,16 @@ async function pollProactiveMessages(
       return;
     }
 
+    const onlyGoalContinuationMessages = regularMessages.every((message) =>
+      isGoalContinuationSource(message.source),
+    );
     prepareProactiveRegularMessageOutput(
       rl,
       Boolean(latestDelegateStatus),
       promptVisible,
+      { leadingBlank: !onlyGoalContinuationMessages },
     );
-    const { sawDelegateStreamMessage, onlyGoalContinuationMessages } =
+    const { sawDelegateStreamMessage } =
       renderProactiveRegularMessages(regularMessages);
     if (!delegateStreamActive && !onlyGoalContinuationMessages) {
       console.log();
