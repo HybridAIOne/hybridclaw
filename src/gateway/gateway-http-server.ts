@@ -25,7 +25,6 @@ import {
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
-import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
   getSignalLinkState,
   startSignalLink,
@@ -197,6 +196,7 @@ import {
   saveGatewayAdminModels,
   saveGatewayAdminPolicyDefault,
   saveGatewayAdminPolicyRule,
+  saveGatewayAdminSlackWebhookTarget,
   setGatewayAdminSkillEnabled,
   unblockGatewayAdminSkill,
   updateGatewayAdminAgent,
@@ -207,6 +207,7 @@ import {
 } from './gateway-service.js';
 import type {
   GatewayAdminA2ATrustUpsertRequest,
+  GatewayAdminSlackWebhookTargetRequest,
   GatewayChatBranchRequestBody,
   GatewayChatRequest,
   GatewayChatRequestBody,
@@ -2992,6 +2993,21 @@ async function handleApiAdminConfig(
   sendJson(res, 200, saveGatewayAdminConfig(body.config as RuntimeConfig));
 }
 
+async function handleApiAdminSlackWebhookTargets(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = (await readJsonBody(req)) as
+    | GatewayAdminSlackWebhookTargetRequest
+    | undefined;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    sendJson(res, 400, { error: 'Expected Slack webhook target object.' });
+    return;
+  }
+
+  sendJson(res, 200, saveGatewayAdminSlackWebhookTarget(body));
+}
+
 async function handleApiAdminA2ATrust(
   req: IncomingMessage,
   res: ServerResponse,
@@ -4527,7 +4543,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
-        dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
+        dispatchWebhookRoute(res, async () => {
+          const { handleMSTeamsWebhook } = await import(
+            '../channels/msteams/runtime.js'
+          );
+          await handleMSTeamsWebhook(req, res);
+        });
         return;
       }
       if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
@@ -4688,6 +4709,13 @@ export function startGatewayHttpServer(): GatewayHttpServer {
             (method === 'GET' || method === 'PUT')
           ) {
             await handleApiAdminConfig(req, res);
+            return;
+          }
+          if (
+            pathname === '/api/admin/slack-webhook-targets' &&
+            (method === 'POST' || method === 'PUT')
+          ) {
+            await handleApiAdminSlackWebhookTargets(req, res);
             return;
           }
           if (

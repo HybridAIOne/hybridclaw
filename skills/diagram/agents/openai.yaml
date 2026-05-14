@@ -1,0 +1,2 @@
+short_description: "Validated Mermaid, PlantUML, Graphviz, and Excalidraw diagrams."
+default_prompt: "Use $diagram to create or revise a validated diagram-as-code artifact, render it when requested, and return the source and rendered artifact paths."

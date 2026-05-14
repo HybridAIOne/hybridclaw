@@ -15,6 +15,7 @@ const fetchConfigMock = vi.fn<() => Promise<AdminConfigResponse>>();
 const fetchEmailConfigMock = vi.fn();
 const fetchSignalLinkMock = vi.fn();
 const saveConfigMock = vi.fn();
+const saveSlackWebhookTargetMock = vi.fn();
 const setRuntimeSecretMock = vi.fn();
 const startSignalLinkMock = vi.fn();
 const validateTokenMock = vi.fn();
@@ -25,6 +26,8 @@ vi.mock('../api/client', () => ({
   fetchEmailConfig: (...args: unknown[]) => fetchEmailConfigMock(...args),
   fetchSignalLink: (...args: unknown[]) => fetchSignalLinkMock(...args),
   saveConfig: (...args: unknown[]) => saveConfigMock(...args),
+  saveSlackWebhookTarget: (...args: unknown[]) =>
+    saveSlackWebhookTargetMock(...args),
   setRuntimeSecret: (...args: unknown[]) => setRuntimeSecretMock(...args),
   startSignalLink: (...args: unknown[]) => startSignalLinkMock(...args),
   validateToken: (...args: unknown[]) => validateTokenMock(...args),
@@ -56,6 +59,7 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       discord: '',
       msteams: '',
       slack: '',
+      slack_webhook: '',
       signal: '',
       telegram: '',
       threema: '',
@@ -145,6 +149,10 @@ function makeConfig(overrides: Partial<AdminConfig> = {}): AdminConfig {
       textChunkLimit: 12000,
       replyStyle: 'thread',
       mediaMaxMb: 20,
+    },
+    slackWebhook: {
+      enabled: false,
+      webhooks: {},
     },
     telegram: {
       enabled: false,
@@ -294,6 +302,7 @@ describe('ChannelsPage', () => {
     fetchEmailConfigMock.mockReset();
     fetchSignalLinkMock.mockReset();
     saveConfigMock.mockReset();
+    saveSlackWebhookTargetMock.mockReset();
     setRuntimeSecretMock.mockReset();
     startSignalLinkMock.mockReset();
     validateTokenMock.mockReset();
@@ -515,6 +524,95 @@ describe('ChannelsPage', () => {
     ).toBeTruthy();
     expect(screen.getByText('Bot token')).toBeTruthy();
     expect(screen.getByText('App token')).toBeTruthy();
+  });
+
+  it('rotates Slack webhook targets without keeping the URL in the draft', async () => {
+    const config = makeConfig({
+      slackWebhook: {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: '',
+            defaultUsername: 'HybridClaw',
+            defaultIconEmoji: '',
+            defaultIconUrl: '',
+          },
+        },
+      },
+    });
+    const savedConfig = makeConfig({
+      slackWebhook: {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: '',
+            defaultUsername: 'HybridClaw',
+            defaultIconEmoji: ':robot_face:',
+            defaultIconUrl: '',
+          },
+        },
+      },
+    });
+    fetchConfigMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config,
+    });
+    validateTokenMock.mockResolvedValue({
+      status: 'ok',
+      webAuthConfigured: true,
+      version: 'test',
+      imageTag: null,
+      uptime: 1,
+      sessions: 0,
+      activeContainers: 0,
+      defaultModel: 'gpt-5',
+      ragDefault: true,
+      timestamp: new Date().toISOString(),
+      slackWebhook: {
+        targetCount: 1,
+        defaultTargetConfigured: true,
+        lastReachabilityResults: [],
+        lastSendResults: [],
+      },
+    });
+    saveSlackWebhookTargetMock.mockResolvedValue({
+      path: '/tmp/config.json',
+      config: savedConfig,
+    });
+
+    renderChannelsPage();
+
+    const webhookButton = await screen.findByRole('button', {
+      name: /Incoming Webhook/i,
+    });
+    fireEvent.click(webhookButton);
+    fireEvent.change(screen.getByLabelText('Webhook URL'), {
+      target: {
+        value: 'https://hooks.slack.com/services/T000/B000/SECRET',
+      },
+    });
+    fireEvent.change(screen.getByLabelText('Icon emoji'), {
+      target: { value: ':robot_face:' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save webhook target' }),
+    );
+
+    await waitFor(() => {
+      expect(saveSlackWebhookTargetMock).toHaveBeenCalledWith('test-token', {
+        target: 'default',
+        webhookUrl: 'https://hooks.slack.com/services/T000/B000/SECRET',
+        defaultUsername: 'HybridClaw',
+        defaultIconEmoji: ':robot_face:',
+        defaultIconUrl: '',
+      });
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText('Webhook URL') as HTMLInputElement).value,
+      ).toBe('');
+    });
+    expect(screen.queryByDisplayValue(/SECRET/)).toBeNull();
   });
 
   it('shows Discord as active in command-only mode when the token is configured', async () => {

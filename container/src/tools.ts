@@ -19,6 +19,11 @@ import {
   setBrowserModelContext,
   setBrowserTaskModelPolicies,
 } from './browser-tools.js';
+import {
+  type DiagramFixupRequest,
+  type DiagramRuntimeOptions,
+  runDiagramTool,
+} from './diagram-create.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import { runImageGenerate } from './image-generation.js';
 import type { McpClientManager } from './mcp/client-manager.js';
@@ -2337,6 +2342,62 @@ async function callTextAuxiliaryTask(params: {
   return response.content;
 }
 
+function stripDiagramFixupFence(content: string): string {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^```[a-zA-Z0-9_-]*\s*\r?\n([\s\S]*?)\r?\n```$/);
+  return (match?.[1] || trimmed).trim();
+}
+
+async function fixDiagramSourceWithAuxiliary(
+  runtimeContext: AuxiliaryRuntimeContext,
+  request: DiagramFixupRequest,
+): Promise<string | null> {
+  try {
+    const fixed = await callTextAuxiliaryTask({
+      runtimeContext,
+      task: 'skills_hub',
+      toolName: 'diagram.fixup',
+      maxTokens: 1600,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You repair diagram-as-code source. Return only complete corrected source, with no prose and no markdown fence.',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify(
+            {
+              action: request.action,
+              attempt: request.attempt,
+              format: request.format,
+              type: request.type,
+              requested_type: request.requestedType,
+              description: request.description,
+              instructions: request.instructions,
+              validation_errors: request.errors,
+              source: request.source,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    });
+    return stripDiagramFixupFence(fixed);
+  } catch {
+    return null;
+  }
+}
+
+function buildDiagramRuntimeOptions(): DiagramRuntimeOptions {
+  const runtimeContext = captureAuxiliaryRuntimeContext();
+  return {
+    fixSource: (request) =>
+      fixDiagramSourceWithAuxiliary(runtimeContext, request),
+  };
+}
+
 function buildSessionSearchContext(
   candidate: SessionSearchCandidate,
   maxChars = SESSION_SEARCH_MAX_LLM_CONTEXT_CHARS,
@@ -3448,6 +3509,47 @@ async function executeToolInternal(
       }
     }
 
+    case 'diagram.create':
+    case 'diagram_create': {
+      try {
+        return await runDiagramTool(
+          'create',
+          args,
+          buildDiagramRuntimeOptions(),
+        );
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram.update':
+    case 'diagram_update': {
+      try {
+        return await runDiagramTool(
+          'update',
+          args,
+          buildDiagramRuntimeOptions(),
+        );
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    case 'diagram.validate':
+    case 'diagram_validate': {
+      try {
+        return await runDiagramTool('validate', args);
+      } catch (err) {
+        return failTool(
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     case 'browser_navigate':
     case 'browser_await_two_factor':
     case 'browser_resume_interaction':
@@ -4468,6 +4570,145 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_create',
+      description:
+        'Create and validate diagram-as-code artifacts, then optionally render them. Supports Mermaid, PlantUML, Graphviz DOT, and Excalidraw JSON. Provide source to render exact syntax, or description/type to generate a starter diagram.',
+      parameters: {
+        type: 'object',
+        properties: {
+          description: {
+            type: 'string',
+            description: 'Natural-language diagram description.',
+          },
+          source: {
+            type: 'string',
+            description:
+              'Optional diagram source. Mermaid source may be fenced or raw.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+            description:
+              'Diagram type. Use auto to classify from description or source.',
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+            description: 'Source format. Defaults to mermaid.',
+          },
+          render_to: {
+            type: 'string',
+            enum: ['svg', 'png', 'pdf', 'none'],
+            description:
+              'Rendered artifact target. Defaults to svg except Excalidraw, which defaults to none.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_update',
+      description:
+        'Update an existing diagram source/artifact, validate it, and optionally re-render while preserving type and format. Provide artifact_ref or complete source; instructions are optional when source already contains the intended update.',
+      parameters: {
+        type: 'object',
+        properties: {
+          artifact_ref: {
+            type: 'string',
+            description:
+              'Existing diagram source artifact path from diagram_create.',
+          },
+          source: {
+            type: 'string',
+            description:
+              'Complete updated source. If omitted, the tool preserves existing source and adds a small update annotation.',
+          },
+          instructions: {
+            type: 'string',
+            description: 'Natural-language update instructions.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+          },
+          render_to: {
+            type: 'string',
+            enum: ['svg', 'png', 'pdf', 'none'],
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'diagram_validate',
+      description:
+        'Validate Mermaid, PlantUML, Graphviz DOT, or Excalidraw JSON diagram source without rendering. Returns valid/errors/suggested_fix.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description: 'Diagram source to validate.',
+          },
+          type: {
+            type: 'string',
+            enum: [
+              'sequence',
+              'flowchart',
+              'state',
+              'er',
+              'class',
+              'gantt',
+              'git-graph',
+              'mindmap',
+              'pie',
+              'auto',
+            ],
+          },
+          format: {
+            type: 'string',
+            enum: ['mermaid', 'plantuml', 'graphviz', 'excalidraw'],
+          },
+        },
+        required: ['source'],
+      },
+    },
+  },
   ...BROWSER_TOOL_DEFINITIONS,
   {
     type: 'function',
@@ -4605,3 +4846,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
+
+const DIAGRAM_TOOL_ALIASES: Record<string, string> = {
+  diagram_create: 'diagram.create',
+  diagram_update: 'diagram.update',
+  diagram_validate: 'diagram.validate',
+};
+
+for (const [legacyName, aliasName] of Object.entries(DIAGRAM_TOOL_ALIASES)) {
+  const tool = TOOL_DEFINITIONS.find(
+    (definition) => definition.function.name === legacyName,
+  );
+  if (!tool) continue;
+  TOOL_DEFINITIONS.push({
+    ...tool,
+    function: {
+      ...tool.function,
+      name: aliasName,
+      description: `${tool.function.description} Alias of ${legacyName}.`,
+    },
+  });
+}

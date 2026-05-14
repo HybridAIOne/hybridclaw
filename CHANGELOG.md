@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+### Added
+
+- **Diagram-as-code runtime and bundled skill**: Added the `diagram` skill plus
+  native `diagram.create`, `diagram.update`, and `diagram.validate` tools for
+  validated Mermaid-first diagrams, with PlantUML, Graphviz DOT, and Excalidraw
+  JSON adapters, source/rendered artifact persistence, SVG fallbacks, and
+  diagram runtime events.
+- **Slack Incoming Webhook channel**: Added outbound-only `slack_webhook`
+  delivery for Slack Incoming Webhook URLs, including default and named targets,
+  encrypted SecretRef storage, `hybridclaw channel add slack_webhook` setup,
+  admin-console editing, Block Kit text chunking, reachability status, and
+  managed POST-only network policy grants.
+- **Concierge router plugin**: Moved concierge urgency routing into the
+  repo-shipped `concierge-router` middleware plugin, preserving `/concierge`
+  commands while giving routing middleware a plugin-owned pending-state store
+  and authorized inbound webhook path for urgency-button callbacks.
+- **A2A sender instance metadata**: A2A envelopes now carry
+  `sender_instance_id`, derive it from canonical sender IDs for legacy payloads,
+  expose it in audit summaries, and use `(envelope.id, sender_instance_id)` as
+  the idempotency tuple for federated threads.
+- **Model overlay metadata substrate**: Static model metadata can now carry a
+  complete `model_overlay` contract shape and lookup helpers for GPT-5-family
+  matching, preparing the runtime for model-specific behavior overlays without
+  wiring an overlay applier yet.
+- **Prompt-prefix trace metadata**: ATIF/OpenTraces session exports now include
+  dynamic-context hashes and `prompt_prefix` entries alongside system prompt
+  hashes, making prompt-cache behavior auditable per turn.
+
+### Changed
+
+- **System prompt prefix is byte-stable**: Per-turn dynamic context such as the
+  current date, host, today's memory note, session summary, and retrieval
+  snippets moved out of the system prompt into a post-prefix user context block
+  so provider prefix caches can reuse the static system prompt.
+- **Plugin discovery lists installable plugins**: `hybridclaw plugin list` and
+  `/plugin list` now show installed plugins plus bundled/project-local
+  installable plugins, with `installed` and `available` filters. Bare plugin
+  IDs resolve through bundled and project `plugins/` catalogs, with project
+  plugins taking priority.
+- **Docs and roadmap coverage**: Channel docs now include Slack Incoming
+  Webhook setup, publishing-skill docs include the new diagram skill, and
+  architecture/model-selection docs reflect the plugin-owned concierge router
+  and upcoming model-overlay work.
+
+### Fixed
+
+- **Global package install bootstrap**: Container dependency postinstall now
+  falls back to `npm` when the outer install was invoked by `pnpm`, avoiding
+  broken global package installs caused by forwarding the wrong package-manager
+  executable and lifecycle env.
+- **Microsoft Teams optional dependency loading**: Teams Bot Framework support
+  is lazy-loaded so installs that do not use Microsoft Teams are not blocked by
+  that integration path.
+- **Federated A2A duplicate handling**: Threads can now contain the same
+  envelope ID from different sender instances while ambiguous envelope lookups
+  fail fast unless the caller supplies `sender_instance_id`.
+
 ## [0.18.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.18.0) - 2026-05-13
 
 ### Added

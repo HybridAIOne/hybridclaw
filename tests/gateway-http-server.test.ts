@@ -1200,6 +1200,11 @@ async function importFreshHealth(options?: {
       defaultRequireMention: true,
       defaultReplyStyle: 'thread',
     },
+    slackWebhook: {
+      enabled: false,
+      targetCount: 0,
+      defaultTargetConfigured: false,
+    },
     channels: [],
   }));
   const getGatewayAdminConfig = vi.fn(() => ({
@@ -1505,6 +1510,7 @@ async function importFreshHealth(options?: {
     servers: [],
   }));
   const saveGatewayAdminConfig = vi.fn((value) => value);
+  const saveGatewayAdminSlackWebhookTarget = vi.fn((value) => value);
   const saveGatewayAdminModels = vi.fn(async () => ({
     defaultModel: 'gpt-5',
     providerStatus: {},
@@ -1714,6 +1720,7 @@ async function importFreshHealth(options?: {
     restoreGatewayAdminAgentMarkdownRevision,
     restoreGatewayAdminTeamStructureRevision,
     saveGatewayAdminConfig,
+    saveGatewayAdminSlackWebhookTarget,
     saveGatewayAdminAgentMarkdownFile,
     saveGatewayAdminPolicyDefault,
     saveGatewayAdminPolicyRule,

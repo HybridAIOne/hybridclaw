@@ -881,6 +881,10 @@ function traceSystemPromptHash(text: string): string {
   return sha256Hex(text).slice(0, TRACE_SYSTEM_PROMPT_HASH_LENGTH);
 }
 
+function traceDynamicContextHash(text: string): string {
+  return sha256Hex(text).slice(0, TRACE_SYSTEM_PROMPT_HASH_LENGTH);
+}
+
 function buildTraceSystemPrompts(turns: TurnGroup[]): {
   systemPrompts: Record<string, string>;
   systemPromptHashByRunId: Map<string, string>;
@@ -898,6 +902,13 @@ function buildTraceSystemPrompts(turns: TurnGroup[]): {
     systemPromptHashByRunId.set(turn.runId, promptHash);
   }
   return { systemPrompts, systemPromptHashByRunId };
+}
+
+function readTurnDynamicContext(summary: TurnRowSummary): string | null {
+  const agentStart = summary.agentStart;
+  if (!agentStart) return null;
+  const agentStartPayload = parseJsonObject(agentStart.payload);
+  return readString(agentStartPayload, 'dynamicContext') || null;
 }
 
 function buildUserTraceStep(
@@ -1044,6 +1055,30 @@ function readTurnStepTimestamp(
   );
 }
 
+function buildPromptPrefixTraceEntries(params: {
+  systemPromptHash: string | undefined;
+  dynamicContext: string | null;
+  dynamicContextHash: string | undefined;
+}): Array<Record<string, unknown>> | undefined {
+  const entries: Array<Record<string, unknown>> = [];
+  if (params.systemPromptHash) {
+    entries.push({
+      role: 'system',
+      kind: 'system_prompt',
+      system_prompt_hash: params.systemPromptHash,
+    });
+  }
+  if (params.dynamicContext && params.dynamicContextHash) {
+    entries.push({
+      role: 'user',
+      kind: 'dynamic_context',
+      dynamic_context_hash: params.dynamicContextHash,
+      content: params.dynamicContext,
+    });
+  }
+  return entries.length > 0 ? entries : undefined;
+}
+
 function buildTraceSteps(params: {
   turns: TurnGroup[];
   messages: StoredMessage[];
@@ -1087,6 +1122,16 @@ function buildTraceSteps(params: {
       turn,
       summary.toolResultRows,
     );
+    const systemPromptHash = params.systemPromptHashByRunId.get(turn.runId);
+    const dynamicContext = readTurnDynamicContext(summary);
+    const dynamicContextHash = dynamicContext
+      ? traceDynamicContextHash(dynamicContext)
+      : undefined;
+    const promptPrefix = buildPromptPrefixTraceEntries({
+      systemPromptHash,
+      dynamicContext,
+      dynamicContextHash,
+    });
     const finishReason = readTurnFinishReason(summary);
     const modelId = readTurnModelId(summary, params.fallbackModel);
     const stepTokenUsage = readTurnTokenUsage(summary);
@@ -1113,11 +1158,21 @@ function buildTraceSteps(params: {
       role: 'agent',
       ...(resolvedContent.content ? { content: resolvedContent.content } : {}),
       model: modelId,
-      ...(params.systemPromptHashByRunId.get(turn.runId)
+      ...(systemPromptHash
         ? {
-            system_prompt_hash: params.systemPromptHashByRunId.get(turn.runId),
+            system_prompt_hash: systemPromptHash,
           }
         : {}),
+      ...(dynamicContext && dynamicContextHash
+        ? {
+            dynamic_context_hash: dynamicContextHash,
+            dynamic_context: {
+              role: 'user',
+              content: dynamicContext,
+            },
+          }
+        : {}),
+      ...(promptPrefix ? { prompt_prefix: promptPrefix } : {}),
       agent_role: 'main',
       call_type: 'main',
       tool_calls: toolCalls,

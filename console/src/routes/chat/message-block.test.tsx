@@ -103,6 +103,41 @@ describe('MessageBlock artifacts', () => {
     ).toBeNull();
   });
 
+  it('preserves SVG preview mime type when artifact downloads are forced attachments', async () => {
+    fetchArtifactBlobMock.mockResolvedValue(
+      new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], {
+        type: 'application/octet-stream',
+      }),
+    );
+
+    render(
+      <MessageBlock
+        message={makeMessage([
+          {
+            path: '/tmp/diagram.svg',
+            filename: 'diagram.svg',
+            mimeType: 'image/svg+xml',
+          },
+        ])}
+        token="test-token"
+        isStreaming={false}
+        onCopy={vi.fn()}
+        onEdit={vi.fn()}
+        onRegenerate={vi.fn()}
+        onApprovalAction={vi.fn()}
+        approvalBusy={false}
+        branchInfo={null}
+        onBranchNav={vi.fn()}
+      />,
+    );
+
+    const preview = await screen.findByAltText('diagram.svg');
+    expect(preview.getAttribute('src')).toBe('blob:artifact');
+    const [previewBlob] = vi.mocked(URL.createObjectURL).mock.calls[0] ?? [];
+    expect(previewBlob).toBeInstanceOf(Blob);
+    expect((previewBlob as Blob).type).toBe('image/svg+xml');
+  });
+
   it('renders PDF previews from authenticated blob URLs', async () => {
     fetchArtifactBlobMock.mockResolvedValue(
       new Blob(['pdf-bytes'], { type: 'application/pdf' }),

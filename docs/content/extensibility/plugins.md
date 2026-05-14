@@ -93,6 +93,11 @@ or change one top-level `plugins.list[].config` key without editing
   responses against configured voice guidance, banned phrases or regexes,
   required phrases, and optional classifier/rewriter models. It can flag,
   rewrite, or block off-brand output before the message is returned to the user.
+- `concierge-router` registers routing middleware and `/concierge` commands to
+  ask or infer urgency before model selection, then map `asap`, `balanced`, and
+  `no_hurry` profiles to configured execution models. It stores pending choice
+  state under the runtime home and exposes an authorized plugin webhook for
+  urgency-button callbacks.
 - `brevo-email` provides per-agent email addresses through a Brevo inbound
   webhook plus SMTP relay; configure `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
   `BREVO_WEBHOOK_SECRET`, and optional config keys such as `domain`,

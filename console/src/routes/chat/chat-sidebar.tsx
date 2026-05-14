@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { ChatRecentSession } from '../../api/chat-types';
 import { useAuth } from '../../auth';
+import { Trash } from '../../components/icons';
 import {
   SidebarBrand,
   SidebarMeta,
@@ -27,6 +28,8 @@ export interface ChatSidebarProps {
   onNewChat: () => void;
   onOpenSession: (sessionId: string) => void;
   onHoverSession?: (sessionId: string) => void;
+  onRequestDeleteSession: (session: ChatRecentSession) => void;
+  deleteDisabled?: boolean;
   isPending?: boolean;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -121,32 +124,46 @@ function ChatSessionList(props: ChatSidebarProps & { isSearching: boolean }) {
         <ul className={css.sessionList} aria-live="polite">
           {props.sessions.map((s) => (
             <li key={s.sessionId}>
-              <button
-                type="button"
-                className={cx(
-                  css.sessionItem,
-                  s.sessionId === props.activeSessionId &&
-                    css.sessionItemActive,
-                  s.sessionId === props.activeSessionId &&
-                    props.isPending &&
-                    css.sessionItemPending,
-                )}
-                aria-current={
-                  s.sessionId === props.activeSessionId ? 'page' : undefined
-                }
-                onMouseEnter={() => props.onHoverSession?.(s.sessionId)}
-                onClick={() => props.onOpenSession(s.sessionId)}
-              >
-                <span className={css.sessionTitle}>
-                  {s.title || 'Untitled'}
-                </span>
-                {s.searchSnippet ? (
-                  <span className={css.sessionSnippet}>{s.searchSnippet}</span>
-                ) : null}
-                <span className={css.sessionTime}>
-                  {formatRelativeTime(s.lastActive)}
-                </span>
-              </button>
+              <div className={css.sessionItemRow}>
+                <button
+                  type="button"
+                  className={cx(
+                    css.sessionItem,
+                    s.sessionId === props.activeSessionId &&
+                      css.sessionItemActive,
+                    s.sessionId === props.activeSessionId &&
+                      props.isPending &&
+                      css.sessionItemPending,
+                  )}
+                  aria-current={
+                    s.sessionId === props.activeSessionId ? 'page' : undefined
+                  }
+                  onMouseEnter={() => props.onHoverSession?.(s.sessionId)}
+                  onClick={() => props.onOpenSession(s.sessionId)}
+                >
+                  <span className={css.sessionTitle}>
+                    {s.title || 'Untitled'}
+                  </span>
+                  {s.searchSnippet ? (
+                    <span className={css.sessionSnippet}>
+                      {s.searchSnippet}
+                    </span>
+                  ) : null}
+                  <span className={css.sessionTime}>
+                    {formatRelativeTime(s.lastActive)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={css.sessionDeleteButton}
+                  aria-label={`Delete ${s.title || 'Untitled'} session`}
+                  title="Delete session"
+                  disabled={props.deleteDisabled}
+                  onClick={() => props.onRequestDeleteSession(s)}
+                >
+                  <Trash className={css.sessionDeleteIcon} />
+                </button>
+              </div>
             </li>
           ))}
         </ul>

@@ -32,6 +32,11 @@ import {
   normalizeChannelKind,
   normalizeSkillConfigChannelKind,
 } from '../channels/channel-registry.js';
+import {
+  normalizeSlackWebhookTargetName,
+  normalizeSlackWebhookUrl,
+  SLACK_WEBHOOK_DEFAULT_TARGET,
+} from '../channels/slack-webhook/target.js';
 import type {
   MemoryEmbeddingDtype,
   MemoryEmbeddingProviderKind,
@@ -136,6 +141,7 @@ const DEFAULT_CHANNEL_INSTRUCTIONS: RuntimeChannelInstructionsConfig = {
   msteams: '',
   signal: '',
   slack: '',
+  slack_webhook: '',
   telegram: '',
   threema: '',
   voice: DEFAULT_VOICE_CHANNEL_INSTRUCTIONS,
@@ -561,6 +567,18 @@ export interface RuntimeSlackConfig {
   mediaMaxMb: number;
 }
 
+export interface RuntimeSlackWebhookTargetConfig {
+  webhookUrl: string;
+  defaultUsername: string;
+  defaultIconEmoji: string;
+  defaultIconUrl: string;
+}
+
+export interface RuntimeSlackWebhookConfig {
+  enabled: boolean;
+  webhooks: Record<string, RuntimeSlackWebhookTargetConfig>;
+}
+
 export interface RuntimeTelegramConfig {
   enabled: boolean;
   botToken: string;
@@ -640,6 +658,7 @@ export interface RuntimeChannelInstructionsConfig {
   msteams: string;
   signal: string;
   slack: string;
+  slack_webhook: string;
   telegram: string;
   threema: string;
   voice: string;
@@ -885,6 +904,7 @@ export interface RuntimeConfig {
   msteams: RuntimeMSTeamsConfig;
   signal: RuntimeSignalConfig;
   slack: RuntimeSlackConfig;
+  slackWebhook: RuntimeSlackWebhookConfig;
   telegram: RuntimeTelegramConfig;
   threema: RuntimeThreemaConfig;
   whatsapp: RuntimeWhatsAppConfig;
@@ -1412,6 +1432,10 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     textChunkLimit: 12_000,
     replyStyle: 'thread',
     mediaMaxMb: 20,
+  },
+  slackWebhook: {
+    enabled: false,
+    webhooks: {},
   },
   telegram: {
     enabled: false,
@@ -3355,6 +3379,97 @@ function normalizeSlackConfig(
   };
 }
 
+function resolveSlackWebhookSecretInput(value: unknown, path: string): unknown {
+  return resolveSecretInputUnsafe(value, {
+    path,
+    reason: `resolve runtime config secret ${path}`,
+    audit: (handle, reason) =>
+      auditConfiguredSecretUnsafeEscape(handle, reason, path),
+  });
+}
+
+function normalizeSlackWebhookTargetConfig(
+  value: unknown,
+  fallback: RuntimeSlackWebhookTargetConfig | undefined,
+  targetName: string,
+): RuntimeSlackWebhookTargetConfig | null {
+  const raw = isRecord(value) ? value : {};
+  const path = `slackWebhook.webhooks.${targetName}.webhook_url`;
+  const rawWebhookUrl = raw.webhook_url ?? raw.webhookUrl;
+  const resolvedWebhookUrl =
+    rawWebhookUrl === undefined
+      ? fallback?.webhookUrl
+      : resolveSlackWebhookSecretInput(rawWebhookUrl, path);
+  const webhookUrl = normalizeSlackWebhookUrl(resolvedWebhookUrl, path);
+
+  return {
+    webhookUrl,
+    defaultUsername: normalizeString(
+      raw.default_username ?? raw.defaultUsername,
+      fallback?.defaultUsername ?? '',
+      { allowEmpty: true },
+    ),
+    defaultIconEmoji: normalizeString(
+      raw.default_icon_emoji ?? raw.defaultIconEmoji,
+      fallback?.defaultIconEmoji ?? '',
+      { allowEmpty: true },
+    ),
+    // Kept for legacy/custom Slack webhook integrations that honor icon_url.
+    defaultIconUrl: normalizeString(
+      raw.default_icon_url ?? raw.defaultIconUrl,
+      fallback?.defaultIconUrl ?? '',
+      { allowEmpty: true },
+    ),
+  };
+}
+
+function normalizeSlackWebhookConfig(
+  value: unknown,
+  fallback: RuntimeSlackWebhookConfig,
+): RuntimeSlackWebhookConfig {
+  const raw = isRecord(value) ? value : {};
+  const enabled = normalizeBoolean(raw.enabled, fallback.enabled);
+  const rawWebhooks = isRecord(raw.webhooks) ? raw.webhooks : {};
+  const fallbackWebhooks = fallback.webhooks || {};
+  const webhooks: RuntimeSlackWebhookConfig['webhooks'] = {};
+  const targetNames = new Set([
+    ...Object.keys(fallbackWebhooks),
+    ...Object.keys(rawWebhooks),
+  ]);
+
+  for (const rawName of targetNames) {
+    const targetName = normalizeSlackWebhookTargetName(rawName);
+    if (!targetName) {
+      if (enabled) {
+        throw new Error(`Invalid Slack webhook target name: ${rawName}`);
+      }
+      continue;
+    }
+    const rawTarget = rawWebhooks[rawName];
+    const fallbackTarget = fallbackWebhooks[targetName];
+    if (rawTarget === undefined && !fallbackTarget) continue;
+    try {
+      const normalized = normalizeSlackWebhookTargetConfig(
+        rawTarget,
+        fallbackTarget,
+        targetName,
+      );
+      if (normalized) webhooks[targetName] = normalized;
+    } catch (error) {
+      if (enabled || rawTarget !== undefined) throw error;
+    }
+  }
+
+  if (enabled && !webhooks[SLACK_WEBHOOK_DEFAULT_TARGET]?.webhookUrl) {
+    throw new Error('slackWebhook.webhooks.default.webhook_url is required.');
+  }
+
+  return {
+    enabled,
+    webhooks,
+  };
+}
+
 function normalizeVoiceConfig(
   value: unknown,
   fallback: RuntimeVoiceConfig,
@@ -3436,6 +3551,11 @@ function normalizeChannelInstructionsConfig(
     }),
     signal: normalizeString(raw.signal, fallback.signal, { allowEmpty: true }),
     slack: normalizeString(raw.slack, fallback.slack, { allowEmpty: true }),
+    slack_webhook: normalizeString(
+      raw.slack_webhook ?? raw.slackWebhook,
+      fallback.slack_webhook,
+      { allowEmpty: true },
+    ),
     telegram: normalizeString(raw.telegram, fallback.telegram, {
       allowEmpty: true,
     }),
@@ -4490,6 +4610,45 @@ function setSecretInputOnSource(
   vllm.apiKey = value;
 }
 
+function preserveSlackWebhookSecretInputs(
+  serializable: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  const sourceSlackWebhook = isRecord(source.slackWebhook)
+    ? source.slackWebhook
+    : isRecord(source.slack_webhook)
+      ? source.slack_webhook
+      : null;
+  const sourceWebhooks =
+    sourceSlackWebhook && isRecord(sourceSlackWebhook.webhooks)
+      ? sourceSlackWebhook.webhooks
+      : null;
+  if (!sourceWebhooks) return;
+
+  const serializableSlackWebhook = isRecord(serializable.slackWebhook)
+    ? serializable.slackWebhook
+    : {};
+  serializable.slackWebhook = serializableSlackWebhook;
+  const serializableWebhooks = isRecord(serializableSlackWebhook.webhooks)
+    ? serializableSlackWebhook.webhooks
+    : {};
+  serializableSlackWebhook.webhooks = serializableWebhooks;
+
+  for (const [rawTargetName, rawConfig] of Object.entries(sourceWebhooks)) {
+    if (!isRecord(rawConfig)) continue;
+    const sourceValue = rawConfig.webhook_url ?? rawConfig.webhookUrl;
+    if (!isSecretRefInput(sourceValue)) continue;
+    const targetName = normalizeSlackWebhookTargetName(rawTargetName);
+    if (!targetName) continue;
+    const targetConfig = isRecord(serializableWebhooks[targetName])
+      ? serializableWebhooks[targetName]
+      : {};
+    serializableWebhooks[targetName] = targetConfig;
+    targetConfig.webhook_url = cloneConfig(sourceValue);
+    delete targetConfig.webhookUrl;
+  }
+}
+
 function preserveSecretInputs(
   serializable: Record<string, unknown>,
   source: Record<string, unknown>,
@@ -4499,12 +4658,13 @@ function preserveSecretInputs(
     if (!isSecretRefInput(sourceValue)) continue;
     setSecretInputOnSource(serializable, secretPath, cloneConfig(sourceValue));
   }
+  preserveSlackWebhookSecretInputs(serializable, source);
 }
 
 function resolveConfiguredSecretInput(
   value: unknown,
   opts: {
-    path: RuntimeConfigSecretInputPath;
+    path: string;
     required?: boolean;
   },
 ): unknown {
@@ -4528,7 +4688,7 @@ function makeRuntimeConfigSecretAuditRunId(): string {
 function auditConfiguredSecretUnsafeEscape(
   handle: SecretHandle,
   reason: string,
-  path: RuntimeConfigSecretInputPath,
+  path: string,
 ): void {
   const event = {
     skill: null,
@@ -5565,6 +5725,11 @@ function normalizeRuntimeConfig(
   const rawMSTeams = isRecord(raw.msteams) ? raw.msteams : {};
   const rawSignal = isRecord(raw.signal) ? raw.signal : {};
   const rawSlack = isRecord(raw.slack) ? raw.slack : {};
+  const rawSlackWebhook = isRecord(raw.slackWebhook)
+    ? raw.slackWebhook
+    : isRecord((raw as Record<string, unknown>).slack_webhook)
+      ? (raw as Record<string, unknown>).slack_webhook
+      : {};
   const rawTelegram = isRecord(raw.telegram) ? raw.telegram : {};
   const rawThreema = isRecord(raw.threema) ? raw.threema : {};
   const rawWhatsApp = isRecord(raw.whatsapp) ? raw.whatsapp : {};
@@ -6180,6 +6345,10 @@ function normalizeRuntimeConfig(
     msteams: normalizeMSTeamsConfig(rawMSTeams, DEFAULT_RUNTIME_CONFIG.msteams),
     signal: normalizeSignalConfig(rawSignal, DEFAULT_RUNTIME_CONFIG.signal),
     slack: normalizeSlackConfig(rawSlack, DEFAULT_RUNTIME_CONFIG.slack),
+    slackWebhook: normalizeSlackWebhookConfig(
+      rawSlackWebhook,
+      DEFAULT_RUNTIME_CONFIG.slackWebhook,
+    ),
     telegram: normalizeTelegramConfig(
       rawTelegram,
       DEFAULT_RUNTIME_CONFIG.telegram,
@@ -7706,6 +7875,45 @@ export function setRuntimeConfigSecretInput(
 
   const draftSource = cloneConfig(baseSource);
   setSecretInputOnSource(draftSource, secretPath, value);
+  return saveRuntimeConfigSource(draftSource, meta);
+}
+
+export function setRuntimeConfigSlackWebhookSecretInput(
+  targetName: string,
+  value: SecretInput | '',
+  meta?: RuntimeConfigChangeMeta,
+): RuntimeConfig {
+  const normalizedTarget = normalizeSlackWebhookTargetName(targetName);
+  if (!normalizedTarget) {
+    throw new Error(`Invalid Slack webhook target name: ${targetName}`);
+  }
+
+  let baseSource = currentConfigSource;
+  try {
+    loadRuntimeConfigFromSources({
+      route: 'runtime-config.refresh-before-slack-webhook-secret-save',
+      source: 'external',
+    });
+    baseSource = currentConfigSource;
+  } catch (err) {
+    console.warn(
+      `[runtime-config] Slack webhook secret input update using in-memory config after reload failure: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const draftSource = cloneConfig(baseSource);
+  const slackWebhook = isRecord(draftSource.slackWebhook)
+    ? draftSource.slackWebhook
+    : {};
+  draftSource.slackWebhook = slackWebhook;
+  const webhooks = isRecord(slackWebhook.webhooks) ? slackWebhook.webhooks : {};
+  slackWebhook.webhooks = webhooks;
+  const targetConfig = isRecord(webhooks[normalizedTarget])
+    ? webhooks[normalizedTarget]
+    : {};
+  webhooks[normalizedTarget] = targetConfig;
+  targetConfig.webhook_url = value;
+  delete targetConfig.webhookUrl;
   return saveRuntimeConfigSource(draftSource, meta);
 }
 

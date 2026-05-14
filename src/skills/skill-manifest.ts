@@ -61,6 +61,7 @@ export const DEFAULT_SKILL_SUPPORTED_CHANNELS: readonly ChannelKind[] = [
   'msteams',
   'signal',
   'slack',
+  'slack_webhook',
   'telegram',
   'tui',
   'voice',

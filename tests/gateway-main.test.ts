@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 import { useCleanMocks, useTempDir } from './test-utils.ts';
 
@@ -8,6 +9,7 @@ const makeTempDir = useTempDir();
 async function settle(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
+  await delay(0);
 }
 
 function expectInfoLog(
@@ -85,6 +87,10 @@ function createGatewayMainTestState(options?: {
         textChunkLimit: 12_000,
         replyStyle: 'thread',
         mediaMaxMb: 20,
+      },
+      slackWebhook: {
+        enabled: false,
+        webhooks: {},
       },
       signal: {
         enabled: false,
@@ -224,6 +230,7 @@ function createGatewayMainTestState(options?: {
     initMSTeams: vi.fn(),
     initSignal: vi.fn(),
     initSlack: vi.fn(),
+    initSlackWebhook: vi.fn(),
     initTelegram: vi.fn(),
     initThreema: vi.fn(),
     initVoice: vi.fn(),
@@ -244,6 +251,7 @@ function createGatewayMainTestState(options?: {
     shutdownEmail: vi.fn(async () => {}),
     shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
+    shutdownSlackWebhook: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
     shutdownThreema: vi.fn(async () => {}),
     shutdownWhatsApp: vi.fn(async () => {}),
@@ -499,6 +507,16 @@ async function importFreshGatewayMain(options?: {
     sendToSlackTarget: vi.fn(async () => {}),
     shutdownSlack: state.shutdownSlack,
   }));
+  vi.doMock('../src/channels/slack-webhook/runtime.js', () => ({
+    hasSlackWebhookTargets: vi.fn(() =>
+      Boolean(
+        state.getConfigSnapshot().slackWebhook?.webhooks?.default?.webhookUrl,
+      ),
+    ),
+    initSlackWebhook: state.initSlackWebhook,
+    sendToSlackWebhookTarget: vi.fn(async () => {}),
+    shutdownSlackWebhook: state.shutdownSlackWebhook,
+  }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     initEmail: state.initEmail,
     sendEmailAttachmentTo: vi.fn(async () => {}),
@@ -649,7 +667,17 @@ async function importFreshGatewayMain(options?: {
   }));
 
   await import('../src/gateway/gateway.ts');
-  await settle();
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    await settle();
+    if (
+      options?.skipBootstrapHandlerCheck ||
+      (state.commandHandler &&
+        state.messageHandler &&
+        state.configChangeListener)
+    ) {
+      break;
+    }
+  }
 
   if (
     !options?.skipBootstrapHandlerCheck &&
@@ -657,7 +685,19 @@ async function importFreshGatewayMain(options?: {
       !state.messageHandler ||
       !state.configChangeListener)
   ) {
-    throw new Error('Gateway bootstrap did not capture handlers.');
+    throw new Error(
+      `Gateway bootstrap did not capture handlers: command=${Boolean(
+        state.commandHandler,
+      )}, message=${Boolean(state.messageHandler)}, config=${Boolean(
+        state.configChangeListener,
+      )}, teamsInit=${state.initMSTeams.mock.calls.length}, signalInit=${
+        state.initSignal.mock.calls.length
+      }, whatsappInit=${state.initWhatsApp.mock.calls.length}, errors=${state.loggerError.mock.calls
+        .map((call) => String(call[1] ?? call[0]))
+        .join('|')}, fatals=${state.loggerFatal.mock.calls
+        .map((call) => String(call[1] ?? call[0]))
+        .join('|')}.`,
+    );
   }
 
   return state;

@@ -18,10 +18,11 @@ import {
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
-import { maybeRunMSTeamsToolAction } from '../msteams/tool-actions.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
+import { sendToSlackWebhookTarget } from '../slack-webhook/runtime.js';
+import { normalizeSlackWebhookChannelTarget } from '../slack-webhook/target.js';
 import {
   sendTelegramMediaToChat,
   sendToTelegramChat,
@@ -50,6 +51,9 @@ const MESSAGE_TOOL_READ_MAX_LIMIT = 100;
 const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
 const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
+const MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE = /^slack[_-]?webhook(?::|$)/i;
+const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
+const MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE = /^teams:/i;
 const MESSAGE_TOOL_TELEGRAM_PREFIX_RE = /^(telegram|tg):/i;
 const MESSAGE_TOOL_THREEMA_PREFIX_RE = /^threema:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
@@ -58,7 +62,7 @@ const MESSAGE_TOOL_DISCORD_PREFIXED_ID_RE =
   /^(?:channel:|discord:|user:)\d{16,22}$/i;
 const MESSAGE_TOOL_LOCAL_SOURCE = 'message-tool';
 const MESSAGE_TOOL_CHANNEL_INSTRUCTIONS =
-  'No message channel matched the request. Specify the channel explicitly: Signal `signal:+15551234567`, Telegram `telegram:<chatId>`, Threema `threema:<id>`/`threema:phone:<number>`/`threema:email:<address>`, WhatsApp `whatsapp:+15551234567` or a WhatsApp JID, Slack `slack:<channelId>`, email `user@example.com` or `email:user@example.com`, local `tui`, or Discord with a channel snowflake/`discord:<id>`/`<#id>`/`#name` plus `guildId`.';
+  'No message channel matched the request. Specify the channel explicitly: Signal `signal:+15551234567`, Telegram `telegram:<chatId>`, Threema `threema:<id>`/`threema:phone:<number>`/`threema:email:<address>`, WhatsApp `whatsapp:+15551234567` or a WhatsApp JID, Slack `slack:<channelId>`, Slack webhook `slack_webhook`/`slack_webhook:<target>`, email `user@example.com` or `email:user@example.com`, local `tui`, or Discord with a channel snowflake/`discord:<id>`/`<#id>`/`#name` plus `guildId`.';
 
 function resolveMessageToolSessionWorkspaceRoot(
   sessionId: string | undefined,
@@ -141,6 +145,12 @@ function normalizeSignalMessageTarget(rawTarget: string): string | null {
   return normalizeSignalChannelId(trimmed) ?? null;
 }
 
+function normalizeSlackWebhookMessageTarget(rawTarget: string): string | null {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return null;
+  return normalizeSlackWebhookChannelTarget(trimmed) ?? null;
+}
+
 function normalizeThreemaMessageTarget(rawTarget: string): string | null {
   const trimmed = String(rawTarget || '').trim();
   if (!trimmed) return null;
@@ -154,6 +164,31 @@ function normalizeEmailMessageTarget(rawTarget: string): string | null {
     .replace(MESSAGE_TOOL_EMAIL_PREFIX_RE, '')
     .trim();
   return normalizeEmailAddress(withoutPrefix);
+}
+
+function normalizeMessageToolValue(rawValue: string | undefined): string {
+  return String(rawValue || '').trim();
+}
+
+function looksLikeMSTeamsConversationId(value: string): boolean {
+  return /^(?:a:|19:)/.test(normalizeMessageToolValue(value));
+}
+
+function isLikelyMSTeamsToolRequest(
+  request: DiscordToolActionRequest,
+): boolean {
+  const sessionId = normalizeMessageToolValue(request.sessionId);
+  if (MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(sessionId)) {
+    return true;
+  }
+
+  const channelId = normalizeMessageToolValue(request.channelId);
+  if (!channelId) return false;
+  return (
+    MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(channelId) ||
+    MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(channelId) ||
+    looksLikeMSTeamsConversationId(channelId)
+  );
 }
 
 function isDiscordSessionId(value: string | undefined): boolean {
@@ -501,6 +536,33 @@ async function runSignalMessageSendAction(
   };
 }
 
+async function runSlackWebhookMessageSendAction(
+  request: DiscordToolActionRequest,
+  channelId: string,
+): Promise<Record<string, unknown>> {
+  const content = String(request.content || '').trim();
+  const hasFilePath = Boolean(String(request.filePath || '').trim());
+  const hasComponents = hasMessageComponents(request);
+  if (hasFilePath) {
+    throw new Error('filePath is not supported for Slack webhook sends.');
+  }
+  if (!content) {
+    throw new Error('content is required for Slack webhook sends.');
+  }
+  if (hasComponents) {
+    throw new Error('components are not supported for Slack webhook sends.');
+  }
+
+  await sendToSlackWebhookTarget(channelId, content);
+  return {
+    ok: true,
+    action: 'send',
+    channelId,
+    transport: 'slack_webhook',
+    contentLength: content.length,
+  };
+}
+
 async function runThreemaMessageSendAction(
   request: DiscordToolActionRequest,
   channelId: string,
@@ -619,11 +681,16 @@ async function runLocalMessageSendAction(
 export async function runMessageToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
-  const teamsResult = await maybeRunMSTeamsToolAction(request, {
-    resolveSendFilePath: resolveMessageToolSendFilePath,
-  });
-  if (teamsResult) {
-    return teamsResult;
+  if (isLikelyMSTeamsToolRequest(request)) {
+    const { maybeRunMSTeamsToolAction } = await import(
+      '../msteams/tool-actions.js'
+    );
+    const teamsResult = await maybeRunMSTeamsToolAction(request, {
+      resolveSendFilePath: resolveMessageToolSendFilePath,
+    });
+    if (teamsResult) {
+      return teamsResult;
+    }
   }
 
   const slackResult = await maybeRunSlackToolAction(request, {
@@ -631,6 +698,15 @@ export async function runMessageToolAction(
   });
   if (slackResult) {
     return slackResult;
+  }
+
+  const rawChannelId = String(request.channelId || '').trim();
+  if (
+    rawChannelId &&
+    MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE.test(rawChannelId) &&
+    request.action !== 'send'
+  ) {
+    throw new Error('Slack webhook only supports outbound send actions.');
   }
 
   if (request.action === 'read') {
@@ -651,7 +727,6 @@ export async function runMessageToolAction(
     throw new Error(MESSAGE_TOOL_CHANNEL_INSTRUCTIONS);
   }
 
-  const rawChannelId = String(request.channelId || '').trim();
   if (
     rawChannelId &&
     MESSAGE_TOOL_SIGNAL_PREFIX_RE.test(rawChannelId) &&
@@ -659,6 +734,16 @@ export async function runMessageToolAction(
   ) {
     throw new Error(
       'Signal send targets must use `signal:<phone>`, `signal:<uuid>`, or `signal:group:<groupId>`.',
+    );
+  }
+
+  if (
+    rawChannelId &&
+    MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE.test(rawChannelId) &&
+    !normalizeSlackWebhookMessageTarget(rawChannelId)
+  ) {
+    throw new Error(
+      'Slack webhook send targets must use `slack_webhook` or `slack_webhook:<target>`.',
     );
   }
 
@@ -695,6 +780,15 @@ export async function runMessageToolAction(
   const signalChannelId = normalizeSignalMessageTarget(rawChannelId);
   if (signalChannelId) {
     return await runSignalMessageSendAction(request, signalChannelId);
+  }
+
+  const slackWebhookChannelId =
+    normalizeSlackWebhookMessageTarget(rawChannelId);
+  if (slackWebhookChannelId) {
+    return await runSlackWebhookMessageSendAction(
+      request,
+      slackWebhookChannelId,
+    );
   }
 
   const threemaChannelId = normalizeThreemaMessageTarget(rawChannelId);

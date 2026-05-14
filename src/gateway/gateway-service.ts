@@ -86,6 +86,14 @@ import {
   getSignalCliAvailability,
   getSignalLinkState,
 } from '../channels/signal/pairing.js';
+import { allowSlackWebhookInWorkspacePolicy } from '../channels/slack-webhook/policy.js';
+import { getSlackWebhookStatus } from '../channels/slack-webhook/runtime.js';
+import {
+  normalizeSlackWebhookTargetName,
+  normalizeSlackWebhookUrl,
+  SLACK_WEBHOOK_DEFAULT_TARGET,
+  slackWebhookSecretNameForTarget,
+} from '../channels/slack-webhook/target.js';
 import {
   createTwilioOutboundCall,
   normalizeTwilioPhoneNumber,
@@ -153,6 +161,7 @@ import {
   resolveDefaultAgentId,
   runtimeConfigPath,
   saveRuntimeConfig,
+  setRuntimeConfigSlackWebhookSecretInput,
   setRuntimeSkillScopeEnabled,
   updateRuntimeConfig,
 } from '../config/runtime-config.js';
@@ -482,6 +491,7 @@ import {
   type GatewayAdminSession,
   type GatewayAdminSkill,
   type GatewayAdminSkillsResponse,
+  type GatewayAdminSlackWebhookTargetRequest,
   type GatewayAdminStatisticsChannelRow,
   type GatewayAdminStatisticsResponse,
   type GatewayAdminStatisticsTrendDay,
@@ -689,6 +699,20 @@ export function readSystemPromptMessage(
   return typeof firstMessage.content === 'string' && firstMessage.content.trim()
     ? firstMessage.content
     : null;
+}
+
+export function readDynamicContextMessage(
+  messages: ChatMessage[],
+): string | null {
+  const dynamicContextMessage = messages.find(
+    (message) =>
+      message.role === 'user' &&
+      typeof message.content === 'string' &&
+      message.content.trimStart().startsWith('<context>'),
+  );
+  if (!dynamicContextMessage) return null;
+  const content = sanitizeRequestLogValue(dynamicContextMessage.content);
+  return typeof content === 'string' && content.trim() ? content : null;
 }
 
 function sanitizeRequestLogToolExecutions(
@@ -3853,6 +3877,15 @@ export async function getGatewayStatus(
     appTokenConfigured: Boolean(slackAppCredential.value),
     appTokenSource: slackAppCredential.source,
   } as NonNullable<GatewayStatus['slack']>;
+  const slackWebhookRuntimeStatus = getSlackWebhookStatus();
+  const slackWebhook = {
+    targetCount: slackWebhookRuntimeStatus.targets.length,
+    defaultTargetConfigured: Boolean(
+      runtimeConfig.slackWebhook.webhooks.default?.webhookUrl,
+    ),
+    lastReachabilityResults: slackWebhookRuntimeStatus.lastReachabilityResults,
+    lastSendResults: slackWebhookRuntimeStatus.lastSendResults,
+  } as NonNullable<GatewayStatus['slackWebhook']>;
   const telegram = resolveGatewayTokenStatus({
     storedSecretName: 'TELEGRAM_BOT_TOKEN',
     envValues: [TELEGRAM_BOT_TOKEN],
@@ -3936,6 +3969,7 @@ export async function getGatewayStatus(
     },
     threema,
     slack,
+    slackWebhook,
     telegram,
     email,
     emailEnabled: runtimeConfig.email.enabled === true,
@@ -4829,6 +4863,13 @@ export function getGatewayAdminChannels(): GatewayAdminChannelsResponse {
       defaultRequireMention: runtimeConfig.slack.requireMention,
       defaultReplyStyle: runtimeConfig.slack.replyStyle,
     },
+    slackWebhook: {
+      enabled: runtimeConfig.slackWebhook.enabled,
+      targetCount: Object.keys(runtimeConfig.slackWebhook.webhooks).length,
+      defaultTargetConfigured: Boolean(
+        runtimeConfig.slackWebhook.webhooks.default?.webhookUrl,
+      ),
+    },
     msteams: {
       enabled: runtimeConfig.msteams.enabled,
       groupPolicy: runtimeConfig.msteams.groupPolicy,
@@ -4901,19 +4942,133 @@ export function removeGatewayAdminChannel(params: {
   return getGatewayAdminChannels();
 }
 
+function redactGatewayAdminConfigSecrets(config: RuntimeConfig): RuntimeConfig {
+  const redacted = structuredClone(config);
+  for (const webhook of Object.values(redacted.slackWebhook.webhooks)) {
+    webhook.webhookUrl = '';
+  }
+  return redacted;
+}
+
 export function getGatewayAdminConfig(): GatewayAdminConfigResponse {
   return {
     path: runtimeConfigPath(),
-    config: getRuntimeConfig(),
+    config: redactGatewayAdminConfigSecrets(getRuntimeConfig()),
   };
 }
 
 export function saveGatewayAdminConfig(
   next: RuntimeConfig,
 ): GatewayAdminConfigResponse {
+  const current = getRuntimeConfig();
+  for (const [target, currentWebhook] of Object.entries(
+    current.slackWebhook.webhooks,
+  )) {
+    const incoming = next.slackWebhook.webhooks[target];
+    if (incoming && !String(incoming.webhookUrl || '').trim()) {
+      incoming.webhookUrl = currentWebhook.webhookUrl;
+    }
+  }
   return {
     path: runtimeConfigPath(),
-    config: saveRuntimeConfig(next),
+    config: redactGatewayAdminConfigSecrets(saveRuntimeConfig(next)),
+  };
+}
+
+export function saveGatewayAdminSlackWebhookTarget(
+  input: GatewayAdminSlackWebhookTargetRequest,
+): GatewayAdminConfigResponse {
+  const target = normalizeSlackWebhookTargetName(input.target);
+  if (!target) {
+    throw new Error(
+      'Invalid Slack webhook target. Use letters, numbers, dots, dashes, or underscores.',
+    );
+  }
+
+  const webhookUrl = String(input.webhookUrl || '').trim();
+  const current = getRuntimeConfig();
+  const existing = current.slackWebhook.webhooks[target];
+  if (!webhookUrl && !existing?.webhookUrl) {
+    throw new Error('Slack webhook URL is required for a new target.');
+  }
+  if (
+    target !== SLACK_WEBHOOK_DEFAULT_TARGET &&
+    !current.slackWebhook.webhooks[SLACK_WEBHOOK_DEFAULT_TARGET]?.webhookUrl
+  ) {
+    throw new Error('Configure the default Slack webhook target first.');
+  }
+
+  let policyMessageHost: string | null = null;
+  if (webhookUrl) {
+    const normalizedUrl = normalizeSlackWebhookUrl(
+      webhookUrl,
+      `slackWebhook.webhooks.${target}.webhook_url`,
+    );
+    const secretName = slackWebhookSecretNameForTarget(target);
+    saveNamedRuntimeSecrets({ [secretName]: normalizedUrl });
+    refreshRuntimeSecretsFromEnv();
+    setRuntimeConfigSlackWebhookSecretInput(
+      target,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'admin.slack-webhook.target-secret-ref',
+        source: 'user',
+      },
+    );
+    const policy = allowSlackWebhookInWorkspacePolicy({
+      workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+      webhookUrl: normalizedUrl,
+    });
+    policyMessageHost = policy.rule.host;
+  }
+
+  const saved = updateRuntimeConfig(
+    (draft) => {
+      draft.slackWebhook.enabled =
+        target === SLACK_WEBHOOK_DEFAULT_TARGET
+          ? true
+          : draft.slackWebhook.enabled;
+      const nextTarget = draft.slackWebhook.webhooks[target] ?? {
+        webhookUrl: existing?.webhookUrl || '',
+        defaultUsername: '',
+        defaultIconEmoji: '',
+        defaultIconUrl: '',
+      };
+      draft.slackWebhook.webhooks[target] = {
+        ...nextTarget,
+        defaultUsername:
+          input.defaultUsername !== undefined
+            ? String(input.defaultUsername || '').trim()
+            : nextTarget.defaultUsername,
+        defaultIconEmoji:
+          input.defaultIconEmoji !== undefined
+            ? String(input.defaultIconEmoji || '').trim()
+            : nextTarget.defaultIconEmoji,
+        defaultIconUrl:
+          input.defaultIconUrl !== undefined
+            ? String(input.defaultIconUrl || '').trim()
+            : nextTarget.defaultIconUrl,
+      };
+    },
+    {
+      route: `admin.slack-webhook.target:${target}`,
+      source: 'user',
+    },
+  );
+
+  if (policyMessageHost) {
+    logger.info(
+      { target, host: policyMessageHost },
+      'Slack webhook network policy grant verified',
+    );
+  }
+
+  return {
+    path: runtimeConfigPath(),
+    config: redactGatewayAdminConfigSecrets(saved),
   };
 }
 
@@ -6552,6 +6707,7 @@ export async function ensureGatewayBootstrapAutostart(params: {
         scheduledTaskCount: 0,
         promptMessages: messages.length,
         systemPrompt: readSystemPromptMessage(messages),
+        dynamicContext: readDynamicContextMessage(messages),
       },
     });
 
