@@ -131,9 +131,7 @@ export async function handleGoalCommand(
       initialPrompt: true,
       context: buildContinuationContext(context.req, context.session),
     });
-    return plain(
-      `Standing goal set for this thread (${goal.turnsUsed}/${goal.maxTurns}).`,
-    );
+    return plain(`Standing goal set for this thread (max ${goal.maxTurns}).`);
   }
 
   if (subcommand === 'status' || subcommand === 'info') {
