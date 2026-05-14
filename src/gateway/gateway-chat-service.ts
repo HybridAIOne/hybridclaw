@@ -1103,6 +1103,7 @@ async function handleGatewayMessageInner(
       : memoryService.buildPromptMemoryContext({
           session,
           query: effectiveUserTurnContentStripped,
+          includeSemanticRecall: source !== 'goal-continuation',
         });
   const mergedSessionSummary = pluginMemoryBehavior.replacesBuiltInMemory
     ? pluginPromptSummary || null

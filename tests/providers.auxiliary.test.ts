@@ -791,7 +791,7 @@ test('host auxiliary caller does not retry max_completion_tokens for unrelated u
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test('host auxiliary caller falls back to openrouter when task resolution fails', async () => {
+test('host auxiliary caller falls back to the OpenRouter small model when task resolution fails', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',
     error: 'Anthropic provider is not implemented yet.',
@@ -828,7 +828,7 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
         string,
         unknown
       >;
-      expect(body.model).toBe('anthropic/claude-3-7-sonnet');
+      expect(body.model).toBe('google/gemini-2.5-flash-lite');
       return new Response(
         JSON.stringify({
           choices: [
@@ -858,7 +858,7 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
 
   expect(result).toEqual({
     provider: 'openrouter',
-    model: 'openrouter/anthropic/claude-3-7-sonnet',
+    model: 'openrouter/google/gemini-2.5-flash-lite',
     content: 'Recovered through OpenRouter fallback.',
   });
   expect(warn).toHaveBeenCalledWith(
@@ -866,11 +866,192 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
       task: 'compression',
       primaryProvider: 'auto',
       fallbackProvider: 'openrouter',
-      modelHint: 'anthropic/claude-3-7-sonnet',
+      modelHint: 'openrouter/google/gemini-2.5-flash-lite',
+      primaryModelHint: 'anthropic/claude-3-7-sonnet',
       primaryError: expect.any(Error),
     }),
-    'Auxiliary provider resolution failed; using OpenRouter fallback',
+    'Auxiliary provider resolution failed; using remote fallback',
   );
+});
+
+test('host auxiliary caller falls through to Gemini Flash Lite when OpenRouter fallback is unavailable', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      if (model.startsWith('openrouter/')) {
+        throw new Error('OpenRouter provider is not configured.');
+      }
+      expect(model).toBe('gemini/gemini-2.5-flash-lite');
+      return {
+        provider: 'gemini' as const,
+        apiKey: 'gemini-key',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 1_000_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      );
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('gemini-2.5-flash-lite');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through Gemini fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'gemini',
+    model: 'gemini/gemini-2.5-flash-lite',
+    content: 'Recovered through Gemini fallback.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({
+      model: 'openrouter/google/gemini-2.5-flash-lite',
+    }),
+  );
+  expect(resolveModelRuntimeCredentials).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      model: 'gemini/gemini-2.5-flash-lite',
+    }),
+  );
+});
+
+test('host auxiliary caller falls through to Anthropic Haiku when earlier remote fallbacks are unavailable', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn(() => undefined);
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      if (model.startsWith('openrouter/') || model.startsWith('gemini/')) {
+        throw new Error('Provider is not configured.');
+      }
+      expect(model).toBe('anthropic/claude-haiku-4-5');
+      return {
+        provider: 'anthropic' as const,
+        apiKey: 'anthropic-key',
+        baseUrl: 'https://api.anthropic.com/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: false,
+        contextWindow: 200_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('https://api.anthropic.com/v1/messages');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('x-api-key')).toBe('anthropic-key');
+      expect(headers.get('anthropic-version')).toBe('2023-06-01');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('claude-haiku-4-5');
+      expect(body.max_tokens).toBe(32_000);
+      return new Response(
+        JSON.stringify({
+          content: [
+            { type: 'text', text: 'Recovered through Haiku fallback.' },
+          ],
+          usage: {
+            input_tokens: 11,
+            output_tokens: 7,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'anthropic',
+    model: 'anthropic/claude-haiku-4-5',
+    content: 'Recovered through Haiku fallback.',
+    usage: {
+      inputTokens: 11,
+      outputTokens: 7,
+      totalTokens: 18,
+    },
+  });
 });
 
 test('host auxiliary caller tries discovered local fallback before openrouter without explicit fallback model', async () => {
@@ -1141,7 +1322,7 @@ test('host auxiliary caller prefers local model fallback when task resolution fa
   );
 });
 
-test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hints', async () => {
+test('host auxiliary caller uses fixed OpenRouter small fallback instead of failed model hints', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'hybridai/anthropic/claude-haiku-4-5',
     error: 'HybridAI provider is unavailable.',
@@ -1177,8 +1358,8 @@ test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hint
         string,
         unknown
       >;
-      expect(body.model).toBe('anthropic/claude-haiku-4-5');
-      expect(body.max_tokens).toBe(1_200);
+      expect(body.model).toBe('google/gemini-2.5-flash-lite');
+      expect(body.max_tokens).toBeUndefined();
       return new Response(
         JSON.stringify({
           choices: [
@@ -1209,7 +1390,7 @@ test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hint
 
   expect(result).toEqual({
     provider: 'openrouter',
-    model: 'openrouter/anthropic/claude-haiku-4-5',
+    model: 'openrouter/google/gemini-2.5-flash-lite',
     content: 'Recovered through OpenRouter fallback.',
   });
 });

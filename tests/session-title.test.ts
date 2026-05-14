@@ -4,6 +4,13 @@ vi.mock('../src/memory/db.js', () => ({
   setSessionTitle: vi.fn(),
 }));
 
+vi.mock('../src/logger.js', () => ({
+  logger: {
+    debug: vi.fn(),
+    warn: vi.fn(),
+  },
+}));
+
 vi.mock('../src/observability/otel.js', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../src/observability/otel.js')>();
@@ -22,6 +29,7 @@ vi.mock('../src/providers/task-routing.js', () => ({
 }));
 
 const { setSessionTitle } = await import('../src/memory/db.js');
+const { logger } = await import('../src/logger.js');
 const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
 const { isAuxiliaryTaskDisabled } = await import(
   '../src/providers/task-routing.js'
@@ -36,6 +44,7 @@ const {
 const mockedAuxiliary = vi.mocked(callAuxiliaryModel);
 const mockedIsAuxiliaryTaskDisabled = vi.mocked(isAuxiliaryTaskDisabled);
 const mockedSetTitle = vi.mocked(setSessionTitle);
+const mockedLogger = vi.mocked(logger);
 
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -177,6 +186,8 @@ describe('maybeAutoTitleSession', () => {
     mockedIsAuxiliaryTaskDisabled.mockReset();
     mockedIsAuxiliaryTaskDisabled.mockReturnValue(false);
     mockedSetTitle.mockReset();
+    mockedLogger.debug.mockReset();
+    mockedLogger.warn.mockReset();
   });
 
   test('skips when isFirstTurn is false', async () => {
@@ -209,6 +220,36 @@ describe('maybeAutoTitleSession', () => {
 
     expect(mockedAuxiliary).toHaveBeenCalledTimes(1);
     expect(mockedSetTitle).not.toHaveBeenCalled();
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', err: expect.any(Error) }),
+      'Session title auto-update failed',
+    );
+  });
+
+  test('logs transient provider timeouts at debug level', async () => {
+    mockedAuxiliary.mockRejectedValueOnce(
+      new TypeError('fetch failed', {
+        cause: new Error('Headers Timeout Error'),
+      }),
+    );
+
+    maybeAutoTitleSession({
+      sessionId: 's1',
+      agentId: 'main',
+      chatbotId: null,
+      model: 'gpt-5',
+      userContent: 'first',
+      isFirstTurn: true,
+    });
+    await flushMicrotasks();
+
+    expect(mockedAuxiliary).toHaveBeenCalledTimes(1);
+    expect(mockedSetTitle).not.toHaveBeenCalled();
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', err: expect.any(TypeError) }),
+      'Session title auto-update failed',
+    );
+    expect(mockedLogger.warn).not.toHaveBeenCalled();
   });
 
   test('persists the generated title on the first turn', async () => {
