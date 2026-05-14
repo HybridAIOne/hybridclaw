@@ -17,7 +17,7 @@ import {
   type SecretRef,
 } from '../security/secret-refs.js';
 import type { EscalationTarget } from '../types/execution.js';
-import { recordA2AMessageAudit } from './audit.js';
+import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
 import {
   type A2AEnvelope,
   summarizeA2AEnvelopeForAudit,
@@ -338,12 +338,8 @@ export function enqueueWebhookEnvelope(
   return item;
 }
 
-function webhookSessionId(item: WebhookOutboxItem): string {
-  return `a2a:webhook:${item.envelope.thread_id}`;
-}
-
 function resolveItemSessionId(item: WebhookOutboxItem): string {
-  return item.sessionId || webhookSessionId(item);
+  return item.sessionId ?? getA2AAuditSessionId(item.envelope);
 }
 
 function resolveItemRunId(item: WebhookOutboxItem, prefix: string): string {

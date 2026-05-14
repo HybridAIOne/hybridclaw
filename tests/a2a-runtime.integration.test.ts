@@ -235,14 +235,14 @@ describe('A2A runtime API', () => {
 
     expect(records.map((record) => record.event.type)).toEqual(['a2a.send']);
     expect(records[0].event.transport).toBe('a2a');
-    expect(audit.verifyAuditSessionChain('session-a2a-queued-audit')).toMatchObject(
-      {
-        ok: true,
-        checkedRecords: 1,
-        errors: [],
-        lastSeq: 1,
-      },
-    );
+    expect(
+      audit.verifyAuditSessionChain('session-a2a-queued-audit'),
+    ).toMatchObject({
+      ok: true,
+      checkedRecords: 1,
+      errors: [],
+      lastSeq: 1,
+    });
   });
 
   test('audits and escalates when a peer transport has no adapter', async () => {

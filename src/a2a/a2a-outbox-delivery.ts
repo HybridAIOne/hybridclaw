@@ -19,7 +19,7 @@ import {
   classifyA2AHttpStatus,
   shouldRetryA2AJsonRpcErrorCode,
 } from './a2a-retry-policy.js';
-import { recordA2AMessageAudit } from './audit.js';
+import { getA2AAuditSessionId, recordA2AMessageAudit } from './audit.js';
 import { signA2ADelegationToken } from './delegation-token.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
 import {
@@ -56,7 +56,7 @@ export interface A2AOutboxProcessOptions {
 }
 
 function resolveItemSessionId(item: A2AOutboxItem): string {
-  return item.sessionId || `a2a:outbound:${item.envelope.thread_id}`;
+  return item.sessionId ?? getA2AAuditSessionId(item.envelope);
 }
 
 function resolveItemRunId(item: A2AOutboxItem, prefix: string): string {
