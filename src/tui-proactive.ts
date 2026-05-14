@@ -7,12 +7,20 @@ function isDelegateSource(source: string | null | undefined): boolean {
   return normalized === 'delegate' || normalized.startsWith('delegate:');
 }
 
+function isGoalContinuationSource(source: string | null | undefined): boolean {
+  const normalized = String(source || '');
+  return (
+    normalized === 'goal-continuation' ||
+    normalized.startsWith('goal-continuation:')
+  );
+}
+
 export function proactiveBadgeLabel(
   source: string | null | undefined,
 ): string | null {
   if (isSchedulerJobSource(source)) return null;
   if (source === 'fullauto') return 'fullauto';
-  if (source === 'goal-continuation') return 'goal';
+  if (isGoalContinuationSource(source)) return 'goal';
   if (isDelegateSource(source)) return 'delegate';
   if (source === 'eval') return 'eval';
   return 'reminder';
@@ -25,7 +33,7 @@ export function proactiveSourceSuffix(
   if (
     !source ||
     source === 'fullauto' ||
-    source === 'goal-continuation' ||
+    isGoalContinuationSource(source) ||
     isDelegateSource(source) ||
     source === 'eval'
   )

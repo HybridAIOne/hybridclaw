@@ -239,6 +239,50 @@ test('post-turn goal subscriber hard-stops at max turns', async () => {
   );
 });
 
+test('post-turn goal subscriber completes without scheduling another continuation', async () => {
+  registerGoalPostTurnSubscriber();
+  const session = makeSession('complete');
+  const runHandler = vi.fn(async () => undefined);
+  setGoalContinuationRunHandler(runHandler);
+  vi.mocked(judgeGoalCompletion).mockResolvedValueOnce({
+    done: true,
+    reason: 'assistant explicitly completed the goal',
+    parseFailure: false,
+  });
+  setThreadGoal({
+    threadId: session.main_session_key,
+    goalText:
+      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
+    maxTurns: 20,
+    setterActor: { type: 'user', id: 'user_a' },
+    targetAgentId: 'agent-a',
+  });
+
+  await emitPostTurnEvent({
+    type: 'post_turn',
+    session,
+    req: {
+      source: GOAL_CONTINUATION_SOURCE,
+      guildId: null,
+      userId: 'user_a',
+      username: 'User A',
+    },
+    result: {
+      status: 'success',
+      result: '4\n\nGoal complete.',
+      toolsUsed: [],
+    },
+    runId: 'turn-complete',
+    createdAt: new Date().toISOString(),
+  });
+
+  const goal = getThreadGoal(session.main_session_key);
+  expect(goal?.status).toBe('done');
+  expect(goal?.turnsUsed).toBe(1);
+  expect(goal?.lastVerdict).toBe('done');
+  expect(runHandler).not.toHaveBeenCalled();
+});
+
 test('post-turn goal subscriber caps assistant response sent to the judge', async () => {
   registerGoalPostTurnSubscriber();
   const session = makeSession('judge-cap');

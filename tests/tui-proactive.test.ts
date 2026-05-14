@@ -30,6 +30,11 @@ test('uses goal badge for standing goal continuations', () => {
   expect(proactiveSourceSuffix('goal-continuation')).toBe('');
 });
 
+test('uses goal badge for queued standing goal continuations', () => {
+  expect(proactiveBadgeLabel('goal-continuation:queued')).toBe('goal');
+  expect(proactiveSourceSuffix('goal-continuation:queued')).toBe('');
+});
+
 test('suppresses reminder chrome for scheduler config job outputs', () => {
   expect(proactiveBadgeLabel('schedule-job:release-brief')).toBeNull();
   expect(proactiveSourceSuffix('schedule-job:release-brief')).toBe('');
