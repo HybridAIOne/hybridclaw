@@ -4,6 +4,12 @@ import type { SecretInput } from '../security/secret-refs.js';
 export interface BrowserProvider {
   launchSession(opts: SessionOptions): Promise<BrowserSession>;
   closeSession(session: BrowserSession): Promise<void>;
+  getCapabilities?(): BrowserProviderCapabilities;
+}
+
+export interface BrowserProviderCapabilities {
+  credentialInjection: 'opaque-handle';
+  waypointEvents: readonly BrowserWaypointEvent[];
 }
 
 export interface SessionOptions {
@@ -21,9 +27,20 @@ export interface SessionOptions {
 export interface BrowserSessionMeteringContext {
   sessionId: string;
   agentId: string;
+  tenantId?: string;
   auditRunId?: string;
   skillName?: string;
 }
+
+export type BrowserWaypointEvent =
+  | 'browser_await_two_factor'
+  | 'browser_resume_interaction';
+
+export const DEFAULT_BROWSER_PROVIDER_CAPABILITIES: BrowserProviderCapabilities =
+  {
+    credentialInjection: 'opaque-handle',
+    waypointEvents: ['browser_await_two_factor', 'browser_resume_interaction'],
+  };
 
 export interface BrowserSession {
   /**

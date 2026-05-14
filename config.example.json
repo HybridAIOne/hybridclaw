@@ -26,6 +26,11 @@
       "headed": false,
       "launchOptions": {}
     },
+    "managedCloud": {
+      "endpointUrl": "http://127.0.0.1:8787",
+      "defaultTenantId": "",
+      "pricing": {}
+    },
     "browserUseCloud": {
       "apiKeyRef": {
         "source": "store",

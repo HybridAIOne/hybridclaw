@@ -1,0 +1,25 @@
+# Hetzner single-region R25 recipe overlay for the managed browser pool.
+#
+# Usage:
+#   docker compose \
+#     -f infra/managed-browser/docker-compose.yml \
+#     -f infra/managed-browser/hetzner.compose.yml up -d --build
+
+services:
+  browser-pool:
+    environment:
+      MANAGED_BROWSER_NODE_ID: ${HETZNER_SERVER_NAME:-hetzner-browser-node-1}
+    volumes:
+      - /srv/hybridclaw/managed-browser/data:/data
+      - /srv/hybridclaw/managed-browser/tenants.yaml:/config/tenants.yaml:ro
+    labels:
+      hybridaione.deployment: hetzner
+      hybridaione.region: ${HETZNER_REGION:-fsn1}
+
+  navigation-guard:
+    volumes:
+      - /srv/hybridclaw/managed-browser/data:/data
+      - /srv/hybridclaw/managed-browser/tenants.yaml:/config/tenants.yaml:ro
+    labels:
+      hybridaione.deployment: hetzner
+      hybridaione.region: ${HETZNER_REGION:-fsn1}

@@ -256,6 +256,7 @@ export type RuntimeWebSearchConcreteProvider = Exclude<
 export type RuntimeBrowserProviderKind =
   | 'local'
   | 'camofox'
+  | 'managed-cloud'
   | 'browser-use-cloud';
 export type WhatsAppDmPolicy = 'open' | 'pairing' | 'allowlist' | 'disabled';
 export type WhatsAppGroupPolicy = 'open' | 'allowlist' | 'disabled';
@@ -361,10 +362,21 @@ export interface RuntimeBrowserUseCloudConfig {
   };
 }
 
+export interface RuntimeManagedCloudBrowserConfig {
+  endpointUrl: string;
+  poolTokenRef?: SecretRef;
+  defaultTenantId: string;
+  pricing: {
+    browserUsdPerMinute?: number;
+    actionUsd?: number;
+  };
+}
+
 export interface RuntimeBrowserConfig {
   provider: RuntimeBrowserProviderKind;
   local: RuntimeBrowserLocalConfig;
   camofox: RuntimeBrowserCamofoxConfig;
+  managedCloud: RuntimeManagedCloudBrowserConfig;
   browserUseCloud: RuntimeBrowserUseCloudConfig;
 }
 
@@ -1293,6 +1305,11 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
       profileRoot: '',
       headed: false,
       launchOptions: {},
+    },
+    managedCloud: {
+      endpointUrl: 'http://127.0.0.1:8787',
+      defaultTenantId: '',
+      pricing: {},
     },
     browserUseCloud: {
       apiKeyRef: {
@@ -5125,6 +5142,7 @@ function normalizeBrowserProviderKind(
   if (
     normalized === 'local' ||
     normalized === 'camofox' ||
+    normalized === 'managed-cloud' ||
     normalized === 'browser-use-cloud'
   ) {
     return normalized;
@@ -5636,6 +5654,26 @@ function normalizeBrowserUseCloudPricing(
   };
 }
 
+function normalizeManagedCloudBrowserConfig(
+  value: unknown,
+  fallback: RuntimeManagedCloudBrowserConfig,
+): RuntimeManagedCloudBrowserConfig {
+  const raw = isRecord(value) ? value : {};
+  return {
+    endpointUrl: normalizeBaseUrl(raw.endpointUrl, fallback.endpointUrl),
+    poolTokenRef: normalizeOptionalSecretRef(
+      raw.poolTokenRef,
+      'browser.managedCloud.poolTokenRef',
+    ),
+    defaultTenantId: normalizeString(
+      raw.defaultTenantId,
+      fallback.defaultTenantId,
+      { allowEmpty: true },
+    ),
+    pricing: normalizeBrowserUseCloudPricing(raw.pricing, fallback.pricing),
+  };
+}
+
 function normalizeBrowserConfig(
   value: unknown,
   fallback: RuntimeBrowserConfig,
@@ -5643,6 +5681,7 @@ function normalizeBrowserConfig(
   const raw = isRecord(value) ? value : {};
   const rawLocal = isRecord(raw.local) ? raw.local : {};
   const rawCamofox = isRecord(raw.camofox) ? raw.camofox : {};
+  const rawManagedCloud = isRecord(raw.managedCloud) ? raw.managedCloud : {};
   const rawBrowserUseCloud = isRecord(raw.browserUseCloud)
     ? raw.browserUseCloud
     : {};
@@ -5668,6 +5707,10 @@ function normalizeBrowserConfig(
         fallback.camofox.launchOptions,
       ),
     },
+    managedCloud: normalizeManagedCloudBrowserConfig(
+      rawManagedCloud,
+      fallback.managedCloud,
+    ),
     browserUseCloud: {
       apiKeyRef: normalizeBrowserUseCloudApiKeyRef(
         rawBrowserUseCloud.apiKeyRef,
