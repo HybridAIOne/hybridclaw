@@ -223,7 +223,7 @@ describe('media generation usage accounting', () => {
             format: 'mermaid',
             rendered_artifact_ref:
               '/workspace/.generated-diagrams/skills/diagram/a.svg',
-            usage: { renders: 1, llm_tokens: 0 },
+            usage: { renders: 1 },
           }),
           durationMs: 100,
         },

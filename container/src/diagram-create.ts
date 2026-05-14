@@ -267,27 +267,58 @@ type MermaidParser = {
 };
 
 let mermaidParserPromise: Promise<MermaidParser> | null = null;
+let mermaidDomPromise: Promise<{
+  window: unknown;
+  document: unknown;
+}> | null = null;
+let mermaidDomQueue: Promise<unknown> = Promise.resolve();
+
+async function loadMermaidDom(): Promise<{
+  window: unknown;
+  document: unknown;
+}> {
+  if (!mermaidDomPromise) {
+    mermaidDomPromise = (async () => {
+      const { parseHTML } = await import('linkedom');
+      const { window } = parseHTML('<html><body></body></html>');
+      return {
+        window,
+        document: window.document,
+      };
+    })();
+  }
+  return mermaidDomPromise;
+}
+
+async function withMermaidDom<T>(operation: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    const globalScope = globalThis as Record<string, unknown>;
+    const previous = {
+      hasWindow: Object.hasOwn(globalScope, 'window'),
+      window: globalScope.window,
+      hasDocument: Object.hasOwn(globalScope, 'document'),
+      document: globalScope.document,
+    };
+    const dom = await loadMermaidDom();
+    globalScope.window = dom.window;
+    globalScope.document = dom.document;
+    try {
+      return await operation();
+    } finally {
+      if (previous.hasWindow) globalScope.window = previous.window;
+      else delete globalScope.window;
+      if (previous.hasDocument) globalScope.document = previous.document;
+      else delete globalScope.document;
+    }
+  };
+  const result = mermaidDomQueue.then(run, run);
+  mermaidDomQueue = result.catch(() => undefined);
+  return result;
+}
 
 async function loadMermaidParser(): Promise<MermaidParser> {
   if (!mermaidParserPromise) {
-    mermaidParserPromise = (async () => {
-      const globalScope = globalThis as typeof globalThis & {
-        window?: unknown;
-        document?: unknown;
-        DOMPurify?: unknown;
-      };
-      if (!globalScope.window || !globalScope.document) {
-        const { parseHTML } = await import('linkedom');
-        const { window } = parseHTML('<html><body></body></html>');
-        globalScope.window = window;
-        globalScope.document = window.document;
-      }
-      if (!globalScope.DOMPurify) {
-        const createDOMPurify = (await import('dompurify')).default as (
-          window: unknown,
-        ) => unknown;
-        globalScope.DOMPurify = createDOMPurify(globalScope.window);
-      }
+    mermaidParserPromise = withMermaidDom(async () => {
       const module = (await import('mermaid')) as {
         default?: MermaidParser;
       };
@@ -297,7 +328,10 @@ async function loadMermaidParser(): Promise<MermaidParser> {
       }
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
       return mermaid;
-    })();
+    }).catch((err) => {
+      mermaidParserPromise = null;
+      throw err;
+    });
   }
   return mermaidParserPromise;
 }
@@ -388,7 +422,9 @@ async function validateMermaid(
   if (errors.length === 0) {
     try {
       const mermaid = await loadMermaidParser();
-      await mermaid.parse(body, { suppressErrors: false });
+      await withMermaidDom(async () => {
+        await mermaid.parse(body, { suppressErrors: false });
+      });
     } catch (err) {
       errors.push(`Mermaid parser rejected source: ${parseErrorMessage(err)}`);
     }
@@ -1010,6 +1046,31 @@ function encodePlantUml(source: string): string {
   return encoded;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function parsePlantUmlServerUrl(rawUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error('PlantUML server URL must be a valid URL.');
+  }
+  if (url.protocol !== 'https:' && !isLoopbackHostname(url.hostname)) {
+    throw new Error(
+      'PlantUML server URL must use https unless it targets localhost.',
+    );
+  }
+  return url;
+}
+
 async function renderPlantUml(
   source: string,
   target: Exclude<DiagramRenderTarget, 'none'>,
@@ -1033,13 +1094,12 @@ async function renderPlantUml(
       'PlantUML rendering requires HYBRIDCLAW_PLANTUML_SERVER_URL or PLANTUML_SERVER_URL.',
     );
   }
+  const serverUrl = parsePlantUmlServerUrl(baseUrl);
+  serverUrl.pathname = `${serverUrl.pathname.replace(/\/+$/, '')}/${target}/${encodePlantUml(source)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PLANTUML_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(
-      `${baseUrl.replace(/\/+$/, '')}/${target}/${encodePlantUml(source)}`,
-      { signal: controller.signal },
-    );
+    const response = await fetch(serverUrl, { signal: controller.signal });
     if (!response.ok)
       throw new Error(`PlantUML server returned ${response.status}.`);
     return { data: Buffer.from(await response.arrayBuffer()), warnings: [] };
@@ -1134,6 +1194,7 @@ function buildRenderedEvent(params: {
 
 async function validateWithFixups(
   initialRequest: NormalizedDiagramRequest,
+  initialValidation: DiagramValidation,
   action: Exclude<DiagramAction, 'validate'>,
   options?: DiagramRuntimeOptions,
 ): Promise<{
@@ -1142,11 +1203,7 @@ async function validateWithFixups(
   fixupAttempts: number;
 }> {
   let request = initialRequest;
-  let validation = await validateDiagramSource(
-    request.source,
-    request.format,
-    request.type,
-  );
+  let validation = initialValidation;
   let fixupAttempts = 0;
 
   while (!validation.valid && fixupAttempts < MAX_FIXUP_ATTEMPTS) {
@@ -1198,7 +1255,7 @@ export async function runDiagramTool(
   let fixupAttempts = 0;
 
   if (action !== 'validate') {
-    const fixed = await validateWithFixups(request, action, options);
+    const fixed = await validateWithFixups(request, validation, action, options);
     request = fixed.request;
     validation = fixed.validation;
     fixupAttempts = fixed.fixupAttempts;
@@ -1298,8 +1355,7 @@ export async function runDiagramTool(
       fixup_attempts: fixupAttempts,
       runtime_events: runtimeEvents,
       warnings: [...request.warnings, ...renderWarnings],
-      usage: { renders: request.renderTo === 'none' ? 0 : 1, llm_tokens: 0 },
-      stakes: { f8: 'low', reason: 'operator-controlled file artifact' },
+      usage: { renders: request.renderTo === 'none' ? 0 : 1 },
     },
     null,
     2,
