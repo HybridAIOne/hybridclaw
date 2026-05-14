@@ -159,7 +159,9 @@ saved revision history directly.
   instance and bearer SecretRef for a specific agent
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
-  spoken-style rules such as "no markdown" or "keep replies short"
+  spoken-style rules such as "no markdown" or "keep replies short";
+  `channelInstructions.slack_webhook` applies to outbound-only Slack webhook
+  delivery
 - `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; reviewed scanner bypass markers are created by `hybridclaw skill unblock <name>` or the Admin Skills page for one installed copy; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
 - `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
 - `proactive.delegation.model` for pinning delegated subagent work to a dedicated model while the parent turn keeps its own session or agent model; leave it empty to use the parent model
@@ -188,6 +190,12 @@ saved revision history directly.
   controls pacing between split outbound text chunks. HybridClaw Cloud gateway
   images include `signal-cli` on amd64 hosts for admin QR linking; arm64 and
   custom hosts can use an external daemon or sidecar
+- `slackWebhook.*` for outbound-only Slack Incoming Webhook targets. Use
+  `hybridclaw channel add slack_webhook --webhook-url <url>` to store each
+  full webhook URL as an encrypted runtime secret, create or update
+  `slackWebhook.webhooks.<target>.webhook_url`, and add the matching POST-only
+  workspace network policy grant. Named targets are addressed as
+  `slack_webhook:<target>` from the message tool
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`

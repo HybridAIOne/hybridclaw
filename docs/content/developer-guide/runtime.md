@@ -186,6 +186,25 @@ The command is intended for first-install triage, auth/provider drift, Docker
 or gateway liveness checks, file-permission issues, and other local operator
 problems that are faster to diagnose from one aggregated report.
 
+## Prompt Context Assembly
+
+HybridClaw separates the static system prompt from per-turn dynamic context.
+`buildSystemPromptFromHooks()` should be byte-stable for the same agent,
+selected prompt parts, tools, skills, and channel contract. Wall-clock data,
+host metadata, today's `memory/YYYY-MM-DD.md` note, session summaries, and
+retrieval snippets belong in the user-role dynamic context block that is
+inserted immediately after the system prompt and before conversation history.
+
+This split keeps provider prompt-prefix caches effective without removing
+useful turn-local context from the model. It also gives trace exports a stable
+`system_prompt_hash` plus separate `dynamic_context_hash` and `prompt_prefix`
+entries so cache behavior and prompt composition can be audited per turn.
+
+When adding a prompt hook, keep durable instructions in the system prompt and
+put volatile facts in dynamic context or retrieval. Avoid reading clocks,
+hostnames, randomized values, live memory files, or current-session summaries
+from code that contributes to the static system prompt.
+
 ## Session Routing Internals
 
 HybridClaw separates concrete transport identity from continuity scope:

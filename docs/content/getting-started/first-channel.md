@@ -20,6 +20,8 @@ Keep the first rollout narrow:
 
 - [Slack](../channels/slack.md) when you already work in a Slack workspace and
   want app-based auth instead of QR pairing
+- [Slack Incoming Webhook](../channels/slack-webhook.md) when you only need
+  outbound status updates or alerts into one Slack channel
 - [Discord](../channels/discord.md) when you want slash commands, DMs, or a
   private guild test bot
 - [Telegram](../channels/telegram.md) when you want a fast private DM flow
@@ -45,6 +47,7 @@ jump directly to one transport:
 
 - [Discord](../channels/discord.md)
 - [Slack](../channels/slack.md)
+- [Slack Incoming Webhook](../channels/slack-webhook.md)
 - [Telegram](../channels/telegram.md)
 - [Signal](../channels/signal.md)
 - [Threema](../channels/threema.md)

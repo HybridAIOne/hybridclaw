@@ -17,9 +17,10 @@ problems:
 - canonical memory preserves cross-session and cross-channel continuity
 
 On a normal turn, HybridClaw does not inject every stored artifact wholesale.
-Some layers are loaded through the bootstrap prompt, some are injected through
-the memory hook, and some remain storage-only until a later consolidation or
-recall step.
+Some layers are loaded through the static bootstrap prompt, some are appended
+through the per-turn dynamic context block, some are injected through memory
+recall, and some remain storage-only until a later consolidation or recall
+step.
 
 ## At A Glance
 
@@ -58,7 +59,7 @@ user turn
                                                          (today only)
                                                                 |
                                                                 v
-                                               bootstrap hook loads today's file
+                                               dynamic context loads today's file
                                                                 |
                                                    nightly dream / /dream rewrites
                                                                 |
@@ -71,22 +72,26 @@ user turn
 
 ## Prompt-Time View
 
-On a standard built-in-memory turn, HybridClaw assembles memory from three main
+On a standard built-in-memory turn, HybridClaw assembles memory from four main
 places:
 
-1. Bootstrap files
-   This includes `MEMORY.md` and today's `memory/YYYY-MM-DD.md` note when it
-   exists.
-2. Memory hook
-   This includes canonical cross-channel context, the current session summary,
-   and relevant semantic recall.
-3. Recent raw history
+1. Static bootstrap files
+   This includes durable files such as `MEMORY.md`.
+2. Dynamic context block
+   This includes current date/time, host metadata, today's
+   `memory/YYYY-MM-DD.md` note when it exists, the current session summary, and
+   relevant retrieval snippets. It is appended after the static system prompt
+   so provider prefix caches can reuse the same system prompt bytes across
+   turns.
+3. Memory recall
+   This includes canonical cross-channel context and relevant semantic recall.
+4. Recent raw history
    Recent session messages are passed as normal chat history messages, not as a
    summary block.
 
-That means `MEMORY.md` and today's daily note are not the same thing as the
-semantic DB or the current session summary. They enter the prompt through
-different paths and follow different update rules.
+That means `MEMORY.md`, today's daily note, the semantic DB, and the current
+session summary are separate sources. They enter the prompt through different
+paths and follow different update rules.
 
 ## The Memory Layers
 
@@ -115,7 +120,7 @@ Important properties:
 - the `memory` tool appends here
 - the pre-compaction memory flush writes here before older history is
   summarized away
-- only today's daily note is injected into the prompt
+- only today's daily note is injected into the per-turn dynamic context block
 - older daily notes are not loaded directly once they are no longer "today"
 - older daily notes are later folded into `MEMORY.md` during dream
   consolidation

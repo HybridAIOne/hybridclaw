@@ -133,6 +133,8 @@ The gateway auto-connects configured channels:
 
 - Slack when `slack.enabled` is true, `SLACK_BOT_TOKEN` is saved, and
   `SLACK_APP_TOKEN` is saved
+- Slack Incoming Webhook when `slackWebhook.enabled` is true and the default
+  webhook target has a stored SecretRef
 - Microsoft Teams when `msteams.enabled` is true and
   `MSTEAMS_APP_PASSWORD` is saved
 - Discord when `DISCORD_TOKEN` is set

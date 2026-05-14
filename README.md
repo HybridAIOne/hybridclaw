@@ -19,9 +19,10 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, Slack, Signal, WhatsApp, Telegram, Microsoft Teams,
-email, Twilio voice, or the web. Run it locally, deploy it for business
-workflows, and keep your agents, secrets, and data under your control.
+Connect it to Discord, Slack, Slack Incoming Webhooks, Signal, WhatsApp,
+Telegram, Microsoft Teams, email, Twilio voice, or the web. Run it locally,
+deploy it for business workflows, and keep your agents, secrets, and data under
+your control.
 
 [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart) ·
 [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) ·
@@ -118,7 +119,8 @@ Once the gateway is running, open HybridClaw locally:
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, statistics, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Slack, Signal, WhatsApp, Telegram, Discord, Microsoft Teams, Email
+- or connect Slack, Slack Incoming Webhooks, Signal, WhatsApp, Telegram,
+  Discord, Microsoft Teams, Email
 
 ## Operator workflows
 
@@ -149,6 +151,9 @@ Once the gateway is running, open HybridClaw locally:
 - `/admin/channels` edits transport config, encrypted channel credentials,
   Signal QR linking, Twilio voice settings, and per-channel instructions that
   are injected into prompts at runtime.
+- `slack_webhook` targets provide outbound-only Slack Incoming Webhook delivery
+  with encrypted webhook URLs, named destinations, Block Kit text chunking,
+  reachability status, and POST-only network policy grants.
 - `/admin/approvals` manages approval policies from the browser.
 - Approval policy evaluation runs through a hook-fed rule pipeline, so
   workspace policy ordering and plugin tool-use hooks share one approval path.
@@ -255,12 +260,15 @@ Once the gateway is running, open HybridClaw locally:
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
   FastBill, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
   HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
-  (`warehouse-sql`), brand-voice drafting, and editable Excalidraw diagram
-  creation.
+  (`warehouse-sql`), brand-voice drafting, validated diagram-as-code creation
+  through `diagram`, and editable Excalidraw diagram creation.
 - Native media tools generate images and videos through configured providers,
   persist the resulting artifacts, and expose the same capability through the
   bundled `image-generation`, `video-generation`, and `video.from-script`
   skills.
+- Dynamic per-turn context such as current date, host, today's daily memory,
+  session summary, and retrieved context is appended after the static system
+  prompt so provider prefix caches can reuse the stable prompt prefix.
 - Browser automation can use local persistent Playwright profiles, Camofox
   profiles, or Browser Use Cloud sessions with encrypted `BROWSER_USE_API_KEY`
   storage, usage metering, shared navigation guards, SecretRef-gated credential
@@ -327,7 +335,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Slack, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Slack, Slack Incoming Webhooks, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt, live delegate status/progress,
@@ -361,6 +369,7 @@ Browse the full manual at
   [Twilio Voice](https://hybridaione.github.io/hybridclaw/docs/guides/twilio-voice),
   [Discord](https://hybridaione.github.io/hybridclaw/docs/channels/discord),
   [Slack](https://hybridaione.github.io/hybridclaw/docs/channels/slack),
+  [Slack Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/slack-webhook),
   [Telegram](https://hybridaione.github.io/hybridclaw/docs/channels/telegram),
   [Signal](https://hybridaione.github.io/hybridclaw/docs/channels/signal),
   [Threema](https://hybridaione.github.io/hybridclaw/docs/channels/threema),
