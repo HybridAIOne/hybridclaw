@@ -82,7 +82,7 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       userId: context.userId,
       username: context.username,
       content: initialPrompt
-        ? buildGoalInitialPrompt(goal.goalText)
+        ? buildGoalInitialPrompt(goal.goalText, { maxTurns: goal.maxTurns })
         : buildGoalContinuationPrompt(goal.goalText, {
             turnsUsed: goal.turnsUsed,
             maxTurns: goal.maxTurns,

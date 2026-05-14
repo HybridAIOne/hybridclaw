@@ -72,6 +72,7 @@ export function buildGoalContinuationPrompt(
     lines.push(
       `Progress: ${turnsUsed} supervised turn(s) have already been used for this goal.`,
       `This is supervised step ${turnsUsed + 1} of at most ${maxTurns}.`,
+      'Use this progress snapshot as authoritative; do not infer goal progress from earlier chat.',
       'Do not repeat completed steps. If the goal is an ordered sequence, produce the next item for this step.',
       '',
     );
@@ -84,8 +85,27 @@ export function buildGoalContinuationPrompt(
   return lines.join('\n');
 }
 
-export function buildGoalInitialPrompt(goalText: string): string {
-  return goalText;
+export function buildGoalInitialPrompt(
+  goalText: string,
+  progress?: { maxTurns: number },
+): string {
+  const lines = ['[Starting standing goal]', `Goal: ${goalText}`, ''];
+  if (progress) {
+    lines.push(
+      `This is supervised step 1 of at most ${Math.max(1, Math.floor(progress.maxTurns))}.`,
+    );
+  } else {
+    lines.push('This is supervised step 1.');
+  }
+  lines.push(
+    'Use this as a fresh goal start; do not infer goal progress from earlier chat.',
+    'If the goal is an ordered sequence, produce only the first item for this step.',
+    '',
+    'Start working toward this goal. Take the first concrete step. If you',
+    'believe the goal is complete, state so explicitly and stop. If you are',
+    'blocked, say so clearly and stop.',
+  );
+  return lines.join('\n');
 }
 
 export function getGoalContinuationContext(
