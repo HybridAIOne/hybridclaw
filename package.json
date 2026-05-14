@@ -72,7 +72,7 @@
     "test:integration": "vitest run --configLoader runner --project integration --passWithNoTests",
     "test:e2e": "vitest run --configLoader runner --project e2e --passWithNoTests",
     "test:console": "npm --workspace console run test",
-    "audit:signatures": "npm audit signatures && npm --prefix container audit signatures",
+    "audit:signatures": "npm --min-release-age=0 audit signatures && npm --prefix container audit signatures",
     "deps:update-lockfile": "npm update --package-lock-only && npm --prefix container update --package-lock-only",
     "deps:verify": "npm ci --no-audit --fund=false && npm --prefix container ci --no-audit --fund=false && npm run audit:signatures",
     "eval:trace-judge:gate": "HYBRIDCLAW_DATA_DIR=/tmp/hybridclaw-trace-judge-gate HYBRIDCLAW_DISABLE_CONFIG_WATCHER=1 node -e \"import('./dist/evals/trace-judge-native.js').then((m)=>m.runTraceJudgeNativeGate()).catch((err)=>{console.error(err);process.exitCode=1})\"",
