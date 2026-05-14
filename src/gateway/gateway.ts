@@ -53,8 +53,6 @@ import {
   sendToIMessageChat,
   shutdownIMessage,
 } from '../channels/imessage/runtime.js';
-import { buildTeamsArtifactAttachments } from '../channels/msteams/attachments.js';
-import { initMSTeams } from '../channels/msteams/runtime.js';
 import {
   initSignal,
   type SignalReplyFn,
@@ -1483,6 +1481,7 @@ async function startMSTeamsIntegration(): Promise<boolean> {
     );
   }
 
+  const { initMSTeams } = await import('../channels/msteams/runtime.js');
   initMSTeams(
     async (
       sessionId,
@@ -1599,9 +1598,16 @@ async function startMSTeamsIntegration(): Promise<boolean> {
         }
 
         let attachments:
-          | Awaited<ReturnType<typeof buildTeamsArtifactAttachments>>
+          | Awaited<
+              ReturnType<
+                typeof import('../channels/msteams/attachments.js')['buildTeamsArtifactAttachments']
+              >
+            >
           | undefined;
         try {
+          const { buildTeamsArtifactAttachments } = await import(
+            '../channels/msteams/attachments.js'
+          );
           attachments = await buildTeamsArtifactAttachments({
             turnContext: context.turnContext,
             artifacts,

@@ -18,7 +18,6 @@ import {
 import type { DiscordToolActionRequest } from '../discord/tool-actions.js';
 import { isEmailAddress, normalizeEmailAddress } from '../email/allowlist.js';
 import { sendEmailAttachmentTo, sendToEmail } from '../email/runtime.js';
-import { maybeRunMSTeamsToolAction } from '../msteams/tool-actions.js';
 import { sendToSignalChat } from '../signal/runtime.js';
 import { normalizeSignalChannelId } from '../signal/target.js';
 import { maybeRunSlackToolAction } from '../slack/tool-actions.js';
@@ -53,6 +52,8 @@ const MESSAGE_TOOL_EMAIL_SESSION_PREFIX = 'email:';
 const MESSAGE_TOOL_EMAIL_PREFIX_RE = /^email:/i;
 const MESSAGE_TOOL_SIGNAL_PREFIX_RE = /^signal:/i;
 const MESSAGE_TOOL_SLACK_WEBHOOK_PREFIX_RE = /^slack[_-]?webhook(?::|$)/i;
+const MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE = /^(?:msteams|teams):current$/i;
+const MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE = /^teams:/i;
 const MESSAGE_TOOL_TELEGRAM_PREFIX_RE = /^(telegram|tg):/i;
 const MESSAGE_TOOL_THREEMA_PREFIX_RE = /^threema:/i;
 const MESSAGE_TOOL_WHATSAPP_PREFIX_RE = /^whatsapp:/i;
@@ -163,6 +164,31 @@ function normalizeEmailMessageTarget(rawTarget: string): string | null {
     .replace(MESSAGE_TOOL_EMAIL_PREFIX_RE, '')
     .trim();
   return normalizeEmailAddress(withoutPrefix);
+}
+
+function normalizeMessageToolValue(rawValue: string | undefined): string {
+  return String(rawValue || '').trim();
+}
+
+function looksLikeMSTeamsConversationId(value: string): boolean {
+  return /^(?:a:|19:)/.test(normalizeMessageToolValue(value));
+}
+
+function isLikelyMSTeamsToolRequest(
+  request: DiscordToolActionRequest,
+): boolean {
+  const sessionId = normalizeMessageToolValue(request.sessionId);
+  if (MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(sessionId)) {
+    return true;
+  }
+
+  const channelId = normalizeMessageToolValue(request.channelId);
+  if (!channelId) return false;
+  return (
+    MESSAGE_TOOL_TEAMS_CURRENT_PREFIX_RE.test(channelId) ||
+    MESSAGE_TOOL_TEAMS_SESSION_PREFIX_RE.test(channelId) ||
+    looksLikeMSTeamsConversationId(channelId)
+  );
 }
 
 function isDiscordSessionId(value: string | undefined): boolean {
@@ -655,11 +681,16 @@ async function runLocalMessageSendAction(
 export async function runMessageToolAction(
   request: DiscordToolActionRequest,
 ): Promise<Record<string, unknown>> {
-  const teamsResult = await maybeRunMSTeamsToolAction(request, {
-    resolveSendFilePath: resolveMessageToolSendFilePath,
-  });
-  if (teamsResult) {
-    return teamsResult;
+  if (isLikelyMSTeamsToolRequest(request)) {
+    const { maybeRunMSTeamsToolAction } = await import(
+      '../msteams/tool-actions.js'
+    );
+    const teamsResult = await maybeRunMSTeamsToolAction(request, {
+      resolveSendFilePath: resolveMessageToolSendFilePath,
+    });
+    if (teamsResult) {
+      return teamsResult;
+    }
   }
 
   const slackResult = await maybeRunSlackToolAction(request, {

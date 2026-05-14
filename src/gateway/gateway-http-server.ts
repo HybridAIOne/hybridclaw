@@ -25,7 +25,6 @@ import {
 import { normalizeEmailAddress } from '../channels/email/allowlist.js';
 import { handleIMessageWebhook } from '../channels/imessage/runtime.js';
 import { runMessageToolAction } from '../channels/message/tool-actions.js';
-import { handleMSTeamsWebhook } from '../channels/msteams/runtime.js';
 import {
   getSignalLinkState,
   startSignalLink,
@@ -4544,7 +4543,12 @@ export function startGatewayHttpServer(): GatewayHttpServer {
 
     if (pathname.startsWith('/api/')) {
       if (pathname === MSTEAMS_WEBHOOK_PATH && method === 'POST') {
-        dispatchWebhookRoute(res, () => handleMSTeamsWebhook(req, res));
+        dispatchWebhookRoute(res, async () => {
+          const { handleMSTeamsWebhook } = await import(
+            '../channels/msteams/runtime.js'
+          );
+          await handleMSTeamsWebhook(req, res);
+        });
         return;
       }
       if (pathname === IMESSAGE_WEBHOOK_PATH && method === 'POST') {
