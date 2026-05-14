@@ -44,6 +44,33 @@ test('goal judge fails open on malformed model output', async () => {
   expect(verdict.parseFailure).toBe(true);
 });
 
+test('goal judge sends conversation context to the model', async () => {
+  const modelCaller = vi.fn(async () => ({
+    content: '{"done":false,"reason":"Tests are not shown passing yet."}',
+    model: 'test-judge',
+  }));
+
+  await judgeGoalCompletion({
+    sessionId: 'session-context',
+    agentId: 'agent-a',
+    goalText: 'all auth tests pass',
+    assistantResponse: 'I fixed the assertion.',
+    conversationContext:
+      'User: /goal all auth tests pass\n\nAssistant: npm test reported one failing auth test.',
+    modelCaller,
+  });
+
+  const userMessage = modelCaller.mock.calls[0]?.[0].messages.find(
+    (message) => message.role === 'user',
+  );
+  expect(userMessage?.content).toEqual(
+    expect.stringContaining('conversation_context'),
+  );
+  expect(userMessage?.content).toEqual(
+    expect.stringContaining('npm test reported one failing auth test'),
+  );
+});
+
 test('goal judge treats explicit completion statements as terminal', async () => {
   const modelCaller = vi.fn();
   const verdict = await judgeGoalCompletion({
@@ -96,6 +123,26 @@ test('goal judge does not accept early count completion claims', async () => {
   expect(verdict).toEqual({
     done: false,
     reason: 'count has reached 3, target is 4',
+    parseFailure: false,
+  });
+  expect(modelCaller).not.toHaveBeenCalled();
+});
+
+test('goal judge ignores future count steps when the current count is incomplete', async () => {
+  const modelCaller = vi.fn();
+  const verdict = await judgeGoalCompletion({
+    sessionId: 'session-count-scheduled',
+    agentId: 'agent-a',
+    goalText:
+      'Count from 1 to 4, one number per turn. When you reach 4, state that the goal is complete.',
+    assistantResponse:
+      '2\n\nNext three steps scheduled:\n- **3** in 30s\n- **4** in 60s\n- **Goal complete** in 90s',
+    modelCaller,
+  });
+
+  expect(verdict).toEqual({
+    done: false,
+    reason: 'count has reached 2, target is 4',
     parseFailure: false,
   });
   expect(modelCaller).not.toHaveBeenCalled();

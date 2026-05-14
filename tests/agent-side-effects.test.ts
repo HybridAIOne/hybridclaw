@@ -68,3 +68,44 @@ test('processSideEffects persists explicit schedule delivery channels', async ()
   });
   expect(rearmScheduler).toHaveBeenCalledTimes(1);
 });
+
+test('processSideEffects can ignore schedule side effects', async () => {
+  const homeDir = makeTempHome();
+  process.env.HOME = homeDir;
+  vi.resetModules();
+
+  const rearmScheduler = vi.fn();
+  vi.doMock('../src/scheduler/scheduler.js', () => ({
+    rearmScheduler,
+  }));
+
+  const { initDatabase, getTasksForSession } = await import(
+    '../src/memory/db.ts'
+  );
+  const { processSideEffects } = await import('../src/agent/side-effects.ts');
+
+  initDatabase({ quiet: true });
+
+  processSideEffects(
+    {
+      status: 'success',
+      result: 'ok',
+      toolsUsed: [],
+      sideEffects: {
+        schedules: [
+          {
+            action: 'add',
+            everyMs: 1_800_000,
+            prompt: 'Write a short operational update email.',
+          },
+        ],
+      },
+    },
+    'session-1',
+    'tui',
+    { allowSchedules: false },
+  );
+
+  expect(getTasksForSession('session-1')).toHaveLength(0);
+  expect(rearmScheduler).not.toHaveBeenCalled();
+});

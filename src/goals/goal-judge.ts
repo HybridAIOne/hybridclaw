@@ -43,6 +43,7 @@ export interface JudgeGoalCompletionParams {
   threadId?: string | null;
   goalText: string;
   assistantResponse: string;
+  conversationContext?: string | null;
   fallbackModel?: string | null;
   /** @internal Test injection only. Production callers should use the configured goal_judge model. */
   modelCaller?: (
@@ -71,7 +72,9 @@ let goalJudgeSubscriberRegistered = false;
 function buildGoalJudgeMessages(params: {
   goalText: string;
   assistantResponse: string;
+  conversationContext?: string | null;
 }): ChatMessage[] {
+  const conversationContext = params.conversationContext?.trim();
   return [
     {
       role: 'system',
@@ -82,7 +85,8 @@ function buildGoalJudgeMessages(params: {
         'Output exactly one JSON object and no prose, markdown, code fences, or hidden reasoning.',
         'Be conservative: if there is any meaningful next step, set done to false.',
         'Do not return done true until every explicit completion condition in the goal is satisfied.',
-        'If the latest response is an intermediate numbered or counting step and the goal names a later final step, set done to false.',
+        'Judge against the conversation context, not only the latest assistant response.',
+        'If the conversation shows an intermediate numbered or counting step and the goal names a later final step, set done to false.',
         'If the latest response reaches the requested final step and explicitly says the goal is complete, set done to true.',
         'Do not mark the goal done only because the assistant says it will continue later or is blocked.',
       ].join('\n'),
@@ -91,6 +95,7 @@ function buildGoalJudgeMessages(params: {
       role: 'user',
       content: JSON.stringify({
         goal: params.goalText,
+        conversation_context: conversationContext || undefined,
         latest_assistant_response: params.assistantResponse,
       }),
     },
@@ -136,18 +141,18 @@ function inferCountingGoalProgress(params: {
     params.assistantResponse.matchAll(/(?<![\w.-])-?\d+(?![\w.-])/g),
     (match) => Number(match[0]),
   ).filter((value) => Number.isFinite(value));
-  const latestNumber = numbers.at(-1);
-  if (latestNumber === undefined) return null;
+  const currentNumber = numbers[0];
+  if (currentNumber === undefined) return null;
 
   const isAscending = target > start;
   const stillInProgress = isAscending
-    ? latestNumber < target
-    : latestNumber > target;
+    ? currentNumber < target
+    : currentNumber > target;
   if (!stillInProgress) return null;
 
   return {
     done: false,
-    reason: `count has reached ${latestNumber}, target is ${target}`,
+    reason: `count has reached ${currentNumber}, target is ${target}`,
     parseFailure: false,
   };
 }
@@ -255,6 +260,7 @@ async function judgeGoalCompletionDirect(
   const messages = buildGoalJudgeMessages({
     goalText: params.goalText,
     assistantResponse: params.assistantResponse,
+    conversationContext: params.conversationContext,
   });
 
   try {
@@ -317,6 +323,7 @@ export function ensureGoalJudgeSubscriberRegistered(): void {
         threadId: goalEvent.thread_id,
         goalText: goalEvent.goal_text,
         assistantResponse: goalEvent.assistant_response,
+        conversationContext: goalEvent.conversation_context,
         fallbackModel: goalEvent.fallback_model,
       });
       resolveGoalJudgeRequest(goalEvent.request_id, result);
@@ -341,6 +348,7 @@ export async function judgeGoalCompletion(
     thread_id: params.threadId ?? null,
     goal_text: params.goalText,
     assistant_response: params.assistantResponse,
+    conversation_context: params.conversationContext?.trim() || null,
     fallback_model: params.fallbackModel?.trim() || null,
     created_at: new Date().toISOString(),
   };

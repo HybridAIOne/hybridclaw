@@ -17,6 +17,7 @@ import {
   resolveModelProvider,
   resolveModelRuntimeCredentials,
 } from './factory.js';
+import { localBackendsProbe } from './local-health.js';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -451,6 +452,14 @@ function resolveLocalFallbackProviderOrder(params: {
   return providers;
 }
 
+async function isLocalFallbackProviderActive(
+  provider: RuntimeProvider,
+): Promise<boolean> {
+  if (!isLocalBackendType(provider)) return false;
+  const health = await localBackendsProbe.get();
+  return health.get(provider)?.reachable === true;
+}
+
 async function resolveLocalFallbackContext(params: {
   params: AuxiliaryModelCallParams;
   primaryError: unknown;
@@ -490,6 +499,16 @@ async function resolveLocalFallbackContext(params: {
 
   for (const candidate of candidates) {
     try {
+      const providerHint =
+        candidate.expectedProvider ??
+        detectRuntimeProviderPrefix(candidate.model);
+      if (
+        providerHint &&
+        isLocalBackendType(providerHint) &&
+        !(await isLocalFallbackProviderActive(providerHint))
+      ) {
+        continue;
+      }
       const fallback = await resolveContextFromModel({
         task: params.params.task,
         model: candidate.model,
@@ -502,6 +521,7 @@ async function resolveLocalFallbackContext(params: {
         expectedProvider: candidate.expectedProvider,
       });
       if (!isLocalBackendType(fallback.provider)) continue;
+      if (!(await isLocalFallbackProviderActive(fallback.provider))) continue;
       logger.debug(
         {
           task: params.params.task,

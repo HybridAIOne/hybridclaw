@@ -21,7 +21,9 @@ function isEvalSource(source: string | null | undefined): boolean {
   return normalized === 'eval' || normalized.startsWith('eval:');
 }
 
-function isGoalContinuationSource(source: string | null | undefined): boolean {
+export function isGoalContinuationSource(
+  source: string | null | undefined,
+): boolean {
   const normalized = String(source || '');
   return (
     normalized === 'goal-continuation' ||
@@ -43,10 +45,16 @@ export function proactiveBadgeLabel(
 }
 
 export function proactiveInlineLabel(
-  source: string | null | undefined,
+  _source: string | null | undefined,
 ): string | null {
-  if (isGoalContinuationSource(source)) return 'Goal';
   return null;
+}
+
+export function normalizeGoalContinuationText(text: string): string {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
 }
 
 export function proactiveSourceSuffix(

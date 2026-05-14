@@ -6,17 +6,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
   vi.doUnmock('../src/config/runtime-config.js');
+  vi.doUnmock('../src/providers/local-health.js');
   vi.doUnmock('../src/providers/task-routing.js');
   vi.doUnmock('../src/providers/factory.js');
 });
 
 function setupProviderMocks({
   runtimeDefaultModel,
+  activeLocalBackends,
   resolveTaskModelPolicy,
   resolveDefaultAuxiliaryModelForProvider,
   resolveModelRuntimeCredentials,
 }: {
   runtimeDefaultModel?: string;
+  activeLocalBackends?: Partial<Record<string, boolean>>;
   resolveTaskModelPolicy: ReturnType<typeof vi.fn>;
   resolveDefaultAuxiliaryModelForProvider?: ReturnType<typeof vi.fn>;
   resolveModelRuntimeCredentials: ReturnType<typeof vi.fn>;
@@ -40,6 +43,22 @@ function setupProviderMocks({
         },
       };
     });
+  }
+
+  if (activeLocalBackends) {
+    vi.doMock('../src/providers/local-health.js', () => ({
+      localBackendsProbe: {
+        get: async () =>
+          new Map(
+            Object.entries(activeLocalBackends).map(([backend, reachable]) => [
+              backend,
+              { backend, reachable },
+            ]),
+          ),
+        peek: () => null,
+        invalidate: vi.fn(),
+      },
+    }));
   }
 
   vi.doMock('../src/providers/task-routing.js', async () => {
@@ -1080,6 +1099,7 @@ test('host auxiliary caller tries discovered local fallback before openrouter wi
     },
   );
   setupProviderMocks({
+    activeLocalBackends: { vllm: true },
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1173,6 +1193,7 @@ test('host auxiliary caller prefers the configured local default provider before
   );
   setupProviderMocks({
     runtimeDefaultModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    activeLocalBackends: { lmstudio: false, vllm: true },
     resolveTaskModelPolicy,
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
@@ -1241,6 +1262,88 @@ test('host auxiliary caller prefers the configured local default provider before
   );
 });
 
+test('host auxiliary caller skips inactive local fallback candidates', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) => {
+    if (provider === 'lmstudio') return 'lmstudio/nvidia/nemotron-3-nano';
+    if (provider === 'vllm') return 'vllm/Qwen/Qwen3.6-27B-FP8';
+    return undefined;
+  });
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
+      return {
+        provider: 'vllm' as const,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: true,
+        contextWindow: 128_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    activeLocalBackends: { lmstudio: false, vllm: true },
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug: vi.fn(),
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Skipped inactive LM Studio fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'Skipped inactive LM Studio fallback.',
+  });
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+});
+
 test('host auxiliary caller prefers local model fallback when task resolution fails', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'anthropic/claude-3-7-sonnet',
@@ -1259,6 +1362,7 @@ test('host auxiliary caller prefers local model fallback when task resolution fa
     thinkingFormat: undefined,
   }));
   setupProviderMocks({
+    activeLocalBackends: { vllm: true },
     resolveTaskModelPolicy,
     resolveModelRuntimeCredentials,
   });

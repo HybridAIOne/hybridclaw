@@ -91,6 +91,8 @@ import {
 } from './tui-history.js';
 import { TuiMultilineInputController } from './tui-input.js';
 import {
+  isGoalContinuationSource,
+  normalizeGoalContinuationText,
   proactiveBadgeLabel,
   proactiveInlineLabel,
   proactiveSourceSuffix,
@@ -2868,6 +2870,11 @@ function renderProactiveRegularMessage(
 ): boolean {
   if (handleDelegateStreamMessage(message)) return true;
 
+  if (isGoalContinuationSource(message.source)) {
+    console.log(formatTuiOutput(normalizeGoalContinuationText(message.text)));
+    return false;
+  }
+
   const badge = proactiveBadgeLabel(message.source);
   const inlineLabel = proactiveInlineLabel(message.source);
   const suffix = proactiveSourceSuffix(message.source);
@@ -2889,16 +2896,25 @@ function renderProactiveRegularMessage(
   return false;
 }
 
-function renderProactiveRegularMessages(
-  messages: GatewayProactiveMessage[],
-): boolean {
+function renderProactiveRegularMessages(messages: GatewayProactiveMessage[]): {
+  sawDelegateStreamMessage: boolean;
+  onlyGoalContinuationMessages: boolean;
+} {
   let sawDelegateStreamMessage = false;
+  let previousWasGoalContinuation = false;
+  let onlyGoalContinuationMessages = messages.length > 0;
   for (const message of messages) {
+    const isGoalMessage = isGoalContinuationSource(message.source);
+    if (!isGoalMessage) onlyGoalContinuationMessages = false;
+    if (isGoalMessage && previousWasGoalContinuation) {
+      console.log();
+    }
     if (renderProactiveRegularMessage(message)) {
       sawDelegateStreamMessage = true;
     }
+    previousWasGoalContinuation = isGoalMessage;
   }
-  return sawDelegateStreamMessage;
+  return { sawDelegateStreamMessage, onlyGoalContinuationMessages };
 }
 
 function restorePromptAfterProactiveMessages(
@@ -2961,9 +2977,9 @@ async function pollProactiveMessages(
       Boolean(latestDelegateStatus),
       promptVisible,
     );
-    const sawDelegateStreamMessage =
+    const { sawDelegateStreamMessage, onlyGoalContinuationMessages } =
       renderProactiveRegularMessages(regularMessages);
-    if (!delegateStreamActive) {
+    if (!delegateStreamActive && !onlyGoalContinuationMessages) {
       console.log();
     }
     restorePromptAfterProactiveMessages(

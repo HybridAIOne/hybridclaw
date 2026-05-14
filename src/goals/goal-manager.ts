@@ -26,6 +26,13 @@ export interface ThreadGoal {
   targetAgentId: string | null;
 }
 
+export interface ThreadGoalUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+}
+
 interface ThreadGoalRow {
   thread_id: string;
   goal_text: string;
@@ -160,6 +167,67 @@ export function getThreadGoal(threadId: string): ThreadGoal | null {
 export function getActiveThreadGoal(threadId: string): ThreadGoal | null {
   const goal = getThreadGoal(threadId);
   return goal?.status === 'active' ? goal : null;
+}
+
+export function getThreadGoalUsage(params: {
+  sessionId: string;
+  goal: ThreadGoal;
+}): ThreadGoalUsage {
+  const sessionId = params.sessionId.trim();
+  if (!sessionId) {
+    return { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
+  }
+  const createdAt = params.goal.createdAt.trim();
+  const endAt =
+    params.goal.status === 'active'
+      ? null
+      : params.goal.lastTurnAt?.trim() || null;
+  return withMemoryDatabase((database) => {
+    const row = (
+      endAt
+        ? database
+            .prepare(
+              `SELECT
+                 COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                 COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                 COALESCE(SUM(cost_usd), 0) AS cost_usd
+               FROM usage_events
+              WHERE session_id = ?
+                AND timestamp >= ?
+                AND timestamp <= ?`,
+            )
+            .get(sessionId, createdAt, endAt)
+        : database
+            .prepare(
+              `SELECT
+                 COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                 COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                 COALESCE(SUM(cost_usd), 0) AS cost_usd
+               FROM usage_events
+              WHERE session_id = ?
+                AND timestamp >= ?`,
+            )
+            .get(sessionId, createdAt)
+    ) as
+      | {
+          input_tokens: number | null;
+          output_tokens: number | null;
+          total_tokens: number | null;
+          cost_usd: number | null;
+        }
+      | undefined;
+    return {
+      inputTokens: Math.max(0, Math.floor(row?.input_tokens || 0)),
+      outputTokens: Math.max(0, Math.floor(row?.output_tokens || 0)),
+      totalTokens: Math.max(0, Math.floor(row?.total_tokens || 0)),
+      costUsd:
+        typeof row?.cost_usd === 'number' && Number.isFinite(row.cost_usd)
+          ? Math.max(0, row.cost_usd)
+          : 0,
+    };
+  });
 }
 
 export function setThreadGoal(params: {

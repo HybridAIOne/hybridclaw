@@ -245,8 +245,8 @@ const LOCAL_SESSION_HELP_PRESENTATIONS: Record<
     description: 'Enable or inspect session full-auto mode',
   },
   goal: {
-    command: '/goal [set <text>|status|pause|resume|clear]',
-    description: 'Set or inspect a persistent standing goal for this thread',
+    command: '/goal [condition|status|pause|resume|clear]',
+    description: 'Set a completion condition and keep working until it is met',
   },
   help: {
     command: '/help',
@@ -1806,9 +1806,10 @@ function buildSlashCommandCatalogDefinitions(
     },
     {
       name: 'goal',
-      description: 'Set or inspect a persistent standing goal for this thread',
+      description:
+        'Set a completion condition and keep working until it is met',
       tuiMenu: {
-        label: '/goal <set|status|pause|resume|clear>',
+        label: '/goal [condition|status|pause|resume|clear]',
         insertText: '/goal ',
       },
       options: [
@@ -1820,7 +1821,8 @@ function buildSlashCommandCatalogDefinitions(
             {
               kind: 'string',
               name: 'text',
-              description: 'Goal text',
+              description:
+                'Completion condition, ideally with a measurable end state',
               required: true,
             },
           ],

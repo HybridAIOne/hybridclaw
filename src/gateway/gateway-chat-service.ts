@@ -1103,7 +1103,7 @@ async function handleGatewayMessageInner(
       : memoryService.buildPromptMemoryContext({
           session,
           query: effectiveUserTurnContentStripped,
-          includeSemanticRecall: source !== 'goal-continuation',
+          includeSemanticRecall: !isGoalContinuationSource(source),
         });
   const mergedSessionSummary = pluginMemoryBehavior.replacesBuiltInMemory
     ? pluginPromptSummary || null
@@ -1414,6 +1414,7 @@ async function handleGatewayMessageInner(
       ralphMaxIterations: resolveSessionRalphIterations(session),
       fullAutoEnabled,
       fullAutoNeverApproveTools: neverAutoApproveTools,
+      scheduleSideEffectsEnabled: !isGoalContinuationSource(source),
       scheduledTasks,
       allowedTools: promptPartDefaults.toolsDisabled ? [] : undefined,
       blockedTools: mediaPolicy.blockedTools,
@@ -1585,6 +1586,7 @@ async function handleGatewayMessageInner(
         acceptedDelegations += requestedRuns;
         acceptedDelegationPlans.push(normalized.plan);
       },
+      allowSchedules: !isGoalContinuationSource(source),
     });
     const delegationAcknowledgement =
       acceptedDelegations > 0
