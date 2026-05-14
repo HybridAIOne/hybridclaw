@@ -43,6 +43,8 @@
   },
   "overrides": {
     "@mermaid-js/parser": "1.1.0",
+    "katex": "0.16.45",
+    "langium": "4.2.3",
     "hono": "4.12.8",
     "fast-xml-parser": "5.5.6",
     "@appium/logger": "2.0.5",
