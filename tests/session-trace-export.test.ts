@@ -325,10 +325,7 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     const secondSystemPrompt = buildPromptAt('2026-05-13T12:01:00.000Z');
     expect(secondSystemPrompt).toBe(firstSystemPrompt);
 
-    for (const [index, systemPrompt] of [
-      firstSystemPrompt,
-      secondSystemPrompt,
-    ].entries()) {
+    const recordTurn = (index: number, systemPrompt: string) => {
       const runId = `turn_trace_static_prefix_${index + 1}`;
       recordAuditEvent({
         sessionId: session.id,
@@ -362,17 +359,10 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
           finishReason: 'completed',
         },
       });
-    }
+    };
 
-    const refreshedSession = getSessionById(session.id);
-    if (!refreshedSession) {
-      throw new Error('Expected refreshed session to exist');
-    }
-
-    const exported = await exportSessionTraceAtifJsonl({
-      agentId: refreshedSession.agent_id,
-      session: refreshedSession,
-      messages: [
+    const messagesForTurns = (turns: 1 | 2) => {
+      const messages = [
         {
           id: 1,
           session_id: session.id,
@@ -391,6 +381,9 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
           content: 'First answer',
           created_at: new Date().toISOString(),
         },
+      ];
+      if (turns === 1) return messages;
+      messages.push(
         {
           id: 3,
           session_id: session.id,
@@ -409,25 +402,61 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
           content: 'Second answer',
           created_at: new Date().toISOString(),
         },
-      ],
-      auditEntries: getStructuredAuditForSession(session.id),
-      usageTotals: getSessionUsageTotals(session.id),
-    });
+      );
+      return messages;
+    };
 
-    expect(exported).not.toBeNull();
-    const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
-    const record = JSON.parse(raw) as Record<string, unknown>;
-    const systemPrompts = record.system_prompts as Record<string, string>;
-    const systemPromptHashes = Object.keys(systemPrompts);
-    expect(systemPromptHashes).toHaveLength(1);
-    const agentStepHashes = (
-      (record.steps as Array<Record<string, unknown>>) || []
+    const exportTraceRecord = async (turns: 1 | 2) => {
+      const refreshedSession = getSessionById(session.id);
+      if (!refreshedSession) {
+        throw new Error('Expected refreshed session to exist');
+      }
+      const exported = await exportSessionTraceAtifJsonl({
+        agentId: refreshedSession.agent_id,
+        session: refreshedSession,
+        messages: messagesForTurns(turns),
+        auditEntries: getStructuredAuditForSession(session.id),
+        usageTotals: getSessionUsageTotals(session.id),
+      });
+      expect(exported).not.toBeNull();
+      const raw = fs.readFileSync(exported?.path || '', 'utf-8').trim();
+      return JSON.parse(raw) as Record<string, unknown>;
+    };
+
+    recordTurn(0, firstSystemPrompt);
+    const firstTrace = await exportTraceRecord(1);
+
+    recordTurn(1, secondSystemPrompt);
+    const secondTrace = await exportTraceRecord(2);
+
+    const firstSystemPrompts = firstTrace.system_prompts as Record<
+      string,
+      string
+    >;
+    const secondSystemPrompts = secondTrace.system_prompts as Record<
+      string,
+      string
+    >;
+    const firstSystemPromptHashes = Object.keys(firstSystemPrompts);
+    const secondSystemPromptHashes = Object.keys(secondSystemPrompts);
+    expect(firstSystemPromptHashes).toHaveLength(1);
+    expect(secondSystemPromptHashes).toEqual(firstSystemPromptHashes);
+    expect(secondSystemPrompts).toEqual(firstSystemPrompts);
+
+    const firstAgentStepHashes = (
+      (firstTrace.steps as Array<Record<string, unknown>>) || []
     )
       .map((step) => step.system_prompt_hash)
       .filter(Boolean);
-    expect(agentStepHashes).toEqual([
-      systemPromptHashes[0],
-      systemPromptHashes[0],
+    const secondAgentStepHashes = (
+      (secondTrace.steps as Array<Record<string, unknown>>) || []
+    )
+      .map((step) => step.system_prompt_hash)
+      .filter(Boolean);
+    expect(firstAgentStepHashes).toEqual([firstSystemPromptHashes[0]]);
+    expect(secondAgentStepHashes).toEqual([
+      firstSystemPromptHashes[0],
+      firstSystemPromptHashes[0],
     ]);
   } finally {
     vi.useRealTimers();
