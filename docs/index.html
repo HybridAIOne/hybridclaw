@@ -886,40 +886,40 @@
 <!-- RELEASE -->
 <section id="release">
   <div class="section-center">
-    <div class="section-label">Latest release: v0.12.5</div>
+    <div class="section-label">Latest release: v0.19.0</div>
     <h2 class="section-title">Current release highlights</h2>
-    <p class="section-desc">HybridClaw v0.12.5 adds versioned admin agent-file editing, a keyboard-driven TUI approval flow, safer config recovery, and channel reliability fixes for email, WhatsApp, and retry-aware transports.</p>
+    <p class="section-desc">HybridClaw v0.19.0 adds standing goals, native speech transcription, Discord and Slack webhook targets, diagram-as-code tools, byte-stable prompt prefixes, and smoother chat and TUI workflows.</p>
   </div>
   <div class="features-grid">
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4dd;</div>
-      <h3>Versioned agent files</h3>
-      <p><code>/admin/agents</code> now edits allowlisted bootstrap markdown files such as <code>AGENTS.md</code>, keeps saved revisions, and restores earlier versions without leaving the browser.</p>
+      <div class="feature-icon">&#x1f3af;</div>
+      <h3>Standing goals</h3>
+      <p><code>/goal</code> keeps a per-thread completion condition active, queues supervised continuations, and pauses cleanly for approvals, interruptions, or explicit operator control.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x2328;</div>
-      <h3>TUI approval picker</h3>
-      <p>Pending approvals in <code>hybridclaw tui</code> now open a keyboard-driven picker with arrow-key navigation, quick-select numbers, and a resumable exit summary.</p>
+      <div class="feature-icon">&#x1f399;</div>
+      <h3>Speech transcription</h3>
+      <p>The native <code>audio_transcribe</code> tool and bundled speech skills support transcription, language detection, timestamps, diarization, artifacts, and usage accounting.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f6df;</div>
-      <h3>Config recovery</h3>
-      <p>If <code>config.json</code> becomes invalid, interactive onboarding can restore the last known-good saved snapshot or roll back to a tracked revision before setup continues.</p>
+      <div class="feature-icon">&#x1f4e3;</div>
+      <h3>Webhook channels</h3>
+      <p><code>discord_webhook</code> and <code>slack_webhook</code> provide outbound-only default and named targets with encrypted webhook URLs, chunking, status checks, and managed POST-only policy grants.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4e7;</div>
-      <h3>Email first-sync safety</h3>
-      <p>The built-in email transport now seeds a missing mailbox cursor from the current head so old inbox mail is not replayed as new traffic on first startup.</p>
+      <div class="feature-icon">&#x1f4ca;</div>
+      <h3>Diagram runtime</h3>
+      <p>The <code>diagram</code> skill and native tools create, update, and validate Mermaid-first diagrams with PlantUML, Graphviz DOT, and Excalidraw JSON adapters.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x1f4f2;</div>
-      <h3>WhatsApp startup hardening</h3>
-      <p>HybridClaw disables Baileys init queries that can trigger intermittent <code>400</code>/<code>bad-request</code> failures during WhatsApp startup and pairing.</p>
+      <div class="feature-icon">&#x26a1;</div>
+      <h3>Stable prompt prefix</h3>
+      <p>Dynamic turn context now lands after the static system prompt, improving provider prefix-cache reuse while trace exports record the prompt-prefix hashes.</p>
     </div>
     <div class="feature-card">
-      <div class="feature-icon">&#x23f3;</div>
-      <h3>Retry-aware transports</h3>
-      <p>Retry-capable channel transports now honor server-provided <code>Retry-After</code> delays and reject invalid retry values early instead of silently retrying with bad timing.</p>
+      <div class="feature-icon">&#x1f5a5;</div>
+      <h3>Chat and TUI polish</h3>
+      <p>Web chat can delete stored browser sessions and refresh rotated local web tokens, while the TUI renders Markdown tables directly in terminal output.</p>
     </div>
   </div>
 </section>

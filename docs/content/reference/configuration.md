@@ -160,7 +160,8 @@ saved revision history directly.
 - `channelInstructions.*` for transport-specific prompt guidance injected into
   the runtime prompt; `channelInstructions.voice` is the right place for
   spoken-style rules such as "no markdown" or "keep replies short";
-  `channelInstructions.slack_webhook` applies to outbound-only Slack webhook
+  `channelInstructions.slack_webhook` and
+  `channelInstructions.discord_webhook` apply to outbound-only webhook
   delivery
 - `skills.disabled` and `skills.channelDisabled.*` for static skill availability; workspace `.hybridclaw/policy.yaml` `skill.rules` route conditional skill-use permission through the generalized policy engine; `skills.installed[]` records lifecycle-managed package manifests; reviewed scanner bypass markers are created by `hybridclaw skill unblock <name>` or the Admin Skills page for one installed copy; `skills.autonomy.defaultLevel` and `skills.autonomy.rules[]` declare the permitted autonomy level for each agent/skill pair (`full-autonomous`, `low-stakes-autonomous`, or `confirm-each`) for upcoming default-action runtime enforcement; the shipped default is the conservative global `confirm-each`, not a per-skill-class default table
 - `plugins.list[]` for plugin overrides and config; use `hybridclaw plugin config <plugin-id> [key] [value|--unset]` for focused edits
@@ -196,6 +197,12 @@ saved revision history directly.
   `slackWebhook.webhooks.<target>.webhook_url`, and add the matching POST-only
   workspace network policy grant. Named targets are addressed as
   `slack_webhook:<target>` from the message tool
+- `discordWebhook.*` for outbound-only Discord Incoming Webhook targets. Use
+  `hybridclaw channel add discord_webhook --webhook-url <url>` to store each
+  full webhook URL as an encrypted runtime secret, create or update
+  `discordWebhook.webhooks.<target>.webhook_url`, and add the matching
+  POST-only workspace network policy grant. Named targets are addressed as
+  `discord_webhook:<target>` from the message tool
 - `email.*` for the IMAP/SMTP transport; prefer storing the password as
   `EMAIL_PASSWORD` or `email.password` via SecretRef instead of plaintext
   config, and note that `email.pollIntervalMs` defaults to `30000`
@@ -292,7 +299,8 @@ Common built-in entries include `HYBRIDAI_API_KEY`, `OPENROUTER_API_KEY`,
 `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `KIMI_API_KEY`,
 `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY`, `XIAOMI_API_KEY`, `KILO_API_KEY`,
 `VLLM_API_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `TAVILY_API_KEY`,
-`NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`,
+`NGROK_AUTHTOKEN`, `DISCORD_TOKEN`, `DISCORD_WEBHOOK_URL`,
+`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_WEBHOOK_URL`,
 `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`,
 `IMESSAGE_PASSWORD`, `TWILIO_AUTH_TOKEN`, `MSTEAMS_APP_PASSWORD`,
 `CLOUDFLARE_TUNNEL_TOKEN`, `CLOUDFLARE_CERT_PEM`,

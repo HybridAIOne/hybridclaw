@@ -2,8 +2,26 @@
 
 ## Unreleased
 
+## [0.19.0](https://github.com/HybridAIOne/hybridclaw/tree/v0.19.0) - 2026-05-14
+
 ### Added
 
+- **Persistent standing goals**: Added `/goal` as a per-thread completion
+  condition that persists across turns, queues supervised continuations until a
+  judge marks the condition complete, reports goal status/counters, and pauses
+  cleanly for approvals, user interruptions, malformed judge output, or
+  explicit `pause`/`clear` commands. Goal continuations include the current
+  goal step and use scoped TUI/proactive labels so they remain distinct from
+  reminders and ordinary user turns.
+- **Native speech-to-text transcription**: Added the `audio_transcribe` runtime
+  tool plus bundled `speech.transcribe` and `speech.detect-language` skills for
+  provider-agnostic transcription, language detection, diarization, timestamps,
+  transcript artifact persistence, and usage-cost accounting across configured
+  OpenAI, Deepgram, AssemblyAI, and local backends.
+- **Discord Incoming Webhook channel**: Added outbound-only `discord_webhook`
+  delivery for Discord webhook URLs, including default and named targets,
+  encrypted SecretRef storage, CLI/Admin setup, message chunking, doctor/status
+  visibility, and managed POST-only network policy grants.
 - **Diagram-as-code runtime and bundled skill**: Added the `diagram` skill plus
   native `diagram.create`, `diagram.update`, and `diagram.validate` tools for
   validated Mermaid-first diagrams, with PlantUML, Graphviz DOT, and Excalidraw
@@ -41,17 +59,25 @@
   installable plugins, with `installed` and `available` filters. Bare plugin
   IDs resolve through bundled and project `plugins/` catalogs, with project
   plugins taking priority.
-- **Docs and roadmap coverage**: Channel docs now include Slack Incoming
-  Webhook setup, publishing-skill docs include the new diagram skill, and
-  architecture/model-selection docs reflect the plugin-owned concierge router
-  and upcoming model-overlay work.
+- **Web chat sessions are easier to manage**: The chat sidebar can delete
+  stored browser sessions, and local web clients automatically refresh their
+  token when the gateway rotates the local web token.
+- **TUI rendering handles Markdown tables**: The TUI now renders Markdown table
+  blocks as terminal tables while preserving ordinary assistant text flow.
 
 ### Fixed
 
+- **Agents page navigation links**: Corrected broken links on the generated
+  agents page so navigation targets resolve properly.
+- **Auxiliary provider fallback**: Auxiliary calls retry through the configured
+  fallback provider path, including active local-provider preference and clearer
+  fallback logging.
 - **Global package install bootstrap**: Container dependency postinstall now
   falls back to `npm` when the outer install was invoked by `pnpm`, avoiding
   broken global package installs caused by forwarding the wrong package-manager
   executable and lifecycle env.
+- **pnpm install compatibility**: Dependency verification avoids the Baileys
+  libsignal Git dependency path that blocked `pnpm`-initiated installs.
 - **Microsoft Teams optional dependency loading**: Teams Bot Framework support
   is lazy-loaded so installs that do not use Microsoft Teams are not blocked by
   that integration path.

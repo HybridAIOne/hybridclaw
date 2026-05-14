@@ -19,10 +19,10 @@ security, and operational visibility. It combines sandboxed execution, secure
 credentials, approvals, persistent memory, and admin surfaces behind a single
 gateway.
 
-Connect it to Discord, Slack, Slack Incoming Webhooks, Signal, WhatsApp,
-Telegram, Microsoft Teams, email, Twilio voice, or the web. Run it locally,
-deploy it for business workflows, and keep your agents, secrets, and data under
-your control.
+Connect it to Discord, Discord Incoming Webhooks, Slack, Slack Incoming
+Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, email, Twilio voice, or
+the web. Run it locally, deploy it for business workflows, and keep your
+agents, secrets, and data under your control.
 
 [Quick Start](https://hybridaione.github.io/hybridclaw/docs/getting-started/quickstart) ·
 [Installation](https://hybridaione.github.io/hybridclaw/docs/getting-started/installation) ·
@@ -107,7 +107,7 @@ Once the gateway is running, open HybridClaw locally:
 
 - Web Chat: `http://127.0.0.1:9090/chat`
 - Web Chat keeps a recent-session sidebar and can search conversation titles
-  with contextual snippets before you reopen an older browser session
+  with contextual snippets before you reopen or delete an older browser session
 - Web Chat shows live context-window usage, accepts `/context`, and lets you
   switch the active agent and model from the composer; active agent switching is
   preserved across session reloads and UI route changes
@@ -119,8 +119,8 @@ Once the gateway is running, open HybridClaw locally:
 - Admin Console: `http://127.0.0.1:9090/admin` for channels, versioned agent files,
   scheduler, audit, statistics, config, and channel-specific instructions
 - Agent Dashboard: `http://127.0.0.1:9090/agents`
-- or connect Slack, Slack Incoming Webhooks, Signal, WhatsApp, Telegram,
-  Discord, Microsoft Teams, Email
+- or connect Discord, Discord Incoming Webhooks, Slack, Slack Incoming
+  Webhooks, Signal, WhatsApp, Telegram, Microsoft Teams, Email
 
 ## Operator workflows
 
@@ -154,6 +154,9 @@ Once the gateway is running, open HybridClaw locally:
 - `slack_webhook` targets provide outbound-only Slack Incoming Webhook delivery
   with encrypted webhook URLs, named destinations, Block Kit text chunking,
   reachability status, and POST-only network policy grants.
+- `discord_webhook` targets provide outbound-only Discord Incoming Webhook
+  delivery with encrypted webhook URLs, named destinations, message chunking,
+  reachability status, and POST-only network policy grants.
 - `/admin/approvals` manages approval policies from the browser.
 - Approval policy evaluation runs through a hook-fed rule pipeline, so
   workspace policy ordering and plugin tool-use hooks share one approval path.
@@ -165,6 +168,9 @@ Once the gateway is running, open HybridClaw locally:
   local/manual full restarts.
 - `/context` and the web chat context ring show current context-window usage,
   remaining headroom, and compaction counts for the active session.
+- `/goal` stores a standing completion condition for the current thread and
+  queues supervised continuations until the goal is judged complete, paused,
+  cleared, interrupted, or blocked by approval policy.
 - `proactive.delegation.model` can pin delegated work to a different model
   from the parent turn; `/status` shows delegate token totals and local-token
   share when that split is configured.
@@ -188,9 +194,9 @@ Once the gateway is running, open HybridClaw locally:
 - Generated artifacts remain downloadable and attachable even when the sandbox
   exposes a custom workspace display root such as `/app`.
 - `hybridclaw tui` includes live delegate progress, pulsing tool rows,
-  completion checkmarks, a keyboard-driven approval picker, and a ready-to-run
-  `hybridclaw tui --resume <sessionId>` command on exit. Pressing `Esc` stops
-  the active run and returns control to the prompt.
+  completion checkmarks, rendered Markdown tables, a keyboard-driven approval
+  picker, and a ready-to-run `hybridclaw tui --resume <sessionId>` command on
+  exit. Pressing `Esc` stops the active run and returns control to the prompt.
 - `hybridclaw doctor` checks runtime health including resource hygiene
   maintenance for stale gateway artifacts. `hybridclaw doctor browser-use`
   checks the local Playwright browser automation substrate and can install
@@ -260,12 +266,17 @@ Once the gateway is running, open HybridClaw locally:
   monthly SaaS invoice harvesting (`download-platform-invoices`), Airtable,
   FastBill, managed or self-hosted Firecrawl, Google Ads, GA4 reporting,
   HeyGen, Hermes3000 long-form writing, natural-language warehouse SQL
-  (`warehouse-sql`), brand-voice drafting, validated diagram-as-code creation
-  through `diagram`, and editable Excalidraw diagram creation.
+  (`warehouse-sql`), brand-voice drafting, speech transcription and language
+  detection (`speech.transcribe`, `speech.detect-language`), validated
+  diagram-as-code creation through `diagram`, and editable Excalidraw diagram
+  creation.
 - Native media tools generate images and videos through configured providers,
   persist the resulting artifacts, and expose the same capability through the
   bundled `image-generation`, `video-generation`, and `video.from-script`
   skills.
+- Native audio transcription can route through configured local or provider
+  backends, produce private transcript artifacts, and attach language,
+  timestamp, speaker, duration, and cost metadata when available.
 - Dynamic per-turn context such as current date, host, today's daily memory,
   session summary, and retrieved context is appended after the static system
   prompt so provider prefix caches can reuse the stable prompt prefix.
@@ -335,7 +346,7 @@ Once the gateway is running, open HybridClaw locally:
 
 ## Architecture
 
-- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Slack, Slack Incoming Webhooks, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
+- **Gateway service** (Node.js) — shared message/command handlers, SQLite persistence (KV + semantic + knowledge graph + canonical sessions + usage events), scheduler, heartbeat, web/API, loopback OpenAI-compatible API, A2A peer trust, board-card storage, and channel integrations for Discord, Discord Incoming Webhooks, Slack, Slack Incoming Webhooks, Signal, Threema, Microsoft Teams, Telegram, iMessage, WhatsApp, Twilio voice, and email
 - **TUI client** — thin client over HTTP (`/api/chat`, `/api/command`) with
   a structured startup banner that surfaces model, sandbox, gateway, and
   chatbot context before the first prompt, live delegate status/progress,
@@ -368,6 +379,7 @@ Browse the full manual at
   [Overview](https://hybridaione.github.io/hybridclaw/docs/channels/overview),
   [Twilio Voice](https://hybridaione.github.io/hybridclaw/docs/guides/twilio-voice),
   [Discord](https://hybridaione.github.io/hybridclaw/docs/channels/discord),
+  [Discord Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/discord-webhook),
   [Slack](https://hybridaione.github.io/hybridclaw/docs/channels/slack),
   [Slack Incoming Webhook](https://hybridaione.github.io/hybridclaw/docs/channels/slack-webhook),
   [Telegram](https://hybridaione.github.io/hybridclaw/docs/channels/telegram),
