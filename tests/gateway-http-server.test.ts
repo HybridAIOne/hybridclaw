@@ -1995,6 +1995,96 @@ describe('gateway HTTP server', () => {
     expect(getSetCookieHeader(res)).toContain('SameSite=Strict');
   });
 
+  test('bootstraps WEB_API_TOKEN into localStorage for loopback console pages', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/admin',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html; charset=utf-8');
+    expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(res.body).toContain(
+      'localStorage.setItem(\'hybridclaw_token\',"web-token")',
+    );
+    expect(res.body).toContain(
+      'window.location.replace("/admin?__hybridclaw_token_bootstrapped=1")',
+    );
+  });
+
+  test('serves console index after local WEB_API_TOKEN bootstrap marker', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/admin?__hybridclaw_token_bootstrapped=1',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+  });
+
+  test('does not bootstrap WEB_API_TOKEN for non-SPA local web pages', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/agents',
+      headers: { host: 'localhost:9090' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('<h1>Agents</h1>');
+    expect(res.body).not.toContain('web-token');
+    expect(res.body).not.toContain('__hybridclaw_token_bootstrapped');
+  });
+
+  test('does not bootstrap WEB_API_TOKEN for non-loopback request hosts', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/admin',
+      headers: { host: 'example.com' },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+  });
+
+  test('does not bootstrap WEB_API_TOKEN with forwarding headers', async () => {
+    const state = await importFreshHealth({ webApiToken: 'web-token' });
+    const req = makeRequest({
+      url: '/admin',
+      headers: {
+        host: 'localhost:9090',
+        'x-forwarded-for': '203.0.113.10',
+      },
+      noAuth: true,
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('<h1>Admin</h1>');
+    expect(res.body).not.toContain('web-token');
+  });
+
   test('does not issue a local web-session cookie for non-loopback request hosts', async () => {
     const state = await importFreshHealth();
     const req = makeRequest({
