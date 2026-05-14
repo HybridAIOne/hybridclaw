@@ -232,6 +232,7 @@ export interface ContainerInput {
   gatewayApiToken?: string;
   browserProvider?: string;
   model: string;
+  codexRuntime?: 'hybridclaw' | 'app-server';
   ralphMaxIterations?: number | null;
   fullAutoEnabled?: boolean;
   fullAutoNeverApproveTools?: string[];

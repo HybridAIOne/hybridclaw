@@ -131,7 +131,7 @@ import {
 import { DEFAULT_RUNTIME_HOME_DIR } from './runtime-paths.js';
 
 export const CONFIG_FILE_NAME = 'config.json';
-export const CONFIG_VERSION = 28;
+export const CONFIG_VERSION = 29;
 export const SECURITY_POLICY_VERSION = '2026-02-28';
 export const DEFAULT_HYBRIDAI_MODEL = 'gpt-5.4-mini';
 const LEGACY_DEFAULT_DB_PATH = 'data/hybridclaw.db';
@@ -243,6 +243,7 @@ export const SCHEDULER_BOARD_STATUSES = [
 export type SchedulerBoardStatus = (typeof SCHEDULER_BOARD_STATUSES)[number];
 const SCHEDULER_BOARD_STATUS_SET = new Set<string>(SCHEDULER_BOARD_STATUSES);
 export type ContainerSandboxMode = 'container' | 'host';
+export type CodexTurnRuntime = 'hybridclaw' | 'app-server';
 export type RuntimeWebSearchProvider =
   | 'auto'
   | 'brave'
@@ -964,6 +965,7 @@ export interface RuntimeConfig {
   };
   codex: {
     baseUrl: string;
+    runtime: CodexTurnRuntime;
     models: string[];
   };
   anthropic: {
@@ -1597,6 +1599,7 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
   },
   codex: {
     baseUrl: CODEX_DEFAULT_BASE_URL,
+    runtime: 'hybridclaw',
     models: [...DEFAULT_CODEX_MODEL_LIST],
   },
   anthropic: {
@@ -2919,6 +2922,13 @@ function normalizeCodexModelArray(
     return [...DEFAULT_CODEX_MODEL_LIST];
   }
   return normalized;
+}
+
+export function normalizeCodexTurnRuntime(value: unknown): CodexTurnRuntime {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'app-server' ? 'app-server' : 'hybridclaw';
 }
 
 function normalizePathForCompare(value: string): string {
@@ -6683,6 +6693,7 @@ function normalizeRuntimeConfig(
         rawCodex.baseUrl,
         DEFAULT_RUNTIME_CONFIG.codex.baseUrl,
       ),
+      runtime: normalizeCodexTurnRuntime(rawCodex.runtime),
       models: codexModelList,
     },
     anthropic: {

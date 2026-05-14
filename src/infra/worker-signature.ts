@@ -20,6 +20,7 @@ export interface WorkerSignatureInput {
   agentId: string;
   provider: string | undefined;
   providerMethod?: string;
+  codexRuntime?: 'hybridclaw' | 'app-server';
   baseUrl: string;
   apiKey: string;
   requestHeaders: Record<string, string> | undefined;
@@ -119,6 +120,7 @@ export function computeWorkerSignature(input: WorkerSignatureInput): string {
     agentId: String(input.agentId || '').trim(),
     provider: String(input.provider || '').trim(),
     providerMethod: String(input.providerMethod || '').trim(),
+    codexRuntime: String(input.codexRuntime || '').trim(),
     baseUrl: String(input.baseUrl || '')
       .trim()
       .replace(/\/+$/g, ''),

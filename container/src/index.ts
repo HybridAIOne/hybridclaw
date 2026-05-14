@@ -10,6 +10,10 @@ import {
   cleanupAllBrowserSessions,
   getBrowserProviderLogLabel,
 } from './browser-tools.js';
+import {
+  resumePendingCodexAppServerApproval,
+  runCodexAppServerTurn,
+} from './codex-app-server.js';
 import { applyContextGuard } from './context-guard.js';
 import {
   emitRuntimeEvent,
@@ -916,6 +920,7 @@ interface ProcessRequestParams {
   baseUrl: string;
   provider: ContainerInput['provider'];
   providerMethod?: string;
+  codexRuntime?: ContainerInput['codexRuntime'];
   isLocal?: boolean;
   contextWindow?: number;
   thinkingFormat?: 'qwen';
@@ -923,6 +928,13 @@ interface ProcessRequestParams {
   chatbotId: string;
   enableRag: boolean;
   requestHeaders?: Record<string, string>;
+  gatewayBaseUrl?: string;
+  gatewayApiToken?: string;
+  configuredDiscordChannels?: string[];
+  mcpServers?: ContainerInput['mcpServers'];
+  media?: ContainerInput['media'];
+  webSearch?: ContainerInput['webSearch'];
+  providerCredentials?: ContainerInput['providerCredentials'];
   tools: ToolDefinition[];
   taskModels?: ContainerInput['taskModels'];
   contextGuard?: ContainerInput['contextGuard'];
@@ -947,6 +959,7 @@ async function processRequest(
     baseUrl,
     provider,
     providerMethod,
+    codexRuntime,
     isLocal,
     contextWindow,
     thinkingFormat,
@@ -954,6 +967,13 @@ async function processRequest(
     chatbotId,
     enableRag,
     requestHeaders,
+    gatewayBaseUrl,
+    gatewayApiToken,
+    configuredDiscordChannels,
+    mcpServers,
+    media,
+    webSearch,
+    providerCredentials,
     tools,
     taskModels,
     contextGuard,
@@ -998,6 +1018,55 @@ async function processRequest(
   let compactionRetries = 0;
   const tokenEstimateCache = createTokenEstimateCache();
   const maxContextGuardRetries = Math.max(0, contextGuard?.maxRetries ?? 3);
+
+  if (provider === 'openai-codex' && codexRuntime === 'app-server') {
+    const resumed = await resumePendingCodexAppServerApproval({
+      sessionId,
+      messages: history,
+      streamTextDeltas,
+      onTextDelta: emitStreamDelta,
+    });
+    if (resumed) {
+      await emitRuntimeEvent({
+        event: 'turn_end',
+        status: resumed.status,
+        toolsUsed: resumed.toolsUsed,
+      });
+      return resumed;
+    }
+    const output = await runCodexAppServerTurn({
+      sessionId,
+      messages: history,
+      model,
+      cwd: WORKSPACE_ROOT,
+      apiKey,
+      baseUrl,
+      provider,
+      providerMethod,
+      chatbotId,
+      requestHeaders,
+      maxTokens,
+      debugModelResponses,
+      gatewayBaseUrl,
+      gatewayApiToken,
+      channelId,
+      configuredDiscordChannels,
+      mcpServers,
+      taskModels,
+      media,
+      webSearch,
+      providerCredentials,
+      streamTextDeltas,
+      onTextDelta: emitStreamDelta,
+    });
+    await emitRuntimeEvent({
+      event: 'turn_end',
+      status: output.status,
+      toolsUsed: output.toolsUsed,
+    });
+    return output;
+  }
+
   const resolveToolApproval = async (input: {
     toolName: string;
     argsJson: string;
@@ -1949,6 +2018,7 @@ async function main(): Promise<void> {
       baseUrl: firstInput.baseUrl,
       provider: firstInput.provider,
       providerMethod: firstInput.providerMethod,
+      codexRuntime: firstInput.codexRuntime,
       isLocal: firstInput.isLocal,
       contextWindow: firstInput.contextWindow,
       thinkingFormat: firstInput.thinkingFormat,
@@ -1956,6 +2026,13 @@ async function main(): Promise<void> {
       chatbotId: firstInput.chatbotId,
       enableRag: firstInput.enableRag,
       requestHeaders: storedRequestHeaders,
+      gatewayBaseUrl: firstInput.gatewayBaseUrl,
+      gatewayApiToken: firstInput.gatewayApiToken,
+      configuredDiscordChannels: firstInput.configuredDiscordChannels,
+      mcpServers: firstInput.mcpServers,
+      media: firstInput.media,
+      webSearch: firstInput.webSearch,
+      providerCredentials: firstInput.providerCredentials,
       tools: resolveTools(firstInput),
       taskModels: firstTaskModels,
       contextGuard: firstInput.contextGuard,
@@ -1989,6 +2066,7 @@ async function main(): Promise<void> {
         baseUrl: firstInput.baseUrl,
         provider: firstInput.provider,
         providerMethod: firstInput.providerMethod,
+        codexRuntime: firstInput.codexRuntime,
         isLocal: firstInput.isLocal,
         contextWindow: firstInput.contextWindow,
         thinkingFormat: firstInput.thinkingFormat,
@@ -1996,6 +2074,13 @@ async function main(): Promise<void> {
         chatbotId: firstInput.chatbotId,
         enableRag: firstInput.enableRag,
         requestHeaders: firstInput.requestHeaders,
+        gatewayBaseUrl: firstInput.gatewayBaseUrl,
+        gatewayApiToken: firstInput.gatewayApiToken,
+        configuredDiscordChannels: firstInput.configuredDiscordChannels,
+        mcpServers: firstInput.mcpServers,
+        media: firstInput.media,
+        webSearch: firstInput.webSearch,
+        providerCredentials: firstInput.providerCredentials,
         tools: resolveTools(firstInput),
         taskModels: firstTaskModels,
         contextGuard: firstInput.contextGuard,
@@ -2132,6 +2217,7 @@ async function main(): Promise<void> {
       baseUrl: input.baseUrl,
       provider: input.provider,
       providerMethod: input.providerMethod,
+      codexRuntime: input.codexRuntime,
       isLocal: input.isLocal,
       contextWindow: input.contextWindow,
       thinkingFormat: input.thinkingFormat,
@@ -2139,6 +2225,13 @@ async function main(): Promise<void> {
       chatbotId: input.chatbotId,
       enableRag: input.enableRag,
       requestHeaders,
+      gatewayBaseUrl: input.gatewayBaseUrl,
+      gatewayApiToken: input.gatewayApiToken,
+      configuredDiscordChannels: input.configuredDiscordChannels,
+      mcpServers: input.mcpServers,
+      media: input.media,
+      webSearch: input.webSearch,
+      providerCredentials: input.providerCredentials,
       tools: resolveTools(input),
       taskModels,
       contextGuard: input.contextGuard,
@@ -2171,6 +2264,7 @@ async function main(): Promise<void> {
         baseUrl: input.baseUrl,
         provider: input.provider,
         providerMethod: input.providerMethod,
+        codexRuntime: input.codexRuntime,
         isLocal: input.isLocal,
         contextWindow: input.contextWindow,
         thinkingFormat: input.thinkingFormat,
@@ -2178,6 +2272,13 @@ async function main(): Promise<void> {
         chatbotId: input.chatbotId,
         enableRag: input.enableRag,
         requestHeaders,
+        gatewayBaseUrl: input.gatewayBaseUrl,
+        gatewayApiToken: input.gatewayApiToken,
+        configuredDiscordChannels: input.configuredDiscordChannels,
+        mcpServers: input.mcpServers,
+        media: input.media,
+        webSearch: input.webSearch,
+        providerCredentials: input.providerCredentials,
         tools: resolveTools(input),
         taskModels,
         contextGuard: input.contextGuard,
