@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 
 import {
+  formatTuiMarkdownOutput,
   formatTuiTitledCommandBlock,
   formatTuiToolActivityBlock,
   formatTuiToolActivityLine,
@@ -123,6 +124,56 @@ test('reflows locomo variant tables to the live tui width without splitting rows
   expect(joined).toContain('0.8630*');
   expect(joined).toContain('0.8640*');
   expect(dataLine).toBeTruthy();
+});
+
+test('renders markdown tables as wrapped terminal tables', () => {
+  const text = [
+    '| Element | Why It Works | Mental Model |',
+    '|---------|-------------|--------------|',
+    '| "Make the agent boring enough to trust" (Implicator.ai) | Perfect emotional resonance for the target audience | **Authority + Unity** — external validation speaking the customer language |',
+    '| TÜV comparison (Synthszr) | Instantly communicates trust/safety to German audience | **Anchoring** — anchors the product to a known trust standard |',
+  ].join('\n');
+
+  const rendered = formatTuiMarkdownOutput(text, 82);
+  const plainLines = rendered.split('\n').map(stripAnsi);
+  const plain = plainLines.join('\n');
+
+  expect(plain).toContain('╭');
+  expect(plain).toContain('Element');
+  expect(plain).toContain('Why It Works');
+  expect(plain).toContain('Mental Model');
+  expect(plain).toContain('Authority + Unity');
+  expect(plain).not.toContain('|---------|');
+  expect(plain).not.toContain('**Authority + Unity**');
+  expect(plainLines.every((line) => visibleTuiLength(line) <= 82)).toBe(true);
+});
+
+test('formats inline markdown emphasis in regular tui output', () => {
+  const rendered = formatTuiMarkdownOutput(
+    'Also **Add pricing signals.** -> should be formatted.',
+    80,
+  );
+
+  expect(stripAnsi(rendered)).toBe(
+    '  Also Add pricing signals. -> should be formatted.',
+  );
+  expect(rendered).toContain('\x1b[1mAdd pricing signals.\x1b[22m');
+  expect(rendered).not.toContain('\x1b[0m');
+});
+
+test('keeps wide glyph markdown table rows inside the terminal width', () => {
+  const text = [
+    '| Label | Notes |',
+    '|-------|-------|',
+    '| CJK | 界界界界界界界界 wraps without overflowing borders |',
+    '| Emoji | 🪼🪼🪼 markers also stay inside the table |',
+  ].join('\n');
+
+  const rendered = formatTuiMarkdownOutput(text, 36);
+  const lines = rendered.split('\n');
+
+  expect(stripAnsi(rendered)).toContain('界界');
+  expect(lines.every((line) => visibleTuiLength(line) <= 36)).toBe(true);
 });
 
 test('delegate text suppression only remains active while delegate tools are in flight', () => {
