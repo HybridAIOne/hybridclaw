@@ -78,6 +78,7 @@ import { resolveUsageCostUsdAfterMetadataRefresh } from '../usage/model-cost.js'
 import { enqueueTokenUsage } from '../usage/token-usage-buffer.js';
 import { ensureBootstrapFiles } from '../workspace.js';
 import { normalizeSilentMessageSendReply } from './chat-result.js';
+import { emitDiagramRuntimeEventsForToolExecutions } from './diagram-runtime-events.js';
 import {
   clearScheduledFullAutoContinuation,
   isFullAutoEnabled,
@@ -1345,6 +1346,11 @@ async function handleGatewayMessageInner(
       explicitSkillName,
       toolExecutions,
       skills,
+    });
+    emitDiagramRuntimeEventsForToolExecutions({
+      sessionId: req.sessionId,
+      runId,
+      toolExecutions,
     });
     emitToolExecutionAuditEvents({
       sessionId: req.sessionId,
