@@ -108,6 +108,7 @@ export interface GoalJudgeEvent extends RuntimeEventPayload {
   thread_id: string | null;
   goal_text: string;
   assistant_response: string;
+  fallback_model?: string | null;
   created_at: string;
 }
 

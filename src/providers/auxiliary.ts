@@ -12,6 +12,7 @@ import {
   stripProviderPrefix,
 } from './model-names.js';
 import {
+  isLocalBackendType,
   isOpenAICompatProviderId,
   type RuntimeProviderId,
 } from './provider-ids.js';
@@ -364,6 +365,14 @@ async function withOpenRouterFallback(
   modelHint?: string,
   primaryProvider?: RuntimeProvider,
 ): Promise<AuxiliaryTextCallContext> {
+  const localFallback = await resolveLocalFallbackContext({
+    params,
+    primaryError,
+    modelHint,
+    primaryProvider,
+  });
+  if (localFallback) return localFallback;
+
   if (
     params.provider === 'openrouter' ||
     primaryProvider === 'openrouter' ||
@@ -403,6 +412,54 @@ async function withOpenRouterFallback(
   throw primaryError;
 }
 
+async function resolveLocalFallbackContext(params: {
+  params: AuxiliaryModelCallParams;
+  primaryError: unknown;
+  modelHint?: string;
+  primaryProvider?: RuntimeProvider;
+}): Promise<AuxiliaryTextCallContext | null> {
+  const candidates = [
+    params.params.fallbackModel?.trim() ?? '',
+    params.modelHint?.trim() ?? '',
+  ].filter((candidate, index, values) => {
+    if (!candidate) return false;
+    return values.indexOf(candidate) === index;
+  });
+
+  for (const candidate of candidates) {
+    const provider = detectRuntimeProviderPrefix(candidate);
+    if (!provider || !isLocalBackendType(provider)) continue;
+    try {
+      const fallback = await resolveContextFromModel({
+        task: params.params.task,
+        model: candidate,
+        agentId: params.params.agentId,
+        chatbotId: params.params.fallbackChatbotId,
+        enableRag: params.params.fallbackEnableRag ?? false,
+        maxTokens:
+          normalizeMaxTokens(params.params.maxTokens) ??
+          normalizeMaxTokens(params.params.fallbackMaxTokens),
+        expectedProvider: provider,
+      });
+      logger.warn(
+        {
+          task: params.params.task,
+          primaryProvider:
+            params.primaryProvider || params.params.provider || 'auto',
+          fallbackProvider: provider,
+          modelHint: candidate,
+          primaryError: params.primaryError,
+        },
+        'Auxiliary provider resolution failed; using local model fallback',
+      );
+      return fallback;
+    } catch {
+      // Keep trying configured local candidates before falling back to remote.
+    }
+  }
+  return null;
+}
+
 async function resolveExplicitTextCallContextWithFallback(
   params: AuxiliaryModelCallParams,
 ): Promise<AuxiliaryTextCallContext | null> {
@@ -425,6 +482,7 @@ async function resolveTaskOverrideTextCallContext(
   const taskOverride = await resolveTaskModelPolicy(params.task, {
     agentId: params.agentId,
     chatbotId: params.fallbackChatbotId,
+    sessionModel: params.fallbackModel,
   });
   if (!taskOverride) return null;
   if (taskOverride?.error) {

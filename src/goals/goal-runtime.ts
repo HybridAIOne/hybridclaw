@@ -281,6 +281,7 @@ export async function maybeContinueGoalAfterTurn(params: {
     threadId,
     goalText: goal.goalText,
     assistantResponse,
+    fallbackModel: params.req.model ?? params.session.model,
   });
   const updated = recordThreadGoalTurn({
     threadId,

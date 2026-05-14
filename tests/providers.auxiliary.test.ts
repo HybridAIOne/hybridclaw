@@ -842,6 +842,87 @@ test('host auxiliary caller falls back to openrouter when task resolution fails'
   );
 });
 
+test('host auxiliary caller prefers local model fallback when task resolution fails', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveModelRuntimeCredentials = vi.fn(async () => ({
+    provider: 'vllm' as const,
+    apiKey: '',
+    baseUrl: 'http://127.0.0.1:8000/v1',
+    chatbotId: '',
+    enableRag: false,
+    requestHeaders: {},
+    agentId: 'main',
+    isLocal: true,
+    contextWindow: 128_000,
+    thinkingFormat: undefined,
+  }));
+  setupProviderMocks({
+    resolveTaskModelPolicy,
+    resolveModelRuntimeCredentials,
+  });
+  const warn = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      warn,
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through local fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    fallbackModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'Recovered through local fallback.',
+  });
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'compression',
+      primaryProvider: 'auto',
+      fallbackProvider: 'vllm',
+      modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      primaryError: expect.any(Error),
+    }),
+    'Auxiliary provider resolution failed; using local model fallback',
+  );
+});
+
 test('host auxiliary caller strips HybridAI prefix from OpenRouter fallback hints', async () => {
   const resolveTaskModelPolicy = vi.fn(async () => ({
     model: 'hybridai/anthropic/claude-haiku-4-5',
