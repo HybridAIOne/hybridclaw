@@ -90,6 +90,11 @@ interface PendingCodexApproval {
   params: unknown;
 }
 
+interface CodexMcpContextPayloads {
+  fileContext: Record<string, unknown>;
+  secretContext: Record<string, unknown>;
+}
+
 let pendingCodexApproval: PendingCodexApproval | null = null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -354,28 +359,80 @@ export function buildCodexAppServerArgs(
   return args;
 }
 
+export function buildCodexMcpContextPayloads(
+  params: Pick<
+    RunCodexAppServerTurnParams,
+    | 'provider'
+    | 'providerMethod'
+    | 'baseUrl'
+    | 'apiKey'
+    | 'model'
+    | 'chatbotId'
+    | 'requestHeaders'
+    | 'maxTokens'
+    | 'debugModelResponses'
+    | 'gatewayBaseUrl'
+    | 'gatewayApiToken'
+    | 'channelId'
+    | 'configuredDiscordChannels'
+    | 'taskModels'
+    | 'media'
+    | 'webSearch'
+    | 'providerCredentials'
+  >,
+): CodexMcpContextPayloads {
+  return {
+    fileContext: {
+      provider: params.provider,
+      providerMethod: params.providerMethod,
+      baseUrl: params.baseUrl,
+      model: params.model,
+      chatbotId: params.chatbotId,
+      maxTokens: params.maxTokens,
+      debugModelResponses: params.debugModelResponses,
+      channelId: params.channelId,
+      configuredDiscordChannels: params.configuredDiscordChannels,
+      taskModels: params.taskModels,
+      media: params.media,
+    },
+    secretContext: {
+      apiKey: params.apiKey,
+      requestHeaders: params.requestHeaders,
+      gatewayBaseUrl: params.gatewayBaseUrl,
+      gatewayApiToken: params.gatewayApiToken,
+      webSearch: params.webSearch,
+      providerCredentials: params.providerCredentials,
+    },
+  };
+}
+
+function compactRecord(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  );
+}
+
+function buildMcpSecretEnv(
+  params: RunCodexAppServerTurnParams,
+): Record<string, string> {
+  const { secretContext } = buildCodexMcpContextPayloads(params);
+  const compact = compactRecord(secretContext);
+  if (Object.keys(compact).length === 0) return {};
+  return {
+    HYBRIDCLAW_CODEX_MCP_SECRET_CONTEXT_B64: Buffer.from(
+      JSON.stringify(compact),
+      'utf-8',
+    ).toString('base64'),
+  };
+}
+
 function writeMcpContextFile(
   params: RunCodexAppServerTurnParams,
 ): string | null {
-  const context = {
-    provider: params.provider,
-    providerMethod: params.providerMethod,
-    baseUrl: params.baseUrl,
-    apiKey: params.apiKey,
-    model: params.model,
-    chatbotId: params.chatbotId,
-    requestHeaders: params.requestHeaders,
-    maxTokens: params.maxTokens,
-    debugModelResponses: params.debugModelResponses,
-    gatewayBaseUrl: params.gatewayBaseUrl,
-    gatewayApiToken: params.gatewayApiToken,
-    channelId: params.channelId,
-    configuredDiscordChannels: params.configuredDiscordChannels,
-    taskModels: params.taskModels,
-    media: params.media,
-    webSearch: params.webSearch,
-    providerCredentials: params.providerCredentials,
-  };
+  const { fileContext } = buildCodexMcpContextPayloads(params);
+  const context = compactRecord(fileContext);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-codex-mcp-'));
   const contextPath = path.join(dir, 'context.json');
   fs.writeFileSync(contextPath, JSON.stringify(context), {
@@ -483,11 +540,36 @@ function approvalExecution(method: string, params: unknown): ToolExecution {
     result:
       'Codex app-server requested approval through the HybridClaw approval bridge.',
     durationMs: 0,
-    isError: true,
+    isError: false,
     blocked: true,
     approvalTier: 'red',
     approvalBaseTier: 'red',
-    approvalDecision: 'denied',
+    approvalDecision: 'required',
+  };
+}
+
+function approvalResolutionExecution(
+  method: string,
+  params: unknown,
+  directive: NonNullable<ReturnType<typeof parseApprovalDirective>>,
+): ToolExecution {
+  const approved = directive.kind === 'approve';
+  return {
+    name: 'codex.approval',
+    arguments: JSON.stringify({ method, params }),
+    result: approved
+      ? 'Codex app-server approval granted by user response.'
+      : 'Codex app-server approval denied by user response.',
+    durationMs: 0,
+    isError: !approved,
+    blocked: !approved,
+    approvalTier: 'red',
+    approvalBaseTier: 'red',
+    approvalDecision: approved
+      ? directive.mode === 'session'
+        ? 'approved_session'
+        : 'approved_once'
+      : 'denied',
   };
 }
 
@@ -516,7 +598,7 @@ class CodexAppServerClient {
     params: RunCodexAppServerTurnParams,
   ) {
     this.projection = projection;
-    const spawnEnv = { ...process.env };
+    const spawnEnv = { ...process.env, ...buildMcpSecretEnv(params) };
     const contextPath = writeMcpContextFile(params);
     if (contextPath) this.contextPath = contextPath;
     const args = buildCodexAppServerArgs(params.mcpServers, contextPath);
@@ -848,6 +930,9 @@ function respondToCodexApproval(
       .filter(Boolean)
       .join(' '),
     pending.params,
+  );
+  pending.projection.approvalEvents.push(
+    approvalResolutionExecution(pending.method, pending.params, directive),
   );
   pending.client.resolveServerRequest(pending.requestId, response);
 }

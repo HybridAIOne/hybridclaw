@@ -117,10 +117,7 @@ spend across active models.
 
 ## Provider Routing
 
-- when the selected model starts with `openai-codex/`, HybridClaw resolves
-  OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY`
-  and uses the default HybridClaw tool loop unless `codex.runtime` is set to
-  `app-server` for new sessions
+- when the selected model starts with `openai-codex/`, HybridClaw resolves OAuth credentials through the Codex provider instead of `HYBRIDAI_API_KEY` and uses the default HybridClaw tool loop unless `codex.runtime` is set to `app-server` for new sessions
 - when the selected model starts with `anthropic/`, HybridClaw resolves
   credentials through `ANTHROPIC_API_KEY` or the configured Claude CLI method
 - when the selected model starts with `openrouter/`, HybridClaw resolves

@@ -1,5 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import type { RuntimeConfig } from './runtime-config.js';
+import {
+  normalizeCodexTurnRuntime,
+  type RuntimeConfig,
+} from './runtime-config.js';
 
 const FORBIDDEN_CONFIG_PATH_SEGMENTS = new Set([
   '__proto__',
@@ -47,7 +50,7 @@ export function setRuntimeConfigValueAtPath(
     segments.length === 2 &&
     segments[0] === 'codex' &&
     segments[1] === 'runtime' &&
-    String(value || '').trim() === 'app-server'
+    normalizeCodexTurnRuntime(value) === 'app-server'
   ) {
     assertCodexAppServerRuntimeAvailable();
   }

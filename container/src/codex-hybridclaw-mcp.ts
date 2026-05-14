@@ -110,12 +110,33 @@ function readContext(): McpContext | null {
   const contextPath = String(
     process.env.HYBRIDCLAW_CODEX_MCP_CONTEXT_PATH || '',
   ).trim();
-  if (!contextPath) return null;
+  const secretContext = readSecretContext();
+  if (!contextPath) return secretContext;
   try {
-    return JSON.parse(fs.readFileSync(contextPath, 'utf-8')) as McpContext;
+    const fileContext = JSON.parse(
+      fs.readFileSync(contextPath, 'utf-8'),
+    ) as McpContext;
+    return { ...fileContext, ...secretContext };
   } catch (error) {
     console.error(
       `[hybridclaw-mcp] failed to read context: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return secretContext;
+  }
+}
+
+function readSecretContext(): McpContext | null {
+  const encoded = String(
+    process.env.HYBRIDCLAW_CODEX_MCP_SECRET_CONTEXT_B64 || '',
+  ).trim();
+  if (!encoded) return null;
+  try {
+    return JSON.parse(
+      Buffer.from(encoded, 'base64').toString('utf-8'),
+    ) as McpContext;
+  } catch (error) {
+    console.error(
+      `[hybridclaw-mcp] failed to read secret context: ${error instanceof Error ? error.message : String(error)}`,
     );
     return null;
   }

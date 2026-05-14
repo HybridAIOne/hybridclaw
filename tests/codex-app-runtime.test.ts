@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   buildCodexApprovalResponseForDirective,
   buildCodexAppServerArgs,
+  buildCodexMcpContextPayloads,
   buildCodexTurnText,
   projectCodexThreadItem,
 } from '../container/src/codex-app-server.js';
@@ -112,6 +113,28 @@ describe('Codex app-server runtime helpers', () => {
     );
   });
 
+  test('validates app-server runtime case-insensitively when editing config', async () => {
+    vi.resetModules();
+    const spawnSync = vi.fn().mockReturnValue({ status: 0, stderr: '' });
+    vi.doMock('node:child_process', () => ({ spawnSync }));
+    const { setRuntimeConfigValueAtPath } = await import(
+      '../src/config/runtime-config-edit.js'
+    );
+    const { DEFAULT_RUNTIME_CONFIG } = await import(
+      '../src/config/runtime-config.js'
+    );
+    const config = structuredClone(DEFAULT_RUNTIME_CONFIG);
+
+    setRuntimeConfigValueAtPath(config, 'codex.runtime', 'APP-SERVER');
+
+    expect(spawnSync).toHaveBeenCalledWith('codex', ['--version'], {
+      encoding: 'utf-8',
+    });
+    expect(spawnSync).toHaveBeenCalledWith('codex', ['app-server', '--help'], {
+      encoding: 'utf-8',
+    });
+  });
+
   test('translates Codex approval requests into Codex app-server responses', () => {
     expect(
       buildCodexApprovalResponseForDirective(
@@ -186,6 +209,41 @@ describe('Codex app-server runtime helpers', () => {
     expect(joined).not.toContain('secret-password');
     expect(joined).not.toContain('Authorization');
     expect(joined).not.toContain('bad name');
+  });
+
+  test('keeps callback MCP secrets out of the persisted context payload', () => {
+    const payloads = buildCodexMcpContextPayloads({
+      provider: 'openai-codex',
+      providerMethod: 'oauth',
+      baseUrl: 'https://api.example.com',
+      apiKey: 'secret-api-key',
+      model: 'openai-codex/gpt-5.4',
+      chatbotId: 'chatbot-a',
+      requestHeaders: { Authorization: 'Bearer secret-header' },
+      gatewayBaseUrl: 'https://gateway.example.com',
+      gatewayApiToken: 'secret-gateway-token',
+      webSearch: {
+        provider: 'brave',
+        fallbackProviders: [],
+        defaultCount: 5,
+        cacheTtlMinutes: 0,
+        searxngBaseUrl: '',
+        tavilySearchDepth: 'basic',
+        braveApiKey: 'secret-web-key',
+      },
+      providerCredentials: { openai: { apiKey: 'secret-provider-key' } },
+    });
+    const fileContext = JSON.stringify(payloads.fileContext);
+    const secretContext = JSON.stringify(payloads.secretContext);
+
+    expect(fileContext).toContain('openai-codex');
+    expect(fileContext).not.toContain('secret-api-key');
+    expect(fileContext).not.toContain('secret-gateway-token');
+    expect(fileContext).not.toContain('Authorization');
+    expect(fileContext).not.toContain('secret-web-key');
+    expect(fileContext).not.toContain('secret-provider-key');
+    expect(secretContext).toContain('secret-api-key');
+    expect(secretContext).toContain('secret-gateway-token');
   });
 
   test('projects Codex command and patch items into HybridClaw tool executions', () => {
