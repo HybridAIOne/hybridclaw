@@ -454,7 +454,7 @@ Use these as issue titles. Keep each issue small enough to ship independently.
 |----|------|------|--------|
 | R30.1 | Browser substrate | `BrowserProvider` interface and action vocabulary | ✅ #749 via PR #761 |
 | R30.2 | Local provider | Local Playwright provider using persistent browser context | ✅ #750 via PR #783 |
-| R30.3 | Managed provider | Managed-cloud browser provider with shared navigation guard | ⬜ To be filed |
+| R30.3 | Managed provider | Managed-cloud browser provider with shared navigation guard | ⬜ [#1024](https://github.com/HybridAIOne/hybridclaw/issues/1024) |
 | R30.4 | Passthrough provider | Browser-use cloud passthrough with metering and audit URLs | ✅ #752 via PR #792 |
 | R30.5 | Sessions | Browser profile persistence and container mount integration | ⬜ To be filed |
 | R30.6 | Credentials | F13 keystroke-injection wiring for browser fills | ✅ #754 via PR #902 |
