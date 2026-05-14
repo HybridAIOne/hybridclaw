@@ -170,6 +170,113 @@ describe('audio_transcribe tool', () => {
     );
   });
 
+  test('rejects remote audio redirects before following them', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response('', {
+        status: 302,
+        headers: {
+          location: 'http://127.0.0.1/internal.wav',
+          'content-type': 'audio/wav',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
+
+    const result = await executeToolWithMetadata(
+      'audio_transcribe',
+      JSON.stringify({
+        audio: 'https://cdn.discordapp.com/attachments/1/2/clip.wav',
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('audio URL redirects are not allowed');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://cdn.discordapp.com/attachments/1/2/clip.wav',
+      expect.objectContaining({ redirect: 'manual' }),
+    );
+  });
+
+  test('detect-language returns metadata only and skips transcript artifacts', async () => {
+    const audioPath = path.join(workspaceRoot, 'clip.wav');
+    fs.writeFileSync(audioPath, Buffer.from('fake-wav'));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            text: 'Bonjour.',
+            language: 'fr',
+            duration: 2,
+            segments: [{ start: 0, end: 2, text: 'Bonjour.' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    );
+    const { executeTool, setProviderCredentials } = await loadTools();
+    setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
+
+    const output = await executeTool(
+      'audio_transcribe',
+      JSON.stringify({
+        action: 'detect-language',
+        audio: '/workspace/clip.wav',
+      }),
+    );
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+
+    expect(parsed.action).toBe('detect-language');
+    expect(parsed.language).toBe('fr');
+    expect(parsed.duration_sec).toBe(2);
+    expect(parsed).not.toHaveProperty('text');
+    expect(parsed).not.toHaveProperty('segments');
+    expect(parsed).not.toHaveProperty('words');
+    expect(parsed).not.toHaveProperty('artifacts');
+    expect(fs.existsSync(path.join(workspaceRoot, '.transcripts'))).toBe(false);
+  });
+
+  test('uses the only video/webm media item as implicit transcription input', async () => {
+    const videoPath = path.join(workspaceRoot, 'clip.webm');
+    fs.writeFileSync(videoPath, Buffer.from('fake-webm'));
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const form = init?.body as FormData;
+      expect(form.get('file')).toBeTruthy();
+      return new Response(
+        JSON.stringify({
+          text: 'WebM transcript.',
+          language: 'en',
+          duration: 1,
+          segments: [{ start: 0, end: 1, text: 'WebM transcript.' }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeTool, setMediaContext, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
+    setMediaContext([
+      {
+        path: '/workspace/clip.webm',
+        url: '',
+        originalUrl: '',
+        filename: 'clip.webm',
+        mimeType: 'video/webm',
+        sizeBytes: 9,
+      },
+    ]);
+
+    const output = await executeTool('audio_transcribe', '{}');
+    const parsed = JSON.parse(output) as { text: string; source: string };
+
+    expect(parsed.text).toBe('WebM transcript.');
+    expect(parsed.source).toBe('/workspace/clip.webm');
+  });
+
   test('transcribes through Deepgram with diarization and word timestamps', async () => {
     const audioPath = path.join(workspaceRoot, 'clip.wav');
     fs.writeFileSync(audioPath, Buffer.from('fake-wav'));
@@ -265,6 +372,7 @@ describe('audio_transcribe tool', () => {
             language_detection: true,
           }),
         );
+        expect(body).not.toHaveProperty('speakers_expected');
         return new Response(JSON.stringify({ id: 'transcript-1' }));
       }
       if (url.endsWith('/v2/transcript/transcript-1')) {
@@ -298,6 +406,8 @@ describe('audio_transcribe tool', () => {
         audio: '/workspace/clip.wav',
         provider: 'assemblyai',
         diarization: true,
+        min_speakers: 2,
+        max_speakers: 4,
       }),
     );
     await vi.advanceTimersByTimeAsync(1000);
@@ -307,12 +417,16 @@ describe('audio_transcribe tool', () => {
       text: string;
       duration_sec: number;
       segments: Array<{ speaker?: string }>;
+      warnings: string[];
     };
 
     expect(parsed.provider).toBe('assemblyai');
     expect(parsed.text).toBe('Assembly transcript.');
     expect(parsed.duration_sec).toBe(3);
     expect(parsed.segments[0]?.speaker).toBe('speaker_A');
+    expect(parsed.warnings).toContain(
+      'AssemblyAI accepts one expected speaker count; differing min_speakers and max_speakers will not be sent.',
+    );
   });
 
   test('stitches overlapped chunk segments without duplicate boundary text', async () => {

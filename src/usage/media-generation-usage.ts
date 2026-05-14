@@ -1,3 +1,4 @@
+import { estimateAudioTranscriptionCostUsd } from '../../container/shared/audio-transcription-pricing.js';
 import type { ToolExecution } from '../types/execution.js';
 import type { TokenUsageEvent } from './token-usage-buffer.js';
 
@@ -7,10 +8,6 @@ interface MediaUsageEventInput {
   auditRunId: string;
   toolExecutions: ToolExecution[];
 }
-
-const OPENAI_WHISPER_COST_USD_PER_SECOND = 0.006 / 60;
-const DEEPGRAM_NOVA3_COST_USD_PER_SECOND = 0.0077 / 60;
-const ASSEMBLYAI_UNIVERSAL_COST_USD_PER_SECOND = 0.21 / 3600;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -190,7 +187,7 @@ function buildAudioUsageEvent(params: {
   );
   const costUsd =
     explicitCostUsd ??
-    estimateAudioCostUsd({
+    estimateAudioTranscriptionCostUsd({
       provider,
       model,
       audioSeconds,
@@ -206,26 +203,6 @@ function buildAudioUsageEvent(params: {
     ...(costUsd != null ? { costUsd } : {}),
     auditRunId: params.auditRunId,
   };
-}
-
-function estimateAudioCostUsd(params: {
-  provider: string;
-  model: string;
-  audioSeconds: number;
-}): number | undefined {
-  const provider = params.provider.toLowerCase();
-  const model = params.model.toLowerCase();
-  let rate: number | undefined;
-  if (provider === 'openai') {
-    rate = OPENAI_WHISPER_COST_USD_PER_SECOND;
-  } else if (provider === 'deepgram' && model.includes('nova')) {
-    rate = DEEPGRAM_NOVA3_COST_USD_PER_SECOND;
-  } else if (provider === 'assemblyai') {
-    rate = ASSEMBLYAI_UNIVERSAL_COST_USD_PER_SECOND;
-  }
-  return rate == null
-    ? undefined
-    : Number((params.audioSeconds * rate).toFixed(6));
 }
 
 export function buildMediaGenerationUsageEvents(

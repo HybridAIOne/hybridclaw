@@ -158,6 +158,9 @@ function persistSpeechTranscriptsToScopedMemory(params: {
     if (execution.name !== 'audio_transcribe' || execution.isError) continue;
     const payload = parseToolResultObject(execution.result);
     if (!payload || payload.success !== true) continue;
+    if (typeof payload.action === 'string' && payload.action !== 'transcribe') {
+      continue;
+    }
     const text = typeof payload.text === 'string' ? payload.text.trim() : '';
     if (!text) continue;
     storeSemanticMemory({

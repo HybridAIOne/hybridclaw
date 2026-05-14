@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { estimateAudioTranscriptionCostUsd } from '../shared/audio-transcription-pricing.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { RuntimeProvider } from './providers/provider-ids.js';
 import { ProviderRequestError } from './providers/shared.js';
@@ -39,7 +40,6 @@ interface ProviderCandidate {
   model: string;
   requestHeaders?: Record<string, string>;
   maxAudioBytes: number;
-  costUsdPerSecond: number;
   supportsDiarization: boolean;
   supportsWordTimestamps: boolean;
   supportsLanguageDetection: boolean;
@@ -103,9 +103,6 @@ const DEFAULT_ASSEMBLYAI_BASE_URL = 'https://api.assemblyai.com';
 const DEFAULT_OPENAI_AUDIO_MODEL = 'whisper-1';
 const DEFAULT_DEEPGRAM_AUDIO_MODEL = 'nova-3';
 const DEFAULT_ASSEMBLYAI_AUDIO_MODEL = 'universal';
-const OPENAI_WHISPER_COST_USD_PER_SECOND = 0.006 / 60;
-const DEEPGRAM_NOVA3_COST_USD_PER_SECOND = 0.0077 / 60;
-const ASSEMBLYAI_UNIVERSAL_COST_USD_PER_SECOND = 0.21 / 3600;
 const DEFAULT_CHUNK_WINDOW_SEC = 25 * 60;
 const DEFAULT_CHUNK_OVERLAP_SEC = 10;
 
@@ -327,7 +324,11 @@ function resolveImplicitMediaItem(
 ): MediaContextItem | null {
   const audioItems = media.filter((item) => {
     const mimeType = String(item.mimeType || '').toLowerCase();
-    return mimeType.startsWith('audio/') || mimeType === 'video/mp4';
+    return (
+      mimeType.startsWith('audio/') ||
+      mimeType === 'video/mp4' ||
+      mimeType === 'video/webm'
+    );
   });
   return audioItems.length === 1 ? audioItems[0] : null;
 }
@@ -378,7 +379,13 @@ async function fetchRemoteAudio(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(rawUrl, { signal: controller.signal });
+    const response = await fetch(rawUrl, {
+      signal: controller.signal,
+      redirect: 'manual',
+    });
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error('audio URL redirects are not allowed');
+    }
     if (!response.ok) {
       throw new Error(`audio fetch failed with HTTP ${response.status}`);
     }
@@ -467,6 +474,11 @@ async function normalizeRequest(
   const maxSpeakers = readPositiveInteger(
     args.max_speakers ?? args.maxSpeakers,
   );
+  if (minSpeakers && maxSpeakers && minSpeakers !== maxSpeakers) {
+    warnings.push(
+      'AssemblyAI accepts one expected speaker count; differing min_speakers and max_speakers will not be sent.',
+    );
+  }
   const chunkWindowSec =
     readPositiveInteger(args.chunk_window_sec ?? args.chunkWindowSec) ||
     DEFAULT_CHUNK_WINDOW_SEC;
@@ -510,7 +522,6 @@ function candidateFromCurrentContext(
       : DEFAULT_OPENAI_AUDIO_MODEL,
     requestHeaders: context.requestHeaders,
     maxAudioBytes: MAX_AUDIO_BYTES,
-    costUsdPerSecond: OPENAI_WHISPER_COST_USD_PER_SECOND,
     supportsDiarization: false,
     supportsWordTimestamps: true,
     supportsLanguageDetection: true,
@@ -539,7 +550,6 @@ function buildProviderCandidates(
         readCredentialValue(openaiConfig.audioModel) ||
         DEFAULT_OPENAI_AUDIO_MODEL,
       maxAudioBytes: MAX_AUDIO_BYTES,
-      costUsdPerSecond: OPENAI_WHISPER_COST_USD_PER_SECOND,
       supportsDiarization: false,
       supportsWordTimestamps: true,
       supportsLanguageDetection: true,
@@ -561,7 +571,6 @@ function buildProviderCandidates(
         readCredentialValue(deepgramConfig.audioModel) ||
         DEFAULT_DEEPGRAM_AUDIO_MODEL,
       maxAudioBytes: 512 * 1024 * 1024,
-      costUsdPerSecond: DEEPGRAM_NOVA3_COST_USD_PER_SECOND,
       supportsDiarization: true,
       supportsWordTimestamps: true,
       supportsLanguageDetection: true,
@@ -583,7 +592,6 @@ function buildProviderCandidates(
         readCredentialValue(assemblyaiConfig.audioModel) ||
         DEFAULT_ASSEMBLYAI_AUDIO_MODEL,
       maxAudioBytes: 512 * 1024 * 1024,
-      costUsdPerSecond: ASSEMBLYAI_UNIVERSAL_COST_USD_PER_SECOND,
       supportsDiarization: true,
       supportsWordTimestamps: true,
       supportsLanguageDetection: true,
@@ -681,6 +689,20 @@ function normalizeHeaders(
     normalized[key] = value;
   }
   return normalized;
+}
+
+async function fetchWithTimeout(
+  input: string | URL,
+  init: RequestInit = {},
+  timeoutMs = PROVIDER_API_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function parseProviderJson(
@@ -922,7 +944,7 @@ async function uploadAssemblyAiAudio(
   candidate: ProviderCandidate,
   request: NormalizedAudioTranscriptionRequest,
 ): Promise<string> {
-  const response = await fetch(`${candidate.baseUrl}/v2/upload`, {
+  const response = await fetchWithTimeout(`${candidate.baseUrl}/v2/upload`, {
     method: 'POST',
     headers: {
       Authorization: candidate.apiKey,
@@ -1020,17 +1042,25 @@ async function transcribeWithAssemblyAi(
   };
   if (request.language) body.language_code = request.language;
   if (request.prompt) body.prompt = request.prompt;
-  if (request.minSpeakers) body.speakers_expected = request.minSpeakers;
-  if (request.maxSpeakers) body.speakers_expected = request.maxSpeakers;
+  const speakersExpected =
+    request.minSpeakers && request.maxSpeakers
+      ? request.minSpeakers === request.maxSpeakers
+        ? request.minSpeakers
+        : null
+      : (request.maxSpeakers ?? request.minSpeakers);
+  if (speakersExpected) body.speakers_expected = speakersExpected;
 
-  const createResponse = await fetch(`${candidate.baseUrl}/v2/transcript`, {
-    method: 'POST',
-    headers: {
-      Authorization: candidate.apiKey,
-      'Content-Type': 'application/json',
+  const createResponse = await fetchWithTimeout(
+    `${candidate.baseUrl}/v2/transcript`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: candidate.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+  );
   const created = await parseProviderJson(createResponse, 'AssemblyAI');
   if (!isRecord(created)) {
     throw new Error(
@@ -1048,9 +1078,12 @@ async function transcribeWithAssemblyAi(
     await new Promise((resolve) =>
       setTimeout(resolve, ASSEMBLYAI_POLL_INTERVAL_MS),
     );
-    const response = await fetch(`${candidate.baseUrl}/v2/transcript/${id}`, {
-      headers: { Authorization: candidate.apiKey },
-    });
+    const response = await fetchWithTimeout(
+      `${candidate.baseUrl}/v2/transcript/${id}`,
+      {
+        headers: { Authorization: candidate.apiKey },
+      },
+    );
     const parsed = await parseProviderJson(response, 'AssemblyAI');
     if (!isRecord(parsed)) {
       throw new Error(
@@ -1103,7 +1136,13 @@ function estimateCostUsd(
   candidate: ProviderCandidate,
 ): number | null {
   if (durationSec == null || durationSec < 0) return null;
-  return Number((durationSec * candidate.costUsdPerSecond).toFixed(6));
+  return (
+    estimateAudioTranscriptionCostUsd({
+      provider: candidate.id,
+      model: candidate.model,
+      audioSeconds: durationSec,
+    }) ?? null
+  );
 }
 
 function runMediaProbe(command: string, args: string[]): string {
@@ -1146,38 +1185,41 @@ function createAudioChunks(
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-stt-'));
   const chunks: Array<AudioInput & { offsetSec: number }> = [];
   const stepSec = Math.max(1, request.chunkWindowSec - request.chunkOverlapSec);
-  for (let startSec = 0; startSec < durationSec; startSec += stepSec) {
-    const duration = Math.min(request.chunkWindowSec, durationSec - startSec);
-    const chunkPath = path.join(
-      tempDir,
-      `chunk-${String(chunks.length + 1).padStart(4, '0')}.mp3`,
-    );
-    runMediaProbe('ffmpeg', [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-y',
-      '-ss',
-      String(startSec),
-      '-t',
-      String(duration),
-      '-i',
-      input.localPath,
-      '-vn',
-      '-acodec',
-      'libmp3lame',
-      chunkPath,
-    ]);
-    const buffer = fs.readFileSync(chunkPath);
-    assertAudioSize(buffer);
-    chunks.push({
-      buffer,
-      filename: path.basename(chunkPath),
-      mimeType: 'audio/mpeg',
-      source: `${input.source}#chunk=${chunks.length + 1}`,
-      localPath: chunkPath,
-      offsetSec: startSec,
-    });
+  try {
+    for (let startSec = 0; startSec < durationSec; startSec += stepSec) {
+      const duration = Math.min(request.chunkWindowSec, durationSec - startSec);
+      const chunkPath = path.join(
+        tempDir,
+        `chunk-${String(chunks.length + 1).padStart(4, '0')}.mp3`,
+      );
+      runMediaProbe('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-ss',
+        String(startSec),
+        '-t',
+        String(duration),
+        '-i',
+        input.localPath,
+        '-vn',
+        '-acodec',
+        'libmp3lame',
+        chunkPath,
+      ]);
+      const buffer = fs.readFileSync(chunkPath);
+      assertAudioSize(buffer);
+      chunks.push({
+        buffer,
+        filename: path.basename(chunkPath),
+        mimeType: 'audio/mpeg',
+        source: `${input.source}#chunk=${chunks.length + 1}`,
+        offsetSec: startSec,
+      });
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
   return chunks;
 }
@@ -1377,26 +1419,34 @@ export async function runAudioTranscribe(
     try {
       const result = await transcribePossiblyChunked(candidate, request);
       const costUsd = estimateCostUsd(result.durationSec, candidate);
-      const artifacts = persistTranscript({
-        result,
-        provider: candidate,
-        source: request.audio.source,
-        costUsd,
-      });
+      const artifacts = request.detectLanguageOnly
+        ? []
+        : persistTranscript({
+            result,
+            provider: candidate,
+            source: request.audio.source,
+            costUsd,
+          });
       attempts.push({
         provider: candidate.id,
         model: candidate.model,
         success: true,
       });
+      const transcriptPayload = request.detectLanguageOnly
+        ? {}
+        : {
+            text: result.text,
+            segments: result.segments,
+            ...(result.words ? { words: result.words } : {}),
+            artifacts,
+          };
       return JSON.stringify(
         {
           success: true,
           provider: candidate.id,
           model: candidate.model,
           action: request.detectLanguageOnly ? 'detect-language' : 'transcribe',
-          text: result.text,
-          segments: result.segments,
-          ...(result.words ? { words: result.words } : {}),
+          ...transcriptPayload,
           language: result.language,
           duration_sec: result.durationSec,
           cost_usd: costUsd,
@@ -1405,7 +1455,6 @@ export async function runAudioTranscribe(
             cost_usd: costUsd,
             estimated: costUsd != null,
           },
-          artifacts,
           warnings: request.warnings,
           attempts,
           source: request.audio.source,
