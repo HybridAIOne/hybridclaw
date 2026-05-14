@@ -13,11 +13,13 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
+  cloneAgentBudgetConfig,
   cloneAgentCv,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   hasSnakeCamelAlias,
   normalizeAgentA2AConfig,
+  normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentWebSearchConfig,
@@ -2710,6 +2712,9 @@ function normalizeAgentConfig(
         fallback?.webSearch,
       )
     : cloneAgentWebSearchConfig(fallback?.webSearch);
+  const budget = Object.hasOwn(value, 'budget')
+    ? normalizeAgentBudgetConfig(value.budget, fallback?.budget)
+    : cloneAgentBudgetConfig(fallback?.budget);
   return {
     id,
     ...(name ? { name } : {}),
@@ -2728,6 +2733,7 @@ function normalizeAgentConfig(
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(budget ? { budget } : {}),
   };
 }
 

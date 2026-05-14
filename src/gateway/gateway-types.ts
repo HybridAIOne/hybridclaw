@@ -811,6 +811,20 @@ export interface GatewayAdminJobsContextResponse {
   suspendedSessions: GatewayAdminSuspendedSession[];
 }
 
+export type GatewayAdminBoardBudgetCurrency = 'USD' | 'EUR';
+
+export interface GatewayAdminBoardBudgetSummary {
+  agentId: string;
+  used: number;
+  cap: number;
+  currency: GatewayAdminBoardBudgetCurrency;
+  percent: number;
+}
+
+export interface GatewayAdminBoardBudgetResponse {
+  budgets: GatewayAdminBoardBudgetSummary[];
+}
+
 export interface GatewayAdminDeleteSessionResult {
   deleted: boolean;
   sessionId: string;

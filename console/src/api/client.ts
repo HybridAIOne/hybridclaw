@@ -11,6 +11,7 @@ import type {
   AdminAgentsResponse,
   AdminApprovalsResponse,
   AdminAuditResponse,
+  AdminBoardBudgetResponse,
   AdminChannelConfig,
   AdminChannelsResponse,
   AdminChannelTransport,
@@ -531,6 +532,22 @@ export function fetchJobsContext(
   return requestJson<AdminJobsContextResponse>('/api/admin/jobs/context', {
     token,
   });
+}
+
+export function fetchBoardBudgetSummaries(
+  token: string,
+  agentIds?: string[],
+): Promise<AdminBoardBudgetResponse> {
+  const params = new URLSearchParams();
+  for (const agentId of agentIds || []) {
+    const normalized = agentId.trim();
+    if (normalized) params.append('agentId', normalized);
+  }
+  const query = params.toString();
+  return requestJson<AdminBoardBudgetResponse>(
+    `/api/admin/board/budgets${query ? `?${query}` : ''}`,
+    { token },
+  );
 }
 
 export async function fetchSessions(token: string): Promise<AdminSession[]> {

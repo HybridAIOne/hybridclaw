@@ -8,18 +8,21 @@ import {
   useState,
 } from 'react';
 import {
+  fetchBoardBudgetSummaries,
   fetchJobsContext,
   fetchScheduler,
   moveSchedulerJob,
   saveSchedulerJob,
 } from '../api/client';
 import type {
+  AdminBoardBudgetSummary,
   AdminSchedulerJob,
   AdminSuspendedSession,
   JobAgent,
   JobSession,
 } from '../api/types';
 import { useAuth } from '../auth';
+import { AgentBudgetChip } from '../components/agent-budget-chip';
 import { InteractionResumeControls } from '../components/interaction-resume-controls';
 import { useToast } from '../components/toast';
 import { PageHeader } from '../components/ui';
@@ -150,6 +153,7 @@ function getAgentPillStyle(agentKey: string): CSSProperties {
 
 function JobCard(props: {
   item: JobBoardItem;
+  budget: AdminBoardBudgetSummary | null;
   selected: boolean;
   draggable: boolean;
   onSelect: () => void;
@@ -195,6 +199,7 @@ function JobCard(props: {
           </div>
           <p>{item.summary}</p>
           <small>{item.stateLabel}</small>
+          <AgentBudgetChip budget={props.budget} />
           <span
             className="jobs-card-pill"
             style={getAgentPillStyle(item.agentKey)}
@@ -761,6 +766,33 @@ export function JobsPage() {
     [allItems],
   );
 
+  const ownerAgentIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allItems
+            .map((item) => item.agentKey)
+            .filter((agentId) => agentId && agentId !== 'unassigned'),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [allItems],
+  );
+
+  const budgetQuery = useQuery({
+    queryKey: ['board-budget-summaries', auth.token, ownerAgentIds.join('\0')],
+    queryFn: () => fetchBoardBudgetSummaries(auth.token, ownerAgentIds),
+    enabled: ownerAgentIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  const budgetsByAgent = useMemo(() => {
+    return new Map(
+      (budgetQuery.data?.budgets || []).map(
+        (budget) => [budget.agentId, budget] as const,
+      ),
+    );
+  }, [budgetQuery.data?.budgets]);
+
   const visibleItemKeys = useMemo(
     () => new Set(visibleItems.map((item) => item.key)),
     [visibleItems],
@@ -924,6 +956,7 @@ export function JobsPage() {
                     >
                       <JobCard
                         item={item}
+                        budget={budgetsByAgent.get(item.agentKey) || null}
                         selected={item.key === selectedItem?.key}
                         draggable={
                           item.kind === 'job' && item.job.source === 'config'

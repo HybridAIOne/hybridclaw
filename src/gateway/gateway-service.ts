@@ -75,6 +75,7 @@ import {
 } from '../auth/anthropic-auth.js';
 import { getCodexAuthStatus } from '../auth/codex-auth.js';
 import { getHybridAIAuthStatus } from '../auth/hybridai-auth.js';
+import { getBoardBudgetSummaries } from '../board/budget-chip.js';
 import { normalizeSkillConfigChannelKind } from '../channels/channel-registry.js';
 import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
 import { getDiscordWebhookStatus } from '../channels/discord-webhook/runtime.js';
@@ -480,6 +481,7 @@ import {
   type GatewayAdminApprovalAgent,
   type GatewayAdminApprovalsResponse,
   type GatewayAdminAuditResponse,
+  type GatewayAdminBoardBudgetResponse,
   type GatewayAdminChannelsResponse,
   type GatewayAdminChannelUpsertRequest,
   type GatewayAdminConfigResponse,
@@ -4704,6 +4706,12 @@ export function getGatewayAdminJobsContext(): GatewayAdminJobsContextResponse {
       mapGatewayAdminSuspendedSession(session, sessionAgentIds),
     ),
   };
+}
+
+export function getGatewayAdminBoardBudgets(params?: {
+  agentIds?: string[];
+}): GatewayAdminBoardBudgetResponse {
+  return getBoardBudgetSummaries({ agentIds: params?.agentIds });
 }
 
 function collectRecentAssistantOutputs(

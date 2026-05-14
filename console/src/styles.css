@@ -2181,6 +2181,31 @@ th {
   color: var(--jobs-pill-success-fg);
 }
 
+.agent-budget-chip {
+  width: fit-content;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-muted);
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.agent-budget-chip[data-tone="warn"] {
+  border-color: color-mix(in srgb, var(--tone-review) 58%, var(--line));
+  background: color-mix(in srgb, var(--tone-review) 18%, transparent);
+  color: color-mix(in srgb, var(--tone-review) 72%, var(--text));
+}
+
+.agent-budget-chip[data-tone="hard"] {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .jobs-card-frame {
   display: block;
   width: 100%;

@@ -1074,6 +1074,20 @@ export interface AdminJobsContextResponse {
   suspendedSessions: AdminSuspendedSession[];
 }
 
+export type AdminBoardBudgetCurrency = 'USD' | 'EUR';
+
+export interface AdminBoardBudgetSummary {
+  agentId: string;
+  used: number;
+  cap: number;
+  currency: AdminBoardBudgetCurrency;
+  percent: number;
+}
+
+export interface AdminBoardBudgetResponse {
+  budgets: AdminBoardBudgetSummary[];
+}
+
 export interface AdminMcpConfig {
   transport: 'stdio' | 'http' | 'sse';
   command?: string;

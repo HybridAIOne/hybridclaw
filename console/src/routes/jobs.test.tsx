@@ -9,6 +9,7 @@ import type {
 import { ToastProvider } from '../components/toast';
 import { JobsPage } from './jobs';
 
+const fetchBoardBudgetSummariesMock = vi.fn();
 const fetchJobsContextMock = vi.fn();
 const fetchSchedulerMock = vi.fn<() => Promise<AdminSchedulerResponse>>();
 const moveSchedulerJobMock = vi.fn();
@@ -17,6 +18,8 @@ const saveSchedulerJobMock = vi.fn();
 const useAuthMock = vi.fn();
 
 vi.mock('../api/client', () => ({
+  fetchBoardBudgetSummaries: (...args: unknown[]) =>
+    fetchBoardBudgetSummariesMock(...args),
   fetchJobsContext: (...args: unknown[]) => fetchJobsContextMock(...args),
   fetchScheduler: () => fetchSchedulerMock(),
   moveSchedulerJob: (...args: unknown[]) => moveSchedulerJobMock(...args),
@@ -103,6 +106,7 @@ function renderJobsPage(): void {
 describe('JobsPage', () => {
   beforeEach(() => {
     fetchJobsContextMock.mockReset();
+    fetchBoardBudgetSummariesMock.mockReset();
     fetchSchedulerMock.mockReset();
     moveSchedulerJobMock.mockReset();
     resumeInteractiveEscalationMock.mockReset();
@@ -118,6 +122,9 @@ describe('JobsPage', () => {
     });
     fetchSchedulerMock.mockResolvedValue({
       jobs: [makeConfigJob()],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [],
     });
     resumeInteractiveEscalationMock.mockResolvedValue({
       session: {
@@ -151,6 +158,79 @@ describe('JobsPage', () => {
     ).toBeNull();
     expect(screen.queryByText('Created')).toBeNull();
     expect(screen.queryByText('never')).toBeNull();
+  });
+
+  it('renders budget chips with threshold and currency formatting', async () => {
+    fetchSchedulerMock.mockResolvedValue({
+      jobs: [
+        makeConfigJob({
+          id: 'neutral-job',
+          name: 'Neutral Budget',
+          agentId: 'main',
+        }),
+        makeConfigJob({
+          id: 'warn-job',
+          name: 'Warn Budget',
+          agentId: 'agent-warn',
+        }),
+        makeConfigJob({
+          id: 'hard-job',
+          name: 'Hard Budget',
+          agentId: 'agent-hard',
+        }),
+        makeConfigJob({
+          id: 'no-budget-job',
+          name: 'No Budget',
+          agentId: 'agent-no-budget',
+        }),
+      ],
+    });
+    fetchJobsContextMock.mockResolvedValue({
+      agents: [
+        { id: 'main', name: 'Main' },
+        { id: 'agent-warn', name: 'Warn' },
+        { id: 'agent-hard', name: 'Hard' },
+        { id: 'agent-no-budget', name: 'No Budget Agent' },
+      ],
+      sessions: [],
+      suspendedSessions: [],
+    });
+    fetchBoardBudgetSummariesMock.mockResolvedValue({
+      budgets: [
+        {
+          agentId: 'main',
+          used: 3.4,
+          cap: 60,
+          currency: 'USD',
+          percent: 5.666,
+        },
+        {
+          agentId: 'agent-warn',
+          used: 81,
+          cap: 100,
+          currency: 'USD',
+          percent: 81,
+        },
+        {
+          agentId: 'agent-hard',
+          used: 12,
+          cap: 10,
+          currency: 'EUR',
+          percent: 120,
+        },
+      ],
+    });
+
+    renderJobsPage();
+
+    const neutral = await screen.findByText('$3.40 / $60');
+    const warn = await screen.findByText('$81 / $100');
+    const hard = await screen.findByText('€12 / €10');
+
+    expect(neutral.getAttribute('data-tone')).toBe('neutral');
+    expect(warn.getAttribute('data-tone')).toBe('warn');
+    expect(hard.getAttribute('data-tone')).toBe('hard');
+    expect(screen.queryByText('$0 / $0')).toBeNull();
   });
 
   it('uses the linked session start time as the created timestamp', async () => {

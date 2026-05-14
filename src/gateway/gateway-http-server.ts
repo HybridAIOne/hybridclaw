@@ -161,6 +161,7 @@ import {
   getGatewayAdminAgents,
   getGatewayAdminApprovals,
   getGatewayAdminAudit,
+  getGatewayAdminBoardBudgets,
   getGatewayAdminChannels,
   getGatewayAdminConfig,
   getGatewayAdminEmailFolder,
@@ -2279,6 +2280,26 @@ function handleApiAgentList(res: ServerResponse): void {
 
 function handleApiAdminJobsContext(res: ServerResponse): void {
   sendJson(res, 200, getGatewayAdminJobsContext());
+}
+
+function parseBoardBudgetAgentIds(url: URL): string[] | undefined {
+  const values = [
+    ...url.searchParams.getAll('agentId'),
+    ...url.searchParams.getAll('agentIds').flatMap((value) => value.split(',')),
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function handleApiAdminBoardBudgets(res: ServerResponse, url: URL): void {
+  sendJson(
+    res,
+    200,
+    getGatewayAdminBoardBudgets({
+      agentIds: parseBoardBudgetAgentIds(url),
+    }),
+  );
 }
 
 function handleApiProactivePull(res: ServerResponse, url: URL): void {
@@ -4870,6 +4891,10 @@ export function startGatewayHttpServer(): GatewayHttpServer {
           }
           if (pathname === '/api/admin/jobs/context' && method === 'GET') {
             handleApiAdminJobsContext(res);
+            return;
+          }
+          if (pathname === '/api/admin/board/budgets' && method === 'GET') {
+            handleApiAdminBoardBudgets(res, url);
             return;
           }
           if (

@@ -30,10 +30,12 @@ import {
   type AgentsConfig,
   buildOptionalAgentPresentation,
   cloneAgentA2AConfig,
+  cloneAgentBudgetConfig,
   cloneAgentCv,
   cloneAgentWebSearchConfig,
   DEFAULT_AGENT_ID,
   normalizeAgentA2AConfig,
+  normalizeAgentBudgetConfig,
   normalizeAgentCv,
   normalizeAgentEscalationTarget,
   normalizeAgentWebSearchConfig,
@@ -197,6 +199,9 @@ function normalizeAgent(value: unknown): AgentConfig | null {
   const webSearch = normalizeAgentWebSearchConfig(
     (value as { webSearch?: unknown }).webSearch,
   );
+  const budget = normalizeAgentBudgetConfig(
+    (value as { budget?: unknown }).budget,
+  );
   return {
     id,
     ...(name ? { name } : {}),
@@ -215,6 +220,7 @@ function normalizeAgent(value: unknown): AgentConfig | null {
     ...(escalationTarget ? { escalationTarget } : {}),
     ...(a2a ? { a2a } : {}),
     ...(webSearch ? { webSearch } : {}),
+    ...(budget ? { budget } : {}),
   };
 }
 
@@ -257,6 +263,11 @@ function fingerprintWebSearch(webSearch: AgentConfig['webSearch']): string {
   ].join(':');
 }
 
+function fingerprintBudget(budget: AgentConfig['budget']): string {
+  if (!budget) return '';
+  return `${budget.currency}:${budget.cap}`;
+}
+
 function fingerprintAgent(agent: AgentConfig): string {
   return [
     fingerprintString(agent.id),
@@ -283,6 +294,7 @@ function fingerprintAgent(agent: AgentConfig): string {
         .sort(),
     ),
     fingerprintWebSearch(agent.webSearch),
+    fingerprintBudget(agent.budget),
   ].join('|');
 }
 
@@ -365,6 +377,7 @@ function applyDefaults(agent: AgentConfig): AgentConfig {
     ...(agent.webSearch
       ? { webSearch: cloneAgentWebSearchConfig(agent.webSearch) }
       : {}),
+    ...(agent.budget ? { budget: cloneAgentBudgetConfig(agent.budget) } : {}),
   };
 }
 

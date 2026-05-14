@@ -1563,6 +1563,17 @@ async function importFreshHealth(options?: {
     ],
     suspendedSessions: [],
   }));
+  const getGatewayAdminBoardBudgets = vi.fn(() => ({
+    budgets: [
+      {
+        agentId: 'main',
+        used: 3.4,
+        cap: 60,
+        currency: 'USD',
+        percent: 5.666,
+      },
+    ],
+  }));
   const runMessageToolAction = vi.fn(async () => ({ ok: true }));
   const normalizeDiscordToolAction = vi.fn((value: string) =>
     value === 'reply' ? 'send' : null,
@@ -1695,6 +1706,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminEmailFolder,
     getGatewayAdminEmailMailbox,
     getGatewayAdminEmailMessage,
+    getGatewayAdminBoardBudgets,
     getGatewayAdminJobsContext,
     getGatewayAdminMcp,
     getGatewayAdminModels,
@@ -1838,6 +1850,7 @@ async function importFreshHealth(options?: {
     getGatewayAdminSkills,
     getGatewayAdminAgentScoreboard,
     getGatewayAdminJobsContext,
+    getGatewayAdminBoardBudgets,
     getGatewayAdminTools,
     startTerminalSession,
     stopTerminalSession,
@@ -5621,6 +5634,33 @@ describe('gateway HTTP server', () => {
         },
       ],
       suspendedSessions: [],
+    });
+  });
+
+  test('returns board budget summaries for authorized API requests', async () => {
+    const state = await importFreshHealth();
+    const req = makeRequest({
+      url: '/api/admin/board/budgets?agentId=main&agentIds=agent-a,agent-b',
+    });
+    const res = makeResponse();
+
+    state.handler(req as never, res as never);
+    await settle();
+
+    expect(state.getGatewayAdminBoardBudgets).toHaveBeenCalledWith({
+      agentIds: ['main', 'agent-a', 'agent-b'],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      budgets: [
+        {
+          agentId: 'main',
+          used: 3.4,
+          cap: 60,
+          currency: 'USD',
+          percent: 5.666,
+        },
+      ],
     });
   });
 
