@@ -6,6 +6,7 @@ import {
   validateA2AEnvelope,
 } from './envelope.js';
 import { attachA2AHandoffContext } from './handoff-context.js';
+import { normalizePeerDescriptor } from './peer-descriptor.js';
 import { listA2AInboxEnvelopes, saveA2AEnvelope } from './store.js';
 import {
   encodeForRegisteredTransport,
@@ -41,9 +42,10 @@ export function sendMessage(
   envelope: unknown,
   meta?: A2ASendMessageMeta,
 ): A2ADeliveryConfirmation {
+  const peerDescriptor = normalizePeerDescriptor(meta?.peerDescriptor);
   const encodedEnvelope = encodeForRegisteredTransport({
     envelope: attachA2AHandoffContext(validateRuntimeEnvelope(envelope)),
-    peerDescriptor: meta?.peerDescriptor,
+    peerDescriptor,
     registry: meta?.transportRegistry,
     sessionId: meta?.sessionId,
     runId: meta?.auditRunId,
@@ -61,16 +63,18 @@ export function sendMessage(
     actor: meta?.actor,
     route: 'a2a.sendMessage',
     source: 'a2a-runtime',
-    transport: meta?.peerDescriptor ? 'registered' : 'internal',
+    transport: peerDescriptor.transport,
   };
   recordA2AMessageAudit({
     type: 'a2a.send',
     ...auditBase,
   });
-  recordA2AMessageAudit({
-    type: 'a2a.deliver',
-    ...auditBase,
-  });
+  if (peerDescriptor.transport === 'internal') {
+    recordA2AMessageAudit({
+      type: 'a2a.deliver',
+      ...auditBase,
+    });
+  }
   if (deliveredEnvelope.intent === 'handoff') {
     recordA2AMessageAudit({
       type: 'a2a.handoff',

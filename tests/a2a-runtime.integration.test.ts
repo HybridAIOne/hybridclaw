@@ -198,6 +198,53 @@ describe('A2A runtime API', () => {
     });
   });
 
+  test('does not audit outbound queued transport sends as delivered', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const audit = await import('../src/audit/audit-trail.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+
+    initDatabase({ quiet: true });
+
+    runtime.sendMessage(
+      {
+        id: 'msg-queued-audit',
+        sender_agent_id: 'main',
+        recipient_agent_id: 'remote@team@peer-instance',
+        thread_id: 'thread-queued-audit',
+        intent: 'chat',
+        content: 'Queue this for the remote peer.',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        sessionId: 'session-a2a-queued-audit',
+        auditRunId: 'run-a2a-queued-audit',
+        peerDescriptor: {
+          transport: 'a2a',
+          url: 'http://127.0.0.1:65535/a2a',
+        },
+      },
+    );
+
+    const wirePath = audit.getAuditWirePath('session-a2a-queued-audit');
+    const records = fs
+      .readFileSync(wirePath, 'utf-8')
+      .split('\n')
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => JSON.parse(line));
+
+    expect(records.map((record) => record.event.type)).toEqual(['a2a.send']);
+    expect(records[0].event.transport).toBe('a2a');
+    expect(audit.verifyAuditSessionChain('session-a2a-queued-audit')).toMatchObject(
+      {
+        ok: true,
+        checkedRecords: 1,
+        errors: [],
+        lastSeq: 1,
+      },
+    );
+  });
+
   test('audits and escalates when a peer transport has no adapter', async () => {
     const { initDatabase, getRecentStructuredAuditForSession } = await import(
       '../src/memory/db.ts'
