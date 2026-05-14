@@ -22,6 +22,10 @@ import { handleGatewayMessage } from './gateway-chat-service.js';
 
 const MAX_QUEUED_GOAL_MESSAGES = 100;
 
+function formatGoalStepLabel(turnsUsed: number, maxTurns: number): string {
+  return `step ${turnsUsed + 1}, max ${maxTurns}`;
+}
+
 async function emitGoalMessage(params: {
   channelId: string;
   context: ReturnType<typeof getGoalContinuationContext>;
@@ -68,8 +72,8 @@ async function runGoalContinuation(sessionId: string): Promise<void> {
       channelId: session.channel_id,
       context,
       text: initialPrompt
-        ? `Starting standing goal (${goal.turnsUsed + 1}/${goal.maxTurns})`
-        : `Continuing toward goal (${goal.turnsUsed + 1}/${goal.maxTurns})`,
+        ? `Starting standing goal (${formatGoalStepLabel(goal.turnsUsed, goal.maxTurns)})`
+        : `Continuing toward goal (${formatGoalStepLabel(goal.turnsUsed, goal.maxTurns)})`,
     });
     const result = await handleGatewayMessage({
       sessionId,

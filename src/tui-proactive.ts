@@ -12,6 +12,7 @@ export function proactiveBadgeLabel(
 ): string | null {
   if (isSchedulerJobSource(source)) return null;
   if (source === 'fullauto') return 'fullauto';
+  if (source === 'goal-continuation') return 'goal';
   if (isDelegateSource(source)) return 'delegate';
   if (source === 'eval') return 'eval';
   return 'reminder';
@@ -24,6 +25,7 @@ export function proactiveSourceSuffix(
   if (
     !source ||
     source === 'fullauto' ||
+    source === 'goal-continuation' ||
     isDelegateSource(source) ||
     source === 'eval'
   )
