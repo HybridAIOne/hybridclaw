@@ -5,6 +5,7 @@ import {
   fetchEmailConfig,
   fetchSignalLink,
   saveConfig,
+  saveDiscordWebhookTarget,
   saveSlackWebhookTarget,
   setRuntimeSecret,
   startSignalLink,
@@ -2662,6 +2663,138 @@ function SlackWebhookChannelEditor(props: {
   );
 }
 
+function DiscordWebhookChannelEditor(props: {
+  draft: AdminConfig;
+  onConfigSaved: (config: AdminConfig) => void;
+  token: string;
+  updateDraft: ConfigUpdater;
+}) {
+  const toast = useToast();
+  const targets = Object.keys(props.draft.discordWebhook.webhooks).sort();
+  const [target, setTarget] = useState(targets[0] || 'default');
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [defaultUsername, setDefaultUsername] = useState('');
+  const [defaultAvatarUrl, setDefaultAvatarUrl] = useState('');
+  const selectedTarget = props.draft.discordWebhook.webhooks[target];
+  const saveTargetMutation = useMutation({
+    mutationFn: async () =>
+      saveDiscordWebhookTarget(props.token, {
+        target,
+        webhookUrl: webhookUrl.trim() || undefined,
+        defaultUsername,
+        defaultAvatarUrl,
+      }),
+    onSuccess: (payload) => {
+      props.onConfigSaved(payload.config);
+      setWebhookUrl('');
+      toast.success('Discord webhook target saved.');
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
+    },
+  });
+
+  useEffect(() => {
+    const config = props.draft.discordWebhook.webhooks[target];
+    setDefaultUsername(config?.defaultUsername || '');
+    setDefaultAvatarUrl(config?.defaultAvatarUrl || '');
+  }, [props.draft.discordWebhook.webhooks, target]);
+
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={props.draft.discordWebhook.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            discordWebhook: {
+              ...current.discordWebhook,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field">
+        <span>Webhook targets</span>
+        <div className="readonly-value">
+          {targets.length > 0 ? targets.join(', ') : 'none'}
+        </div>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Target</span>
+          <input
+            list="discord-webhook-targets"
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+          />
+          <datalist id="discord-webhook-targets">
+            {targets.map((entry) => (
+              <option key={entry} value={entry} />
+            ))}
+          </datalist>
+        </label>
+        <label className="field">
+          <span>Webhook URL</span>
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={
+              selectedTarget ? 'leave blank to keep current URL' : 'required'
+            }
+            value={webhookUrl}
+            onChange={(event) => setWebhookUrl(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Username</span>
+          <input
+            value={defaultUsername}
+            onChange={(event) => setDefaultUsername(event.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Avatar URL</span>
+          <input
+            value={defaultAvatarUrl}
+            onChange={(event) => setDefaultAvatarUrl(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="button-row">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={saveTargetMutation.isPending}
+          onClick={() => saveTargetMutation.mutate()}
+        >
+          {saveTargetMutation.isPending ? 'Saving...' : 'Save webhook target'}
+        </button>
+      </div>
+
+      <p className="muted-copy">
+        Webhook URLs are stored as encrypted runtime secrets and are never shown
+        after save.
+      </p>
+
+      <ChannelInstructionsField
+        kind="discord_webhook"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
+    </>
+  );
+}
+
 function IMessageChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
@@ -3055,6 +3188,15 @@ function renderSelectedEditor(
           updateDraft={updateDraft}
         />
       );
+    case 'discord_webhook':
+      return (
+        <DiscordWebhookChannelEditor
+          draft={draft}
+          onConfigSaved={onConfigSaved}
+          token={token}
+          updateDraft={updateDraft}
+        />
+      );
     case 'telegram':
       return (
         <TelegramChannelEditor
@@ -3170,6 +3312,8 @@ export function ChannelsPage() {
   const catalog = draft
     ? buildChannelCatalog(draft, {
         discordTokenConfigured: statusQuery.data?.discord?.tokenConfigured,
+        discordWebhookDefaultConfigured:
+          statusQuery.data?.discordWebhook?.defaultTargetConfigured,
         slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
         slackWebhookDefaultConfigured:

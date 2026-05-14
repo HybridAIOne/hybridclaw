@@ -8,6 +8,7 @@ import type {
   AgentTeamStructureSnapshot,
 } from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
+import type { DiscordWebhookSendResult } from '../channels/discord-webhook/delivery.js';
 import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
@@ -397,6 +398,12 @@ export interface GatewayStatus {
   discord?: {
     tokenConfigured: boolean;
     tokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  discordWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: DiscordWebhookSendResult[];
+    lastSendResults: DiscordWebhookSendResult[];
   };
   slack?: {
     botTokenConfigured: boolean;
@@ -858,6 +865,11 @@ export interface GatewayAdminChannelsResponse {
     targetCount: number;
     defaultTargetConfigured: boolean;
   };
+  discordWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
@@ -893,6 +905,13 @@ export interface GatewayAdminSlackWebhookTargetRequest {
   defaultUsername?: string;
   defaultIconEmoji?: string;
   defaultIconUrl?: string;
+}
+
+export interface GatewayAdminDiscordWebhookTargetRequest {
+  target: string;
+  webhookUrl?: string;
+  defaultUsername?: string;
+  defaultAvatarUrl?: string;
 }
 
 export interface GatewayAdminA2AIdentity {

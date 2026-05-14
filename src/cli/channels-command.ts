@@ -1,5 +1,12 @@
 import readline from 'node:readline/promises';
 import { DEFAULT_AGENT_ID } from '../agents/agent-types.js';
+import { allowDiscordWebhookInWorkspacePolicy } from '../channels/discord-webhook/policy.js';
+import {
+  DISCORD_WEBHOOK_DEFAULT_TARGET,
+  discordWebhookSecretNameForTarget,
+  normalizeDiscordWebhookTargetName,
+  normalizeDiscordWebhookUrl,
+} from '../channels/discord-webhook/target.js';
 import {
   normalizeEmailAddress,
   normalizeEmailAllowEntry,
@@ -25,6 +32,7 @@ import {
   getRuntimeConfig,
   type IMessageBackend,
   runtimeConfigPath,
+  setRuntimeConfigDiscordWebhookSecretInput,
   setRuntimeConfigSecretInput,
   setRuntimeConfigSlackWebhookSecretInput,
   updateRuntimeConfig,
@@ -590,6 +598,93 @@ function parseSlackWebhookSetupArgs(args: string[]): {
     defaultUsername,
     defaultIconEmoji,
     defaultIconUrl,
+  };
+}
+
+function parseDiscordWebhookSetupArgs(args: string[]): {
+  target: string;
+  webhookUrl: string | null;
+  defaultUsername: string | null;
+  defaultAvatarUrl: string | null;
+} {
+  let target = 'default';
+  let webhookUrl: string | null = null;
+  let defaultUsername: string | null = null;
+  let defaultAvatarUrl: string | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] || '';
+    if (arg === '--target') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--target`.');
+      target = next.trim();
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--target=')) {
+      target = arg.slice('--target='.length).trim();
+      continue;
+    }
+    if (arg === '--webhook-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--webhook-url`.');
+      webhookUrl = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--webhook-url=')) {
+      webhookUrl = arg.slice('--webhook-url='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--default-username') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--default-username`.');
+      defaultUsername = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--default-username=')) {
+      defaultUsername = arg.slice('--default-username='.length).trim() || null;
+      continue;
+    }
+    if (arg === '--default-avatar-url') {
+      const next = args[index + 1];
+      if (!next) throw new Error('Missing value for `--default-avatar-url`.');
+      defaultAvatarUrl = next.trim() || null;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--default-avatar-url=')) {
+      defaultAvatarUrl =
+        arg.slice('--default-avatar-url='.length).trim() || null;
+      continue;
+    }
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown flag: ${arg}`);
+    }
+    throw new Error(
+      `Unexpected argument: ${arg}. Use \`hybridclaw channels discord_webhook setup --webhook-url <url> [--target default]\`.`,
+    );
+  }
+
+  const normalizedTarget = normalizeDiscordWebhookTargetName(target);
+  if (!normalizedTarget) {
+    throw new Error(
+      'Invalid Discord webhook target. Use letters, numbers, dots, dashes, or underscores.',
+    );
+  }
+  if (webhookUrl) {
+    webhookUrl = normalizeDiscordWebhookUrl(
+      webhookUrl,
+      'discordWebhook.webhooks.<target>.webhook_url',
+    );
+  }
+
+  return {
+    target: normalizedTarget,
+    webhookUrl,
+    defaultUsername,
+    defaultAvatarUrl,
   };
 }
 
@@ -2210,6 +2305,91 @@ async function configureSlackWebhookChannel(args: string[]): Promise<void> {
   );
 }
 
+async function configureDiscordWebhookChannel(args: string[]): Promise<void> {
+  ensureRuntimeConfigFile();
+  const parsed = parseDiscordWebhookSetupArgs(args);
+  const currentConfig = getRuntimeConfig();
+  const currentTarget = currentConfig.discordWebhook.webhooks[parsed.target];
+  if (!parsed.webhookUrl && !currentTarget?.webhookUrl) {
+    throw new Error('Discord webhook URL is required for a new target.');
+  }
+  if (
+    parsed.target !== DISCORD_WEBHOOK_DEFAULT_TARGET &&
+    !currentConfig.discordWebhook.webhooks[DISCORD_WEBHOOK_DEFAULT_TARGET]
+      ?.webhookUrl
+  ) {
+    throw new Error('Configure the default Discord webhook target first.');
+  }
+  const secretName = discordWebhookSecretNameForTarget(parsed.target);
+
+  const secretsPath = parsed.webhookUrl
+    ? saveRuntimeSecrets({ [secretName]: parsed.webhookUrl })
+    : runtimeSecretsPath();
+  let policyGrant: ReturnType<
+    typeof allowDiscordWebhookInWorkspacePolicy
+  > | null = null;
+  if (parsed.webhookUrl) {
+    setRuntimeConfigDiscordWebhookSecretInput(
+      parsed.target,
+      {
+        source: 'store',
+        id: secretName,
+      },
+      {
+        route: 'cli.channels.discord-webhook.setup-secret-ref',
+        source: 'user',
+      },
+    );
+    policyGrant = allowDiscordWebhookInWorkspacePolicy({
+      workspacePath: agentWorkspaceDir(DEFAULT_AGENT_ID),
+      webhookUrl: parsed.webhookUrl,
+    });
+  }
+
+  const nextConfig = updateRuntimeConfig((draft) => {
+    if (parsed.target === DISCORD_WEBHOOK_DEFAULT_TARGET) {
+      draft.discordWebhook.enabled = true;
+    }
+    const existing = draft.discordWebhook.webhooks[parsed.target] ?? {
+      webhookUrl: '',
+      defaultUsername: '',
+      defaultAvatarUrl: '',
+    };
+    draft.discordWebhook.webhooks[parsed.target] = {
+      ...existing,
+      defaultUsername: parsed.defaultUsername ?? existing.defaultUsername,
+      defaultAvatarUrl: parsed.defaultAvatarUrl ?? existing.defaultAvatarUrl,
+    };
+  });
+
+  console.log(`Updated runtime config at ${runtimeConfigPath()}.`);
+  if (parsed.webhookUrl) {
+    console.log(
+      `Saved Discord webhook URL for "${parsed.target}" to ${secretsPath}.`,
+    );
+    if (policyGrant) {
+      console.log(
+        `${policyGrant.added ? 'Added' : 'Verified'} POST-only Discord webhook network policy grant for ${policyGrant.rule.host} at ${policyGrant.policyPath}.`,
+      );
+    }
+  } else {
+    console.log(`Discord webhook URL unchanged. Secrets path: ${secretsPath}`);
+  }
+  console.log('Discord webhook mode: enabled');
+  console.log(
+    `Configured targets: ${Object.keys(nextConfig.discordWebhook.webhooks)
+      .sort()
+      .join(', ')}`,
+  );
+  console.log('Next:');
+  console.log('  Restart the gateway to pick up Discord webhook settings:');
+  console.log('    hybridclaw gateway restart --foreground');
+  console.log('    hybridclaw gateway status');
+  console.log(
+    `  Send with: message {"action":"send","to":"discord_webhook:${parsed.target}","content":"message text"}`,
+  );
+}
+
 async function configureIMessageChannel(args: string[]): Promise<void> {
   ensureRuntimeConfigFile();
   const parsed = parseIMessageSetupArgs(args);
@@ -2554,6 +2734,8 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   if (
     channel !== 'telegram' &&
     channel !== 'threema' &&
+    channel !== 'discord_webhook' &&
+    channel !== 'discord-webhook' &&
     channel !== 'slack_webhook' &&
     channel !== 'slack-webhook' &&
     channel !== 'signal' &&
@@ -2564,7 +2746,7 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
     channel !== 'slack'
   ) {
     throw new Error(
-      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
+      `Unknown channel "${normalized[0]}". Currently supported: \`discord\`, \`telegram\`, \`signal\`, \`threema\`, \`discord_webhook\`, \`slack_webhook\`, \`whatsapp\`, \`email\`, \`imessage\`, \`slack\`.`,
     );
   }
 
@@ -2594,6 +2776,10 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
       await configureThreemaChannel(normalized.slice(2));
       return;
     }
+    if (channel === 'discord_webhook' || channel === 'discord-webhook') {
+      await configureDiscordWebhookChannel(normalized.slice(2));
+      return;
+    }
     if (channel === 'slack_webhook' || channel === 'slack-webhook') {
       await configureSlackWebhookChannel(normalized.slice(2));
       return;
@@ -2618,6 +2804,6 @@ export async function handleChannelsCommand(args: string[]): Promise<void> {
   }
 
   throw new Error(
-    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
+    `Unknown channels subcommand: ${sub}. Use \`hybridclaw channels discord setup\`, \`hybridclaw channels telegram setup\`, \`hybridclaw channels signal setup\`, \`hybridclaw channels threema setup\`, \`hybridclaw channels discord_webhook setup\`, \`hybridclaw channels slack_webhook setup\`, \`hybridclaw channels whatsapp setup\`, \`hybridclaw channels email setup\`, \`hybridclaw channels imessage setup\`, \`hybridclaw channels slack manifest\`, or \`hybridclaw channels slack register-commands\`.`,
   );
 }

@@ -34,6 +34,7 @@ export interface SessionContext {
 
 const CHANNEL_KIND_LABELS: Record<ChannelKind, string> = {
   discord: 'Discord',
+  discord_webhook: 'Discord Webhook',
   email: 'Email',
   heartbeat: 'Heartbeat',
   imessage: 'iMessage',

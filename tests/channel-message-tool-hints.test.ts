@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 
 import {
   DISCORD_CAPABILITIES,
+  DISCORD_WEBHOOK_CAPABILITIES,
   EMAIL_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
   SLACK_CAPABILITIES,
@@ -139,6 +140,30 @@ test('resolves Slack webhook hints from explicit Slack webhook context', () => {
   expect(hints.some((entry) => entry.includes('outbound-only'))).toBe(true);
   expect(
     hints.some((entry) => entry.includes('Do not read Slack history')),
+  ).toBe(true);
+});
+
+test('resolves Discord webhook hints from explicit Discord webhook context', () => {
+  registerChannel({
+    kind: 'discord_webhook',
+    id: 'discord_webhook',
+    capabilities: DISCORD_WEBHOOK_CAPABILITIES,
+  });
+
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'discord_webhook',
+      channelId: 'discord_webhook:ops',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Discord webhook targets'))).toBe(
+    true,
+  );
+  expect(hints.some((entry) => entry.includes('outbound-only'))).toBe(true);
+  expect(
+    hints.some((entry) => entry.includes('Do not read Discord history')),
   ).toBe(true);
 });
 

@@ -58,6 +58,7 @@
   },
   "channelInstructions": {
     "discord": "",
+    "discord_webhook": "",
     "msteams": "",
     "signal": "",
     "slack": "",
@@ -187,6 +188,10 @@
     "mediaMaxMb": 20
   },
   "slackWebhook": {
+    "enabled": false,
+    "webhooks": {}
+  },
+  "discordWebhook": {
     "enabled": false,
     "webhooks": {}
   },

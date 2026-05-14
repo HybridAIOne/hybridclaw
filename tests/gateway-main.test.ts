@@ -77,6 +77,10 @@ function createGatewayMainTestState(options?: {
         smtpHost: options?.emailEnabled ? 'smtp.example.com' : '',
         smtpSecure: false,
       },
+      discordWebhook: {
+        enabled: false,
+        webhooks: {},
+      },
       slack: {
         enabled: options?.slackEnabled ?? false,
         groupPolicy: 'allowlist',
@@ -225,6 +229,7 @@ function createGatewayMainTestState(options?: {
     validateGatewayPromptEnvDefaults: vi.fn(),
     initDatabase: vi.fn(),
     initDiscord: vi.fn(),
+    initDiscordWebhook: vi.fn(),
     initEmail: vi.fn(),
     initIMessage: vi.fn(),
     initMSTeams: vi.fn(),
@@ -248,6 +253,7 @@ function createGatewayMainTestState(options?: {
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
     shutdownDiscord: vi.fn(async () => {}),
+    shutdownDiscordWebhook: vi.fn(async () => {}),
     shutdownEmail: vi.fn(async () => {}),
     shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
@@ -462,6 +468,17 @@ async function importFreshGatewayMain(options?: {
     sendToChannel: vi.fn(),
     shutdownDiscord: state.shutdownDiscord,
     setDiscordMaintenancePresence: state.setDiscordMaintenancePresence,
+  }));
+  vi.doMock('../src/channels/discord-webhook/runtime.js', () => ({
+    hasDiscordWebhookTargets: vi.fn(() =>
+      Boolean(
+        state.getConfigSnapshot().discordWebhook?.webhooks?.default
+          ?.webhookUrl,
+      ),
+    ),
+    initDiscordWebhook: state.initDiscordWebhook,
+    sendToDiscordWebhookTarget: vi.fn(async () => {}),
+    shutdownDiscordWebhook: state.shutdownDiscordWebhook,
   }));
   vi.doMock('../src/channels/msteams/attachments.js', () => ({
     buildTeamsArtifactAttachments: state.buildTeamsArtifactAttachments,
@@ -716,6 +733,7 @@ useCleanMocks({
     '../src/channels/discord/delivery.js',
     '../src/channels/discord/mentions.js',
     '../src/channels/discord/runtime.js',
+    '../src/channels/discord-webhook/runtime.js',
     '../src/channels/imessage/runtime.js',
     '../src/channels/signal/runtime.js',
     '../src/channels/telegram/runtime.js',
