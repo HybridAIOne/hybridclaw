@@ -327,7 +327,7 @@ function describeDiscordWebhook(
 
   return {
     kind: 'discord_webhook',
-    label: 'Incoming Webhook',
+    label: 'Discord Incoming Webhook',
     summary:
       targetCount > 0
         ? `${pluralize(targetCount, 'webhook target')} · outbound only`

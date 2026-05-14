@@ -166,6 +166,48 @@ describe('Discord webhook channel', () => {
     expect(sleep).toHaveBeenCalledWith(250);
   });
 
+  test('redacts Discord webhook URLs from recorded send and reachability errors', async () => {
+    const leakedUrl = 'https://discord.com/api/webhooks/123/TOKEN';
+    const sleep = vi.fn(async () => {});
+    const fetchMock = vi.fn(async () => {
+      throw new Error(`fetch failed for ${leakedUrl}?wait=true`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { delivery } = await importFreshDiscordWebhook(
+      {
+        enabled: true,
+        webhooks: {
+          default: {
+            webhookUrl: leakedUrl,
+            defaultUsername: '',
+            defaultAvatarUrl: '',
+          },
+        },
+      },
+      { sleep },
+    );
+
+    await expect(
+      delivery.sendDiscordWebhookText({
+        target: 'discord_webhook',
+        text: 'redact send error',
+      }),
+    ).rejects.toThrow('https://discord.com/api/webhooks/[redacted]');
+    const sendError = delivery.getDiscordWebhookLastSendResults()[0]?.error;
+    expect(sendError).toContain('https://discord.com/api/webhooks/[redacted]');
+    expect(sendError).not.toContain('TOKEN');
+    expect(sendError).not.toContain(leakedUrl);
+
+    const reachability = await delivery.pingDiscordWebhookTarget({
+      target: 'discord_webhook',
+    });
+    expect(reachability.error).toContain(
+      'https://discord.com/api/webhooks/[redacted]',
+    );
+    expect(reachability.error).not.toContain('TOKEN');
+    expect(reachability.error).not.toContain(leakedUrl);
+  });
+
   test('records reachability pings separately from last send results', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

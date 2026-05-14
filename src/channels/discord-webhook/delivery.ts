@@ -11,6 +11,8 @@ const DISCORD_WEBHOOK_CONTENT_LIMIT = 2_000;
 const DISCORD_WEBHOOK_RETRY_MAX_ATTEMPTS = 5;
 const DISCORD_WEBHOOK_RETRY_BASE_DELAY_MS = 500;
 const DISCORD_WEBHOOK_RETRY_MAX_DELAY_MS = 10_000;
+const DISCORD_WEBHOOK_URL_RE =
+  /https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/[^\s"'<>]+/gi;
 const discordWebhookOutboundQueues = new Map<string, Promise<unknown>>();
 const discordWebhookLastResults = new Map<string, DiscordWebhookSendResult>();
 const discordWebhookLastReachabilityResults = new Map<
@@ -135,14 +137,19 @@ async function postDiscordWebhook(params: {
   signal?: AbortSignal;
   webhookUrl: string;
 }): Promise<void> {
-  const response = await fetch(params.webhookUrl, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify(params.payload),
-    signal: params.signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(params.webhookUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify(params.payload),
+      signal: params.signal,
+    });
+  } catch (error) {
+    throw new Error(sanitizeDiscordWebhookError(error));
+  }
   if (response.ok) return;
 
   throw new DiscordWebhookApiError(
@@ -178,6 +185,17 @@ function extractDiscordWebhookRetryAfterMs(
     return error.retryAfterMs;
   }
   return fallbackMs;
+}
+
+export function sanitizeDiscordWebhookError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const sanitized = raw
+    .replace(
+      DISCORD_WEBHOOK_URL_RE,
+      'https://discord.com/api/webhooks/[redacted]',
+    )
+    .trim();
+  return sanitized || 'Discord webhook transport failed.';
 }
 
 function recordDiscordWebhookSendResult(
@@ -256,7 +274,7 @@ export async function sendDiscordWebhookText(params: {
         ok: false,
         statusCode:
           error instanceof DiscordWebhookApiError ? error.statusCode : null,
-        error: error instanceof Error ? error.message : String(error),
+        error: sanitizeDiscordWebhookError(error),
       });
       throw error;
     }
@@ -296,7 +314,7 @@ export async function pingDiscordWebhookTarget(params: {
       at,
       statusCode:
         error instanceof DiscordWebhookApiError ? error.statusCode : null,
-      error: error instanceof Error ? error.message : String(error),
+      error: sanitizeDiscordWebhookError(error),
     } satisfies DiscordWebhookSendResult;
     discordWebhookLastReachabilityResults.set(target, result);
     return result;

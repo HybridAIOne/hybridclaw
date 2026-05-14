@@ -411,7 +411,9 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
     screen.getByRole('button', { name: /Telegram/i });
     screen.getByRole('button', { name: /Email/i });
     expect(screen.queryByText('No explicit bindings exist yet.')).toBeNull();
@@ -485,7 +487,7 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     const discordButton = await screen.findByRole('button', {
-      name: /Discord/i,
+      name: /^Discord(?! Incoming Webhook)/i,
     });
     expect(discordButton.textContent || '').toContain('available');
     expect(discordButton.textContent || '').not.toContain('active');
@@ -684,7 +686,7 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     const webhookButton = await screen.findByRole('button', {
-      name: /^Incoming Webhook/i,
+      name: /Discord Incoming Webhook/i,
     });
     fireEvent.click(webhookButton);
     fireEvent.change(screen.getByLabelText('Webhook URL'), {
@@ -764,7 +766,7 @@ describe('ChannelsPage', () => {
     renderChannelsPage();
 
     const discordButton = await screen.findByRole('button', {
-      name: /Discord/i,
+      name: /^Discord(?! Incoming Webhook)/i,
     });
     expect(discordButton.textContent || '').toContain('active');
   });
@@ -1260,9 +1262,15 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /^Discord(?! Incoming Webhook)/i,
+      }),
+    );
     const panel = screen
       .getByRole('heading', { name: 'Discord settings' })
       .closest('[data-slot="card"]');
@@ -1302,9 +1310,15 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /^Discord(?! Incoming Webhook)/i,
+      }),
+    );
     fireEvent.click(
       within(screen.getByRole('group', { name: 'Commands only' })).getByRole(
         'button',
@@ -1562,9 +1576,15 @@ describe('ChannelsPage', () => {
 
     renderChannelsPage();
 
-    await screen.findByRole('button', { name: /Discord/i });
+    await screen.findByRole('button', {
+      name: /^Discord(?! Incoming Webhook)/i,
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: /Discord/i }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /^Discord(?! Incoming Webhook)/i,
+      }),
+    );
     expect(screen.queryByLabelText('New token')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Change token' }));
