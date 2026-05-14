@@ -1,4 +1,5 @@
 import type { EscalationTarget } from '../types/execution.js';
+import { recordA2AMessageAudit } from './audit.js';
 import {
   type A2AEnvelope,
   A2AEnvelopeValidationError,
@@ -53,6 +54,29 @@ export function sendMessage(
     route: 'a2a.sendMessage',
     source: 'a2a-runtime',
   });
+  const auditBase = {
+    envelope: deliveredEnvelope,
+    sessionId: meta?.sessionId,
+    runId: meta?.auditRunId,
+    actor: meta?.actor,
+    route: 'a2a.sendMessage',
+    source: 'a2a-runtime',
+    transport: meta?.peerDescriptor ? 'registered' : 'internal',
+  };
+  recordA2AMessageAudit({
+    type: 'a2a.send',
+    ...auditBase,
+  });
+  recordA2AMessageAudit({
+    type: 'a2a.deliver',
+    ...auditBase,
+  });
+  if (deliveredEnvelope.intent === 'handoff') {
+    recordA2AMessageAudit({
+      type: 'a2a.handoff',
+      ...auditBase,
+    });
+  }
   return {
     delivered: true,
     message_id: deliveredEnvelope.id,

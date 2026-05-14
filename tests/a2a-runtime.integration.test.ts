@@ -66,9 +66,11 @@ describe('A2A runtime API', () => {
   });
 
   test('delivers a message from stub agent A to stub agent B inbox', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
     const runtimeConfig = await import('../src/config/runtime-config.ts');
     const runtime = await import('../src/a2a/runtime.ts');
 
+    initDatabase({ quiet: true });
     runtimeConfig.updateRuntimeConfig((draft) => {
       draft.agents.list = [
         { id: 'main', owner: 'team', role: 'lead' },
@@ -130,6 +132,70 @@ describe('A2A runtime API', () => {
     expect(handoff?.content).toContain(
       'recipient_escalation_chain: main (lead)',
     );
+  });
+
+  test('writes A2A message events to the hash-chain audit wire log', async () => {
+    const { initDatabase } = await import('../src/memory/db.ts');
+    const audit = await import('../src/audit/audit-trail.ts');
+    const runtimeConfig = await import('../src/config/runtime-config.ts');
+    const runtime = await import('../src/a2a/runtime.ts');
+
+    initDatabase({ quiet: true });
+    runtimeConfig.updateRuntimeConfig((draft) => {
+      draft.agents.list = [
+        { id: 'main', owner: 'team', role: 'lead' },
+        { id: 'stub-a', owner: 'team', role: 'sender' },
+        { id: 'stub-b', owner: 'team', role: 'recipient' },
+      ];
+    });
+
+    runtime.sendMessage(
+      {
+        id: 'msg-audit',
+        sender_agent_id: 'stub-a',
+        recipient_agent_id: 'stub-b',
+        thread_id: 'thread-audit',
+        intent: 'handoff',
+        content: 'Please pick this up.',
+        created_at: '2026-05-01T10:00:00.000Z',
+      },
+      {
+        actor: 'stub-a',
+        sessionId: 'session-a2a-audit',
+        auditRunId: 'run-a2a-audit',
+      },
+    );
+
+    const wirePath = audit.getAuditWirePath('session-a2a-audit');
+    const lines = fs
+      .readFileSync(wirePath, 'utf-8')
+      .split('\n')
+      .filter(Boolean);
+    const records = lines.slice(1).map((line) => JSON.parse(line));
+
+    expect(records.map((record) => record.event.type)).toEqual([
+      'a2a.send',
+      'a2a.deliver',
+      'a2a.handoff',
+    ]);
+    expect(records[0].event.envelope).toEqual(
+      expect.objectContaining({
+        messageId: 'msg-audit',
+        threadId: 'thread-audit',
+        senderAgentId: 'stub-a@team@local-dev',
+        recipientAgentId: 'stub-b@team@local-dev',
+      }),
+    );
+    expect(records[0].event.envelope).not.toHaveProperty('content');
+    expect(records[1]._prevHash).toBe(records[0]._hash);
+    expect(records[2]._prevHash).toBe(records[1]._hash);
+
+    expect(audit.verifyAuditSessionChain('session-a2a-audit')).toMatchObject({
+      ok: true,
+      checkedRecords: 3,
+      errors: [],
+      lastSeq: 3,
+    });
   });
 
   test('audits and escalates when a peer transport has no adapter', async () => {

@@ -19,6 +19,7 @@ import {
   classifyA2AHttpStatus,
   shouldRetryA2AJsonRpcErrorCode,
 } from './a2a-retry-policy.js';
+import { recordA2AMessageAudit } from './audit.js';
 import { signA2ADelegationToken } from './delegation-token.js';
 import { summarizeA2AEnvelopeForAudit } from './envelope.js';
 import {
@@ -521,6 +522,17 @@ export async function deliverA2AItem(
     lastError: undefined,
   };
   persistA2AOutboxItem(delivered);
+  recordA2AMessageAudit({
+    type: 'a2a.deliver',
+    envelope: delivered.envelope,
+    sessionId: resolveItemSessionId(delivered),
+    runId: resolveItemRunId(delivered, 'a2a-outbound'),
+    route: 'a2a.outbound.delivery',
+    source: 'a2a-outbound',
+    transport: 'a2a',
+    statusCode: response.status,
+    attempts: attemptNumber,
+  });
   recordA2AAudit(delivered, {
     type: 'a2a.outbound.delivered',
     statusCode: response.status,
