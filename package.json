@@ -116,6 +116,7 @@
     "docx": "9.6.1",
     "iconv-lite": "0.7.2",
     "imapflow": "1.2.18",
+    "impit": "0.13.0",
     "mailparser": "3.9.6",
     "marked": "17.0.4",
     "node-pty": "1.1.0",
