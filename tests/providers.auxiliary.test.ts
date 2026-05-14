@@ -5,19 +5,43 @@ afterEach(() => {
   vi.resetModules();
   vi.unstubAllGlobals();
   vi.doUnmock('../src/logger.js');
+  vi.doUnmock('../src/config/runtime-config.js');
   vi.doUnmock('../src/providers/task-routing.js');
   vi.doUnmock('../src/providers/factory.js');
 });
 
 function setupProviderMocks({
+  runtimeDefaultModel,
   resolveTaskModelPolicy,
   resolveDefaultAuxiliaryModelForProvider,
   resolveModelRuntimeCredentials,
 }: {
+  runtimeDefaultModel?: string;
   resolveTaskModelPolicy: ReturnType<typeof vi.fn>;
   resolveDefaultAuxiliaryModelForProvider?: ReturnType<typeof vi.fn>;
   resolveModelRuntimeCredentials: ReturnType<typeof vi.fn>;
 }): void {
+  if (runtimeDefaultModel !== undefined) {
+    vi.doMock('../src/config/runtime-config.js', async () => {
+      const actual = await vi.importActual<
+        typeof import('../src/config/runtime-config.js')
+      >('../src/config/runtime-config.js');
+      return {
+        ...actual,
+        getRuntimeConfig: () => {
+          const config = actual.getRuntimeConfig();
+          return {
+            ...config,
+            hybridai: {
+              ...config.hybridai,
+              defaultModel: runtimeDefaultModel,
+            },
+          };
+        },
+      };
+    });
+  }
+
   vi.doMock('../src/providers/task-routing.js', async () => {
     const actual = await vi.importActual<
       typeof import('../src/providers/task-routing.js')
@@ -879,10 +903,10 @@ test('host auxiliary caller tries discovered local fallback before openrouter wi
     resolveDefaultAuxiliaryModelForProvider,
     resolveModelRuntimeCredentials,
   });
-  const warn = vi.fn();
+  const debug = vi.fn();
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      warn,
+      debug,
     },
   }));
 
@@ -927,7 +951,104 @@ test('host auxiliary caller tries discovered local fallback before openrouter wi
     content: 'Recovered through discovered local fallback.',
   });
   expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenCalledWith('vllm');
-  expect(warn).toHaveBeenCalledWith(
+  expect(debug).toHaveBeenCalledWith(
+    expect.objectContaining({
+      task: 'compression',
+      primaryProvider: 'auto',
+      fallbackProvider: 'vllm',
+      modelHint: 'vllm/Qwen/Qwen3.6-27B-FP8',
+      primaryError: expect.any(Error),
+    }),
+    'Auxiliary provider resolution failed; using local model fallback',
+  );
+});
+
+test('host auxiliary caller prefers the configured local default provider before other discovered locals', async () => {
+  const resolveTaskModelPolicy = vi.fn(async () => ({
+    model: 'anthropic/claude-3-7-sonnet',
+    error: 'Anthropic provider is not implemented yet.',
+  }));
+  const resolveDefaultAuxiliaryModelForProvider = vi.fn((provider: string) => {
+    if (provider === 'lmstudio') return 'lmstudio/nvidia/nemotron-3-nano';
+    if (provider === 'vllm') return 'vllm/Qwen/Qwen3.6-27B-FP8';
+    return undefined;
+  });
+  const resolveModelRuntimeCredentials = vi.fn(
+    async ({ model }: { model: string }) => {
+      expect(model).toBe('vllm/Qwen/Qwen3.6-27B-FP8');
+      return {
+        provider: 'vllm' as const,
+        apiKey: '',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        chatbotId: '',
+        enableRag: false,
+        requestHeaders: {},
+        agentId: 'main',
+        isLocal: true,
+        contextWindow: 128_000,
+        thinkingFormat: undefined,
+      };
+    },
+  );
+  setupProviderMocks({
+    runtimeDefaultModel: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    resolveTaskModelPolicy,
+    resolveDefaultAuxiliaryModelForProvider,
+    resolveModelRuntimeCredentials,
+  });
+  const debug = vi.fn();
+  vi.doMock('../src/logger.js', () => ({
+    logger: {
+      debug,
+    },
+  }));
+
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(input).toBe('http://127.0.0.1:8000/v1/chat/completions');
+      const body = JSON.parse(String(init?.body || '{}')) as Record<
+        string,
+        unknown
+      >;
+      expect(body.model).toBe('Qwen/Qwen3.6-27B-FP8');
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: 'Recovered through default vLLM fallback.',
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    },
+  );
+  vi.stubGlobal('fetch', fetchMock);
+
+  const { callAuxiliaryModel } = await import('../src/providers/auxiliary.js');
+  const result = await callAuxiliaryModel({
+    task: 'compression',
+    agentId: 'main',
+    messages: [{ role: 'user', content: 'Summarize this transcript.' }],
+  });
+
+  expect(result).toEqual({
+    provider: 'vllm',
+    model: 'vllm/Qwen/Qwen3.6-27B-FP8',
+    content: 'Recovered through default vLLM fallback.',
+  });
+  expect(resolveDefaultAuxiliaryModelForProvider).toHaveBeenNthCalledWith(
+    1,
+    'vllm',
+  );
+  expect(resolveModelRuntimeCredentials).toHaveBeenCalledTimes(1);
+  expect(debug).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'compression',
       primaryProvider: 'auto',
@@ -960,10 +1081,10 @@ test('host auxiliary caller prefers local model fallback when task resolution fa
     resolveTaskModelPolicy,
     resolveModelRuntimeCredentials,
   });
-  const warn = vi.fn();
+  const debug = vi.fn();
   vi.doMock('../src/logger.js', () => ({
     logger: {
-      warn,
+      debug,
     },
   }));
 
@@ -1008,7 +1129,7 @@ test('host auxiliary caller prefers local model fallback when task resolution fa
     model: 'vllm/Qwen/Qwen3.6-27B-FP8',
     content: 'Recovered through local fallback.',
   });
-  expect(warn).toHaveBeenCalledWith(
+  expect(debug).toHaveBeenCalledWith(
     expect.objectContaining({
       task: 'compression',
       primaryProvider: 'auto',

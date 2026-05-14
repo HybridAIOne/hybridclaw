@@ -4,9 +4,13 @@ import {
   drainServerSentEventBlocks,
   parseServerSentEventBlock,
 } from '../../container/shared/server-sent-events.js';
+import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
-import { resolveModelRuntimeCredentials } from './factory.js';
+import {
+  resolveModelProvider,
+  resolveModelRuntimeCredentials,
+} from './factory.js';
 import {
   stripHybridAIModelPrefix,
   stripProviderPrefix,
@@ -413,6 +417,44 @@ async function withOpenRouterFallback(
   throw primaryError;
 }
 
+function resolveLocalProviderForModel(
+  model: string | null | undefined,
+): RuntimeProvider | undefined {
+  const trimmed = model?.trim() ?? '';
+  if (!trimmed) return undefined;
+  const explicitProvider = detectRuntimeProviderPrefix(trimmed);
+  if (explicitProvider) {
+    return isLocalBackendType(explicitProvider) ? explicitProvider : undefined;
+  }
+  const resolvedProvider = resolveModelProvider(trimmed);
+  return isLocalBackendType(resolvedProvider) ? resolvedProvider : undefined;
+}
+
+function resolveLocalFallbackProviderOrder(params: {
+  params: AuxiliaryModelCallParams;
+  modelHint?: string;
+}): RuntimeProvider[] {
+  const providers: RuntimeProvider[] = [];
+  const seen = new Set<string>();
+  const pushProvider = (provider: RuntimeProvider | undefined): void => {
+    if (!provider || !isLocalBackendType(provider) || seen.has(provider)) {
+      return;
+    }
+    seen.add(provider);
+    providers.push(provider);
+  };
+
+  pushProvider(resolveLocalProviderForModel(params.params.fallbackModel));
+  pushProvider(resolveLocalProviderForModel(params.modelHint));
+  pushProvider(
+    resolveLocalProviderForModel(getRuntimeConfig().hybridai.defaultModel),
+  );
+  for (const provider of LOCAL_BACKEND_IDS) {
+    pushProvider(provider);
+  }
+  return providers;
+}
+
 async function resolveLocalFallbackContext(params: {
   params: AuxiliaryModelCallParams;
   primaryError: unknown;
@@ -446,7 +488,7 @@ async function resolveLocalFallbackContext(params: {
 
   pushCandidate(params.params.fallbackModel);
   pushCandidate(params.modelHint);
-  for (const provider of LOCAL_BACKEND_IDS) {
+  for (const provider of resolveLocalFallbackProviderOrder(params)) {
     pushCandidate(resolveDefaultAuxiliaryModelForProvider(provider), provider);
   }
 
@@ -464,7 +506,7 @@ async function resolveLocalFallbackContext(params: {
         expectedProvider: candidate.expectedProvider,
       });
       if (!isLocalBackendType(fallback.provider)) continue;
-      logger.warn(
+      logger.debug(
         {
           task: params.params.task,
           primaryProvider:
