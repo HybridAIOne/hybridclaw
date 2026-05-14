@@ -22,6 +22,8 @@ hybridclaw channels discord_webhook setup \
 
 HybridClaw stores each full webhook URL as a runtime secret, writes only a SecretRef to runtime config, and adds a managed POST-only network policy grant scoped to Discord webhook endpoints.
 
+The gateway hot-loads Discord webhook config changes. After setup, use `hybridclaw gateway status` to confirm the target is visible; a gateway restart is not required.
+
 ## Send
 
 Default target:

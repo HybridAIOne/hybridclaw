@@ -2297,8 +2297,8 @@ async function configureSlackWebhookChannel(args: string[]): Promise<void> {
       .join(', ')}`,
   );
   console.log('Next:');
-  console.log('  Restart the gateway to pick up Slack webhook settings:');
-  console.log('    hybridclaw gateway restart --foreground');
+  console.log('  Gateway hot-loads Slack webhook settings automatically.');
+  console.log('  Confirm status with:');
   console.log('    hybridclaw gateway status');
   console.log(
     `  Send with: message {"action":"send","to":"slack_webhook:${parsed.target}","content":"message text"}`,
@@ -2382,8 +2382,8 @@ async function configureDiscordWebhookChannel(args: string[]): Promise<void> {
       .join(', ')}`,
   );
   console.log('Next:');
-  console.log('  Restart the gateway to pick up Discord webhook settings:');
-  console.log('    hybridclaw gateway restart --foreground');
+  console.log('  Gateway hot-loads Discord webhook settings automatically.');
+  console.log('  Confirm status with:');
   console.log('    hybridclaw gateway status');
   console.log(
     `  Send with: message {"action":"send","to":"discord_webhook:${parsed.target}","content":"message text"}`,
