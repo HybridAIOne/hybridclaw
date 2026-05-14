@@ -298,10 +298,11 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     storeMessage(session.id, 'user-1', 'alice', 'user', 'Second turn');
     storeMessage(session.id, 'assistant', null, 'assistant', 'Second answer');
 
-    const buildPromptAt = (iso: string): string => {
+    const buildPromptAt = (iso: string, sessionSummary?: string): string => {
       vi.setSystemTime(new Date(iso));
       const { messages } = buildConversationContext({
         agentId: session.agent_id,
+        sessionSummary,
         history: [],
         currentUserContent: 'Trace prefix stability',
         runtimeInfo: {
@@ -322,7 +323,14 @@ test('trace export keeps consecutive buildConversationContext system prompts byt
     };
 
     const firstSystemPrompt = buildPromptAt('2026-05-13T12:00:00.000Z');
-    const secondSystemPrompt = buildPromptAt('2026-05-13T12:01:00.000Z');
+    const secondSystemPrompt = buildPromptAt(
+      '2026-05-13T12:01:00.000Z',
+      [
+        '### Relevant Memory Recall',
+        'Topic-matched context from older turns.',
+        '- [mem:1] User asked for date and local time.',
+      ].join('\n'),
+    );
     expect(secondSystemPrompt).toBe(firstSystemPrompt);
 
     const recordTurn = (index: number, systemPrompt: string) => {

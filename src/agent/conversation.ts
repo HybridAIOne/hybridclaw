@@ -20,6 +20,8 @@ import {
   resolveUserTimezoneFromContextFiles,
 } from '../workspace.js';
 import {
+  buildRetrievedContextPrompt,
+  buildSessionSummaryPrompt,
   buildSystemPromptFromHooks,
   type PromptMode,
   type PromptPartName,
@@ -44,6 +46,8 @@ function sanitizeDynamicContextValue(value: string): string {
 interface DynamicContextMessageOptions {
   agentId?: string;
   now?: Date;
+  retrievedContext?: string | null;
+  sessionSummary?: string | null;
 }
 
 export function buildDynamicContextMessage(
@@ -52,6 +56,13 @@ export function buildDynamicContextMessage(
   const now = options instanceof Date ? options : options.now || new Date();
   const agentId = options instanceof Date ? undefined : options.agentId;
   const lines = ['<context>', `Date (UTC): ${now.toISOString().slice(0, 10)}`];
+  const dynamicSections: string[] = [];
+  if (!(options instanceof Date)) {
+    dynamicSections.push(
+      buildSessionSummaryPrompt(options.sessionSummary),
+      buildRetrievedContextPrompt(options.retrievedContext),
+    );
+  }
 
   if (agentId) {
     const contextFiles = loadStaticBootstrapFiles(agentId);
@@ -68,11 +79,12 @@ export function buildDynamicContextMessage(
     lines.push('</context>');
 
     if (dailyMemoryFile) {
-      lines.push(
-        '',
-        `## Daily Memory (${dailyMemoryFile.name})`,
-        '',
-        dailyMemoryFile.content,
+      dynamicSections.push(
+        [
+          `## Daily Memory (${dailyMemoryFile.name})`,
+          '',
+          dailyMemoryFile.content,
+        ].join('\n'),
       );
     }
   } else {
@@ -82,7 +94,12 @@ export function buildDynamicContextMessage(
     lines.push('</context>');
   }
 
-  return { role: 'user', content: lines.join('\n') };
+  return {
+    role: 'user',
+    content: [lines.join('\n'), ...dynamicSections.filter(Boolean)].join(
+      '\n\n',
+    ),
+  };
 }
 
 function resolvePreviousUserContent(history: HistoryMessage[]): string | null {
@@ -148,8 +165,6 @@ export function buildConversationContext(params: {
       : null;
   const systemPrompt = buildSystemPromptFromHooks({
     agentId,
-    sessionSummary,
-    retrievedContext,
     skills,
     explicitSkillInvocation,
     purpose: 'conversation',
@@ -165,7 +180,13 @@ export function buildConversationContext(params: {
   const messages: ChatMessage[] = [];
   if (systemPrompt) {
     messages.push({ role: 'system', content: systemPrompt });
-    messages.push(buildDynamicContextMessage({ agentId }));
+    messages.push(
+      buildDynamicContextMessage({
+        agentId,
+        retrievedContext,
+        sessionSummary,
+      }),
+    );
   }
 
   const historyMessages = [...history].reverse().map(

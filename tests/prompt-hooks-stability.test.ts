@@ -94,6 +94,8 @@ test('buildConversationContext appends dynamic context before history', async ()
     vi.setSystemTime(new Date('2026-05-13T12:00:00.000Z'));
     const context = buildConversationContext({
       agentId,
+      sessionSummary: '### Relevant Memory Recall\n- [mem:1] Prior fact.',
+      retrievedContext: 'External retrieval result.',
       history: [{ role: 'user', content: 'Hello' }],
       runtimeInfo: {
         model: 'openai-codex/gpt-5.4',
@@ -105,10 +107,18 @@ test('buildConversationContext appends dynamic context before history', async ()
     expect(context.messages[0]?.content).not.toContain('Date (UTC):');
     expect(context.messages[0]?.content).not.toContain('Current Date & Time:');
     expect(context.messages[0]?.content).not.toContain('Stable per-turn note.');
+    expect(context.messages[0]?.content).not.toContain(
+      'Relevant Memory Recall',
+    );
+    expect(context.messages[0]?.content).not.toContain(
+      'External retrieval result.',
+    );
     expect(context.messages[1]).toEqual(
       buildDynamicContextMessage({
         agentId,
         now: new Date('2026-05-13T12:00:00.000Z'),
+        sessionSummary: '### Relevant Memory Recall\n- [mem:1] Prior fact.',
+        retrievedContext: 'External retrieval result.',
       }),
     );
     expect(context.messages[1]?.content).toContain('Date (UTC): 2026-05-13');
@@ -120,6 +130,14 @@ test('buildConversationContext appends dynamic context before history', async ()
       '## Daily Memory (memory/2026-05-13.md)',
     );
     expect(context.messages[1]?.content).toContain('Stable per-turn note.');
+    expect(context.messages[1]?.content).toContain(
+      '## Session Summary\nCompressed and recalled context',
+    );
+    expect(context.messages[1]?.content).toContain('Relevant Memory Recall');
+    expect(context.messages[1]?.content).toContain('## Retrieved Context');
+    expect(context.messages[1]?.content).toContain(
+      'External retrieval result.',
+    );
     expect(context.messages[2]).toEqual({ role: 'user', content: 'Hello' });
   } finally {
     vi.useRealTimers();
