@@ -2,6 +2,7 @@ import { isEmailAddress } from '../channels/email/allowlist.js';
 import { isIMessageHandle } from '../channels/imessage/handle.js';
 import { isSignalChannelId } from '../channels/signal/target.js';
 import { isSlackChannelTarget } from '../channels/slack/target.js';
+import { isSlackWebhookChannelTarget } from '../channels/slack-webhook/target.js';
 import { isTelegramChannelId } from '../channels/telegram/target.js';
 import { isThreemaChannelId } from '../channels/threema/target.js';
 import { isVoiceChannelId } from '../channels/voice/channel-id.js';
@@ -48,6 +49,7 @@ export function resolveSessionResetChannelKind(
   if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
   if (isSignalChannelId(normalized)) return 'signal';
+  if (isSlackWebhookChannelTarget(normalized)) return 'slack_webhook';
   if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';
   if (isThreemaChannelId(normalized)) return 'threema';

@@ -44,6 +44,7 @@
       "msteams": [],
       "signal": [],
       "slack": [],
+      "slack_webhook": [],
       "telegram": [],
       "threema": [],
       "voice": [],
@@ -60,6 +61,7 @@
     "msteams": "",
     "signal": "",
     "slack": "",
+    "slack_webhook": "",
     "telegram": "",
     "threema": "",
     "voice": "This is a live phone call. Produce plain spoken text only.\nKeep each reply short and conversational, usually one or two short sentences.\nAbsolutely no markdown, bullets, numbered lists, headings, code fences, tables, JSON, or decorative formatting.\nDo not narrate internal reasoning, planning, tool usage, or stage directions. Say only what the caller should hear.\nDo not spell punctuation, formatting marks, or raw URLs unless the caller explicitly asks for exact characters.",
@@ -183,6 +185,10 @@
     "textChunkLimit": 12000,
     "replyStyle": "thread",
     "mediaMaxMb": 20
+  },
+  "slackWebhook": {
+    "enabled": false,
+    "webhooks": {}
   },
   "telegram": {
     "enabled": false,

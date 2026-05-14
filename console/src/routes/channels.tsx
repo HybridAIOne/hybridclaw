@@ -5,6 +5,7 @@ import {
   fetchEmailConfig,
   fetchSignalLink,
   saveConfig,
+  saveSlackWebhookTarget,
   setRuntimeSecret,
   startSignalLink,
   validateToken,
@@ -2518,6 +2519,149 @@ function SlackChannelEditor(props: {
   );
 }
 
+function SlackWebhookChannelEditor(props: {
+  draft: AdminConfig;
+  onConfigSaved: (config: AdminConfig) => void;
+  token: string;
+  updateDraft: ConfigUpdater;
+}) {
+  const toast = useToast();
+  const targets = Object.keys(props.draft.slackWebhook.webhooks).sort();
+  const [target, setTarget] = useState(targets[0] || 'default');
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [defaultUsername, setDefaultUsername] = useState('');
+  const [defaultIconEmoji, setDefaultIconEmoji] = useState('');
+  const [defaultIconUrl, setDefaultIconUrl] = useState('');
+  const selectedTarget = props.draft.slackWebhook.webhooks[target];
+  const saveTargetMutation = useMutation({
+    mutationFn: async () =>
+      saveSlackWebhookTarget(props.token, {
+        target,
+        webhookUrl: webhookUrl.trim() || undefined,
+        defaultUsername,
+        defaultIconEmoji,
+        defaultIconUrl,
+      }),
+    onSuccess: (payload) => {
+      props.onConfigSaved(payload.config);
+      setWebhookUrl('');
+      toast.success('Slack webhook target saved.');
+    },
+    onError: (error) => {
+      toast.error('Save failed', getErrorMessage(error));
+    },
+  });
+
+  useEffect(() => {
+    const config = props.draft.slackWebhook.webhooks[target];
+    setDefaultUsername(config?.defaultUsername || '');
+    setDefaultIconEmoji(config?.defaultIconEmoji || '');
+    setDefaultIconUrl(config?.defaultIconUrl || '');
+  }, [props.draft.slackWebhook.webhooks, target]);
+
+  return (
+    <>
+      <BooleanField
+        label="Enabled"
+        value={props.draft.slackWebhook.enabled}
+        trueLabel="on"
+        falseLabel="off"
+        onChange={(enabled) =>
+          props.updateDraft((current) => ({
+            ...current,
+            slackWebhook: {
+              ...current.slackWebhook,
+              enabled,
+            },
+          }))
+        }
+      />
+
+      <div className="field">
+        <span>Webhook targets</span>
+        <div className="readonly-value">
+          {targets.length > 0 ? targets.join(', ') : 'none'}
+        </div>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Target</span>
+          <input
+            list="slack-webhook-targets"
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+          />
+          <datalist id="slack-webhook-targets">
+            {targets.map((entry) => (
+              <option key={entry} value={entry} />
+            ))}
+          </datalist>
+        </label>
+        <label className="field">
+          <span>Webhook URL</span>
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={
+              selectedTarget ? 'leave blank to keep current URL' : 'required'
+            }
+            value={webhookUrl}
+            onChange={(event) => setWebhookUrl(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="field-grid">
+        <label className="field">
+          <span>Username</span>
+          <input
+            value={defaultUsername}
+            onChange={(event) => setDefaultUsername(event.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Icon emoji</span>
+          <input
+            value={defaultIconEmoji}
+            onChange={(event) => setDefaultIconEmoji(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <label className="field">
+        <span>Icon URL</span>
+        <input
+          value={defaultIconUrl}
+          onChange={(event) => setDefaultIconUrl(event.target.value)}
+        />
+      </label>
+
+      <div className="button-row">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={saveTargetMutation.isPending}
+          onClick={() => saveTargetMutation.mutate()}
+        >
+          {saveTargetMutation.isPending ? 'Saving...' : 'Save webhook target'}
+        </button>
+      </div>
+
+      <p className="muted-copy">
+        Webhook URLs are stored as encrypted runtime secrets and are never shown
+        after save.
+      </p>
+
+      <ChannelInstructionsField
+        kind="slack_webhook"
+        draft={props.draft}
+        updateDraft={props.updateDraft}
+      />
+    </>
+  );
+}
+
 function IMessageChannelEditor(props: {
   draft: AdminConfig;
   updateDraft: ConfigUpdater;
@@ -2865,6 +3009,7 @@ function renderSelectedEditor(
     cliVersion: string | null;
     cliError: string | null;
   },
+  onConfigSaved: (config: AdminConfig) => void,
   onSecretSaved: () => void,
 ) {
   switch (kind) {
@@ -2899,6 +3044,15 @@ function renderSelectedEditor(
           appTokenSource={secretStatus.slack.appSource}
           token={token}
           onSecretSaved={onSecretSaved}
+        />
+      );
+    case 'slack_webhook':
+      return (
+        <SlackWebhookChannelEditor
+          draft={draft}
+          onConfigSaved={onConfigSaved}
+          token={token}
+          updateDraft={updateDraft}
         />
       );
     case 'telegram':
@@ -3018,6 +3172,8 @@ export function ChannelsPage() {
         discordTokenConfigured: statusQuery.data?.discord?.tokenConfigured,
         slackBotTokenConfigured: statusQuery.data?.slack?.botTokenConfigured,
         slackAppTokenConfigured: statusQuery.data?.slack?.appTokenConfigured,
+        slackWebhookDefaultConfigured:
+          statusQuery.data?.slackWebhook?.defaultTargetConfigured,
         telegramTokenConfigured: statusQuery.data?.telegram?.tokenConfigured,
         threemaSecretConfigured: statusQuery.data?.threema?.secretConfigured,
         signalDaemonUrlConfigured:
@@ -3160,6 +3316,17 @@ export function ChannelsPage() {
                     hybridaiApiKeyConfigured,
                     whatsappStatus,
                     signalStatus,
+                    (config) => {
+                      const payload = {
+                        path: configQuery.data?.path || '',
+                        config,
+                      };
+                      queryClient.setQueryData(['config', auth.token], payload);
+                      setDraft(cloneConfig(config));
+                      void queryClient.invalidateQueries({
+                        queryKey: ['status', auth.token],
+                      });
+                    },
                     () => {
                       void queryClient.invalidateQueries({
                         queryKey: ['status', auth.token],
