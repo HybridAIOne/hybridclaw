@@ -49,9 +49,12 @@ export interface JudgeGoalCompletionParams {
   ) => Promise<GoalJudgeModelCallResponse>;
 }
 
-const GOAL_JUDGE_MAX_TOKENS = 200;
+const GOAL_JUDGE_MAX_TOKENS = 400;
 const GOAL_JUDGE_TIMEOUT_MS = 30_000;
 const GOAL_JUDGE_SUBSCRIBER_TIMEOUT_MS = 35_000;
+const GOAL_JUDGE_STRUCTURED_BODY = {
+  response_format: { type: 'json_object' },
+};
 
 export const GOAL_JUDGE_SUBSCRIBER_ID = 'goal_judge';
 
@@ -73,8 +76,12 @@ function buildGoalJudgeMessages(params: {
       role: 'system',
       content: [
         'You judge whether an assistant has completed a standing user goal.',
+        '/no_think',
         'Return only strict JSON with this shape: {"done": true|false, "reason": "..."}',
+        'Output exactly one JSON object and no prose, markdown, code fences, or hidden reasoning.',
         'Be conservative: if there is any meaningful next step, set done to false.',
+        'Do not return done true until every explicit completion condition in the goal is satisfied.',
+        'If the latest response is an intermediate numbered or counting step and the goal names a later final step, set done to false.',
         'Do not mark the goal done only because the assistant says it will continue later or is blocked.',
       ].join('\n'),
     },
@@ -142,6 +149,35 @@ async function recordGoalJudgeUsage(params: {
   });
 }
 
+function isEmptyGoalJudgeResponseError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('goal_judge returned an empty response');
+}
+
+async function callGoalJudgeAuxiliaryModel(
+  messages: ChatMessage[],
+): Promise<GoalJudgeModelCallResponse> {
+  try {
+    return await callAuxiliaryModel({
+      task: 'goal_judge',
+      messages,
+      maxTokens: GOAL_JUDGE_MAX_TOKENS,
+      temperature: 0,
+      timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
+      extraBody: GOAL_JUDGE_STRUCTURED_BODY,
+    });
+  } catch (error) {
+    if (!isEmptyGoalJudgeResponseError(error)) throw error;
+    return await callAuxiliaryModel({
+      task: 'goal_judge',
+      messages,
+      maxTokens: GOAL_JUDGE_MAX_TOKENS,
+      temperature: 0,
+      timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
+    });
+  }
+}
+
 async function judgeGoalCompletionDirect(
   params: JudgeGoalCompletionParams,
 ): Promise<GoalJudgeResult> {
@@ -158,16 +194,7 @@ async function judgeGoalCompletionDirect(
           temperature: 0,
           timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
         })
-      : await callAuxiliaryModel({
-          task: 'goal_judge',
-          messages,
-          maxTokens: GOAL_JUDGE_MAX_TOKENS,
-          temperature: 0,
-          timeoutMs: GOAL_JUDGE_TIMEOUT_MS,
-          extraBody: {
-            response_format: { type: 'json_object' },
-          },
-        });
+      : await callGoalJudgeAuxiliaryModel(messages);
     try {
       await recordGoalJudgeUsage({
         sessionId: params.sessionId,

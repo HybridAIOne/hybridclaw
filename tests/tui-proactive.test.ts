@@ -25,6 +25,11 @@ test('uses delegate badge for queued delegation proactive messages', () => {
   expect(proactiveSourceSuffix('delegate:queued')).toBe('');
 });
 
+test('uses goal badge for standing goal continuations', () => {
+  expect(proactiveBadgeLabel('goal-continuation')).toBe('goal');
+  expect(proactiveSourceSuffix('goal-continuation')).toBe('');
+});
+
 test('suppresses reminder chrome for scheduler config job outputs', () => {
   expect(proactiveBadgeLabel('schedule-job:release-brief')).toBeNull();
   expect(proactiveSourceSuffix('schedule-job:release-brief')).toBe('');
