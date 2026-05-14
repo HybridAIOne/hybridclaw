@@ -205,6 +205,30 @@ function buildAudioUsageEvent(params: {
   };
 }
 
+function buildDiagramUsageEvent(params: {
+  sessionId: string;
+  agentId: string;
+  auditRunId: string;
+  payload: Record<string, unknown>;
+}): TokenUsageEvent | null {
+  if (params.payload.success !== true) return null;
+  const usage = isRecord(params.payload.usage) ? params.payload.usage : {};
+  const renders = readInteger(usage.renders);
+  if (renders <= 0) return null;
+  const format = readString(params.payload.format) || 'unknown';
+  return {
+    sessionId: params.sessionId,
+    agentId: params.agentId,
+    model: `diagram/${format}`,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    toolCalls: 0,
+    costUsd: 0,
+    auditRunId: params.auditRunId,
+  };
+}
+
 export function buildMediaGenerationUsageEvents(
   input: MediaUsageEventInput,
 ): TokenUsageEvent[] {
@@ -227,6 +251,12 @@ export function buildMediaGenerationUsageEvents(
       if (event) events.push(event);
     } else if (execution.name === 'video_generate') {
       const event = buildVideoUsageEvent(params);
+      if (event) events.push(event);
+    } else if (
+      execution.name === 'diagram_create' ||
+      execution.name === 'diagram_update'
+    ) {
+      const event = buildDiagramUsageEvent(params);
       if (event) events.push(event);
     }
   }

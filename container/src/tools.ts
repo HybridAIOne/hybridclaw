@@ -2363,7 +2363,7 @@ async function fixDiagramSourceWithAuxiliary(
     const fixed = await callTextAuxiliaryTask({
       runtimeContext,
       task: 'skills_hub',
-      toolName: 'diagram.fixup',
+      toolName: 'diagram_fixup',
       maxTokens: 1600,
       messages: [
         {

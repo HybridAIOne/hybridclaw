@@ -258,10 +258,61 @@ function hasBalancedDelimiters(source: string): boolean {
   return stack.length === 0 && quote === null;
 }
 
-function validateMermaid(
+type MermaidParser = {
+  initialize: (options: Record<string, unknown>) => void;
+  parse: (
+    source: string,
+    options?: Record<string, unknown>,
+  ) => Promise<unknown> | unknown;
+};
+
+let mermaidParserPromise: Promise<MermaidParser> | null = null;
+
+async function loadMermaidParser(): Promise<MermaidParser> {
+  if (!mermaidParserPromise) {
+    mermaidParserPromise = (async () => {
+      const globalScope = globalThis as typeof globalThis & {
+        window?: unknown;
+        document?: unknown;
+        DOMPurify?: unknown;
+      };
+      if (!globalScope.window || !globalScope.document) {
+        const { parseHTML } = await import('linkedom');
+        const { window } = parseHTML('<html><body></body></html>');
+        globalScope.window = window;
+        globalScope.document = window.document;
+      }
+      if (!globalScope.DOMPurify) {
+        const createDOMPurify = (await import('dompurify')).default as (
+          window: unknown,
+        ) => unknown;
+        globalScope.DOMPurify = createDOMPurify(globalScope.window);
+      }
+      const module = (await import('mermaid')) as {
+        default?: MermaidParser;
+      };
+      const mermaid = module.default;
+      if (!mermaid?.parse || !mermaid.initialize) {
+        throw new Error('Mermaid parser API is unavailable.');
+      }
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+      return mermaid;
+    })();
+  }
+  return mermaidParserPromise;
+}
+
+function parseErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) {
+    return err.message.trim().split(/\r?\n/)[0] || err.message.trim();
+  }
+  return String(err || 'unknown parse error');
+}
+
+async function validateMermaid(
   source: string,
   type: MermaidDiagramType,
-): DiagramValidation {
+): Promise<DiagramValidation> {
   const body = stripFence(source);
   const errors: string[] = [];
   const first = firstMeaningfulLine(body);
@@ -334,6 +385,15 @@ function validateMermaid(
     errors.push('Pie charts need at least one "Label" : number entry.');
   }
 
+  if (errors.length === 0) {
+    try {
+      const mermaid = await loadMermaidParser();
+      await mermaid.parse(body, { suppressErrors: false });
+    } catch (err) {
+      errors.push(`Mermaid parser rejected source: ${parseErrorMessage(err)}`);
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -385,11 +445,11 @@ function validateExcalidraw(source: string): DiagramValidation {
   return { valid: errors.length === 0, errors };
 }
 
-function validateDiagramSource(
+async function validateDiagramSource(
   source: string,
   format: DiagramFormat,
   type: MermaidDiagramType,
-): DiagramValidation {
+): Promise<DiagramValidation> {
   if (format === 'plantuml') return validatePlantUml(source);
   if (format === 'graphviz') return validateGraphviz(source);
   if (format === 'excalidraw') return validateExcalidraw(source);
@@ -1082,7 +1142,7 @@ async function validateWithFixups(
   fixupAttempts: number;
 }> {
   let request = initialRequest;
-  let validation = validateDiagramSource(
+  let validation = await validateDiagramSource(
     request.source,
     request.format,
     request.type,
@@ -1106,7 +1166,11 @@ async function validateWithFixups(
     fixupAttempts = attempt;
     if (!fixedSource) break;
     const source = stripFence(fixedSource);
-    validation = validateDiagramSource(source, request.format, request.type);
+    validation = await validateDiagramSource(
+      source,
+      request.format,
+      request.type,
+    );
     request = {
       ...request,
       source,
@@ -1126,7 +1190,7 @@ export async function runDiagramTool(
   options?: DiagramRuntimeOptions,
 ): Promise<string> {
   let request = normalizeRequest(args, action);
-  let validation = validateDiagramSource(
+  let validation = await validateDiagramSource(
     request.source,
     request.format,
     request.type,

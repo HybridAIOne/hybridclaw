@@ -99,6 +99,11 @@ describe('diagram tools', () => {
         source_artifact_ref: string;
         type: string;
         format: string;
+        artifacts: Array<{
+          path: string;
+          kind: string;
+          scope: { type: string; id: string };
+        }>;
       };
 
       expect(result.isError).toBe(false);
@@ -108,6 +113,23 @@ describe('diagram tools', () => {
       expect(parsed.format).toBe('mermaid');
       expect(parsed.source_artifact_ref).toContain(
         '/workspace/.generated-diagrams/skills/diagram/',
+      );
+      expect(path.dirname(parsed.rendered_artifact_ref)).toBe(
+        path.dirname(parsed.source_artifact_ref),
+      );
+      expect(parsed.artifacts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: parsed.source_artifact_ref,
+            kind: 'source',
+            scope: { type: 'skill', id: 'diagram' },
+          }),
+          expect.objectContaining({
+            path: parsed.rendered_artifact_ref,
+            kind: 'rendered',
+            scope: { type: 'skill', id: 'diagram' },
+          }),
+        ]),
       );
       expect(fs.existsSync(hostPath(parsed.source_artifact_ref))).toBe(true);
       expect(fs.existsSync(hostPath(parsed.rendered_artifact_ref))).toBe(true);
@@ -201,6 +223,29 @@ describe('diagram tools', () => {
     expect(parsed.valid).toBe(false);
     expect(parsed.errors.join('\n')).toContain('unbalanced');
     expect(parsed.suggested_fix).toContain('flowchart TD');
+  });
+
+  test('Mermaid parser catches syntax errors beyond structural checks', async () => {
+    const { executeToolWithMetadata } = await loadTools();
+
+    const result = await executeToolWithMetadata(
+      'diagram_validate',
+      JSON.stringify({
+        source: 'flowchart TD\n  A -->',
+        type: 'flowchart',
+        format: 'mermaid',
+      }),
+    );
+    const parsed = JSON.parse(result.output) as {
+      valid: boolean;
+      errors: string[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(parsed.valid).toBe(false);
+    expect(parsed.errors.join('\n')).toContain(
+      'Mermaid parser rejected source',
+    );
   });
 
   test('accepts CRLF fenced source and escaped quotes during validation', async () => {

@@ -208,4 +208,39 @@ describe('media generation usage accounting', () => {
       }),
     );
   });
+
+  test('records diagram renders as zero-cost local usage hooks', () => {
+    const events = buildMediaGenerationUsageEvents({
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      auditRunId: 'run-1',
+      toolExecutions: [
+        {
+          name: 'diagram_create',
+          arguments: '{}',
+          result: JSON.stringify({
+            success: true,
+            format: 'mermaid',
+            rendered_artifact_ref:
+              '/workspace/.generated-diagrams/skills/diagram/a.svg',
+            usage: { renders: 1, llm_tokens: 0 },
+          }),
+          durationMs: 100,
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        auditRunId: 'run-1',
+        model: 'diagram/mermaid',
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        costUsd: 0,
+      }),
+    ]);
+  });
 });
