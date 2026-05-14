@@ -8,6 +8,12 @@ import { getRuntimeConfig } from '../config/runtime-config.js';
 import { logger } from '../logger.js';
 import type { ChatMessage } from '../types/api.js';
 import {
+  buildAnthropicSupportingHeaders,
+  isAnthropicOAuthToken,
+  normalizeAnthropicBaseUrl,
+  stripAnthropicModelPrefix,
+} from './anthropic-utils.js';
+import {
   resolveModelProvider,
   resolveModelRuntimeCredentials,
 } from './factory.js';
@@ -35,6 +41,24 @@ import { isRecord } from './utils.js';
 
 type AuxiliaryTextTask = Exclude<AuxiliaryTask, 'vision'>;
 type RuntimeProvider = RuntimeProviderId;
+
+const REMOTE_AUXILIARY_FALLBACKS: Array<{
+  provider: RuntimeProvider;
+  model: string;
+}> = [
+  {
+    provider: 'openrouter',
+    model: 'openrouter/google/gemini-2.5-flash-lite',
+  },
+  {
+    provider: 'gemini',
+    model: 'gemini/gemini-2.5-flash-lite',
+  },
+  {
+    provider: 'anthropic',
+    model: 'anthropic/claude-haiku-4-5',
+  },
+];
 
 interface AuxiliaryTextCallContext {
   provider: RuntimeProvider;
@@ -321,50 +345,47 @@ async function resolveExplicitTextCallContext(
   });
 }
 
-function buildOpenRouterFallbackModel(modelHint?: string): string | undefined {
-  const trimmed = modelHint?.trim() ?? '';
-  if (!trimmed) {
-    return resolveDefaultAuxiliaryModelForProvider('openrouter');
-  }
-
-  const upstreamHint = stripHybridAIModelPrefix(trimmed);
-  const providerPrefix = detectRuntimeProviderPrefix(upstreamHint);
-  if (providerPrefix === 'openrouter') return upstreamHint;
-  if (providerPrefix === 'anthropic') {
-    return normalizeAuxiliaryProviderModel({
-      provider: 'openrouter',
-      model: upstreamHint,
-    });
-  }
-  if (providerPrefix) {
-    return resolveDefaultAuxiliaryModelForProvider('openrouter');
-  }
-  return normalizeAuxiliaryProviderModel({
-    provider: 'openrouter',
-    model: upstreamHint,
-  });
-}
-
-async function resolveOpenRouterFallbackContext(params: {
-  task: AuxiliaryTextTask;
-  agentId?: string;
-  maxTokens?: number;
+async function resolveRemoteFallbackContext(params: {
+  params: AuxiliaryModelCallParams;
+  primaryError: unknown;
   modelHint?: string;
-}): Promise<AuxiliaryTextCallContext | null> {
-  const fallbackModel = buildOpenRouterFallbackModel(params.modelHint);
-  if (!fallbackModel) return null;
+  primaryProvider?: RuntimeProvider;
+}): Promise<AuxiliaryTextCallContext> {
+  const errors: string[] = [];
+  for (const candidate of REMOTE_AUXILIARY_FALLBACKS) {
+    try {
+      const fallback = await resolveContextFromModel({
+        task: params.params.task,
+        model: candidate.model,
+        agentId: params.params.agentId,
+        enableRag: false,
+        maxTokens:
+          normalizeMaxTokens(params.params.maxTokens) ??
+          normalizeMaxTokens(params.params.fallbackMaxTokens),
+        expectedProvider: candidate.provider,
+      });
+      logger.warn(
+        {
+          task: params.params.task,
+          primaryProvider:
+            params.primaryProvider || params.params.provider || 'auto',
+          fallbackProvider: fallback.provider,
+          modelHint: candidate.model,
+          primaryModelHint: params.modelHint?.trim() || undefined,
+          primaryError: params.primaryError,
+        },
+        'Auxiliary provider resolution failed; using remote fallback',
+      );
+      return fallback;
+    } catch (error) {
+      errors.push(`${candidate.provider}: ${errorMessage(error)}`);
+    }
+  }
 
-  return resolveContextFromModel({
-    task: params.task,
-    model: fallbackModel,
-    agentId: params.agentId,
-    enableRag: false,
-    maxTokens: params.maxTokens,
-    expectedProvider: 'openrouter',
-  });
+  throw new Error(errors.join('; ') || 'no remote fallback configured');
 }
 
-async function withOpenRouterFallback(
+async function withAuxiliaryFallbackChain(
   params: AuxiliaryModelCallParams,
   primaryError: unknown,
   modelHint?: string,
@@ -378,43 +399,18 @@ async function withOpenRouterFallback(
   });
   if (localFallback) return localFallback;
 
-  if (
-    params.provider === 'openrouter' ||
-    primaryProvider === 'openrouter' ||
-    (modelHint?.trim().toLowerCase() ?? '').startsWith('openrouter/')
-  ) {
-    throw primaryError;
-  }
-
   try {
-    const fallback = await resolveOpenRouterFallbackContext({
-      task: params.task,
-      agentId: params.agentId,
-      maxTokens:
-        normalizeMaxTokens(params.maxTokens) ??
-        normalizeMaxTokens(params.fallbackMaxTokens),
+    return await resolveRemoteFallbackContext({
+      params,
+      primaryError,
       modelHint,
+      primaryProvider,
     });
-    if (fallback) {
-      logger.warn(
-        {
-          task: params.task,
-          primaryProvider: primaryProvider || params.provider || 'auto',
-          fallbackProvider: 'openrouter',
-          modelHint: modelHint?.trim() || undefined,
-          primaryError,
-        },
-        'Auxiliary provider resolution failed; using OpenRouter fallback',
-      );
-      return fallback;
-    }
   } catch (fallbackError) {
     throw new Error(
-      `${errorMessage(primaryError)} OpenRouter fallback also failed: ${errorMessage(fallbackError)}`,
+      `${errorMessage(primaryError)} Remote fallback also failed: ${errorMessage(fallbackError)}`,
     );
   }
-
-  throw primaryError;
 }
 
 function resolveLocalProviderForModel(
@@ -531,7 +527,7 @@ async function resolveExplicitTextCallContextWithFallback(
   try {
     return await resolveExplicitTextCallContext(params);
   } catch (error) {
-    return withOpenRouterFallback(
+    return withAuxiliaryFallbackChain(
       params,
       error,
       params.model || params.fallbackModel,
@@ -551,7 +547,7 @@ async function resolveTaskOverrideTextCallContext(
   });
   if (!taskOverride) return null;
   if (taskOverride?.error) {
-    return withOpenRouterFallback(
+    return withAuxiliaryFallbackChain(
       params,
       new Error(`${params.task} is not configured: ${taskOverride.error}`),
       taskOverride.model,
@@ -588,7 +584,7 @@ async function resolveFallbackModelTextCallContext(
       expectedProvider: detectRuntimeProviderPrefix(fallbackModel),
     });
   } catch (error) {
-    return withOpenRouterFallback(
+    return withAuxiliaryFallbackChain(
       params,
       error,
       params.fallbackModel,
@@ -859,6 +855,86 @@ async function callOpenAICompatTextModel(
   };
   return {
     content: extractResponseTextContent(payload.choices?.[0]?.message?.content),
+    usage: readAuxiliaryModelUsage(payload.usage),
+  };
+}
+
+function buildAnthropicMessages(messages: ChatMessage[]): {
+  system?: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+} {
+  const system: string[] = [];
+  const anthropicMessages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+  }> = [];
+
+  for (const message of messages) {
+    const content = contentToText(message.content).trim();
+    if (!content) continue;
+    if (message.role === 'system') {
+      system.push(content);
+      continue;
+    }
+    anthropicMessages.push({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content,
+    });
+  }
+
+  return {
+    ...(system.length > 0 ? { system: system.join('\n\n') } : {}),
+    messages:
+      anthropicMessages.length > 0
+        ? anthropicMessages
+        : [{ role: 'user', content: 'Continue.' }],
+  };
+}
+
+async function callAnthropicTextModel(
+  context: AuxiliaryTextCallContext,
+  messages: ChatMessage[],
+  options: AuxiliaryRequestOptions,
+): Promise<AuxiliaryTextResponse> {
+  if (context.providerMethod === 'claude-cli') {
+    throw new Error(
+      'Anthropic claude-cli is not supported for host auxiliary calls.',
+    );
+  }
+  const anthropicMessages = buildAnthropicMessages(messages);
+  const body = withCoreRequestBody(
+    {
+      model: stripAnthropicModelPrefix(context.model),
+      ...anthropicMessages,
+      max_tokens: context.maxTokens ?? 1024,
+    },
+    options,
+  );
+  const apiKey = context.apiKey.trim();
+  const response = await fetch(
+    `${normalizeAnthropicBaseUrl(context.baseUrl)}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(isAnthropicOAuthToken(apiKey)
+          ? { Authorization: `Bearer ${apiKey}` }
+          : { 'x-api-key': apiKey }),
+        ...buildAnthropicSupportingHeaders({ apiKey }),
+        ...(context.requestHeaders || {}),
+      },
+      body: JSON.stringify(body),
+      signal: createTimeoutSignal(options.timeoutMs),
+    },
+  );
+  if (!response.ok) await parseError(response);
+
+  const payload = (await response.json()) as {
+    content?: unknown;
+    usage?: unknown;
+  };
+  return {
+    content: extractResponseTextContent(payload.content),
     usage: readAuxiliaryModelUsage(payload.usage),
   };
 }
@@ -1135,6 +1211,9 @@ async function callAuxiliaryTextProvider(
   }
   if (context.provider === 'ollama') {
     return callOllamaTextModel(context, messages, options);
+  }
+  if (context.provider === 'anthropic') {
+    return callAnthropicTextModel(context, messages, options);
   }
   if (isOpenAICompatProviderId(context.provider)) {
     return callOpenAICompatTextModel(context, messages, options);
