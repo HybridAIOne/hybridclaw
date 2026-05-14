@@ -156,7 +156,7 @@ export function normalizeAgentBudgetConfig(
   if (value === undefined) return cloneAgentBudgetConfig(fallback);
   if (value === null || value === '') return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return cloneAgentBudgetConfig(fallback);
+    return undefined;
   }
 
   const raw = value as Record<string, unknown>;

@@ -8,6 +8,11 @@ let tmpDir: string;
 let originalDataDir: string | undefined;
 let originalHome: string | undefined;
 
+function currentBillingWindow(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 async function loadBudgetContext() {
   process.env.HYBRIDCLAW_DATA_DIR = tmpDir;
   process.env.HOME = tmpDir;
@@ -47,6 +52,19 @@ afterEach(() => {
 });
 
 describe.sequential('board budget chips', () => {
+  test('clears invalid budget config values instead of keeping stale fallback state', async () => {
+    const { normalizeAgentBudgetConfig } = await import(
+      '../src/agents/agent-types.js'
+    );
+
+    expect(
+      normalizeAgentBudgetConfig(42, { cap: 10, currency: 'USD' }),
+    ).toBeUndefined();
+    expect(
+      normalizeAgentBudgetConfig(undefined, { cap: 10, currency: 'USD' }),
+    ).toEqual({ cap: 10, currency: 'USD' });
+  });
+
   test('summarizes configured card-owner budgets and emits soft warn once per window', async () => {
     const {
       dbModule,
@@ -61,6 +79,7 @@ describe.sequential('board budget chips', () => {
         { id: 'under', budget: { cap: 60, currency: 'USD' } },
         { id: 'warn', budget: { cap: 100, currency: 'USD' } },
         { id: 'hard', budget: { cap: 10, currency: 'EUR' } },
+        { id: 'done-owner', budget: { cap: 1, currency: 'USD' } },
         { id: 'none' },
       ];
     });
@@ -84,6 +103,18 @@ describe.sequential('board budget chips', () => {
       title: 'No budget',
       owner: { agentId: 'none' },
     });
+    boardModule.createCard({
+      id: 'card-done',
+      title: 'Done card',
+      owner: { agentId: 'done-owner' },
+      column: 'done',
+    });
+
+    const events: unknown[] = [];
+    const unsubscribe = eventsModule.subscribeRuntimeEvents((event) => {
+      events.push(event);
+    });
+
     dbModule.recordUsageEvent({
       sessionId: 'session-under',
       agentId: 'under',
@@ -111,17 +142,28 @@ describe.sequential('board budget chips', () => {
       totalTokens: 15,
       costUsd: 12 * metadata.MODEL_METADATA_USD_TO_EUR.usdPerEur,
     });
-
-    const events: unknown[] = [];
-    const unsubscribe = eventsModule.subscribeRuntimeEvents((event) => {
-      events.push(event);
+    dbModule.recordUsageEvent({
+      sessionId: 'session-done',
+      agentId: 'done-owner',
+      model: 'gpt-5',
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      costUsd: 2,
     });
 
-    const first = budgetModule.getBoardBudgetSummaries({
-      now: new Date('2026-05-14T12:00:00.000Z'),
-    });
-    const second = budgetModule.getBoardBudgetSummaries({
-      now: new Date('2026-05-14T12:05:00.000Z'),
+    const billingWindow = currentBillingWindow();
+    const emittedAfterUsageWrites = events.length;
+    const first = budgetModule.getBoardBudgetSummaries();
+    const second = budgetModule.getBoardBudgetSummaries();
+    dbModule.recordUsageEvent({
+      sessionId: 'session-warn-followup',
+      agentId: 'warn',
+      model: 'gpt-5',
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      costUsd: 1,
     });
     unsubscribe();
 
@@ -149,20 +191,33 @@ describe.sequential('board budget chips', () => {
     expect(first.budgets.some((budget) => budget.agentId === 'none')).toBe(
       false,
     );
+    expect(
+      first.budgets.some((budget) => budget.agentId === 'done-owner'),
+    ).toBe(false);
     expect(second.budgets).toHaveLength(3);
-    expect(events).toEqual([
-      expect.objectContaining({
-        type: 'budget.soft_warn',
-        agent_id: 'hard',
-        billing_window: '2026-05',
-        percent: 120,
-      }),
-      expect.objectContaining({
-        type: 'budget.soft_warn',
-        agent_id: 'warn',
-        billing_window: '2026-05',
-        percent: 81,
-      }),
-    ]);
+    expect(emittedAfterUsageWrites).toBe(3);
+    expect(events).toHaveLength(3);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'budget.soft_warn',
+          agent_id: 'hard',
+          billing_window: billingWindow,
+          percent: 120,
+        }),
+        expect.objectContaining({
+          type: 'budget.soft_warn',
+          agent_id: 'done-owner',
+          billing_window: billingWindow,
+          percent: 200,
+        }),
+        expect.objectContaining({
+          type: 'budget.soft_warn',
+          agent_id: 'warn',
+          billing_window: billingWindow,
+          percent: 81,
+        }),
+      ]),
+    );
   });
 });

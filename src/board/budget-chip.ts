@@ -2,16 +2,16 @@ import { resolveAgentConfig } from '../agents/agent-registry.js';
 import type { AgentBudgetConfig } from '../agents/agent-types.js';
 import { getRuntimeConfig } from '../config/runtime-config.js';
 import {
-  getMemoryValue,
   monthlySpendEur,
   monthlySpendUsd,
-  setMemoryValue,
+  recordBudgetSoftWarnMarker,
+  subscribeUsageRecords,
 } from '../memory/db.js';
 import {
   emitRuntimeEvent,
   type RuntimeEventPayload,
 } from '../skills/skill-run-events.js';
-import { listCards } from './card-store.js';
+import { listActiveCardAgentOwnerIds } from './card-store.js';
 
 export type BoardBudgetCurrency = 'USD' | 'EUR';
 
@@ -40,7 +40,6 @@ export interface BudgetSoftWarnEvent extends RuntimeEventPayload {
 }
 
 const SOFT_WARN_THRESHOLD = 80;
-const SOFT_WARN_MARKER_PREFIX = 'budget.soft_warn';
 
 function billingWindowFor(date: Date): string {
   const year = date.getUTCFullYear();
@@ -59,13 +58,7 @@ function normalizeAgentIds(agentIds: Iterable<string>): string[] {
 }
 
 function activeBoardCardAgentIds(): string[] {
-  const agentIds: string[] = [];
-  for (const card of listCards()) {
-    if ('agentId' in card.owner && card.owner.agentId) {
-      agentIds.push(card.owner.agentId);
-    }
-  }
-  return normalizeAgentIds(agentIds);
+  return normalizeAgentIds(listActiveCardAgentOwnerIds());
 }
 
 function budgetConfigByAgent(): Map<string, AgentBudgetConfig> {
@@ -91,12 +84,46 @@ function spendFor(agentId: string, currency: BoardBudgetCurrency): number {
     : monthlySpendUsd(agentId);
 }
 
-function maybeEmitSoftWarnEvent(summary: BoardBudgetSummary, now: Date): void {
+function buildBudgetSummary(
+  agentId: string,
+  budget: AgentBudgetConfig,
+): BoardBudgetSummary {
+  const currency = budget.currency;
+  const used = spendFor(agentId, currency);
+  const percent = budget.cap > 0 ? (used / budget.cap) * 100 : 0;
+  return {
+    agentId,
+    used,
+    cap: budget.cap,
+    currency,
+    percent,
+  };
+}
+
+export function maybeEmitBudgetSoftWarnForAgent(
+  agentId: string,
+  now = new Date(),
+): void {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) return;
+
+  const budget = resolveBudgetConfig(normalizedAgentId, budgetConfigByAgent());
+  if (!budget || budget.cap <= 0) return;
+  const summary = buildBudgetSummary(normalizedAgentId, budget);
   if (summary.percent < SOFT_WARN_THRESHOLD) return;
 
+  const emittedAt = now.toISOString();
   const billingWindow = billingWindowFor(now);
-  const markerKey = `${SOFT_WARN_MARKER_PREFIX}.${billingWindow}`;
-  if (getMemoryValue(summary.agentId, markerKey)) return;
+  const recorded = recordBudgetSoftWarnMarker({
+    agentId: summary.agentId,
+    billingWindow,
+    emittedAt,
+    used: summary.used,
+    cap: summary.cap,
+    currency: summary.currency,
+    percent: summary.percent,
+  });
+  if (!recorded) return;
 
   const event: BudgetSoftWarnEvent = {
     type: 'budget.soft_warn',
@@ -106,43 +133,31 @@ function maybeEmitSoftWarnEvent(summary: BoardBudgetSummary, now: Date): void {
     cap: summary.cap,
     currency: summary.currency,
     percent: summary.percent,
-    created_at: now.toISOString(),
+    created_at: emittedAt,
     source: 'board_budget_chip',
   };
   emitRuntimeEvent(event);
-  setMemoryValue(summary.agentId, markerKey, {
-    emittedAt: event.created_at,
-    percent: summary.percent,
-  });
 }
+
+subscribeUsageRecords((agentIds) => {
+  for (const agentId of agentIds) {
+    maybeEmitBudgetSoftWarnForAgent(agentId);
+  }
+});
 
 export function getBoardBudgetSummaries(options?: {
   agentIds?: string[];
-  now?: Date;
 }): BoardBudgetSummaryResponse {
   const agentIds = normalizeAgentIds(
     options?.agentIds?.length ? options.agentIds : activeBoardCardAgentIds(),
   );
   const configuredBudgets = budgetConfigByAgent();
-  const now = options?.now ?? new Date();
   const budgets: BoardBudgetSummary[] = [];
 
   for (const agentId of agentIds) {
     const budget = resolveBudgetConfig(agentId, configuredBudgets);
     if (!budget || budget.cap <= 0) continue;
-
-    const currency = budget.currency;
-    const used = spendFor(agentId, currency);
-    const percent = budget.cap > 0 ? (used / budget.cap) * 100 : 0;
-    const summary = {
-      agentId,
-      used,
-      cap: budget.cap,
-      currency,
-      percent,
-    } satisfies BoardBudgetSummary;
-    maybeEmitSoftWarnEvent(summary, now);
-    budgets.push(summary);
+    budgets.push(buildBudgetSummary(agentId, budget));
   }
 
   return { budgets };

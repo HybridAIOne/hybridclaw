@@ -202,14 +202,14 @@ describe('JobsPage', () => {
           used: 3.4,
           cap: 60,
           currency: 'USD',
-          percent: 5.666,
+          percent: 79.5,
         },
         {
           agentId: 'agent-warn',
           used: 81,
           cap: 100,
           currency: 'USD',
-          percent: 81,
+          percent: 99.5,
         },
         {
           agentId: 'agent-hard',
@@ -228,8 +228,11 @@ describe('JobsPage', () => {
     const hard = await screen.findByText('€12 / €10');
 
     expect(neutral.getAttribute('data-tone')).toBe('neutral');
+    expect(neutral.getAttribute('title')).toBe('79% used');
     expect(warn.getAttribute('data-tone')).toBe('warn');
+    expect(warn.getAttribute('title')).toBe('99% used');
     expect(hard.getAttribute('data-tone')).toBe('hard');
+    expect(hard.getAttribute('title')).toBe('120% used');
     expect(screen.queryByText('$0 / $0')).toBeNull();
   });
 

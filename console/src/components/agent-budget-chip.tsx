@@ -31,7 +31,7 @@ export function AgentBudgetChip(props: {
     <span
       className="agent-budget-chip"
       data-tone={tone}
-      title={`${Math.round(props.budget.percent)}% used`}
+      title={`${Math.floor(props.budget.percent)}% used`}
     >
       {formatCurrency(props.budget.used, props.budget.currency)} /{' '}
       {formatCurrency(props.budget.cap, props.budget.currency)}

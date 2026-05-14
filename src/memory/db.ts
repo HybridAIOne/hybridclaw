@@ -135,8 +135,9 @@ import {
 let db: Database.Database;
 let databaseInitialized = false;
 let usageEventBatchInsertStatement: Database.Statement | null = null;
+const usageRecordSubscribers = new Set<UsageRecordSubscriber>();
 
-export const DATABASE_SCHEMA_VERSION = 32;
+export const DATABASE_SCHEMA_VERSION = 33;
 const STRUCTURED_AUDIT_SESSION_LIMIT = 10_000;
 const RECENT_CHAT_MESSAGE_SEARCH_TABLE = 'recent_chat_message_search';
 const RECENT_CHAT_MESSAGE_SEARCH_INSERT_TRIGGER =
@@ -486,6 +487,12 @@ function boardCardsNeedMigration(database: Database.Database): boolean {
 
 function threadGoalsNeedMigration(database: Database.Database): boolean {
   return !tableExists(database, 'thread_goals');
+}
+
+function budgetSoftWarnEventsNeedMigration(
+  database: Database.Database,
+): boolean {
+  return !tableExists(database, 'budget_soft_warn_events');
 }
 
 function messageAgentIdentityNeedMigration(
@@ -2411,6 +2418,28 @@ function migrateV32(database: Database.Database): void {
   recordMigration(database, 32, 'Persist per-thread standing goal state');
 }
 
+function migrateV33(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS budget_soft_warn_events (
+      agent_id TEXT NOT NULL,
+      billing_window TEXT NOT NULL,
+      emitted_at TEXT NOT NULL,
+      used REAL NOT NULL,
+      cap REAL NOT NULL,
+      currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR')),
+      percent REAL NOT NULL,
+      PRIMARY KEY (agent_id, billing_window)
+    );
+    CREATE INDEX IF NOT EXISTS idx_budget_soft_warn_events_window
+      ON budget_soft_warn_events(billing_window);
+  `);
+  recordMigration(
+    database,
+    33,
+    'Persist monthly budget soft-warning event markers',
+  );
+}
+
 function runMigrations(
   database: Database.Database,
   opts?: InitDatabaseOptions,
@@ -2486,6 +2515,9 @@ function runMigrations(
   }
   if (currentVersion < 32 || threadGoalsNeedMigration(database)) {
     migrateV32(database);
+  }
+  if (currentVersion < 33 || budgetSoftWarnEventsNeedMigration(database)) {
+    migrateV33(database);
   }
 
   setSchemaVersion(database, DATABASE_SCHEMA_VERSION);
@@ -3523,6 +3555,18 @@ export interface RecordUsageEventBatchEntry extends RecordUsageEventEntry {
   batchHash?: string;
 }
 
+export type UsageRecordSubscriber = (agentIds: string[]) => unknown;
+
+export interface BudgetSoftWarnMarkerEntry {
+  agentId: string;
+  billingWindow: string;
+  emittedAt: string;
+  used: number;
+  cap: number;
+  currency: 'USD' | 'EUR';
+  percent: number;
+}
+
 type NormalizedUsageEventRow = {
   id: string;
   sessionId: string;
@@ -3577,6 +3621,67 @@ function normalizeUsageEntry(
   };
 }
 
+export function subscribeUsageRecords(
+  subscriber: UsageRecordSubscriber,
+): () => void {
+  usageRecordSubscribers.add(subscriber);
+  return () => {
+    usageRecordSubscribers.delete(subscriber);
+  };
+}
+
+function notifyUsageRecords(agentIds: Iterable<string>): void {
+  if (usageRecordSubscribers.size === 0) return;
+  const normalizedAgentIds = Array.from(
+    new Set(
+      Array.from(agentIds)
+        .map((agentId) => agentId.trim())
+        .filter(Boolean),
+    ),
+  );
+  if (normalizedAgentIds.length === 0) return;
+
+  let subscriberIndex = 0;
+  for (const subscriber of usageRecordSubscribers) {
+    subscriberIndex += 1;
+    try {
+      subscriber(normalizedAgentIds);
+    } catch (error) {
+      logger.warn(
+        {
+          subscriberIndex,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Usage record subscriber failed',
+      );
+    }
+  }
+}
+
+export function recordBudgetSoftWarnMarker(
+  entry: BudgetSoftWarnMarkerEntry,
+): boolean {
+  const agentId = entry.agentId.trim();
+  const billingWindow = entry.billingWindow.trim();
+  if (!agentId || !billingWindow) return false;
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO budget_soft_warn_events
+        (agent_id, billing_window, emitted_at, used, cap, currency, percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      agentId,
+      billingWindow,
+      entry.emittedAt,
+      normalizeUsageCost(entry.used),
+      normalizeUsageCost(entry.cap),
+      entry.currency,
+      normalizeUsageCost(entry.percent),
+    );
+  return result.changes > 0;
+}
+
 function getUsageEventBatchInsertStatement(): Database.Statement {
   if (!usageEventBatchInsertStatement) {
     usageEventBatchInsertStatement = db.prepare(
@@ -3608,6 +3713,7 @@ export function recordUsageEvent(params: RecordUsageEventEntry): void {
     row.costUsd,
     row.toolCalls,
   );
+  notifyUsageRecords([row.agentId]);
 }
 
 export interface UsageBatchHashRecord {
@@ -3664,6 +3770,7 @@ export function recordUsageEventBatch(
     }
   });
   transaction(normalized);
+  notifyUsageRecords(normalized.map((row) => row.agentId));
 }
 
 export function listUsageEventsByBatchId(
