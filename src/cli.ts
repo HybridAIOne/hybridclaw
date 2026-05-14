@@ -1661,6 +1661,13 @@ export async function main(
     case 'channels':
       await handleChannelsCommand(subargs);
       break;
+    case 'channel':
+      if ((subargs[0] || '').toLowerCase() === 'add' && subargs[1]) {
+        await handleChannelsCommand([subargs[1], 'setup', ...subargs.slice(2)]);
+        break;
+      }
+      await handleChannelsCommand(subargs);
+      break;
     case 'browser':
       await handleBrowserCommand(subargs);
       break;

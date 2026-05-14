@@ -65,6 +65,24 @@ export interface GatewayStatus {
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
   };
+  slackWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+    lastSendResults: Array<{
+      target: string;
+      ok: boolean;
+      at: string;
+      statusCode: number | null;
+      error: string | null;
+    }>;
+  };
   telegram?: {
     tokenConfigured: boolean;
     tokenSource: 'config' | 'env' | 'runtime-secrets' | null;
@@ -410,6 +428,11 @@ export interface AdminChannelsResponse {
     defaultRequireMention: boolean;
     defaultReplyStyle: 'thread' | 'top-level';
   };
+  slackWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: 'open' | 'allowlist' | 'disabled';
@@ -441,6 +464,7 @@ export interface AdminConfig {
     discord: string;
     msteams: string;
     slack: string;
+    slack_webhook: string;
     signal: string;
     telegram: string;
     threema: string;
@@ -550,6 +574,18 @@ export interface AdminConfig {
     textChunkLimit: number;
     replyStyle: 'thread' | 'top-level';
     mediaMaxMb: number;
+  };
+  slackWebhook: {
+    enabled: boolean;
+    webhooks: Record<
+      string,
+      {
+        webhookUrl: string;
+        defaultUsername: string;
+        defaultIconEmoji: string;
+        defaultIconUrl: string;
+      }
+    >;
   };
   telegram: {
     enabled: boolean;

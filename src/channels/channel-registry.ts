@@ -9,6 +9,7 @@ import {
   SKILL_CONFIG_CHANNEL_KINDS,
   type SkillConfigChannelKind,
   SLACK_CAPABILITIES,
+  SLACK_WEBHOOK_CAPABILITIES,
   SYSTEM_CAPABILITIES,
   TELEGRAM_CAPABILITIES,
   THREEMA_CAPABILITIES,
@@ -20,6 +21,7 @@ import { isEmailAddress } from './email/allowlist.js';
 import { isIMessageHandle } from './imessage/handle.js';
 import { isSignalChannelId } from './signal/target.js';
 import { isSlackChannelTarget } from './slack/target.js';
+import { isSlackWebhookChannelTarget } from './slack-webhook/target.js';
 import { isTelegramChannelId } from './telegram/target.js';
 import { isThreemaChannelId } from './threema/target.js';
 import { isVoiceChannelId } from './voice/channel-id.js';
@@ -36,6 +38,7 @@ const CHANNEL_CAPABILITIES: Record<ChannelKind, ChannelInfo['capabilities']> = {
   scheduler: SYSTEM_CAPABILITIES,
   signal: SIGNAL_CAPABILITIES,
   slack: SLACK_CAPABILITIES,
+  slack_webhook: SLACK_WEBHOOK_CAPABILITIES,
   telegram: TELEGRAM_CAPABILITIES,
   threema: THREEMA_CAPABILITIES,
   tui: TUI_CAPABILITIES,
@@ -52,6 +55,8 @@ const SKILL_CONFIG_CHANNEL_KIND_SET = new Set<ChannelKind>(
 
 const CHANNEL_KIND_ALIASES: Record<string, ChannelKind> = {
   teams: 'msteams',
+  slackwebhook: 'slack_webhook',
+  'slack-webhook': 'slack_webhook',
 };
 
 const channels = new Map<ChannelKind, ChannelInfo>();
@@ -116,6 +121,7 @@ function inferChannelKind(channelId?: string | null): ChannelKind | undefined {
   if (isVoiceChannelId(normalized)) return 'voice';
   if (isIMessageHandle(normalized)) return 'imessage';
   if (isSignalChannelId(normalized)) return 'signal';
+  if (isSlackWebhookChannelTarget(normalized)) return 'slack_webhook';
   if (isSlackChannelTarget(normalized)) return 'slack';
   if (isTelegramChannelId(normalized)) return 'telegram';
   if (isThreemaChannelId(normalized)) return 'threema';

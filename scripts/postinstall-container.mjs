@@ -94,6 +94,10 @@ export function inspectContainerBootstrap(packageRoot) {
 
 export function resolveNpmCommand(containerDir, env = process.env) {
   const npmExecPath = String(env.npm_execpath || '').trim();
+  const npmUserAgent = String(env.npm_config_user_agent || '').toLowerCase();
+  const npmExecName = path.basename(npmExecPath).toLowerCase();
+  const invokedByPnpm =
+    npmUserAgent.startsWith('pnpm/') || npmExecName.includes('pnpm');
   const installArgs = [
     '--prefix',
     containerDir,
@@ -103,6 +107,7 @@ export function resolveNpmCommand(containerDir, env = process.env) {
   ];
 
   if (
+    !invokedByPnpm &&
     npmExecPath &&
     path.isAbsolute(npmExecPath) &&
     fs.existsSync(npmExecPath)
@@ -125,6 +130,7 @@ export function buildBootstrapEnv(env = process.env) {
   delete nextEnv.npm_config_global;
   delete nextEnv.npm_config_local_prefix;
   delete nextEnv.npm_config_prefix;
+  delete nextEnv.npm_config_user_agent;
   delete nextEnv.npm_execpath;
   delete nextEnv.npm_lifecycle_event;
   delete nextEnv.npm_lifecycle_script;

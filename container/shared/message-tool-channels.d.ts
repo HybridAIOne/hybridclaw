@@ -5,6 +5,7 @@ export declare const MESSAGE_TOOL_CHANNEL_KINDS: readonly [
   'msteams',
   'signal',
   'slack',
+  'slack_webhook',
   'telegram',
   'threema',
   'tui',

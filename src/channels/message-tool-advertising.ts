@@ -24,6 +24,8 @@ const MESSAGE_TOOL_CHANNEL_ACTIONS: Record<MessageToolChannelKind, string> = {
     'Signal: send messages to explicit Signal recipients (phone numbers, UUIDs, or `group:<id>`).',
   slack:
     'Slack: send/read known Slack conversations, upload files, and inspect members/channels.',
+  slack_webhook:
+    'Slack webhook: send outbound-only Block Kit messages to configured webhook targets.',
   telegram:
     'Telegram: send messages and uploads to explicit Telegram chat or topic targets.',
   threema:

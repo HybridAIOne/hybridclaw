@@ -5,6 +5,7 @@ import {
   EMAIL_CAPABILITIES,
   MSTEAMS_CAPABILITIES,
   SLACK_CAPABILITIES,
+  SLACK_WEBHOOK_CAPABILITIES,
   TELEGRAM_CAPABILITIES,
   THREEMA_CAPABILITIES,
   WHATSAPP_CAPABILITIES,
@@ -114,6 +115,30 @@ test('resolves WhatsApp hints from explicit WhatsApp context', () => {
   ).toBe(true);
   expect(
     hints.some((entry) => entry.includes('always provide an explicit target')),
+  ).toBe(true);
+});
+
+test('resolves Slack webhook hints from explicit Slack webhook context', () => {
+  registerChannel({
+    kind: 'slack_webhook',
+    id: 'slack_webhook',
+    capabilities: SLACK_WEBHOOK_CAPABILITIES,
+  });
+
+  const hints = resolveChannelMessageToolHints({
+    runtimeInfo: {
+      channelType: 'slack_webhook',
+      channelId: 'slack_webhook:ops',
+    },
+  });
+
+  expect(hints.length).toBeGreaterThan(0);
+  expect(hints.some((entry) => entry.includes('Slack webhook targets'))).toBe(
+    true,
+  );
+  expect(hints.some((entry) => entry.includes('outbound-only'))).toBe(true);
+  expect(
+    hints.some((entry) => entry.includes('Do not read Slack history')),
   ).toBe(true);
 });
 

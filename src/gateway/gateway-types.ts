@@ -8,6 +8,7 @@ import type {
   AgentTeamStructureSnapshot,
 } from '../agents/team-structure.js';
 import type { SkillConfigChannelKind } from '../channels/channel.js';
+import type { SlackWebhookSendResult } from '../channels/slack-webhook/delivery.js';
 import type {
   MSTeamsReplyStyle,
   RuntimeConfig,
@@ -402,6 +403,12 @@ export interface GatewayStatus {
     botTokenSource: 'env' | 'runtime-secrets' | null;
     appTokenConfigured: boolean;
     appTokenSource: 'env' | 'runtime-secrets' | null;
+  };
+  slackWebhook?: {
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+    lastReachabilityResults: SlackWebhookSendResult[];
+    lastSendResults: SlackWebhookSendResult[];
   };
   telegram?: {
     tokenConfigured: boolean;
@@ -846,6 +853,11 @@ export interface GatewayAdminChannelsResponse {
     defaultRequireMention: boolean;
     defaultReplyStyle: RuntimeConfig['slack']['replyStyle'];
   };
+  slackWebhook: {
+    enabled: boolean;
+    targetCount: number;
+    defaultTargetConfigured: boolean;
+  };
   msteams: {
     enabled: boolean;
     groupPolicy: RuntimeConfig['msteams']['groupPolicy'];
@@ -873,6 +885,14 @@ export type GatewayAdminChannelUpsertRequest =
 export interface GatewayAdminConfigResponse {
   path: string;
   config: RuntimeConfig;
+}
+
+export interface GatewayAdminSlackWebhookTargetRequest {
+  target: string;
+  webhookUrl?: string;
+  defaultUsername?: string;
+  defaultIconEmoji?: string;
+  defaultIconUrl?: string;
 }
 
 export interface GatewayAdminA2AIdentity {

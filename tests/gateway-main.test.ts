@@ -86,6 +86,10 @@ function createGatewayMainTestState(options?: {
         replyStyle: 'thread',
         mediaMaxMb: 20,
       },
+      slackWebhook: {
+        enabled: false,
+        webhooks: {},
+      },
       signal: {
         enabled: false,
         daemonUrl: '',
@@ -224,6 +228,7 @@ function createGatewayMainTestState(options?: {
     initMSTeams: vi.fn(),
     initSignal: vi.fn(),
     initSlack: vi.fn(),
+    initSlackWebhook: vi.fn(),
     initTelegram: vi.fn(),
     initThreema: vi.fn(),
     initVoice: vi.fn(),
@@ -244,6 +249,7 @@ function createGatewayMainTestState(options?: {
     shutdownEmail: vi.fn(async () => {}),
     shutdownSignal: vi.fn(async () => {}),
     shutdownSlack: vi.fn(async () => {}),
+    shutdownSlackWebhook: vi.fn(async () => {}),
     shutdownTelegram: vi.fn(async () => {}),
     shutdownThreema: vi.fn(async () => {}),
     shutdownWhatsApp: vi.fn(async () => {}),
@@ -498,6 +504,16 @@ async function importFreshGatewayMain(options?: {
     sendSlackFileToTarget: vi.fn(async () => {}),
     sendToSlackTarget: vi.fn(async () => {}),
     shutdownSlack: state.shutdownSlack,
+  }));
+  vi.doMock('../src/channels/slack-webhook/runtime.js', () => ({
+    hasSlackWebhookTargets: vi.fn(() =>
+      Boolean(
+        state.getConfigSnapshot().slackWebhook?.webhooks?.default?.webhookUrl,
+      ),
+    ),
+    initSlackWebhook: state.initSlackWebhook,
+    sendToSlackWebhookTarget: vi.fn(async () => {}),
+    shutdownSlackWebhook: state.shutdownSlackWebhook,
   }));
   vi.doMock('../src/channels/email/runtime.js', () => ({
     initEmail: state.initEmail,
