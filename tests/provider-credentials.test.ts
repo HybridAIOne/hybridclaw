@@ -82,6 +82,29 @@ test('resolves provider credentials from the encrypted runtime secret store', as
   expect(credentials.assemblyai?.audioModel).toBe(
     'store-assemblyai-audio-model',
   );
+  expect(credentials.speechToText?.defaultProvider).toBe('auto');
+});
+
+test('resolves the tenant speech-to-text default provider from runtime config', async () => {
+  process.env.HOME = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'hybridclaw-provider-credentials-stt-'),
+  );
+  vi.resetModules();
+
+  const { updateRuntimeConfig } = await import(
+    '../src/config/runtime-config.js'
+  );
+  updateRuntimeConfig((config) => {
+    config.skills.speechToText = { defaultProvider: 'deepgram' };
+  });
+  vi.resetModules();
+
+  const { resolveProviderCredentials } = await import(
+    '../src/providers/provider-credentials.js'
+  );
+  const credentials = resolveProviderCredentials();
+
+  expect(credentials.speechToText?.defaultProvider).toBe('deepgram');
 });
 
 test('ignores provider credentials that only exist in process env', async () => {

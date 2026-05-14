@@ -54,6 +54,9 @@ export function resolveProviderCredentials(): ProviderCredentials {
   const secrets = readStoredRuntimeSecrets();
   const config = getRuntimeConfig();
   return {
+    speechToText: {
+      defaultProvider: config.skills.speechToText.defaultProvider,
+    },
     openai: providerConfig({
       apiKey: readSecretValue(secrets, ['OPENAI_API_KEY']),
       baseUrl: optionalSecretConfig(secrets, ['OPENAI_BASE_URL']),

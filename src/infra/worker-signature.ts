@@ -76,6 +76,13 @@ function normalizeProviderCredentials(
   credentials: ProviderCredentials | undefined,
 ): Record<string, unknown> {
   const normalized: Record<string, unknown> = {};
+  if (credentials?.speechToText) {
+    normalized.speechToText = {
+      defaultProvider: String(credentials.speechToText.defaultProvider || '')
+        .trim()
+        .toLowerCase(),
+    };
+  }
   for (const provider of [
     'openai',
     'gemini',

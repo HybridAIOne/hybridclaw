@@ -34,6 +34,9 @@ metadata:
   hybridclaw:
     category: media
     short_description: Provider-agnostic speech-to-text transcripts.
+    config:
+      speechToText:
+        defaultProvider: auto
     tags:
       - speech
       - transcription
@@ -74,8 +77,9 @@ caption, diarize, timestamp, or identify speakers in an audio or video clip.
    `/discord-media-cache` path, `/uploaded-media-cache` path, or HTTPS media
    URL.
 3. Use `provider: "auto"` unless the user asks for `openai`, `deepgram`, or
-   `assemblyai`, or unless diarization is required. Prefer Deepgram or
-   AssemblyAI for speaker labels.
+   `assemblyai`, or unless diarization is required. Auto mode honors the tenant
+   `skills.speechToText.defaultProvider` config when it is set. Prefer Deepgram
+   or AssemblyAI for speaker labels.
 4. Pass `language` only when the user gives a known language. Omit it for
    provider language detection.
 5. Set `diarization: true` when the user asks for speaker labels.
@@ -84,8 +88,8 @@ caption, diarize, timestamp, or identify speakers in an audio or video clip.
    detected language, duration, cost, warnings, and artifact paths.
 
 The native tool owns provider credentials, provider fallback, output schema,
-long-audio chunking for local OpenAI uploads when `ffmpeg`/`ffprobe` are
-available, transcript artifact persistence, and usage-cost accounting.
+long-audio chunking for local and remote OpenAI uploads when `ffmpeg`/`ffprobe`
+are available, transcript artifact persistence, and usage-cost accounting.
 
 ## Output Contract
 

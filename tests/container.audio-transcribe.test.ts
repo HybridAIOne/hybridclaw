@@ -25,6 +25,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.doUnmock('node:child_process');
   if (ORIGINAL_WORKSPACE_ROOT == null) {
     delete process.env.HYBRIDCLAW_AGENT_WORKSPACE_ROOT;
   } else {
@@ -352,6 +353,125 @@ describe('audio_transcribe tool', () => {
     expect(parsed.words[0]?.speaker).toBe('speaker_0');
   });
 
+  test('uses the configured speech-to-text default provider for auto transcription', async () => {
+    const audioPath = path.join(workspaceRoot, 'clip.wav');
+    fs.writeFileSync(audioPath, Buffer.from('fake-wav'));
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toContain('https://api.deepgram.com/v1/listen?');
+      return new Response(
+        JSON.stringify({
+          metadata: { duration: 2 },
+          results: {
+            channels: [
+              {
+                detected_language: 'en',
+                alternatives: [{ transcript: 'Default provider.' }],
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeTool, setProviderCredentials } = await loadTools();
+    setProviderCredentials({
+      speechToText: { defaultProvider: 'deepgram' },
+      openai: { apiKey: 'openai-test-key' },
+      deepgram: { apiKey: 'deepgram-test-key' },
+    });
+
+    const output = await executeTool(
+      'audio_transcribe',
+      JSON.stringify({ audio: '/workspace/clip.wav' }),
+    );
+    const parsed = JSON.parse(output) as { provider: string; text: string };
+
+    expect(parsed.provider).toBe('deepgram');
+    expect(parsed.text).toBe('Default provider.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('falls back to the next transcription provider only for quota or auth failures', async () => {
+    const audioPath = path.join(workspaceRoot, 'clip.wav');
+    fs.writeFileSync(audioPath, Buffer.from('fake-wav'));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://api.openai.com/v1/audio/transcriptions') {
+        return new Response(JSON.stringify({ error: 'quota exceeded' }), {
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      expect(url).toContain('https://api.deepgram.com/v1/listen?');
+      return new Response(
+        JSON.stringify({
+          metadata: { duration: 3 },
+          results: {
+            channels: [
+              {
+                detected_language: 'en',
+                alternatives: [{ transcript: 'Fallback transcript.' }],
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeTool, setProviderCredentials } = await loadTools();
+    setProviderCredentials({
+      openai: { apiKey: 'openai-test-key' },
+      deepgram: { apiKey: 'deepgram-test-key' },
+    });
+
+    const output = await executeTool(
+      'audio_transcribe',
+      JSON.stringify({ audio: '/workspace/clip.wav' }),
+    );
+    const parsed = JSON.parse(output) as {
+      provider: string;
+      attempts: Array<{ provider: string; fallback_reason?: string }>;
+    };
+
+    expect(parsed.provider).toBe('deepgram');
+    expect(parsed.attempts).toEqual([
+      expect.objectContaining({
+        provider: 'openai',
+        fallback_reason: 'rate_limit',
+      }),
+      expect.objectContaining({ provider: 'deepgram' }),
+    ]);
+  });
+
+  test('does not fall back to another transcription provider on non-fallback errors', async () => {
+    const audioPath = path.join(workspaceRoot, 'clip.wav');
+    fs.writeFileSync(audioPath, Buffer.from('fake-wav'));
+    const fetchMock = vi.fn(async (url: string) => {
+      expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
+      return new Response(JSON.stringify({ error: 'bad request' }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeToolWithMetadata, setProviderCredentials } =
+      await loadTools();
+    setProviderCredentials({
+      openai: { apiKey: 'openai-test-key' },
+      deepgram: { apiKey: 'deepgram-test-key' },
+    });
+
+    const result = await executeToolWithMetadata(
+      'audio_transcribe',
+      JSON.stringify({ audio: '/workspace/clip.wav' }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('Provider API error 400');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('transcribes local audio through AssemblyAI upload and polling', async () => {
     vi.useFakeTimers();
     const audioPath = path.join(workspaceRoot, 'clip.wav');
@@ -439,6 +559,94 @@ describe('audio_transcribe tool', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('min_speakers and max_speakers must match');
+  });
+
+  test('chunks long remote audio after staging it to a temporary local file', async () => {
+    const spawnSyncMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'ffprobe') {
+        return { status: 0, stdout: '1600', stderr: '' };
+      }
+      if (command === 'ffmpeg') {
+        const outputPath = args.at(-1);
+        if (!outputPath) throw new Error('missing ffmpeg output path');
+        fs.writeFileSync(outputPath, Buffer.from('fake-chunk'));
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return { status: 1, stdout: '', stderr: `unexpected ${command}` };
+    });
+    vi.doMock('node:child_process', async () => {
+      const actual =
+        await vi.importActual<typeof import('node:child_process')>(
+          'node:child_process',
+        );
+      return { ...actual, spawnSync: spawnSyncMock };
+    });
+
+    let openAiCalls = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://cdn.discordapp.com/attachments/1/2/long.wav') {
+        return new Response(Buffer.from('remote-wav'), {
+          status: 200,
+          headers: { 'content-type': 'audio/wav' },
+        });
+      }
+      expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
+      openAiCalls += 1;
+      const firstChunk = openAiCalls === 1;
+      return new Response(
+        JSON.stringify({
+          text: firstChunk ? 'First chunk.' : 'Second chunk.',
+          language: 'en',
+          duration: firstChunk ? 1500 : 110,
+          segments: [
+            {
+              start: firstChunk ? 0 : 20,
+              end: firstChunk ? 1 : 21,
+              text: firstChunk ? 'First chunk.' : 'Second chunk.',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { executeTool, setProviderCredentials } = await loadTools();
+    setProviderCredentials({ openai: { apiKey: 'openai-test-key' } });
+
+    const output = await executeTool(
+      'audio_transcribe',
+      JSON.stringify({
+        audio: 'https://cdn.discordapp.com/attachments/1/2/long.wav',
+        provider: 'openai',
+      }),
+    );
+    const parsed = JSON.parse(output) as { text: string; source: string };
+
+    expect(parsed.text).toBe('First chunk. Second chunk.');
+    expect(parsed.source).toBe(
+      'https://cdn.discordapp.com/attachments/1/2/long.wav',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      'ffprobe',
+      expect.arrayContaining([
+        '-show_entries',
+        'format=duration',
+        expect.stringContaining('long.wav'),
+      ]),
+      expect.any(Object),
+    );
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      'ffmpeg',
+      expect.arrayContaining([
+        '-ss',
+        '0',
+        '-t',
+        '1500',
+        expect.stringContaining('.wav'),
+      ]),
+      expect.any(Object),
+    );
   });
 
   test('stitches overlapped chunk segments without duplicate boundary text', async () => {

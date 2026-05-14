@@ -190,6 +190,9 @@ export interface ProviderCredential {
 }
 
 export interface ProviderCredentials {
+  speechToText?: {
+    defaultProvider?: string;
+  };
   openai?: ProviderCredential;
   gemini?: ProviderCredential;
   xai?: ProviderCredential;

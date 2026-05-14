@@ -6,6 +6,10 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { estimateAudioTranscriptionCostUsd } from '../shared/audio-transcription-pricing.js';
+import {
+  classifyProviderError,
+  shouldFallbackProviderError,
+} from '../shared/provider-fallback.js';
 import { isSafeDiscordCdnUrl } from './discord-cdn.js';
 import type { RuntimeProvider } from './providers/provider-ids.js';
 import {
@@ -55,6 +59,7 @@ interface AudioInput {
   mimeType: string;
   source: string;
   localPath?: string;
+  cleanupPath?: string;
 }
 
 interface NormalizedAudioTranscriptionRequest {
@@ -155,6 +160,20 @@ function hasAudioTranscriptionModelHint(model: string): boolean {
 
 function readCredentialValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSpeechToTextProvider(
+  value: unknown,
+): AudioTranscriptionProviderId | null {
+  const normalized = readCredentialValue(value).toLowerCase();
+  if (normalized === 'whisper' || normalized === 'openai-whisper') {
+    return 'openai';
+  }
+  return normalized === 'openai' ||
+    normalized === 'deepgram' ||
+    normalized === 'assemblyai'
+    ? normalized
+    : null;
 }
 
 function extensionFromMimeType(mimeType: string): string {
@@ -412,13 +431,21 @@ async function fetchRemoteAudio(
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     assertAudioSize(buffer, 512 * 1024 * 1024);
+    const filename =
+      mediaHint?.filename ||
+      path.basename(parsed.pathname) ||
+      `audio${extensionFromMimeType(mimeType)}`;
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'hybridclaw-stt-src-'),
+    );
+    const tempPath = path.join(tempDir, filename);
+    fs.writeFileSync(tempPath, buffer);
     return {
       buffer,
-      filename:
-        mediaHint?.filename ||
-        path.basename(parsed.pathname) ||
-        `audio${extensionFromMimeType(mimeType)}`,
+      filename,
       mimeType,
+      localPath: tempPath,
+      cleanupPath: tempDir,
       source: rawUrl,
     };
   } finally {
@@ -592,6 +619,15 @@ function buildProviderCandidates(
     .trim()
     .toLowerCase();
   if (!requested || requested === 'auto' || requested === 'default') {
+    const defaultProvider = normalizeSpeechToTextProvider(
+      context.providerCredentials?.speechToText?.defaultProvider,
+    );
+    if (defaultProvider) {
+      return [
+        ...candidates.filter((candidate) => candidate.id === defaultProvider),
+        ...candidates.filter((candidate) => candidate.id !== defaultProvider),
+      ];
+    }
     return candidates;
   }
   const normalized =
@@ -1172,7 +1208,7 @@ function createAudioChunks(
   durationSec: number,
 ): Array<AudioInput & { offsetSec: number }> {
   if (!input.localPath) {
-    throw new Error('long remote audio chunking is not supported yet');
+    throw new Error('long audio chunking requires a local staged audio file');
   }
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybridclaw-stt-'));
   const chunks: Array<AudioInput & { offsetSec: number }> = [];
@@ -1314,7 +1350,7 @@ async function transcribePossiblyChunked(
   }
   if (durationSec == null) {
     if (!request.audio.localPath) {
-      throw new Error('long remote audio chunking is not supported yet');
+      throw new Error('long audio chunking requires a local staged audio file');
     }
     durationSec = probeAudioDurationSec(request.audio.localPath);
   }
@@ -1389,6 +1425,11 @@ function sanitizeProviderError(error: unknown): string {
   return String(error);
 }
 
+function cleanupAudioInput(input: AudioInput): void {
+  if (!input.cleanupPath) return;
+  fs.rmSync(input.cleanupPath, { recursive: true, force: true });
+}
+
 export async function runAudioTranscribe(
   args: Record<string, unknown>,
   context: AudioTranscriptionRuntimeContext,
@@ -1408,71 +1449,84 @@ export async function runAudioTranscribe(
     );
   }
 
-  const attempts: Array<Record<string, unknown>> = [];
-  const errors: string[] = [];
-  for (const candidate of candidates) {
-    try {
-      const { result, warnings } = await transcribePossiblyChunked(
-        candidate,
-        request,
-      );
-      const costUsd = estimateCostUsd(result.durationSec, candidate);
-      const artifacts = request.detectLanguageOnly
-        ? []
-        : persistTranscript({
-            result,
-            provider: candidate,
-            source: request.audio.source,
-            costUsd,
-          });
-      attempts.push({
-        provider: candidate.id,
-        model: candidate.model,
-        success: true,
-      });
-      const transcriptPayload = request.detectLanguageOnly
-        ? {}
-        : {
-            text: result.text,
-            segments: result.segments,
-            ...(result.words ? { words: result.words } : {}),
-            artifacts,
-          };
-      return JSON.stringify(
-        {
-          success: true,
+  try {
+    const attempts: Array<Record<string, unknown>> = [];
+    const errors: string[] = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index] as ProviderCandidate;
+      try {
+        const { result, warnings } = await transcribePossiblyChunked(
+          candidate,
+          request,
+        );
+        const costUsd = estimateCostUsd(result.durationSec, candidate);
+        const artifacts = request.detectLanguageOnly
+          ? []
+          : persistTranscript({
+              result,
+              provider: candidate,
+              source: request.audio.source,
+              costUsd,
+            });
+        attempts.push({
           provider: candidate.id,
           model: candidate.model,
-          action: request.detectLanguageOnly ? 'detect-language' : 'transcribe',
-          ...transcriptPayload,
-          language: result.language,
-          duration_sec: result.durationSec,
-          cost_usd: costUsd,
-          usage: {
-            audio_seconds: result.durationSec,
+          success: true,
+        });
+        const transcriptPayload = request.detectLanguageOnly
+          ? {}
+          : {
+              text: result.text,
+              segments: result.segments,
+              ...(result.words ? { words: result.words } : {}),
+              artifacts,
+            };
+        return JSON.stringify(
+          {
+            success: true,
+            provider: candidate.id,
+            model: candidate.model,
+            action: request.detectLanguageOnly
+              ? 'detect-language'
+              : 'transcribe',
+            ...transcriptPayload,
+            language: result.language,
+            duration_sec: result.durationSec,
             cost_usd: costUsd,
-            estimated: costUsd != null,
+            usage: {
+              audio_seconds: result.durationSec,
+              cost_usd: costUsd,
+              estimated: costUsd != null,
+            },
+            warnings: [...request.warnings, ...warnings],
+            attempts,
+            source: request.audio.source,
           },
-          warnings: [...request.warnings, ...warnings],
-          attempts,
-          source: request.audio.source,
-        },
-        null,
-        2,
-      );
-    } catch (error) {
-      const detail = sanitizeProviderError(error);
-      errors.push(`${candidate.id}: ${detail}`);
-      attempts.push({
-        provider: candidate.id,
-        model: candidate.model,
-        success: false,
-        error: detail,
-      });
+          null,
+          2,
+        );
+      } catch (error) {
+        const detail = sanitizeProviderError(error);
+        const fallbackReason = classifyProviderError(error);
+        errors.push(`${candidate.id}: ${detail}`);
+        attempts.push({
+          provider: candidate.id,
+          model: candidate.model,
+          success: false,
+          error: detail,
+          fallback_reason: fallbackReason,
+        });
+        if (!shouldFallbackProviderError(error)) {
+          throw error;
+        }
+        if (index === candidates.length - 1) break;
+      }
     }
-  }
 
-  throw new Error(
-    `all audio transcription providers failed: ${errors.join(' | ')}`,
-  );
+    throw new Error(
+      `all audio transcription providers failed: ${errors.join(' | ')}`,
+    );
+  } finally {
+    cleanupAudioInput(request.audio);
+  }
 }
