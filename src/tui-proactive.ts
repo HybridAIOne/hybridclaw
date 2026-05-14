@@ -2,9 +2,23 @@ function isSchedulerJobSource(source: string | null | undefined): boolean {
   return String(source || '').startsWith('schedule-job:');
 }
 
+function isReminderSource(source: string | null | undefined): boolean {
+  return String(source || '').startsWith('schedule:');
+}
+
+function isFullAutoSource(source: string | null | undefined): boolean {
+  const normalized = String(source || '');
+  return normalized === 'fullauto' || normalized.startsWith('fullauto:');
+}
+
 function isDelegateSource(source: string | null | undefined): boolean {
   const normalized = String(source || '');
   return normalized === 'delegate' || normalized.startsWith('delegate:');
+}
+
+function isEvalSource(source: string | null | undefined): boolean {
+  const normalized = String(source || '');
+  return normalized === 'eval' || normalized.startsWith('eval:');
 }
 
 function isGoalContinuationSource(source: string | null | undefined): boolean {
@@ -19,11 +33,13 @@ export function proactiveBadgeLabel(
   source: string | null | undefined,
 ): string | null {
   if (isSchedulerJobSource(source)) return null;
-  if (source === 'fullauto') return 'fullauto';
+  if (isFullAutoSource(source)) return 'fullauto';
   if (isGoalContinuationSource(source)) return 'goal';
   if (isDelegateSource(source)) return 'delegate';
-  if (source === 'eval') return 'eval';
-  return 'reminder';
+  if (isEvalSource(source)) return 'eval';
+  if (isReminderSource(source)) return 'reminder';
+  if (source === 'heartbeat') return 'heartbeat';
+  return 'proactive';
 }
 
 export function proactiveSourceSuffix(
@@ -32,10 +48,11 @@ export function proactiveSourceSuffix(
   if (isSchedulerJobSource(source)) return '';
   if (
     !source ||
-    source === 'fullauto' ||
+    isFullAutoSource(source) ||
     isGoalContinuationSource(source) ||
     isDelegateSource(source) ||
-    source === 'eval'
+    isEvalSource(source) ||
+    source === 'heartbeat'
   )
     return '';
   return `(${source})`;
